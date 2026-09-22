@@ -34,7 +34,7 @@ const PluginOptionsSchema = z.object({
   name: z.string().min(1),
   /**
    * The publisher whose installed listing the reference resolves to
-   * (docs/plans/plugin-ecosystem.md §3.5). Absent: the org's own plugin, then
+   * (docs/plugin-publishing.md). Absent: the org's own plugin, then
    * its parent's, then the Official listing.
    */
   publisher: z.string().max(39).regex(PUBLISHER_HANDLE_PATTERN, 'publisher must be a publisher handle (lowercase letters, digits and single hyphens)').optional(),

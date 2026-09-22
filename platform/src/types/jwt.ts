@@ -4,13 +4,6 @@
 import type { JwtPayload } from '@pipeline-builder/api-core';
 
 /**
- * Re-export of the canonical `JwtPayload` from api-core so peer services and
- * this platform agree on the access-token shape. Kept as a named export for
- * back-compat with the previous in-repo `JwtPayload` reference.
- */
-export type { JwtPayload };
-
-/**
  * Platform-local extension of the api-core access-token payload.
  *
  * api-core's `JwtPayload` is the shared baseline (sub/username/email/role/

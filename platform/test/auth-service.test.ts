@@ -12,8 +12,9 @@
  * real tx would abort, leaving no partial user/org/membership).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockUserExists = jest.fn<AnyFn>();
@@ -61,9 +62,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { auth: { verificationTokenTtlMs: 1000 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { verificationTokenTtlMs: 1000 } }));
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({
   toOrgId: (v: unknown) => v,

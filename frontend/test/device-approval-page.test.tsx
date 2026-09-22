@@ -19,16 +19,10 @@ import { ApiError } from '../src/lib/api/errors';
 
 const push = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query, asPath: '/auth/device?user_code=BCDF-GHJK', push }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query, asPath: '/auth/device?user_code=BCDF-GHJK', push })));
 
 let auth = { isAuthenticated: true, isInitialized: true, isLoading: false };
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => auth,
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => auth));
 
 // StepUpModal → confirms immediately with a fixed token, so the gated call runs.
 jest.mock('@/components/admin/StepUpModal', () => ({

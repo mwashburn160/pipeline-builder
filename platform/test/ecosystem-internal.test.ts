@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `/internal/ecosystem/*` (docs/plans/plugin-ecosystem.md §3.0.1, §3.7): the
+ * `/internal/ecosystem/*`: the
  * Verified-eligibility facts (DNS-verified domains, owners' second factors) and
  * the Ecosystem Manager approver count, as the plugin service reads them. The
  * models are stubbed; the input validation and the fact gathering run for real.
@@ -37,7 +37,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   OrgDomain: chain(mockDomainFind),
   UserOrganization: chain(mockMemberFind),
 }));
-jest.unstable_mockModule('../src/services/recovery-codes-service.js', () => ({ hasSecondFactor: mockHasFactor }));
+jest.unstable_mockModule('../src/helpers/auth-factors.js', () => ({ hasAnyMfaFactor: mockHasFactor }));
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({ countEcosystemApprovers: mockCount }));
 
 const { getEcosystemApprovers, getPublisherEligibility } = await import('../src/controllers/ecosystem-internal.js');
@@ -61,7 +61,7 @@ beforeEach(() => {
 describe('publisherEligibilityFacts', () => {
   it('returns the VERIFIED domains (lowercased, de-duplicated) and how many active owners have a second factor', async () => {
     expect(await publisherEligibilityFacts(ORG)).toEqual({ verifiedDomains: ['acme.dev', 'acme.io'], owners: 2, ownersWithMfa: 1 });
-    expect(mockDomainFind).toHaveBeenCalledWith({ orgId: ORG, verified: true });
+    expect(mockDomainFind).toHaveBeenCalledWith({ organizationId: ORG, verified: true });
     expect(mockMemberFind).toHaveBeenCalledWith(expect.objectContaining({ isActive: true, role: 'owner' }));
   });
 
@@ -78,7 +78,7 @@ describe('GET /internal/ecosystem/publisher-eligibility/:orgId', () => {
     await getPublisherEligibility({ params: { orgId: ORG.toUpperCase() } } as any, res);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(body(res).data).toEqual({ verifiedDomains: ['acme.dev', 'acme.io'], owners: 2, ownersWithMfa: 1 });
-    expect(mockDomainFind).toHaveBeenCalledWith({ orgId: ORG, verified: true });
+    expect(mockDomainFind).toHaveBeenCalledWith({ organizationId: ORG, verified: true });
   });
 
   it('400s on a malformed org id without touching the directory', async () => {

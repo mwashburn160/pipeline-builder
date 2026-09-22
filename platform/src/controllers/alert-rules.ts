@@ -18,47 +18,16 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, getParam, parsePaginationParams, sendError, sendQuotaReserveDenied, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, getParam, MAX_PAGE_LIMIT, parsePage, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
-import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
-import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule, type RuleCreate, type RuleUpdate } from '../services/alert-rule-service.js';
+import { paginationMeta } from '../helpers/pagination.js';
+import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
+import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule } from '../services/alert-rule-service.js';
 import { PromQLRewriteError } from '../services/promql-rewriter.js';
+import { createAlertRuleSchema, updateAlertRuleSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('alert-rules-controller');
-
-/** Validate / coerce the POST/PUT body into a `RuleCreate` / `RuleUpdate`.
- *  The `op` argument disambiguates the two cases explicitly rather than
- *  inferring shape from "did the caller include name+expr+summary?" — the
- *  inference was buggy when an update happened to set all three fields. */
-function parseRuleBody(
-  body: unknown,
-  op: 'create' | 'update',
-): { create: RuleCreate } | { update: RuleUpdate } | { error: string } {
-  if (typeof body !== 'object' || body === null) return { error: 'body must be a JSON object' };
-  const b = body as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const k of ['name', 'expr', 'forDuration', 'severity', 'summary', 'description'] as const) {
-    if (b[k] !== undefined) {
-      if (typeof b[k] !== 'string') return { error: `${k} must be a string` };
-      out[k] = b[k];
-    }
-  }
-  if (b.enabled !== undefined) {
-    if (typeof b.enabled !== 'boolean') return { error: 'enabled must be a boolean' };
-    out.enabled = b.enabled;
-  }
-  if (op === 'create') {
-    // Create requires name + expr + summary; the route translates a missing
-    // required field into a 400 with a stable error message.
-    if (!('name' in out) || !('expr' in out) || !('summary' in out)) {
-      return { error: 'name, expr, and summary are required' };
-    }
-    return { create: out as unknown as RuleCreate };
-  }
-  // Update is partial — any subset of the same fields.
-  return { update: out as RuleUpdate };
-}
 
 // ---------------------------------------------------------------------------
 // CRUD
@@ -70,11 +39,11 @@ export const listAlertRules = withController('List alert rules', async (req, res
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
 
-  const { offset, limit } = parsePaginationParams(req.query as Record<string, unknown>);
+  const { offset, limit } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
   const { rules, total } = await alertRuleService.listForOrg(orgId, { offset, limit });
   sendSuccess(res, 200, {
     rules,
-    pagination: { total, offset, limit, hasMore: offset + limit < total },
+    pagination: paginationMeta(total, offset, limit),
   });
 });
 
@@ -97,31 +66,25 @@ export const createAlertRule = withController('Create alert rule', async (req, r
   // Static `observability:write` gate now enforced at the route
   // (`requirePermission('observability:write')`), visible in the route table.
 
-  const parsed = parseRuleBody(req.body, 'create');
-  if ('error' in parsed) return sendError(res, 400, parsed.error);
-  if (!('create' in parsed)) return sendError(res, 400, 'name, expr, and summary are required');
+  const create = validateBody(createAlertRuleSchema, req.body, res);
+  if (!create) return;
 
   // auto-inject the org_id matcher before validation. Operators can
   // write a vanilla PromQL expr and the service scopes it to their org;
   // any pre-existing `org_id="<theirs>"` is idempotent. A pre-existing
   // matcher targeting a DIFFERENT org throws via PromQLRewriteError.
   try {
-    parsed.create.expr = prepareRuleExpr(parsed.create.expr, orgId);
+    create.expr = prepareRuleExpr(create.expr, orgId);
   } catch (err) {
     if (err instanceof PromQLRewriteError) return sendError(res, 400, err.message);
     throw err;
   }
-  const validation = validateRule(orgId, parsed.create);
+  const validation = validateRule(orgId, create);
   if (!validation.ok) return sendError(res, 400, validation.message);
 
   // Per-org cap on alert rules; reserve atomically before insert.
-  const reservation = await reserveFeatureQuota(orgId, 'alertRules');
-  if (reservation.exceeded) {
-    return sendQuotaReserveDenied(res, 'alertRules', reservation);
-  }
-
-  try {
-    const rule = await alertRuleService.create(orgId, userId, parsed.create);
+  await withFeatureQuota(res, orgId, 'alertRules', async () => {
+    const rule = await alertRuleService.create(orgId, userId, create);
 
     audit(req, 'alert.rule.create', {
       targetType: 'alert-rule',
@@ -131,10 +94,7 @@ export const createAlertRule = withController('Create alert rule', async (req, r
     });
 
     sendSuccess(res, 201, { rule });
-  } catch (err) {
-    releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger), reservation);
-    throw err;
-  }
+  });
 });
 
 /** PUT /api/observability/alert-rules/:id  update. Org-admin or above. */
@@ -146,12 +106,8 @@ export const updateAlertRule = withController('Update alert rule', async (req, r
 
   const id = getParam(req.params, 'id')!;
 
-  const parsed = parseRuleBody(req.body, 'update');
-  if ('error' in parsed) return sendError(res, 400, parsed.error);
-
-  // After op='update' parsed never carries a `create` branch — branch
-  // anyway to satisfy TS narrowing.
-  const patch = 'create' in parsed ? parsed.create: parsed.update;
+  const patch = validateBody(updateAlertRuleSchema, req.body, res);
+  if (!patch) return;
   if (patch.expr !== undefined) {
     try {
       patch.expr = prepareRuleExpr(patch.expr, orgId);
@@ -209,16 +165,21 @@ export const restoreAlertRule = withController('Restore alert rule', async (req,
   const id = getParam(req.params, 'id')!;
 
   // Restore re-adds a live row → re-reserve the feature slot delete released.
-  const reservation = await reserveFeatureQuota(orgId, 'alertRules');
-  if (reservation.exceeded) {
-    return sendQuotaReserveDenied(res, 'alertRules', reservation);
-  }
-
-  try {
-    const ok = await alertRuleService.restore(orgId, id, userId);
-    if (!ok) {
-      releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger), reservation);
-      return sendError(res, 404, 'Alert rule not found');
+  await withFeatureQuota(res, orgId, 'alertRules', async () => {
+    try {
+      const ok = await alertRuleService.restore(orgId, id, userId);
+      if (!ok) {
+        sendError(res, 404, 'Alert rule not found');
+        return false;
+      }
+    } catch (err) {
+      // (org_id, name) unique index is partial (WHERE deleted_at IS NULL) — a live
+      // namesake can coexist with this tombstone, so restore can collide → 409.
+      if ((err as { code?: string }).code === '23505') {
+        sendError(res, 409, 'An alert rule with this name already exists — rename it and try again.');
+        return false;
+      }
+      throw err;
     }
     audit(req, 'alert.rule.restore', {
       targetType: 'alert-rule',
@@ -226,15 +187,8 @@ export const restoreAlertRule = withController('Restore alert rule', async (req,
       affectedOrgId: orgId,
     });
     sendSuccess(res, 200, {});
-  } catch (err) {
-    releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger), reservation);
-    // (org_id, name) unique index is partial (WHERE deleted_at IS NULL) — a live
-    // namesake can coexist with this tombstone, so restore can collide → 409.
-    if ((err as { code?: string }).code === '23505') {
-      return sendError(res, 409, 'An alert rule with this name already exists — rename it and try again.');
-    }
-    throw err;
-  }
+    return true;
+  });
 });
 
 /**

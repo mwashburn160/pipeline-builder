@@ -8,9 +8,10 @@ import {
   canAccessOrg,
   requireOrgScope,
   getAdminContext,
-  requireAuth,
+  ensureAuthenticated,
   withController,
 } from '../helpers/controller-helper.js';
+import { paginationMeta } from '../helpers/pagination.js';
 import { listRolesWithMembers, addUserToRole, removeUserFromRole, createRole, updateRole, deleteRole, ecosystemRoleName, notifyEcosystemManagerChange } from '../services/index.js';
 import type { ActorPermissionCeiling, RoleAssignmentActor } from '../services/index.js';
 import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } from '../services/roles-errors.js';
@@ -23,7 +24,7 @@ const logger = createLogger('organization-roles-controller');
  * fine-grained permissions (the JWT `permissions` claim for the active org) plus
  * their platform-superadmin status. A non-superadmin may only grant permissions
  * they themselves hold; a superadmin bypasses the ceiling. Called only after
- * `requireAuth`, so `req.user` is present.
+ * `ensureAuthenticated`, so `req.user` is present.
  */
 function actorCeiling(req: Request): ActorPermissionCeiling {
   return {
@@ -39,7 +40,7 @@ function actorCeiling(req: Request): ActorPermissionCeiling {
  * custom-Role authoring — a non-admin `roles:manage` delegate may assign a Role
  * only if the Role's granted permissions are all within their own set — so a
  * delegate can't self-escalate by assigning the built-in Admin Role. Admin/owner
- * and superadmin bypass the ceiling. Called only after `requireAuth`.
+ * and superadmin bypass the ceiling. Called only after `ensureAuthenticated`.
  */
 function assignmentActor(req: Request, admin: { isSuperAdmin: boolean; isOrgAdmin: boolean }): RoleAssignmentActor {
   return {
@@ -54,7 +55,7 @@ const ROLE_PAGE_MAX = 100;
 
 /** GET /organization/:id/roles[?limit=&offset=] — list permission Roles + their members. */
 export const getOrganizationRoles = withController('Get roles', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   // Read-level gate: own org (any member), a managed team (parent admin), or sysadmin.
@@ -71,12 +72,12 @@ export const getOrganizationRoles = withController('Get roles', async (req, res)
   const { roles, total } = await listRolesWithMembers(id, page);
   const limit = page?.limit ?? total;
   const offset = page?.offset ?? 0;
-  sendSuccess(res, 200, { roles, pagination: { total, offset, limit, hasMore: offset + roles.length < total } });
+  sendSuccess(res, 200, { roles, pagination: paginationMeta(total, offset, limit, roles.length) });
 });
 
 /** POST /organization/:id/roles — create a custom permission Role. */
 export const createOrganizationRole = withController('Create role', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   if (!(await requireOrgScope(req, res, id))) return;
@@ -96,7 +97,7 @@ export const createOrganizationRole = withController('Create role', async (req, 
 
 /** PUT /organization/:id/roles/:roleId — update a custom Role's name/description/permissions. */
 export const updateOrganizationRole = withController('Update role', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
@@ -124,7 +125,7 @@ export const updateOrganizationRole = withController('Update role', async (req, 
 
 /** DELETE /organization/:id/roles/:roleId — delete a custom Role. */
 export const deleteOrganizationRole = withController('Delete role', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
@@ -142,7 +143,7 @@ export const deleteOrganizationRole = withController('Delete role', async (req, 
 
 /** POST /organization/:id/roles/:roleId/members — assign an org member to a Role. */
 export const addRoleMember = withController('Add role member', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
@@ -154,8 +155,8 @@ export const addRoleMember = withController('Add role member', async (req, res) 
 
   const { userId } = await addUserToRole(id, roleId, body, assignmentActor(req, admin));
   logger.info(`[ADD ROLE MEMBER] User ${userId} assigned to role ${roleId} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
-  // The system org's Ecosystem Manager (plugin-ecosystem §5a.1): audited with
-  // its name (§5c) and announced to every superadmin + the user (N23).
+  // The system org's Ecosystem Manager: audited with its name and announced to
+  // every superadmin + the user (the `N23` notice).
   const ecosystemRole = await ecosystemRoleName(id, roleId);
   audit(req, 'org.role.member.add', {
     targetType: 'user',
@@ -180,7 +181,7 @@ export const addRoleMember = withController('Add role member', async (req, res) 
  *  Recomputes the user's cached role; in the system org, leaving Super Admin
  *  also clears their platform-admin flag. */
 export const removeRoleMember = withController('Remove role member', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;

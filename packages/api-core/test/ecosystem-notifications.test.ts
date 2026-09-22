@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The plugin-ecosystem notification contract (plan §5b): the event table's
+ * The plugin-ecosystem notification contract: the event table's
  * transactional/opt-out split, the recipient-rule parser shared by sender and
  * relay, digest timing, the N23 template, and the relay client.
  */
@@ -15,8 +15,7 @@ jest.unstable_mockModule('../src/services/http-client.js', () => ({
 }));
 const mockEmit = jest.fn();
 jest.unstable_mockModule('../src/utils/metric-emitter.js', () => ({ emitCounter: mockEmit }));
-jest.unstable_mockModule('../src/middleware/auth.js', () => ({
-  SYSTEM_ORG_ID: '000000000000000000000001',
+jest.unstable_mockModule('../src/middleware/service-tokens.js', () => ({
   getServiceAuthHeader: jest.fn((opts: { serviceName: string; orgId: string }) => `Bearer svc-${opts.serviceName}-${opts.orgId}`),
 }));
 
@@ -41,13 +40,13 @@ describe('ECOSYSTEM_NOTIFICATION_EVENTS', () => {
     expect(isEcosystemNotificationEvent('toString')).toBe(false);
   });
 
-  it('makes the §5b transactional and security notices non-optional', () => {
+  it('makes the notification transactional and security notices non-optional', () => {
     for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29'] as const) {
       expect([n, ECOSYSTEM_NOTIFICATION_EVENTS[n].preference]).toEqual([n, null]);
     }
   });
 
-  it('batches the digest events on their §5b cadences', () => {
+  it('batches the digest events on their cadences', () => {
     expect(ECOSYSTEM_NOTIFICATION_EVENTS.N2.digest).toBe('daily');
     expect(ECOSYSTEM_NOTIFICATION_EVENTS.N24.digest).toBe('daily');
     expect(ECOSYSTEM_NOTIFICATION_EVENTS.N13.digest).toBe('weekly');

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
+import { getBillingConfig } from '../config/billing-config.js';
 import { Plan } from '../models/plan.js';
 import { invalidatePlanCache } from '../routes/read-plans.js';
 
@@ -12,7 +12,7 @@ const logger = createLogger('seed-plans');
  * Reconcile the plan catalog in Mongo with the env-driven config on every boot.
  *
  * The catalog (names, descriptions, prices, features, ordering) is defined
- * entirely by `Config.get('billing').plans`, which reads from `BILLING_PLAN_*`
+ * entirely by `getBillingConfig().plans`, which reads from `BILLING_PLAN_*`
  * environment variables (see billing-config.ts). There is no admin write path
  * for plans — the DB is purely a seeded, cacheable projection of that config —
  * so this upserts every configured plan by id, letting an env price change
@@ -24,7 +24,7 @@ const logger = createLogger('seed-plans');
  * subscriptions that still reference its id.
  */
 export async function seedPlans(): Promise<void> {
-  const { plans } = Config.get('billing');
+  const { plans } = getBillingConfig();
 
   const ops = plans.map((plan) => ({
     updateOne: {

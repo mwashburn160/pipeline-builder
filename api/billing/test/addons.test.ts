@@ -3,13 +3,13 @@
 
 /**
  * Tests for routes/addons — the add-on bundle management surface
- * (docs/billing-bundles.md §7/§7a). Exercises the feature/self-service gates,
+ * (docs/billing-bundles.md). Exercises the feature/self-service gates,
  * catalog filtering, the over-cap 409, and the entitlement fan-out on success.
  * Handlers are extracted from the router; models + helpers are mocked.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -20,6 +20,7 @@ const mockSendError = jest.fn<AnyFn>();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockAuditRecord,
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   requireAuth: mockRequireAuth,
@@ -85,7 +86,7 @@ const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().
 // syncProviderAddons moved into billing-helpers (shared with the auto-prune
 // finalizer); the add/remove routes call it to reconcile provider line items.
 const mockSyncProviderAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
-// Combo-discount surface (Phase 5). Default: no combos / no active credit; the
+// Combo-discount surface. Default: no combos / no active credit; the
 // pure math is unit-tested in billing-helpers.test — here we drive the route's
 // use of the return values (the /bundles nudge + the priceBreakdown combo line).
 const mockGetComboDiscounts = jest.fn<() => unknown[]>().mockReturnValue([]);
@@ -111,22 +112,28 @@ const CATALOG = [
   { id: 'dora_history_pack', name: 'DORA History Pack (+365d)', description: '+365d', isActive: true, stackable: true, maxQuantity: 1, availableForTiers: ['pro', 'team', 'enterprise'], prices: { monthly: 3000, annual: 30000 }, grants: { doraRetentionDays: 365 }, features: [], requiresFeatures: ['advanced_reporting'] },
 ];
 
+// Pin the effective-limits math so the preview payload is deterministic.
+jest.unstable_mockModule('../src/config/entitlements.js', () => ({
+  effectiveEntitlements: () => ({ limits: { seats: 10, plugins: 20 }, features: [] }),
+}));
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   bundlesEnabled: mockBundlesEnabled,
   bundleSelfServiceAllowed: mockBundleSelfServiceAllowed,
   // The add/remove routes now mint their service token via billingServiceAuth
   // (was an inline getServiceAuthHeader) — provide it so the module link resolves.
   billingServiceAuth: jest.fn(() => 'Bearer service-token'),
-  buildSubscriptionResponse: (sub: any, planName?: string, tier?: string) => ({ id: sub._id?.toString(), planName, tier, addons: sub.addons }),
-  checkEntitlementOvercap: mockCheckEntitlementOvercap,
   createBillingEvent: mockCreateBillingEvent,
-  effectiveEntitlements: () => ({ limits: { seats: 10, plugins: 20 }, features: [] }),
   getBundleCatalog: () => CATALOG,
+}));
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
+  checkEntitlementOvercap: mockCheckEntitlementOvercap,
   syncEntitlements: mockSyncEntitlements,
+}));
+jest.unstable_mockModule('../src/helpers/subscription-response.js', () => ({
+  buildSubscriptionResponse: (sub: any, planName?: string, tier?: string) => ({ id: sub._id?.toString(), planName, tier, addons: sub.addons }),
+}));
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   syncProviderAddons: mockSyncProviderAddons,
-  // loadSubAndPlan / the portal route now widen their lookups to the non-terminal
-  // set; re-export the real constant so the `$in` filters aren't `undefined`.
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
 // Combo pricing lives in its own module. Inject combos + active credits per test;
@@ -145,11 +152,8 @@ jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
 }));
 
 // Central-trail audit client — addon add/remove emit billing.addon.* here
-// ALONGSIDE the local billing_events write. Mock it to assert emission.
+// ALONGSIDE the local billing_events write. Spied via the api-core mock's `recordAudit`.
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: mockAuditRecord }),
-}));
 
 const { createAddonRoutes } = await import('../src/routes/addons.js');
 const router = createAddonRoutes();
@@ -548,7 +552,6 @@ describe('POST /subscriptions/:id/addons (add)', () => {
         targetId: 'seat_pack',
         details: expect.objectContaining({ bundleId: 'seat_pack', quantity: 3, subscriptionId: 'sub-1' }),
       }),
-      'billing',
     );
   });
 
@@ -666,7 +669,6 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
         targetId: 'seat_pack',
         details: expect.objectContaining({ bundleId: 'seat_pack', subscriptionId: 'sub-1' }),
       }),
-      'billing',
     );
   });
 
@@ -694,7 +696,6 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
     // Primary removal audit...
     expect(mockAuditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'billing.addon.remove', targetId: 'compliance_standard' }),
-      'billing',
     );
     // ...and the cascaded dependent, tagged cascadedFrom.
     expect(mockAuditRecord).toHaveBeenCalledWith(
@@ -703,7 +704,6 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
         targetId: 'compliance_advanced',
         details: expect.objectContaining({ bundleId: 'compliance_advanced', cascadedFrom: 'compliance_standard', subscriptionId: 'sub-1' }),
       }),
-      'billing',
     );
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
       'org-1', 'subscription_updated',
@@ -723,7 +723,6 @@ describe('DELETE /subscriptions/:id/addons/:bundleId (remove)', () => {
         targetId: 'dora_history_pack',
         details: expect.objectContaining({ cascadedFrom: 'advanced_reporting' }),
       }),
-      'billing',
     );
   });
 

@@ -24,15 +24,7 @@ jest.mock('@/hooks/useOrgHierarchy', () => ({
 }));
 
 let currentUser: Record<string, unknown> | null = { id: 'u1', role: 'admin' };
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ user: currentUser, organizations: [{ id: 'root-1', name: 'Acme' }] }),
-}));
-
-jest.mock('@/hooks/usePlugins', () => ({
-  __esModule: true,
-  clearPluginCache: jest.fn<AnyFn>(),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ user: currentUser, organizations: [{ id: 'root-1', name: 'Acme' }] })));
 
 const getPluginById = jest.fn<AnyFn>();
 const updatePlugin = jest.fn<AnyFn>();

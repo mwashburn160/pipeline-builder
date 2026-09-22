@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError } from '@pipeline-builder/api-core';
+import { ConflictError, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
 import { CrudService, buildPipelineTemplateConditions, schema, withTenantTx, withViewerContext, type PipelineTemplateFilter } from '@pipeline-builder/pipeline-data';
 import { and, eq, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -100,7 +100,7 @@ export class PipelineTemplateService extends CrudService<
    * reviving through restore.
    */
   async create(data: PipelineTemplateInsert, userId: string): Promise<PipelineTemplate> {
-    const user = userId || 'system';
+    const user = userId || SYSTEM_ACTOR_ID;
     const safeData = this.enforceOrgId(data) as Record<string, unknown>;
 
     const rows = await withTenantTx((tx) => tx

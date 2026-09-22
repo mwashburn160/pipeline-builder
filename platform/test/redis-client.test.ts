@@ -5,8 +5,8 @@
  * Regression guard: the platform's Redis client must resolve Redis EXACTLY as
  * the stateless services do.
  *
- * It previously read `REDIS_URL` only while the deployments configured Redis
- * another way, so the client was never built and, silently:
+ * Reading only `REDIS_URL` while a deployment configures Redis another way
+ * would leave the client unbuilt and, silently:
  *   - revocations were never published to the other services;
  *   - OAuth/SSO login state, step-up single-use, and the sweep leader lock all
  *     fell back to per-process memory, breaking once platform ran >1 replica.

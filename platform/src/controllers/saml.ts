@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Per-org SAML 2.0 login surface (#4) — the second protocol behind the SAME
+ * Per-org SAML 2.0 login surface — the second protocol behind the SAME
  * sign-in path as OIDC (`controllers/sso.ts`).
  *
  *   GET  /auth/sso/:orgId/authorize       → { url, state }  (shared entry point;
- *                                            controllers/sso.ts dispatches here
- *                                            when the org's protocol is SAML)
+ *                                            controllers/sso.ts dispatches to
+ *                                            services/saml-login-state.ts when
+ *                                            the org's protocol is SAML)
  *   POST /auth/sso/:orgId/saml/acs        → 302 to the landing page (the IdP's
  *                                            assertion lands here)
  *   POST /auth/sso/:orgId/saml/complete   → tokens (the landing page redeems the
@@ -35,39 +36,37 @@
  * (controllers/saml-slo.ts) matches on in both directions.
  *
  * A RelayState carrying the dry-run marker is a TEST CONNECTION, not a sign-in:
- * the ACS hands it to controllers/sso-test.ts before any sign-in logic runs.
+ * the ACS hands it to helpers/sso-test-flow.ts before any sign-in logic runs.
  */
 
 import crypto from 'crypto';
-import { createLogger, getParam, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
-import { recordSamlSession } from './saml-slo.js';
-import { handleSamlTestAssertion, isTestState } from './sso-test.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
-import { clearLoginBinding, isBoundToThisBrowser } from '../helpers/login-binding.js';
-import { idpEnforcesMfa } from '../helpers/mfa-policy.js';
+import { isBoundToThisBrowser } from '../helpers/login-binding.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
-import { deliverSessionTokens } from '../helpers/session-cookie.js';
+import { completeInteractiveSignIn, ssoAuth } from '../helpers/sign-in.js';
 import { assertSsoIdentityTrusted, getEnforcedSamlConfig } from '../helpers/sso-enforcement.js';
+import { handleSamlTestAssertion, isTestState } from '../helpers/sso-test-flow.js';
+import { User } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
 import { SSO_SUPERADMIN_REFUSED } from '../services/auth-errors.js';
 import { JIT_SEAT_LIMIT } from '../services/idp-mapping-errors.js';
 import { authService } from '../services/index.js';
 import { orgIdpService } from '../services/org-idp-service.js';
+import { consumeSamlRelayState } from '../services/saml-login-state.js';
 import {
   SAML_ERROR_MAP,
   type SamlLoginConfig,
-  buildSamlAuthorizeUrl,
   buildSamlMetadata,
   samlLandingUrl,
   validateSamlResponse,
   type SamlSessionRef,
 } from '../services/saml-service.js';
+import { recordSamlSession } from '../services/saml-sessions.js';
 import { assertJitSeatAvailable, provisionJitMembership } from '../services/sso-jit-service.js';
-import { issueTokens, signInAuth } from '../utils/token.js';
 import { samlAcsSchema, samlCompleteSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('saml-controller');
@@ -76,19 +75,6 @@ const logger = createLogger('saml-controller');
  *  has no named provider, and the link is only ever matched together with its
  *  issuer (the IdP entity id), so one key serves every SAML IdP. */
 export const SAML_PROVIDER_KEY = 'saml';
-
-/**
- * The one-time `state` of an in-flight SP-initiated sign-in, bound to the org
- * that minted it — the same shape and the same store the OIDC flow uses, so a
- * multi-replica deployment behaves identically on both protocols. It travels to
- * the IdP as `RelayState` and comes back on the assertion POST.
- */
-const pendingSamlStates = createPendingStateStore<{ orgId: string; binding: string }>({
-  prefix: 'saml:state:',
-  ttlMs: config.oauth.samlRequestTtlMs,
-  cleanupIntervalMs: config.oauth.cleanupIntervalMs,
-  maxEntries: config.oauth.maxPendingStates,
-});
 
 /**
  * The ACS's verified result, waiting for the browser to collect it.
@@ -106,33 +92,6 @@ const pendingSamlHandoffs = createPendingStateStore<{ orgId: string; userId: str
   maxEntries: config.oauth.maxPendingStates,
 });
 
-/** TEST-ONLY: drop the in-memory fallbacks of both stores. */
-export function __resetSamlControllerStores(): void {
-  pendingSamlStates._resetForTests();
-  pendingSamlHandoffs._resetForTests();
-}
-
-// Initiate
-
-/**
- * Begin an SP-initiated SAML sign-in: mint the one-time state, build the
- * AuthnRequest redirect, and return the same `{ url, state }` the OIDC initiate
- * returns — the client redirects to `url` either way and needs to know nothing
- * about the protocol.
- *
- * Called from `controllers/sso.ts` after it has resolved the org's protocol, so
- * the enforcement gates (enabled + `sso`-entitled) have already run; the config
- * resolver below re-applies them regardless.
- */
-export async function beginSamlLogin(orgId: string, binding: string): Promise<{ url: string; state: string }> {
-  const cfg = await getEnforcedSamlConfig(orgId);
-  const state = crypto.randomBytes(32).toString('hex');
-  const url = await buildSamlAuthorizeUrl(cfg, state);
-  // The browser binding rides the state to the ACS (which can't see the Lax
-  // cookie — it is a cross-site POST) and from there onto the handoff.
-  await pendingSamlStates.put(state, { orgId, binding });
-  return { url, state };
-}
 
 // Metadata
 
@@ -227,16 +186,6 @@ function refuseAssertion(req: Request, res: Response, orgId: string, err: unknow
   res.redirect(302, `${samlLandingUrl(orgId)}?error=${encodeURIComponent(publicCode)}`);
 }
 
-/** Consume the RelayState and confirm it was minted for THIS org. Consumed on
- *  ANY lookup — valid or not — so a state can never be probed or replayed, the
- *  same one-time contract the OIDC callback keeps. */
-async function consumeRelayState(orgId: string, relayState: string | undefined): Promise<{ state: string; binding: string }> {
-  if (!relayState) throw new Error('SAML_IDP_INITIATED');
-  const pending = await pendingSamlStates.consume(relayState);
-  if (!pending || pending.orgId !== orgId) throw new Error('SAML_INVALID_STATE');
-  return { state: relayState, binding: pending.binding };
-}
-
 /**
  * Turn a verified assertion into a platform account + org membership.
  *
@@ -321,7 +270,7 @@ export const handleSamlAcs = withController('SAML ACS', async (req, res) => {
   try {
     // An assertion with no RelayState is unsolicited — IdP-initiated — and is
     // refused before anything else happens.
-    const relay = await consumeRelayState(orgId, body.RelayState);
+    const relay = await consumeSamlRelayState(orgId, body.RelayState);
     binding = relay.binding;
     const cfg = await getEnforcedSamlConfig(orgId);
     result = await provisionFromAssertion(req, orgId, cfg, body.SAMLResponse, relay.state, body.RelayState);
@@ -356,13 +305,6 @@ export const completeSamlLogin = withController('SAML complete', async (req, res
   // sign-in (the binding cookie set at initiate — helpers/login-binding.ts).
   if (!isBoundToThisBrowser(req, pending.binding)) throw new Error('SAML_INVALID_STATE');
 
-  // Lazily imported for the same reason `helpers/auth-factors.ts` does it: this
-  // module is reached from `controllers/sso.ts` on EVERY `/authorize` call (the
-  // protocol dispatch), and pulling the whole Mongoose model graph in just to
-  // resolve a user on the far rarer completion leg would make the OIDC path pay
-  // for the SAML one.
-  const { User } = await import('../models/index.js');
-
   // `+tokenVersion` / `+isSuperAdmin` are `select: false` on the schema and both
   // feed token issuance; the superadmin refusal already ran at the ACS, and it
   // is re-asserted here so a promotion between the two legs cannot slip through.
@@ -374,37 +316,23 @@ export const completeSamlLogin = withController('SAML complete', async (req, res
   // own membership if they aren't a member. SAML opens an INTERACTIVE session
   // stamped `amr: ['sso']`, exactly like OIDC — the protocol is an
   // implementation detail of how the person proved themselves, not a different
-  // kind of session.
-  const tokens = await issueTokens(user, orgId, {
-    kind: 'interactive',
-    // An org that marks its IdP as MFA-enforcing earns `aal 2` through SAML on
-    // the same terms as OIDC — the assertion proves the IdP authenticated the
-    // person, and the org vouches for how strongly it did so.
-    auth: signInAuth('sso', { ...(await idpEnforcesMfa(orgId) ? { idpMfaOrgId: orgId } : {}) }),
-    client: clientInfoOf(req),
-  });
-
-  // Remember the IdP's handle on this sign-in against the session slot, so
-  // Single Logout can find it from either end.
-  await recordSamlSession({
-    userId: user._id.toString(),
+  // kind of session — and earns `aal: 2` on the same terms (see `ssoAuth`).
+  await completeInteractiveSignIn(req, res, user, {
     orgId,
-    accessToken: tokens.accessToken,
-    issuer: pending.issuer,
-    session: pending.session,
-  });
-
-  audit(req, 'user.login', {
-    targetType: 'user',
-    targetId: user._id.toString(),
+    auth: await ssoAuth(orgId),
     affectedOrgId: orgId,
-    details: { method: 'saml' },
+    auditDetails: { method: 'saml' },
+    clearBinding: true,
+    // Remember the IdP's handle on this sign-in against the session slot, so
+    // Single Logout can find it from either end.
+    afterIssue: (tokens) => recordSamlSession({
+      userId: user._id.toString(),
+      orgId,
+      accessToken: tokens.accessToken,
+      issuer: pending.issuer,
+      session: pending.session,
+    }),
   });
   incCounter('platform_saml_signins_total', { result: 'success' });
-  incCounter('platform_logins_total');
   logger.info('[SAML] login successful', { orgId, userId: String(user._id) });
-
-  // The flow is complete: its browser binding has done its job.
-  clearLoginBinding(res);
-  sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 }, { ...SAML_ERROR_MAP, [SSO_SUPERADMIN_REFUSED]: { status: 403, message: 'Platform administrators cannot sign in through an organization\'s single sign-on' } });

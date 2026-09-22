@@ -35,7 +35,7 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 const toast = { success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
 
 let lastStrong: boolean | undefined;
 jest.mock('@/components/admin/StepUpModal', () => ({

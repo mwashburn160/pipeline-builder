@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Unit tests for the discount coupon codec (Phase 1). Pure module — no mocks.
+ * Unit tests for the discount coupon codec. Pure module — no mocks.
  * Covers the authoring-form parser, the versioned AES-256-GCM key ring, and the
  * token encode/decode round trip incl. non-determinism, forgery/tamper
  * rejection, and key rotation.

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Refund of a deleted plugin version's `plugins` quota slot (W0.5).
+ * Refund of a deleted plugin version's `plugins` quota slot.
  *
  * Quota is a per-period FLOW, not a stock: a refund must never land in a
  * period other than the one the slot was charged to, or deleting last period's

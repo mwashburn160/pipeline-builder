@@ -4,7 +4,7 @@
 /**
  * `/dashboard/onboarding` as a DURABLE surface.
  *
- * It used to bounce an already-onboarded user straight to the dashboard, and
+ * It must not bounce an already-onboarded user straight to the dashboard:
  * since both "Continue" and "Skip for now" clear `needsOnboarding` for good —
  * and the page is in no nav or palette — that made domain discovery + the join
  * request a strictly one-shot feature, with no way to ever see what became of a
@@ -22,20 +22,11 @@ const refreshUser = jest.fn<AnyFn>();
 const replace = jest.fn<AnyFn>();
 const push = jest.fn<AnyFn>();
 
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ replace, push, query: {}, pathname: '/dashboard/onboarding', isReady: true }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ replace, push, query: {}, pathname: '/dashboard/onboarding', isReady: true })));
 
-jest.mock('@/hooks/useAuthGuard', () => ({
-  __esModule: true,
-  useAuthGuard: () => ({ user, isReady: true, refreshUser }),
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => ({ user, isReady: true, refreshUser })));
 
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ markOnboardingComplete: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ markOnboardingComplete: jest.fn<AnyFn>() })));
 
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,

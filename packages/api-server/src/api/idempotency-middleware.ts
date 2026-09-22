@@ -2,23 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash } from 'crypto';
-import { createLogger, sendError, ErrorCode, createEnvRedisClient, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, sendError, ErrorCode, createEnvRedisClient, errorMessage, stableStringify } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Request, Response, NextFunction } from 'express';
 
 const logger = createLogger('idempotency');
-
-/**
- * Canonical (key-sorted) JSON serialization so the SAME logical payload hashes
- * identically regardless of property insertion order — a plain `JSON.stringify`
- * would let `{a,b}` and `{b,a}` produce different fingerprints for one request.
- */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
-  const obj = value as Record<string, unknown>;
-  return '{' + Object.keys(obj).sort().map((k) => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
-}
 
 /**
  * Short, stable fingerprint of a request body. Folds the payload into the
@@ -268,7 +256,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
 
     // Namespace the stored key by (method, route, org, body) so an Idempotency-Key
     // is scoped to ONE specific endpoint+payload. Reusing a single key across two
-    // routes (e.g. POST /pipelines then POST /plugins) previously replayed the
+    // routes (e.g. POST /pipelines then POST /plugins) must not replay the
     // first endpoint's 2xx for the second — the store is a module-level singleton
     // shared by every route. Folding in method + route path + a body fingerprint
     // only makes keys MORE specific, so there is no cross-contamination risk.

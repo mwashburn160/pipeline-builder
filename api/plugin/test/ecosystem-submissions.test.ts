@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Anonymous public submissions (plan §4, W5, §8a) end to end against the
+ * Anonymous public submissions end to end against the
  * in-memory database and the REAL submission router: the availability gate
  * (flag, secrets, outbound email), proof-of-work (missing / wrong / replayed),
  * the daily caps, the email handling (never stored or returned in clear), the
- * single-use expiring magic link, the status token, the name gate (E9), the
- * quarantine gate pipeline (E5/E7), moderation — which can't be bypassed: only
+ * single-use expiring magic link, the status token, the name gate, the
+ * quarantine gate pipeline, moderation — which can't be bypassed: only
  * the two-person `submission` request publishes, and only from quarantine —
- * rejection, claims (E10) and the maintenance job (E4).
+ * rejection, claims and the maintenance job.
  */
 
 import { mkdtempSync, realpathSync } from 'node:fs';
@@ -41,6 +41,8 @@ jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
 const { solveProofOfWork, SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
 const { createPublicSubmissionRoutes } = await import('../src/routes/public-submissions.js');
 const submissionsSvc = await import('../src/services/ecosystem/submissions.js');
+const submissionConfig = await import('../src/services/ecosystem/submission-config.js');
+const submissionGuards = await import('../src/services/ecosystem/submission-guards.js');
 const pipeline = await import('../src/services/ecosystem/submission-pipeline.js');
 const decisions = await import('../src/services/ecosystem/decisions.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
@@ -145,10 +147,10 @@ beforeEach(() => {
   enqueued.length = 0;
   emailEnabled = true;
   setEmailStatusProbeForTests(async () => emailEnabled);
-  submissionsSvc.setPowReplayStoreForTests({ claim: async (key) => (replay.has(key) ? false : (replay.add(key), true)) });
+  submissionGuards.setPowReplayStoreForTests({ claim: async (key) => (replay.has(key) ? false : (replay.add(key), true)) });
   caps.clear();
   capsDown = false;
-  submissionsSvc.setDailyCapStoreForTests({
+  submissionGuards.setDailyCapStoreForTests({
     incr: async (key, ttlMs) => {
       if (capsDown) throw new Error('redis down');
       const now = Date.now();
@@ -314,7 +316,7 @@ describe('POST / (submit into quarantine)', () => {
   });
 
   it('fails closed when the single-use store is down', async () => {
-    submissionsSvc.setPowReplayStoreForTests({ claim: async () => { throw new Error('redis down'); } });
+    submissionGuards.setPowReplayStoreForTests({ claim: async () => { throw new Error('redis down'); } });
     expect((await submit({})).status).toBe(503);
   });
 
@@ -357,7 +359,7 @@ describe('POST / (submit into quarantine)', () => {
     expect(db.tables.plugin_submissions ?? []).toHaveLength(0);
   });
 
-  it('refuses a name or version that is not the plugin-spec shape (CR/LF, uppercase) — E15', async () => {
+  it('refuses a name or version that is not the plugin-spec shape (CR/LF, uppercase) —', async () => {
     const res = await submit({ zip: zipOf({ 'plugin-spec.yaml': SPEC('"Evil\\r\\nBcc"'), 'Dockerfile': DOCKERFILE }) });
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/name must match/);
@@ -366,7 +368,7 @@ describe('POST / (submit into quarantine)', () => {
     expect(badVersion.body.message).toMatch(/version must be semver/);
   });
 
-  it('extracts an anonymous package under tight caps — a small zip bomb is refused (E14)', async () => {
+  it('extracts an anonymous package under tight caps — a small zip bomb is refused', async () => {
     process.env.SUBMISSION_MAX_ZIP_BYTES = '2048';
     try {
       // 64 KiB of zeros compresses to a few hundred bytes: under the zip cap, over 10 × it once expanded.
@@ -397,10 +399,10 @@ describe('POST / (submit into quarantine)', () => {
 });
 
 // -----------------------------------------------------------------------------
-// Names (E9)
+// Names
 // -----------------------------------------------------------------------------
 
-describe('the name gate (E9)', () => {
+describe('the name gate', () => {
   it('refuses reserved names, Official/Verified names and names confusable with a top listing (409 NAME_TAKEN)', async () => {
     expect((await submit({ zip: goodZip('registry') })).body).toMatchObject({ code: 'NAME_TAKEN', details: { reason: 'reserved' } });
     const official = db.tables.publishers!.find((p) => p.handle === 'pipeline-builder')!;
@@ -421,7 +423,7 @@ describe('the name gate (E9)', () => {
       name: 'my-linter',
       version: '0.9.0',
       listingId: listing.id,
-      emailHash: submissionsSvc.hashEmail('owner@example.com'),
+      emailHash: submissionGuards.hashEmail('owner@example.com'),
       expiresAt: new Date(),
     });
     const intruder = await submit({ zip: goodZip('my-linter', '1.0.0'), email: 'intruder@example.com' });
@@ -507,14 +509,14 @@ describe('POST /inspect', () => {
     expect((await fetch(`${base}/inspect`, { method: 'POST', body: form })).status).toBe(400);
   });
 
-  it('caps inspections per client IP per day (no email on this path) — E14', async () => {
+  it('caps inspections per client IP per day (no email on this path) —', async () => {
     const inspect = async () => {
       const form = new FormData();
       form.append('plugin', new Blob([new Uint8Array(goodZip())]), 'p.zip');
       form.append('pow', await pow());
       return fetch(`${base}/inspect`, { method: 'POST', body: form });
     };
-    for (let i = 0; i < submissionsSvc.INSPECTS_PER_DAY; i++) expect((await inspect()).status).toBe(200);
+    for (let i = 0; i < submissionConfig.INSPECTS_PER_DAY; i++) expect((await inspect()).status).toBe(200);
     const over = await inspect();
     expect(over.status).toBe(429);
     expect(((await over.json()) as any).code).toBe('SUBMISSION_LIMIT');
@@ -522,11 +524,11 @@ describe('POST /inspect', () => {
 });
 
 // -----------------------------------------------------------------------------
-// Gates (E5, E7)
+// Gates
 // -----------------------------------------------------------------------------
 
 describe('the quarantine gate pipeline', () => {
-  it('writes the gate report and the moderation request TOGETHER — a failed request insert records no report (E6)', async () => {
+  it('writes the gate report and the moderation request TOGETHER — a failed request insert records no report', async () => {
     greenBuild();
     const { id } = await submitted();
     db.failNextInsert('plugin_publish_requests', new Error('connection reset'));
@@ -537,7 +539,19 @@ describe('the quarantine gate pipeline', () => {
     expect(await pipeline.runSubmissionGates(id)).toBe('skipped');
   });
 
-  it('a submission with a report but NO open request is not stranded: the gates run again (E6)', async () => {
+  it('a submission write inside a failing `atomically` block rolls back with it', async () => {
+    const { id } = await submitted();
+    const { atomically } = await import('../src/services/ecosystem/store.js');
+    const { submissions } = await import('../src/services/ecosystem/submissions-store.js');
+    const before = row(id).status;
+    await expect(atomically(async () => {
+      await submissions.update(id, { status: 'approved' });
+      throw new Error('later write failed');
+    })).rejects.toThrow('later write failed');
+    expect(row(id).status).toBe(before);
+  });
+
+  it('a submission with a report but NO open request is not stranded: the gates run again', async () => {
     greenBuild();
     const { id } = await submitted();
     row(id).gateReport = { gates: [], completedAt: new Date().toISOString() };
@@ -607,9 +621,14 @@ describe('the quarantine gate pipeline', () => {
   ])('an image failure (%s) → gate_failed, no request', async (_why, over, gateId) => {
     greenBuild(over);
     const { id } = await submitted();
+    artifacts.del.mockClear();
+    h.registryDelete.mockClear();
     expect(await pipeline.runSubmissionGates(id)).toBe('gate_failed');
     expect(row(id).gateReport.gates.find((g: any) => g.id === gateId).ok).toBe(false);
     expect(db.tables.plugin_publish_requests ?? []).toEqual([]);
+    // A failed submission's quarantined package and build are dropped at once.
+    expect(artifacts.del).toHaveBeenCalledWith(`submissions/${id}.zip`, 'plugin-quarantine');
+    expect(h.registryDelete).toHaveBeenCalledWith(`/internal/quarantine/${id}`, expect.anything());
   });
 
   it('fails a submission closed when the queue gives up on it', async () => {
@@ -658,6 +677,8 @@ describe('moderating a submission', () => {
     expect(n4[2].text).toContain('https://pb.example/plugins/community/my-linter');
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.submission.approve', actorId: 'mod-2', orgId: SYSTEM_ORG_ID }));
     expect(db.tables.plugins ?? []).toEqual([]);
+    // Published: the quarantined package and build are dropped.
+    expect(h.registryDelete).toHaveBeenCalledWith(`/internal/quarantine/${id}`, expect.anything());
   });
 
   it('fails closed when the quarantined build no longer matches the pinned digest', async () => {
@@ -669,7 +690,7 @@ describe('moderating a submission', () => {
     expect(db.tables.plugin_publish_requests!.find((r) => r.id === requestId)!.status).toBe('pending_second_approval');
   });
 
-  it('claims the submission before publishing: an expiry racing the approval can no longer take it (E10)', async () => {
+  it('claims the submission before publishing: an expiry racing the approval can no longer take it', async () => {
     const { id, requestId } = await queued();
     await decisions.approve(moderator('mod-1') as any, requestId, null);
     let seenDuringPublish: string | undefined;
@@ -685,7 +706,7 @@ describe('moderating a submission', () => {
     expect(row(id).status).toBe('approved');
   });
 
-  it('hands the claim back and records nothing when the publish fails (E5/E10)', async () => {
+  it('hands the claim back and records nothing when the publish fails', async () => {
     const { id, requestId } = await queued();
     await decisions.approve(moderator('mod-1') as any, requestId, null);
     h.registryPost.mockImplementationOnce(async () => ({ statusCode: 502, body: { message: 'registry down' } }));
@@ -695,7 +716,7 @@ describe('moderating a submission', () => {
     expect(db.tables.plugin_publish_requests!.find((r) => r.id === requestId)!.status).toBe('pending_second_approval');
   });
 
-  it('re-runs the name gate at approval: a name reserved meanwhile is refused (E18)', async () => {
+  it('re-runs the name gate at approval: a name reserved meanwhile is refused', async () => {
     const { requestId } = await queued();
     await decisions.approve(moderator('mod-1') as any, requestId, null);
     db.seed('ecosystem_reserved_names', { name: 'my-linter', reason: 'trademark' });
@@ -703,7 +724,7 @@ describe('moderating a submission', () => {
     expect(h.registryPost).not.toHaveBeenCalled();
   });
 
-  it('a community listing with NO recorded owner (email purged) is taken, not open to anyone (E18)', async () => {
+  it('a community listing with NO recorded owner (email purged) is taken, not open to anyone', async () => {
     const community = db.tables.publishers!.find((p) => p.handle === 'community')!;
     const l = db.seed('plugin_listings', { publisherId: community.id, name: 'my-linter', latestVersion: '0.9.0' });
     db.seed('plugin_listing_versions', { listingId: l.id, version: '0.9.0', publishedBy: 'x' });
@@ -752,7 +773,7 @@ describe('moderating a submission', () => {
 });
 
 // -----------------------------------------------------------------------------
-// Claims (E10)
+// Claims
 // -----------------------------------------------------------------------------
 
 describe('claiming a community listing', () => {
@@ -795,7 +816,7 @@ describe('claiming a community listing', () => {
 });
 
 // -----------------------------------------------------------------------------
-// Maintenance (E4)
+// Maintenance
 // -----------------------------------------------------------------------------
 
 describe('maintenance', () => {

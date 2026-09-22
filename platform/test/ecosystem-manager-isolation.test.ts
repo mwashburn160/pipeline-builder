@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The system-org-only permission class (docs/plans/plugin-ecosystem.md §5a,
- * §5a.1, G22): a TENANT org can never obtain the Ecosystem Manager role or its
+ * The system-org-only permission class (docs/permissions.md): a TENANT org can never obtain the Ecosystem Manager role or its
  * permissions (`plugins:moderate`, `publishers:verify`) through ANY path.
  *
  * One suite, one row per path, so a reviewer can see the whole boundary:
@@ -19,18 +18,17 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const SYSTEM = '000000000000000000000001';
 const TENANT = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const ECOSYSTEM = ['plugins:moderate', 'publishers:verify'];
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600, tierExpiresIn: {} },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600, tierExpiresIn: {} },
+    refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
   },
 }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -66,7 +64,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: chain(() => [{ roleId: 'r1' }]) },
 }));
 
-const { issueTokens, signInAuth, signServiceAccountToken } = await import('../src/utils/token.js');
+const { signInAuth, signServiceAccountToken } = await import('../src/services/session/access-tokens.js');
+const { issueTokens } = await import('../src/services/session/refresh-sessions.js');
 const { sanitizePermissions, assertActorMayAssignRole, assertSystemOrgOnlyRoleInSystemOrg } = await import('../src/services/role-authority.js');
 const { assertMappableRoleSet } = await import('../src/services/mapped-roles.js');
 const { ensureBaselineRole } = await import('../src/services/roles-service.js');

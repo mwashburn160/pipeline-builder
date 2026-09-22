@@ -27,13 +27,13 @@ import {
   type TemplateInput,
   audited,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { tokenize } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { instantiateTemplateProps } from '../helpers/instantiate-template.js';
 import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
-import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineTemplateService } from '../services/pipeline-template-service.js';
 
 /**
@@ -129,12 +129,9 @@ export function createPipelineTemplateRoutes(): Router {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const deleted = await pipelineTemplateService.findDeleted(orgId, { limit, offset });
 
-    // `findDeleted` now applies the private rung itself (CrudService
-    // `tombstoneVisibilityConditions`), which is where it belongs — this route
-    // used to be the ONLY one that compensated, so the identical pipeline and
-    // plugin restore lists leaked colleagues' personal drafts. Kept as
-    // defence in depth, and because `canSeeTemplate` is the authority on what a
-    // template viewer may see.
+    // `findDeleted` applies the private rung itself (CrudService
+    // `tombstoneVisibilityConditions`). This filter is defence in depth, and
+    // `canSeeTemplate` is the authority on what a template viewer may see.
     const visible = deleted.filter((t) => canSeeTemplate(t, userId, req.user?.isSuperAdmin === true));
 
     ctx.log('COMPLETED', 'Listed deleted pipeline templates', { count: visible.length });
@@ -226,13 +223,13 @@ export function createPipelineTemplateRoutes(): Router {
       ...(body.criticality !== undefined ? { criticality: body.criticality } : {}),
       ...(body.labels !== undefined ? { labels: body.labels } : {}),
       ...(body.links !== undefined ? { links: body.links } : {}),
-    }, userId ?? 'system');
+    }, userId);
     // NOTE: losing the race against a concurrent same-name create throws
     // ConflictError from the service (→ 409), so nothing can slip past the
     // pre-check above and overwrite (or un-delete) the existing template.
 
     ctx.log('COMPLETED', 'Created pipeline template', { id: created.id });
-    emitPipelineAudit({
+    recordAudit({
       action: 'pipeline_template.create',
       actorId: actorId({ userId }),
       orgId,
@@ -295,11 +292,11 @@ export function createPipelineTemplateRoutes(): Router {
       ...(body.visibility !== undefined ? { visibility: resolveVisibility(req, body.visibility, 'templates:publish') } : {}),
     };
 
-    const updated = await pipelineTemplateService.update(id, updateData, orgId, userId ?? 'system');
+    const updated = await pipelineTemplateService.update(id, updateData, orgId, userId);
     if (!updated) return sendEntityNotFound(res, 'Template');
 
     ctx.log('COMPLETED', 'Updated pipeline template', { id });
-    emitPipelineAudit({
+    recordAudit({
       action: 'pipeline_template.update',
       actorId: actorId({ userId }),
       orgId,
@@ -321,11 +318,11 @@ export function createPipelineTemplateRoutes(): Router {
     if (!existing) return sendEntityNotFound(res, 'Template');
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'templates:publish')) return;
 
-    const deleted = await pipelineTemplateService.delete(id, orgId, userId ?? 'system');
+    const deleted = await pipelineTemplateService.delete(id, orgId, userId);
     if (!deleted) return sendEntityNotFound(res, 'Template');
 
     ctx.log('COMPLETED', 'Deleted pipeline template', { id });
-    emitPipelineAudit({
+    recordAudit({
       action: 'pipeline_template.delete',
       actorId: actorId({ userId }),
       orgId,
@@ -341,12 +338,12 @@ export function createPipelineTemplateRoutes(): Router {
   // DELETE authority (auth + orgId + templates:write, +templates:publish for
   // public templates, authorship for private ones).
   router.post('/:id/restore', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), requireStepUp, audited('pipeline_template.restore'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndRestore(req, res, orgId, userId ?? 'system', pipelineTemplateService, 'Template', 'templates:publish');
+    const result = await loadAndRestore(req, res, pipelineTemplateService, { orgId, userId, label: 'Template', publishPermission: 'templates:publish' });
     if (!result) return;
     const { existing, restored } = result;
 
     ctx.log('COMPLETED', 'Restored pipeline template', { id: restored.id });
-    emitPipelineAudit({
+    recordAudit({
       action: 'pipeline_template.restore',
       actorId: actorId({ userId }),
       orgId,
@@ -366,12 +363,12 @@ export function createPipelineTemplateRoutes(): Router {
   // (/:id/purge vs the restore route's /:id/restore) its `requireStepUp` runs
   // only for this path, so the single-use step-up jti is consumed exactly once.
   router.post('/:id/purge', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), requireStepUp, audited('pipeline_template.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndPurge(req, res, orgId, pipelineTemplateService, 'Template', 'templates:publish', userId);
+    const result = await loadAndPurge(req, res, pipelineTemplateService, { orgId, userId, label: 'Template', publishPermission: 'templates:publish' });
     if (!result) return;
     const { existing, purgedId } = result;
 
     ctx.log('COMPLETED', 'Purged pipeline template', { id: purgedId });
-    emitPipelineAudit({
+    recordAudit({
       action: 'pipeline_template.purge',
       actorId: actorId({ userId }),
       orgId,

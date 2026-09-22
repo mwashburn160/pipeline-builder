@@ -8,19 +8,22 @@
  * - Single-shot prune issues the right DELETE with a cutoff date.
  * - Returns the number of deleted rows.
  * - Rejects nonsense maxAgeDays (zero, negative, NaN).
- * - Cron schedules first run after firstRunDelayMs and reschedules itself.
- * - stop() prevents further executions.
- * - Tick failures don't kill the cron — next tick still scheduled.
+ * - The cron is a leader-locked scheduler with the configured delay/interval.
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const dbDelete = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const ltMock = jest.fn((col: unknown, val: unknown) => ({ __op: 'lt', col, val }));
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+type SchedOpts = { name: string; intervalMs: number; startupDelayMs?: number; lock?: { key: string; ttlMs: number }; run: () => Promise<void> };
+let schedOpts: SchedOpts | undefined;
+const schedStart = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  createScheduler: (o: SchedOpts) => { schedOpts = o; return { start: schedStart, stop: jest.fn() }; },
+}));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {
@@ -85,66 +88,22 @@ describe('pruneComplianceAudit', () => {
 });
 
 describe('startAuditPruneCron', () => {
-  beforeEach(() => {
-    dbDelete.mockReset();
-    jest.useFakeTimers();
-  });
-  afterEach(() => {
-    jest.useRealTimers();
-  });
+  beforeEach(() => { dbDelete.mockReset(); schedStart.mockClear(); schedOpts = undefined; });
 
-  it('schedules first run after firstRunDelayMs', async () => {
-    dbDelete.mockResolvedValue([]);
-    const handle = startAuditPruneCron({ maxAgeDays: 30, intervalMs: 60_000, firstRunDelayMs: 1_000 });
-    expect(dbDelete).not.toHaveBeenCalled();
-    jest.advanceTimersByTime(999);
-    expect(dbDelete).not.toHaveBeenCalled();
-    jest.advanceTimersByTime(2);
-    // Allow the awaited promise inside the timer callback to settle.
-    for (let i = 0; i < 20; i++) await Promise.resolve();
-    expect(dbDelete).toHaveBeenCalledTimes(1);
-    handle.stop();
+  it('starts a leader-locked scheduler with the first-run delay and interval', () => {
+    startAuditPruneCron({ maxAgeDays: 30, intervalMs: 60_000, firstRunDelayMs: 1_000 });
+    expect(schedStart).toHaveBeenCalledTimes(1);
+    expect(schedOpts).toMatchObject({ intervalMs: 60_000, startupDelayMs: 1_000, lock: { key: 'compliance-audit-prune:leader' } });
   });
 
-  it('reschedules after each tick', async () => {
-    dbDelete.mockResolvedValue([]);
-    const handle = startAuditPruneCron({ maxAgeDays: 30, intervalMs: 60_000, firstRunDelayMs: 100 });
-    jest.advanceTimersByTime(101);
-    for (let i = 0; i < 20; i++) await Promise.resolve();
+  it('each cycle prunes with the configured retention', async () => {
+    dbDelete.mockResolvedValue([{ id: '1' }]);
+    ltMock.mockClear();
+    const before = Date.now();
+    startAuditPruneCron({ maxAgeDays: 30 });
+    await schedOpts!.run();
     expect(dbDelete).toHaveBeenCalledTimes(1);
-
-    // Next tick + max jitter (5 min). Advance past worst case.
-    jest.advanceTimersByTime(60_000 + 5 * 60_000 + 1);
-    for (let i = 0; i < 20; i++) await Promise.resolve();
-    expect(dbDelete).toHaveBeenCalledTimes(2);
-    handle.stop();
-  });
-
-  it('stop() halts further runs', async () => {
-    dbDelete.mockResolvedValue([]);
-    const handle = startAuditPruneCron({ maxAgeDays: 30, intervalMs: 60_000, firstRunDelayMs: 100 });
-    jest.advanceTimersByTime(101);
-    for (let i = 0; i < 20; i++) await Promise.resolve();
-    expect(dbDelete).toHaveBeenCalledTimes(1);
-
-    handle.stop();
-    jest.advanceTimersByTime(60 * 60 * 1000);
-    for (let i = 0; i < 20; i++) await Promise.resolve();
-    expect(dbDelete).toHaveBeenCalledTimes(1);
-  });
-
-  it('failure in one tick does not stop the cron', async () => {
-    dbDelete
-      .mockRejectedValueOnce(new Error('db down'))
-      .mockResolvedValue([]);
-    const handle = startAuditPruneCron({ maxAgeDays: 30, intervalMs: 60_000, firstRunDelayMs: 100 });
-    jest.advanceTimersByTime(101);
-    for (let i = 0; i < 20; i++) await Promise.resolve();
-    expect(dbDelete).toHaveBeenCalledTimes(1);
-
-    jest.advanceTimersByTime(60_000 + 5 * 60_000 + 1);
-    for (let i = 0; i < 20; i++) await Promise.resolve();
-    expect(dbDelete).toHaveBeenCalledTimes(2);
-    handle.stop();
+    const cutoff = ltMock.mock.calls[0]?.[1] as Date;
+    expect(Math.abs(cutoff.getTime() - (before - 30 * 24 * 60 * 60 * 1000))).toBeLessThan(2_000);
   });
 });

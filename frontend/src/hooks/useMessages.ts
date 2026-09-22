@@ -313,15 +313,12 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   }, [fetchMessages, search, view, filterKey]);
 
   // The shared count is only ever set from the SERVER (`fetchUnreadCount`), never
-  // from a value carried by the stream. This effect used to copy the stream
-  // hook's own count into the store whenever the stream was connected — but that
-  // count starts at 0 and only changes on an UNREAD_COUNT frame, which the server
-  // sends after a mark-read, never on connect. So opening the inbox with 5 unread
-  // published 5, then the stream connected and published 0; with the sidebar
-  // poll switched off (`acquireLiveUnreadSource`), the badge sat at 0. Every
-  // reconnect repeated it over any newer count.
+  // from a value carried by the stream: the stream hook's own count starts at 0
+  // and only changes on an UNREAD_COUNT frame, which the server sends after a
+  // mark-read, never on connect — copying it would zero the badge (the sidebar
+  // poll is off while the stream is live, see `acquireLiveUnreadSource`).
   //
-  // Refresh on every connection change instead: on connect it catches anything
+  // Refresh on every connection change: on connect it catches anything
   // that happened while the stream was down, on disconnect it seeds the poll.
 
   // Handle SSE notifications for real-time updates

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Fuzz-style tests for helpers/zip-extract (plugin-ecosystem §4.2 W5, E11):
+ * Fuzz-style tests for helpers/zip-extract:
  * every upload path — tenant and anonymous — refuses symlink / device / FIFO /
  * socket entries, path traversal, and zip bombs (entry-count, declared-size and
  * lying-header), and leaves nothing outside the extract directory.
@@ -73,7 +73,7 @@ function rawZip(fileName: string, content: string, externalAttr = 0): string {
   return file;
 }
 
-describe('zip entry types (E11)', () => {
+describe('zip entry types', () => {
   it('extracts regular files and directories (with or without Unix modes)', async () => {
     const out = await extract(zipOf([
       { name: 'plugin-spec.yaml', content: 'name: x', mode: 0o100644 },

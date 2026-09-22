@@ -92,24 +92,24 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/messages/internal/notify',
     waive: 'all',
-    reason: 'INTERNAL route (#14): requireAuth + requireInternalService({ callers: [platform] }) — a signed platform token, never a user session — so no user permission applies; the platform caller audits the domain-join decision it notifies about.',
+    reason: 'INTERNAL route: requireAuth + requireInternalService({ callers: [platform, billing, compliance] }) — a signed service token, never a user session — so no user permission applies; the calling service audits the event it notifies about.',
   },
   {
     method: 'DELETE',
     path: '/messages/internal/org/:orgId/attachments',
     waive: 'all',
-    reason: 'INTERNAL route (#14): requireAuth + requireInternalService({ callers: [platform] }); the platform org-delete cascade calls it and audits the org deletion that triggers the blob reclaim.',
+    reason: 'INTERNAL route: requireAuth + requireInternalService({ callers: [platform] }); the platform org-delete cascade calls it and audits the org deletion that triggers the blob reclaim.',
   },
 ];
 
 /**
- * The INTERNAL routes this service exposes (#14) and the services allowed to
+ * The INTERNAL routes this service exposes and the services allowed to
  * call them — the same list `deploy/*​/k8s/istio-internal-routes.yaml` names, and
  * the ONE place it is written down. `findInternalRouteViolations` checks it
  * against the code in both directions.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  { method: 'POST', path: '/messages/internal/notify', callers: ['platform'] },
+  { method: 'POST', path: '/messages/internal/notify', callers: ['platform', 'billing', 'compliance'] },
   { method: 'DELETE', path: '/messages/internal/org/:orgId/attachments', callers: ['platform'] },
 ];
 

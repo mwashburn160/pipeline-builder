@@ -8,7 +8,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SectionCard } from '@/components/ui/SectionCard';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import { triggerBlobDownload } from '@/lib/csv-export';
+import { triggerBlobDownload } from '@/lib/download';
 
 /**
  * The organization's own data export (`GET /organization/:id/export`, the

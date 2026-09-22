@@ -58,7 +58,7 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
       <p className="text-sm text-fg-muted mb-1">
         Are you sure you want to delete <strong className="text-fg">{itemName}</strong>?
       </p>
-      <p className="text-sm text-red-600 dark:text-red-400">This action cannot be undone.</p>
+      <p className="text-sm text-danger">This action cannot be undone.</p>
     </Modal>
   );
 }

@@ -50,11 +50,10 @@ export class CompliancePolicyService extends CrudService<
 
   /**
    * Create a policy and link the org's existing rules (by name) to it in ONE
-   * transaction. The route previously wrapped `this.create(...)` in an outer
-   * `withTenantTx`, but `create` opens its OWN transaction (withTenantTx does not
-   * nest), so the policy row committed independently and a failure in the
-   * rule-link UPDATE left a policy with no rules. Both statements now run on the
-   * same `tx`. Like `CrudService.create`, it never overwrites: a live or deleted
+   * transaction. `create` opens its OWN transaction (withTenantTx does not nest),
+   * so wrapping it would commit the policy row independently and a failed
+   * rule-link UPDATE would leave a policy with no rules; both statements run on
+   * the same `tx` instead. Like `CrudService.create`, it never overwrites: a live or deleted
    * policy with the same org/name/version is a 409 (restore brings a deleted one
    * back), and the rollback means no rules are re-linked either.
    */

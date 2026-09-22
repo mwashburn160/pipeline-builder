@@ -16,7 +16,7 @@
  *                    the user belongs to (or whose domain enforces SSO for them)
  *                    that has SSO enabled + entitled. Never for platform admins,
  *                    who can't sign in through a tenant IdP either. OIDC only:
- *                    a SAML org is not a step-up factor in this release (#4) —
+ *                    a SAML org is not a step-up factor in this release —
  *                    see `ssoOptions` for why.
  *   - passkeyCount — how many WebAuthn credentials the account has registered.
  *                    Non-zero means the modal can offer "Use a passkey" (and the
@@ -84,20 +84,14 @@ export interface FactorUser {
 /** Load the fields {@link resolveAuthFactors} needs. The password hash is read
  *  only to derive `hasPassword` and never leaves this function. */
 export async function loadFactorUser(userId: string): Promise<FactorUser | null> {
-  const doc = await User.findById(userId).select('+password +isSuperAdmin email oauth').lean() as {
-    _id: Types.ObjectId;
-    email: string;
-    password?: string;
-    isSuperAdmin?: boolean;
-    oauth?: Record<string, LinkedIdentity | undefined>;
-  } | null;
+  const doc = await User.findById(userId).select('+password +isSuperAdmin email oauth').lean();
   if (!doc) return null;
   return {
     _id: doc._id,
     email: doc.email,
     hasPassword: typeof doc.password === 'string' && doc.password.length > 0,
     isSuperAdmin: doc.isSuperAdmin === true,
-    oauth: doc.oauth ?? {},
+    oauth: { ...doc.oauth },
   };
 }
 
@@ -128,13 +122,13 @@ async function ssoOptions(
   if (ssoLinked.length === 0) return [];
   const { Organization, OrgIdpConfig, UserOrganization, isSsoEntitled } = deps;
 
-  const memberships = await UserOrganization.find({ userId: user._id }).select('organizationId').lean() as Array<{ organizationId: unknown }>;
+  const memberships = await UserOrganization.find({ userId: user._id }).select('organizationId').lean();
   const orgIds = [...new Set([...memberships.map(m => String(m.organizationId)), ...(enforcedOrgId ? [enforcedOrgId] : [])])];
   if (orgIds.length === 0) return [];
 
-  const configs = await OrgIdpConfig.find({ orgId: { $in: orgIds }, enabled: true }).select('orgId provider protocol').lean() as Array<{ orgId: string; provider?: string; protocol?: string }>;
+  const configs = await OrgIdpConfig.find({ organizationId: { $in: orgIds }, enabled: true }).select('organizationId provider protocol').lean();
   const linkedProviders = new Set(ssoLinked.map(([name]) => name));
-  // SAML is deliberately NOT a step-up factor in this release (#4): step-up
+  // SAML is deliberately NOT a step-up factor in this release: step-up
   // needs a FRESH, provable re-authentication, and the SAML flow lands on a
   // server ACS rather than in the popup the re-auth ceremony reads from. A
   // SAML-only account steps up with a passkey, an authenticator app, or a
@@ -143,14 +137,14 @@ async function ssoOptions(
   const candidates = configs.filter(c => c.protocol !== 'saml' && !!c.provider && linkedProviders.has(c.provider));
   if (candidates.length === 0) return [];
 
-  const orgs = await Organization.find({ _id: { $in: candidates.map(c => c.orgId) } }).select('_id name').lean() as Array<{ _id: unknown; name?: string }>;
+  const orgs = await Organization.find({ _id: { $in: candidates.map(c => c.organizationId) } }).select('_id name').lean();
   const names = new Map(orgs.map(o => [String(o._id), o.name]));
 
   const options: ReauthOption[] = [];
   for (const c of candidates) {
-    if (!(await isSsoEntitled(String(c.orgId)))) continue;
-    const orgName = names.get(String(c.orgId));
-    options.push({ type: 'sso', provider: c.provider!, orgId: String(c.orgId), ...(orgName && { orgName }) });
+    if (!(await isSsoEntitled(String(c.organizationId)))) continue;
+    const orgName = names.get(String(c.organizationId));
+    options.push({ type: 'sso', provider: c.provider!, orgId: String(c.organizationId), ...(orgName && { orgName }) });
   }
   return options;
 }
@@ -163,19 +157,33 @@ async function passkeyCountOf(userId: Types.ObjectId): Promise<number> {
   return WebAuthnCredential.countDocuments({ userId });
 }
 
-/** Whether the account has a CONFIRMED authenticator-app enrolment. Read through
- *  the model directly (not `totp-service.hasActiveTotp`) for the same reason as
- *  {@link passkeyCountOf}: a plain profile read shouldn't pull the enrolment
- *  service — and with it the secret-encryption and SSO-enforcement graphs — in
- *  just to learn the answer is `false` for most accounts. */
-async function totpActiveFor(userId: Types.ObjectId): Promise<boolean> {
+/**
+ * The filter for a CONFIRMED authenticator-app enrolment. An enrolment that was
+ * started and never activated is not a factor, so the test is on `activatedAt`,
+ * never on the row's existence. The one definition every factor check uses.
+ */
+export const ACTIVE_TOTP = { activatedAt: { $ne: null } } as const;
+
+/** Whether the account has a CONFIRMED authenticator-app enrolment (what
+ *  `authFactors.hasTotp` reports, and what the sign-in path branches on). Models
+ *  are loaded on demand, like {@link passkeyCountOf}: a sign-in shouldn't pull
+ *  the TOTP model graph in just to learn the answer is `false` for most accounts. */
+export async function hasActiveTotp(userId: Types.ObjectId | string): Promise<boolean> {
   const { UserTotp } = await import('../models/index.js');
-  return !!(await UserTotp.exists({ userId, activatedAt: { $ne: null } }));
+  return !!(await UserTotp.exists({ userId, ...ACTIVE_TOTP }));
+}
+
+/** Whether the account holds any second factor: a passkey or a confirmed
+ *  authenticator app. */
+export async function hasAnyMfaFactor(userId: Types.ObjectId | string): Promise<boolean> {
+  const { WebAuthnCredential } = await import('../models/index.js');
+  const [passkey, totp] = await Promise.all([WebAuthnCredential.exists({ userId }), hasActiveTotp(userId)]);
+  return !!passkey || totp;
 }
 
 /** Resolve the user's step-up factors (see the module doc for the rules). */
 export async function resolveAuthFactors(user: FactorUser): Promise<AuthFactors> {
-  const [passkeyCount, hasTotp] = await Promise.all([passkeyCountOf(user._id), totpActiveFor(user._id)]);
+  const [passkeyCount, hasTotp] = await Promise.all([passkeyCountOf(user._id), hasActiveTotp(user._id)]);
   const hasLinks = Object.values(user.oauth).some(link => !!link?.id);
   if (!hasLinks) {
     return { hasPassword: user.hasPassword, passkeyCount, hasTotp, providers: [] };

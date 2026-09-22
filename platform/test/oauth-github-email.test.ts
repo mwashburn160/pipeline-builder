@@ -17,8 +17,9 @@
  * exchange + `/user` + `/user/emails` calls are deterministic.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -33,62 +34,60 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, unknown>, key: string) => params?.[key],
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    oauth: {
-      callbackBaseUrl: 'https://app.test',
-      stateTtlMs: 600000,
-      cleanupIntervalMs: 600000,
-      google: {
-        clientId: 'g-client',
-        clientSecret: 'g-secret',
-        enabled: true,
-        authorizeUrl: 'https://accounts.google.test/authorize',
-        tokenUrl: 'https://oauth2.google.test/token',
-        userinfoUrl: 'https://userinfo.google.test/userinfo',
-      },
-      github: {
-        clientId: 'gh-client',
-        clientSecret: 'gh-secret',
-        enabled: true,
-        authorizeUrl: 'https://github.test/authorize',
-        tokenUrl: 'https://github.test/token',
-        userinfoUrl: 'https://api.github.test/user',
-      },
-      facebook: {
-        clientId: '',
-        clientSecret: '',
-        enabled: false,
-        authorizeUrl: 'https://facebook.test/dialog/oauth',
-        tokenUrl: 'https://graph.facebook.test/oauth/access_token',
-        userinfoUrl: 'https://graph.facebook.test/me',
-      },
-      microsoft: {
-        clientId: '',
-        clientSecret: '',
-        enabled: false,
-        tenant: 'common',
-        authorizeUrl: 'https://login.microsoft.test/{tenant}/authorize',
-        tokenUrl: 'https://login.microsoft.test/{tenant}/token',
-        userinfoUrl: 'https://graph.microsoft.test/oidc/userinfo',
-      },
-      gitlab: {
-        clientId: '',
-        clientSecret: '',
-        enabled: false,
-        baseUrl: 'https://gitlab.test',
-        authorizeUrl: '',
-        tokenUrl: '',
-        userinfoUrl: '',
-      },
-      linkedin: {
-        clientId: '',
-        clientSecret: '',
-        enabled: false,
-        authorizeUrl: 'https://linkedin.test/oauth/authorization',
-        tokenUrl: 'https://linkedin.test/oauth/accessToken',
-        userinfoUrl: 'https://api.linkedin.test/userinfo',
-      },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  oauth: {
+    callbackBaseUrl: 'https://app.test',
+    stateTtlMs: 600000,
+    cleanupIntervalMs: 600000,
+    google: {
+      clientId: 'g-client',
+      clientSecret: 'g-secret',
+      enabled: true,
+      authorizeUrl: 'https://accounts.google.test/authorize',
+      tokenUrl: 'https://oauth2.google.test/token',
+      userinfoUrl: 'https://userinfo.google.test/userinfo',
+    },
+    github: {
+      clientId: 'gh-client',
+      clientSecret: 'gh-secret',
+      enabled: true,
+      authorizeUrl: 'https://github.test/authorize',
+      tokenUrl: 'https://github.test/token',
+      userinfoUrl: 'https://api.github.test/user',
+    },
+    facebook: {
+      clientId: '',
+      clientSecret: '',
+      enabled: false,
+      authorizeUrl: 'https://facebook.test/dialog/oauth',
+      tokenUrl: 'https://graph.facebook.test/oauth/access_token',
+      userinfoUrl: 'https://graph.facebook.test/me',
+    },
+    microsoft: {
+      clientId: '',
+      clientSecret: '',
+      enabled: false,
+      tenant: 'common',
+      authorizeUrl: 'https://login.microsoft.test/{tenant}/authorize',
+      tokenUrl: 'https://login.microsoft.test/{tenant}/token',
+      userinfoUrl: 'https://graph.microsoft.test/oidc/userinfo',
+    },
+    gitlab: {
+      clientId: '',
+      clientSecret: '',
+      enabled: false,
+      baseUrl: 'https://gitlab.test',
+      authorizeUrl: '',
+      tokenUrl: '',
+      userinfoUrl: '',
+    },
+    linkedin: {
+      clientId: '',
+      clientSecret: '',
+      enabled: false,
+      authorizeUrl: 'https://linkedin.test/oauth/authorization',
+      tokenUrl: 'https://linkedin.test/oauth/accessToken',
+      userinfoUrl: 'https://api.linkedin.test/userinfo',
     },
   },
 }));
@@ -110,16 +109,20 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
   getRedisClient: jest.fn(async () => undefined),
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn<AnyFn>(),
   signServiceAccountToken: jest.fn<AnyFn>(),
-  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
 
@@ -137,8 +140,8 @@ jest.unstable_mockModule('../src/helpers/sign-in-methods.js', () => ({
   loadSignInMethods: async () => ({ hasPassword: false, hasProvider: true, passkeyCount: 0, hasTotp: false }),
 }));
 
-const { verifyOAuthCode, handleCallback, getAuthUrl } =
-  await import('../src/controllers/oauth.js');
+const { handleCallback, getAuthUrl } = await import('../src/controllers/oauth.js');
+const { verifyOAuthCode } = await import('../src/services/oauth-providers.js');
 const { OAUTH_EMAIL_UNVERIFIED } = await import('../src/services/auth-errors.js');
 
 /** The browser-binding cookie the last minted flow set (helpers/login-binding.ts). */

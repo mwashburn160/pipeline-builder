@@ -16,7 +16,7 @@
 # which ambient never retroactively enrolls.
 #
 # The rules are byte-identical across the three k8s targets; the Jest guard in
-# platform/test/deploy-prometheus-contract.test.ts asserts that, so testing the
+# test/deploy-contracts/test/prometheus-contract.test.ts asserts that, so testing the
 # minikube copy covers all three.
 
 rule_files:
@@ -388,7 +388,7 @@ tests:
         exp_alerts: []
 
   # ---------------------------------------------------------------------------
-  # Plugin ecosystem (§9a). The security-fix lane pages after 5m; the gauge is
+  # Plugin ecosystem. The security-fix lane pages after 5m; the gauge is
   # sampled by every plugin replica, so two pods reporting the same breach must
   # still produce ONE alert (max()), and a drained queue (0) must stay quiet.
   # ---------------------------------------------------------------------------

@@ -19,8 +19,8 @@ import type { Request } from 'express';
 
 /** An ecosystem refusal with a typed code and optional structured `details` (e.g. the failing gates). */
 export class EcosystemError extends AppError {
-  constructor(code: ErrorCode, message: string, readonly details?: Record<string, unknown>) {
-    super(getStatusForErrorCode(code), code, message);
+  constructor(code: ErrorCode, message: string, details?: Record<string, unknown>) {
+    super(getStatusForErrorCode(code), code, message, details);
     this.name = 'EcosystemError';
   }
 }
@@ -36,7 +36,7 @@ export interface Caller {
   principalType: string;
   /** The username — for a service account, its name. */
   name?: string;
-  /** The account email and whether platform verified it (claim matching, E10). */
+  /** The account email and whether platform verified it (claim matching). */
   email?: string;
   emailVerified?: boolean;
   isSuperAdmin: boolean;
@@ -70,7 +70,7 @@ export function callerFromRequest(req: Request): Caller {
 
 /**
  * Whether the caller is the Official catalog loader: the dedicated SERVICE
- * ACCOUNT of that name, acting in the system org (§3.0.3). A person — even a
+ * ACCOUNT of that name, acting in the system org. A person — even a
  * superadmin — never is.
  */
 export function isOfficialLoader(caller: Pick<Caller, 'principalType' | 'name' | 'orgId'>): boolean {

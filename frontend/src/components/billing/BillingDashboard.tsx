@@ -208,10 +208,9 @@ export function BillingDashboard() {
         )}
       </Card>
 
-      {/* Gated on the shared hierarchy signal ALONE. It previously also
-          required `rows.length > 1`, so an account whose teams happened to
-          drive no billable usage in the range lost the breakdown entirely —
-          the answer "the parent carries all of it" is a real answer. */}
+      {/* Gated on the shared hierarchy signal ALONE — not on `rows.length > 1`:
+          for an account whose teams drove no billable usage in the range,
+          "the parent carries all of it" is a real answer. */}
       {hasChildOrgs && allocation && allocation.rows.length > 0 && (
         <Card className="overflow-x-auto">
           <div className="flex items-center justify-between mb-3">

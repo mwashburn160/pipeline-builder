@@ -3,7 +3,7 @@
 
 /**
  * Sender side of the plugin-ecosystem notification relay
- * (docs/plans/plugin-ecosystem.md §5b "Plumbing").
+ * (docs/plugin-publishing.md).
  *
  * Platform owns SMTP, the user directory and the Roles, so an ecosystem notice
  * is ONE internal call — `POST /internal/notify-email` with an
@@ -17,12 +17,14 @@
  */
 
 import { createSafeClient } from './http-client.js';
-import { getServiceAuthHeader, SYSTEM_ORG_ID } from '../middleware/auth.js';
+import { getServiceAuthHeader } from '../middleware/service-tokens.js';
+import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import type { ServiceConfig } from '../types/common.js';
 import { parseEcosystemNotifyRequest, type EcosystemNotifyRequest } from '../types/ecosystem-notifications.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
+import { serviceEndpoint } from '../utils/service-registry.js';
 
 const logger = createLogger('ecosystem-notify-client');
 
@@ -62,8 +64,8 @@ export interface EcosystemNotifyClientConfig {
  */
 export function createEcosystemNotifyClient(config: EcosystemNotifyClientConfig): EcosystemNotifyClient {
   const serviceConfig: ServiceConfig = {
-    host: config.host ?? process.env.PLATFORM_SERVICE_HOST ?? 'platform',
-    port: config.port ?? parseInt(process.env.PLATFORM_SERVICE_PORT ?? '3000', 10),
+    host: config.host ?? serviceEndpoint('platform').host,
+    port: config.port ?? serviceEndpoint('platform').port,
     timeout: config.timeout ?? 10_000,
   };
   const client = createSafeClient(serviceConfig);

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Automatic Verified-publisher eligibility (docs/plans/plugin-ecosystem.md
- * §3.1, §3.7). An org may apply for the Verified badge only when ALL hold:
+ * Automatic Verified-publisher eligibility (docs/plugin-publishing.md
+ * ). An org may apply for the Verified badge only when ALL hold:
  *
  *  - `plan`: its plan includes `verified_publisher` (Team, Enterprise, or the
  *    self-hosted `unlimited` tier);
@@ -20,11 +20,11 @@
  */
 
 import {
-  emitCounter,
   ErrorCode,
   getQuotaServiceAuthHeader,
   TIER_FEATURES,
 } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 
 import { ecosystemDeps, EcosystemError } from './context.js';
 import { platformReads } from './platform-reads.js';
@@ -47,9 +47,9 @@ export interface VerifiedEligibility {
 }
 
 /** Whether the org's plan includes `verified_publisher` (null = the quota service didn't answer). */
-async function planIncludesVerified(orgId: string): Promise<boolean | null> {
+export async function planIncludesVerified(orgId: string): Promise<boolean | null> {
   try {
-    // Fail-closed read (E4): an outage is "unknown", never the fallback DEFAULT_TIER.
+    // Fail-closed read: an outage is "unknown", never the fallback DEFAULT_TIER.
     const tier = await ecosystemDeps().quotaService.getTierStrict(orgId, getQuotaServiceAuthHeader(orgId));
     if (tier === null) return null;
     return (TIER_FEATURES[tier] ?? []).includes('verified_publisher');
@@ -122,7 +122,7 @@ export function assertVerifiedEligible(e: VerifiedEligibility, stage: 'applicati
   if (e.eligible) return;
   const failed = e.checks.find((c) => c.ok === false);
   const check = failed ?? e.checks.find((c) => c.ok === null)!;
-  emitCounter('ecosystem_verified_eligibility_refused_total', { check: check.id, stage, outcome: failed ? 'failed' : 'unknown' });
+  incCounter('ecosystem_verified_eligibility_refused_total', { check: check.id, stage, outcome: failed ? 'failed' : 'unknown' });
   const details = { checks: e.checks };
   if (failed) throw new EcosystemError(REFUSAL[failed.id], failed.detail, details);
   throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, `Verified eligibility could not be checked: ${check.detail} Try again shortly.`, details);

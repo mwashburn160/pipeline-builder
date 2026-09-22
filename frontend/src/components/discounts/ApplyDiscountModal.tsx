@@ -130,12 +130,12 @@ export function ApplyDiscountModal({ discount, onClose, onApplied }: ApplyDiscou
       </div>
       {applyPreview && (
         <div className="mt-4 rounded-md border border-blue-200/70 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-900/20 p-3">
-          <div className="text-xs font-semibold text-blue-800 dark:text-blue-300">Preview (not applied)</div>
+          <div className="text-xs font-semibold text-info-strong">Preview (not applied)</div>
           <div className="mt-1 text-sm text-fg-muted">{applyPreview.applied}</div>
           <PriceBreakdown breakdown={applyPreview.priceBreakdown} />
         </div>
       )}
-      {applyForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{applyForm.error}</p>}
+      {applyForm.error && <p className="text-sm text-danger mt-3">{applyForm.error}</p>}
     </Modal>
   );
 }

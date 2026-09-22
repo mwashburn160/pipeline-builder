@@ -8,9 +8,8 @@ import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 const router: Router = Router();
 
 /** GET /organizations - List all organizations (system admin only).
- *  Cross-tenant enumeration, so `requireSystemAdmin` (not `requireRole`) is the
- *  accurate route guard — an org admin must never list every tenant. Mirrors the
- *  controller's `requireSystemAdmin` check. */
+ *  Cross-tenant enumeration, so `requireSystemAdmin` is the guard — an org
+ *  admin must never list every tenant. */
 router.get('/', requireAuth, requireSystemAdmin, listAllOrganizations);
 
 export default router;

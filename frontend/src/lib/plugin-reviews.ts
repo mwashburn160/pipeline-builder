@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/** Labels, limits and error copy for plugin reviews (plan §5, W4). */
+/** Labels, limits and error copy for plugin reviews. */
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import type {

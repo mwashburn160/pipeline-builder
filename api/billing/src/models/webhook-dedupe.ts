@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'node:crypto';
+import { envInt } from '@pipeline-builder/api-core';
 import mongoose, { Schema, type Document } from 'mongoose';
 
 /**
@@ -52,7 +53,7 @@ const DONE_TTL_SECONDS = 30 * 24 * 60 * 60;
  * event concurrently, short enough that a crashed handler's event is retried
  * promptly. Overridable for tuning; falls back to 15 minutes.
  */
-const IN_PROGRESS_TTL_SECONDS = Number(process.env.BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS) || 15 * 60;
+const IN_PROGRESS_TTL_SECONDS = envInt('BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS', 15 * 60, { min: 1 });
 
 const webhookDedupeSchema = new Schema<WebhookDedupeDocument>(
   {
@@ -83,7 +84,7 @@ const WebhookDedupe =
   mongoose.model<WebhookDedupeDocument>('WebhookDedupe', webhookDedupeSchema);
 
 /**
- * Phase 1 — take (or re-take) the in-progress claim. Returns `true` if the caller
+ * Step 1 — take (or re-take) the in-progress claim. Returns `true` if the caller
  * should process the event, `false` if it's a duplicate to skip.
  *
  * Atomic upsert that matches ONLY a reclaimable state: no document (insert), or an
@@ -121,7 +122,7 @@ export async function claimWebhookEvent(source: WebhookSource, eventId: string):
 }
 
 /**
- * Phase 2 — promote the in-progress claim to a durable `done` marker (30d TTL).
+ * Step 2 — promote the in-progress claim to a durable `done` marker (30d TTL).
  * Call ONLY after the event's side-effects have succeeded. Idempotent: a redelivery
  * that races here still re-stamps the same (source, eventId) row.
  *

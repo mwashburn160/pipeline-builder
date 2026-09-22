@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createEnvRedisClient, incrWindow, type RedisEvalClient, errorMessage } from '@pipeline-builder/api-core';
+import { envInt, createLogger, createEnvRedisClient, incrWindow, type RedisEvalClient, errorMessage } from '@pipeline-builder/api-core';
 
 const logger = createLogger('token-rate-limit');
 
@@ -31,11 +31,11 @@ const logger = createLogger('token-rate-limit');
  *
  * Defaults: 60 requests / 60s per (ip, username); 300 / 60s per ip. Override via env.
  */
-const RATE_LIMIT_WINDOW_MS = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS || '60000', 10);
-const RATE_LIMIT_MAX = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_MAX || '60', 10);
-const RATE_LIMIT_IP_MAX = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_IP_MAX || '300', 10);
+const RATE_LIMIT_WINDOW_MS = envInt('REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS', 60_000, { min: 1 });
+const RATE_LIMIT_MAX = envInt('REGISTRY_TOKEN_RATE_LIMIT_MAX', 60, { min: 1 });
+const RATE_LIMIT_IP_MAX = envInt('REGISTRY_TOKEN_RATE_LIMIT_IP_MAX', 300, { min: 1 });
 /** Hard cap on distinct in-memory buckets (fallback path only). */
-const MAX_MEMORY_BUCKETS = parseInt(process.env.REGISTRY_TOKEN_RATE_LIMIT_MAX_BUCKETS || '10000', 10);
+const MAX_MEMORY_BUCKETS = envInt('REGISTRY_TOKEN_RATE_LIMIT_MAX_BUCKETS', 10_000, { min: 1 });
 
 const REDIS_KEY_PREFIX = 'reg:tokrl:';
 

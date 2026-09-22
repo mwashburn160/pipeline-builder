@@ -93,15 +93,15 @@ jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   waitForWorkerReady: jest.fn(async () => undefined),
   shutdownQueue: jest.fn(async () => undefined),
 }));
-// The anonymous-submission gate queue (plan §4) — index.ts starts its worker at boot.
+// The anonymous-submission gate queue — index.ts starts its worker at boot.
 jest.unstable_mockModule('../src/queue/submission-build-queue.js', () => ({
   startSubmissionWorker: jest.fn(),
   shutdownSubmissionQueue: jest.fn(async () => undefined),
   enqueueSubmissionBuild: jest.fn(async () => undefined),
 }));
-// The nightly vuln-rescan scheduler (W0.6) — index.ts builds + starts it at boot.
+// The nightly vuln-rescan scheduler — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/queue/vuln-rescan.js', () => ({ createVulnRescanScheduler: () => null }));
-// The ecosystem-notification digest dispatcher (plan §5b) — index.ts builds + starts it at boot.
+// The ecosystem-notification digest dispatcher — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
   createEcosystemNotificationScheduler: () => ({ start: () => undefined, stop: () => undefined }),
   enqueueEcosystemNotification: async () => 'sent',
@@ -134,16 +134,16 @@ const realEcosystemContext = await import('../src/services/ecosystem/context.js'
 jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ ...realEcosystemContext, initEcosystem: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/publishers.js', () => ({ ensureOfficialPublisher: jest.fn(async () => ({})) }));
 // app-routes registers the review → advisory seam at mount; the advisory service itself is not under test.
-jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ registerAdvisoryHooks: jest.fn(), deprecateListedFromSource: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ deprecateListedFromSource: jest.fn(), openReviewAdvisoryDraft: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
   createEcosystemMaintenanceScheduler: () => ({ start: () => undefined, stop: () => undefined }),
 }));
-// The ecosystem gauge sampler (plan §9a) — index.ts builds + starts it at boot.
+// The ecosystem gauge sampler — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({
   createEcosystemMetricsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
   recordDecision: () => undefined,
 }));
-// The plugin_stats sweep (W4) — index.ts builds + starts it at boot.
+// The plugin_stats sweep — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/stats.js', () => ({
   createEcosystemStatsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
 }));
@@ -217,7 +217,7 @@ describe('src/index.ts — plugins:write enforcement', () => {
   });
 });
 
-describe('src/index.ts — plugin ecosystem (plan §3.0)', () => {
+describe('src/index.ts — plugin ecosystem', () => {
   it('mounts the Ecosystem console on /plugins/ecosystem and the publisher routes on /plugins, after the auth chain and before the read routes', () => {
     const chainAt = useCalls.findIndex((c) => c.includes(AUTH_CHAIN));
     const readAt = useCalls.indexOf(mountFor(ROUTERS.read));
@@ -227,9 +227,9 @@ describe('src/index.ts — plugin ecosystem (plan §3.0)', () => {
     const reviewsMount = mountFor(ROUTERS.reviews);
     expect(consoleMount).toEqual(['/plugins/ecosystem', ROUTERS.ecosystemConsole]);
     expect(publisherMount).toEqual(['/plugins', ROUTERS.publisher]);
-    // Installs + consumption policy (W2) — before `/:id` can catch "installs".
+    // Installs + consumption policy — before `/:id` can catch "installs".
     expect(installsMount).toEqual(['/plugins', ROUTERS.installs]);
-    // Reviews (W4) — before `/:id` can catch "reviews".
+    // Reviews — before `/:id` can catch "reviews".
     expect(reviewsMount).toEqual(['/plugins', ROUTERS.reviews]);
     for (const mount of [consoleMount, publisherMount, installsMount, reviewsMount]) {
       expect(useCalls.indexOf(mount)).toBeGreaterThan(chainAt);

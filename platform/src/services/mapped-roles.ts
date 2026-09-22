@@ -5,7 +5,7 @@
  * Directory-driven Role grants: the Role set a user holds because of what an
  * identity provider says about them, rather than because someone clicked.
  *
- * Shared by IdP group mapping (3a) and SCIM group membership (3b) so both agree
+ * Shared by IdP group mapping and SCIM group membership so both agree
  * on which Roles an automated grant may name and on how the resulting set is
  * reconciled. Split out of `roles-service.ts`: these two functions are the only
  * ones whose caller is a directory rather than a person, and they carry their

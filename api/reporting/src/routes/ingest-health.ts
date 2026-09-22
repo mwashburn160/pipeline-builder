@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { requireIngestScope } from '../middleware/require-ingest-scope.js';
 
 /**
- * Per-org ingestion health (Phase 3). The AWS events Lambda periodically posts
+ * Per-org ingestion health. The AWS events Lambda periodically posts
  * its forwarded/dropped counters + the last event timestamp so the Reports UI
  * can surface flowing / stale / dropping. Machine endpoint — authorized by the
  * `reporting:ingest` token scope (same credential the ingest Lambda holds).

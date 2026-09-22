@@ -3,7 +3,7 @@
 
 /**
  * Tests for the public-namespace parts of services/storage-usage (plugin
- * ecosystem G40): an org's `storageBytes` rollup counts its own `org-<id>/*`
+ * ecosystem): an org's `storageBytes` rollup counts its own `org-<id>/*`
  * namespace PLUS every `public/*` repository billed to it (so a publisher pays
  * for its listed versions even after deleting its private copy), shared blobs
  * counted once; an unreadable publication record makes the rollup incomplete
@@ -181,7 +181,7 @@ describe('computeStorageUsage(\'public/\') — namespace footprint gauge', () =>
   });
 });
 
-// Anonymous plugin submissions (plugin ecosystem §4.2 / W5) are billed to nobody.
+// Anonymous plugin submissions are billed to nobody.
 describe('quarantine/* storage', () => {
   beforeEach(() => { REPO_BLOBS['quarantine/sub-1'] = ['sha256:other']; });
 

@@ -30,7 +30,7 @@ data:
     pipeline_builder_developer = host=postgres port=5432 dbname=pipeline_builder pool_size=10 max_db_connections=10
     pipeline_builder_pro       = host=postgres port=5432 dbname=pipeline_builder pool_size=20 max_db_connections=20
     pipeline_builder_unlimited = host=postgres port=5432 dbname=pipeline_builder pool_size=35 max_db_connections=35
-    # The anonymous public plugin directory (plugin-ecosystem §6a): only the
+    # The anonymous public plugin directory: only the
     # view-only ecosystem_public_reader logs in here, on a small separate pool.
     pipeline_builder_public = host=postgres port=5432 dbname=pipeline_builder pool_size=5 max_db_connections=5
 

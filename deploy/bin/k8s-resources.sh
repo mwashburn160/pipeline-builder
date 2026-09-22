@@ -2,10 +2,11 @@
 # Copyright 2026 Pipeline Builder Contributors
 # SPDX-License-Identifier: Apache-2.0
 #
-# Shared Kubernetes Secret/ConfigMap creation for the AWS deploy targets
-# (deploy/aws/ec2/bin/startup.sh + deploy/aws/eks/bin/setup.sh). SOURCE this file — it
-# defines pb_* functions only (no side effects). The minikube target sources it too, but
-# only for the kubectl-free `pb_split_app_env` (it has its own create helpers).
+# Shared Kubernetes bring-up for every k8s deploy target (deploy/local/minikube,
+# deploy/aws/ec2, deploy/aws/eks): Secret/ConfigMap creation, the cluster add-on
+# installs (KEDA, Istio ambient, Gateway API CRDs) and the manifest apply phase.
+# SOURCE this file — it defines pb_* functions plus the add-on version defaults
+# below, and has no other side effects.
 #
 # SHELL OPTIONS: this file is SOURCED, never executed, so it deliberately sets
 # NO `set -euo pipefail`. `set` inside a sourced file mutates the CALLER's shell
@@ -17,10 +18,21 @@
 #
 # Caller contract — set these BEFORE calling, and source the target's .env first (the
 # secret VALUES come from it):
-#   PB_KUBECTL    the kubectl runner — "kubectl" (eks) or "mk kubectl" (ec2: runs kubectl as
-#                 the minikube user via the caller's `mk` function, which must be in scope)
+#   PB_KUBECTL    the kubectl runner — "kubectl" (minikube, eks) or "mk kubectl" (ec2: runs
+#                 kubectl as the minikube user via the caller's `mk` function, which must be
+#                 in scope). Other cluster CLIs (istioctl, minikube) run the same way — see
+#                 pb_as_owner.
 #   PB_NAMESPACE  the target namespace
 #
+# Cluster add-on versions, pinned HERE once so the three k8s targets cannot drift.
+# Each stays overridable from the environment. ISTIO_VERSION must be ambient-GA
+# (>= 1.24); ensure_istioctl installs exactly this istioctl. KEDA_VERSION must be
+# tested against the newest cluster any target runs (EKS_VERSION) per the KEDA
+# compatibility matrix.
+ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
+GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"
+KEDA_VERSION="${KEDA_VERSION:-2.20.2}"
+
 # Every create is idempotent (render with --dry-run=client, then apply).
 
 # Render-then-apply a `create …` so re-runs update rather than fail.
@@ -109,8 +121,10 @@ pb_create_app_secrets() {
   # postgres-secret is read BY KEY only (postgres, its exporter, pgbouncer, backup): the
   # superuser pair for init/backup, the DB_USER app-role pair for postgres-init.sql and
   # pgbouncer's userlist, and the view-only ecosystem_public_reader password (the public
-  # plugin directory's pooled login; postgres-init.sql creates the role from it). App pods get DB_USER/DB_PASSWORD from app-env/app-secrets and
-  # must never envFrom this Secret (it would hand them the RLS-bypassing superuser).
+  # plugin directory's pooled login; postgres-init.sql creates the role from it, and
+  # pgbouncer's userlist only admits it when the key is non-empty). App pods get
+  # DB_USER/DB_PASSWORD from app-env/app-secrets and must never envFrom this Secret
+  # (it would hand them the RLS-bypassing superuser).
   pb_secret postgres-secret      --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD" \
     --from-literal=ECOSYSTEM_PUBLIC_READER_PASSWORD="${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}"
   pb_secret mongodb-secret       --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
@@ -138,13 +152,10 @@ pb_create_app_secrets() {
     --from-literal=SLACK_CRITICAL_WEBHOOK_URL="${SLACK_CRITICAL_WEBHOOK_URL:-}" \
     --from-literal=SLACK_WARNING_WEBHOOK_URL="${SLACK_WARNING_WEBHOOK_URL:-}"
   # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
-  # bucket-scoped keys. Created HERE from .env rather than shipped as a literal
-  # Secret in k8s/minio.yaml — which is what it used to be, with working
-  # `minioadmin`/`minioadmin` defaults committed to the repo. That made the
-  # MINIO_* values in .env silently inert on these targets: the Deployment reads
-  # this Secret, so an operator who changed .env (as .env.example tells them to)
-  # still got the shipped defaults, and pb_gen_env_secrets had nothing to
-  # randomise. Key names must match the secretKeyRef entries in k8s/minio.yaml,
+  # bucket-scoped keys. Created HERE from .env, never shipped as a literal Secret
+  # in k8s/minio.yaml: a committed Secret would make the MINIO_* values in .env
+  # inert (the Deployment reads this Secret) and leave pb_gen_env_secrets nothing
+  # to randomise. Key names must match the secretKeyRef entries in k8s/minio.yaml,
   # k8s/plugin.yaml, k8s/loki.yaml, k8s/registry.yaml and k8s/message.yaml.
   pb_secret minio-secret \
     --from-literal=root-user="$MINIO_ROOT_USER"              --from-literal=root-password="$MINIO_ROOT_PASSWORD" \
@@ -201,7 +212,7 @@ pb_create_plugin_signing_secrets() {
   pb_secret plugin-signing-public-key --from-file=plugin-signing.pub="$_dir/plugin-signing.pub"
 }
 
-# The PER-SERVICE internal-token signing keys (#14), as one Secret per service
+# The PER-SERVICE internal-token signing keys, as one Secret per service
 # plus one shared PUBLIC bundle. Args: <service_keys_dir> (the `service-keys/`
 # directory deploy/bin/service-signing-keys.sh writes).
 #
@@ -226,12 +237,18 @@ pb_create_service_key_secrets() {
   done
 }
 
-# Optional GHCR pull secret, attached to the namespace's default ServiceAccount. No-op unless
-# GHCR_TOKEN is set. (docker-registry secret type → not via pb_secret, which is generic-only.)
+# Optional GHCR pull secret, attached to the namespace's default ServiceAccount. The token
+# is GHCR_TOKEN, else the GitHub Packages token in the operator's ~/.npmrc (the one a
+# developer already has for the @pipeline-builder npm scope); no-op when neither is set.
+# (docker-registry secret type → not via pb_secret, which is generic-only.)
 pb_create_ghcr_secret() {
-  [ -n "${GHCR_TOKEN:-}" ] || return 0
+  local _token="${GHCR_TOKEN:-}"
+  if [ -z "$_token" ] && [ -f "$HOME/.npmrc" ]; then
+    _token=$(grep '//npm.pkg.github.com/:_authToken=' "$HOME/.npmrc" 2>/dev/null | sed 's/.*_authToken=//' || true)
+  fi
+  [ -n "$_token" ] || return 0
   pb_kube_apply create secret docker-registry ghcr-secret --docker-server=ghcr.io \
-    --docker-username="${GHCR_USER:-mwashburn160}" --docker-password="$GHCR_TOKEN" -n "$PB_NAMESPACE"
+    --docker-username="${GHCR_USER:-mwashburn160}" --docker-password="$_token" -n "$PB_NAMESPACE"
   $PB_KUBECTL patch sa default -n "$PB_NAMESPACE" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
   echo "  secret ghcr-secret"
 }
@@ -248,7 +265,8 @@ pb_create_registry_secrets() {
 }
 
 # The nginx-config ConfigMap. On the AWS targets it carries two deploy-time
-# pieces next to nginx.conf:
+# pieces next to nginx.conf (a target whose nginx dir/conf has neither — minikube —
+# gets nginx.conf alone):
 #   admin-uis.conf  the admin-console routes (pgAdmin / mongo-express / Grafana /
 #                   Kiali, each behind platform's superadmin auth_request) when
 #                   ADMIN_UIS_ENABLED=true — otherwise admin-uis-disabled.conf,
@@ -296,18 +314,184 @@ pb_shared_dir() { (cd "$(dirname "${BASH_SOURCE[0]}")/../shared" && pwd); }
 
 # Config-file ConfigMaps + the MongoDB keyfile secret. Args: <deploy_dir> <config_dir> <nginx_dir>.
 # Target-specific files come from those dirs; the shared ones from pb_shared_dir.
+# registry-auth.js is optional: only the AWS gateways import it (minikube's nginx.conf
+# does not), so a target without one gets just the shared njs modules.
 pb_create_config_maps() {
   local _deploy="$1" _config="$2" _nginx="$3" _shared
   _shared="$(pb_shared_dir)" || return 1
+  local _njs=(--from-file=jwt.js="$_shared/nginx/jwt.js" --from-file=metrics.js="$_shared/nginx/metrics.js")
+  [ -f "$_nginx/registry-auth.js" ] && _njs+=(--from-file=registry-auth.js="$_nginx/registry-auth.js")
   pb_secret    mongodb-keyfile     --from-file=mongodb-keyfile="$_deploy/mongodb-keyfile"
   pb_configmap postgres-init       --from-file=init.sql="$_shared/postgres-init.sql"
   pb_configmap mongodb-init        --from-file=mongo-init.js="$_shared/mongodb-init.js"
   pb_nginx_config "$_nginx" || return 1
-  pb_configmap nginx-njs           --from-file=jwt.js="$_shared/nginx/jwt.js" --from-file=metrics.js="$_shared/nginx/metrics.js" --from-file=registry-auth.js="$_nginx/registry-auth.js"
+  pb_configmap nginx-njs           "${_njs[@]}"
   pb_configmap loki-config         --from-file=loki-config.yml="$_shared/config/loki/loki-config.yml"
   pb_configmap prometheus-config   --from-file=prometheus.yml="$_config/prometheus/prometheus.yml" --from-file=alert-rules.yml="$_config/prometheus/alert-rules.yml"
   pb_configmap thanos-objstore     --from-file=objstore.yml="$_shared/config/thanos/objstore.yml"
   pb_configmap alertmanager-config --from-file=alertmanager.yml="$_shared/config/alertmanager/alertmanager.yml"
   pb_configmap promtail-config     --from-file=promtail-config.yml="$_config/promtail/promtail-config.yml"
   pb_configmap grafana-dashboards  --from-file=dashboards.yaml="$_config/grafana/dashboards/dashboards.yaml" --from-file=plugin-ecosystem.json="$_config/grafana/dashboards/plugin-ecosystem.json"
+}
+
+# pb_as_owner <cmd…> — run a cluster CLI (istioctl, minikube) the way PB_KUBECTL
+# runs kubectl: through the `mk` wrapper on ec2 (as the minikube user who owns
+# the cluster), directly everywhere else.
+pb_as_owner() { ${PB_KUBECTL%kubectl} "$@"; }
+
+# pb_install_keda [wait_timeout] — KEDA CRDs + operator, pinned to KEDA_VERSION.
+# plugin.yaml ships a keda.sh/v1alpha1 ScaledObject, so KEDA must exist before
+# the manifest apply or it fails with "no matches for kind ScaledObject". The
+# wait is advisory: the ScaledObject reconciles once the operator is up.
+pb_install_keda() {
+  $PB_KUBECTL apply --server-side -f "https://github.com/kedacore/keda/releases/download/v${KEDA_VERSION}/keda-${KEDA_VERSION}.yaml" || return 1
+  $PB_KUBECTL wait --for=condition=Available deployment/keda-operator -n keda --timeout="${1:-120s}" 2>/dev/null \
+    || echo "  KEDA not ready yet (the ScaledObject reconciles once it is)"
+}
+
+# pb_install_istio_ambient [extra istioctl args…] — the Istio ambient mesh
+# (istiod + ztunnel + istio-cni in istio-system) plus the Gateway API CRDs.
+#
+# Installed BEFORE the app manifests so istio-cni + ztunnel are ready when pods
+# start (ambient enrolls a pod at CREATE time). The namespace is enrolled by the
+# `istio.io/dataplane-mode: ambient` label on namespace.yaml; STRICT mTLS and the
+# AuthorizationPolicies live in k8s/istio.yaml. Sidecar-less, so the hardened pod
+# securityContexts are untouched. The Jaeger extensionProvider is pre-wired (inert
+# at L4) so a waypoint can emit mesh traces. See docs/service-mesh.md.
+#
+# The waits are advisory (`|| echo`) — pb_apply_manifests holds the hard gate.
+# PB_MESH_ROLLOUT_TIMEOUT (default 120s) bounds the ztunnel/istio-cni rollouts;
+# multi-node clusters need longer. The caller runs ensure_istioctl first.
+#
+# The `pb-waypoint` Gateway (k8s/istio-internal-routes.yaml) is a Gateway API
+# resource and `istioctl install` does not ship those CRDs, so the standard
+# channel is installed once (pinned, idempotent) — without it the manifest apply
+# dies on an unknown kind.
+pb_install_istio_ambient() {
+  local _rollout="${PB_MESH_ROLLOUT_TIMEOUT:-120s}"
+  pb_as_owner istioctl install --skip-confirmation \
+    --set profile=ambient \
+    "$@" \
+    --set "meshConfig.extensionProviders[0].name=jaeger" \
+    --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${PB_NAMESPACE}.svc.cluster.local" \
+    --set "meshConfig.extensionProviders[0].opentelemetry.port=4317" || return 1
+  $PB_KUBECTL wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
+  $PB_KUBECTL rollout status daemonset/ztunnel -n istio-system --timeout="$_rollout" 2>/dev/null || echo "  ztunnel not ready yet"
+  $PB_KUBECTL rollout status daemonset/istio-cni-node -n istio-system --timeout="$_rollout" 2>/dev/null || echo "  istio-cni not ready yet"
+  if ! $PB_KUBECTL get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
+    echo "  installing Gateway API CRDs ($GATEWAY_API_VERSION) for the ambient waypoint"
+    $PB_KUBECTL apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml" || return 1
+  fi
+}
+
+# pb_lean_filter <lean> [extra-names] — with <lean>=1, drop the optional
+# observability/admin workloads from a rendered manifest stream so no pods
+# schedule for them, and collapse every workload/HPA/ScaledObject to one replica
+# (on a small node the core stack + mesh already fills it, so 2nd replicas sit
+# Pending). Anything else is a pass-through (cat).
+#
+# Dropped: the Deployment/StatefulSet/DaemonSet/Service/PV/PVC/HPA/PDB/
+# ServiceAccount/ConfigMap/RBAC docs of prometheus, loki, thanos, alertmanager,
+# promtail, jaeger, mongo-express, pgadmin, grafana, kiali — plus [extra-names]
+# (an awk alternation, e.g. "ask-model"). Kept: everything else, including the
+# AuthZ/NetworkPolicy docs that merely reference them (harmless, no pod). The
+# spec-level replica fields are 2-space indented; the ScaledObject `fallback`
+# replicas is deeper and intentionally left alone.
+#
+# When ask-model is dropped, ask.yaml's two env vars that POINT at it go too: a
+# set OPENAI_COMPATIBLE_BASE_URL registers a provider, so every Ask turn would
+# dial a Service that no longer exists instead of falling back to a cloud key
+# (or reporting "AI is not configured"). Unambiguous at that point in the pipe —
+# ask-model.yaml, the only other file naming them, has already been dropped.
+#
+# The filter shapes the APPLY, which does not prune: flipping a provisioned
+# cluster from LEAN=0 to LEAN=1 leaves the dropped workloads running — delete
+# them by hand when downsizing in place.
+pb_lean_filter() {
+  if [ "${1:-0}" != "1" ]; then cat; return; fi
+  local _names="prometheus|loki|thanos-query|thanos-store-gateway|thanos-compact|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali${2:+|$2}"
+  local _strip_ask_env=0
+  case "|${2:-}|" in *"|ask-model|"*) _strip_ask_env=1 ;; esac
+  awk -v names="^(${_names})(-.*)?$" '
+    function emit(  o,d) {
+      o = (nm ~ names)
+      d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
+      if (buf != "" && !(o && d)) printf "---\n%s", buf
+      buf=""; kd=""; nm=""
+    }
+    /^---$/ { emit(); next }
+    { buf = buf $0 "\n"; if ($1=="kind:") kd=$2; if ($0 ~ /^  name: / && nm=="") nm=$2 }
+    END { emit() }
+  ' | sed -E 's/^(  replicas:) [0-9]+/\1 1/; s/^(  (min|max)Replicas:) [0-9]+/\1 1/; s/^(  (min|max)ReplicaCount:) [0-9]+/\1 1/' \
+    | if [ "$_strip_ask_env" = 1 ]; then
+        awk '
+          /- name: OPENAI_COMPATIBLE_(BASE_URL|MODELS)/ { skip=1; next }
+          skip && /^[[:space:]]*value:/               { skip=0; next }
+          { skip=0; print }
+        '
+      else cat; fi
+}
+
+# pb_apply_manifests <k8s_dir> <sed-expr> <lean> [lean-extra-names] — the
+# manifest apply phase every k8s target shares:
+#
+#   1. HARD GATE on istiod. The stream carries AuthorizationPolicy docs, and
+#      CREATING one calls istiod's validating webhook — with istiod still
+#      starting the apply dies on `failed calling webhook "validation.istio.io"`
+#      after applying an arbitrary PREFIX of the manifests. The install-time
+#      waits are advisory, so this is the second, longer chance: a slow-but-
+#      healthy istiod still succeeds, a broken mesh fails HERE naming the cause.
+#   2. kustomize | sed <sed-expr> | pb_lean_filter | apply. <sed-expr> expands
+#      ONLY the deploy tokens (${BUILDKIT_MEMORY_LIMIT}, …) — sed, not envsubst,
+#      so runtime `$` tokens in inline configs (nginx ${NS}/$s, the minio-init
+#      `$b` loop) survive.
+#   3. Restart every Deployment/StatefulSet. istio-cni enrolls a pod's netns at
+#      pod CREATE only, and `apply` does not recreate pods whose spec is
+#      unchanged — so a workload created in a prior run (or while the mesh was
+#      still coming up) can stay un-enrolled, and a STRICT-mTLS peer (postgres,
+#      redis, …) silently drops its traffic: an app-level connection TIMEOUT,
+#      not a refusal. A `while read` loop, not xargs, so PB_KUBECTL's `mk`
+#      shell function stays callable.
+pb_apply_manifests() {
+  local _dir="$1" _sed="$2" _lean="${3:-0}" _extra="${4:-}"
+  if ! $PB_KUBECTL wait --for=condition=Available deployment/istiod -n istio-system --timeout=300s >/dev/null 2>&1; then
+    echo "ERROR: istiod is not Available — the manifests include Istio AuthorizationPolicy" >&2
+    echo "       resources whose admission webhook it serves, so this apply cannot succeed." >&2
+    echo "       Check: kubectl -n istio-system get pods,deploy" >&2
+    return 1
+  fi
+  [ "$_lean" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali${_extra:+/$_extra})"
+  $PB_KUBECTL kustomize "$_dir" | sed "$_sed" | pb_lean_filter "$_lean" "$_extra" | $PB_KUBECTL apply -f - || return 1
+  echo ""; echo "=== Restarting workloads to (re)enroll in the ambient mesh ==="
+  $PB_KUBECTL get deploy,statefulset -n "$PB_NAMESPACE" -o name | while IFS= read -r _wl; do
+    $PB_KUBECTL rollout restart -n "$PB_NAMESPACE" "$_wl"
+  done
+}
+
+# pb_registry_hosts_fixup <minikube_profile> — map the in-cluster `registry`
+# Service's ClusterIP to the name `registry` in the minikube node's /etc/hosts,
+# so the node's container runtime can pull the plugin images pushed there
+# (kubelet resolves image hosts with the NODE's resolver, not cluster DNS).
+# Rewrites an existing entry rather than appending a second one.
+pb_registry_hosts_fixup() {
+  local _profile="$1" _ip
+  _ip=$($PB_KUBECTL get svc registry -n "$PB_NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+  if [ -n "$_ip" ]; then
+    pb_as_owner minikube ssh --profile="$_profile" -- \
+      "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$_ip registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$_ip registry' | sudo tee -a /etc/hosts >/dev/null"
+  fi
+  echo "  registry -> ${_ip:-unknown}"
+}
+
+# pb_port_forward <label> <service> <host:container> — background a
+# `kubectl port-forward` to a Service and report whether it stayed up.
+pb_port_forward() {
+  local _label="$1" _svc="$2" _ports="$3" _pid
+  $PB_KUBECTL port-forward "svc/$_svc" "$_ports" -n "$PB_NAMESPACE" >/dev/null 2>&1 &
+  _pid=$!; sleep 1
+  if kill -0 "$_pid" 2>/dev/null; then
+    echo "  $_label → $_ports (PID $_pid)"
+  else
+    echo "  WARNING: $_label port-forward failed"
+  fi
 }

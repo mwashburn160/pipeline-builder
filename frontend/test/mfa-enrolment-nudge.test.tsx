@@ -43,17 +43,11 @@ jest.mock('@/lib/api', () => ({
 
 const refreshUser = jest.fn<AnyFn>(async () => undefined);
 let mockUser: Partial<User> | null = null;
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ user: mockUser, refreshUser }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ user: mockUser, refreshUser })));
 
 const toastSuccess = jest.fn<AnyFn>();
 const toastError = jest.fn<AnyFn>();
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 
 import { MfaEnrolmentNudge } from '@/components/ui/MfaEnrolmentNudge';
 import { MfaPromptPreference } from '@/components/settings/MfaPromptPreference';

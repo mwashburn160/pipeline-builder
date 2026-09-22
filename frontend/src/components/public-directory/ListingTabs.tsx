@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/** The plugin page's tab panels (§6a "Plugin page"). */
+/** The plugin page's tab panels. */
 import { CheckCircle2, Download, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { safeExternalUrl, versionSbomPath } from '@/lib/public-directory/links';

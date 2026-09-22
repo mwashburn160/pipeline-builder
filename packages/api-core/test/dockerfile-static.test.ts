@@ -3,7 +3,7 @@
 
 /**
  * Tests for validation/dockerfile-static — the static read of a plugin's OWN
- * Dockerfile: its LABELs (plugin-ecosystem §3.1a, G55) and final USER (W0.6).
+ * Dockerfile: its LABELs and final USER.
  */
 
 import { describe, it, expect } from '@jest/globals';

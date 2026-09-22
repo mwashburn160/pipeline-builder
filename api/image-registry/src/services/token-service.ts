@@ -5,6 +5,7 @@ import { createPublicKey, randomUUID } from 'crypto';
 import { createLogger, createQuotaService, getServiceAuthHeader, registerPreviousSecretProbe, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
+import { inLibraryNamespace, inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, inSystemNamespace, QUARANTINE_PREFIX } from './namespaces.js';
 import { parentPublicPlugins } from './parent-public-plugins.js';
 import type { RegistryScope } from './scope.js';
 import { computeOrgStorageUsage } from './storage-usage.js';
@@ -43,53 +44,41 @@ export function parseScope(raw: string): RequestedScope | null {
   return { type, name, actions };
 }
 
-/** Constants for repo namespace policy. */
-const SYSTEM_NAMESPACE_PREFIX = 'system/';
 const ORG_NAMESPACE_PREFIX = 'org-';
-/**
- * The org id that OWNS the un-prefixed `system/*` namespace. System sample
- * plugins are built and pushed under this org id and land in `system/<name>`
- * rather than `org-<id>/<name>` (see api/plugin docker-build.ts `resolveImage`
- * — this MUST stay in lock-step with that mapping). A token scoped to this org
- * may push to `system/*`, exactly as a tenant org pushes to its `org-{id}/*`.
- */
-// Docker's convention for unqualified base images: `FROM ubuntu` →
-// `docker.io/library/ubuntu`. Our buildkit mirror redirects those
-// lookups at `registry:5000/library/<name>`, so plugin Dockerfiles
-// using bare `FROM pipeline-plugin-base:24.04` end up requesting a
-// `library/...` pull token. Treat library/* like system/* — any
-// authenticated identity can pull, only admins can push.
-const LIBRARY_NAMESPACE_PREFIX = 'library/';
-/**
- * The public plugin namespace (`public/<publisherHandle>/<name>`, plugin
- * ecosystem §3.3). Listed plugin versions are COPIED here on approval and signed
- * fresh with their trust tier. Append-only: every authenticated identity may
- * pull; nobody but this service's own management identity writes, and it writes
- * only through the `/internal/plugin-publications*` routes. Not even a superadmin
- * gets push — a publisher (or an operator) must never overwrite or delete a
- * version other orgs' pipelines pull by digest on every run.
- */
-export const PUBLIC_NAMESPACE_PREFIX = 'public/';
-/**
- * Registry-private bookkeeping (the `public/<handle>` → publisher-org record,
- * see public-publications.ts). Management-only: no external identity may pull or
- * push here, superadmins included.
- */
-export const REGISTRY_META_NAMESPACE_PREFIX = 'registry-meta/';
-/**
- * Anonymous plugin submissions (plugin ecosystem §4.2, W5): each submission's
- * image is built on the isolated quarantine buildkitd and pushed to
- * `quarantine/<submissionId>`. Push AND pull belong to the plugin SERVICE
+
+/*
+ * Token policy per namespace (the namespaces themselves: namespaces.ts):
+ *
+ * - `system/*` is owned by the SYSTEM org: system sample plugins are built
+ * and pushed under that org id and land in `system/<name>` rather than
+ * `org-<id>/<name>` (api/plugin docker-build.ts `resolveImage` — this MUST
+ * stay in lock-step with that mapping). A token scoped to the system org may
+ * push there, exactly as a tenant org pushes to its `org-{id}/*`.
+ * - `library/*` is treated like `system/*`: Docker's convention for
+ * unqualified base images (`FROM ubuntu` → `docker.io/library/ubuntu`) is
+ * redirected by the buildkit mirror to `registry:5000/library/<name>`, so
+ * plugin Dockerfiles using bare `FROM pipeline-plugin-base:24.04` request a
+ * `library/...` pull token. Any authenticated identity pulls; only admins push.
+ * - `public/*` (listed plugin versions, copied on approval and signed fresh
+ * with their trust tier) is append-only: every authenticated identity may
+ * pull; nobody but this service's own management identity writes, and only
+ * through the `/internal/plugin-publications*` routes. Not even a superadmin
+ * gets push — nobody may overwrite or delete a version other orgs'
+ * pipelines pull by digest on every run.
+ * - `registry-meta/*` (the `public/<handle>` → publisher-org records) is
+ * management-only: no external identity may pull or push, superadmins included.
+ * - `quarantine/<submissionId>` (an anonymous submission's build, from the
+ * isolated quarantine buildkitd): push AND pull belong to the plugin SERVICE
  * principal alone (its per-service-key-signed token — the name cannot be
- * forged); every other identity, a superadmin included, gets nothing: an
- * unmoderated image must never be pullable by a tenant pipeline or browsable
- * in the UI. Moderation tooling reads it through the plugin service.
+ * forged); every other identity, a superadmin included, gets nothing — an
+ * unmoderated image must never be pullable by a tenant pipeline or
+ * browsable in the UI.
  */
-export const QUARANTINE_NAMESPACE_PREFIX = 'quarantine/';
+
 /**
  * The only service principal that may PULL `quarantine/*` (its scans and
  * image inspection run in the plugin pod). Nobody pushes there with a platform
- * token: the build pushes with its own quarantine credential (E21).
+ * token: the build pushes with its own quarantine credential.
  */
 export const QUARANTINE_SERVICE_PRINCIPAL = 'plugin';
 
@@ -133,14 +122,14 @@ export function authorizeScope(identity: Identity, requested: RequestedScope, ct
     return [];
   }
 
-  // An anonymous submission's build credential (E21): push/pull on its OWN
+  // An anonymous submission's build credential: push/pull on its OWN
   // `quarantine/<submissionId>`, pull on the base-image namespaces a
   // Dockerfile's `FROM` reaches (`library/*`, `system/*`), nothing else.
   if (identity.type === 'quarantine') {
-    if (requested.name === `${QUARANTINE_NAMESPACE_PREFIX}${identity.submissionId}`) {
+    if (requested.name === `${QUARANTINE_PREFIX}${identity.submissionId}`) {
       return requested.actions.filter((a) => a === 'pull' || a === 'push');
     }
-    if (requested.name.startsWith(LIBRARY_NAMESPACE_PREFIX) || requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
+    if (inLibraryNamespace(requested.name) || inSystemNamespace(requested.name)) {
       return requested.actions.filter((a) => a === 'pull');
     }
     return [];
@@ -152,16 +141,16 @@ export function authorizeScope(identity: Identity, requested: RequestedScope, ct
   // are evaluated BEFORE the superadmin rule so a sysadmin token can't push
   // into (or read the bookkeeping of) the public namespace — writes there are
   // the management identity's alone (handled above), via the internal routes.
-  if (requested.name.startsWith(PUBLIC_NAMESPACE_PREFIX)) {
+  if (inPublicNamespace(requested.name)) {
     return requested.actions.filter((a) => a === 'pull');
   }
-  if (requested.name.startsWith(REGISTRY_META_NAMESPACE_PREFIX)) {
+  if (inRegistryMetaNamespace(requested.name)) {
     return [];
   }
   // `quarantine/*` (anonymous submissions): PULL for the plugin service
   // principal only — evaluated before the superadmin rule, so no human token
   // reaches it. The build's push rides the quarantine credential above.
-  if (requested.name.startsWith(QUARANTINE_NAMESPACE_PREFIX)) {
+  if (inQuarantineNamespace(requested.name)) {
     if (identity.serviceName !== QUARANTINE_SERVICE_PRINCIPAL) return [];
     return requested.actions.filter((a) => a === 'pull');
   }
@@ -188,19 +177,19 @@ export function authorizeScope(identity: Identity, requested: RequestedScope, ct
   // push. Evaluated before the generic `system/*` pull-only rule so an authorized
   // push isn't downgraded. NOT a cross-org grant: a tenant token carries its real
   // orgId, so it never matches here and still only owns its own `org-{id}/*`.
-  if (identity.orgId === SYSTEM_ORG_ID && requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
+  if (identity.orgId === SYSTEM_ORG_ID && inSystemNamespace(requested.name)) {
     const allowed = identity.canWritePlugins ? ['pull', 'push'] : ['pull'];
     return requested.actions.filter((a) => allowed.includes(a));
   }
 
   // Anyone authenticated can pull system images
-  if (requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
+  if (inSystemNamespace(requested.name)) {
     return requested.actions.filter((a) => a === 'pull');
   }
 
   // Same for library/* — base images that plugin Dockerfiles depend on
   // via bare `FROM <name>` references.
-  if (requested.name.startsWith(LIBRARY_NAMESPACE_PREFIX)) {
+  if (inLibraryNamespace(requested.name)) {
     return requested.actions.filter((a) => a === 'pull');
   }
 
@@ -217,7 +206,7 @@ export function authorizeScope(identity: Identity, requested: RequestedScope, ct
   // read-plugins.ts: `visibility='public' AND org_id=P`), so its pipelines must
   // be able to PULL those images — otherwise the plugin resolves at lookup and
   // then fails at CodeBuild image pull. Pull only, and only those PUBLIC
-  // plugins' repositories (E22): the parent's org-only and private plugins stay
+  // plugins' repositories: the parent's org-only and private plugins stay
   // the parent's. The parent id comes from the signed token claim, never from
   // the request; the public set from the plugin service.
   const parentPrefix = identity.parentOrgId ? `${ORG_NAMESPACE_PREFIX}${identity.parentOrgId}/` : null;
@@ -424,7 +413,7 @@ async function isStorageOverBudget(orgId: string): Promise<boolean> {
     if (typeof limit !== 'number' || limit < 0) return false;
 
     // The org's own namespace plus the `public/*` repositories it publishes
-    // (plugin ecosystem G40) — a publisher pays for its listed versions.
+    // — a publisher pays for its listed versions.
     const usage = await computeOrgStorageUsage(orgId);
     // Under-counted scan → we can't prove the org is under budget. Inconclusive
     // → deny by default rather than allow a possibly-over-cap push.

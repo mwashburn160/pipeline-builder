@@ -64,7 +64,7 @@ function LineDiff({ previous, current }: { previous: string | null; current: str
 const count = (n: number | null | undefined) => (n == null ? '—' : String(n));
 
 /**
- * The §3.0.2 review view: everything that changed against the previous APPROVED
+ * The publish-request review view: everything that changed against the previous APPROVED
  * version — catalog metadata with provenance (user-edited links highlighted as
  * the phishing check), the execution contract, vulnerabilities, Dockerfile,
  * SBOM, icon, gate results, publisher history and auto-approval eligibility.

@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The quarantine build credential (E21): minted for ONE submission, resolved by
+ * The quarantine build credential: minted for ONE submission, resolved by
  * the token endpoint to an identity that reaches `quarantine/<thatId>` (and
  * base-image pulls) and nothing else; forged, expired or foreign-audience
- * tokens are not quarantine credentials. Plus the team parent-pull set (E22).
+ * tokens are not quarantine credentials. Plus the team parent-pull set.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -77,7 +77,7 @@ describe('quarantine build credential', () => {
   });
 });
 
-describe('team pulls of the parent namespace (E22)', () => {
+describe('team pulls of the parent namespace', () => {
   const team = { type: 'jwt' as const, orgId: 'acme-team', parentOrgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false };
   let calls: string[];
 

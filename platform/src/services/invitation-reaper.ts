@@ -19,10 +19,10 @@
  * alone, and lets the data self-heal without a re-invite touching each row.
  */
 
-import { createLogger, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { config } from '../config/index.js';
 import { Invitation } from '../models/index.js';
-import { createLockedSweep } from '../utils/leader-lock.js';
 
 const logger = createLogger('invitation-reaper');
 
@@ -30,8 +30,6 @@ const logger = createLogger('invitation-reaper');
  *  invites per window (the updateMany is idempotent, so this is a de-dup, not a
  *  correctness gate). */
 const LOCK_KEY = 'platform:leader:invitation-reaper';
-
-let scheduler: Scheduler | null = null;
 
 /**
  * Flip every `pending` invitation whose `expiresAt` is at/before now to
@@ -56,29 +54,12 @@ export async function sweepExpiredInvitations(): Promise<number> {
   }
 }
 
-/**
- * Start the periodic reaper. Idempotent — safe to call multiple times (a second
- * call is a no-op while a timer is live). Runs one immediate sweep, then repeats
- * on the interval. The interval is `.unref()`'d so it never keeps Node alive in
- * tests or worker scripts that import this module without starting the server.
- * Returns the stop function; wire it to SIGTERM in index.ts.
- */
-export function startInvitationReaper(intervalMs: number = config.invitation.sweepIntervalMs): () => void {
-  if (scheduler) return stopInvitationReaper;
-  scheduler = createLockedSweep({
+/** The reaper as a background sweep (see services/background-sweeps.ts). */
+export function invitationReaperSweep(intervalMs: number = config.invitation.sweepIntervalMs): IntervalSweepDefinition {
+  return {
     name: 'invitation-reaper',
     lockKey: LOCK_KEY,
     intervalMs,
     run: async () => { await sweepExpiredInvitations(); },
-  });
-  scheduler.start();
-  return stopInvitationReaper;
-}
-
-/** Stop the periodic reaper. Idempotent. */
-export function stopInvitationReaper(): void {
-  if (scheduler) {
-    scheduler.stop();
-    scheduler = null;
-  }
+  };
 }

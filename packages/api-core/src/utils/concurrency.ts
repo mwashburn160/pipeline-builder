@@ -31,3 +31,15 @@ export async function runConcurrent<T, R>(
   await Promise.all(runners);
   return results;
 }
+
+/**
+ * Resolve after `ms`. With `unref`, the pending timer never keeps a draining
+ * process alive (a backoff wait must not block shutdown).
+ */
+export function sleep(ms: number, opts: { unref?: boolean } = {}): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    // `unref` is absent on the timer shim some test environments install.
+    if (opts.unref) timer.unref?.();
+  });
+}

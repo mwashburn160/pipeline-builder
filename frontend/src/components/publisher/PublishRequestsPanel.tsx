@@ -113,7 +113,7 @@ export function PublishRequestsPanel({ canPublish, canManage }: Props) {
       await api.withdrawPublishRequest(withdrawing.id);
       toast.success('Request withdrawn');
       setWithdrawing(null);
-      requestsQ.refetch();
+      void requestsQ.refetch();
     } catch (err) {
       toast.error(formatError(err, 'Could not withdraw the request'));
     } finally {
@@ -216,7 +216,7 @@ export function PublishRequestsPanel({ canPublish, canManage }: Props) {
           onSubmit={async (_reason, token) => {
             await api.respondToTransfer(responding.request.id, responding.accept, token);
             toast.success(responding.accept ? 'Transfer accepted' : 'Transfer declined');
-            incomingQ.refetch();
+            void incomingQ.refetch();
           }}
           onClose={() => setResponding(null)}
         />

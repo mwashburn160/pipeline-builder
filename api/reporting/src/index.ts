@@ -5,14 +5,13 @@ import { wireServiceSecurity, createEnvSseTicketStore, SSE_TICKET_TTL_MS } from 
 import { createApp, runServer, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 
 import { mountRoutes } from './app-routes.js';
-import { getAuditClient } from './services/audit.js';
 import { startReportingRetention, stopReportingRetention } from './services/reporting-retention.js';
 
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck, jsonLimit: '5mb' });
 
 // Boot security: forward denied authorizations to the authz.denied audit sink +
 // register the env-Redis token-revocation reader (fail-open).
-wireServiceSecurity('reporting', getAuditClient);
+wireServiceSecurity('reporting');
 
 app.use(attachRequestContext(sseManager));
 
@@ -22,8 +21,6 @@ app.use(attachRequestContext(sseManager));
 // another service's SSE channel (e.g. message notifications) sharing this Redis.
 const executionTicketStore = createEnvSseTicketStore({
   ttlMs: SSE_TICKET_TTL_MS,
-  maxTotal: parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10),
-  maxPerOrg: parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10),
   keyPrefix: 'reporting-exec',
 });
 
@@ -35,7 +32,7 @@ void runServer(app, {
   onShutdown: async () => { stopReportingRetention(); },
 });
 
-// Split, per-org reporting retention sweep (Phase 7): leader-locked + batched.
+// Split, per-org reporting retention sweep: leader-locked + batched.
 // Deletes expired pipeline_events / deployment_outcomes / incidents by created_at
 // (standard-event vs DORA-source windows). Opt out with REPORTING_RETENTION_ENABLED=false.
 startReportingRetention();

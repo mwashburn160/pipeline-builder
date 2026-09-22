@@ -29,7 +29,7 @@ export function createRetentionRoutes(): Router {
 
   router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
     // A team reads its account ROOT's (billing-synced) retention.
-    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
+    const settings = await reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId));
     const eventRetentionDays = effectiveRetentionDays(settings, 'event');
     const doraRetentionDays = effectiveRetentionDays(settings, 'dora');
     ctx.log('COMPLETED', 'Read effective report retention', { eventRetentionDays, doraRetentionDays });

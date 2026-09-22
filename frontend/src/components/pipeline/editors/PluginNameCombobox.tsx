@@ -34,8 +34,8 @@ type Option = { key: string; pick: PluginPick };
  *
  * Offers the org's OWN plugins (grouped by category) and the catalog listings
  * this org can resolve — installed or implicitly installed Official ones —
- * with their publisher and trust tier. After W2 the Official catalog is no
- * longer in `GET /plugins`; it reaches the editor only as listings.
+ * with their publisher and trust tier. The Official catalog is not in
+ * `GET /plugins`; it reaches the editor only as listings.
  *
  * Both lists load lazily on first focus. An unqualified name that an own plugin
  * shadows over an Official listing gets the shadowing warning under the input.
@@ -149,7 +149,7 @@ export default function PluginNameCombobox({
         )}
       </div>
       {shadowed && <ShadowingNotice name={shadowed.name} publisher={shadowed.publisherHandle} compact />}
-      {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </div>
   );
 }

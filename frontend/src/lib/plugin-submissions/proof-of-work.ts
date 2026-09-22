@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The client half of the submission proof-of-work (plan §4.2, decision E3):
+ * The client half of the submission proof-of-work:
  * find a decimal `nonce` such that SHA-256(`${challenge}:${nonce}`) starts with
  * at least `difficulty` zero BITS. It mirrors api-core's
  * `utils/proof-of-work.ts` (`verifyProofOfWork`, `leadingZeroBits`), which is

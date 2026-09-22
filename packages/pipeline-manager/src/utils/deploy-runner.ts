@@ -123,7 +123,7 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
       },
       region,
     );
-    // The synth's step manifest (W0.1) rides the same registration — and the
+    // The synth's step manifest rides the same registration — and the
     // pending intent, so a retried registration still carries it.
     const steps = await readStepManifest(output);
     if (steps) payload.steps = steps;

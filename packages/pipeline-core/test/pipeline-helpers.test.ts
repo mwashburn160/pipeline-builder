@@ -56,7 +56,7 @@ jest.unstable_mockModule('../src/core/network.js', () => ({
 }));
 
 const { merge, replaceNonAlphanumeric, extractMetadataEnv } = await import('../src/core/metadata-helpers.js');
-const { createCodeBuildStep } = await import('../src/core/pipeline-helpers.js');
+const { createCodeBuildStep, resolvePluginImage } = await import('../src/core/pipeline-helpers.js');
 
 describe('merge', () => {
   it('should merge multiple metadata objects', () => {
@@ -313,5 +313,41 @@ describe('VALID_SECRET_NAME pattern (Fix 15 — secret path validation)', () => 
     expect(() => validateSecretPath('my-org', 'bad secret')).toThrow(
       'Secret path "pipeline-builder/my-org/bad secret" contains invalid characters for AWS Secrets Manager',
     );
+  });
+});
+
+describe('resolvePluginImage — guard rails', () => {
+  const digest = `sha256:${'a'.repeat(64)}`;
+  const base = {
+    name: 'nodejs-build',
+    version: '1.0.0',
+    buildType: 'build_image',
+    imageDigest: digest,
+    imageRepository: 'org-acme/nodejs-build',
+  } as unknown as Parameters<typeof resolvePluginImage>[1];
+  const scope = {} as Parameters<typeof resolvePluginImage>[0];
+
+  it('skips a metadata_only plugin (it runs in the default image)', () => {
+    expect(resolvePluginImage(scope, { ...base, buildType: 'metadata_only' }, 'acme')).toBeUndefined();
+  });
+
+  it('skips a malformed row with no version', () => {
+    expect(resolvePluginImage(scope, { ...base, version: '' }, 'acme')).toBeUndefined();
+  });
+
+  it('fails the synth when the image has no signed digest', () => {
+    expect(() => resolvePluginImage(scope, { ...base, imageDigest: null } as never, 'acme')).toThrow(/no signed image digest/);
+  });
+
+  it('fails the synth when the lookup supplied no image repository', () => {
+    expect(() => resolvePluginImage(scope, { ...base, imageRepository: 'Not/Valid' } as never, 'acme')).toThrow(/no image repository/);
+  });
+
+  it('skips without a construct scope', () => {
+    expect(resolvePluginImage(undefined, base, 'acme')).toBeUndefined();
+  });
+
+  it('skips without an orgId (the Basic-auth secret is per org)', () => {
+    expect(resolvePluginImage(scope, base, undefined)).toBeUndefined();
   });
 });

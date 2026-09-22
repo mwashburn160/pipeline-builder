@@ -14,10 +14,7 @@ import { render, screen } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import CompliancePage from '../pages/dashboard/compliance';
 
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ pathname: '/dashboard/compliance', query: {}, isReady: true, push: jest.fn<AnyFn>(), replace: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ pathname: '/dashboard/compliance', query: {}, isReady: true, push: jest.fn<AnyFn>(), replace: jest.fn<AnyFn>() })));
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 

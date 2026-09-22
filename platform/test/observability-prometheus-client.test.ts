@@ -6,10 +6,12 @@
  * the request shape (URL, query params) and the response transformation.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: { get prometheusUrl() { return process.env.PROMETHEUS_URL ?? 'http://prometheus:9090'; } } }));
 
 const { query, queryRange } = await import('../src/observability/prometheus-client.js');
 
@@ -111,6 +113,11 @@ describe('prometheus-client error mapping', () => {
     await expect(query('up')).rejects.toMatchObject({
       kind: 'unreachable',
     });
+  });
+
+  it('throws unreachable (not a catalog bug) when Prometheus returns 503', async () => {
+    fetchMock.mockResolvedValue(new Response('service unavailable', { status: 503 }));
+    await expect(query('up')).rejects.toMatchObject({ kind: 'unreachable' });
   });
 
   it('throws upstream-4xx when 200 OK but status: error', async () => {

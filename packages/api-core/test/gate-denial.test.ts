@@ -21,15 +21,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { NextFunction, Request, Response } from 'express';
-import {
-  requireAllPermissions,
-  requireFeature,
-  requireInternalService,
-  requirePermission,
-  requirePermissionOrService,
-  requireServicePrincipal,
-  requireSystemAdmin,
-} from '../src/middleware/auth.js';
+import { requireAllPermissions, requireFeature, requireInternalService, requirePermission, requirePermissionOrService, requireServicePrincipal, requireSystemAdmin } from '../src/middleware/permission-gates.js';
 import { getRouteGates } from '../src/middleware/route-table.js';
 import type { Permission } from '../src/types/permissions.js';
 

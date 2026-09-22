@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The SAML sign-in path (#4, controllers/saml.ts) — the checks BETWEEN a
+ * The SAML sign-in path (controllers/saml.ts) — the checks BETWEEN a
  * verified assertion and a session.
  *
  * The cryptography is covered in saml-service.test.ts; what matters here is that
@@ -22,8 +22,9 @@
  *     Logout, keyed by the new session.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -48,15 +49,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, unknown>, key: string) => params?.[key],
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    oauth: {
-      callbackBaseUrl: 'https://pb.test',
-      cleanupIntervalMs: 600_000,
-      maxPendingStates: 1000,
-      samlRequestTtlMs: 600_000,
-      samlHandoffTtlMs: 120_000,
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  oauth: {
+    callbackBaseUrl: 'https://pb.test',
+    cleanupIntervalMs: 600_000,
+    maxPendingStates: 1000,
+    samlRequestTtlMs: 600_000,
+    samlHandoffTtlMs: 120_000,
   },
 }));
 
@@ -94,10 +93,10 @@ jest.unstable_mockModule('../src/services/saml-service.js', () => ({
   validateSamlResponse: (...a: unknown[]) => mockValidateSamlResponse(...a),
 }));
 
-jest.unstable_mockModule('../src/controllers/saml-slo.js', () => ({
+jest.unstable_mockModule('../src/services/saml-sessions.js', () => ({
   recordSamlSession: (...a: unknown[]) => mockRecordSamlSession(...a),
 }));
-jest.unstable_mockModule('../src/controllers/sso-test.js', () => ({
+jest.unstable_mockModule('../src/helpers/sso-test-flow.js', () => ({
   isTestState: (s: unknown) => typeof s === 'string' && s.startsWith('ssotest.'),
   handleSamlTestAssertion: (...a: unknown[]) => mockHandleTest(...a),
 }));
@@ -118,10 +117,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: (...a: unknown[]) => mockFindById(...a) },
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   signInAuth: () => ({ amr: ['sso'], aal: 1, authTime: new Date(0) }),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
 
@@ -137,8 +138,8 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
-const { beginSamlLogin, completeSamlLogin, getSamlMetadata, handleSamlAcs, __resetSamlControllerStores } =
-  await import('../src/controllers/saml.js');
+const { completeSamlLogin, getSamlMetadata, handleSamlAcs } = await import('../src/controllers/saml.js');
+const { beginSamlLogin } = await import('../src/services/saml-login-state.js');
 
 const ORG = 'org-1';
 
@@ -154,6 +155,7 @@ function makeRes() {
   return res;
 }
 
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 const { bindLoginToBrowser } = await import('../src/helpers/login-binding.js');
 /** The browser-binding cookie the last initiate set (helpers/login-binding.ts). */
 let bindingCookie = '';
@@ -193,7 +195,7 @@ function refusalDetails(): Record<string, unknown> {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  __resetSamlControllerStores();
+  _resetAllPendingStoresForTests();
   mockGetEnforcedSamlConfig.mockResolvedValue({ orgId: ORG, entityId: 'https://idp.test', certificates: ['cert'] });
   mockValidateSamlResponse.mockResolvedValue({
     subject: 'ada@acme.test',

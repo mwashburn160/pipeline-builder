@@ -12,16 +12,12 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import type { ApiCore } from '../src/lib/api/core';
 import { pluginsApi } from '../src/lib/api/domains/plugins';
 import { ApiError } from '../src/lib/api/errors';
 import { PluginSupplyChain, truncateDigest } from '../src/components/plugin/PluginSupplyChain';
 
 const toastError = jest.fn<AnyFn>();
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ error: toastError, success: jest.fn(), warning: jest.fn(), info: jest.fn() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ error: toastError, success: jest.fn(), warning: jest.fn(), info: jest.fn() })));
 
 const downloadPluginSbom = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
@@ -30,7 +26,7 @@ jest.mock('@/lib/api', () => ({
 }));
 
 const triggerBlobDownload = jest.fn<AnyFn>();
-jest.mock('@/lib/csv-export', () => ({
+jest.mock('@/lib/download', () => ({
   __esModule: true,
   triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a),
 }));
@@ -93,10 +89,8 @@ describe('PluginSupplyChain', () => {
 });
 
 describe('downloadPluginSbom', () => {
-  const core = {
-    ensureFreshToken: jest.fn<AnyFn>(async () => undefined),
-    authHeaders: jest.fn<AnyFn>(() => ({ Authorization: 'Bearer t' })),
-  } as unknown as ApiCore;
+  const { ApiCore } = jest.requireActual<typeof import('../src/lib/api/core')>('../src/lib/api/core');
+  const core = new ApiCore();
 
   function respond(status: number, body: unknown, headers: Record<string, string> = {}) {
     global.fetch = jest.fn<AnyFn>(async () => ({

@@ -56,7 +56,7 @@ export function SamlMetadataImport({
   };
 
   return (
-    <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 p-3 space-y-3" data-testid="saml-metadata-import">
+    <div className="rounded-lg border border-dashed border-default p-3 space-y-3" data-testid="saml-metadata-import">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-medium text-fg-muted">Import identity-provider metadata</p>
         <SegmentedFilter
@@ -67,7 +67,7 @@ export function SamlMetadataImport({
         />
       </div>
       <ErrorAlert message={form.error} />
-      {form.success && <p className="text-xs text-green-700 dark:text-green-400">{form.success}</p>}
+      {form.success && <p className="text-xs text-success">{form.success}</p>}
       {source === 'url' ? (
         <Input
           type="url"

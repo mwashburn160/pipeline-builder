@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The publish-request form (plan §3.1a steps 3–4):
+ * The publish-request form :
  *  - new listing: accept-or-edit fields with source badges, a live card preview
  *    that follows the edits, and only EDITED fields sent as `metadata`;
  *  - a failing gate blocks submit;

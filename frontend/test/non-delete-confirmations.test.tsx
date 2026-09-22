@@ -20,11 +20,8 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 const mockRouter = { query: {}, pathname: '/dashboard/x', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ organizations: [{ id: 'org-1', name: 'Acme' }], refreshUser: jest.fn<AnyFn>(), switchOrganization: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ organizations: [{ id: 'org-1', name: 'Acme' }], refreshUser: jest.fn<AnyFn>(), switchOrganization: jest.fn<AnyFn>() })));
 
 /** Every api method resolves to an empty success unless a test overrides it. */
 const mockApiOverrides: Record<string, jest.Mock<AnyFn>> = {};

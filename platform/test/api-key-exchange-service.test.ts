@@ -44,12 +44,16 @@ const mockMembershipForOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockSignApiKeyToken = jest.fn<(...a: unknown[]) => Promise<string>>(async () => 'minted.user.jwt');
 const mockSignServiceAccountToken = jest.fn<(...a: unknown[]) => Promise<string>>(async () => 'minted.sa.jwt');
 const mockEnforceOrgAssurance = jest.fn<(...a: any[]) => Promise<unknown>>();
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
-  enforceOrgAssurance: (...a: unknown[]) => mockEnforceOrgAssurance(...a),
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
   membershipForOrg: (...a: unknown[]) => mockMembershipForOrg(...a),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
+  enforceOrgAssurance: (...a: unknown[]) => mockEnforceOrgAssurance(...a),
   signApiKeyToken: (...a: unknown[]) => mockSignApiKeyToken(...a),
   signServiceAccountToken: (...a: unknown[]) => mockSignServiceAccountToken(...a),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
 }));
 
 const mockResolveServiceAccount = jest.fn<(...a: unknown[]) => Promise<any>>();

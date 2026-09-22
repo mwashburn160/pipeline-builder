@@ -105,7 +105,7 @@ export function SysadminHome() {
               }
               sub={summary.encryption.perOrgKmsEnabled
                 ? 'enabled at process level'
-                : <span className="text-amber-600 dark:text-amber-400">opt-in disabled</span>}
+                : <span className="text-warning">opt-in disabled</span>}
             />
             <StatCard
               variant="nav"
@@ -150,7 +150,7 @@ export function SysadminHome() {
               </dl>
 
               {summary.rls.contextMode !== 'strict' && (
-                <div className="mt-3 flex gap-2 rounded-md bg-amber-50 dark:bg-amber-900/20 px-2.5 py-2 text-xs text-amber-800 dark:text-amber-300">
+                <div className="mt-3 flex gap-2 rounded-md bg-warning-bg px-2.5 py-2 text-xs text-warning-strong">
                   <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-px" />
                   <div>
                     RLS is in <code>{summary.rls.contextMode}</code>. Production should run in

@@ -15,16 +15,18 @@
  * - Forwards caller orgId (lowercased) to the SQL parameters.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindById = jest.fn<AnyFn>();
 const mockExecute = jest.fn<AnyFn>();
 
-// The listing half of lookup (plan §3.5) — unit-tested in installs-lookup.test.ts.
-jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
+// The listing half of lookup — unit-tested in ecosystem-installs.test.ts.
+// The real raw-result reader (a pure function), loaded before the module mock.
+const realPgResult = await import('@pipeline-builder/pipeline-data/lib/database/pg-result.js');
+jest.unstable_mockModule('../src/services/ecosystem/lookup.js', () => ({
   resolveListedLookup: jest.fn(async () => null),
   shadowedListing: jest.fn(async () => null),
   verifyListedImage: jest.fn(async () => undefined),
@@ -53,7 +55,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId ?? 'org-1', userId: 'u-1' });
   },
-  incrementQuotaFromCtx: jest.fn<AnyFn>(),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
@@ -67,6 +69,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   Config: { get: () => ({}) },
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  executeRows: realPgResult.executeRows,
   // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
   isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
   // The route was migrated from direct `db.execute(...)` to
@@ -151,7 +154,7 @@ describe('GET /plugins/plugin-usage', () => {
     expect(strings).toContain('org-zzz');
   });
 
-  it('keys qualified references by publisher/name (G17) and counts the synth plugin', async () => {
+  it('keys qualified references by publisher/name and counts the synth plugin', async () => {
     mockExecute.mockResolvedValue({ rows: [{ ref_key: 'lint', cnt: '2' }, { ref_key: 'acme/lint', cnt: '1' }] });
     const res = mockRes();
     await handler({ __orgId: 'org-a', query: {} } as any, res);

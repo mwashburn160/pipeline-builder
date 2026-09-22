@@ -5,7 +5,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { clearPluginCache } from '@/hooks/usePlugins';
 import type { UserOrgMembership } from '@/types';
 import { formatError } from '@/lib/constants';
 
@@ -60,9 +59,8 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   const ref = useRef<HTMLDivElement>(null);
 
   /**
-   * Keyboard behaviour a `role="menu"` owes the user. The menu previously closed
-   * only on an outside MOUSEDOWN: no Escape, no arrow keys, and focus was left on
-   * a button inside a menu that had vanished. `organizations.length > 1` is
+   * Keyboard behaviour a `role="menu"` owes the user: Escape, arrow keys, and
+   * focus never left inside a vanished menu. `organizations.length > 1` is
    * re-derived here (rather than reusing `canSwitch`) because that constant is
    * declared after the `!user` early return, below these hooks.
    */
@@ -137,7 +135,6 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
     setSwitching(true);
     try {
       await switchOrganization(orgId);
-      clearPluginCache();
       setOpen(false);
       const orgName = organizations.find(o => o.id === orgId)?.name || orgId;
       toast.success(`Switched to ${orgName}`);

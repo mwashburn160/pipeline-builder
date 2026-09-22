@@ -136,7 +136,7 @@ export function authApi(core: ApiCore) {
      * `verifyMfaLogin` rather than assume a session exists.
      *
      * A third, rare shape carries `mfaEnrollmentPending: true` ALONGSIDE a real
-     * token (#8): the install's bootstrap administrator, who has no factor yet.
+     * token: the install's bootstrap administrator, who has no factor yet.
      * The session is genuine but reaches only enrolment, sign-out and the setup
      * routes, so the caller sends them straight to enrolment rather than to a
      * dashboard that would answer 403 on every panel.

@@ -4,11 +4,12 @@
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from './entity-events.js';
 import { InternalHttpClient } from './http-client.js';
 import { serviceIdentity } from './service-keys.js';
-import { getServiceAuthHeader } from '../middleware/auth.js';
+import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { type ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
+import { serviceEndpoint } from '../utils/service-registry.js';
 
 const logger = createLogger('compliance-events');
 
@@ -32,8 +33,8 @@ export function registerComplianceEventSubscriber(
   serviceName: string = serviceIdentity(),
 ): void {
   const serviceConfig: ServiceConfig = {
-    host: config?.host ?? process.env.COMPLIANCE_SERVICE_HOST ?? 'compliance',
-    port: config?.port ?? parseInt(process.env.COMPLIANCE_SERVICE_PORT ?? '3000', 10),
+    host: config?.host ?? serviceEndpoint('compliance').host,
+    port: config?.port ?? serviceEndpoint('compliance').port,
   };
 
   const client = new InternalHttpClient(serviceConfig);
@@ -44,8 +45,7 @@ export function registerComplianceEventSubscriber(
         // Mint a per-event service JWT scoped to the event's org so the
         // compliance route's `runWithTenantContext` sees the right tenant
         // GUC. The compliance side enforces `requireAuth` +
-        // `requireServicePrincipal` — the previous `x-internal-service`
-        // header is no longer sufficient (and was spoofable).
+        // `requireServicePrincipal`; no plaintext header is trusted.
         //
         // This HTTP notify is the SINGLE delivery channel for post-mutation
         // re-validation (primary enforcement is the fail-CLOSED live

@@ -14,7 +14,7 @@ import os from 'os';
 import path from 'path';
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 
-// macOS realpath()s os.tmpdir() (/var → /private/var); the strategy compares the
+// macOS realpaths os.tmpdir() (/var → /private/var); the strategy compares the
 // Dockerfile's realpath against extractDir, so canonicalize the temp dir to match.
 const mkTmp = () => realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-')));
 

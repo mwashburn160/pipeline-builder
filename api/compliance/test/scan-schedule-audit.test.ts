@@ -16,12 +16,13 @@ const createMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const updateMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const toggleMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const softDeleteMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const emitComplianceAuditMock = jest.fn();
+const recordAuditMock = jest.fn();
 
 let validatePasses = true;
 let cronValid = true;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   validateBody: (req: any) =>
@@ -45,10 +46,6 @@ jest.unstable_mockModule('../src/helpers/scan-scheduler.js', () => ({
   isValidCronExpression: () => cronValid,
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
-}));
 
 jest.unstable_mockModule('../src/services/compliance-scan-schedule-service.js', () => ({
   complianceScanScheduleService: {
@@ -96,7 +93,7 @@ describe('POST / — create emits compliance.scan-schedule.create', () => {
     await handler({ __orgId: 'org-a', body: { target: 'plugin', cronExpression: '* * * * *' }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(201);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.scan-schedule.create',
       actorId: 'u-1',
       targetType: 'scan-schedule',
@@ -112,7 +109,7 @@ describe('POST / — create emits compliance.scan-schedule.create', () => {
     await handler({ __orgId: 'org-a', body: { target: 'plugin', cronExpression: 'bad' }, user: USER } as any, res);
     expect(status).toHaveBeenCalledWith(400);
     expect(createMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -125,7 +122,7 @@ describe('PUT /:id — update emits compliance.scan-schedule.update', () => {
     await handler({ __orgId: 'org-a', params: { id: SCHED_ID }, body: { target: 'all' }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.scan-schedule.update',
       targetId: SCHED_ID,
       details: { target: 'all' },
@@ -138,7 +135,7 @@ describe('PUT /:id — update emits compliance.scan-schedule.update', () => {
     const { res, status } = makeRes();
     await handler({ __orgId: 'org-a', params: { id: SCHED_ID }, body: { target: 'all' }, user: USER } as any, res);
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -151,7 +148,7 @@ describe('PATCH /:id/active — toggle emits compliance.scan-schedule.update wit
     await handler({ __orgId: 'org-a', params: { id: SCHED_ID }, body: { isActive: false }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.scan-schedule.update',
       targetId: SCHED_ID,
       details: { active: false },
@@ -164,7 +161,7 @@ describe('PATCH /:id/active — toggle emits compliance.scan-schedule.update wit
     const { res, status } = makeRes();
     await handler({ __orgId: 'org-a', params: { id: SCHED_ID }, body: { isActive: true }, user: USER } as any, res);
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -177,7 +174,7 @@ describe('DELETE /:id — delete emits compliance.scan-schedule.delete', () => {
     await handler({ __orgId: 'org-a', params: { id: SCHED_ID }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.scan-schedule.delete',
       targetId: SCHED_ID,
       details: { target: 'pipeline' },
@@ -190,6 +187,6 @@ describe('DELETE /:id — delete emits compliance.scan-schedule.delete', () => {
     const { res, status } = makeRes();
     await handler({ __orgId: 'org-a', params: { id: SCHED_ID }, user: USER } as any, res);
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });

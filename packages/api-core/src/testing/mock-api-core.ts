@@ -61,9 +61,9 @@ export const mockErrorCode = new Proxy({}, { get: (_t, key) => key }) as Record<
 /** No-op guard: the default mock covers route wiring, not the permission gate. */
 export const passThroughMiddleware = (_req: unknown, _res: unknown, next: Next): void => next();
 
-/** Mirrors api-core's `AppError` base (typed HTTP error: statusCode + code). */
+/** Mirrors api-core's `AppError` base (typed HTTP error: statusCode + code + optional details). */
 export class MockAppError extends Error {
-  constructor(public readonly statusCode: number, public readonly code: string, message?: string) {
+  constructor(public readonly statusCode: number, public readonly code: string, message?: string, public readonly details?: Record<string, unknown>) {
     super(message);
     this.name = 'AppError';
   }
@@ -151,13 +151,17 @@ export function serviceApiCoreDefaults(): Record<string, unknown> {
     MAX_PAGE_LIMIT: 1000,
     DEFAULT_PAGE_LIMIT: 100,
     closeLeaderLock: async () => undefined,
-    loadAndRestore: async () => null,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiersFromString: (s: string) => s,
     scrubAwsIdentifiers: <T>(v: T): T => v,
     createScheduler: () => ({ start: () => undefined, stop: () => undefined }),
     createEnvRedisLock: () => null,
     requireStepUp: (_req: unknown, _res: unknown, next: Next) => next(),
+    // The central-trail emitter. The real one throws until `wireServiceSecurity`
+    // binds a service, which no route suite runs — so it is inert by default,
+    // and a suite asserting on emission passes its own spy:
+    // `apiCoreMock({ recordAudit: auditSpy })`.
+    recordAudit: jest.fn(),
     SYSTEM_ORG_ID: '000000000000000000000001',
     ComputeType: { SMALL: 'SMALL', MEDIUM: 'MEDIUM', LARGE: 'LARGE', X2_LARGE: 'X2_LARGE' },
     PluginType: { CODE_BUILD_STEP: 'CodeBuildStep', SHELL_STEP: 'ShellStep', MANUAL_APPROVAL_STEP: 'ManualApprovalStep' },
@@ -172,8 +176,8 @@ export function serviceApiCoreDefaults(): Record<string, unknown> {
 }
 
 /**
- * The audit / security wiring a service's boot module (`src/index.ts`,
- * `src/services/audit.ts`) links at load time. Inert by default: nothing asserts
+ * The audit / security wiring a service's boot module (`src/index.ts`) and its
+ * audited routes link at load time. Inert by default: nothing asserts
  * on the registration, and pulling the real graph in would drag Redis + HTTP
  * clients into every route suite.
  */
@@ -181,8 +185,6 @@ export function serviceAuditDefaults(): Record<string, unknown> {
   return {
     createRemoteAuditClient: () => ({ record: jest.fn() }),
     createEnvRedisAuditSpool: () => null,
-    createServiceAuditClient: () => ({ emit: jest.fn(), client: { record: jest.fn() } }),
-    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
     setAuthzDenialAuditor: () => {},
     wireAuthzDenialAuditor: () => {},
     wireServiceSecurity: () => {},

@@ -119,7 +119,7 @@ router.get('/alert-destinations/all', requireAuth, requireSystemAdmin, listAllAl
 // same target masking) as the live list.
 router.get('/alert-destinations/deleted', requireAuth, requirePermission('observability:read'), listDeletedAlertDestinations);
 // Static `observability:write` capability gated at the route so it's auditable
-// from the route table (handlers no longer re-check). The per-org data scoping
+// from the route table (handlers do not re-check). The per-org data scoping
 // (findById(id, orgId)) inside the handlers is orthogonal to this gate.
 router.post('/alert-destinations', requireAuth, requirePermission('observability:write'), audited('alert.destination.create'), createAlertDestination);
 router.put('/alert-destinations/:id', requireAuth, requirePermission('observability:write'), audited('alert.destination.update'), updateAlertDestination);
@@ -147,7 +147,7 @@ router.get('/alert-rules/materialized.yml', requireAuth, requireSystemAdmin, mat
 router.get('/alert-rules/deleted', requireAuth, requirePermission('observability:read'), listDeletedAlertRules);
 router.get('/alert-rules', requireAuth, requirePermission('observability:read'), listAlertRules);
 // Static `observability:write` capability gated at the route (auditable); the
-// handlers no longer re-check. Org-scoping (prepareRuleExpr / org-scoped
+// handlers do not re-check. Org-scoping (prepareRuleExpr / org-scoped
 // service ops) is separate from this capability gate.
 router.post('/alert-rules', requireAuth, requirePermission('observability:write'), audited('alert.rule.create'), createAlertRule);
 router.put('/alert-rules/:id', requireAuth, requirePermission('observability:write'), audited('alert.rule.update'), updateAlertRule);

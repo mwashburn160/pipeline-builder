@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { envBool, envInt, envStr, serviceEndpoint } from '@pipeline-builder/api-core';
+
 export type BillingProviderType = 'stub' | 'aws-marketplace' | 'stripe';
 
 export interface MarketplaceConfig {
@@ -173,22 +175,52 @@ function safeJsonParse<T>(value: string | undefined, fallback: T, envVarName: st
   }
 }
 
-const billingEnabled = (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false';
+/**
+ * Strict integer env read that also warns when a value is SET but malformed.
+ * `envInt` falls back to the default for anything that isn't a clean integer
+ * (a raw `parseInt` yields NaN for `abc`, and a NaN interval makes `setInterval`
+ * fire continuously); the warning keeps that fallback from being a silent no-op
+ * for the operator who typo'd the value.
+ */
+function intSetting(name: string, def: number, opts?: { min?: number; max?: number }): number {
+  const raw = process.env[name]?.trim();
+  if (raw && !/^[+-]?\d+$/.test(raw)) {
+    // eslint-disable-next-line no-console -- startup config warning before logger is available
+    console.warn(`Invalid integer in ${name}, using default ${def}:`, raw);
+  }
+  return envInt(name, def, opts);
+}
+
+const PROVIDERS: readonly BillingProviderType[] = ['stub', 'aws-marketplace', 'stripe'];
+
+/**
+ * `BILLING_PROVIDER`, validated. The provider factory falls back to the stub
+ * provider for an unknown value, so a typo (`strpe`) would silently run billing
+ * without charging anyone — warn loudly and report the provider actually used.
+ */
+function resolveBillingProvider(): BillingProviderType {
+  const raw = envStr('BILLING_PROVIDER', 'stub');
+  if ((PROVIDERS as readonly string[]).includes(raw)) return raw as BillingProviderType;
+  // eslint-disable-next-line no-console -- startup config warning before logger is available
+  console.warn(`BILLING_PROVIDER is not a valid provider (${PROVIDERS.join(', ')}) — falling back to stub:`, raw);
+  return 'stub';
+}
+
+const billingEnabled = envBool('BILLING_ENABLED', true);
 
 // Single discount switch (on by default). It governs the discount surface AND
 // Marketplace metered-credit realization, so the two are the SAME value — there
 // is no separate Marketplace opt-in.
-const discountsEnabled = (process.env.BILLING_DISCOUNTS_ENABLED || 'true').toLowerCase() !== 'false';
+const discountsEnabled = envBool('BILLING_DISCOUNTS_ENABLED', true);
 // Promotions (rule-driven auto-grants) follow the SAME opt-out default as
-// discounts (`BILLING_DISCOUNTS_ENABLED`) — on unless set to `false` — and share
-// its usage-credit machinery, so they're additionally gated on `discountsEnabled`
-// (discounts off ⇒ promotions off, since a promo credit couldn't be realized).
-const promotionsEnabled =
-  (process.env.BILLING_PROMOTIONS_ENABLED || 'true').toLowerCase() !== 'false' && discountsEnabled;
+// discounts (`BILLING_DISCOUNTS_ENABLED`) and share its usage-credit machinery,
+// so they're additionally gated on `discountsEnabled` (discounts off ⇒
+// promotions off, since a promo credit couldn't be realized).
+const promotionsEnabled = envBool('BILLING_PROMOTIONS_ENABLED', true) && discountsEnabled;
 // Parsed ONCE — the top-level `meteringEnabled` (scheduler gate) and
 // `marketplace.meteringEnabled` (credit-drawdown gate + provider invariant) MUST be
 // the same value, so they read this single const rather than re-parsing the env.
-const meteringEnabled = (process.env.BILLING_METERING_ENABLED || '').toLowerCase() === 'true';
+const meteringEnabled = envBool('BILLING_METERING_ENABLED', false);
 
 if (billingEnabled && !process.env.MONGODB_URI) {
   throw new Error('MONGODB_URI environment variable is required when BILLING_ENABLED=true');
@@ -196,45 +228,30 @@ if (billingEnabled && !process.env.MONGODB_URI) {
 
 export const config: AppConfig = {
   enabled: billingEnabled,
-  port: parseInt(process.env.PORT || '3000', 10),
-  billingProvider: (process.env.BILLING_PROVIDER || 'stub') as BillingProviderType,
+  port: intSetting('PORT', 3000, { min: 1 }),
+  billingProvider: resolveBillingProvider(),
 
   mongodb: {
     uri: process.env.MONGODB_URI || '',
   },
 
-  quotaService: {
-    host: process.env.QUOTA_SERVICE_HOST || 'quota',
-    port: parseInt(process.env.QUOTA_SERVICE_PORT || '3000', 10),
-  },
+  quotaService: serviceEndpoint('quota'),
 
-  platformService: {
-    host: process.env.PLATFORM_SERVICE_HOST || 'platform',
-    port: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
-  },
+  platformService: serviceEndpoint('platform'),
 
-  messageService: {
-    host: process.env.MESSAGE_SERVICE_HOST || 'message',
-    port: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
-  },
+  messageService: serviceEndpoint('message'),
 
-  reportingService: {
-    host: process.env.REPORTING_SERVICE_HOST || 'reporting',
-    port: parseInt(process.env.REPORTING_SERVICE_PORT || '3000', 10),
-  },
+  reportingService: serviceEndpoint('reporting'),
 
-  complianceService: {
-    host: process.env.COMPLIANCE_SERVICE_HOST || 'compliance',
-    port: parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3000', 10),
-  },
+  complianceService: serviceEndpoint('compliance'),
 
-  paymentGracePeriodDays: parseInt(process.env.PAYMENT_GRACE_PERIOD_DAYS || '7', 10),
-  renewalReminderDays: parseInt(process.env.RENEWAL_REMINDER_DAYS || '7', 10),
-  lifecycleCheckIntervalMs: parseInt(process.env.BILLING_LIFECYCLE_CHECK_INTERVAL_MS || '3600000', 10),
-  entitlementDriftMaxPerTick: parseInt(process.env.BILLING_ENTITLEMENT_DRIFT_MAX_PER_TICK || '100', 10),
-  entitlementDriftIntervalMs: parseInt(process.env.BILLING_ENTITLEMENT_DRIFT_INTERVAL_MS || '86400000', 10),
+  paymentGracePeriodDays: intSetting('PAYMENT_GRACE_PERIOD_DAYS', 7, { min: 0 }),
+  renewalReminderDays: intSetting('RENEWAL_REMINDER_DAYS', 7, { min: 0 }),
+  lifecycleCheckIntervalMs: intSetting('BILLING_LIFECYCLE_CHECK_INTERVAL_MS', 3_600_000, { min: 1000 }),
+  entitlementDriftMaxPerTick: intSetting('BILLING_ENTITLEMENT_DRIFT_MAX_PER_TICK', 100, { min: 0 }),
+  entitlementDriftIntervalMs: intSetting('BILLING_ENTITLEMENT_DRIFT_INTERVAL_MS', 86_400_000, { min: 0 }),
   meteringEnabled,
-  meteringIntervalMs: parseInt(process.env.BILLING_METERING_INTERVAL_MS || '3600000', 10),
+  meteringIntervalMs: intSetting('BILLING_METERING_INTERVAL_MS', 3_600_000, { min: 1000 }),
   frontendUrl: process.env.PLATFORM_FRONTEND_URL || '',
 
   marketplace: {
@@ -255,7 +272,7 @@ export const config: AppConfig = {
       // purchased"). Register these dimensions on the listing, or override this
       // map to translate bundle IDs → the listing's actual dimension names.
       // Keep this in sync with the sellable bundles in
-      // packages/pipeline-core/src/config/billing-config.ts — an add-on absent
+      // src/config/billing-config.ts — an add-on absent
       // here (and with no override) is granted but NEVER metered on Marketplace.
       {
         seat: 'seat',
@@ -271,7 +288,7 @@ export const config: AppConfig = {
         team_usage_analytics: 'team_usage_analytics',
         compliance_standard: 'compliance_standard',
         compliance_advanced: 'compliance_advanced',
-        // Phase 8 retention add-ons (metered "packs purchased"). The reporting
+        // Retention add-ons (metered "packs purchased"). The reporting
         // retention-sync leg carries the effective days; these dimensions meter
         // the purchase for Marketplace-billed accounts.
         retention_pack: 'RetentionPack',
@@ -291,7 +308,7 @@ export const config: AppConfig = {
     // Same single-parsed value as the top-level flag so the provider can enforce
     // the "no banking a credit without a drawdown cycle" invariant on its own.
     meteringEnabled,
-    drawdownDryRun: (process.env.BILLING_METERING_DRAWDOWN_DRYRUN || '').toLowerCase() === 'true',
+    drawdownDryRun: envBool('BILLING_METERING_DRAWDOWN_DRYRUN', false),
   },
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY || '',
@@ -307,12 +324,12 @@ export const config: AppConfig = {
     // BILLING_DISCOUNTS_ENABLED=false to hide the discount surface. The SAME
     // switch drives Marketplace metered credits (marketplace.creditsEnabled).
     enabled: discountsEnabled,
-    maxPercent: Math.min(100, parseInt(process.env.BILLING_DISCOUNT_MAX_PERCENT || '100', 10) || 100),
-    maxCents: parseInt(process.env.BILLING_DISCOUNT_MAX_CENTS || '10000000', 10) || 10000000,
+    maxPercent: intSetting('BILLING_DISCOUNT_MAX_PERCENT', 100, { min: 1, max: 100 }),
+    maxCents: intSetting('BILLING_DISCOUNT_MAX_CENTS', 10_000_000, { min: 1 }),
   },
   promotions: {
     enabled: promotionsEnabled,
-    backfillIntervalMs: parseInt(process.env.BILLING_PROMOTION_BACKFILL_INTERVAL_MS || '3600000', 10) || 3600000,
-    clawbackWindowMs: parseInt(process.env.BILLING_PROMOTION_CLAWBACK_WINDOW_MS || String(7 * 24 * 3600 * 1000), 10) || 7 * 24 * 3600 * 1000,
+    backfillIntervalMs: intSetting('BILLING_PROMOTION_BACKFILL_INTERVAL_MS', 3_600_000, { min: 1000 }),
+    clawbackWindowMs: intSetting('BILLING_PROMOTION_CLAWBACK_WINDOW_MS', 7 * 24 * 3600 * 1000, { min: 0 }),
   },
 };

@@ -52,7 +52,7 @@ describe('extractPluginNames', () => {
     expect(extractPluginNames({ synth: { plugin: { name: 'synth-tool' } } })).toEqual([]);
   });
 
-  it('skips publisher references: a listing is installed, never given a placeholder (G17)', () => {
+  it('skips publisher references: a listing is installed, never given a placeholder', () => {
     expect(extractPluginNames({
       stages: [{ steps: [{ plugin: { publisher: 'acme', name: 'lint' } }, { plugin: { name: 'lint', publisher: '' } }] }],
     })).toEqual(['lint']);

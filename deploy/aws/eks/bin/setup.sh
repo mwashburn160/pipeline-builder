@@ -20,9 +20,7 @@ DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"      # deploy/aws/eks
 CONFIG_DIR="$DEPLOY_DIR/config"
 NGINX_DIR="$DEPLOY_DIR/nginx"
 K8S_DIR="$DEPLOY_DIR/k8s"
-# deploy/bin (shared key generators). Phase 4 calls token-signing-keys.sh,
-# plugin-signing-keys.sh and service-signing-keys.sh through it; it was
-# referenced without being defined, which `set -u` turns into an abort there.
+# deploy/bin (shared helpers and key generators).
 BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"
 ENV_FILE="$DEPLOY_DIR/.env"
 
@@ -33,9 +31,6 @@ DOMAIN="${DOMAIN:-}"
 HOSTED_ZONE_ID="${HOSTED_ZONE_ID:-}"
 DEPLOY_MODE="${DEPLOY_MODE:-private}"            # public (internet-facing ALB) | private (internal)
 NAMESPACE="${NAMESPACE:-pipeline-builder}"
-# Istio ambient mesh version (ambient-GA >= 1.24). AWS recommends EKS Auto Mode
-# + Istio ambient. Overridable; bump to current stable at deploy time.
-ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 EKS_VERSION="${EKS_VERSION:-1.36}"               # pinned default for fresh installs; `latest` tracks newest, or --eks-version X
@@ -95,7 +90,8 @@ ALB_SCHEME=$([ "$DEPLOY_MODE" = public ] && echo internet-facing || echo interna
 
 # ---- Helpers ----
 log() { echo ""; echo "=== $1 ==="; }
-# Shared Secret/ConfigMap creators (deploy/bin/k8s-resources.sh) — plain kubectl, this namespace.
+# Shared k8s bring-up (deploy/bin/k8s-resources.sh): Secret/ConfigMap creators, add-on
+# installs (pinned ISTIO/GATEWAY_API/KEDA versions) and the apply phase — plain kubectl.
 # PB_KUBECTL/PB_NAMESPACE are consumed by the sourced k8s-resources.sh (cross-file use).
 # shellcheck disable=SC2034
 PB_KUBECTL="kubectl"
@@ -333,7 +329,7 @@ pb_create_token_signing_secret "$DEPLOY_DIR/certs/token-signing/token-signing.ke
 AWS_REGION="$REGION" bash "$BIN_DIR/plugin-signing-keys.sh" "$DEPLOY_DIR/certs"
 pb_create_plugin_signing_secrets "$DEPLOY_DIR/certs/plugin-signing"
 
-# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14). Like the
+# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens. Like the
 # user-token key these must SURVIVE the deploy (regenerating one would break
 # every in-flight internal call from that service), so they live in the
 # persistent cert dir and the generator skips existing keys. One
@@ -344,8 +340,8 @@ bash "$BIN_DIR/service-signing-keys.sh" "$DEPLOY_DIR/certs"
 pb_create_service_key_secrets "$DEPLOY_DIR/certs/service-keys"
 rm -rf "$CERT_DIR"
 
-# Generate the MongoDB replica-set keyfile per-deploy (idempotent; a fresh
-# checkout no longer ships one). pb_create_config_maps reads it directly.
+# Generate the MongoDB replica-set keyfile per-deploy (idempotent; the keyfile is
+# never committed). pb_create_config_maps reads it directly.
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/../../../bin/mongo-keyfile.sh"
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
@@ -512,13 +508,8 @@ fi
 
 # ---- Phase 6: KEDA (plugin ScaledObject CRD) -------------------------------
 log "Phase 6: KEDA operator"
-# plugin.yaml ships a keda.sh/v1alpha1 ScaledObject; Auto Mode does NOT bundle
-# KEDA, so install the CRDs+operator first or the manifest apply below fails with
-# "no matches for kind ScaledObject" (mirrors ec2/bin/startup.sh).
-# v2.20.2 is the newest KEDA (tested on k8s 1.33–1.35 per the KEDA matrix); the
-# old v2.16.1 was tested only through 1.31, four minors behind EKS_VERSION=1.36.
-kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.20.2/keda-2.20.2.yaml
-kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=180s 2>/dev/null || echo "  KEDA not ready yet (the ScaledObject will reconcile once it is)"
+# Auto Mode does NOT bundle KEDA; plugin.yaml's ScaledObject needs it.
+pb_install_keda 180s
 
 # ---- Phase 6a: metrics-server (HPA cpu/mem + KEDA cpu/mem triggers) ---------
 log "Phase 6a: metrics-server"
@@ -533,10 +524,8 @@ kubectl wait --for=condition=Available deployment/metrics-server -n kube-system 
 
 # ---- Phase 6b: Istio ambient service mesh ----------------------------------
 log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
-# AWS recommends EKS Auto Mode + Istio ambient. Installed BEFORE the workloads
-# so istio-cni + ztunnel are ready when app pods start; the namespace is enrolled
-# via the ambient label on namespace.yaml. STRICT mTLS + AuthorizationPolicies
-# live in k8s/istio.yaml (identical policy model to local/ec2). See docs/service-mesh.md.
+# AWS recommends EKS Auto Mode + Istio ambient; the install itself is shared
+# (pb_install_istio_ambient — see it for the ordering/Gateway API rationale).
 #
 # Auto Mode / multi-node specifics:
 #   - istio-cni + ztunnel run as privileged host-net DaemonSets. Their default
@@ -547,32 +536,12 @@ log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
 #   - Node SecurityGroups MUST allow node<->node HBONE :15008 (cross-node mTLS)
 #     plus istiod xDS :15012 / webhook :15017. Auto Mode manages the node SG —
 #     confirm these are permitted (see docs/aws-deployment.md).
-# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary). The
-# shared ensure_istioctl guarantees it — auto-installing $ISTIO_VERSION if the host
-# has none or any OTHER version (exact match); identical on every target (see common.sh).
+# Auto-installs exactly $ISTIO_VERSION if the host has none or another version.
 ensure_istioctl "$ISTIO_VERSION"
-istioctl install --skip-confirmation \
-  --set profile=ambient \
-  --set values.pilot.replicaCount=2 \
-  --set "meshConfig.extensionProviders[0].name=jaeger" \
-  --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local" \
-  --set "meshConfig.extensionProviders[0].opentelemetry.port=4317"
-kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
-kubectl rollout status daemonset/ztunnel -n istio-system --timeout=180s 2>/dev/null || echo "  ztunnel not ready yet"
-kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=180s 2>/dev/null || echo "  istio-cni not ready yet"
+PB_MESH_ROLLOUT_TIMEOUT=180s pb_install_istio_ambient --set values.pilot.replicaCount=2
 # PodDisruptionBudget so an AZ/node drain never takes istiod to zero.
 kubectl -n istio-system create poddisruptionbudget istiod --selector=app=istiod --min-available=1 --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
 
-# The `pb-waypoint` Gateway (k8s/istio-internal-routes.yaml) is a Kubernetes
-# Gateway API resource, and `istioctl install` does NOT ship those CRDs — without
-# them the manifest apply below dies on an unknown kind. Install the standard
-# channel once; idempotent, so a cluster that already has them is untouched.
-# Pinned rather than `latest` so a provision is reproducible.
-GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"
-if ! kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
-  echo "  installing Gateway API CRDs ($GATEWAY_API_VERSION) for the ambient waypoint"
-  kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
-fi
 echo "  Istio ambient installed (HA istiod + ztunnel + istio-cni)"
 
 # ---- Phase 7: apply workloads (kustomize overlay) --------------------------
@@ -581,27 +550,13 @@ log "Phase 7: apply workloads"
 # carry a valid cosign signature from this repo's release workflow before we run
 # it. Refuses the deploy on an unsigned/look-alike image. Break-glass:
 # SKIP_IMAGE_SIGNATURE_VERIFY=1. EKS pulls the CI-published (signed) images.
-bash "$(dirname "${BASH_SOURCE[0]}")/../../../bin/verify-image-signatures.sh"
-# Restricted envsubst: ONLY our deploy tokens are expanded, so $host / $1$... in
-# the inline nginx/pgbouncer configmaps are left intact.
-# HARD GATE on istiod before the apply. The stream carries AuthorizationPolicy
-# docs (istio.yaml, ask-model.yaml); CREATING one calls istiod's validating
-# webhook, so with istiod still starting the apply dies on
-#   failed calling webhook "validation.istio.io" ... connection refused
-# — and under `set -e` takes the rest of the provision with it, after having
-# applied an arbitrary PREFIX of the manifests. The Phase-6 wait is advisory
-# (`|| echo`) by design, so this is the second, longer chance: a slow-but-healthy
-# istiod still succeeds, and a genuinely broken mesh fails HERE with a message
-# that names the cause instead of surfacing as a webhook error much later.
-if ! kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=300s >/dev/null 2>&1; then
-  echo "ERROR: istiod is not Available — the manifests include Istio AuthorizationPolicy" >&2
-  echo "       resources whose admission webhook it serves, so this apply cannot succeed." >&2
-  echo "       Check: kubectl -n istio-system get pods,deploy" >&2
-  exit 1
-fi
-kubectl kustomize "$K8S_DIR" \
-  | sed "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" \
-  | kubectl apply -f -
+bash "$BIN_DIR/verify-image-signatures.sh"
+# Only our deploy tokens are expanded (sed), so $host / $1$... in the inline
+# nginx/pgbouncer configmaps survive. istiod gate + apply + mesh re-enrollment
+# restart: pb_apply_manifests (shared with minikube/ec2). No LEAN on eks.
+pb_apply_manifests "$K8S_DIR" \
+  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" \
+  0
 
 # Base plugin images are seeded by init-platform.sh (the post-deploy step),
 # the same as ec2/minikube — not here. See the final hint below.

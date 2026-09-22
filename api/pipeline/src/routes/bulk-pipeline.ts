@@ -7,35 +7,26 @@ import {
   sendSuccess,
   ErrorCode,
   errorMessage,
-  resolveVisibility,
-  reserveQuota,
-  decrementQuota,
-  getServiceAuthHeader,
   requireFeature,
   requirePermission,
   validateBulkArray,
   PipelineCreateSchema,
   PipelineUpdateSchema,
-  pickDefined,
   isSystemAdmin,
   checkVisibilityWriteAccess,
   userHasPermission,
-  createComplianceClient,
   audited,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
-import { CoreConstants, replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
+import { createAuthenticatedWithOrgRoute, withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
+import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
-import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
-import { findPluginContractViolations, formatContractViolations } from '../helpers/plugin-contract-check.js';
-import { emitPipelineAudit } from '../services/audit.js';
-import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service.js';
-
-const complianceClient = createComplianceClient();
+import { buildPipelineUpdateData, createOnePipeline, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { pipelineService, type PipelineUpdate } from '../services/pipeline-service.js';
 
 /**
  * Bulk update/delete `ids` must be FULL UUIDs. `pipelineService.update(id)` goes
@@ -74,11 +65,6 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     ctx.log('INFO', 'Bulk create pipelines', { count: pipelines.length });
 
-    // Mint a service token for the downstream S2S calls (quota, compliance)
-    // rather than forwarding the end-user bearer — the caller's token may carry
-    // only end-user scopes that service-to-service authorization rejects,
-    // failing legitimate creates. Mirrors upload-plugin.ts / create-pipeline.ts.
-    const authHeader = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
     const results: {
       created: number;
       updated: number;
@@ -99,38 +85,60 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       }
       const body = parsed.data;
 
-      // Per-item template validation.
-      try {
-        validatePipelineTemplates(body);
-      } catch (err) {
+      // Per-item templates + plugin contracts, before any quota is reserved.
+      const rejection = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
+      if (rejection) {
+        results.failed++;
+        results.errors.push({ index: i, error: rejection.message });
+        continue;
+      }
+
+      const prepared = preparePipelineCreate(req, body);
+      if ('error' in prepared) {
+        results.failed++;
+        results.errors.push({ index: i, error: prepared.error });
+        continue;
+      }
+
+      // Reserve quota per item — fail-closed under contention, matching
+      // single-create. The reservation's minted service token (never the end-user
+      // bearer) also authenticates the downstream compliance call.
+      const reserved = await withQuotaReservation({
+        quotaService, orgId, type: 'pipelines', serviceName: 'pipeline', logWarn: ctx.log.bind(null, 'WARN'),
+      }, async (slot) => {
+        const outcome = await createOnePipeline(req, body, prepared, {
+          orgId, userId, serviceAuth: slot.serviceAuth, auditDetails: { bulk: true },
+        });
+
+        if (outcome.status !== 'saved') {
+          slot.refund();
+          results.failed++;
+          results.errors.push({
+            index: i,
+            error: outcome.status === 'blocked'
+              ? `Compliance blocked: ${outcome.violations.map(v => v.message).join('; ')}`
+              : outcome.error,
+          });
+          return;
+        }
+
+        if (outcome.inserted) {
+          results.created++;
+        } else {
+          // The upsert UPDATED an existing default (not a net-new pipeline), so
+          // the `pipelines` create-quota slot wasn't consumed — give it back, or
+          // re-running a bulk create for the same org/project silently burns
+          // per-period create quota.
+          results.updated++;
+          slot.refund();
+        }
+        results.items.push({ index: i, visibility: prepared.visibility, id: outcome.pipeline.id });
+      }, (err) => {
         results.failed++;
         results.errors.push({ index: i, error: errorMessage(err) });
-        continue;
-      }
-
-      // Per-item plugin contracts (W0.2), before any quota is reserved.
-      const contractViolations = await findPluginContractViolations(body.props, orgId, req.user?.parentOrganizationId);
-      if (contractViolations.length > 0) {
-        results.failed++;
-        results.errors.push({ index: i, error: formatContractViolations(contractViolations) });
-        continue;
-      }
-
-      const visibility = resolveVisibility(req, body.visibility, 'pipelines:publish', 'org');
-      const project = replaceNonAlphanumeric(body.project, '_').toLowerCase();
-      const organization = replaceNonAlphanumeric(body.organization, '_').toLowerCase();
-
-      if (!project.replace(/_/g, '') || !organization.replace(/_/g, '')) {
-        results.failed++;
-        results.errors.push({ index: i, error: 'Project and organization must contain alphanumeric characters' });
-        continue;
-      }
-
-      const pipelineName = body.pipelineName ?? `${organization}-${project}-pipeline`;
-
-      // Reserve quota per item — fail-closed under contention, matching single-create.
-      const reservation = await reserveQuota(quotaService, orgId, 'pipelines', authHeader);
-      if (reservation.exceeded) {
+      });
+      if (reserved.status === 'denied') {
+        const { reservation } = reserved;
         results.failed++;
         // Distinguish "couldn't confirm" (quota service down — retryable) from a real limit.
         results.errors.push({
@@ -139,83 +147,6 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
             ? 'Quota service unavailable — could not confirm the pipelines quota; retry shortly'
             : `Quota exceeded: ${reservation.quota.used}/${reservation.quota.limit}`,
         });
-        continue;
-      }
-
-      try {
-        // Per-item compliance check (fail-closed).
-        const complianceResult = await complianceClient.validatePipeline(orgId, {
-          project,
-          organization,
-          pipelineName,
-          props: body.props,
-          visibility,
-        }, authHeader, undefined, pipelineName, 'create');
-
-        if (complianceResult.blocked) {
-          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          results.failed++;
-          results.errors.push({ index: i, error: `Compliance blocked: ${complianceResult.violations.map(v => v.message).join('; ')}` });
-          continue;
-        }
-
-        const { pipeline, inserted } = await pipelineService.createAsDefaultReportInserted(
-          {
-            orgId,
-            project,
-            organization,
-            pipelineName,
-            description: body.description ?? '',
-            keywords: body.keywords ?? [],
-            props: body.props as unknown as PipelineInsert['props'],
-            visibility: visibility,
-            createdBy: userId || 'system',
-            // Catalog ownership: default to the creator so bulk-imported
-            // pipelines also appear under "my services".
-            ownerId: userId || 'system',
-            ownerType: 'user',
-          },
-          userId || 'system',
-          project,
-          organization,
-          // Same overwrite gate as single create (visibility ladder + no tombstone revival).
-          { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'pipelines:publish') },
-        );
-
-        if (inserted) {
-          results.created++;
-        } else {
-          // The upsert UPDATED an existing default (not a net-new pipeline), so
-          // the `pipelines` create-quota slot reserved above wasn't actually
-          // consumed — give it back. Without this, re-running a bulk create for
-          // the same org/project silently burns per-period create quota for
-          // pipelines that already existed.
-          results.updated++;
-          decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        }
-        results.items.push({ index: i, visibility, id: pipeline.id });
-
-        // Best-effort attributed audit per successful item — emitted only
-        // after the row landed. `inserted` distinguishes create vs. upsert.
-        emitPipelineAudit({
-          action: inserted ? 'pipeline.create' : 'pipeline.update',
-          actorId: actorId({ userId }),
-          orgId,
-          targetType: 'pipeline',
-          targetId: pipeline.id,
-          details: {
-            project,
-            organization,
-            pipelineName,
-            visibility,
-            bulk: true,
-          },
-        });
-      } catch (err) {
-        // Roll back the slot we reserved — the action failed.
-        decrementQuota(quotaService, orgId, 'pipelines', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        results.failed++;
-        results.errors.push({ index: i, error: errorMessage(err) });
       }
     }
 
@@ -239,8 +170,6 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     // Apply the SAME visibility rule as single-row delete, per row: author-only
     // for `private`, any member for `org`, `pipelines:publish` for `public`.
-    // This previously rejected anything not `private`, which made bulk delete
-    // unusable for the DEFAULT rung (`org`) that single delete allows.
     if (!isSystemAdmin(req)) {
       const matched = await pipelineService.findByIds(ids, orgId);
       const forbidden = matched.filter(
@@ -266,7 +195,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     // Best-effort attributed audit per row actually deleted.
     for (const d of deleted) {
-      emitPipelineAudit({
+      recordAudit({
         action: 'pipeline.delete',
         actorId: actorId({ userId }),
         orgId,
@@ -297,20 +226,9 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     }
     const validData = parsed.data;
 
-    // Templates in shared payload (metadata.*, vars.*, project).
-    try {
-      validatePipelineTemplates(validData);
-    } catch (err) {
-      return sendBadRequest(res, errorMessage(err), ErrorCode.TEMPLATE_VALIDATION_FAILED);
-    }
-
-    // Plugin contracts (W0.2) of the shared props — one verdict for every row.
-    if (validData.props) {
-      const contractViolations = await findPluginContractViolations(validData.props, orgId, req.user?.parentOrganizationId);
-      if (contractViolations.length > 0) {
-        return sendError(res, 400, formatContractViolations(contractViolations), ErrorCode.TEMPLATE_CONTRACT_VIOLATION, { steps: contractViolations });
-      }
-    }
+    // Templates + plugin contracts of the shared payload — one verdict for every row.
+    const rejection = await validatePipelineWrite(validData, orgId, req.user?.parentOrganizationId);
+    if (rejection) return sendError(res, rejection.status, rejection.message, rejection.code, rejection.details);
 
     // The shared payload can change the compliance posture of every row (same
     // rule as single update) — then each row must be re-checked against its own
@@ -342,18 +260,12 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       return sendBadRequest(res, 'Cannot set isDefault=true in bulk; promote a default via PUT /pipelines/:id', ErrorCode.VALIDATION_ERROR);
     }
 
-    // Strip undefined and immutable/tenant-shaped fields before fan-out.
-    const updateData = pickDefined({
-      pipelineName: validData.pipelineName,
-      description: validData.description,
-      keywords: validData.keywords,
-      props: validData.props,
-      isActive: validData.isActive,
-      isDefault: validData.isDefault,
-      ...(validData.visibility !== undefined
-        ? { visibility: resolveVisibility(req, validData.visibility, 'pipelines:publish') }
-        : {}),
-    });
+    // Same column writes as single update (incl. catalog metadata + admin-only
+    // ownership); only an explicit `isDefault: false` demotion rides along.
+    const updateData: Record<string, unknown> = {
+      ...buildPipelineUpdateData(req, validData),
+      ...(validData.isDefault === false ? { isDefault: false } : {}),
+    };
 
     ctx.log('INFO', 'Bulk update pipelines', { count: ids.length });
 
@@ -410,7 +322,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     // Best-effort attributed audit per row actually updated.
     for (const u of updatedRows) {
-      emitPipelineAudit({
+      recordAudit({
         action: 'pipeline.update',
         actorId: actorId({ userId }),
         orgId,

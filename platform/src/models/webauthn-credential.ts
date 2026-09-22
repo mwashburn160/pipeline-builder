@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, Types, type HydratedDocument } from 'mongoose';
 
 /**
  * One registered passkey (WebAuthn credential).
@@ -20,8 +20,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
  *
  * Removed with the user in `services/user-cascade.ts`.
  */
-export interface WebAuthnCredentialDocument extends Document {
-  _id: Types.ObjectId;
+export interface WebAuthnCredentialData {
   /** Owning user. Every management query is scoped by this. */
   userId: Types.ObjectId;
   /** Base64URL credential id as the authenticator reports it — globally unique. */
@@ -59,7 +58,9 @@ export interface WebAuthnCredentialDocument extends Document {
   lastUsedAt?: Date | null;
 }
 
-const webAuthnCredentialSchema = new Schema<WebAuthnCredentialDocument>(
+export type WebAuthnCredentialDocument = HydratedDocument<WebAuthnCredentialData>;
+
+const webAuthnCredentialSchema = new Schema<WebAuthnCredentialData>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     credentialId: { type: String, required: true, unique: true, index: true },
@@ -80,4 +81,4 @@ const webAuthnCredentialSchema = new Schema<WebAuthnCredentialDocument>(
   { timestamps: false },
 );
 
-export default mongoose.model<WebAuthnCredentialDocument>('WebAuthnCredential', webAuthnCredentialSchema);
+export default mongoose.model<WebAuthnCredentialData>('WebAuthnCredential', webAuthnCredentialSchema);

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useId } from 'react';
+import { useState, useCallback, useId } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import { queries } from '@/lib/api-cache';
 import { runQuery } from '@/lib/query-cache';
 import { useToast } from '@/components/ui/Toast';
@@ -24,10 +25,11 @@ interface NotificationPreferencesManagerProps {
 
 const labelClass = 'block text-xs font-medium text-fg-muted mb-1';
 
+const NO_MEMBERS: OrganizationMember[] = [];
+
 export default function NotificationPreferencesManager({ readOnly = false }: NotificationPreferencesManagerProps) {
   const uid = useId();
   const toast = useToast();
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasSecret, setHasSecret] = useState(false);
 
@@ -39,7 +41,6 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
   const [webhookSecret, setWebhookSecret] = useState('');
 
   // Email recipient picker: org members + the selected subset (empty = all admins).
-  const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
 
   const apply = useCallback((p: ComplianceNotificationPreference) => {
@@ -53,33 +54,25 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
     setWebhookSecret('');
   }, []);
 
-  const fetchAll = useCallback(async (isCancelled?: () => boolean) => {
-    setLoading(true);
-    try {
-      const orgId = api.getOrganizationId();
-      const [prefRes, memberRes] = await Promise.all([
-        api.getComplianceNotificationPreference(),
-        // Recipient picker needs the whole active roster — the roster is now
-        // server-paginated, so request the max page (200, the backend cap)
-        // rather than the default 25.
-        orgId ? runQuery(queries.orgMembers(orgId, { limit: 200 })) : Promise.resolve(null),
-      ]);
-      if (isCancelled?.()) return;
-      if (memberRes?.data?.members) setMembers(memberRes.data.members.filter((m) => m.isActive));
-      if (prefRes.data?.preference) apply(prefRes.data.preference);
-    } catch (err) {
-      if (isCancelled?.()) return;
-      toast.error(formatError(err, 'Failed to load notification preferences'));
-    }
-    if (!isCancelled?.()) setLoading(false);
-  }, [apply, toast]);
-
-  // Guard against a late load response applying after unmount.
-  useEffect(() => {
-    let cancelled = false;
-    void fetchAll(() => cancelled);
-    return () => { cancelled = true; };
-  }, [fetchAll]);
+  const { data: loaded, loading } = useFetch(async () => {
+    const orgId = api.getOrganizationId();
+    const [prefRes, memberRes] = await Promise.all([
+      api.getComplianceNotificationPreference(),
+      // Recipient picker needs the whole active roster — the roster is
+      // server-paginated, so request the max page (200, the backend cap)
+      // rather than the default 25.
+      orgId ? runQuery(queries.orgMembers(orgId, { limit: 200 })) : Promise.resolve(null),
+    ]);
+    return {
+      preference: prefRes.data?.preference ?? null,
+      members: memberRes?.data?.members?.filter((m) => m.isActive) ?? [],
+    };
+  }, [], {
+    // Seed the form from the saved preference.
+    onSuccess: (value) => { if (value.preference) apply(value.preference); },
+    onError: (err) => toast.error(formatError(err, 'Failed to load notification preferences')),
+  });
+  const members: OrganizationMember[] = loaded?.members ?? NO_MEMBERS;
 
   const toggleUser = (id: string) => {
     if (readOnly) return;

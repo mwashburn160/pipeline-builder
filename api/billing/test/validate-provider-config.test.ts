@@ -9,7 +9,6 @@
  */
 
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock, loggerMock } from './helpers/mock-api-core.js';
 
 const logger = loggerMock();
@@ -23,9 +22,7 @@ const billing = {
   ],
   bundles: [{ id: 'seat_pack', prices: { monthly: 1000 } }] as Array<{ id: string; prices?: Record<string, number> }> | undefined,
 };
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  Config: { get: () => billing },
-}));
+jest.unstable_mockModule('../src/config/billing-config.js', () => ({ getBillingConfig: () => billing }));
 
 const cfg: Record<string, any> = {};
 jest.unstable_mockModule('../src/config.js', () => ({ config: cfg }));

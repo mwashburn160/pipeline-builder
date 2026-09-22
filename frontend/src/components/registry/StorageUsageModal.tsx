@@ -88,7 +88,7 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
         </div>
 
         {storageError && (
-          <div className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+          <div className="rounded border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-strong">
             {storageError}
           </div>
         )}
@@ -96,7 +96,7 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
         {storageResult && !storageError && (
           <div className="rounded-lg border border-default bg-surface-muted p-3">
             <div className="flex items-baseline justify-between mb-3">
-              <code className="font-mono text-sm text-gray-800 dark:text-gray-200">{storageResult.prefix}</code>
+              <code className="font-mono text-sm text-fg">{storageResult.prefix}</code>
               <button
                 type="button"
                 onClick={() => void handleStorageUsage({ force: true })}
@@ -122,7 +122,7 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
               </div>
             </div>
             {storageResult.incomplete && (
-              <div className="mt-3 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-200">
+              <div className="mt-3 rounded border border-warning-border bg-warning-bg px-2 py-1.5 text-xs text-warning-strong">
                 Scan was incomplete — a repo, manifest, or blob could not be read, so this total UNDER-counts actual usage.
               </div>
             )}

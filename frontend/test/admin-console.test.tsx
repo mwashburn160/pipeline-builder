@@ -50,8 +50,8 @@ jest.mock('@/lib/api', () => ({
   // lib/jwt decodes through it.
   base64UrlDecode: (str: string) => jest.requireActual<typeof import('../src/lib/api/util')>('../src/lib/api/util').base64UrlDecode(str),
 }));
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ logout: jest.fn<AnyFn>() }) }));
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push: jest.fn<AnyFn>(), asPath: '/dashboard/admin/settings' }) }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ logout: jest.fn<AnyFn>() })));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push: jest.fn<AnyFn>(), asPath: '/dashboard/admin/settings' })));
 let deployTarget = 'aws-eks';
 jest.mock('@/hooks/useFeatures', () => ({ __esModule: true, useFeatures: () => ({ deployTarget }) }));
 

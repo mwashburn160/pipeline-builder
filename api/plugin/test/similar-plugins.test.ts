@@ -3,7 +3,7 @@
 
 /**
  * Tests for helpers/similar-plugins — the pure ranking behind the AI
- * generator's "similar plugins already exist" hint (plugin-ecosystem W6).
+ * generator's "similar plugins already exist" hint.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -88,7 +88,7 @@ describe('rankSimilarPlugins', () => {
     expect(rankSimilarPlugins('node build', many, 0)).toEqual([]);
   });
 
-  it('breaks score ties by health score (W7), unknown health last', () => {
+  it('breaks score ties by health score, unknown health last', () => {
     const ranked = rankSimilarPlugins('node build', [
       candidate({ name: 'node-build-a', healthScore: null }),
       candidate({ name: 'node-build-b', healthScore: 60 }),

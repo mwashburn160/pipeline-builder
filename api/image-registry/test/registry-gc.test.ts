@@ -46,14 +46,13 @@ jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
   computeStorageUsage,
 }));
 
-const emitImageRegistryAudit = jest.fn();
-jest.unstable_mockModule('../src/services/audit.js', () => ({ emitImageRegistryAudit }));
+const recordAuditMock = jest.fn();
 
 const incCounter = jest.fn();
 const setGauge = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter, setGauge }));
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ recordAudit: recordAuditMock }));
 
 const {
   runRegistryGc, isAgeGcExempt, deleteQuarantineRepository, runQuarantineGc,
@@ -108,7 +107,7 @@ describe('runRegistryGc', () => {
     // A real deletion invalidates the storage rollup cache.
     expect(invalidateStorageCache).toHaveBeenCalledWith('org-acme/');
     // The durable audit names the pruned namespace's org as the affected org.
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.gc',
       targetId: 'org-acme/',
       affectedOrgId: 'acme',
@@ -229,7 +228,7 @@ describe('runRegistryGc — Fix 2: retention safeguards (no live-tag data loss)'
   });
 });
 
-// Plugin ecosystem G40: a public/* image is collected only when yanked >180 days
+// Plugin ecosystem a public/* image is collected only when yanked >180 days
 // AND unreferenced by any step manifest — a decision only the plugin service can
 // make (via POST /internal/plugin-publications/gc). The AGE sweep never reaches it.
 describe('runRegistryGc — public/* and registry-meta/* are exempt from the age sweep', () => {
@@ -258,7 +257,7 @@ describe('runRegistryGc — public/* and registry-meta/* are exempt from the age
 });
 
 // -----------------------------------------------------------------------------
-// quarantine/* — anonymous plugin submissions (plugin ecosystem §4.2 / W5)
+// quarantine/* — anonymous plugin submissions
 // -----------------------------------------------------------------------------
 
 const Q = 'quarantine/0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';
@@ -318,7 +317,7 @@ describe('runQuarantineGc', () => {
     const deletedRepos = new Set(deleteManifest.mock.calls.map((c) => c[0]));
     expect(deletedRepos).toEqual(new Set([OLD]));
     expect(incCounter).toHaveBeenCalledWith('registry_quarantine_repositories_deleted_total', { reason: 'expired' });
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'registry.gc', targetId: OLD }));
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({ action: 'registry.gc', targetId: OLD }));
     expect(setGauge).toHaveBeenCalledWith('registry_quarantine_repositories', {}, 1);
     expect(setGauge).toHaveBeenCalledWith('registry_quarantine_storage_bytes', {}, 1234);
   });

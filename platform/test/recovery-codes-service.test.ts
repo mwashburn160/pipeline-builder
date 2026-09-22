@@ -25,7 +25,9 @@ let totpActive = false;
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   MfaRecoveryCodes: recovery.model,
-  WebAuthnCredential: { countDocuments: async () => passkeys },
+  // Linking stub: helpers/auth-factors imports the User model.
+  User: {},
+  WebAuthnCredential: { countDocuments: async () => passkeys, exists: async () => (passkeys > 0 ? { _id: 'p' } : null) },
   UserTotp: { exists: async () => (totpActive ? { _id: 't' } : null) },
 }));
 
@@ -78,7 +80,7 @@ describe('spending', () => {
 
 describe('regeneration', () => {
   it('needs a second factor to back up', async () => {
-    await expect(svc.regenerateRecoveryCodes(USER)).rejects.toThrow(svc.RECOVERY_CODES_NO_FACTOR);
+    await expect(svc.regenerateRecoveryCodes(USER)).rejects.toThrow('RECOVERY_CODES_NO_FACTOR');
   });
 
   it('replaces every old code for a passkey-only account', async () => {

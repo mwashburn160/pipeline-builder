@@ -10,7 +10,7 @@
  * Timeseries reads (execution/build metrics over a range) — 2 min.
  */
 
-import { createCacheService } from '@pipeline-builder/api-core';
+import { createCacheService, envInt } from '@pipeline-builder/api-core';
 
-export const inventoryCache = createCacheService('report:inv:', parseInt(process.env.CACHE_TTL_REPORT_INVENTORY || '300', 10));
-export const timeseriesCache = createCacheService('report:ts:', parseInt(process.env.CACHE_TTL_REPORT_TIMESERIES || '120', 10));
+export const inventoryCache = createCacheService('report:inv:', envInt('CACHE_TTL_REPORT_INVENTORY', 300, { min: 1 }));
+export const timeseriesCache = createCacheService('report:ts:', envInt('CACHE_TTL_REPORT_TIMESERIES', 120, { min: 1 }));

@@ -12,6 +12,8 @@ export class AppError extends Error {
     public readonly statusCode: number,
     public readonly code: ErrorCode,
     message: string,
+    /** Structured context sent with the error response (e.g. the failing gates). */
+    public readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'AppError';

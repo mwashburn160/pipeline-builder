@@ -16,8 +16,8 @@
  * req/res — no HTTP server.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -49,16 +49,13 @@ const mockCreateBillingEvent = jest.fn(async (..._args: unknown[]) => undefined)
 const mockSyncEntitlements = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   recordReactivatePlanMissing: async () => undefined,
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
+}));
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
   syncEntitlements: (...a: unknown[]) => mockSyncEntitlements(...a),
-  applyTierIncludedAddonPrune: () => [],
-  applyPlanTierChange: () => async () => undefined,
-  finalizePrunedAddons: async () => undefined,
 }));
 
-// prune/plan-change helpers moved to addon-prune.js (imported by marketplace route now).
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyTierIncludedAddonPrune: () => [],
   applyPlanTierChange: () => async () => undefined,

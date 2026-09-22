@@ -91,11 +91,6 @@ const registrationCeremonies = ceremonyStore('reg');
 const loginCeremonies = ceremonyStore('login');
 const stepUpCeremonies = ceremonyStore('stepup');
 
-/** Test hook: drop in-memory ceremony state between cases. */
-export function _resetCeremoniesForTests(): void {
-  for (const s of [registrationCeremonies, loginCeremonies, stepUpCeremonies]) s._resetForTests();
-}
-
 /** A ceremony handle the client echoes back on verify. 32 bytes — it is the only
  *  thing binding a SIGN-IN ceremony to the browser that started it. */
 function newCeremonyId(): string {
@@ -117,18 +112,6 @@ export interface PasskeySummary {
    *  single device — surfaced so a person can tell them apart in the list. */
   backedUp: boolean;
   transports: string[];
-}
-
-/** The stored fields the credential lookups need (lean, never the whole doc). */
-interface StoredCredential {
-  _id: Types.ObjectId;
-  userId: Types.ObjectId;
-  credentialId: string;
-  publicKey: StoredBinary;
-  counter: number;
-  transports?: string[];
-  backedUp?: boolean;
-  aaguid?: string;
 }
 
 /** A BSON binary as the driver hands it back — a `Buffer` from a hydrated
@@ -171,7 +154,7 @@ export async function listCredentials(userId: string): Promise<PasskeySummary[]>
     .select('name createdAt lastUsedAt backedUp transports aaguid attestationVerified')
     .sort({ createdAt: 1 })
     .lean();
-  return docs.map((d) => toSummary(d as unknown as Parameters<typeof toSummary>[0]));
+  return docs.map((d) => toSummary(d));
 }
 
 /**
@@ -246,8 +229,8 @@ export async function registrationOptions(
     userID: Buffer.from(handle, 'base64url'),
     attestationType: allowlisted ? 'direct' : 'none',
     excludeCredentials: existing.map((c) => ({
-      id: (c as unknown as StoredCredential).credentialId,
-      transports: (c as unknown as StoredCredential).transports ?? [],
+      id: c.credentialId,
+      transports: c.transports ?? [],
     })),
     authenticatorSelection: {
       // Discoverable, or passkey sign-in (which knows no username up front)
@@ -340,7 +323,7 @@ export async function verifyRegistration(
     if ((err as { code?: number }).code === 11000) throw new Error(WEBAUTHN_CREDENTIAL_EXISTS);
     throw err;
   }
-  return toSummary(created as unknown as Parameters<typeof toSummary>[0]);
+  return toSummary(created);
 }
 
 /**
@@ -423,8 +406,7 @@ async function verifyAssertion(
   response: AuthenticationResponseJSON,
   precheck?: (ownerId: string) => Promise<void>,
 ): Promise<VerifiedAssertion> {
-  const stored = await WebAuthnCredential.findOne({ credentialId: response.id }).lean() as
-    (StoredCredential & { name: string }) | null;
+  const stored = await WebAuthnCredential.findOne({ credentialId: response.id }).lean();
   if (!stored) throw new Error(WEBAUTHN_VERIFICATION_FAILED);
   // Owner binding: a valid assertion for SOMEONE ELSE'S passkey must never
   // satisfy this user's step-up.
@@ -491,8 +473,8 @@ export async function stepUpOptions(
     userVerification: 'required',
     timeout: rp.challengeTtlMs,
     allowCredentials: credentials.map((c) => ({
-      id: (c as unknown as StoredCredential).credentialId,
-      transports: (c as unknown as StoredCredential).transports ?? [],
+      id: c.credentialId,
+      transports: c.transports ?? [],
     })),
   });
 
@@ -561,7 +543,7 @@ export async function renameCredential(userId: string, id: string, name: string)
     { new: true },
   ).lean();
   if (!updated) throw new Error(WEBAUTHN_CREDENTIAL_NOT_FOUND);
-  return toSummary(updated as unknown as Parameters<typeof toSummary>[0]);
+  return toSummary(updated);
 }
 
 /**
@@ -580,5 +562,5 @@ export async function removeCredential(userId: string, id: string): Promise<Pass
   const removed = await removeUnlessLastSignInMethod(userId, 'passkey', WEBAUTHN_LAST_SIGN_IN_METHOD, async (session) =>
     (await WebAuthnCredential.deleteOne({ _id: id, userId }, { session })).deletedCount > 0);
   if (!removed) throw new Error(WEBAUTHN_CREDENTIAL_NOT_FOUND);
-  return toSummary(existing as unknown as Parameters<typeof toSummary>[0]);
+  return toSummary(existing);
 }

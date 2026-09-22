@@ -1,19 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { SYSTEM_ORG_ID, type MessagePriority, type MessageType } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, varchar, pgTable, text, timestamp, uuid, jsonb, index } from 'drizzle-orm/pg-core';
 
-/**
- * Message type identifiers
- */
-export type MessageType = 'announcement' | 'conversation';
-
-/**
- * Message priority levels
- */
-export type MessagePriority = 'normal' | 'high' | 'urgent';
+export type { MessageType, MessagePriority };
 
 /**
  * Table for storing internal messages between organizations and the system org.

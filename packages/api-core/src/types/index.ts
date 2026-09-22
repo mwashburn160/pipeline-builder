@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-export * from './error-codes.js';
+export { ErrorCode, getStatusForErrorCode } from './error-codes.js';
 export {
   isValidQuotaType,
-  effectiveRootOrgId,
   type TokenScope,
   TOKEN_SCOPES,
   type PrincipalType,
@@ -31,6 +30,20 @@ export {
   type TemplateInput,
 } from './pipeline-template.js';
 export * from './visibility.js';
+export * from './wire-vocabulary.js';
+export {
+  PLUGIN_SUMMARY_MAX,
+  PLUGIN_README_MAX_BYTES,
+  PLUGIN_CHANGELOG_MAX_BYTES,
+  PLUGIN_CATEGORIES,
+  type PluginCatalogCategory,
+  PLUGIN_CATALOG_FIELDS,
+  type PluginCatalogField,
+  PLUGIN_CATALOG_LINK_FIELDS,
+  METADATA_SOURCES,
+  type MetadataSource,
+  type MetadataSources,
+} from './plugin-catalog.js';
 export {
   type HttpRequest,
 } from './http.js';
@@ -46,6 +59,8 @@ export {
   STANDARD_TIERS,
   TEAM_CAPABLE_TIERS,
   DEFAULT_TIER,
+  QUOTA_RESET_DAYS,
+  nextQuotaResetDate,
 } from './quota-tiers.js';
 export * from './feature-flags.js';
 export {

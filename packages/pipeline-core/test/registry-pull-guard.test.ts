@@ -126,7 +126,7 @@ describe('resolvePluginImage digest pinning', () => {
     Config._resetForTesting();
   });
 
-  it('pins the image URI to the recorded digest, at the repository lookup returned (G30)', () => {
+  it('pins the image URI to the recorded digest, at the repository lookup returned', () => {
     const stack = new Stack(new App(), 'S');
     const image = resolvePluginImage(stack, imagePlugin, 'org1') as { imageId: string };
     expect(image.imageId).toBe(`registry.example.com/public/pipeline-builder/trivy@${DIGEST}`);

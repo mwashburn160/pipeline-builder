@@ -27,6 +27,126 @@ interface PluginUploadResult {
 const { bold, green } = pico;
 
 /**
+ * Validate the plugin ZIP (non-empty path, exists, `.zip`, size cap, readable).
+ * Returns the resolved path and its formatted size.
+ */
+function validatePluginZip(file: unknown): { filePath: string; sizeFormatted: string } {
+  // Validate file path
+  if (typeof file !== 'string' || file.trim().length === 0) {
+    printError('Invalid file path', { provided: file });
+    throw new ValidationError('File path must be a non-empty string', 'file', file);
+  }
+
+  const filePath = path.resolve(file);
+
+  // Validate file exists
+  printInfo('Validating plugin file', { path: filePath });
+
+  if (!fileExists(filePath)) {
+    printError('Plugin file not found', { path: filePath });
+    throw new ValidationError(`Plugin file not found: ${filePath}`, 'file', filePath);
+  }
+
+  // Validate file extension
+  const fileExt = path.extname(filePath).toLowerCase();
+  if (fileExt !== '.zip') {
+    printWarning('File extension is not .zip', {
+      provided: fileExt,
+      expected: '.zip',
+    });
+    throw new ValidationError('Plugin file must be a ZIP archive', 'file', filePath);
+  }
+
+  // Get file stats
+  const stats = fs.statSync(filePath);
+  const sizeBytes = stats.size;
+  const sizeFormatted = formatFileSize(sizeBytes);
+
+  printSuccess('Plugin file found', {
+    path: filePath,
+    size: sizeFormatted,
+    modified: new Date(stats.mtime).toLocaleString(),
+  });
+
+  // Check file size
+  if (sizeBytes > FILE_SIZE_LIMITS.PLUGIN) {
+    printError('Plugin file too large', {
+      size: sizeFormatted,
+      maximum: formatFileSize(FILE_SIZE_LIMITS.PLUGIN),
+      exceededBy: formatFileSize(sizeBytes - FILE_SIZE_LIMITS.PLUGIN),
+    });
+    throw new ValidationError(
+      `Plugin file exceeds maximum size of ${formatFileSize(FILE_SIZE_LIMITS.PLUGIN)} (actual: ${sizeFormatted})`,
+      'file.size',
+      sizeBytes,
+    );
+  }
+
+  // Check if file is readable
+  try {
+    fs.accessSync(filePath, fs.constants.R_OK);
+  } catch (error) {
+    printError('Cannot read plugin file', {
+      path: filePath,
+      error: errorMessage(error),
+    });
+    throw new ValidationError('Plugin file is not readable', 'file', filePath);
+  }
+
+  printSuccess('Plugin file validated');
+  return { filePath, sizeFormatted };
+}
+
+/** POST the ZIP as multipart form data; returns the raw response and its duration. */
+async function postPluginZip(
+  client: ReturnType<typeof createAuthenticatedClient>,
+  filePath: string,
+  sizeFormatted: string,
+  isPublic: boolean,
+): Promise<{ rawResponse: unknown; duration: number }> {
+  const config = client.getConfig();
+  // Create form data
+  console.log('');
+  printSection('Uploading Plugin');
+  printInfo('Preparing upload', {
+    file: path.basename(filePath),
+    size: sizeFormatted,
+  });
+
+  const formData = new FormData();
+  formData.append('plugin', fs.createReadStream(filePath), {
+    filename: path.basename(filePath),
+    contentType: 'application/zip',
+  });
+  // The upload API reads `visibility` (private | org | public); without
+  // it the version is `org`. `public` needs plugins:publish. Name and
+  // version come from the package's spec; the org from the session.
+  if (isPublic) formData.append('visibility', 'public');
+
+  // Make API request
+  const endpoint = config.api.pluginUploadUrl;
+  printInfo('Uploading to API', {
+    endpoint: `${config.api.baseUrl}${endpoint}`,
+  });
+
+  console.log('');
+
+  const spinner = ora('Uploading plugin...').start();
+  let rawResponse: unknown;
+  let duration: number;
+  try {
+    const startTime = Date.now();
+    rawResponse = await client.postForm<unknown>(endpoint, formData);
+    duration = Date.now() - startTime;
+    spinner.succeed('Plugin uploaded');
+  } catch (error) {
+    spinner.fail('Upload failed');
+    throw error;
+  }
+  return { rawResponse, duration };
+}
+
+/**
  * Registers the `upload-plugin` command with the CLI program.
  *
  * Validates a local plugin ZIP file (size, extension, readability),
@@ -66,69 +186,7 @@ export function uploadPlugin(program: Command): void {
         // Security warning for SSL verification disabled
         printSslWarning(options.verifySsl);
 
-        // Validate file path
-        if (!options.file || typeof options.file !== 'string' || options.file.trim().length === 0) {
-          printError('Invalid file path', { provided: options.file });
-          throw new ValidationError('File path must be a non-empty string', 'file', options.file);
-        }
-
-        const filePath = path.resolve(options.file);
-
-        // Validate file exists
-        printInfo('Validating plugin file', { path: filePath });
-
-        if (!fileExists(filePath)) {
-          printError('Plugin file not found', { path: filePath });
-          throw new ValidationError(`Plugin file not found: ${filePath}`, 'file', filePath);
-        }
-
-        // Validate file extension
-        const fileExt = path.extname(filePath).toLowerCase();
-        if (fileExt !== '.zip') {
-          printWarning('File extension is not .zip', {
-            provided: fileExt,
-            expected: '.zip',
-          });
-          throw new ValidationError('Plugin file must be a ZIP archive', 'file', filePath);
-        }
-
-        // Get file stats
-        const stats = fs.statSync(filePath);
-        const sizeBytes = stats.size;
-        const sizeFormatted = formatFileSize(sizeBytes);
-
-        printSuccess('Plugin file found', {
-          path: filePath,
-          size: sizeFormatted,
-          modified: new Date(stats.mtime).toLocaleString(),
-        });
-
-        // Check file size
-        if (sizeBytes > FILE_SIZE_LIMITS.PLUGIN) {
-          printError('Plugin file too large', {
-            size: sizeFormatted,
-            maximum: formatFileSize(FILE_SIZE_LIMITS.PLUGIN),
-            exceededBy: formatFileSize(sizeBytes - FILE_SIZE_LIMITS.PLUGIN),
-          });
-          throw new ValidationError(
-            `Plugin file exceeds maximum size of ${formatFileSize(FILE_SIZE_LIMITS.PLUGIN)} (actual: ${sizeFormatted})`,
-            'file.size',
-            sizeBytes,
-          );
-        }
-
-        // Check if file is readable
-        try {
-          fs.accessSync(filePath, fs.constants.R_OK);
-        } catch (error) {
-          printError('Cannot read plugin file', {
-            path: filePath,
-            error: errorMessage(error),
-          });
-          throw new ValidationError('Plugin file is not readable', 'file', filePath);
-        }
-
-        printSuccess('Plugin file validated');
+        const { filePath, sizeFormatted } = validatePluginZip(options.file);
 
         // Dry run mode
         if (options.dryRun) {
@@ -145,48 +203,8 @@ export function uploadPlugin(program: Command): void {
           return;
         }
 
-        // Create authenticated API client
         const client = createAuthenticatedClient(options);
-        const config = client.getConfig();
-
-        // Create form data
-        console.log('');
-        printSection('Uploading Plugin');
-        printInfo('Preparing upload', {
-          file: path.basename(filePath),
-          size: sizeFormatted,
-        });
-
-        const formData = new FormData();
-        formData.append('plugin', fs.createReadStream(filePath), {
-          filename: path.basename(filePath),
-          contentType: 'application/zip',
-        });
-        // The upload API reads `visibility` (private | org | public); without
-        // it the version is `org`. `public` needs plugins:publish. Name and
-        // version come from the package's spec; the org from the session.
-        if (options.public) formData.append('visibility', 'public');
-
-        // Make API request
-        const endpoint = config.api.pluginUploadUrl;
-        printInfo('Uploading to API', {
-          endpoint: `${config.api.baseUrl}${endpoint}`,
-        });
-
-        console.log('');
-
-        const spinner = ora('Uploading plugin...').start();
-        let rawResponse: unknown;
-        let duration: number;
-        try {
-          const startTime = Date.now();
-          rawResponse = await client.postForm<unknown>(endpoint, formData);
-          duration = Date.now() - startTime;
-          spinner.succeed('Plugin uploaded');
-        } catch (error) {
-          spinner.fail('Upload failed');
-          throw error;
-        }
+        const { rawResponse, duration } = await postPluginZip(client, filePath, sizeFormatted, !!options.public);
 
         const response = unwrapEnvelope(rawResponse) as PluginUploadResult;
         if (!response.pluginName) {

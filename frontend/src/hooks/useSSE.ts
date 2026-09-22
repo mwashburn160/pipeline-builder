@@ -8,9 +8,7 @@
  * `onRetriesExhausted` — it does NOT reconnect in-band. Both streams in this
  * app are TICKETED (a single-use ticket is exchanged for the stream), so
  * replaying the same URL would just 401; reconnecting means minting a fresh
- * ticket, which only the consumer can do. The old `maxRetries` /
- * `baseRetryDelayMs` backoff branch was therefore dead code — both consumers
- * passed `maxRetries: 0` — and actively wrong for anything that enabled it.
+ * ticket, which only the consumer can do.
  */
 import { useState, useEffect, useRef } from 'react';
 

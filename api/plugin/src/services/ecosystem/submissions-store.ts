@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Data access for anonymous public submissions (docs/plans/plugin-ecosystem.md
- * §4): the `plugin_submissions` rows, and the directory reads the name gate
+ * Data access for anonymous public submissions (docs/plugin-publishing.md
+ * ): the `plugin_submissions` rows, and the directory reads the name gate
  * needs (the most-installed listings, the Official/Verified listing names).
  *
  * ELEVATED like the rest of the ecosystem store (store.ts): `plugin_submissions`
@@ -16,9 +16,8 @@
  */
 
 import {
-  runWithTenantContext,
+  executeRows,
   schema,
-  withTenantTx,
   type PluginListing,
   type PluginSubmission,
   type PluginSubmissionInsert,
@@ -26,14 +25,11 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { and, asc, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 
-type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
+// store.ts's `elevated`: joins an ambient `atomically` block, so a submission
+// write commits or rolls back with the moderation writes around it.
+import { elevated } from './store.js';
+import { first } from './util.js';
 
-/** One elevated transaction (the store.ts rule; kept local so this module stands alone). */
-function elevated<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-  return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(fn));
-}
-
-const first = <T>(rows: T[]): T | null => rows[0] ?? null;
 const S = () => schema.pluginSubmission;
 
 export const submissions = {
@@ -50,7 +46,7 @@ export const submissions = {
       if (filter.listingId) where.push(eq(S().listingId, filter.listingId));
       return tx.select().from(S()).where(and(...where)).orderBy(desc(S().createdAt)).limit(filter.limit ?? 5_000);
     }),
-  /** Undecided submissions whose `expires_at` has passed, oldest first (the expiry sweep, E4). */
+  /** Undecided submissions whose `expires_at` has passed, oldest first (the expiry sweep). */
   dueForExpiry: (now: Date, limit: number): Promise<PluginSubmission[]> =>
     elevated(async (tx) => tx.select().from(S())
       .where(and(inArray(S().status, ['pending_verification', 'pending_review']), lte(S().expiresAt, now)))
@@ -62,7 +58,7 @@ export const submissions = {
    */
   purgeEmails: (now: Date, limit: number): Promise<number> =>
     elevated(async (tx) => {
-      const res = await tx.execute(sql`
+      const rows = await executeRows(tx, sql`
         UPDATE plugin_submissions
            SET email_hash = NULL, email_enc = NULL, updated_at = now()
          WHERE id IN (
@@ -71,8 +67,7 @@ export const submissions = {
               AND (email_hash IS NOT NULL OR email_enc IS NOT NULL)
             LIMIT ${limit})
         RETURNING id`);
-      const rows = (res as { rows?: unknown[] } | null)?.rows;
-      return Array.isArray(rows) ? rows.length : 0;
+      return rows.length;
     }),
   insert: (values: PluginSubmissionInsert): Promise<PluginSubmission> =>
     elevated(async (tx) => (await tx.insert(S()).values(values).returning())[0] as PluginSubmission),
@@ -90,7 +85,14 @@ export const submissions = {
     elevated(async (tx) => { await tx.delete(S()).where(eq(S().id, id)); }),
 };
 
-/** How many of the most-installed listings the confusable-name check compares against (§4.2). */
+/** Who owns a community listing: the email hash of its first approved submission (null once purged). */
+export async function listingOwnerHash(listingId: string): Promise<string | null> {
+  const approved = (await submissions.list({ listingId, statuses: ['approved', 'claimed'] }))
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return approved[0]?.emailHash ?? null;
+}
+
+/** How many of the most-installed listings the confusable-name check compares against. */
 export const TOP_LISTINGS_FOR_NAMES = 100;
 
 /**
@@ -100,7 +102,7 @@ export const TOP_LISTINGS_FOR_NAMES = 100;
  */
 export async function topInstalledListings(limit = TOP_LISTINGS_FOR_NAMES): Promise<Array<Pick<PluginListing, 'id' | 'name' | 'publisherId'>>> {
   return elevated(async (tx) => {
-    // Ordered and limited in SQL (E13) — never the whole stats table in memory.
+    // Ordered and limited in SQL — never the whole stats table in memory.
     const top = await tx.select({ listingId: schema.pluginStats.listingId, installCount: schema.pluginStats.installCount })
       .from(schema.pluginStats)
       .where(gt(schema.pluginStats.installCount, 0))
@@ -115,7 +117,7 @@ export async function topInstalledListings(limit = TOP_LISTINGS_FOR_NAMES): Prom
   });
 }
 
-/** Listings named `name` under any Official or Verified publisher (they own the name, §4.2). */
+/** Listings named `name` under any Official or Verified publisher (they own the name). */
 export async function trustedListingsNamed(name: string): Promise<PluginListing[]> {
   return elevated(async (tx) => {
     const rows = await tx.select().from(schema.pluginListing).where(eq(schema.pluginListing.name, name));

@@ -16,10 +16,8 @@ interface StatusPillProps {
 /**
  * Small rounded status/severity pill.
  *
- * Renders the exact hand-rolled wrapper class string that was previously
- * duplicated across the compliance/quota/message components, so migrating a
- * call site produces byte-identical DOM. Color classes are supplied by the
- * caller via `className`.
+ * The shared pill wrapper of the compliance/quota/message components. Color
+ * classes are supplied by the caller via `className`.
  */
 export function StatusPill({ children, className = '', gap = false }: StatusPillProps) {
   const base = gap

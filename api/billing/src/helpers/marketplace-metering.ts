@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createEnvRedisLock, createLogger, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, type Scheduler, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
@@ -14,7 +14,6 @@ import { grantRecurringPromotions } from './promotion-engine.js';
 import { Subscription } from '../models/subscription.js';
 import { AWSMarketplaceProvider, type MeterUsageResult } from '../providers/aws-marketplace-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
-import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('marketplace-metering');
 
@@ -42,7 +41,7 @@ export type MeteringOutcome =
 
 /**
  * Report an account's current add-on quantities to AWS Marketplace as metered
- * usage (docs/billing-bundles.md §8; the Marketplace counterpart to Stripe's
+ * usage (docs/billing-bundles.md; the Marketplace counterpart to Stripe's
  * line-item add-ons). Resolves the account's Marketplace customer + add-on set
  * and hands off to {@link AWSMarketplaceProvider.meterAddonUsage}.
  *
@@ -148,7 +147,7 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
   //    accepted records (customer under-billed → credit truly spent) but NOT for
   //    the unprocessed ones (retried next cycle). Drawing down the full plan on a
   //    partial batch would double-discount the unprocessed dimensions; drawing
-  //    down nothing (the old `unprocessed === 0` gate) double-discounts the
+  //    down nothing unless every record was accepted double-discounts the
   //    ACCEPTED ones. So attribute consumption to the accepted lines only.
   //    At most once per AWS dedupe-hour, atomic on the balance.
   const unprocessedDims = new Set(result.unprocessedDimensions ?? []);
@@ -171,23 +170,23 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
       const subId = subscription._id.toString();
       await createBillingEvent(orgId, 'credit_consumed', { consumedCents: acceptedConsumedCents, dimensions: acceptedLines.length, partial: unprocessedDims.size > 0 }, subId);
       // Mirror to the central audit trail (system-initiated; no request actor).
-      getAuditClient().record({
+      recordAudit({
         action: 'billing.credit.consumed',
         actorId: 'system',
         orgId,
         targetId: subId,
         details: { consumedCents: acceptedConsumedCents, dimensions: acceptedLines.length, subscriptionId: subId },
-      }, 'billing');
+      });
       incCounter('billing_marketplace_credit_consumed_total', {});
       if ((drawn.creditBalanceCents ?? 0) === 0) {
         await createBillingEvent(orgId, 'credit_exhausted', { previousCents: balance }, subId);
-        getAuditClient().record({
+        recordAudit({
           action: 'billing.credit.exhausted',
           actorId: 'system',
           orgId,
           targetId: subId,
           details: { previousCents: balance, subscriptionId: subId },
-        }, 'billing');
+        });
       }
     }
   }
@@ -237,7 +236,6 @@ export async function reportAllMarketplaceAddonUsage(): Promise<{ accounts: numb
 // the cycle runs on every pod (still safe). TTL comfortably exceeds one run and is
 // well under the hourly cadence so the next cycle can re-acquire.
 const LOCK_TTL_MS = 5 * 60 * 1000;
-const lockClient = createEnvRedisLock();
 
 // Periodic metering cycle. Wrapped in a sysadmin tenant scope to match the other
 // multi-org billing crons (subscription-lifecycle). Gated at start() time so the
@@ -246,7 +244,7 @@ const scheduler: Scheduler = createScheduler({
   name: 'marketplace-metering',
   intervalMs: config.meteringIntervalMs,
   run: async () => { await runWithTenantContext({ isSuperAdmin: true }, reportAllMarketplaceAddonUsage); },
-  ...(lockClient ? { lock: { redis: () => lockClient, key: 'marketplace-metering', ttlMs: LOCK_TTL_MS } } : {}),
+  lock: { key: 'marketplace-metering', ttlMs: LOCK_TTL_MS },
 });
 
 /**

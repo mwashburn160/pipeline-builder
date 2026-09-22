@@ -40,8 +40,8 @@ export function ChainVerifyStrip({ orgId, renderOrgRef }: ChainVerifyStripProps)
   const [result, setResult] = useState<AuditChainVerification | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // The verification in flight, and which org it is for. A verify started for
-  // org A that resolved after the scope moved to org B used to paint A's
+  // The verification in flight, and which org it is for, so a verify started
+  // for org A that resolves after the scope moved to org B can't paint A's
   // verdict ("Chain intact") next to B's name.
   const inFlight = useRef<{ orgId: string; ctrl: AbortController } | null>(null);
 

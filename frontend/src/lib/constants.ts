@@ -82,6 +82,15 @@ export function formatError(err: unknown, fallback = 'An error occurred'): strin
   return fallback;
 }
 
+/**
+ * The message of an unsuccessful API envelope (`{ success: false, message }`),
+ * or `fallback`. An envelope is not an `Error`, so {@link formatError} would
+ * always return the fallback and hide the server's reason.
+ */
+export function formatEnvelopeError(res: { message?: string } | null | undefined, fallback: string): string {
+  return res?.message || fallback;
+}
+
 /** Default toast notification display duration in ms (success / info). */
 export const DEFAULT_TOAST_DURATION_MS = 4000;
 

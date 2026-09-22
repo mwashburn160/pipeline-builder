@@ -27,6 +27,11 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
     try {
       await fn({ req: rq, res: rs, ctx: { log: jest.fn() }, orgId: 'org-acme', userId: 'u-acme' });
     } catch (err: any) {
+      // The real wrapper's AppError mapping: status, code and structured details.
+      if (typeof err.statusCode === 'number' && err.code) {
+        rs.status(err.statusCode).json({ success: false, message: err.message, code: err.code, ...(err.details ? { details: err.details } : {}) });
+        return;
+      }
       rs.status(500).json({ success: false, message: err.message });
     }
   },

@@ -31,7 +31,7 @@ const authGuard = mockAuthGuard({ user: { id: 'me', organizationId: 'org-1', org
 const toast = pageToast;
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ user: authGuard.user }) }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ user: authGuard.user })));
 
 const cachedMute = (userId = 'me', orgId = 'org-1') => ({ muteQuotaWarnings: readPreferences(userId, orgId).notifications.muteQuotaWarnings });
 const ECO = DEFAULT_ECOSYSTEM_NOTIFICATION_PREFS;

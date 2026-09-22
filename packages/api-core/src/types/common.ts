@@ -65,7 +65,7 @@ export type TokenUse = 'access' | 'api_key';
 export type AuthMethod = 'pwd' | 'oauth' | 'sso' | 'webauthn' | 'stepup' | 'mfa';
 
 /**
- * Authenticator assurance level of the session a token speaks for (#8).
+ * Authenticator assurance level of the session a token speaks for.
  *
  * - `1` — one factor: a password, a social sign-in, or SSO through an IdP the
  *   org has NOT marked as enforcing MFA.
@@ -106,7 +106,7 @@ export const AUTH_METHODS: readonly AuthMethod[] = ['pwd', 'oauth', 'sso', 'weba
  *   spam thousands of dashboards / rules and bloat the shared Postgres /
  *   Mongo working sets. Counted at create time; decremented on delete.
  * - `listings` — active, non-suspended plugin-ecosystem listings a (root) org
- *   publishes (docs/plans/plugin-ecosystem.md §3.7). A COUNT quota like
+ *   publishes (docs/plugin-publishing.md). A COUNT quota like
  *   `plugins`: checked at publish-request submit and re-checked at approval;
  *   installs never count.
  */
@@ -250,7 +250,7 @@ export interface JwtPayload {
    *  Never reset by refresh / renew / switch-org. */
   auth_time?: number;
   /**
-   * The active org REQUIRES MFA and its grace period has passed (#8).
+   * The active org REQUIRES MFA and its grace period has passed.
    *
    * Carried as a claim so no service has to look the policy up: the org policy
    * is enforced where the token is ISSUED (a session scoped to such an org gets
@@ -269,7 +269,7 @@ export interface JwtPayload {
    */
   org_admin_aal?: 2;
   /**
-   * BOOTSTRAP-ADMIN EXCEPTION (#8, revision 4). Set only on a session opened by
+   * BOOTSTRAP-ADMIN EXCEPTION. Set only on a session opened by
    * the install's bootstrap admin (`BOOTSTRAP_SUPERADMIN_EMAILS`, system org)
    * while they still have no enrolled factor. Such a session is `aal: 1` and may
    * reach ONLY enrolment, sign-out and the routes `init-platform.sh` calls;
@@ -292,10 +292,9 @@ export interface JwtPayload {
   /**
    * Global super-admin flag (cross-org). When `true`, the user is treated
    * as a system administrator regardless of which org they're currently
-   * acting under. This is the SOLE signal for sysadmin authority — the old path
-   * (membership in the well-known "system" org with role admin/owner) has been
-   * removed because it conflated "Pipeline Builder operator" with "real customer
-   * tenant" in the data model. Grant sysadmin only via `isSuperAdmin`.
+   * acting under. This is the SOLE signal for sysadmin authority — membership in
+   * the well-known "system" org grants nothing, because that would conflate
+   * "Pipeline Builder operator" with "customer tenant" in the data model.
    */
   isSuperAdmin?: boolean;
   /** Organization's quota tier. */

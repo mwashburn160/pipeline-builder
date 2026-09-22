@@ -41,14 +41,14 @@ const { resolveIdentity } = await import('../src/services/auth-resolver.js');
 
 /**
  * Platform's signing key, published through the JWKS this suite installs. User
- * tokens are ES256 since #5, so this is the only way to produce one a verifier
+ * tokens are ES256 since, so this is the only way to produce one a verifier
  * accepts.
  */
 const signingKey: TestSigningKey = generateTestSigningKey();
 installTestJwks([signingKey]);
 
 /**
- * Real per-service key files (#14), as the deploy writes them: `plugin` is the
+ * Real per-service key files, as the deploy writes them: `plugin` is the
  * legitimate pusher, `evil` stands in for any other service that holds a valid
  * key of its own and tries to speak for plugin.
  */
@@ -94,7 +94,7 @@ describe('resolveIdentity', () => {
     jest.clearAllMocks();
   });
 
-  // ── Service-account push credentials (#12) ────────────────────────────────
+  // ── Service-account push credentials ────────────────────────────────
 
   it('grants push to a registry:push-SCOPED service-account token', async () => {
     const token = await signServiceAccountJwt({ sub: 'sa-1', organizationId: 'acme', scope: 'registry:push' });
@@ -212,7 +212,7 @@ describe('resolveIdentity', () => {
   });
 
   it('resolves an internal SERVICE token — api/plugin\'s own image pushes', async () => {
-    // Since #14 a service token is ES256 signed with that service's OWN key, so
+    // Since a service token is ES256 signed with that service's OWN key, so
     // this mints one exactly as the plugin process would (role member +
     // plugins:write) to push the image it just built.
     const token = serviceKeys.sign('plugin', { organizationId: 'acme', permissions: ['plugins:write'] });
@@ -227,7 +227,7 @@ describe('resolveIdentity', () => {
     expect(user).not.toHaveProperty('serviceName');
   });
 
-  // ── Who may push (E22) ───────────────────────────────────────────────────
+  // ── Who may push ───────────────────────────────────────────────────
 
   it('grants push to NO internal service but plugin, whatever permissions its token claims', async () => {
     const other = serviceKeys.sign('evil', { organizationId: 'acme', permissions: ['plugins:write'], role: 'admin', isAdmin: true });

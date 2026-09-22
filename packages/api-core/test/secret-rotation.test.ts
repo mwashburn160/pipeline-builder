@@ -27,7 +27,7 @@ afterAll(() => {
 
 describe('SERVICE_SIGNING_KEY rotation drill', () => {
   /**
-   * The per-service signing key (#14) rotates by `kid`, not by a `*_PREVIOUS`
+   * The per-service signing key rotates by `kid`, not by a `*_PREVIOUS`
    * env value: the shared bundle publishes the retiring public key alongside
    * the incoming one, so tokens minted either side of the cutover verify, and
    * the rotation finishes by dropping the retiring key from the bundle.
@@ -39,18 +39,18 @@ describe('SERVICE_SIGNING_KEY rotation drill', () => {
     try {
       const verify = (token: string) => verifyServiceJwt<{ sub: string }>(token, { kid: decodeJwtHeader(token)!.kid! });
 
-      // Phase 0 — before rotation: only the current key is published.
+      // before rotation: only the current key is published.
       keys.publish(['billing']);
       const oldToken = keys.sign('billing');
       expect(verify(oldToken).sub).toBe('service:billing');
 
-      // Phase 1 — overlap: both keys published, so both mints verify.
+      // overlap: both keys published, so both mints verify.
       keys.publish(['billing', 'billing-next']);
       const newToken = keys.sign('billing-next');
       expect(verify(oldToken).sub).toBe('service:billing');
       expect(verify(newToken).sub).toBe('service:billing-next');
 
-      // Phase 2 — finished: the retiring key is dropped from the bundle.
+      // finished: the retiring key is dropped from the bundle.
       keys.publish(['billing-next']);
       expect(() => verify(oldToken)).toThrow(/No published service key/);
       expect(verify(newToken).sub).toBe('service:billing-next');

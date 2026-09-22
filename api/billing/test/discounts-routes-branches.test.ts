@@ -19,6 +19,7 @@ const sendBadRequest = jest.fn<AnyFn>();
 const pass = (_req: unknown, _res: unknown, next: () => void) => next();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: record,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -59,7 +60,6 @@ const chain = (rows: unknown[]) => ({ sort: () => ({ skip: () => ({ limit: async
 const Discount = { create: jest.fn<AnyFn>(), findById: jest.fn<AnyFn>(), findByIdAndUpdate: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), countDocuments: jest.fn<AnyFn>() };
 jest.unstable_mockModule('../src/models/discount.js', () => ({ Discount }));
 const record = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record }) }));
 
 const { createDiscountRoutes } = await import('../src/routes/discounts.js');
 
@@ -178,7 +178,7 @@ describe('admin: direct grant (Mode A) and preview', () => {
   it('apply: audits the grant against the TARGET org', async () => {
     helpers.applyDiscountToOrg.mockResolvedValueOnce({ ok: true, kind: 'credit', breakdown: { net: 1 } });
     await call('post', '/admin/discounts/:id/apply', { body: { targetOrgId: 'org_t' } });
-    expect(record).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.apply', orgId: 'org_t', details: expect.objectContaining({ via: 'system' }) }), 'billing');
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.apply', orgId: 'org_t', details: expect.objectContaining({ via: 'system' }) }));
   });
 
   it('preview: returns the dry run, or the helper\'s refusal', async () => {
@@ -235,7 +235,7 @@ describe('admin: list / inspect / edit / revoke', () => {
     expect(record).not.toHaveBeenCalled();
     await call('put', '/admin/discounts/:id', { body: { isActive: false } });
     expect(createBillingEvent).toHaveBeenCalledWith('org_1', 'discount_revoked', { discountId: 'disc_1' }, undefined, 'admin-1');
-    expect(record).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.revoke' }), 'billing');
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.revoke' }));
   });
 
   it('hard revoke: 400 / 404, then deactivates, emits against the target org and audits', async () => {
@@ -249,7 +249,7 @@ describe('admin: list / inspect / edit / revoke', () => {
     await call('delete', '/admin/discounts/:id');
     expect(Discount.findByIdAndUpdate).toHaveBeenLastCalledWith('disc_1', { $set: { isActive: false } }, { new: true });
     expect(createBillingEvent).toHaveBeenCalledWith('org_t', 'discount_revoked', { discountId: 'disc_1' }, undefined, 'admin-1');
-    expect(record).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.revoke', targetId: 'disc_1' }), 'billing');
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.revoke', targetId: 'disc_1' }));
   });
 });
 
@@ -278,7 +278,7 @@ describe('self-service', () => {
     expect(record).not.toHaveBeenCalled();
     helpers.applyDiscountToOrg.mockResolvedValueOnce({ ok: true, kind: 'credit', breakdown: {} });
     await call('post', '/subscriptions/:id/discounts', { body: { code: 'X' } });
-    expect(record).toHaveBeenCalledWith(expect.objectContaining({ details: expect.objectContaining({ via: 'self-service', affectedOrgId: 'org_1' }) }), 'billing');
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ details: expect.objectContaining({ via: 'self-service', affectedOrgId: 'org_1' }) }));
   });
 
   it('remove: 400 without an id, 404 without a subscription or when the recurring discount is a different one', async () => {

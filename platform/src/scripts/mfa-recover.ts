@@ -3,7 +3,7 @@
 
 /**
  * Operator tool — recover an account that has lost EVERY multi-factor
- * credential (#8), for when NOBODY can sign in to do it over HTTP.
+ * credential, for when NOBODY can sign in to do it over HTTP.
  *
  * The normal path is the two-person reset in the dashboard (an org admin
  * requests it, a different admin or a sysadmin approves it — see
@@ -42,7 +42,8 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { config } from '../config/index.js';
-import { MFA_RESET_GRACE_MAX_HOURS, recoverMfa } from '../services/mfa-recovery.js';
+import { MFA_RESET_GRACE_MAX_HOURS } from '../helpers/mfa-policy.js';
+import { recoverMfa } from '../services/mfa-recovery.js';
 
 const logger = createLogger('mfa-recover');
 

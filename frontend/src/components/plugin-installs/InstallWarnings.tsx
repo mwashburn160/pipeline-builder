@@ -7,7 +7,7 @@ import { severityColor, severityLabel, sortBySeverity } from '@/lib/advisories';
 import type { InstallView } from '@/types/plugin-installs';
 
 /**
- * What resolving an install's version warns about (plan W8): the advisories
+ * What resolving an install's version warns about: the advisories
  * covering it — red when an advisory BLOCKS resolution under the org's
  * `blockOnAdvisory` policy — and the lookup's other warnings (deprecated,
  * unmaintained, secrets withheld). Renders nothing when there's nothing to say.

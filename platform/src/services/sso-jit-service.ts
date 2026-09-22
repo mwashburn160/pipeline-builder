@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Just-in-time membership + Role provisioning for SSO sign-in (3a).
+ * Just-in-time membership + Role provisioning for SSO sign-in.
  *
  * Before this, an SSO sign-in authenticated a user and left them outside the org
  * they had just signed in to: someone had to invite them separately, and their
@@ -25,8 +25,8 @@
  *                and Roles stay exactly as they are.
  *   PLATFORM ADMINS — never provisioned. The SSO login path already refuses them
  *                outright (`SSO_SUPERADMIN_REFUSED`); this is the second, local
- *                gate so the rule holds for any future caller of this service
- *                (SCIM in 3b).
+ *                gate so the rule holds for any other caller of this service
+ *                (SCIM).
  *   OWNER      — a JIT membership is always created as a plain `member`. Org
  *                ownership is never granted here, and an existing owner is never
  *                demoted (`recomputeUserOrgRole` preserves `owner`).
@@ -43,7 +43,7 @@ import { JIT_SEAT_LIMIT } from './idp-mapping-errors.js';
 import { syncMappedRoles } from './mapped-roles.js';
 import { ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
+import { seatCapacityAvailable, userHasSeatInAccount, withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { isSsoEntitled } from '../helpers/sso-enforcement.js';
 import { User, UserOrganization, type UserDocument } from '../models/index.js';
@@ -140,23 +140,18 @@ export async function provisionJitMembership(input: {
     }
 
     let membershipCreated = false;
-    let consumedSeat = false;
     if (!membership) {
       // Seats pool at the account root and count distinct humans, so someone who
       // is already active elsewhere in the account costs nothing to add here.
-      const alreadySeated = await userHasSeatInAccount(user._id, orgId, session);
-      if (!alreadySeated && !(await seatCapacityAvailable(orgId, 1, session))) {
-        throw new Error(JIT_SEAT_LIMIT);
-      }
-      consumedSeat = !alreadySeated;
-
-      // Always a plain member: a mapping may raise the effective role through an
-      // admin-granting Role below, but ownership is never provisioned.
-      await UserOrganization.create([{ userId: user._id, organizationId: oid, role: 'member' }], { session });
-      // Single-source RBAC: the built-in Member floor, or the membership would
-      // resolve to zero permissions. It is stamped `manual`, so a later sync
-      // never strips it.
-      await ensureBaselineRole(user._id, oid, session);
+      await withSeatGuard({ userId: user._id, orgId, session, errorCode: JIT_SEAT_LIMIT }, async () => {
+        // Always a plain member: a mapping may raise the effective role through an
+        // admin-granting Role below, but ownership is never provisioned.
+        await UserOrganization.create([{ userId: user._id, organizationId: oid, role: 'member' }], { session });
+        // Single-source RBAC: the built-in Member floor, or the membership would
+        // resolve to zero permissions. It is stamped `manual`, so a later sync
+        // never strips it.
+        await ensureBaselineRole(user._id, oid, session);
+      });
       membershipCreated = true;
     }
 
@@ -169,13 +164,6 @@ export async function provisionJitMembership(input: {
     if (membershipCreated || added.length > 0 || removed.length > 0) {
       await recomputeUserOrgRole(user._id, oid, session);
       await User.updateOne({ _id: user._id }, { $inc: { claimsVersion: 1 } }, { session });
-    }
-
-    // Post-write re-check (the G5 pattern the invite/add paths run): a concurrent
-    // sign-in or invite that slipped between the pre-check and this insert must
-    // not leave the account over its pooled cap.
-    if (consumedSeat && !(await seatCapacityStillWithinCap(orgId, session))) {
-      throw new Error(JIT_SEAT_LIMIT);
     }
 
     return { membershipCreated, matchedGroups, rolesAdded: added, rolesRemoved: removed };

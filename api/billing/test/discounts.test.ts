@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for routes/discounts + helpers/discount-helpers (Phase 2/3). Exercises
+ * Tests for routes/discounts + helpers/discount-helpers. Exercises
  * mint (+ ceiling), Mode-B token issuance, Mode-A direct grant, self-service
  * redemption (token + alias), the apply validator (target binding, one-coupon,
  * dedupe, reserve-under-cap), and revoke. Handlers are extracted from the
  * router; models + helpers are mocked (no real Mongo).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -18,6 +18,7 @@ const mockSendSuccess = jest.fn<AnyFn>();
 const mockSendError = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockAuditRecord,
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   requireAuth: (_opts?: any) => (_req: any, _res: any, next: () => void) => next(),
@@ -132,9 +133,6 @@ jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
 }));
 
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: mockAuditRecord }),
-}));
 
 const mockApplyUsageCredit = jest.fn<(...a: unknown[]) => Promise<any>>().mockResolvedValue({ ref: { kind: 'balance', ref: 'cbtxn_1' } });
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
@@ -192,7 +190,7 @@ describe('POST /admin/discounts (mint)', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith({}, 201, expect.objectContaining({
       discount: expect.objectContaining({ value: 50, unit: 'percent', kind: 'onetime', targetOrgId: 'org-cust' }),
     }));
-    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.generate' }), 'billing');
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.generate' }));
   });
 
   it('rejects a value over the ceiling', async () => {
@@ -214,7 +212,7 @@ describe('POST /admin/discounts/:id/token (Mode B)', () => {
     const [, status, body] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);
     expect(typeof (body as any).token).toBe('string');
-    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.issue' }), 'billing');
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.issue' }));
   });
 });
 
@@ -225,7 +223,7 @@ describe('POST /admin/discounts/:id/apply (Mode A)', () => {
     // onetime = a usage credit of 50% of $49.00 = 2450 cents banked.
     expect(subDoc.creditBalanceCents).toBe(2450);
     expect(subDoc.creditLedger).toHaveLength(1);
-    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.apply', orgId: 'org-cust' }), 'billing');
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.apply', orgId: 'org-cust' }));
   });
 
   it('rejects a target-org mismatch (403)', async () => {
@@ -284,7 +282,7 @@ describe('POST /subscriptions/:id/discounts (self-service redeem)', () => {
   });
 });
 
-describe('provider push (Phase 5)', () => {
+describe('provider push', () => {
   it('posts a recurring discount as a usage credit and sets the standing rule', async () => {
     subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
     await mockDiscountCreate({ _id: 'disc_push', value: 50, unit: 'percent', kind: 'recurring', isActive: true, alias: 'HALF' });
@@ -317,7 +315,7 @@ describe('provider push (Phase 5)', () => {
   });
 });
 
-describe('preview (Phase 4)', () => {
+describe('preview', () => {
   it('self-service preview returns a projected breakdown without mutating', async () => {
     await mockDiscountCreate({ _id: 'disc_pv', value: 20, unit: 'percent', kind: 'onetime', isActive: true, alias: 'TWENTYOFF' });
     await call(handler('post', '/subscriptions/:id/discounts/preview'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'TWENTYOFF' } });
@@ -334,11 +332,11 @@ describe('DELETE /subscriptions/:id/discounts/:discountId (stop recurring)', () 
     subDoc = freshSub({ recurringDiscount: { discountId: 'disc_rm', unit: 'percent', value: 10, appliedAt: new Date() } });
     await call(handler('delete', '/subscriptions/:id/discounts/:discountId'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1', discountId: 'disc_rm' }, body: {} });
     expect(subDoc.recurringDiscount).toBeNull();
-    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.remove' }), 'billing');
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.remove' }));
   });
 });
 
-describe('lifecycle reconciliation (Phase 6)', () => {
+describe('lifecycle reconciliation', () => {
   // reconcileDiscountsOnInvoice (Stripe-only) now persists ATOMICALLY (M2): the
   // mirror + expiry via Subscription.updateOne, grants via findOneAndUpdate. The
   // mocks apply those to the shared `subDoc`, so these assertions read subDoc's
@@ -458,6 +456,6 @@ describe('PUT /admin/discounts/:id (revoke)', () => {
     await mockDiscountCreate({ _id: 'disc_r', value: 50, unit: 'percent', kind: 'onetime', isActive: true });
     await call(handler('put', '/admin/discounts/:id'), adminReq({ params: { id: 'disc_r' }, body: { isActive: false } }));
     expect(discountStore.get('disc_r').isActive).toBe(false);
-    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.revoke' }), 'billing');
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.revoke' }));
   });
 });

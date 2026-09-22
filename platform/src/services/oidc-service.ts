@@ -57,7 +57,7 @@ export const OIDC_ERROR_MAP = {
   OIDC_DISABLED: { status: 403, message: 'SSO is not enabled for this organization' },
   OIDC_NOT_ENTITLED: { status: 403, message: 'This organization is not entitled to SSO' },
   OIDC_PROVIDER_UNSUPPORTED: { status: 400, message: 'This identity provider does not support OIDC single sign-on' },
-  // The org federates over SAML (#4), so the OIDC legs of the flow don't apply
+  // The org federates over SAML, so the OIDC legs of the flow don't apply
   // to it. Distinct from PROVIDER_UNSUPPORTED: nothing is misconfigured, the
   // caller simply asked for the wrong protocol.
   OIDC_PROTOCOL_MISMATCH: { status: 400, message: 'This organization signs in with SAML, not OIDC' },
@@ -68,7 +68,7 @@ export const OIDC_ERROR_MAP = {
   OIDC_NO_EMAIL: { status: 400, message: 'The identity provider did not return a verified email address' },
   OIDC_EMAIL_DOMAIN_NOT_ALLOWED: { status: 403, message: 'Your email domain is not permitted to sign in to this organization' },
   OIDC_EMAIL_DOMAIN_NOT_VERIFIED: { status: 403, message: 'This organization has not verified ownership of your email domain, so it cannot sign you in with single sign-on' },
-  // Just-in-time provisioning (3a). Key must match `JIT_SEAT_LIMIT` in
+  // Just-in-time provisioning. Key must match `JIT_SEAT_LIMIT` in
   // services/sso-jit-errors.ts — the sign-in is REFUSED (rather than silently
   // signing the user in without a membership) so the seat cap means the same
   // thing here as it does on the invitation path.
@@ -212,7 +212,7 @@ export interface OidcIdentity {
    *  actually authenticated. Step-up re-auth uses it to prove a fresh sign-in. */
   authTime?: number;
   /** Group memberships asserted by the IdP, read from the org's configured
-   *  `groupsClaim` (3a). Empty when the claim is absent, malformed, or the
+   *  `groupsClaim`. Empty when the claim is absent, malformed, or the
    *  provider carries no groups (Google). Drives JIT Role mapping ONLY — it is
    *  never trusted as a permission by itself. */
   groups: string[];
@@ -242,7 +242,7 @@ export interface OidcLoginConfig {
   region?: string;
   /** AWS Cognito user-pool id — used to DERIVE discovery for `provider: 'cognito'`. */
   userPoolId?: string;
-  /** id_token claim carrying group memberships (3a). Unset = `groups`. */
+  /** id_token claim carrying group memberships. Unset = `groups`. */
   groupsClaim?: string;
   allowedEmailDomains: string[];
 }
@@ -468,7 +468,7 @@ export async function exchangeAndValidate(
     if (!domain || !allowed.includes(domain)) throw new Error('OIDC_EMAIL_DOMAIN_NOT_ALLOWED');
   }
 
-  // 6. Groups for JIT Role mapping (3a). Read from the org's configured claim
+  // 6. Groups for JIT Role mapping. Read from the org's configured claim
   //    name off the SAME verified claim set — never from the userinfo endpoint or
   //    anything else the client could influence. A missing/odd-shaped claim
   //    yields no groups, which maps to no Roles (never to a default grant).

@@ -1,16 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, audited, actorId } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
 import { orgRetentionWindowFromSettings, retentionOrgIdFor } from '../helpers/retention-cap.js';
-import { emitReportingAudit } from '../services/audit.js';
 
 /**
- * Post-deploy outcome markers (Phase 2). A user marks a deployment `failed`
+ * Post-deploy outcome markers. A user marks a deployment `failed`
  * (a production incident linked to the deploy) or `restored` (recovered). These
  * feed the DORA post-deploy Change Failure Rate component and the real MTTR.
  *
@@ -19,7 +18,7 @@ import { emitReportingAudit } from '../services/audit.js';
  * double-counting. Mounted `advanced_reporting`-gated alongside the other DORA
  * routes (see index.ts).
  *
- * ANTI-FORGERY (api#5): the DORA compute makes a `failed` outcome's `environment`
+ * ANTI-FORGERY: the DORA compute makes a `failed` outcome's `environment`
  * appear as its own env card even with zero real deploys, so an unvalidated write
  * could manufacture PHANTOM environments (fake CFR/MTTR). Two guards close that:
  *   1. `at` must fall within `[now − effectiveDoraRetention, now]` — no future or
@@ -55,7 +54,7 @@ export function createDeploymentOutcomeRoutes(): Router {
     // future or before the org's retention (where no report would ever surface it,
     // yet a mid-window purge could strand it). Unlimited retention ⇒ minFromMs=0.
     const now = Date.now();
-    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
+    const settings = await reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId));
     const win = orgRetentionWindowFromSettings(settings, 'dora', now);
     const atMs = Date.parse(parsed.value.at);
     if (atMs > now + CLOCK_SKEW_MS) {
@@ -86,7 +85,7 @@ export function createDeploymentOutcomeRoutes(): Router {
     // org's reported change-failure rate + MTTR (the DORA numbers a customer may
     // report externally), so who marked what, when, needs a durable trail.
     // Emitted only after the idempotent upsert landed.
-    emitReportingAudit({
+    recordAudit({
       action: 'reporting.deployment.outcome',
       actorId: actorId({ userId }),
       orgId,

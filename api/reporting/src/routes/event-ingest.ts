@@ -40,7 +40,7 @@ const baseIngestFields = {
   commitSha: z.string().max(255).optional(),
   commitRef: z.string().max(255).optional(),
   environment: z.string().max(255).optional(),
-  // DORA measured lead time (Phase 4): oldest unshipped commit time (ISO 8601)
+  // DORA measured lead time: oldest unshipped commit time (ISO 8601)
   // + how many commits shipped in this change (≥1). Both resolved in-account by
   // the forwarder; absent when the source type/token can't be resolved.
   commitTimestamp: z.string().datetime({ offset: true }).optional(),
@@ -87,7 +87,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
       return sendBadRequest(res, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`, ErrorCode.VALIDATION_ERROR);
     }
 
-    // Phase 3b: fan each registered terminal deploy/stage outcome into Prometheus
+    // Fan each registered terminal deploy/stage outcome into Prometheus
     // counters (exposed on this service's /metrics, scraped by in-cluster
     // Prometheus). The org_id is resolved from the registry inside ingestEvents,
     // so the counter is emitted via this hook rather than from the route (which
@@ -127,10 +127,8 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     // via the SSEManager relay). The frontend refetches its execution counts on
     // receipt — replacing the dashboard's manual-refresh/poll with a live update.
     // Driven off `affectedOrgs` (every org with a row in this batch), NOT the
-    // stage-metric hook it used to use. That hook only fires for STAGE events,
-    // so a batch of PIPELINE or BUILD events landed rows and pushed no frame at
-    // all — the dashboard quietly fell back to manual refresh for exactly the
-    // events an execution view exists to show.
+    // stage-metric hook: that only fires for STAGE events, so a batch of PIPELINE
+    // or BUILD events would land rows and push no frame at all.
     if (inserted > 0) {
       for (const org of affectedOrgs) {
         try {

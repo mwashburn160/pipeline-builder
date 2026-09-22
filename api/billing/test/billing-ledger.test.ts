@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for helpers/billing-ledger + routes/billing-summary (Phase 7). Exercises
+ * Tests for helpers/billing-ledger + routes/billing-summary. Exercises
  * idempotent Stripe-invoice ingestion (incl. usage-credit consumption from the
  * customer balance), the dashboard summary aggregation (gross − credit = net
  * reconciliation), and the paginated invoice list. Models are mocked (no Mongo).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -30,13 +30,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   fetchOrgDescendants: async () => undefined,
 }));
 
-// Isolate the ledger/route from the heavy billing-helpers + quota-client chains
+// Isolate the ledger/route from the heavy billing-helpers + downstream-client chains
 // (the allocation route pulls billingServiceAuth/getBillingTimeout + fetchSeatUsage).
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   billingServiceAuth: () => 'Bearer svc',
   getBillingTimeout: () => 5000,
 }));
-jest.unstable_mockModule('../src/helpers/quota-client.js', () => ({
+jest.unstable_mockModule('../src/helpers/downstream-client.js', () => ({
   fetchSeatUsage: jest.fn(async () => ({ limit: 10, used: 3 })),
   fetchQuotaSnapshot: jest.fn(async (orgId: string) => ({
     tier: 'team',

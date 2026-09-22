@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The tenant side of the plugin ecosystem (plan §3.1, §3.1a, §3.4, §3.7, W1)
+ * The tenant side of the plugin ecosystem
  * against an in-memory database: publisher claim / profile / terms / pause,
- * submitting every request kind with its gates, the digest pin (G25), the
+ * submitting every request kind with its gates, the digest pin, the
  * listings quota, withdraw and transfer responses, the post-build submit the
  * Official loader uses — and the automatic decisions: the one-time bootstrap
- * exception and the Official catalog auto-approval rule (§3.0.3).
+ * exception and the Official catalog auto-approval rule.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
@@ -19,7 +19,7 @@ import {
 const h = setupEcosystemHarness();
 const publishersSvc = await import('../src/services/ecosystem/publishers.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
-const decisions = await import('../src/services/ecosystem/decisions.js');
+const bootstrap = await import('../src/services/ecosystem/bootstrap.js');
 await wireEcosystemHarness(h);
 
 const { db } = h;
@@ -91,7 +91,7 @@ afterEach(() => {
 // Publishers
 // -----------------------------------------------------------------------------
 
-describe('publisher profile (W1)', () => {
+describe('publisher profile', () => {
   it('claims a handle with the current terms, then reports its standing', async () => {
     const created = await publishersSvc.claimPublisher(tenant() as any, { handle: 'Acme', displayName: ' Acme Inc ', termsVersion: '2026-09-21', homepageUrl: 'https://acme.dev' });
     expect(created).toMatchObject({ handle: 'acme', displayName: 'Acme Inc', tier: 'community', termsVersion: '2026-09-21' });
@@ -135,7 +135,7 @@ describe('publisher profile (W1)', () => {
     await rejects(publishersSvc.acceptTerms(tenant({ orgId: 'nobody' }) as any, '2026-09-21'), 'PUBLISHER_REQUIRED');
   });
 
-  it('lists its listings with versions and open requests, and pauses a listing or a version at once (D14)', async () => {
+  it('lists its listings with versions and open requests, and pauses a listing or a version at once', async () => {
     const { acme } = seedPublishers(db);
     const { listing } = seedListed(acme, 'lint', '1.0.0');
     db.seed('plugin_publish_requests', { publisherId: acme.id, listingId: listing.id, kind: 'yank', version: '1.0.0', submittedBy: 'u-acme' });
@@ -170,7 +170,7 @@ describe('publisher profile (W1)', () => {
     expect(await publishersSvc.listingsQuota(SYSTEM_ORG, null)).toEqual({ used: 0, limit: -1, failOpen: false });
   });
 
-  it('flags an unreadable quota, and a DECISION refuses on it rather than approving past the limit (E4)', async () => {
+  it('flags an unreadable quota, and a DECISION refuses on it rather than approving past the limit', async () => {
     h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
     expect(await publishersSvc.listingsQuota('org-acme', null)).toMatchObject({ limit: -1, failOpen: true });
     h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
@@ -182,7 +182,7 @@ describe('publisher profile (W1)', () => {
 // Submitting requests
 // -----------------------------------------------------------------------------
 
-describe('new listing requests (§3.1, §3.1a, G25)', () => {
+describe('new listing requests', () => {
   it('drafts the accept-or-edit form: gates, detected metadata with provenance, quota', async () => {
     seedPublishers(db);
     const plugin = db.seed('plugins', pluginRow());
@@ -230,7 +230,7 @@ describe('new listing requests (§3.1, §3.1a, G25)', () => {
     await rejects(requestsSvc.submit(tenant() as any, { kind: 'new_listing', pluginId: trivy.id }), 'PUBLISH_GATE_FAILED');
   });
 
-  it('enforces the listings quota at submit, counting pending new listings (§3.7)', async () => {
+  it('enforces the listings quota at submit, counting pending new listings', async () => {
     seedPublishers(db);
     h.setListingsLimit(1);
     const a = db.seed('plugins', pluginRow({ name: 'a' }));
@@ -295,7 +295,7 @@ describe('version, update, yank, unpause requests', () => {
     await rejects(requestsSvc.submit(tenant() as any, { kind: 'new_version', pluginId: unlisted.id }), 'CONFLICT');
   });
 
-  it('freezes new versions over the listings limit except in the security-fix lane (§3.7)', async () => {
+  it('freezes new versions over the listings limit except in the security-fix lane', async () => {
     const { acme } = seedPublishers(db);
     const { listing } = seedListed(acme, 'lint', '1.0.0');
     seedListed(acme, 'fmt', '1.0.0');
@@ -402,7 +402,7 @@ describe('publisher-level requests: transfer, claim, profile change, Verified', 
     await rejects(requestsSvc.submit(tenant() as any, { kind: 'profile_change', target: { handle: 'acme', displayName: 'Acme' } }), 'VALIDATION_ERROR');
   });
 
-  it('applies for Verified only on an eligible plan (§3.7) and only from Community (N6)', async () => {
+  it('applies for Verified only on an eligible plan and only from Community (N6)', async () => {
     const { acme } = seedPublishers(db);
     await rejects(requestsSvc.submit(tenant() as any, { kind: 'verify', application: {} }), 'VERIFIED_PLAN_REQUIRED');
     const out = await requestsSvc.submit(tenant({ features: ['verified_publisher'] }) as any, { kind: 'verify', application: { domain: 'acme.dev', notes: 'hi' } });
@@ -432,7 +432,7 @@ describe('withdraw + own lists', () => {
     expect((await requestsSvc.ownRequests(tenant() as any, { status: 'withdrawn' })).requests).toHaveLength(1);
   });
 
-  it('pages the org\'s requests newest first with an opaque keyset cursor (E11)', async () => {
+  it('pages the org\'s requests newest first with an opaque keyset cursor', async () => {
     const { acme } = seedPublishers(db);
     const at = Date.now();
     for (let i = 0; i < 5; i++) db.seed('plugin_publish_requests', { publisherId: acme.id, kind: 'yank', submittedBy: 'u-acme', createdAt: new Date(at - i * 1000), version: `1.0.${i}` });
@@ -452,7 +452,7 @@ describe('withdraw + own lists', () => {
 // Automatic decisions: bootstrap + auto-approval rules
 // -----------------------------------------------------------------------------
 
-describe('bootstrap exception (§3.1)', () => {
+describe('bootstrap exception', () => {
   it('auto-approves the initial Official catalog from the loader, audited as bootstrap, then closes for good', async () => {
     seedPublishers(db);
     const lint = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, createdBy: 'sa-loader' }));
@@ -467,7 +467,7 @@ describe('bootstrap exception (§3.1)', () => {
     expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications', expect.objectContaining({ sourceRepository: 'system/lint', tier: 'official', publisherHandle: 'pipeline-builder' }), expect.anything());
     expect(db.tables.plugin_listings).toHaveLength(2);
     expect(db.tables.plugin_listing_versions![0]).toMatchObject({ imageRepository: 'public/pipeline-builder/lint', sourcePluginId: lint.id });
-    expect((await decisions.bootstrapState()).approved).toBe(2);
+    expect((await bootstrap.bootstrapState()).approved).toBe(2);
 
     // The window elapses: closed, and never reopens.
     process.env.ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS = '1';
@@ -475,7 +475,7 @@ describe('bootstrap exception (§3.1)', () => {
     state.value = { ...state.value, openedAt: new Date(Date.now() - 2 * 3_600_000).toISOString() };
     const late = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, name: 'late', createdBy: 'sa-loader' }));
     expect(await requestsSvc.submitAfterBuild(loader() as any, late.id)).toMatchObject({ ok: true, status: 'pending' });
-    expect((await decisions.bootstrapState()).reason).toBe('window_elapsed');
+    expect((await bootstrap.bootstrapState()).reason).toBe('window_elapsed');
   });
 
   it('never applies to a person, and closes when the instance already has listings', async () => {
@@ -489,7 +489,7 @@ describe('bootstrap exception (§3.1)', () => {
     seedListed(again.official, 'existing', '1.0.0');
     const next = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, name: 'next' }));
     expect(await requestsSvc.submitAfterBuild(loader() as any, next.id)).toMatchObject({ status: 'pending' });
-    expect((await decisions.bootstrapState()).reason).toBe('listings_exist');
+    expect((await bootstrap.bootstrapState()).reason).toBe('listings_exist');
     expect(official.id).toBeDefined();
   });
 
@@ -503,7 +503,7 @@ describe('bootstrap exception (§3.1)', () => {
   });
 });
 
-describe('Official catalog auto-approval rule (§3.0.3)', () => {
+describe('Official catalog auto-approval rule', () => {
   function officialWithListing() {
     const { official } = seedPublishers(db);
     seedListed(official, 'lint', '1.0.0');
@@ -550,7 +550,7 @@ describe('Official catalog auto-approval rule (§3.0.3)', () => {
     expect((await requestsSvc.submitAfterBuild(loader() as any, second.id)).status).toBe('pending');
   });
 
-  it('re-counts the rule\'s caps under a per-rule advisory lock in the SAME transaction as the claim (E9)', async () => {
+  it('re-counts the rule\'s caps under a per-rule advisory lock in the SAME transaction as the claim', async () => {
     officialWithListing();
     const { PgDialect } = await import('drizzle-orm/pg-core');
     const dialect = new PgDialect();

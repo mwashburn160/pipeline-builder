@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState, useId } from 'react';
+import { useCallback, useState, useId } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -40,7 +41,6 @@ type Provider = 'generic-oidc' | 'cognito' | 'google' | 'github';
  */
 export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   const uid = useId();
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState<OrgIdpConfigDto | null>(null);
   const [provider, setProvider] = useState<Provider>('generic-oidc');
@@ -61,36 +61,27 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   // this modal stayed open showing a failure.
   const [pendingWrite, setPendingWrite] = useState<((stepUpToken: string) => Promise<void>) | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    api.getOrgIdpConfig(org.id).then((res) => {
-      if (cancelled) return;
-      if (!res.success) {
-        setError(res.message || 'Failed to load IdP config');
-        return;
-      }
-      // `config: null` = no IdP configured yet (a normal state) — leave the
-      // defaults so the operator gets an empty create form, not an error.
-      const c = res.data?.config;
-      if (c) {
-        setExisting(c);
-        // A SAML config carries neither (#4); this operator modal edits the OIDC
-        // connection, so fall back to the empty form rather than crashing on it.
-        if (c.provider) setProvider(c.provider);
-        setClientId(c.clientId ?? '');
-        setDiscoveryUrl(c.discoveryUrl || '');
-        setRegion(c.region || '');
-        setUserPoolId(c.userPoolId || '');
-        setAllowedEmailDomains(c.allowedEmailDomains || []);
-        setEnabled(c.enabled);
-      }
-    }).catch((err) => {
-      if (cancelled) return;
-      setError(formatError(err));
-    })
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
-  }, [org.id]);
+  // `config: null` = no IdP configured yet (a normal state) — the operator gets
+  // an empty create form, not an error.
+  const { loading, error: loadError } = useFetch(async () => {
+    const res = await api.getOrgIdpConfig(org.id);
+    if (!res.success) throw new Error(res.message || 'Failed to load IdP config');
+    return res.data?.config ?? null;
+  }, [org.id], {
+    onSuccess: (c) => {
+      if (!c) return;
+      setExisting(c);
+      // A SAML config carries neither provider nor client id; this operator
+      // modal edits the OIDC connection, so fall back to the empty form for it.
+      if (c.provider) setProvider(c.provider);
+      setClientId(c.clientId ?? '');
+      setDiscoveryUrl(c.discoveryUrl || '');
+      setRegion(c.region || '');
+      setUserPoolId(c.userPoolId || '');
+      setAllowedEmailDomains(c.allowedEmailDomains || []);
+      setEnabled(c.enabled);
+    },
+  });
 
   const handleSave = useCallback(async () => {
     setError(null);
@@ -188,7 +179,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
         <div className="space-y-4">
           {loading && <LoadingSpinner size="sm" />}
 
-          <ErrorAlert message={error} />
+          <ErrorAlert message={error ?? (loadError ? formatError(loadError) : null)} />
 
           {existing && (
             <div className="rounded-lg bg-surface-muted px-3 py-2 text-sm">

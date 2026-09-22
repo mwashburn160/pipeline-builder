@@ -8,8 +8,9 @@
  * zero-recipient case. Models + EmailService are mocked.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockMembershipFind = jest.fn<AnyFn>();
@@ -52,7 +53,7 @@ jest.unstable_mockModule('../src/utils/email.js', () => ({
   default: { send: (...a: unknown[]) => mockSend(...a) },
 }));
 
-// Ecosystem notices (plugin-ecosystem §5b) are delivered by their own service,
+// Ecosystem notices are delivered by their own service,
 // tested in ecosystem-notifications.test.ts; here only the relay's branching.
 const mockDeliver = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
@@ -61,7 +62,7 @@ jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
 
 // EMAIL_ENABLED as platform config exposes it — mutable per test for the status route.
 const mockEmailConfig = { enabled: true };
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { email: mockEmailConfig } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ email: mockEmailConfig }));
 
 const { notifyEmail: handleNotifyEmail, notifyEmailStatus } = await import('../src/controllers/notify-email.js');
 
@@ -231,7 +232,7 @@ describe('handleNotifyEmail — ecosystem notices (plugin)', () => {
 });
 
 // GET /internal/notify-email/status — the plugin service's anonymous-submission
-// API (plugin-ecosystem §4.2) is only available when outbound email is on.
+// API is only available when outbound email is on.
 describe('notifyEmailStatus', () => {
   it.each([[true], [false]])('reports enabled=%s straight from EMAIL_ENABLED', (enabled) => {
     mockEmailConfig.enabled = enabled;

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The upload dialog's Catalog details step (plugin-ecosystem §3.1a, D19): the
+ * The upload dialog's Catalog details step: the
  * package is inspected, every descriptive field is listed with its detected
  * value and source, and only the fields the user EDITED travel with the upload
  * as the `metadata` part. An inspect failure must never block the upload.
@@ -171,10 +171,8 @@ describe('Catalog details step', () => {
 describe('plugins API client — inspect + catalog edits', () => {
   // The real client (the `@/lib/api` mock above only replaces the default export).
   const { pluginsApi } = jest.requireActual<typeof import('../src/lib/api/domains/plugins')>('../src/lib/api/domains/plugins');
-  const core = {
-    ensureFreshToken: jest.fn<AnyFn>(async () => undefined),
-    authHeaders: jest.fn<AnyFn>(() => ({ Authorization: 'Bearer t' })),
-  } as unknown as import('../src/lib/api/core').ApiCore;
+  const { ApiCore } = jest.requireActual<typeof import('../src/lib/api/core')>('../src/lib/api/core');
+  const core = new ApiCore();
   const file = new File(['zip'], 'p.zip', { type: 'application/zip' });
 
   function respond(status: number, body: unknown) {

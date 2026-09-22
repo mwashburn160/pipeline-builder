@@ -1,11 +1,12 @@
 name: plugin-catalog
 
-# Official plugin catalog hygiene (docs/plans/plugin-ecosystem.md W0.7).
+# Official plugin catalog hygiene.
 #
-#   static — deploy/bin/test-plugins.sh over EVERY plugin: spec schema + catalog
-#            metadata (license, URLs, egress, icon key, README/changelog caps) and
-#            Dockerfile hygiene (final USER non-root, no pipe-to-shell installers,
-#            every download through fetch-verified). Cheap, no Docker.
+#   static — deploy/bin/test-plugins.sh over EVERY plugin: repo layout plus
+#            `pipeline-manager plugin validate --lint` (the upload API's spec and
+#            catalog-metadata schemas and the Dockerfile rules: final USER
+#            non-root, no pipe-to-shell installers, every download through
+#            fetch-verified). No Docker; needs the CLI built.
 #   build  — `test-plugins.sh --build` (docker build + launch + uid != 0 + the
 #            spec's smokeTest) for ONLY the plugins this PR touches — or every
 #            plugin when a shared base under deploy/plugins/_base/ (or the test
@@ -23,6 +24,8 @@ on:
       - 'deploy/plugins/**'
       - 'deploy/bin/test-plugins.sh'
       - 'deploy/bin/common.sh'
+      - 'packages/api-core/src/validation/**'
+      - 'packages/pipeline-manager/src/**'
       - 'deploy/codebuild/bootstrap/**'
       - '.github/workflows/plugin-catalog.yml'
   workflow_dispatch: {}
@@ -42,10 +45,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      # ubuntu-latest ships mikefarah yq v4, which test-plugins.sh requires;
-      # fail loudly here if the image ever stops providing it.
-      - name: Check yq
-        run: yq --version
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - name: Setup node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - name: Build the pipeline-manager CLI (test-plugins.sh runs plugin validate --lint)
+        run: pnpm install --frozen-lockfile && npx nx run @pipeline-builder/pipeline-manager:post-compile
 
       - name: Validate every plugin (spec + metadata + Dockerfile hygiene)
         run: bash deploy/bin/test-plugins.sh
@@ -84,7 +92,7 @@ jobs:
             selected="$(all_plugins)"
           else
             changed="$(git diff --name-only "${BASE_SHA}...HEAD")"
-            if printf '%s\n' "$changed" | grep -qE '^(deploy/plugins/_base/|deploy/bin/test-plugins\.sh$|deploy/bin/common\.sh$|deploy/codebuild/bootstrap/)'; then
+            if printf '%s\n' "$changed" | grep -qE '^(deploy/plugins/_base/|deploy/bin/test-plugins\.sh$|deploy/bin/common\.sh$|deploy/codebuild/bootstrap/|packages/api-core/src/validation/)'; then
               selected="$(all_plugins)"
             else
               selected="$(printf '%s\n' "$changed" \
@@ -114,6 +122,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - name: Setup node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - name: Build the pipeline-manager CLI (test-plugins.sh runs plugin validate --lint)
+        run: pnpm install --frozen-lockfile && npx nx run @pipeline-builder/pipeline-manager:post-compile
 
       # Base + plugin images for a whole category do not fit the runner's
       # default free disk; drop preinstalled SDKs this job never uses.

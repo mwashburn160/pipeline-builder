@@ -21,9 +21,10 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const findDeletedByIdMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const restoreMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const emitComplianceAuditMock = jest.fn<AnyFn>();
+const recordAuditMock = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p?.[k],
   isSystemAdmin: () => true,
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) =>
@@ -44,10 +45,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 jest.unstable_mockModule('../src/services/policy-service.js', () => ({
   compliancePolicyService: {
@@ -90,8 +87,8 @@ describe('POST /:id/restore — restore emits compliance.policy.restore', () => 
     expect(findDeletedByIdMock).toHaveBeenCalledWith(POLICY_ID, 'org-a');
     expect(restoreMock).toHaveBeenCalledWith(POLICY_ID, 'org-a', 'u-1');
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledTimes(1);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledTimes(1);
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.policy.restore',
       actorId: 'u-1',
       orgId: 'org-a',
@@ -111,7 +108,7 @@ describe('POST /:id/restore — restore emits compliance.policy.restore', () => 
 
     expect(status).toHaveBeenCalledWith(404);
     expect(restoreMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('returns 404 and does not emit when restore returns null', async () => {
@@ -124,7 +121,7 @@ describe('POST /:id/restore — restore emits compliance.policy.restore', () => 
 
     expect(restoreMock).toHaveBeenCalledWith(POLICY_ID, 'org-a', 'u-1');
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('returns 400 and does not touch the service when the id is missing', async () => {
@@ -135,6 +132,6 @@ describe('POST /:id/restore — restore emits compliance.policy.restore', () => 
 
     expect(status).toHaveBeenCalledWith(400);
     expect(findDeletedByIdMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });

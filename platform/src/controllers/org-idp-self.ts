@@ -29,16 +29,17 @@
  *
  * Everything else — validation, the write-only client-secret handling, the
  * `idpConfigs` quota reservation, the audit actions — lives in
- * `controllers/org-idp-ops.ts` and is shared verbatim with the sysadmin surface,
- * so the two cannot drift apart (they already had: only this surface used to
- * preserve the stored client secret on an update).
+ * `helpers/org-idp-ops.ts` and is shared verbatim with the sysadmin surface,
+ * so the two cannot drift apart (e.g. in preserving the stored client secret
+ * on an update).
  */
 
 import { createLogger, getParam, safeFetch, sendSuccess, type SafeFetchResponse, errorMessage } from '@pipeline-builder/api-core';
-import { ORG_IDP_ERROR_MAP, deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
 import { audit } from '../helpers/audit.js';
-import { requireAuth, withController } from '../helpers/controller-helper.js';
+import { ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from '../helpers/org-idp-ops.js';
 import { requireOwnOrgSso } from '../helpers/sso-enforcement.js';
+import { ORG_IDP_ERROR_MAP } from '../services/idp-mapping-errors.js';
 import { ssoCallbackUrl } from '../services/oidc-service.js';
 import {
   SAML_ERROR_MAP,
@@ -55,7 +56,7 @@ const logger = createLogger('org-idp-self');
 /** GET /organization/:id/idp — read own-org IdP config (200 with `config: null`
  *  when none is set, mirroring the sysadmin read). */
 export const getOwnOrgIdpConfig = withController('Get own-org IdP config', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
 
@@ -64,7 +65,7 @@ export const getOwnOrgIdpConfig = withController('Get own-org IdP config', async
 
 /** PUT /organization/:id/idp — upsert own-org IdP config (full body). */
 export const putOwnOrgIdpConfig = withController('Put own-org IdP config', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
   await upsertOrgIdp(req, res, orgId, 'self-service');
@@ -72,7 +73,7 @@ export const putOwnOrgIdpConfig = withController('Put own-org IdP config', async
 
 /** PATCH /organization/:id/idp — partial update of own-org IdP config. */
 export const patchOwnOrgIdpConfig = withController('Patch own-org IdP config', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
   await patchOrgIdp(req, res, orgId, 'self-service');
@@ -80,7 +81,7 @@ export const patchOwnOrgIdpConfig = withController('Patch own-org IdP config', a
 
 /** DELETE /organization/:id/idp — remove own-org IdP config. */
 export const deleteOwnOrgIdpConfig = withController('Delete own-org IdP config', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
   await deleteOrgIdp(req, res, orgId, 'self-service');
@@ -97,7 +98,7 @@ export const deleteOwnOrgIdpConfig = withController('Delete own-org IdP config',
  * application in the first place.
  */
 export const getOwnOrgIdpSpInfo = withController('Get own-org SSO SP info', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
 
@@ -160,7 +161,7 @@ async function fetchMetadata(url: string): Promise<string> {
  * carries no step-up of its own.
  */
 export const importOwnOrgIdpMetadata = withController('Import IdP metadata', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
   const body = validateBody(idpMetadataImportSchema, req.body, res);

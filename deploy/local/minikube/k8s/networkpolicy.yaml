@@ -496,7 +496,7 @@ spec:
 # the old per-app list missed every exporter (postgres 9187, pgbouncer 9127,
 # mongodb 9216, redis 9121, minio 9000, thanos 10902, jaeger 14269, promtail
 # 9080), so default-deny-ingress dropped those scrapes on any enforcing CNI and
-# ServiceDown fired for healthy datastores. platform/test/deploy-network-
+# ServiceDown fired for healthy datastores. test/deploy-contracts/test/network-
 # contract.test.ts asserts every scrape-annotated pod is covered here AND by
 # its mesh AuthorizationPolicy.
 # =============================================================================
@@ -574,8 +574,7 @@ spec:
 # =============================================================================
 # Plugin External Egress — plugin pulls base images + dependency packages
 #
-# Hardening: this used to allow 443/80 to ANY destination. We still
-# allow public-internet 443/80 (builds legitimately fetch from pypi.org,
+# Public-internet 443/80 is allowed (builds legitimately fetch from pypi.org,
 # npmjs.org, ghcr.io, quay.io, public.ecr.aws, and arbitrary git hosts) but
 # explicitly block known exfil targets via `except` blocks (the shared shape —
 # see EGRESS SHAPE near the end of this file):
@@ -588,7 +587,8 @@ spec:
 #
 # True per-org allow-lists require either Cilium NetworkPolicy (CIDR + DNS-
 # aware) or kernel-level isolation via per-org buildkitd workers.
-# This rule is defense-in-depth on top of those — see docs/plans/follow-ups.md.
+# This rule is defense-in-depth on top of those (cilium-network-policies.yaml
+# carries the per-org FQDN layer where Cilium is the CNI).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -622,11 +622,10 @@ spec:
 # Billing External Egress — billing calls the external payment provider
 # (api.stripe.com; AWS Marketplace metering for the marketplace provider).
 #
-# This rule USED TO HAVE NO `to:` AT ALL, which in NetworkPolicy means "every
-# destination": billing could open 443 to anything reachable from the pod,
-# including the VPC's internal services and the Kubernetes API server. It now
-# names 0.0.0.0/0 explicitly and carves out every private range, so the only
-# thing left is the public internet — where Stripe actually is.
+# A rule with no `to:` means "every destination" in NetworkPolicy — billing
+# could then open 443 to the VPC's internal services and the Kubernetes API
+# server. So it names 0.0.0.0/0 explicitly and carves out every private range,
+# leaving only the public internet — where Stripe actually is.
 #
 # The carve-out does NOT cut billing off from the rest of the stack: in-namespace
 # traffic (postgres, redis, quota, platform) is allowed by `allow-internal-egress`
@@ -672,7 +671,7 @@ spec:
 # OIDC discovery documents, SAML IdP metadata — so an attacker who can set one of
 # those controls the destination. That makes this rule the SSRF backstop, and it
 # therefore carves out EVERY private range (all of RFC1918, not just 192.168/16)
-# plus link-local/IMDS and CGNAT: a crafted URL can no longer pivot to an
+# plus link-local/IMDS and CGNAT: a crafted URL cannot pivot to an
 # in-VPC service or to 169.254.169.254, and platform holds the JWT-signing
 # secrets that would make such a pivot expensive.
 #
@@ -922,7 +921,7 @@ spec:
 
 ---
 # =============================================================================
-# Quarantine builder (anonymous plugin submissions, plugin-ecosystem §4.2 / W5)
+# Quarantine builder (anonymous plugin submissions)
 # =============================================================================
 # plugin-quarantine-builder runs Dockerfile RUN steps from ANONYMOUS uploads.
 # It may reach only: DNS (allow-dns-egress), the in-cluster registry (push

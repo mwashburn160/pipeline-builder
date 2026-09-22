@@ -13,7 +13,7 @@ const EMPTY: Plan[] = [];
  * Fetch the billing plan catalog. Fail-soft (stays empty on error).
  * Pass `enabled: false` to skip the fetch — e.g. when billing is disabled, so
  * callers don't request plans they'll never show. Shared by the signup and
- * onboarding plan pickers, which previously duplicated this effect.
+ * onboarding plan pickers.
  *
  * Reads through the shared query cache, so the signup picker, the onboarding
  * picker and both billing pages resolve to ONE request for a catalog that does

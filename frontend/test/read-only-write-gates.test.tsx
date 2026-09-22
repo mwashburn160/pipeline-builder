@@ -29,20 +29,14 @@ jest.mock('@/lib/api', () => ({
     createServiceAccountKey: (...a: unknown[]) => createServiceAccountKey(...a),
   },
 }));
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
   StepUpModal: () => <div data-testid="stepup-modal" />,
 }));
 // The keys panel asks who the caller is (to decide whether to list the org's
 // service-account keys as well); it needs no router here.
-jest.mock('@/hooks/useAuthGuard', () => ({
-  __esModule: true,
-  useAuthGuard: () => ({ user: { organizationId: 'org-1' }, can: () => false }),
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => ({ user: { organizationId: 'org-1' }, can: () => false })));
 
 describe('read-only write gates', () => {
   beforeEach(() => {

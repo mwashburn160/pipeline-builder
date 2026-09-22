@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, Types, type HydratedDocument } from 'mongoose';
 
 /**
  * An ORG-SCOPED SERVICE ACCOUNT: a non-human principal that belongs to exactly
@@ -26,9 +26,9 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
  * this IS its access rate. Entity quotas (pipelines, plugins …) still belong to
  * the org that owns the created entity.
  */
-export interface ServiceAccountDocument extends Document {
+export interface ServiceAccountData {
   /** Owning org/team. One org, for life — a service account is never moved. */
-  organizationId: Types.ObjectId | string;
+  organizationId: Types.ObjectId;
   /** Unique (per org) machine name, e.g. `setup`, `ci-deploy`. */
   name: string;
   description?: string | null;
@@ -59,9 +59,11 @@ export interface ServiceAccountDocument extends Document {
   updatedAt: Date;
 }
 
-const serviceAccountSchema = new Schema<ServiceAccountDocument>(
+export type ServiceAccountDocument = HydratedDocument<ServiceAccountData>;
+
+const serviceAccountSchema = new Schema<ServiceAccountData>(
   {
-    organizationId: { type: Schema.Types.Mixed, required: true, index: true },
+    organizationId: { type: Schema.Types.ObjectId, required: true, index: true },
     name: { type: String, required: true, trim: true, maxlength: 64 },
     description: { type: String, default: null, maxlength: 256 },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -81,4 +83,4 @@ const serviceAccountSchema = new Schema<ServiceAccountDocument>(
 // addresses an account idempotently, so it must be unambiguous.
 serviceAccountSchema.index({ organizationId: 1, name: 1 }, { unique: true });
 
-export default mongoose.model<ServiceAccountDocument>('ServiceAccount', serviceAccountSchema);
+export default mongoose.model<ServiceAccountData>('ServiceAccount', serviceAccountSchema);

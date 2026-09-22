@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { createLogger, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { envInt, createLogger, getServiceAuthHeader, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
@@ -20,9 +20,7 @@ import {
   getTierQueue,
   totalAttemptBudget,
 } from './connections.js';
-import { intFromEnv } from './env-int.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
-import { emitPluginAudit } from '../services/audit.js';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -48,7 +46,7 @@ export function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMess
   const { orgId, userId, pluginRecord } = job.data;
   const causeText = causeMessage ?? 'Build failed after exhausting all retries';
   const isTimeout = /timed out|timeout/i.test(causeText);
-  emitPluginAudit({
+  recordAudit({
     action: isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed',
     actorId: userId ?? 'system',
     orgId,
@@ -80,7 +78,7 @@ export function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMess
 
 let dlqWorker: Worker<PluginBuildJobData> | null = null;
 
-const DLQ_ENFORCE_SCAN_INTERVAL_MS = intFromEnv('PLUGIN_DLQ_SCAN_INTERVAL_MS', 5000);
+const DLQ_ENFORCE_SCAN_INTERVAL_MS = envInt('PLUGIN_DLQ_SCAN_INTERVAL_MS', 5000, { min: 1 });
 let lastDlqEnforceMs = 0;
 
 /**

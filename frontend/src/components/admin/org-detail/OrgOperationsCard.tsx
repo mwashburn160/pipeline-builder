@@ -13,7 +13,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { formatError } from '@/lib/constants';
-import { triggerBlobDownload } from '@/lib/csv-export';
+import { triggerBlobDownload } from '@/lib/download';
 import type { OrganizationDetail } from '@/lib/api/domains/organizations';
 
 /**
@@ -104,8 +104,8 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
         </p>
       )}
 
-      {/* ONE dialog: what is lost, and the factor. It used to confirm the delete
-          and then re-prompt in a second modal for the same click. */}
+      {/* ONE dialog: what is lost, and the factor — never a confirm followed by
+          a second modal for the same click. */}
       {pendingOp && (
         <StepUpModal
           title={pendingOp === 'delete' ? `Delete ${org.name}?` : `Download ${org.name}'s namespace YAML?`}

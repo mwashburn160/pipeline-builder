@@ -160,9 +160,8 @@ export default function MembersPage() {
   const canManageBilling = (isAdmin || can('billing:manage')) && activeOrgIsRoot;
   // Teams are a paid feature: the backend only lets a root on a team-capable
   // tier parent a team (organizationService.checkParentEligible). `tierAllowsTeams`
-  // mirrors its tier list — including `unlimited`, the billing-off default, which
-  // the hardcoded team/enterprise test here used to exclude, hiding "Create team"
-  // on every billing-disabled deployment. (A team always inherits the parent's
+  // mirrors its tier list — including `unlimited`, the billing-off default, so
+  // "Create team" shows on a billing-disabled deployment. (A team always inherits the parent's
   // tier, so the create modal never needed a tier picker.)
   const activeOrgCanHaveTeams = activeOrgIsRoot && tierAllowsTeams(activeOrg?.tier);
   // The Teams panel — both team lists, their reload, switching into a team and
@@ -193,8 +192,8 @@ export default function MembersPage() {
   // Transfer ownership. Destructive (the current owner is demoted and loses
   // owner-only controls) AND step-up gated, so it is ONE dialog that states
   // what is lost and takes the factor — the rule settings.tsx documents for
-  // "Delete your account". It used to open a confirm modal and THEN the
-  // step-up modal, which asked the same person the same question twice.
+  // "Delete your account" — never a confirm modal and THEN the step-up
+  // modal asking the same person the same question.
   // Only offered on non-owner, non-self rows.
   const [pendingTransfer, setPendingTransfer] = useState<OrganizationMember | null>(null);
 
@@ -384,9 +383,8 @@ export default function MembersPage() {
               >
                 <Building2 className="w-4 h-4 mr-1.5" /> Create Team
               </Button>
-              {/* The reason used to live ONLY in a `title`: invisible on touch,
-                  unread by most screen readers, and with nowhere to go about it.
-                  Rendered as text next to the control (the pattern
+              {/* The reason is not ONLY a `title` (invisible on touch, unread
+                  by most screen readers, with nowhere to go about it). Rendered as text next to the control (the pattern
                   TokenPermissionPicker uses for a permission you don't hold),
                   with the upgrade link only for someone who can open Billing. */}
               {createTeamBlockedReason && (

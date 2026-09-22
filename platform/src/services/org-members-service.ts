@@ -8,7 +8,7 @@ import type { RoleAssignmentActor } from './role-authority.js';
 import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
+import { withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
@@ -216,7 +216,7 @@ class OrgMembersService {
           .lean(),
         UserOrganization.countDocuments(filter),
       ]);
-      present = memberships.filter((m) => m.userId) as unknown as PageMembership[];
+      present = memberships.filter((m) => m.userId);
       total = count;
     }
 
@@ -318,42 +318,28 @@ class OrgMembersService {
       if (existing) throw new Error(OM_ALREADY_MEMBER);
 
       // Seat-cap enforcement — pooled at the account root (same cap the invite
-      // path enforces); a direct add must not bypass it. But seats count DISTINCT
-      // humans across the subtree, so a user who already holds a seat elsewhere in
-      // the account consumes no new seat — only check capacity when they don't
-      // (mirrors bulkAddMemberToTeams).
-      const alreadyHasSeat = await userHasSeatInAccount(user._id, orgId, session);
-      if (!alreadyHasSeat && !(await seatCapacityAvailable(orgId, 1, session))) {
-        throw new Error(OM_SEAT_LIMIT);
-      }
+      // path enforces); a direct add must not bypass it. A user who already holds
+      // a seat elsewhere in the account consumes no new seat.
+      await withSeatGuard({ userId: user._id, orgId, session, errorCode: OM_SEAT_LIMIT }, async () => {
+        const addedRole = body.role || 'member';
+        await UserOrganization.create(
+          [{ userId: user._id, organizationId: toOrgId(orgId), role: addedRole }],
+          { session },
+        );
 
-      const addedRole = body.role || 'member';
-      await UserOrganization.create(
-        [{ userId: user._id, organizationId: toOrgId(orgId), role: addedRole }],
-        { session },
-      );
-
-      // Single-source RBAC: give EVERY membership the built-in Member Role floor
-      // so they resolve to the member bundle (they'd hold zero permissions
-      // otherwise). An admin/owner add ALSO gets the built-in Admin Role so their
-      // effective PERMISSIONS match the coarse role — setting `role='admin'` alone
-      // yields coarse-admin/zero-perms and is reverted by the next recompute. We
-      // assign Roles and let recomputeUserOrgRole DERIVE the cached role (mirrors
-      // user-admin-service.createUser).
-      await ensureBaselineRole(user._id, toOrgId(orgId), session);
-      if (addedRole === 'admin' || addedRole === 'owner') {
-        await assignBuiltinAdminRole(user._id, toOrgId(orgId), session);
-        await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
-      }
-
-      // G5: re-validate the pooled cap AFTER the write, inside the same tx, so a
-      // concurrent add/invite that slipped in between our pre-check and this
-      // insert can't push the account over its seats limit unnoticed. Only when
-      // this add actually consumed a seat (matches the pre-check's guard so we
-      // don't block re-adding an already-seated human when the cap is exceeded).
-      if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(orgId, session))) {
-        throw new Error(OM_SEAT_LIMIT);
-      }
+        // Single-source RBAC: give EVERY membership the built-in Member Role floor
+        // so they resolve to the member bundle (they'd hold zero permissions
+        // otherwise). An admin/owner add ALSO gets the built-in Admin Role so their
+        // effective PERMISSIONS match the coarse role — setting `role='admin'` alone
+        // yields coarse-admin/zero-perms and is reverted by the next recompute. We
+        // assign Roles and let recomputeUserOrgRole DERIVE the cached role (mirrors
+        // user-admin-service.createUser).
+        await ensureBaselineRole(user._id, toOrgId(orgId), session);
+        if (addedRole === 'admin' || addedRole === 'owner') {
+          await assignBuiltinAdminRole(user._id, toOrgId(orgId), session);
+          await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
+        }
+      });
     });
   }
 
@@ -426,56 +412,42 @@ class OrgMembersService {
       if (!user) throw new Error(OM_USER_NOT_FOUND);
 
       // Seats pool at the account ROOT and count DISTINCT humans, so adding
-      // this one user to N teams consumes at most ONE seat. If they don't
-      // already hold a seat in the account, check pooled capacity once up front.
-      const subtreeIds = subtree.map(toOrgId);
-      const alreadyHasSeat = await UserOrganization.exists({
-        userId: user._id, organizationId: { $in: subtreeIds }, isActive: true,
-      }).session(session);
-      if (!alreadyHasSeat && !(await seatCapacityAvailable(contextOrgId, 1, session))) {
-        throw new Error(OM_SEAT_LIMIT);
-      }
-
-      const addedRole = body.role || 'member';
-      // An admin add is an Admin-Role GRANT in each team — checked per team,
-      // through the same ceiling as addMember.
-      if (addedRole !== 'member') {
-        for (const orgId of body.orgIds) await assertActorMayAssignBuiltinAdmin(toOrgId(orgId), actor, session);
-      }
-      const results: BulkAddResult[] = [];
-      for (const orgId of body.orgIds) {
-        const existing = await UserOrganization.findOne({
-          userId: user._id, organizationId: toOrgId(orgId),
-        }).session(session);
-        if (existing) {
-          results.push({ orgId, status: 'already_member' });
-          continue;
+      // this one user to N teams consumes at most ONE seat — one guard around
+      // all the inserts.
+      const results = await withSeatGuard({ userId: user._id, orgId: contextOrgId, session, errorCode: OM_SEAT_LIMIT }, async () => {
+        const addedRole = body.role || 'member';
+        // An admin add is an Admin-Role GRANT in each team — checked per team,
+        // through the same ceiling as addMember.
+        if (addedRole !== 'member') {
+          for (const orgId of body.orgIds) await assertActorMayAssignBuiltinAdmin(toOrgId(orgId), actor, session);
         }
-        await UserOrganization.create(
-          [{ userId: user._id, organizationId: toOrgId(orgId), role: addedRole }],
-          { session },
-        );
-        // Single-source RBAC: EVERY membership gets the built-in Member Role
-        // floor; an admin add ALSO gets the built-in Admin Role, and the cached
-        // coarse role is DERIVED from the Roles (exactly as addMember does) —
-        // `role: 'admin'` alone would be coarse-admin with zero permissions and
-        // reverted by the next recompute.
-        await ensureBaselineRole(user._id, toOrgId(orgId), session);
-        if (addedRole === 'admin' || addedRole === 'owner') {
-          await assignBuiltinAdminRole(user._id, toOrgId(orgId), session);
-          await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
+        const outcomes: BulkAddResult[] = [];
+        for (const orgId of body.orgIds) {
+          const existing = await UserOrganization.findOne({
+            userId: user._id, organizationId: toOrgId(orgId),
+          }).session(session);
+          if (existing) {
+            outcomes.push({ orgId, status: 'already_member' });
+            continue;
+          }
+          await UserOrganization.create(
+            [{ userId: user._id, organizationId: toOrgId(orgId), role: addedRole }],
+            { session },
+          );
+          // Single-source RBAC: EVERY membership gets the built-in Member Role
+          // floor; an admin add ALSO gets the built-in Admin Role, and the cached
+          // coarse role is DERIVED from the Roles (exactly as addMember does) —
+          // `role: 'admin'` alone would be coarse-admin with zero permissions and
+          // reverted by the next recompute.
+          await ensureBaselineRole(user._id, toOrgId(orgId), session);
+          if (addedRole === 'admin' || addedRole === 'owner') {
+            await assignBuiltinAdminRole(user._id, toOrgId(orgId), session);
+            await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
+          }
+          outcomes.push({ orgId, status: 'added' });
         }
-        results.push({ orgId, status: 'added' });
-      }
-      // Post-write re-check (the documented G5 pattern addMember/invite-accept
-      // run): the pre-check above can race a concurrent seat insert against an
-      // account one seat under cap — both pre-checks pass, both insert, the
-      // account lands over its pooled seat cap. Re-count AFTER our inserts (and
-      // abort the tx) to close that window. Skip when the user already held a
-      // seat (no net-new seat consumed).
-      if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(contextOrgId, session))) {
-        throw new Error(OM_SEAT_LIMIT);
-      }
+        return outcomes;
+      });
       return { results };
     });
   }
@@ -503,7 +475,7 @@ class OrgMembersService {
       // Delete this org's RoleAssignment rows for the user in the SAME tx as the
       // membership removal. Otherwise the assignments (e.g. a built-in Admin grant)
       // are orphaned: re-adding the user later runs recomputeUserOrgRole, which
-      // reads ALL assignments for the org and silently re-derives the old admin
+      // reads ALL assignments for the org and silently re-derives the former admin
       // role — a privilege resurrection. Orphans also inflate role member counts,
       // defeating the last-privileged-member guard. Mirrors the user-delete /
       // org-purge paths, which already clean assignments.
@@ -647,22 +619,11 @@ class OrgMembersService {
 
       // Reactivation re-occupies a seat, so it must honor the pooled cap the
       // invite/add paths enforce — otherwise deactivate→reactivate churn could
-      // push an account over its seat limit. A user already holding an active
-      // seat elsewhere in the subtree consumes no new seat (distinct-humans).
-      const alreadyHasSeat = await userHasSeatInAccount(userId, orgId, session);
-      if (!alreadyHasSeat && !(await seatCapacityAvailable(orgId, 1, session))) {
-        throw new Error(OM_SEAT_LIMIT);
-      }
-
-      membership.isActive = true;
-      await membership.save({ session });
-
-      // Post-write re-check (G5): re-count AFTER flipping the seat active so a
-      // concurrent reactivation/add can't push the account past its pooled cap
-      // through the pre-check race. Skip when the user already held a seat.
-      if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(orgId, session))) {
-        throw new Error(OM_SEAT_LIMIT);
-      }
+      // push an account over its seat limit.
+      await withSeatGuard({ userId, orgId, session, errorCode: OM_SEAT_LIMIT }, async () => {
+        membership.isActive = true;
+        await membership.save({ session });
+      });
     });
   }
 }

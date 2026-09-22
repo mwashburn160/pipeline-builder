@@ -6,7 +6,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context.js';
 
 /**
- * Create middleware that validates the request has an orgId in the identity headers.
+ * Create middleware that validates the request has a resolved tenant org (`ctx.identity.orgId`).
  *
  * @returns Express middleware
  *
@@ -22,8 +22,8 @@ export function requireOrgId() {
     const ctx = getContext(req);
 
     if (!ctx.identity.orgId) {
-      ctx.log('ERROR', 'Organization ID is missing from request headers');
-      sendError(res, 400, 'Organization ID is required. Please provide x-org-id header.', ErrorCode.VALIDATION_ERROR);
+      ctx.log('ERROR', 'Organization ID is missing from the request identity');
+      sendError(res, 400, 'Organization ID is required: the caller has no active organization.', ErrorCode.VALIDATION_ERROR);
       return;
     }
 

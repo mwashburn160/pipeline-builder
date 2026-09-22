@@ -9,8 +9,8 @@
  *   - `maxRetries` + `onGiveUp` bound a stream; the budget covers failed ticket
  *     mints as well as stream errors, and resets for a new subscription.
  *   - Returning `true` from `onMessage` closes the stream for good.
- *   - A build whose ticket mint blips once still streams (it used to be marked
- *     failed on the first mint error); a build that can't reconnect fails.
+ *   - A build whose ticket mint blips once still streams (not failed on the
+ *     first mint error); a build that can't reconnect fails.
  */
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
@@ -28,8 +28,8 @@ jest.mock('@/lib/api', () => ({
     getBuildLogTicket: (...a: unknown[]) => getBuildLogTicket(...a),
   },
 }));
-const clearPluginCache = jest.fn<AnyFn>();
-jest.mock('@/hooks/usePlugins', () => ({ __esModule: true, clearPluginCache: () => clearPluginCache() }));
+const invalidatePlugins = jest.fn<AnyFn>();
+jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { plugins: () => invalidatePlugins() } }));
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -189,7 +189,7 @@ describe('useBuildStatus', () => {
     expect(result.current.status).toBe('completed');
     expect(result.current.events).toHaveLength(2);
     expect(result.current.lastEvent?.message).toBe('done');
-    expect(clearPluginCache).toHaveBeenCalled();
+    expect(invalidatePlugins).toHaveBeenCalled();
     expect(es.closed).toBe(true);
     await runBackoff();
     expect(MockEventSource.instances).toHaveLength(1);

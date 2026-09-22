@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Ecosystem console → Review moderation (plan §5, W4):
+ * Ecosystem console → Review moderation:
  *  - the open queue renders each review's listing, stars, sanitized body, author
  *    display name + user id, verified-use badge, status, hold reason, reports and reply;
  *  - hold / remove / remove-reply need a reason, release takes an optional note;

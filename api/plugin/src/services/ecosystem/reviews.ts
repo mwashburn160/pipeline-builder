@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Reviews and ratings (docs/plans/plugin-ecosystem.md §5, G15, G16): the
+ * Reviews and ratings (docs/plugin-publishing.md): the
  * signed-in half — write, edit, delete, "helpful", report, publisher reply and
  * the viewer's own state for a listing. The anonymous read is the public
  * directory's `public_reviews` view (pipeline-data `listPublicReviews`).
  *
- * Integrity (G16):
+ * Integrity:
  *  - one review per user per listing (edits keep the prior text in history);
  *  - nobody from the publisher's own org (or a team under it) may review or
  *    vote on its listings — `REVIEW_SELF_PROMOTION`;
@@ -15,7 +15,7 @@
  *    and per trusted client IP (the route's rate limiter);
  *  - anomaly HOLDS instead of publishing: a burst of unverified reviews on one
  *    listing, too many links (spam filter), N distinct reports, or a security
- *    report;
+ * report;
  *  - "verified use" (the org ran it successfully in the last 90 days) is
  *    decided server-side at write time; unverified reviews weigh half in the
  *    Bayesian score (stats.ts).
@@ -29,10 +29,13 @@
 
 import {
   actorId,
+  createLogger,
   ErrorCode,
+  errorMessage,
   isPluginReviewsEnabled,
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
+  envInt,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
@@ -48,15 +51,18 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { z } from 'zod';
 
+import { openReviewAdvisoryDraft } from './advisories.js';
+import { ecosystemAudit } from './audit.js';
 import { can, EcosystemError, type Caller } from './context.js';
-import { dispatchReviewSecurityReport } from './review-hooks.js';
 import { notifyReplied, notifyReviewHeld, notifyReviewPosted, notifySecurityReport } from './review-notify.js';
 import { replies, reports, reviewHistory, reviews, votes } from './reviews-store.js';
 import { refreshListingRating } from './stats.js';
 import { listings, publishers, versions } from './store.js';
-import { emitPluginAudit } from '../audit.js';
+import { DAY_MS, isActiveListing, iso } from './util.js';
 
-/** Per-org cap on NEW reviews in a rolling day (G16); `REVIEW_ORG_DAILY_LIMIT` overrides. */
+const logger = createLogger('ecosystem-reviews');
+
+/** Per-org cap on NEW reviews in a rolling day; `REVIEW_ORG_DAILY_LIMIT` overrides. */
 export const REVIEW_ORG_DAILY_LIMIT_DEFAULT = 20;
 /** Distinct open reports that auto-hold a review; `REVIEW_AUTO_HOLD_REPORTS` overrides. */
 export const REVIEW_AUTO_HOLD_REPORTS_DEFAULT = 3;
@@ -69,18 +75,13 @@ export const REVIEW_TITLE_MAX = 120;
 export const REVIEW_BODY_MAX = 5_000;
 export const REPLY_BODY_MAX = 5_000;
 export const REPORT_REASON_MAX = 2_000;
-export const DISPLAY_NAME_MAX = 100;
-const DAY_MS = 24 * 3_600_000;
+export const AUTHOR_NAME_MAX = 100;
 
-function intEnv(name: string, fallback: number): number {
-  const n = Number.parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-export const reviewOrgDailyLimit = (): number => intEnv('REVIEW_ORG_DAILY_LIMIT', REVIEW_ORG_DAILY_LIMIT_DEFAULT);
-export const reviewAutoHoldReports = (): number => intEnv('REVIEW_AUTO_HOLD_REPORTS', REVIEW_AUTO_HOLD_REPORTS_DEFAULT);
+export const reviewOrgDailyLimit = (): number => envInt('REVIEW_ORG_DAILY_LIMIT', REVIEW_ORG_DAILY_LIMIT_DEFAULT, { min: 1 });
+export const reviewAutoHoldReports = (): number => envInt('REVIEW_AUTO_HOLD_REPORTS', REVIEW_AUTO_HOLD_REPORTS_DEFAULT, { min: 1 });
 
 // -----------------------------------------------------------------------------
-// Verified use (W0.1): swappable for tests
+// Verified use: swappable for tests
 // -----------------------------------------------------------------------------
 
 export type VerifiedUseProbe = (orgId: string, publisher: string, name: string) => Promise<boolean>;
@@ -106,7 +107,6 @@ async function verifiedUse(caller: Caller, publisher: Publisher, listing: Plugin
 // Views
 // -----------------------------------------------------------------------------
 
-const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
 
 export function replyView(r: PluginReviewReply, publisher: Pick<Publisher, 'displayName'>) {
   return { bodyHtml: r.bodyHtml, publisherDisplayName: publisher.displayName, createdAt: iso(r.createdAt)!, updatedAt: iso(r.updatedAt)! };
@@ -158,14 +158,14 @@ export function isOwnPublisher(caller: Caller, publisher: Pick<Publisher, 'owner
 async function publicListing(handle: string, name: string): Promise<{ publisher: Publisher; listing: PluginListing }> {
   const publisher = await publishers.byHandle(handle);
   const listing = publisher ? await listings.byName(publisher.id, name) : null;
-  if (!publisher || !listing || publisher.suspendedAt || !['listed', 'unmaintained'].includes(listing.state) || listing.pausedAt) {
+  if (!publisher || !listing || publisher.suspendedAt || !isActiveListing(listing) || listing.pausedAt) {
     throw new EcosystemError(ErrorCode.NOT_FOUND, `No listing ${handle}/${name}.`);
   }
   return { publisher, listing };
 }
 
 /** A review with its listing and publisher, or 404. */
-async function loadReview(id: string): Promise<{ review: PluginReview; listing: PluginListing; publisher: Publisher }> {
+export async function loadReview(id: string): Promise<{ review: PluginReview; listing: PluginListing; publisher: Publisher }> {
   const review = z.string().uuid().safeParse(id).success ? await reviews.byId(id) : null;
   const listing = review ? await listings.byId(review.listingId) : null;
   const publisher = listing ? await publishers.byId(listing.publisherId) : null;
@@ -174,33 +174,13 @@ async function loadReview(id: string): Promise<{ review: PluginReview; listing: 
 }
 
 /** The display name shown for the author: the username, never an email address. */
-export function displayNameOf(caller: Caller): string {
+export function authorDisplayName(caller: Caller): string {
   const base = (caller.name ?? '').split('@')[0]!.trim();
-  return (base || 'Pipeline Builder user').slice(0, DISPLAY_NAME_MAX);
+  return (base || 'Pipeline Builder user').slice(0, AUTHOR_NAME_MAX);
 }
 
 function linkCount(...texts: Array<string | null | undefined>): number {
   return texts.reduce((n, t) => n + ((t ?? '').match(/https?:\/\/|www\./gi)?.length ?? 0), 0);
-}
-
-function audit(
-  caller: Caller | null,
-  action: Parameters<typeof emitPluginAudit>[0]['action'],
-  publisher: Publisher,
-  reviewId: string,
-  details: Record<string, unknown>,
-): void {
-  emitPluginAudit({
-    action,
-    actorId: caller ? actorId({ userId: caller.userId }) : SYSTEM_ACTOR_ID,
-    orgId: caller ? caller.orgId : SYSTEM_ORG_ID,
-    // Review actions affect the PUBLISHER's org (§5c); the platform-owned
-    // community publisher has none, so the system org's view carries it.
-    affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID,
-    targetType: 'plugin_review',
-    targetId: reviewId,
-    details,
-  });
 }
 
 // -----------------------------------------------------------------------------
@@ -237,7 +217,7 @@ async function versionOf(listing: PluginListing, requested: string | null | unde
   return requested;
 }
 
-/** The hold a new or edited review gets, if any (G16). */
+/** The hold a new or edited review gets, if any. */
 async function holdFor(listing: PluginListing, review: { title: string | null; bodyMd: string | null; verifiedUse: boolean }, isNew: boolean): Promise<ReviewHoldReason | null> {
   if (linkCount(review.title, review.bodyMd) > REVIEW_MAX_LINKS) return 'filter';
   if (isNew && !review.verifiedUse) {
@@ -320,13 +300,21 @@ export async function createReview(caller: Caller, handle: string, name: string,
     bodyHtml: bodyMd ? renderUntrustedMarkdown(bodyMd) : null,
     authorUserId: caller.userId,
     authorOrgId: caller.orgId,
-    authorDisplayName: displayNameOf(caller),
+    authorDisplayName: authorDisplayName(caller),
     verifiedUse: verified,
     status: hold ? 'held' : 'published',
     holdReason: hold,
   });
-  audit(caller, 'plugin.review.create', publisher, review.id, {
-    listing: `${publisher.handle}/${listing.name}`, rating: review.rating, version, verifiedUse: verified, ...(hold ? { held: hold } : {}),
+  ecosystemAudit({
+    action: 'plugin.review.create',
+    actor: actorId({ userId: caller.userId }),
+    orgId: caller.orgId,
+    affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID,
+    targetType: 'plugin_review',
+    targetId: review.id,
+    details: {
+      listing: `${publisher.handle}/${listing.name}`, rating: review.rating, version, verifiedUse: verified, ...(hold ? { held: hold } : {}),
+    },
   });
   if (hold) {
     await announceHold(publisher, listing, hold);
@@ -364,11 +352,19 @@ export async function updateReview(caller: Caller, id: string, body: unknown) {
     ...next,
     bodyHtml: next.bodyMd ? renderUntrustedMarkdown(next.bodyMd) : null,
     verifiedUse: verified,
-    authorDisplayName: displayNameOf(caller),
+    authorDisplayName: authorDisplayName(caller),
     ...(hold ? { status: 'held' as const, holdReason: hold } : {}),
   }))!;
-  audit(caller, 'plugin.review.update', publisher, review.id, {
-    listing: `${publisher.handle}/${listing.name}`, rating: updated.rating, changed, verifiedUse: verified, ...(hold ? { held: hold } : {}),
+  ecosystemAudit({
+    action: 'plugin.review.update',
+    actor: actorId({ userId: caller.userId }),
+    orgId: caller.orgId,
+    affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID,
+    targetType: 'plugin_review',
+    targetId: review.id,
+    details: {
+      listing: `${publisher.handle}/${listing.name}`, rating: updated.rating, changed, verifiedUse: verified, ...(hold ? { held: hold } : {}),
+    },
   });
   if (hold) await announceHold(publisher, listing, hold);
   else if (updated.status === 'published') await notifyReviewPosted(publisher, listing, updated, true);
@@ -383,13 +379,13 @@ export async function deleteReview(caller: Caller, id: string) {
   const { review, listing, publisher } = await loadReview(id);
   if (review.authorUserId !== caller.userId) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Review not found.');
   await reviews.remove(review.id);
-  audit(caller, 'plugin.review.delete', publisher, review.id, { listing: `${publisher.handle}/${listing.name}`, rating: review.rating });
+  ecosystemAudit({ action: 'plugin.review.delete', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: `${publisher.handle}/${listing.name}`, rating: review.rating } });
   await refreshListingRating(listing.id);
   return { deleted: true };
 }
 
 // -----------------------------------------------------------------------------
-// Helpful votes (not audited by design, §5c)
+// Helpful votes (not audited by design)
 // -----------------------------------------------------------------------------
 
 /** PUT / DELETE /plugins/reviews/:id/helpful — one vote per user; not on your own review or your own org's listing. */
@@ -421,7 +417,7 @@ const ReportInput = z.object({
 
 /**
  * POST /plugins/reviews/:id/report. A `security` report holds the review at
- * once, notifies privately (N19) and opens the advisory draft through the W8
+ * once, notifies privately (N19) and opens the advisory draft through the
  * hook; other reports hold it once {@link reviewAutoHoldReports} distinct
  * people reported it (N17). The reporter never learns whether it was held.
  */
@@ -437,8 +433,8 @@ export async function reportReview(caller: Caller, id: string, body: unknown) {
   }
   const report = await reports.insert({ reviewId: review.id, reporterUserId: caller.userId, category: input.category, reason: input.reason ?? null });
   const ref = `${publisher.handle}/${listing.name}`;
-  // Never the report's text: it can carry exploit details (§5c).
-  audit(caller, 'plugin.review.report', publisher, review.id, { listing: ref, category: input.category });
+  // Never the report's text: it can carry exploit details.
+  ecosystemAudit({ action: 'plugin.review.report', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: ref, category: input.category } });
 
   let hold: ReviewHoldReason | null = null;
   if (input.category === 'security') {
@@ -449,26 +445,23 @@ export async function reportReview(caller: Caller, id: string, body: unknown) {
   }
   if (hold && review.status === 'published') {
     await reviews.update(review.id, { status: 'held', holdReason: hold });
-    audit(null, 'plugin.review.hold', publisher, review.id, { listing: ref, reason: hold, trigger: input.category === 'security' ? 'security_report' : 'reports' });
+    ecosystemAudit({ action: 'plugin.review.hold', actor: SYSTEM_ACTOR_ID, affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: ref, reason: hold, trigger: input.category === 'security' ? 'security_report' : 'reports' } });
     await refreshListingRating(listing.id);
     if (hold !== 'security') await announceHold(publisher, listing, hold);
     else incCounter('ecosystem_review_holds_total', { reason: hold });
   }
   if (input.category === 'security') {
     await notifySecurityReport(publisher, listing, review.version, input.reason ?? null);
-    await dispatchReviewSecurityReport({
-      reviewId: review.id,
-      reportId: report.id,
-      listingId: listing.id,
-      publisherId: publisher.id,
-      publisherOrgId: publisher.ownerOrgId,
-      publisherHandle: publisher.handle,
-      listingName: listing.name,
-      version: review.version,
-      details: input.reason ?? null,
-      reportedBy: { userId: caller.userId, orgId: caller.orgId },
-      reportedAt: report.createdAt,
-    });
+    // The private advisory draft. Never fails the report: the report is stored,
+    // the review held and N19 sent regardless; a missing draft is counted and
+    // a moderator can open one by hand from the queue.
+    try {
+      await openReviewAdvisoryDraft({ reviewId: review.id, reportId: report.id, listingId: listing.id, version: review.version, details: input.reason ?? null });
+      incCounter('ecosystem_review_security_reports_total', { outcome: 'handled' });
+    } catch (err) {
+      incCounter('ecosystem_review_security_reports_total', { outcome: 'failed' });
+      logger.warn('Advisory draft for a security report failed', { reviewId: review.id, error: errorMessage(err) });
+    }
   }
   return { reported: true };
 }
@@ -501,7 +494,7 @@ export async function putReply(caller: Caller, id: string, body: unknown) {
   const reply = existing
     ? (await replies.update(review.id, values))!
     : await replies.insert({ reviewId: review.id, publisherId: publisher.id, ...values });
-  audit(caller, existing ? 'plugin.review.reply.update' : 'plugin.review.reply.create', publisher, review.id, { listing: `${publisher.handle}/${listing.name}` });
+  ecosystemAudit({ action: existing ? 'plugin.review.reply.update' : 'plugin.review.reply.create', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: `${publisher.handle}/${listing.name}` } });
   if (!existing) await notifyReplied(publisher, listing, review);
   return { reply: { ...replyView(reply, publisher), bodyMd: reply.bodyMd } };
 }
@@ -512,6 +505,6 @@ export async function deleteReply(caller: Caller, id: string) {
   assertPerson(caller);
   const { review, listing, publisher } = await replyTarget(caller, id);
   if (!(await replies.remove(review.id))) throw new EcosystemError(ErrorCode.NOT_FOUND, 'This review has no reply.');
-  audit(caller, 'plugin.review.reply.delete', publisher, review.id, { listing: `${publisher.handle}/${listing.name}` });
+  ecosystemAudit({ action: 'plugin.review.reply.delete', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: `${publisher.handle}/${listing.name}` } });
   return { deleted: true };
 }

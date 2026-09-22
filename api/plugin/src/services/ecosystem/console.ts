@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Ecosystem console's system-org operations (docs/plans/plugin-ecosystem.md
- * §3.0, §3.0.1, §3.6, §5a.1): the queue and its review data, publishers and
+ * The Ecosystem console's system-org operations (docs/plugin-publishing.md.
+ * 1): the queue and its review data, publishers and
  * their tier/suspension, listing state and yanks, the auto-approval rules and
  * the reserved-name list. Every function is reached only through
  * `requireEcosystemPermission` (system org + permission + aal2).
  *
  * Restricting actions apply at once (suspend, unmaintain, yank, disabling a
- * rule, a downgrade to Community). Expanding ones need a SECOND manager
- * (§3.0.1): lifting a suspension, unyanking, a tier change to Verified — each
+ * rule, a downgrade to Community). Expanding ones need a SECOND manager:
+ * lifting a suspension, unyanking, a tier change to Verified — each
  * becomes a `moderation` request parked in `pending_second_approval` — and
  * creating, enabling or widening a rule (its `pendingChange`).
  */
@@ -23,6 +23,7 @@ import {
   publisherTermsVersion,
   SYSTEM_ORG_ID,
   VERIFY_REQUEST_KINDS,
+  parsePage,
 } from '@pipeline-builder/api-core';
 import {
   type EcosystemAutoApprovalRule,
@@ -34,40 +35,36 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { z } from 'zod';
 
-import { advisoryStore, advisoryViews } from './advisories.js';
+import { advisoryStore } from './advisories-store.js';
+import { advisoryViews } from './advisories.js';
+import { ecosystemAudit } from './audit.js';
+import { ruleFlagOn } from './auto-approval.js';
+import { bootstrapState } from './bootstrap.js';
+import { conflictOfInterest, interestedOrgs } from './conflict.js';
 import { EcosystemError, type Caller } from './context.js';
-import { bootstrapState, conflictOfInterest, ruleFlagOn, yankListedVersion } from './decisions.js';
+import { yankListedVersion } from './execute.js';
 import { notifyListingUnmaintained } from './install-notify.js';
 import { notifyModerationAction, notifySecondApprovalNeeded } from './notify.js';
-import { platformReads, type ApproverCount, type DecisionPermission } from './platform-reads.js';
-import { requiredDecisionPermission, widensRule, type AutoRuleConditions } from './policy.js';
+import { platformReads, type ApproverCount } from './platform-reads.js';
+import { requiredDecisionPermission, widensRule, type AutoRuleConditions, type DecisionPermission } from './policy.js';
 import { invalidateVerifyCache } from './registry.js';
 import { enqueueResign, kickResignJobs, pendingResignJobs, signedAs } from './resign.js';
 import { reviewDiff } from './review.js';
 import { listingStats } from './reviews-store.js';
-import { atomically, decodeRequestCursor, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, requests, reservedNames, rules, versions } from './store.js';
+import { atomically, decodeRequestCursor, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, REQUEST_STATUS_FILTERS, requests, reservedNames, rules, versions } from './store.js';
 import { claimEmailMatch, submissionReview } from './submission-moderation.js';
+import { optionalText, requiredText } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { listingView, publisherView, queueItemView, ruleView } from './views.js';
-import { emitPluginAudit } from '../audit.js';
 
 const actor = (c: Caller) => actorId({ userId: c.userId });
-
-function audit(c: Caller, action: Parameters<typeof emitPluginAudit>[0]['action'], affectedOrgId: string | null, targetType: string, targetId: string, details: Record<string, unknown>): void {
-  emitPluginAudit({ action, actorId: actor(c), orgId: SYSTEM_ORG_ID, ...(affectedOrgId ? { affectedOrgId } : {}), targetType, targetId, details });
-}
-
-function requireReason(value: unknown): string {
-  if (typeof value !== 'string' || value.trim() === '') throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'reason is required');
-  return value.trim().slice(0, 1000);
-}
 
 // -----------------------------------------------------------------------------
 // Overview + queue
 // -----------------------------------------------------------------------------
 
 /**
- * The approver floor (§3.0.1, §9a "Staffing"): at least THREE Ecosystem
+ * The approver floor ( "Staffing"): at least THREE Ecosystem
  * Managers so two-person approval and holiday cover always work; below TWO
  * eligible approvers a superadmin must act as the second one.
  */
@@ -108,35 +105,30 @@ export async function approverStanding(): Promise<{ minimum: number; twoPersonMi
 }
 
 /**
- * Who could decide `r` (§3.0.1): the holders of its decision permission minus
+ * Who could decide `r`: the holders of its decision permission minus
  * the requester's conflicts — members of the requesting, publishing and
  * receiving orgs, the submitter, and (awaiting a second approval) the first
  * approver.
  */
 export async function requestApprovers(r: PluginPublishRequest, publisher: Publisher | null): Promise<ApproverStanding> {
-  const orgIds = new Set<string>();
-  if (r.submittedOrgId) orgIds.add(r.submittedOrgId.toLowerCase());
-  if (publisher?.ownerOrgId) orgIds.add(publisher.ownerOrgId.toLowerCase());
-  const target = ((r.payload ?? {}) as { transfer?: { targetOrgId?: string } }).transfer?.targetOrgId;
-  if (target) orgIds.add(target.toLowerCase());
-  orgIds.delete(SYSTEM_ORG_ID);
   const userIds = [r.submittedBy, r.status === 'pending_second_approval' ? r.firstApprovedBy : null].filter((u): u is string => !!u);
-  const permission = requiredDecisionPermission(r.kind) as DecisionPermission;
-  return standing(permission, await platformReads().approvers(permission, { orgIds: [...orgIds], userIds }));
+  const permission = requiredDecisionPermission(r.kind, r.payload);
+  return standing(permission, await platformReads().approvers(permission, { orgIds: interestedOrgs(r, publisher), userIds }));
 }
 
 /** GET /ecosystem/overview */
 export async function overview() {
-  const open = await requests.list({ statuses: OPEN_STATUSES, limit: 1000 });
+  // Counted in SQL: the queue has no size bound, so no row cap can undercount it.
+  const [standard, security, secondApproval, verify] = await Promise.all([
+    requests.count({ statuses: ['pending'], lane: 'standard' }),
+    requests.count({ statuses: OPEN_STATUSES, lane: 'security' }),
+    requests.count({ statuses: ['pending_second_approval'] }),
+    requests.count({ statuses: OPEN_STATUSES, kinds: VERIFY_REQUEST_KINDS as PublishRequestKind[] }),
+  ]);
   const bootstrap = await bootstrapState();
   return {
     approvers: await approverStanding(),
-    pending: {
-      standard: open.filter((r) => r.lane === 'standard' && r.status === 'pending').length,
-      security: open.filter((r) => r.lane === 'security').length,
-      secondApproval: open.filter((r) => r.status === 'pending_second_approval').length,
-      verify: open.filter((r) => VERIFY_REQUEST_KINDS.includes(r.kind)).length,
-    },
+    pending: { standard, security, secondApproval, verify },
     bootstrap: {
       state: bootstrap.closedAt ? 'closed' : bootstrap.openedAt ? 'open' : 'never_opened',
       openedAt: bootstrap.openedAt,
@@ -151,26 +143,16 @@ export async function overview() {
   };
 }
 
-const STATUS_FILTERS: Record<string, PublishRequestStatus[]> = {
-  open: OPEN_STATUSES,
-  pending: ['pending'],
-  pending_second_approval: ['pending_second_approval'],
-  approved: ['approved'],
-  auto: ['approved'],
-  rejected: ['rejected'],
-  withdrawn: ['withdrawn'],
-  decided: ['approved', 'rejected', 'withdrawn'],
-};
+/** The queue's status filters: the tenant ones plus `auto` (auto-approved rows). */
+const STATUS_FILTERS: Record<string, PublishRequestStatus[]> = { ...REQUEST_STATUS_FILTERS, auto: ['approved'] };
 
 /** Queue items for `rows`, with each row's conflict of interest for THIS manager (probes shared per org). */
 async function queueItems(moderator: Caller, rows: PluginPublishRequest[], deep: boolean) {
-  const pubs = new Map<string, Publisher | null>();
-  const names = new Map<string, string | null>();
+  const pubs = new Map<string, Publisher | null>((await publishers.byIds([...new Set(rows.map((r) => r.publisherId))])).map((p) => [p.id, p]));
+  const names = new Map<string, string | null>((await listings.byIds([...new Set(rows.flatMap((r) => (r.listingId ? [r.listingId] : [])))])).map((l) => [l.id, l.name]));
   const cache = new Map<string, boolean | undefined>();
   const out = [];
   for (const r of rows) {
-    if (!pubs.has(r.publisherId)) pubs.set(r.publisherId, await publishers.byId(r.publisherId));
-    if (r.listingId && !names.has(r.listingId)) names.set(r.listingId, (await listings.byId(r.listingId))?.name ?? null);
     const publisher = pubs.get(r.publisherId) ?? null;
     const open = OPEN_STATUSES.includes(r.status);
     const conflict = open ? await conflictOfInterest(moderator, r, publisher, { deep, cache }) : { conflict: false, reason: null };
@@ -200,7 +182,7 @@ export async function queue(moderator: Caller, query: Record<string, unknown>) {
   if (!statuses) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `status must be one of: ${Object.keys(STATUS_FILTERS).join(', ')}`);
   const kinds = typeof query.kind === 'string' && query.kind ? [query.kind as PublishRequestKind] : undefined;
   const lane: 'security' | 'standard' | undefined = query.lane === 'security' || query.lane === 'standard' ? query.lane : undefined;
-  const limit = Math.min(500, Math.max(1, Number.parseInt(String(query.limit ?? '200'), 10) || 200));
+  const { limit } = parsePage(query, { def: 200, max: 500 });
   const cursor = decodeRequestCursor(query.cursor);
   if (cursor === 'invalid') throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'cursor is not a valid page cursor', { field: 'cursor' });
   const filter = {
@@ -239,14 +221,14 @@ export async function requestDetail(moderator: Caller, id: string) {
     approvers: open ? await requestApprovers(r, publisher) : null,
     eligibility: open && r.kind === 'verify' ? await checkVerifiedEligibility(publisher.ownerOrgId ?? '') : null,
     advisory: r.kind === 'advisory' ? await requestAdvisory(r) : null,
-    // An anonymous submission's gate report, heuristics and diff vs the previous approved version (§3.0.2).
+    // An anonymous submission's gate report, heuristics and diff vs the previous approved version.
     submission: r.kind === 'submission' ? await submissionReview(r) : null,
-    // A community-listing claim: whether the claimer's verified email submitted it (E10; null = unknown).
+    // A community-listing claim: whether the claimer's verified email submitted it (null = unknown).
     claimEmailMatch: r.kind === 'claim' ? await claimEmailMatch(r) : null,
   };
 }
 
-/** The advisory draft an `advisory` request carries (W8), as the console shows it. */
+/** The advisory draft an `advisory` request carries, as the console shows it. */
 async function requestAdvisory(r: { payload: Record<string, unknown> | null }) {
   const id = r.payload?.advisoryId;
   const advisory = typeof id === 'string' ? await advisoryStore.byId(id) : null;
@@ -279,10 +261,10 @@ async function openModeration(moderator: Caller, publisher: Publisher, action: s
     reason: extra.reason ?? null,
     payload: { name, action, submitter: { principalType: moderator.principalType } },
   });
-  audit(moderator, 'plugin.request.submit', publisher.ownerOrgId, 'plugin-publish-request', r.id, { kind: 'moderation', action });
-  audit(moderator, 'plugin.request.approve', publisher.ownerOrgId, 'plugin-publish-request', r.id, { kind: 'moderation', action, firstOfTwo: true });
+  ecosystemAudit({ action: 'plugin.request.submit', actor: actor(moderator), affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-publish-request', targetId: r.id, details: { kind: 'moderation', action } });
+  ecosystemAudit({ action: 'plugin.request.approve', actor: actor(moderator), affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-publish-request', targetId: r.id, details: { kind: 'moderation', action, firstOfTwo: true } });
   const title = `${publisher.handle}${extra.listing ? `/${extra.listing.name}` : ''}${extra.version ? ` ${extra.version}` : ''} — ${action.replace(/_/g, ' ')}`;
-  await notifySecondApprovalNeeded({ title, firstApprover: moderator.userId, submittedOrgId: null, permission: action === 'unsuspend_publisher' || action === 'tier_verified' ? 'publishers:verify' : 'plugins:moderate' });
+  await notifySecondApprovalNeeded({ title, firstApprover: moderator.userId, submittedOrgId: null, permission: requiredDecisionPermission(r.kind, r.payload) });
   return queueItemView(r, publisher, extra.listing?.name ?? null, { conflict: true, reason: 'You gave the first approval; a different manager must give the second.' });
 }
 
@@ -298,8 +280,9 @@ export async function listPublishers(query: Record<string, unknown>) {
   });
   const q = typeof query.q === 'string' ? query.q.trim().toLowerCase() : '';
   const filtered = q ? rows.filter((p) => p.handle.includes(q) || p.displayName.toLowerCase().includes(q)) : rows;
-  const all = await listings.list();
-  return filtered.map((p) => ({ ...publisherView(p), listingCount: all.filter((l) => l.publisherId === p.id).length }));
+  const counts = new Map<string, number>();
+  for (const id of await listings.publisherIdsOf(filtered.map((p) => p.id))) counts.set(id, (counts.get(id) ?? 0) + 1);
+  return filtered.map((p) => ({ ...publisherView(p), listingCount: counts.get(p.id) ?? 0 }));
 }
 
 async function publisherOr404(id: string): Promise<Publisher> {
@@ -310,7 +293,7 @@ async function publisherOr404(id: string): Promise<Publisher> {
 
 /** POST /ecosystem/publishers/:id/suspend — immediate; re-signs every image with the lowest trust. */
 export async function suspendPublisher(moderator: Caller, id: string, body: Record<string, unknown>) {
-  const reason = requireReason(body.reason);
+  const reason = requiredText(body.reason, 'reason', 1000);
   const p = await publisherOr404(id);
   if (p.ownerOrgId === SYSTEM_ORG_ID) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'The Official publisher cannot be suspended; suspend or yank its listings instead.');
   if (p.suspendedAt) throw new EcosystemError(ErrorCode.CONFLICT, 'The publisher is already suspended.');
@@ -323,7 +306,7 @@ export async function suspendPublisher(moderator: Caller, id: string, body: Reco
   });
   kickResignJobs();
   await invalidateVerifyCache({}).catch(() => undefined);
-  audit(moderator, 'publisher.suspend', p.ownerOrgId, 'publisher', p.id, { reason: reason.slice(0, 200) });
+  ecosystemAudit({ action: 'publisher.suspend', actor: actor(moderator), affectedOrgId: p.ownerOrgId, targetType: 'publisher', targetId: p.id, details: { reason: reason.slice(0, 200) } });
   await notifyModerationAction({
     publisherOrgId: p.ownerOrgId,
     subject: `Publisher suspended: ${p.handle}`,
@@ -332,16 +315,16 @@ export async function suspendPublisher(moderator: Caller, id: string, body: Reco
   return publisherView(updated);
 }
 
-/** POST /ecosystem/publishers/:id/unsuspend — two-person (§3.0.1). */
+/** POST /ecosystem/publishers/:id/unsuspend — two-person. */
 export async function unsuspendPublisher(moderator: Caller, id: string, body: Record<string, unknown>) {
   const p = await publisherOr404(id);
   if (!p.suspendedAt) throw new EcosystemError(ErrorCode.CONFLICT, 'The publisher is not suspended.');
-  return openModeration(moderator, p, 'unsuspend_publisher', { reason: typeof body.reason === 'string' ? body.reason.slice(0, 1000) : null });
+  return openModeration(moderator, p, 'unsuspend_publisher', { reason: optionalText(body.reason, 1000) });
 }
 
 /** POST /ecosystem/publishers/:id/tier — to Verified: two-person; to Community: at once (with a re-sign). */
 export async function setPublisherTier(moderator: Caller, id: string, body: Record<string, unknown>) {
-  const reason = requireReason(body.reason);
+  const reason = requiredText(body.reason, 'reason', 1000);
   const p = await publisherOr404(id);
   if (p.tier === 'official' || p.tier === 'unverified') throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `A ${p.tier} publisher's tier is fixed.`);
   if (body.tier === 'verified') {
@@ -353,12 +336,12 @@ export async function setPublisherTier(moderator: Caller, id: string, body: Reco
   if (p.tier === 'community') throw new EcosystemError(ErrorCode.CONFLICT, 'The publisher is already community.');
   const updated = await atomically(async () => {
     const u = (await publishers.update(p.id, { tier: 'community', verifiedAt: null, verifiedGraceUntil: null }))!;
-    // Lookup keeps accepting the Verified signature until every image is re-signed (E1).
+    // Lookup keeps accepting the Verified signature until every image is re-signed.
     await enqueueResign('publisher', p.id, 'tier_change', actor(moderator), signedAs(p));
     return u;
   });
   kickResignJobs();
-  audit(moderator, 'publisher.tier.change', p.ownerOrgId, 'publisher', p.id, { from: p.tier, to: 'community', reason: reason.slice(0, 200) });
+  ecosystemAudit({ action: 'publisher.tier.change', actor: actor(moderator), affectedOrgId: p.ownerOrgId, targetType: 'publisher', targetId: p.id, details: { from: p.tier, to: 'community', reason: reason.slice(0, 200) } });
   await notifyModerationAction({
     publisherOrgId: p.ownerOrgId,
     subject: `Publisher tier changed: ${p.handle} is now Community`,
@@ -382,7 +365,7 @@ export async function listListings(query: Record<string, unknown>) {
   const vs = await versions.forListings(filtered.map((l) => l.id));
   const stats = new Map((await listingStats.byListings(filtered.map((l) => l.id))).map((s) => [s.listingId, s]));
   const pubs = new Map<string, Publisher | null>();
-  for (const pid of new Set(filtered.map((l) => l.publisherId))) pubs.set(pid, await publishers.byId(pid));
+  for (const p of await publishers.byIds([...new Set(filtered.map((l) => l.publisherId))])) pubs.set(p.id, p);
   return filtered.map((l) => listingView(l, pubs.get(l.publisherId) ?? null, {
     versions: vs.filter((v) => v.listingId === l.id),
     stats: stats.get(l.id) ?? null,
@@ -400,7 +383,7 @@ async function listingOr404(id: string): Promise<{ listing: PluginListing; publi
  * Lifting a suspension is two-person; everything else applies at once.
  */
 export async function setListingState(moderator: Caller, id: string, body: Record<string, unknown>) {
-  const reason = requireReason(body.reason);
+  const reason = requiredText(body.reason, 'reason', 1000);
   const { listing, publisher } = await listingOr404(id);
   const state = body.state;
   if (state !== 'listed' && state !== 'unmaintained' && state !== 'suspended') {
@@ -417,7 +400,7 @@ export async function setListingState(moderator: Caller, id: string, body: Recor
       if (v.imageRepository) await invalidateVerifyCache({ imageRepository: v.imageRepository }).catch(() => undefined);
     }
   }
-  audit(moderator, 'plugin.listing.state.change', publisher.ownerOrgId, 'plugin-listing', listing.id, { listing: `${publisher.handle}/${listing.name}`, from: listing.state, to: state, reason: reason.slice(0, 200) });
+  ecosystemAudit({ action: 'plugin.listing.state.change', actor: actor(moderator), affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-listing', targetId: listing.id, details: { listing: `${publisher.handle}/${listing.name}`, from: listing.state, to: state, reason: reason.slice(0, 200) } });
   // N8 to the publisher and to THIS listing's installers (not the publisher's
   // other listings); unmaintained also tells those installers to plan a
   // replacement (N14).
@@ -433,7 +416,7 @@ export async function setListingState(moderator: Caller, id: string, body: Recor
 
 /** POST /ecosystem/listings/:id/versions/:version/yank — immediate. */
 export async function yankVersion(moderator: Caller, id: string, version: string, body: Record<string, unknown>) {
-  const reason = requireReason(body.reason);
+  const reason = requiredText(body.reason, 'reason', 1000);
   const { listing, publisher } = await listingOr404(id);
   await yankListedVersion(listing, publisher, version, reason, actor(moderator));
   const fresh = (await listings.byId(listing.id))!;
@@ -442,7 +425,7 @@ export async function yankVersion(moderator: Caller, id: string, version: string
 
 /** POST /ecosystem/listings/:id/versions/:version/unyank — two-person. */
 export async function unyankVersion(moderator: Caller, id: string, version: string, body: Record<string, unknown>) {
-  const reason = requireReason(body.reason);
+  const reason = requiredText(body.reason, 'reason', 1000);
   const { listing, publisher } = await listingOr404(id);
   const v = await versions.get(listing.id, version);
   if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
@@ -457,10 +440,10 @@ export async function unyankVersion(moderator: Caller, id: string, version: stri
  * by itself. The job is idempotent and resumable (resign.ts).
  */
 export async function resignAll(moderator: Caller, body: Record<string, unknown>) {
-  const reason = requireReason(body.reason);
+  const reason = requiredText(body.reason, 'reason', 1000);
   const withListings = new Set((await listings.list()).map((l) => l.publisherId));
   for (const publisherId of withListings) await enqueueResign('publisher', publisherId, 'operator', actor(moderator));
-  audit(moderator, 'registry.image.resign', null, 'publisher', 'all', { publishers: withListings.size, reason: reason.slice(0, 200) });
+  ecosystemAudit({ action: 'registry.image.resign', actor: actor(moderator), targetType: 'publisher', targetId: 'all', details: { publishers: withListings.size, reason: reason.slice(0, 200) } });
   return { queued: withListings.size };
 }
 
@@ -516,7 +499,7 @@ export async function createRule(moderator: Caller, body: Record<string, unknown
     createdBy: moderator.userId,
     pendingChange: { requestedBy: moderator.userId, requestedAt: new Date().toISOString(), enabled: true, name, conditions: conditions as Record<string, unknown> },
   });
-  audit(moderator, 'ecosystem.auto-approval-rule.create', null, 'auto-approval-rule', r.id, { name, pending: true });
+  ecosystemAudit({ action: 'ecosystem.auto-approval-rule.create', actor: actor(moderator), targetType: 'auto-approval-rule', targetId: r.id, details: { name, pending: true } });
   return ruleViewOf(r);
 }
 
@@ -542,11 +525,11 @@ export async function updateRule(moderator: Caller, id: string, body: Record<str
       ...(name !== rule.name ? { name } : {}),
       pendingChange: { requestedBy: moderator.userId, requestedAt: new Date().toISOString(), enabled, name, conditions: conditions as Record<string, unknown> },
     }))!;
-    audit(moderator, 'ecosystem.auto-approval-rule.update', null, 'auto-approval-rule', rule.id, { pending: true, enabling: enabled && !rule.enabled });
+    ecosystemAudit({ action: 'ecosystem.auto-approval-rule.update', actor: actor(moderator), targetType: 'auto-approval-rule', targetId: rule.id, details: { pending: true, enabling: enabled && !rule.enabled } });
     return ruleViewOf(updated);
   }
   const updated = (await rules.update(rule.id, { name, enabled, conditions: conditions as Record<string, unknown> }))!;
-  audit(moderator, 'ecosystem.auto-approval-rule.update', null, 'auto-approval-rule', rule.id, { enabled, narrowed: true });
+  ecosystemAudit({ action: 'ecosystem.auto-approval-rule.update', actor: actor(moderator), targetType: 'auto-approval-rule', targetId: rule.id, details: { enabled, narrowed: true } });
   return ruleViewOf(updated);
 }
 
@@ -561,7 +544,7 @@ export async function approveRuleChange(moderator: Caller, id: string) {
   const updated = (await rules.update(rule.id, {
     name: change.name, enabled: change.enabled, conditions: change.conditions, approvedBy: moderator.userId, pendingChange: null,
   }))!;
-  audit(moderator, 'ecosystem.auto-approval-rule.update', null, 'auto-approval-rule', rule.id, { secondApproval: true, proposedBy: change.requestedBy, enabled: change.enabled });
+  ecosystemAudit({ action: 'ecosystem.auto-approval-rule.update', actor: actor(moderator), targetType: 'auto-approval-rule', targetId: rule.id, details: { secondApproval: true, proposedBy: change.requestedBy, enabled: change.enabled } });
   return ruleViewOf(updated);
 }
 
@@ -571,7 +554,7 @@ export async function deleteRule(moderator: Caller, id: string) {
   // Requests keep their autoRuleId history: detach, never cascade.
   for (const r of await requests.autoApprovedSince(rule.id, new Date(0))) await requests.transition(r.id, r.status, { autoRuleId: null, payload: { ...r.payload, autoRuleName: rule.name } });
   await rules.remove(rule.id);
-  audit(moderator, 'ecosystem.auto-approval-rule.delete', null, 'auto-approval-rule', rule.id, { name: rule.name });
+  ecosystemAudit({ action: 'ecosystem.auto-approval-rule.delete', actor: actor(moderator), targetType: 'auto-approval-rule', targetId: rule.id, details: { name: rule.name } });
   return { deleted: true };
 }
 
@@ -590,8 +573,8 @@ export async function putReserved(moderator: Caller, name: string, body: Record<
   if (!/^[a-z0-9][a-z0-9._-]{0,254}$/.test(n)) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'name must be a lowercase handle or plugin name');
   const publisherId = typeof body.publisherId === 'string' && body.publisherId ? body.publisherId : null;
   if (publisherId) await publisherOr404(publisherId);
-  const row = await reservedNames.put(n, typeof body.reason === 'string' ? body.reason.slice(0, 500) : null, publisherId);
-  audit(moderator, 'ecosystem.reserved-name.update', null, 'reserved-name', n, { op: 'put', publisherId });
+  const row = await reservedNames.put(n, optionalText(body.reason, 500), publisherId);
+  ecosystemAudit({ action: 'ecosystem.reserved-name.update', actor: actor(moderator), targetType: 'reserved-name', targetId: n, details: { op: 'put', publisherId } });
   return { name: row.name, reason: row.reason, publisherId: row.publisherId };
 }
 
@@ -599,6 +582,6 @@ export async function putReserved(moderator: Caller, name: string, body: Record<
 export async function deleteReserved(moderator: Caller, name: string) {
   const removed = await reservedNames.remove(name.trim().toLowerCase());
   if (!removed) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Reserved name not found');
-  audit(moderator, 'ecosystem.reserved-name.update', null, 'reserved-name', name, { op: 'delete' });
+  ecosystemAudit({ action: 'ecosystem.reserved-name.update', actor: actor(moderator), targetType: 'reserved-name', targetId: name, details: { op: 'delete' } });
   return { deleted: true };
 }

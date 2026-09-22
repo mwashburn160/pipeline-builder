@@ -15,8 +15,9 @@
  * reconcile-retries-and-clears, and the billing-disabled no-op.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockPost = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -48,9 +49,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: (...a: unknown[]) => mockServiceAuthHeader(...a),
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { billing: billingConfig, audit: { retentionDays: 90 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ billing: billingConfig, audit: { retentionDays: 90 } }));
 
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({
   incCounter: (...a: unknown[]) => mockIncCounter(...a),

@@ -35,7 +35,7 @@ function parseBasic(header: string | undefined): { username: string; password: s
  *   GET /token?service=...&scope=...&account=...
  *   Authorization: Basic <b64(user:pass)>
  *
- *   200 OK
+ * 200 OK
  *   { "token": "<JWT>", "access_token": "<JWT>", "expires_in": 300, "issued_at": "..." }
  *
  *   401 Unauthorized

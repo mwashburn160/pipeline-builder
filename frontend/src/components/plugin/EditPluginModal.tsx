@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { formatDateTime } from '@/lib/format';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -17,8 +17,7 @@ import { WarningAlert } from '@/components/ui/WarningAlert';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
-import { clearPluginCache } from '@/hooks/usePlugins';
-import { formatError } from '@/lib/constants';
+import { formatError, formatEnvelopeError } from '@/lib/constants';
 import { CATEGORY_DISPLAY_NAMES, PLUGIN_CATEGORIES } from '@/lib/plugin-categories';
 import {
   CATALOG_FIELD_EDITOR, CATALOG_FIELD_HINTS, CATALOG_FIELD_LABELS, CATALOG_SOURCE_LABELS,
@@ -29,6 +28,9 @@ import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySele
 import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOwnerFields';
 import { useAuth } from '@/hooks/useAuth';
 import { isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
+import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
+import { invalidate } from '@/lib/api-cache';
 
 /** Props for the EditPluginModal component. */
 interface EditPluginModalProps {
@@ -89,20 +91,15 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const [frozenMessage, setFrozenMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Guards the post-save close timer so it can't call onClose() after the
-  // parent has already torn the modal down (e.g. list refresh unmounts us).
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const unmountedRef = useUnmountedRef();
+  const autoClose = useAutoCloseTimer();
 
   // Fetch the full plugin by ID (the list row lacks the catalog metadata and
   // owner); useEntityFetch only re-fires on id change so a stale re-mount won't
   // overwrite in-progress user edits.
   const fetchPlugin = useCallback(async (id: string): Promise<Plugin> => {
     const response = await api.getPluginById(id);
-    if (!response.data?.plugin) throw new Error(formatError(response, 'Failed to load plugin'));
+    if (!response.data?.plugin) throw new Error(formatEnvelopeError(response, 'Failed to load plugin'));
     return response.data.plugin;
   }, []);
   const { entity: fullPlugin, fetching, error: fetchError } = useEntityFetch<Plugin>(plugin.id, fetchPlugin);
@@ -183,22 +180,22 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     setSaving(true);
     try {
       const response = await api.updatePlugin(plugin.id, data);
-      if (!mountedRef.current) return;
+      if (unmountedRef.current) return;
       if (response?.success) {
         setSuccess('Plugin updated successfully!');
         // The pipeline builder's plugin picker caches the catalog — drop it.
-        clearPluginCache();
+        invalidate.plugins();
         onSaved();
-        setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
+        autoClose.schedule(onClose, 1500);
       } else {
-        setSaveError(formatError(response, 'Failed to update plugin'));
+        setSaveError(formatEnvelopeError(response, 'Failed to update plugin'));
       }
     } catch (err) {
-      if (!mountedRef.current) return;
+      if (unmountedRef.current) return;
       if (err instanceof ApiError && err.statusCode === 409) setFrozenMessage(err.message);
       else setSaveError(formatError(err, 'Failed to update plugin'));
     } finally {
-      if (mountedRef.current) setSaving(false);
+      if (!unmountedRef.current) setSaving(false);
     }
   };
 

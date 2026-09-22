@@ -3,28 +3,14 @@
 
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { withController, canAdministerOrg, requireAuth } from '../helpers/controller-helper.js';
+import { withController, canManageOrgScope, ensureAuthenticated } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
-import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
+import { DOMAIN_ERROR_MAP } from '../services/org-domain-errors.js';
 import { orgDomainService, VERIFY_RECORD_HOST, VERIFY_RECORD_VALUE } from '../services/org-domain-service.js';
 import { validateBody, addDomainSchema, setDomainModeSchema } from '../utils/validation.js';
 
 const logger = createLogger('org-domain-controller');
 
-/** Shared error map for the domain/join-request admin endpoints. */
-const DOMAIN_ERROR_MAP = {
-  [DOMAIN_TAKEN]: { status: 409, message: 'That domain is already registered to an organization' },
-  [DOMAIN_NOT_FOUND]: { status: 404, message: 'Domain not found' },
-  [DOMAIN_NOT_VERIFIED]: { status: 409, message: 'Verify the domain before enabling join' },
-  [DOMAIN_VERIFY_FAILED]: { status: 400, message: 'Could not find the verification DNS TXT record' },
-  [DOMAIN_NOT_ENTITLED]: { status: 403, message: 'Domain-based join requires the Team or Enterprise tier' },
-  [DOMAIN_LIMIT]: { status: 409, message: 'This organization has reached its domain limit' },
-  [DOMAIN_PUBLIC]: { status: 400, message: 'Public email providers (e.g. gmail.com) cannot be used for domain-based join' },
-  [JOIN_NOT_ELIGIBLE]: { status: 409, message: 'This domain is no longer configured for join — the request can’t be approved' },
-  [JOIN_REQUEST_NOT_FOUND]: { status: 404, message: 'Join request not found' },
-  [JOIN_REQUESTER_GONE]: { status: 410, message: 'The requesting user no longer exists' },
-  [JOIN_SEAT_LIMIT]: { status: 409, message: 'Approving this request would exceed your seat limit' },
-} as const;
 
 /** The DNS TXT record the admin must publish to verify a domain. Uses the same
  *  builders the service verifies against so instructions can't drift. */
@@ -45,18 +31,18 @@ function domainView(d: { _id: unknown; domain: string; verified: boolean; verifi
 
 /** GET /organization/:id/domains — list the org's registered domains. */
 export const listOrgDomains = withController('List org domains', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
   const domains = await orgDomainService.listDomains(id);
   sendSuccess(res, 200, { domains: domains.map(domainView), entitled: await orgDomainService.isEntitled(id) });
 });
 
 /** POST /organization/:id/domains — register a domain (unverified). */
 export const addOrgDomain = withController('Add org domain', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
   const body = validateBody(addDomainSchema, req.body, res);
   if (!body) return;
   const doc = await orgDomainService.addDomain(id, body.domain, req.user!.sub);
@@ -66,9 +52,9 @@ export const addOrgDomain = withController('Add org domain', async (req, res) =>
 
 /** POST /organization/:id/domains/:domainId/verify — confirm ownership via DNS TXT. */
 export const verifyOrgDomain = withController('Verify org domain', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
   const domainId = getParam(req.params, 'domainId')!;
   let doc;
   try {
@@ -87,9 +73,9 @@ export const verifyOrgDomain = withController('Verify org domain', async (req, r
 
 /** PATCH /organization/:id/domains/:domainId — set the discovery mode. */
 export const setOrgDomainMode = withController('Set org domain mode', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
   const domainId = getParam(req.params, 'domainId')!;
   const body = validateBody(setDomainModeSchema, req.body, res);
   if (!body) return;
@@ -100,9 +86,9 @@ export const setOrgDomainMode = withController('Set org domain mode', async (req
 
 /** DELETE /organization/:id/domains/:domainId — remove a domain. */
 export const deleteOrgDomain = withController('Delete org domain', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
   const domainId = getParam(req.params, 'domainId')!;
   await orgDomainService.deleteDomain(id, domainId);
   audit(req, 'org.domain.delete', { targetType: 'organization', targetId: id, affectedOrgId: id, details: { domainId } });
@@ -111,9 +97,9 @@ export const deleteOrgDomain = withController('Delete org domain', async (req, r
 
 /** GET /organization/:id/join-requests — pending domain-join requests. */
 export const listOrgJoinRequests = withController('List org join requests', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
   const requests = await orgDomainService.listJoinRequests(id, 'pending');
   sendSuccess(res, 200, {
     requests: requests.map((r) => ({ id: String(r._id), userId: String(r.userId), email: r.email, requestedAt: r.createdAt })),
@@ -122,9 +108,9 @@ export const listOrgJoinRequests = withController('List org join requests', asyn
 
 /** POST /organization/:id/join-requests/:reqId/:decision — approve|deny. */
 export const decideOrgJoinRequest = withController('Decide org join request', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
   const reqId = getParam(req.params, 'reqId')!;
   const decision = getParam(req.params, 'decision');
   if (decision !== 'approve' && decision !== 'deny') return sendError(res, 400, 'decision must be approve or deny');

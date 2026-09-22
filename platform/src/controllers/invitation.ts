@@ -1,14 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, parsePaginationParams, errorMessage } from '@pipeline-builder/api-core';
-import { verifyOAuthCode, OAUTH_ERROR_MAP } from './oauth.js';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, MAX_PAGE_LIMIT, parsePage, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
+import { paginationMeta } from '../helpers/pagination.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { auditService, invitationService } from '../services/index.js';
 import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from '../services/invitation-errors.js';
+import { verifyOAuthCode, OAUTH_ERROR_MAP } from '../services/oauth-providers.js';
 import { validateBody, sendInvitationSchema } from '../utils/validation.js';
 
 const logger = createLogger('invitation-controller');
@@ -199,12 +200,12 @@ export const listInvitations = withController('List invitations', async (req, re
   if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
     return sendSuccess(res, 200, {
       invitations: [],
-      pagination: { total: 0, offset: 0, limit: 25, hasMore: false },
+      pagination: paginationMeta(0, 0, 25),
     });
   }
 
   const { status, invitationType, role, search } = req.query;
-  const { offset, limit: limitNum } = parsePaginationParams(req.query);
+  const { offset, limit: limitNum } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
 
   const { invitations, total } = await invitationService.listForOrg(orgId, {
     status: status as string | undefined,
@@ -219,7 +220,7 @@ export const listInvitations = withController('List invitations', async (req, re
 
   sendSuccess(res, 200, {
     invitations,
-    pagination: { total, offset, limit: limitNum, hasMore: offset + limitNum < total },
+    pagination: paginationMeta(total, offset, limitNum),
   });
 });
 

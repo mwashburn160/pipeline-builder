@@ -6,6 +6,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
 import { Eslint, NodePackageManager, NpmAccess, UpdateSnapshot } from 'projen/lib/javascript';
+import { TextFile } from 'projen';
 import { TypeScriptProject } from 'projen/lib/typescript';
 import { pnpmWorkspaceYamlOptions, setWorkspacePackages } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
@@ -77,7 +78,7 @@ const root = new TypeScriptProject({
   minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
   // projen emits pnpm-workspace.yaml itself; our workspace settings (package
-  // paths + the pnpm 11 install policy) go through it. See projenrc/pnpm.ts.
+  // paths + the pnpm install policy) go through it. See projenrc/pnpm.ts.
   pnpmOptions: { workspaceYamlOptions: pnpmWorkspaceYamlOptions },
   projenCommand: 'pnpm dlx projen',
   depsUpgradeOptions: { workflow: false },
@@ -122,8 +123,8 @@ root.npmrc.addConfig('@pipeline-builder:registry', 'https://registry.npmjs.org/'
 // Redis DB, the local docker daemon, the same per-org KMS keys); serializing
 // trades wall-clock for reliability.
 root.npmrc.addConfig('workspace-concurrency', '1');
-// NOTE: pnpm 11's `verifyDepsBeforeRun` is disabled in pnpm-workspace.yaml
-// (projenrc/pnpm.ts) — `.npmrc` is ignored for it in pnpm 11.
+// NOTE: pnpm's `verifyDepsBeforeRun` is disabled in pnpm-workspace.yaml
+// (projenrc/pnpm.ts) — `.npmrc` is not consulted for it.
 
 // =============================================================================
 // Shared Defaults & Helpers
@@ -145,6 +146,11 @@ const baseDefaults = {
   // Refresh snapshots deliberately with the generated `test:update` task.
   jestOptions: { jestVersion, updateSnapshot: UpdateSnapshot.NEVER },
 };
+
+/** esbuild command that bundles a Lambda entry into one self-contained ESM file
+ *  (the Lambda Node runtime provides `@aws-sdk/*`). */
+const LAMBDA_BUNDLE = (entry: string, outfile: string): string =>
+  `esbuild ${entry} --bundle --platform=node --format=esm --target=node24 --external:@aws-sdk/* --log-level=warning --outfile=${outfile}`;
 
 const pkgDefaults = {
 ...baseDefaults,
@@ -290,7 +296,22 @@ const IMAGE_DESCRIPTIONS: Record<string, string> = {
   'image-registry': 'Pipeline Builder image-registry service — Docker registry token authorization for plugin images.',
 };
 
+/**
+ * Projects shipped as Docker images / published to npm. Filled as the projects
+ * are defined (dockerScripts / publishToNpm) and handed to the release workflow
+ * and deploy/shared/services.txt, so neither keeps its own hand-written list.
+ */
+const imageProjects: string[] = [];
+const libraryProjects: string[] = [];
+
+/** Publish a library to npm (public, in lockstep with the release). */
+function publishToNpm(project: TypeScriptProject): void {
+  project.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+  libraryProjects.push(project.package.packageName.replace(/^@pipeline-builder\//, ''));
+}
+
 function dockerScripts(name: string) {
+  imageProjects.push(name);
   const version = '$(jq -r .version package.json)';
 
   // Shared build-context staging. CRITICAL: `nx run-many -t build --with-deps`
@@ -435,13 +456,14 @@ const apiCore = new PackageProject({
   ],
 });
 apiCore.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
-apiCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-// Four entry points. The root pulls in the server graph (express, jwt, ioredis);
-// `./permissions` (permission catalog + labels + picker grouping) and
+publishToNpm(apiCore);
+// Entry points. The root pulls in the server graph (express, jwt, ioredis);
+// `./permissions` (permission catalog + labels + picker grouping),
 // `./metadata-keys` (the pipeline metadata-key catalog that also backs
-// pipeline-core's `MetadataKeys`) are dependency-free and imported by the
-// BROWSER — the frontend consumes them directly instead of keeping
-// hand-maintained mirrors. `./testing` is the test-helper entry (src/testing):
+// pipeline-core's `MetadataKeys`), `./feature-flags` (feature-flag catalog +
+// display metadata) and `./plugin-catalog` (plugin category / catalog-field
+// vocabulary) are dependency-free and imported by the BROWSER — the frontend
+// consumes them directly instead of keeping hand-maintained mirrors. `./testing` is the test-helper entry (src/testing):
 // never part of the root barrel, and dropped from the packed package below so
 // no service image ships it. `./lib/*` stays open because tests deep-import
 // internals the root barrel narrows away (e.g. `lib/services/service-keys.js`).
@@ -449,6 +471,8 @@ apiCore.package.addField('exports', {
   '.': { types: './lib/index.d.ts', default: './lib/index.js' },
   './permissions': { types: './lib/types/permissions.d.ts', default: './lib/types/permissions.js' },
   './metadata-keys': { types: './lib/types/metadata-keys.d.ts', default: './lib/types/metadata-keys.js' },
+  './feature-flags': { types: './lib/types/feature-flags.d.ts', default: './lib/types/feature-flags.js' },
+  './plugin-catalog': { types: './lib/types/plugin-catalog.d.ts', default: './lib/types/plugin-catalog.js' },
   './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
   './lib/*': './lib/*',
   './package.json': './package.json',
@@ -459,6 +483,8 @@ apiCore.package.addField('typesVersions', {
   '*': {
     permissions: ['lib/types/permissions.d.ts'],
     'metadata-keys': ['lib/types/metadata-keys.d.ts'],
+    'feature-flags': ['lib/types/feature-flags.d.ts'],
+    'plugin-catalog': ['lib/types/plugin-catalog.d.ts'],
   },
 });
 // Test helpers are workspace-only: `pnpm deploy --prod` (every service image)
@@ -477,7 +503,7 @@ const pipelineData = new PackageProject({
   devDeps: [typesNode, '@types/pg@8.20.3', 'drizzle-kit@0.31.10', `typescript@${typescriptVersion}`, '@electric-sql/pglite@0.5.8'],
 });
 pipelineData.eslint?.addRules(rules);
-pipelineData.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+publishToNpm(pipelineData);
 addPackageMetadata(pipelineData, 'Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with per-organization (and team) access control.');
 
 // -- Pipeline Core --
@@ -512,16 +538,26 @@ const pipelineCore = new PackageProject({
   ],
 });
 pipelineCore.eslint?.addRules(rules);
-pipelineCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-// Two entry points. The root is free of `aws-cdk-lib` (config, domain types, template
+publishToNpm(pipelineCore);
+// Entry points. The root is free of `aws-cdk-lib` (config, domain types, template
 // engine) so the API services that import it never load the CDK; `/cdk` carries the
-// constructs and the synth-time authoring types. `./lib/*` stays open because tests
-// deep-import concrete modules (e.g. billing mocks `lib/config/entitlements.js`).
+// constructs and the synth-time authoring types; `/template` is the dependency-free
+// template tokenizer the BROWSER shares for inline `{{ … }}` validation. `./lib/*`
+// stays open because tests deep-import concrete modules (e.g. billing mocks
+// `lib/config/entitlements.js`).
 pipelineCore.package.addField('exports', {
   '.': { types: './lib/index.d.ts', default: './lib/index.js' },
   './cdk': { types: './lib/cdk.d.ts', default: './lib/cdk.js' },
+  './template': { types: './lib/template/tokenizer.d.ts', default: './lib/template/tokenizer.js' },
   './lib/*': './lib/*',
   './package.json': './package.json',
+});
+// Same node10 caveat as api-core: typesVersions points the frontend's jest
+// tsconfig at the browser subpath's declarations.
+pipelineCore.package.addField('typesVersions', {
+  '*': {
+    template: ['lib/template/tokenizer.d.ts'],
+  },
 });
 addPackageMetadata(pipelineCore, 'AWS CDK construct library for Pipeline Builder: the Builder construct that assembles plugin specs into a CodePipeline stack, PluginLookup custom resource, pipeline/plugin domain types, and shared configuration.');
 if (pipelineCore.jest) pipelineCore.jest.config.maxWorkers = 1;
@@ -548,7 +584,7 @@ const apiServer = new PackageProject({
     '@opentelemetry/instrumentation@0.221.0',
     '@opentelemetry/api@1.9.1',
     // Server-side untrusted-markdown renderer (`lib/markdown.js`, plugin
-    // READMEs / advisories / reviews — docs/plans/plugin-ecosystem.md G6).
+    // READMEs / advisories / reviews).
     // ESM-only; reached through the subpath, never the package root.
     'unified@11.0.5', 'remark-parse@11.0.0', 'remark-gfm@4.0.1', 'remark-rehype@11.1.2',
     'rehype-sanitize@6.0.0', 'rehype-stringify@10.0.1',
@@ -561,7 +597,7 @@ const apiServer = new PackageProject({
   ],
 });
 apiServer.eslint?.addRules({...rules, 'import/no-unresolved': 'off' });
-apiServer.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+publishToNpm(apiServer);
 addPackageMetadata(apiServer, 'Express server infrastructure for Pipeline Builder: app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context, route wrappers, health-check helpers, and SSE support.');
 if (apiServer.jest) apiServer.jest.config.maxWorkers = 1;
 
@@ -587,8 +623,8 @@ aiCore.eslint?.addRules(rules);
 // Published to npm: the released pipeline-manager CLI hard-depends on ai-core
 // (its AI-provider registry), so it MUST ship in lockstep — otherwise consumers
 // of pipeline-manager can't resolve `@pipeline-builder/ai-core@<version>`.
-// Listed in LIBRARY_PROJECTS (projenrc/workflow.ts) so the release publishes it.
-aiCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+// publishToNpm registers it with the release workflow.
+publishToNpm(aiCore);
 addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
@@ -606,9 +642,16 @@ const pipelineEvents = new PackageProject({
     // from the Lambda bundle.
     '@aws-sdk/client-codepipeline@3.1101.0',
     `typescript@${typescriptVersion}`,
+    // Bundled into lib/index.js (never a runtime dependency): the shared
+    // platform-credential handling.
+    `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
+    'esbuild@0.28.0',
   ],
 });
 pipelineEvents.eslint?.addRules(rules);
+// `infra setup-events` ships lib/index.js as the ONE file in the Lambda zip, so
+// the build bundles the handler into it (the Lambda runtime provides @aws-sdk).
+pipelineEvents.postCompileTask.exec(LAMBDA_BUNDLE('src/index.ts', 'lib/index.js'));
 // The handler imports @aws-sdk/client-sqs (DLQ self-healing redrive) and
 // @aws-sdk/client-codecommit (commit-timestamp resolution); the tests stub both
 // so no real AWS call is made. These map entries MUST live here (not just in the
@@ -625,8 +668,8 @@ if (pipelineEvents.jest) {
 // Published to npm: `pipeline-manager infra setup-events` runs `npm install
 // @pipeline-builder/pipeline-events@<version>` to fetch the Lambda handler it
 // uploads (see commands/setup-events.ts), so it must be on the registry and
-// version-synced. Listed in LIBRARY_PROJECTS (projenrc/workflow.ts).
-pipelineEvents.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+// version-synced; publishToNpm registers it with the release workflow.
+publishToNpm(pipelineEvents);
 addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
 
 // =============================================================================
@@ -657,12 +700,15 @@ const manager = new ManagerProject({
     'axios@1.19.0', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.0', 'ora@9.4.1',
     'zod@4.4.3',
   ],
-  devDeps: ['@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1'],
+  devDeps: ['@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1', 'esbuild@0.28.0'],
 });
 manager.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
-manager.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+publishToNpm(manager);
 addPackageMetadata(manager, 'CLI for Pipeline Builder  self-service AWS CodePipeline platform with 125 reusable containerized plugins, per-org compliance enforcement, and per-organization (and team) isolation.');
 manager.addPackageIgnore('/dist/js/');
+// `infra store-token --schedule` uploads the token-renew handler as the ONE file
+// in its Lambda zip, so the build bundles it (shared platform-credential code).
+manager.postCompileTask.exec(LAMBDA_BUNDLE('src/lambda/token-renew-handler.ts', 'dist/lambda/token-renew-handler.js'));
 manager.postCompileTask.exec('copyfiles -f ./cdk.json dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./config.yml dist/ --verbose --error');
 manager.postCompileTask.exec('copyfiles -f ./src/templates/*.json dist/templates/ --verbose --error');
@@ -771,9 +817,10 @@ const frontend = new FrontEndProject({
     // script is replaced below. Carrying it made every `pnpm deploy` stage the
     // whole server package — and its transitive tree — into a bundle the
     // Dockerfile never copies.
-    // No `pipeline-core` here on purpose: the frontend re-declares the shapes it
-    // needs (see `src/types/index.ts`, `src/lib/metadata-keys.ts`) rather than
-    // importing them, so the dep was dead weight in the Next build.
+    // pipeline-core only for its dependency-free `./template` subpath (the
+    // `{{ … }}` tokenizer, so inline validation matches synth exactly); nothing
+    // imports its root, which carries server/CDK-side code.
+    `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     'next@16.2.12', 'react@19.2.8', 'react-dom@19.2.8',
     'lucide-react@1.28.0', 'tailwindcss@4.3.3', 'framer-motion@12.43.0',
     // Browser half of the WebAuthn/passkey ceremonies (registration, assertion,
@@ -816,7 +863,7 @@ const frontend = new FrontEndProject({
 });
 // Regenerate the in-app help topics from docs/*.md (single source of truth).
 frontend.addScripts({ 'generate:help': 'node scripts/generate-help.mjs' });
-// Curated plugin icons (plugin-ecosystem §6a.1): deploy/plugins/_icons/*.svg are
+// Curated plugin icons: deploy/plugins/_icons/*.svg are
 // linted and copied into public/plugin-icons/ under content-hashed names, and the
 // manifest src/generated/plugin-icons.ts is rewritten. Runs BEFORE `next build`
 // on the host — the frontend image only copies public/, and deploy/plugins/ is
@@ -890,10 +937,14 @@ frontendEslint.addRules({
 // Test files mock with jest.requireActual / require() inside factories, and
 // mount anonymous component factories.
 frontendEslint.addOverride({ files: ['test/**'], rules: { '@typescript-eslint/no-require-imports': 'off', 'react/display-name': 'off' } });
+// Heap for eslint in every project (see the no-`--fix` loop below): type-aware
+// linting of the larger projects is OOM-killed (exit 137) at Node's default.
+const ESLINT_NODE_OPTIONS = '--max-old-space-size=6144';
+frontendEslint.eslintTask.env('NODE_OPTIONS', ESLINT_NODE_OPTIONS);
 {
   const fixTask = frontend.addTask('lint:fix', {
     description: 'Run eslint with --fix (local only — CI runs `eslint` without it)',
-    env: { ESLINT_USE_FLAT_CONFIG: 'false', NODE_NO_WARNINGS: '1' },
+    env: { ESLINT_USE_FLAT_CONFIG: 'false', NODE_NO_WARNINGS: '1', NODE_OPTIONS: ESLINT_NODE_OPTIONS },
   });
   const args = (frontendEslint.eslintTask.steps[0] as { execArgs?: string[] }).execArgs!;
   fixTask.execArgs([args[0], '--fix', ...args.slice(1)], { receiveArgs: true });
@@ -911,6 +962,10 @@ if (frontend.jest) {
     // Same treatment for the shared metadata-key catalog the pipeline form
     // builder's picker renders.
     '^@pipeline-builder/api-core/metadata-keys$': '<rootDir>/../packages/api-core/src/types/metadata-keys.ts',
+    // …and the other browser-safe subpaths the UI imports values from.
+    '^@pipeline-builder/api-core/feature-flags$': '<rootDir>/../packages/api-core/src/types/feature-flags.ts',
+    '^@pipeline-builder/api-core/plugin-catalog$': '<rootDir>/../packages/api-core/src/types/plugin-catalog.ts',
+    '^@pipeline-builder/pipeline-core/template$': '<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts',
   };
   // Next.js's standalone build copies frontend/package.json into
   // .next/standalone/, which collides with the root in jest's haste map.
@@ -1057,8 +1112,25 @@ for (const svc of services) {
 }
 
 // =============================================================================
-// Workspace Configuration
+// Deploy contracts
 // =============================================================================
+
+/**
+ * The deploy/ tree's contract tests (manifests, compose, env examples, shell
+ * tooling, CI workflows) as their own Nx project. They read no service code, so
+ * they belong to no service: parked in platform, they re-ran on every platform
+ * change and a deploy/-only change needed a special input on platform to run
+ * them at all. Here `deploy/**` is simply this project's input. Its `src/` holds
+ * the shared readers the suites use (repo root, YAML docs, target lists).
+ */
+const deployContracts = new FunctionProject({
+  ...baseDefaults, parent: root,
+  name: 'deploy-contracts',
+  outdir: './test/deploy-contracts',
+  deps: [],
+  devDeps: [typesNode, 'yaml@2.9.0'],
+});
+deployContracts.eslint?.addRules(rules);
 
 // =============================================================================
 // Coverage Thresholds
@@ -1104,7 +1176,7 @@ const COVERAGE_THRESHOLDS: Record<string, {
   '@pipeline-builder/api-core': {
     global: { statements: 95, branches: 91, functions: 91, lines: 95 },
     paths: {
-      // emitAudit — fully covered by test/emit-audit.test.ts.
+      // logAuditEvent — fully covered by test/log-audit-event.test.ts.
       'src/utils/audit.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
     },
   },
@@ -1179,12 +1251,13 @@ const COVERAGE_THRESHOLDS: Record<string, {
   'platform': {
     global: { statements: 86, branches: 83, functions: 78, lines: 86 },
     paths: {
-      // SCIM provisioning — test/scim-provisioning.test.ts covers the policy
-      // (verified domains, owner/platform-admin protection, seats, the
+      // SCIM provisioning (scim-filter/-render/-users/-groups/-discovery/-errors,
+      // each file checked on its own) — test/scim-provisioning.test.ts covers the
+      // policy (verified domains, owner/platform-admin protection, seats, the
       // removal-only downgrade, group membership) against an in-memory model
-      // double; with the protocol + controller suites it measures 100 statements
-      // / 97.7 branches / 100 functions.
-      'src/services/scim-service.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // double; with the protocol + controller suites every file measures 100
+      // statements / ≥ 95.8 branches / 100 functions.
+      'src/services/scim-*.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
       // Two-person MFA reset — test/mfa-recovery-service.test.ts; 100/100/100/100.
       'src/services/mfa-recovery.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
       // Opaque key → JWT exchange, plus self-rotation and sibling revoke —
@@ -1288,29 +1361,40 @@ for (const project of root.subprojects) {
   const check = args.filter((a) => a !== '--fix');
   eslint.eslintTask.reset();
   eslint.eslintTask.execArgs(check, { receiveArgs: true });
+  // Type-aware linting of the larger services (api/pipeline, platform) exceeds
+  // Node's default heap and is OOM-killed (exit 137) mid-run.
+  eslint.eslintTask.env('NODE_OPTIONS', ESLINT_NODE_OPTIONS);
   const fixTask = project.addTask('lint:fix', {
     description: 'Run eslint with --fix (local only — CI runs `eslint` without it)',
-    env: { ESLINT_USE_FLAT_CONFIG: 'false', NODE_NO_WARNINGS: '1' },
+    env: { ESLINT_USE_FLAT_CONFIG: 'false', NODE_NO_WARNINGS: '1', NODE_OPTIONS: ESLINT_NODE_OPTIONS },
   });
   fixTask.execArgs([check[0], '--fix', ...check.slice(1)], { receiveArgs: true });
 }
 
 /**
- * Projects whose TESTS read files outside their own root — the deploy/ tree
- * (contract tests over manifests, postgres-init.sql, plugin specs) and docs/
- * (env-var documentation). Nx only hashes a project's own files by default, so
- * a deploy/-only change left these builds cached/unaffected and their drift
- * guards unrun. Declared per project as extra build/test inputs (package.json
- * `nx` field, which nx merges over nx.json's targetDefaults).
+ * Projects whose TESTS read files outside their own root. Nx only hashes a
+ * project's own files by default, so a change to one of these left the project
+ * cached/unaffected and its drift guard unrun. Each entry lists exactly what that
+ * project's suites read — a broader glob would re-run them on unrelated edits.
+ * Declared as extra build/test inputs (package.json `nx` field, which nx merges
+ * over nx.json's targetDefaults).
  */
 const REPO_FIXTURE_INPUTS: Record<string, string[]> = {
-  'platform': ['{workspaceRoot}/deploy/**/*', '{workspaceRoot}/docs/**/*'],
-  'pipeline': ['{workspaceRoot}/deploy/**/*'],
-  'plugin': ['{workspaceRoot}/deploy/**/*'],
-  '@pipeline-builder/pipeline-core': ['{workspaceRoot}/deploy/**/*'],
-  '@pipeline-builder/pipeline-data': ['{workspaceRoot}/deploy/**/*'],
+  // Every deploy contract, plus the CI workflows and generators they check.
+  'deploy-contracts': ['{workspaceRoot}/deploy/**/*', '{workspaceRoot}/.github/workflows/*', '{workspaceRoot}/scripts/*', '{workspaceRoot}/README.md', '{workspaceRoot}/index.md'],
+  // org-namespace-template.test.ts: the served manifest vs the per-org templates.
+  'platform': ['{workspaceRoot}/deploy/*/*/k8s/per-org/*'],
+  // plugin-spec-smoke.test.ts: every catalog plugin spec.
+  'plugin': ['{workspaceRoot}/deploy/plugins/**/*'],
+  // The schema/RLS suites boot PGlite from the shared init script.
+  '@pipeline-builder/pipeline-data': ['{workspaceRoot}/deploy/shared/postgres-init.sql'],
+  // Target discovery, scaffolding and ports read most of the deploy tree.
   '@pipeline-builder/pipeline-manager': ['{workspaceRoot}/deploy/**/*'],
-  '@pipeline-builder/api-core': ['{workspaceRoot}/docs/**/*', '{workspaceRoot}/deploy/**/*'],
+  // Help is generated from docs/ (help-generated-drift, permission-contract);
+  // the plugin-icon suites read the curated icon set.
+  'frontend': ['{workspaceRoot}/docs/**/*', '{workspaceRoot}/deploy/plugins/_icons/*'],
+  // env-documented.test.ts: every env var the shared readers read is documented.
+  '@pipeline-builder/api-core': ['{workspaceRoot}/docs/environment-variables.md'],
 };
 for (const project of root.subprojects) {
   const extra = REPO_FIXTURE_INPUTS[project.name];
@@ -1319,10 +1403,30 @@ for (const project of root.subprojects) {
   (project as TypeScriptProject).package.addField('nx', { targets: { build: { inputs }, test: { inputs } } });
 }
 
+/** A subproject's directory, relative to the repo root. */
+function projectDir(name: string): string {
+  const project = root.subprojects.find((p) => p.name === name);
+  if (!project) throw new Error(`no subproject named ${name}`);
+  return path.relative(root.outdir, project.outdir);
+}
+
 new Nx(root);
 // Fills pnpmWorkspaceYamlOptions.packages — subprojects must already exist.
 setWorkspacePackages(root);
 new VscodeSettings(root);
-new Workflow(root, { pnpmVersion });
+new Workflow(root, { pnpmVersion, imageProjects, libraryProjects });
+
+// deploy/shared/services.txt — the one list the deploy scripts read
+// (sync-image-tags.sh, service-signing-keys.sh, verify-npm-deps.sh):
+//   <kind> <name> <dir>   kind = service (backend image) | frontend | library
+new TextFile(root, 'deploy/shared/services.txt', {
+  lines: [
+    '# ~~ Generated by projen from .projenrc.ts. <kind> <name> <dir>',
+    ...imageProjects.map((name) => `${name === 'frontend' ? 'frontend' : 'service'} ${name} ${projectDir(name)}`),
+    ...libraryProjects.map((name) => `library ${name} ${projectDir(`@pipeline-builder/${name}`)}`),
+    '', // trailing newline: `while read` drops an unterminated last line
+  ],
+});
+
 
 root.synth();

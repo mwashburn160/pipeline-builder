@@ -5,14 +5,9 @@
  * Compliance service frontend types.
  */
 
-export type RuleSeverity = 'warning' | 'error' | 'critical';
-export type RuleTarget = 'plugin' | 'pipeline';
-export type RuleOperator =
-  | 'eq' | 'neq' | 'contains' | 'notContains' | 'regex'
-  | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'notIn'
-  | 'exists' | 'notExists' | 'countGt' | 'countLt' | 'lengthGt' | 'lengthLt';
-export type RuleConditionMode = 'all' | 'any';
-export type RuleScope = 'org' | 'published';
+import type { RuleConditionMode, RuleOperator, RuleScope, RuleSeverity, RuleTarget } from '@pipeline-builder/api-core';
+
+export type { RuleConditionMode, RuleOperator, RuleScope, RuleSeverity, RuleTarget };
 export type ExemptionStatus = 'pending' | 'approved' | 'rejected' | 'expired';
 export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 

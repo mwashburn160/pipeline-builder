@@ -26,7 +26,7 @@ import type { Response } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
-import { withController } from '../helpers/controller-helper.js';
+import { ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
 import {
   decide,
@@ -37,8 +37,9 @@ import {
   type DeviceAuthRecord,
 } from '../services/device-auth-service.js';
 import { authService } from '../services/index.js';
+import { authFromClaims, issueStepUpToken } from '../services/session/access-tokens.js';
+import { findRefreshSession, issueTokens } from '../services/session/refresh-sessions.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import { authFromClaims, findRefreshSession, issueStepUpToken, issueTokens } from '../utils/token.js';
 
 const logger = createLogger('device-auth-controller');
 
@@ -192,10 +193,7 @@ function decisionError(res: Response, outcome: 'not_found' | 'expired' | 'alread
  * bounds guessing the short user code.
  */
 export const getDeviceRequest = withController('Device authorization lookup', async (req, res) => {
-  if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
-    return;
-  }
+  if (!ensureAuthenticated(req, res)) return;
   const located = await findByUserCode(req.query.user_code);
   if (located === 'expired') {
     audit(req, 'device.authorize.expire', { targetType: 'device-authorization' });
@@ -222,10 +220,7 @@ export const getDeviceRequest = withController('Device authorization lookup', as
  * session gets; nothing is minted until the device's next poll.
  */
 export const approveDeviceRequest = withController('Device authorization approve', async (req, res) => {
-  if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
-    return;
-  }
+  if (!ensureAuthenticated(req, res)) return;
   const located = await findByUserCode(req.body?.userCode);
   if (located === 'expired' || !located) {
     decisionError(res, located === 'expired' ? 'expired' : 'not_found');
@@ -270,10 +265,7 @@ export const approveDeviceRequest = withController('Device authorization approve
 /** POST /auth/device/deny — refuse the waiting device. The next poll gets
  *  `access_denied` and the flow is discarded. */
 export const denyDeviceRequest = withController('Device authorization deny', async (req, res) => {
-  if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
-    return;
-  }
+  if (!ensureAuthenticated(req, res)) return;
   const located = await findByUserCode(req.body?.userCode);
   if (located === 'expired' || !located) {
     decisionError(res, located === 'expired' ? 'expired' : 'not_found');

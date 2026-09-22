@@ -30,7 +30,7 @@ const mockRouter = {
   replace: jest.fn<AnyFn>((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
   push: jest.fn<AnyFn>(),
 };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 const listPage = {
   data: [] as unknown[],

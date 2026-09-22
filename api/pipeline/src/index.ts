@@ -6,7 +6,6 @@ import { createApp, runServer, attachRequestContext, postgresHealthCheck } from 
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
 import { mountRoutes } from './app-routes.js';
-import { getAuditClient } from './services/audit.js';
 import { pipelineService } from './services/pipeline-service.js';
 import { pipelineTemplateService } from './services/pipeline-template-service.js';
 
@@ -15,7 +14,7 @@ const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
 // Forward denied (non-GET) requests to the shared authz.denied audit sink.
-wireServiceSecurity('pipeline', getAuditClient);
+wireServiceSecurity('pipeline');
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));

@@ -13,17 +13,16 @@
  * specific organization must never be silently landed in a different one.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      passwordMinLength: 8,
-      jwt: { secret: 'test-jwt-secret', expiresIn: 7200, algorithm: 'HS256', tierExpiresIn: {} },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: 2592000 },
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    passwordMinLength: 8,
+    jwt: { secret: 'test-jwt-secret', expiresIn: 7200, algorithm: 'HS256', tierExpiresIn: {} },
+    refreshToken: { secret: 'test-refresh-secret', expiresIn: 2592000 },
   },
 }));
 
@@ -46,7 +45,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: jest.fn(emptyFindChain) },
 }));
 
-const { issueImpersonationToken, signInAuth } = await import('../src/utils/token.js');
+const { issueImpersonationToken, signInAuth } = await import('../src/services/session/access-tokens.js');
 const { installTestSigningKeys } = await import('./helpers/signing.js');
 installTestSigningKeys();
 

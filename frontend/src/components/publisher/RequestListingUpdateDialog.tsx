@@ -28,7 +28,7 @@ export function listingCatalogFields(listing: ListingView): CatalogEditorField[]
 }
 
 /**
- * Start a `listing_update` request from the listing itself (plan §3.1a step 4),
+ * Start a `listing_update` request from the listing itself,
  * pre-filled with the current values. Only the fields the publisher changes are
  * sent; the live card preview shows the result.
  */

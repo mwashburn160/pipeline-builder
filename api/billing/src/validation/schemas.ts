@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { BILLING_INTERVALS, SUBSCRIPTION_STATUSES } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
-const BillingIntervalSchema = z.enum(['monthly', 'annual']);
+const BillingIntervalSchema = z.enum(BILLING_INTERVALS);
 
 /**
  * Schema for creating a new subscription (POST /billing/subscriptions).
@@ -43,7 +44,7 @@ export const AddonMutateSchema = z.object({
  */
 export const AdminSubscriptionUpdateSchema = z.object({
   planId: z.string().min(1).optional(),
-  status: z.enum(['active', 'canceled', 'past_due', 'trialing', 'incomplete']).optional(),
+  status: z.enum(SUBSCRIPTION_STATUSES).optional(),
   interval: BillingIntervalSchema.optional(),
   cancelAtPeriodEnd: z.boolean().optional(),
 });

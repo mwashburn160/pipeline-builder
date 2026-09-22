@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Fix 1 — PUT /pipelines/bulk/update must isolate per-item failures. A single
+// PUT /pipelines/bulk/update must isolate per-item failures. A single
 // rejected update() (Promise.allSettled, not Promise.all) must NOT discard the
 // rows that already committed nor surface a blanket 500; failures land in a
 // per-index errors[] like bulk/create.
@@ -19,8 +19,9 @@ const mockUpdate = jest.fn<(...a: any[]) => Promise<any>>();
 const mockFindByIds = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue([]);
 const mockEmitAudit = jest.fn();
 const mockValidatePipeline = jest.fn<(...a: any[]) => Promise<any>>();
+const mockCreateAsDefault = jest.fn<(...a: any[]) => Promise<any>>();
 
-// Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here
+// Plugin-contract check — resolves plugins through the DB; stubbed here
 // and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
 const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
@@ -32,14 +33,11 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     update: mockUpdate,
     findByIds: mockFindByIds,
-    createAsDefaultReportInserted: jest.fn(),
+    createAsDefaultReportInserted: (...a: unknown[]) => mockCreateAsDefault(...a),
     bulkDelete: jest.fn(),
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPipelineAudit: mockEmitAudit,
-}));
 
 jest.unstable_mockModule('../src/helpers/pipeline-template-validator.js', () => ({
   validatePipelineTemplates: jest.fn(),
@@ -50,6 +48,7 @@ const mockSendSuccess = jest.fn((res: any, statusCode: number, data?: any) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitAudit,
   // Bulk update now shares single update's compliance re-check
   // (helpers/pipeline-update-compliance.ts, which builds its client from this).
   createComplianceClient: () => ({ validatePipeline: mockValidatePipeline }),
@@ -74,7 +73,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn((res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg })),
 }));
 
+// The REAL reservation helper (its api-core calls hit this file's api-core mock).
+let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   createAuthenticatedWithOrgRoute: () => [],
@@ -93,6 +95,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   replaceNonAlphanumeric: (s: string, r: string) => s.replace(/[^a-zA-Z0-9]/g, r),
 }));
 
+({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createBulkPipelineRoutes } = await import('../src/routes/bulk-pipeline.js');
 
 const router = createBulkPipelineRoutes({ increment: jest.fn() } as any);
@@ -250,7 +253,7 @@ describe('PUT /pipelines/bulk/update — compliance re-check (shared with single
   });
 });
 
-// Plugin contracts (W0.2): the shared bulk-update props are checked once; bulk
+// Plugin contracts: the shared bulk-update props are checked once; bulk
 // create checks each item and reports a violation in errors[] before reserving
 // any quota for it.
 describe('bulk routes — plugin contract enforcement', () => {
@@ -290,5 +293,59 @@ describe('bulk routes — plugin contract enforcement', () => {
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.failed).toBe(1);
     expect(payload.errors).toEqual([{ index: 0, error: 'Pipeline does not meet the contract of 1 plugin step(s)' }]);
+  });
+});
+
+// Bulk create/update share the single routes' write helpers, so the catalog
+// metadata (lifecycle, criticality, labels, links) and ownership rules that the
+// single create/update apply are applied in bulk too — bulk used to drop them.
+describe('bulk routes — catalog metadata parity with single create/update', () => {
+  const catalog = {
+    lifecycle: 'production',
+    criticality: 'high',
+    labels: { team: 'payments' },
+    links: [{ title: 'runbook', url: 'https://example.com/rb' }],
+  };
+
+  beforeEach(async () => {
+    mockFindContractViolations.mockReset().mockResolvedValue([]);
+    mockValidatePipeline.mockReset().mockResolvedValue({ blocked: false, violations: [] });
+    mockCreateAsDefault.mockReset().mockImplementation(async (row: any) => ({
+      pipeline: { id: 'new-1', ...row }, inserted: true,
+    }));
+    mockUpdate.mockReset().mockImplementation(async (id: string) => ({ id }));
+    mockFindByIds.mockReset().mockResolvedValue([]);
+    mockSendSuccess.mockClear();
+    const { reserveQuota } = await import('@pipeline-builder/api-core') as any;
+    reserveQuota.mockResolvedValue({ exceeded: false, quota: { used: 1, limit: 10 } });
+  });
+
+  it('bulk create persists catalog metadata and makes the creator the owner', async () => {
+    await getHandler('post', '/bulk/create')(mockReq({
+      pipelines: [{ project: 'p', organization: 'o', props: {}, ...catalog, ownerId: 'someone-else', ownerType: 'team' }],
+    }), mockRes());
+
+    expect(mockCreateAsDefault).toHaveBeenCalledTimes(1);
+    expect(mockCreateAsDefault.mock.calls[0][0]).toMatchObject({
+      ...catalog,
+      ownerId: 'test-user',
+      ownerType: 'user',
+      createdBy: 'test-user',
+    });
+    const [, status, payload] = mockSendSuccess.mock.calls[0];
+    expect(status).toBe(201);
+    expect(payload.created).toBe(1);
+  });
+
+  it('bulk update writes catalog metadata; ownership only for an admin', async () => {
+    await getHandler('put', '/bulk/update')(mockReq({ ids: [ID1], data: { ...catalog, ownerId: 'u-2', ownerType: 'user' } }), mockRes());
+    expect(mockUpdate.mock.calls[0][1]).toEqual(catalog);
+
+    mockUpdate.mockClear();
+    await getHandler('put', '/bulk/update')({
+      ...mockReq({ ids: [ID1], data: { ...catalog, ownerId: 'u-2', ownerType: 'user' } }),
+      user: { sub: 'actor-1', isAdmin: true },
+    }, mockRes());
+    expect(mockUpdate.mock.calls[0][1]).toEqual({ ...catalog, ownerId: 'u-2', ownerType: 'user' });
   });
 });

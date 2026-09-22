@@ -1,16 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission, audited, actorId } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
 import { retentionOrgIdFor } from '../helpers/retention-cap.js';
-import { emitReportingAudit } from '../services/audit.js';
 
 /**
- * Per-org reporting configuration (Phase 5b + 7). Mounted under `/reports/settings`
+ * Per-org reporting configuration. Mounted under `/reports/settings`
  * with the DORA read gate (`reports:read` + `advanced_reporting`); the WRITE adds
  * an org-admin permission per-route.
  *
@@ -21,11 +20,11 @@ import { emitReportingAudit } from '../services/audit.js';
  *                     (org-admin only). Idempotent upsert; changing it drops the
  *                     org's cached DORA reports.
  *
- * RETENTION IS BILLING-OWNED (D3): `eventRetentionDays`/`doraRetentionDays` are NOT
+ * RETENTION IS BILLING-OWNED: `eventRetentionDays`/`doraRetentionDays` are NOT
  * editable here — they are written ONLY by the billing→reporting `retention-sync`
  * leg (the account's effective tier baseline + purchased retention/DORA-history
- * bundles). Admitting them on this admin route was an entitlement bypass; the body
- * schema rejects them (`.strict()`). `getIncidentSettings` still RETURNS retention
+ * bundles). Admitting them on this admin route would be an entitlement bypass; the
+ * body schema rejects them (`.strict()`). `getReportingSettings` still RETURNS retention
  * for read-only display + the "buy a retention pack" upsell.
  *
  * Reports hard-cap at 730 days regardless (the absolute ceiling), so retention only
@@ -40,7 +39,7 @@ export function createReportSettingsRoutes(): Router {
   const router = Router();
 
   router.get('/incidents', withRoute(async ({ req, res, ctx, orgId }) => {
-    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
+    const settings = await reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId));
     ctx.log('COMPLETED', 'Read reporting settings', {
       hasWindowOverride: settings.incidentWindowHours != null,
       hasRetentionOverride: settings.eventRetentionDays != null || settings.doraRetentionDays != null,
@@ -55,12 +54,12 @@ export function createReportSettingsRoutes(): Router {
     const validation = validateBody(req, reportingSettingsSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     await reportingService.setReportingSettings(orgId, validation.value);
-    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
+    const settings = await reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId));
     ctx.log('COMPLETED', 'Updated reporting settings', { orgId, ...validation.value });
     // Best-effort attributed audit — the correlation window governs how incidents
     // attach to deploys (i.e. the org's reported CFR/MTTR), so a change to it must
     // outlive the request log. Emitted only after the upsert landed.
-    emitReportingAudit({
+    recordAudit({
       action: 'reporting.settings.update',
       actorId: actorId({ userId }),
       orgId,

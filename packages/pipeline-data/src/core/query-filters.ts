@@ -129,7 +129,7 @@ export interface PluginFilter extends CommonFilter {
   readonly nameMatch?: 'exact' | 'contains';
 
   /**
-   * Publisher handle of an installed listing to resolve through (plan §3.5).
+   * Publisher handle of an installed listing to resolve through.
    * Lookup only: a `plugins` row query ignores it (the resolver routes a
    * qualified reference to the listing, never to an org's own rows).
    */

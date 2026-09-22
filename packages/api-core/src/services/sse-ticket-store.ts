@@ -4,6 +4,7 @@
 import crypto from 'crypto';
 
 import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from './env-redis.js';
+import { envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { errorMessage } from '../utils/response.js';
 
@@ -70,10 +71,6 @@ export interface SseTicketStoreConfig {
 
 function newTicketId(): string {
   return crypto.randomBytes(24).toString('base64url');
-}
-
-function errMsg(err: unknown): string {
-  return errorMessage(err);
 }
 
 /** In-memory backend — single-process fallback when Redis isn't configured. */
@@ -185,7 +182,7 @@ export function createRedisSseTicketStore(redis: SseTicketRedis, config: SseTick
         if (outcome === 'ok') return { ok: true, ticket };
         return { ok: false, reason: outcome === 'org' ? 'org' : 'total' };
       } catch (err) {
-        logger.warn('SSE ticket issue failed (fail-closed)', { error: errMsg(err) });
+        logger.warn('SSE ticket issue failed (fail-closed)', { error: errorMessage(err) });
         return { ok: false, reason: 'total' };
       }
     },
@@ -199,10 +196,10 @@ export function createRedisSseTicketStore(redis: SseTicketRedis, config: SseTick
         // Free the live-count slots now rather than at expiry. Best-effort: a
         // failure here only delays the slot until the member's expiry score.
         await Promise.all([redis.zrem(orgSetKey(rec.orgId), ticketId), redis.zrem(totalSetKey, ticketId)])
-          .catch((err: unknown) => logger.debug('SSE ticket slot release failed', { error: errMsg(err) }));
+          .catch((err: unknown) => logger.debug('SSE ticket slot release failed', { error: errorMessage(err) }));
         return rec;
       } catch (err) {
-        logger.warn('SSE ticket consume failed (fail-closed)', { error: errMsg(err) });
+        logger.warn('SSE ticket consume failed (fail-closed)', { error: errorMessage(err) });
         return null;
       }
     },
@@ -211,7 +208,7 @@ export function createRedisSseTicketStore(redis: SseTicketRedis, config: SseTick
         await ready();
         await redis.set(ownerKey(subject), orgId, 'PX', Math.max(1, Math.ceil(ownerTtlMs)));
       } catch (err) {
-        logger.warn('SSE stream-owner bind failed', { error: errMsg(err) });
+        logger.warn('SSE stream-owner bind failed', { error: errorMessage(err) });
       }
     },
     async getOwner(subject) {
@@ -223,11 +220,33 @@ export function createRedisSseTicketStore(redis: SseTicketRedis, config: SseTick
 }
 
 /**
+ * The deploy-wide ticket caps: `SSE_MAX_TOTAL_TICKETS` (default 1000) and
+ * `SSE_MAX_TICKETS_PER_ORG` (default 10). One reader so every channel parses
+ * them the same way.
+ */
+export function envSseTicketCaps(): Pick<SseTicketStoreConfig, 'maxTotal' | 'maxPerOrg'> {
+  return {
+    maxTotal: envInt('SSE_MAX_TOTAL_TICKETS', 1000, { min: 1 }),
+    maxPerOrg: envInt('SSE_MAX_TICKETS_PER_ORG', 10, { min: 1 }),
+  };
+}
+
+/** {@link createEnvSseTicketStore} config: the caps default to {@link envSseTicketCaps}. */
+export type EnvSseTicketStoreConfig = Omit<SseTicketStoreConfig, 'maxTotal' | 'maxPerOrg'>
+  & Partial<Pick<SseTicketStoreConfig, 'maxTotal' | 'maxPerOrg'>>;
+
+/**
  * Build an {@link SseTicketStore} from the standard Redis env (`REDIS_URL` or
  * `REDIS_SENTINELS`): the Redis backend when configured (multi-replica safe),
  * otherwise the in-memory single-process backend.
  */
-export function createEnvSseTicketStore(config: SseTicketStoreConfig): SseTicketStore {
+export function createEnvSseTicketStore(options: EnvSseTicketStoreConfig): SseTicketStore {
+  const caps = envSseTicketCaps();
+  const config: SseTicketStoreConfig = {
+    ...options,
+    maxTotal: options.maxTotal ?? caps.maxTotal,
+    maxPerOrg: options.maxPerOrg ?? caps.maxPerOrg,
+  };
   const redis = createEnvRedisClient<SseTicketRedis>('sse-ticket');
   if (redis) {
     logger.info('SSE ticket store: Redis backend (multi-replica)', { keyPrefix: config.keyPrefix });

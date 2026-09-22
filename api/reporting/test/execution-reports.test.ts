@@ -104,12 +104,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getDoraMetrics: mockGetDoraMetrics,
     getDoraTrend: mockGetDoraTrend,
     getBuildHealth: mockGetBuildHealth,
-    // Phase 5b: the /dora route resolves the per-org incident window first.
-    // Phase 8 / D4: the retention window (cap + `from` floor) is derived from the
+    // The /dora route resolves the per-org incident window first.
+    // The retention window (cap + `from` floor) is derived from the
     // same row — use UNLIMITED retention here so the floor is inert and these
     // suites keep asserting the exact from/to they send (the floor itself is
     // unit-tested in retention-cap.test).
-    getIncidentSettings: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({
+    getReportingSettings: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({
       incidentWindowHours: null,
       defaultWindowHours: 24,
       eventRetentionDays: -1,
@@ -120,7 +120,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   },
 }));
 
-const { sendSuccess, sendBadRequest, parseDateRange } = await import('@pipeline-builder/api-core');
+const { sendSuccess, sendBadRequest, parseDateRange, requireSystemAdmin } = await import('@pipeline-builder/api-core');
 const { createExecutionReportRoutes } = await import('../src/routes/execution-reports.js');
 
 describe('Execution Report Routes', () => {
@@ -403,6 +403,13 @@ describe('Execution Report Routes', () => {
   });
 
   describe('GET /errors', () => {
+    // The shared gate also records the authz.denied audit event a hand-rolled
+    // isSystemAdmin check skipped.
+    it('is gated by the shared requireSystemAdmin middleware', () => {
+      const stack = router.stack.find((l: any) => l.route?.path === '/errors')?.route?.stack;
+      expect(stack[0].handle).toBe(requireSystemAdmin);
+    });
+
     it('should pass limit parameter (no rollup by default)', async () => {
       mockGetErrors.mockResolvedValue([]);
       const handler = getHandler('/errors');

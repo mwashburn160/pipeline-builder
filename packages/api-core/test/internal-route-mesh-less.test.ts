@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The MESH-LESS internal-route drill (#14).
+ * The MESH-LESS internal-route drill.
  *
  * docker compose runs no service mesh, so there is no Istio `AuthorizationPolicy`
  * and no network position to lean on: every internal route has to be safe on the
@@ -27,7 +27,8 @@
 import type { AddressInfo } from 'net';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import express from 'express';
-import { requireAuth, requireInternalService } from '../src/middleware/auth.js';
+import { requireAuth } from '../src/middleware/auth.js';
+import { requireInternalService } from '../src/middleware/permission-gates.js';
 import { installTestServiceKeys, type TestServiceKeysHandle } from '../src/testing/service-tokens.js';
 import {
   installTestJwks, signTestUserToken, testUserIdentityClaims, uninstallTestJwks,

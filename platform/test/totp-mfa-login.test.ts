@@ -74,22 +74,29 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
 jest.unstable_mockModule('../src/services/mfa-enrolment.js', () => ({ clearResetGraceOnEnrolment: jest.fn(async () => false), clearMfaNudgeOnEnrolment: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/services/totp-service.js', () => ({
   verifyCode: (...a: unknown[]) => mockVerifyCode(...a),
-  hasActiveTotp: (...a: unknown[]) => mockHasActiveTotp(...a),
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/helpers/auth-factors.js', () => ({
+  ACTIVE_TOTP: { activatedAt: { $ne: null } },
+  hasActiveTotp: (...a: unknown[]) => mockHasActiveTotp(...a),
+  hasAnyMfaFactor: async () => false,
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
-  issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   issueStepUpToken: jest.fn(async () => ({ token: 'stepup.jwt', expiresAt: 1 })),
   // The REAL shape — `signInAuth('pwd', { mfa: true })` is what puts `mfa` in amr.
   signInAuth: (method: string, opts: { mfa?: boolean } = {}) =>
     ({ amr: opts.mfa ? [method, 'mfa'] : [method], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: jest.fn(async () => null),
 }));
 
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 const { verifyMfaLogin } = await import('../src/controllers/totp.js');
-const { createMfaChallenge, claimMfaChallenge, restoreMfaChallenge, _resetChallengesForTests } = await import('../src/services/mfa-challenge.js');
+const { createMfaChallenge, claimMfaChallenge, restoreMfaChallenge } = await import('../src/services/mfa-challenge.js');
 const { TOTP_INVALID_CODE, TOTP_LOCKED_OUT } = await import('../src/services/totp-errors.js');
 
 /** Inspect a challenge without spending it (claim, then hand straight back). */
@@ -112,7 +119,7 @@ const body = (b: Record<string, unknown>) => ({ body: b, headers: {}, ip: '10.0.
 const USER = '651111111111111111111111';
 
 beforeEach(() => {
-  _resetChallengesForTests();
+  _resetAllPendingStoresForTests();
   mockAudit.mockClear();
   mockIncCounter.mockClear();
   mockIssueTokens.mockClear();

@@ -47,8 +47,8 @@ export default function IdpRosterPage() {
 
   // orgId → display name for exactly the orgs in the roster (a best-effort
   // enrichment — a failure never blanks the roster; missing names fall back to
-  // the id). It used to page the first 200 orgs of the fleet and show
-  // "(unknown org)" for every configured org past that.
+  // the id) — resolved for exactly the roster's orgs, not a capped page of
+  // the fleet.
   const rosterOrgIds = useMemo(() => configs.map((c) => c.orgId), [configs]);
   const orgNameMap = useOrgNames(rosterOrgIds, enabled);
   const orgNames = useMemo(() => Object.fromEntries(orgNameMap) as Record<string, string>, [orgNameMap]);
@@ -127,8 +127,7 @@ export default function IdpRosterPage() {
       </div>
 
       {/* On failure, show ONLY a retryable error — not the "No IdP configurations"
-          empty state layered under an error banner (the old fail-soft set
-          configs=[] AND error, rendering both and offering no retry). */}
+          empty state layered under an error banner. */}
       {roster.error ? (
         <RetryError message={formatError(roster.error, 'Failed to load IdP roster')} onRetry={load} />
       ) : (

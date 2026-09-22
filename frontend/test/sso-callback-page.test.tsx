@@ -20,16 +20,10 @@ import { forgetReturnPath } from '../src/lib/return-to';
 
 let mockQuery: Record<string, string> = {};
 const mockReplace = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: mockQuery, replace: mockReplace }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: mockQuery, replace: mockReplace })));
 
 const mockRefreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ refreshUser: mockRefreshUser }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: mockRefreshUser })));
 
 jest.mock('framer-motion', () => ({
   __esModule: true,

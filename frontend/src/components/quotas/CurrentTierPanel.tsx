@@ -40,12 +40,12 @@ export function CurrentTierPanel({
         <div className="flex items-center gap-3">
           <span
             className={`flex items-center justify-center w-11 h-11 rounded-xl flex-shrink-0 ${
-              isUnlimited ? 'bg-slate-100 dark:bg-slate-800' : 'bg-surface-muted'
+              isUnlimited ? 'bg-surface-muted' : 'bg-surface-muted'
             }`}
             aria-hidden="true"
           >
             {isUnlimited ? (
-              <span className="text-2xl leading-none text-slate-500 dark:text-slate-300">&infin;</span>
+              <span className="text-2xl leading-none text-fg-muted">&infin;</span>
             ) : (
               <span className={`w-3.5 h-3.5 rounded-full ${preset.color}`} />
             )}
@@ -64,7 +64,7 @@ export function CurrentTierPanel({
         </div>
 
         {changing ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 dark:bg-amber-900/20 px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-bg px-3 py-1 text-xs font-medium text-warning">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
             Unsaved change → {pendingPreset!.label}
           </span>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org "require MFA" RESOLVER (#8) — the single owner of the default, the
+ * The org "require MFA" RESOLVER — the single owner of the default, the
  * grace period and the ancestor walk.
  *
  * Like the impersonation policy, orgs are read through `.lean()`, which bypasses

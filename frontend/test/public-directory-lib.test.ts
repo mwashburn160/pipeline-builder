@@ -171,7 +171,7 @@ describe('links', () => {
   });
 });
 
-describe('vendor disclaimer (§6a.1)', () => {
+describe('vendor disclaimer', () => {
   it('appears for a vendor logo on an Official listing', () => {
     expect(vendorDisclaimer(detail({ iconKind: 'vendor', iconKey: 'trivy' })))
       .toBe('Not affiliated with or endorsed by Trivy.');

@@ -54,12 +54,12 @@ export default function StagesSection({
         {stages.map((stage, stageIdx) => (
           <div key={stage.id} className="border border-default rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200">Stage {stageIdx + 1}</h4>
+              <h4 className="text-sm font-medium text-fg">Stage {stageIdx + 1}</h4>
               <button
                 type="button"
                 onClick={() => onRemoveStage(stageIdx)}
                 disabled={disabled}
-                className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm transition-colors"
+                className="text-danger hover:text-danger text-sm transition-colors"
               >
                 Remove Stage
               </button>
@@ -113,7 +113,7 @@ export default function StagesSection({
               </div>
 
               {errors[`stages.${stageIdx}.steps`] && (
-                <p className="text-xs text-red-600 dark:text-red-400">{errors[`stages.${stageIdx}.steps`]}</p>
+                <p className="text-xs text-danger">{errors[`stages.${stageIdx}.steps`]}</p>
               )}
 
               <div className="space-y-3">
@@ -126,7 +126,7 @@ export default function StagesSection({
                         type="button"
                         onClick={() => onRemoveStep(stageIdx, stepIdx)}
                         disabled={disabled}
-                        className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-xs transition-colors"
+                        className="text-danger hover:text-danger text-xs transition-colors"
                       >
                         Remove Step
                       </button>

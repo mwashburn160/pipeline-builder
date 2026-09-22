@@ -25,18 +25,18 @@ import { formatError } from '@/lib/constants';
 
 const SEVERITY_STYLES: Record<string, { bg: string; text: string; chip: string }> = {
   critical: {
-    bg: 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20',
-    text: 'text-red-800 dark:text-red-200',
+    bg: 'border-danger-border bg-danger-bg',
+    text: 'text-danger-strong',
     chip: 'bg-red-600 text-white',
   },
   warning: {
-    bg: 'border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20',
-    text: 'text-yellow-800 dark:text-yellow-200',
+    bg: 'border-warning-border bg-warning-bg',
+    text: 'text-warning-strong',
     chip: 'bg-yellow-500 text-white',
   },
   info: {
-    bg: 'border-blue-300 dark:border-blue-800 bg-info-bg',
-    text: 'text-blue-800 dark:text-blue-200',
+    bg: 'border-info-border bg-info-bg',
+    text: 'text-info-strong',
     chip: 'bg-blue-500 text-white',
   },
 };
@@ -75,8 +75,8 @@ export default function AlertsPage() {
     async (signal) => {
       if (!ready) return null;
       const [alertsRes, silencesRes] = await Promise.all([
-        api.observabilityAlerts(signal),
-        api.observabilitySilences(signal),
+        api.observabilityAlerts({ signal }),
+        api.observabilitySilences({ signal }),
       ]);
       return {
         alerts: alertsRes.data?.alerts ?? [],
@@ -120,7 +120,7 @@ export default function AlertsPage() {
       await api.observabilityCreateSilence({ matchers, durationMs, comment });
       toast.success('Silence created — alert will stop firing within ~15 s.');
       setSilenceTarget(null);
-      refetch();
+      void refetch();
     } catch (err) {
       toast.error(formatError(err));
     }
@@ -133,7 +133,7 @@ export default function AlertsPage() {
       await api.observabilityDeleteSilence(expireTarget.id);
       toast.success('Silence expired.');
       setExpireTarget(null);
-      refetch();
+      void refetch();
     } catch (err) {
       toast.error(formatError(err));
     } finally {

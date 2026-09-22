@@ -83,7 +83,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Pipelines | `pipelines:read`, `pipelines:write`, `pipelines:publish` | `:publish` allows the `public` rung |
 | Templates | `templates:read`, `templates:write`, `templates:publish` | Golden-path [pipeline templates](templates.md). Split out of `pipelines:*` so a platform team can curate starters without pipeline write access. `:write` covers the `private` and `org` rungs; `:publish` is required for `public`. **Instantiating** a template creates a pipeline, so that still needs `pipelines:write`. |
 | Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung, and submitting plugin-ecosystem publish requests for the org's `public` versions |
-| Plugin ecosystem | `plugins:install`, `plugin_installs:manage`, `publishers:manage` | [Plugin ecosystem](plans/plugin-ecosystem.md#5a-permissions). `plugins:install` (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only **requests** an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or `breaking` version also needs `plugin_installs:manage`. `plugin_installs:manage` (admin/owner): the org's consumption policy (`PUT /plugins/install-policy`, step-up; `org.plugin-install-policy.update`), approving and denying install requests *within the org* (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices ([Plugin Installing](plugin-installing.md)). `publishers:manage` (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and **submitting** publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org ([Plugin Publishing](plugin-publishing.md)). `plugins:publish` also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only `plugins:read`. Installing is free on every plan and no consumption control is plan-gated. |
+| Plugin ecosystem | `plugins:install`, `plugin_installs:manage`, `publishers:manage` | [Plugin Installing](plugin-installing.md). `plugins:install` (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only **requests** an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or `breaking` version also needs `plugin_installs:manage`. `plugin_installs:manage` (admin/owner): the org's consumption policy (`PUT /plugins/install-policy`, step-up; `org.plugin-install-policy.update`), approving and denying install requests *within the org* (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices ([Plugin Installing](plugin-installing.md)). `publishers:manage` (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and **submitting** publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org ([Plugin Publishing](plugin-publishing.md)). `plugins:publish` also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only `plugins:read`. Installing is free on every plan and no consumption control is plan-gated. |
 | Plugin ecosystem (system org only) | `plugins:moderate`, `publishers:verify` | **System-org only** — never grantable to a custom Role in any org; held only through the built-in **Ecosystem Manager** Role or as a Super Admin. See the carve-out below. |
 | Compliance | `compliance:read`, `compliance:write` | |
 | Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning) |
@@ -114,7 +114,7 @@ is a Super Admin via implicit-all.
 `SYSTEM_ORG_ONLY_PERMISSIONS` (predicate `isSystemOrgOnlyPermission`), a second
 non-assignable class next to the registry pair. They govern the plugin
 ecosystem, which only the system org may manage or approve
-([plan §3.0](plans/plugin-ecosystem.md#30-governance-only-the-system-org-manages-or-approves-the-ecosystem)).
+([governance](plugin-publishing.md#why-the-ecosystem-works-this-way)).
 They're in **no** member/admin/owner bundle and a custom Role requesting either
 is rejected with `RL_PERMISSION_NOT_ASSIGNABLE` in **every** org — the system
 org and a Super Admin author included. The only holders are Super Admins
@@ -154,7 +154,7 @@ could try — custom Role, assignment, invitation, IdP mapping, token):
 ### Ecosystem Manager (system org only)
 
 The built-in Role for the people who run the plugin ecosystem
-([plan §5a.1](plans/plugin-ecosystem.md#5a1-built-in-role-ecosystem-manager-system-org-only)):
+([moderation runbook](runbooks/ecosystem-moderation.md)):
 deciding publish requests, publisher tiers and profile changes, transfers,
 yanks and advisories, and moderating anonymous submissions and reviews. They are
 the only non-superadmins anywhere who hold the system-org-only permissions, and
@@ -168,13 +168,23 @@ they get **no** platform superadmin powers.
 | Permissions | `plugins:read`, `plugins:moderate`, `publishers:verify`, `messages:read` (in-app notices), `observability:read` (the moderation-SLA dashboard). Nothing tenant-facing: no `registry:*`, no `members:manage`. |
 | Who can assign it | **Super Admins only.** Assigning **or** unassigning any Role that carries a system-org-only permission is refused for everyone else — an admin or owner of the system org included — with `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN` (403). Such a Role can only be held inside the system org (`RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG`, 400). The same ceiling applies to service-account Role sets, and an IdP group mapping can never grant it (`IGM_FORBIDDEN_GRANT`, like the Super Admin Role). |
 | Audit | Assignment and removal are `org.role.member.add` / `org.role.member.remove` with `affectedOrgId` = the system org and `details.role = 'Ecosystem Manager'`. |
-| Notifications | Every Super Admin and the affected user get **N23** (in-app + email, can't be turned off) when someone is added or removed. Holders are the **Moderators** recipients of the other ecosystem notices ([plan §5b](plans/plugin-ecosystem.md#5b-notifications)); with nobody in the role, Super Admins receive them. |
+| Notifications | Every Super Admin and the affected user get **N23** (in-app + email, can't be turned off) when someone is added or removed. Holders are the **Moderators** recipients of the other ecosystem notices ([notifications](plugin-installing.md#notifications)); with nobody in the role, Super Admins receive them. |
 | Console | The admin console's **Ecosystem** section (Ecosystem Manager assignment for Super Admins; the publish queue and publisher verification as the workflows land) appears only while the active org is the system org **and** the user holds `plugins:moderate` or `publishers:verify`. Tenant users never see it — this is a governance boundary, so the nav hides it rather than locking it. A holder without an MFA-grade session sees an enrol prompt instead. |
 
 ## Enforcement
 
 Routes gate **writes** with permission middleware; a denied state-changing
 request also emits an [`authz.denied` audit event](audit-events.md#action-catalog).
+
+Authority is the **union of the caller's Roles' permissions**, not the coarse
+Owner/Admin label. The label governs ownership and seats only: a route gated on
+`org:settings` (or `org:impersonation`, `members:manage`, …) admits a custom Role
+that holds that permission exactly as it admits an admin, and the controller
+behind it adds only the **tenancy** check — the target must be the caller's
+active org or a team under it. So delegating `org:settings` to a custom Role lets
+its holders edit the org's identity, security policies (MFA, password,
+authenticator), verified domains and join requests, export it, and delete or
+restore its teams; a member without the permission is refused by the route.
 
 > **Not the same as the mesh.** This page covers **application** authorization —
 > per-org capability checks on API routes. Beneath it, the [Istio ambient service
@@ -249,7 +259,7 @@ Every service (and platform) has a `test/route-coverage.test.ts` that fails when
   failure that rule exists to prevent.
 
 The plugin and image-registry tests also run `findSystemOrgGuardViolations`
-(the **governance check**, [plan §3.0](plans/plugin-ecosystem.md#30-governance-only-the-system-org-manages-or-approves-the-ecosystem)):
+(the **governance check**, [governance](plugin-publishing.md#why-the-ecosystem-works-this-way)):
 any route whose permission gate names a system-org-only permission must also run
 `requireSystemOrg` and require `aal: 2` — again **with no exception list**. It
 passes on a table with no governance route, so it is wired in before the first

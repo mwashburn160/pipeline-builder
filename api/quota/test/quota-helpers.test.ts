@@ -32,7 +32,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 const {
-  getNextResetDate,
   computeQuotaStatus,
   applyQuotaLimits,
   buildOrgQuotaResponse,
@@ -43,37 +42,6 @@ const {
 // Tests
 
 describe('quota-helpers', () => {
-  describe('getNextResetDate', () => {
-    it('should return a date N days from now at midnight', () => {
-      const result = getNextResetDate(3);
-      const now = new Date();
-
-      expect(result.getHours()).toBe(0);
-      expect(result.getMinutes()).toBe(0);
-      expect(result.getSeconds()).toBe(0);
-      expect(result.getMilliseconds()).toBe(0);
-
-      // Should be approximately 3 days from now
-      const diffMs = result.getTime() - now.getTime();
-      const diffDays = diffMs / (1000 * 60 * 60 * 24);
-      expect(diffDays).toBeGreaterThanOrEqual(2);
-      expect(diffDays).toBeLessThanOrEqual(3.1);
-    });
-
-    it('should handle 0 days', () => {
-      const result = getNextResetDate(0);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      expect(result.getTime()).toBe(today.getTime());
-    });
-
-    it('should handle large values', () => {
-      const result = getNextResetDate(365);
-      expect(result).toBeInstanceOf(Date);
-      expect(result.getHours()).toBe(0);
-    });
-  });
-
   describe('computeQuotaStatus', () => {
     it('should compute status for normal usage', () => {
       const future = new Date();

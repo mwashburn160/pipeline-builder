@@ -14,9 +14,10 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const deleteMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const emitComplianceAuditMock = jest.fn();
+const recordAuditMock = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
@@ -35,10 +36,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
-}));
 
 jest.unstable_mockModule('../src/services/compliance-exemption-service.js', () => ({
   complianceExemptionService: {
@@ -84,8 +81,8 @@ describe('DELETE /:id — revoke emits compliance.exemption.revoke', () => {
     await handler({ __orgId: 'org-a', params: { id: EXEMPTION_ID }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledTimes(1);
-    const event = emitComplianceAuditMock.mock.calls[0][0] as any;
+    expect(recordAuditMock).toHaveBeenCalledTimes(1);
+    const event = recordAuditMock.mock.calls[0][0] as any;
     expect(event).toEqual(expect.objectContaining({
       action: 'compliance.exemption.revoke',
       actorId: 'u-1',
@@ -106,6 +103,6 @@ describe('DELETE /:id — revoke emits compliance.exemption.revoke', () => {
     await handler({ __orgId: 'org-a', params: { id: EXEMPTION_ID }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });

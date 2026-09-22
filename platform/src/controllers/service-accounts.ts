@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Org service-account management (#2).
+ * Org service-account management.
  *
  * Route gating (see routes/organization.ts): `requirePermission('service_accounts:manage')`
  * is the capability, `requireOrgScope` the tenancy, and `requireStepUp` guards
@@ -24,7 +24,7 @@ import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import {
   getAdminContext,
-  requireAuth,
+  ensureAuthenticated,
   requireOrgScope,
   withController,
 } from '../helpers/controller-helper.js';
@@ -106,7 +106,7 @@ function assignmentActor(req: Request): RoleAssignmentActor & { userId?: string;
 
 /** GET /organization/:id/service-accounts — list the org's accounts + their keys. */
 export const getOrganizationServiceAccounts = withController('List service accounts', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = req.params.id as string;
   // Same gate as the writes: the route carries `service_accounts:manage`, and
   // this adds the tenancy scope (own org, a managed team, or a sysadmin). Key
@@ -122,7 +122,7 @@ export const getOrganizationServiceAccounts = withController('List service accou
 
 /** GET /organization/:id/service-accounts/:accountId — one account + its keys. */
 export const getOrganizationServiceAccount = withController('Get service account', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = req.params.id as string;
   if (!(await requireOrgScope(req, res, id))) return;
   sendSuccess(res, 200, { serviceAccount: await getServiceAccount(id, req.params.accountId as string) });
@@ -130,7 +130,7 @@ export const getOrganizationServiceAccount = withController('Get service account
 
 /** POST /organization/:id/service-accounts — create an account (step-up gated). */
 export const createOrganizationServiceAccount = withController('Create service account', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = req.params.id as string;
   if (!(await requireOrgScope(req, res, id))) return;
 
@@ -155,7 +155,7 @@ export const createOrganizationServiceAccount = withController('Create service a
 
 /** PATCH /organization/:id/service-accounts/:accountId — description/budget/disabled/roles. */
 export const updateOrganizationServiceAccount = withController('Update service account', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = req.params.id as string;
   const accountId = req.params.accountId as string;
   if (!(await requireOrgScope(req, res, id))) return;
@@ -183,7 +183,7 @@ export const updateOrganizationServiceAccount = withController('Update service a
 
 /** DELETE /organization/:id/service-accounts/:accountId — delete account + keys. */
 export const deleteOrganizationServiceAccount = withController('Delete service account', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = req.params.id as string;
   const accountId = req.params.accountId as string;
   if (!(await requireOrgScope(req, res, id))) return;
@@ -203,7 +203,7 @@ export const deleteOrganizationServiceAccount = withController('Delete service a
  * The raw key is returned ONCE; only its hash is stored.
  */
 export const createOrganizationServiceAccountKey = withController('Create service-account key', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = req.params.id as string;
   const accountId = req.params.accountId as string;
   if (!(await requireOrgScope(req, res, id))) return;
@@ -240,7 +240,7 @@ export const createOrganizationServiceAccountKey = withController('Create servic
 
 /** DELETE /organization/:id/service-accounts/:accountId/keys/:keyId — revoke one key. */
 export const revokeOrganizationServiceAccountKey = withController('Revoke service-account key', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = req.params.id as string;
   const accountId = req.params.accountId as string;
   if (!(await requireOrgScope(req, res, id))) return;

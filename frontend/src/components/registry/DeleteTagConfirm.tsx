@@ -124,7 +124,7 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
           const others = sharedTags.filter((t) => t !== tagRef);
           if (others.length === 0) return null;
           return (
-            <div className="p-3 text-sm border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-200 rounded">
+            <div className="p-3 text-sm border border-warning-border bg-warning-bg text-warning-strong rounded">
               <div className="font-medium mb-1">
                 The following {others.length} other tag{others.length === 1 ? '' : 's'} share this digest and will stop working:
               </div>

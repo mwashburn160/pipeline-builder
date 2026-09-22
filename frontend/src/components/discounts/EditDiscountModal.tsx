@@ -127,7 +127,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
           </div>
         </div>
       </div>
-      {editForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{editForm.error}</p>}
+      {editForm.error && <p className="text-sm text-danger mt-3">{editForm.error}</p>}
     </Modal>
   );
 }

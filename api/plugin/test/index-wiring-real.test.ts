@@ -25,14 +25,6 @@
  *    second pass saw the first pass's pending reservation).
  */
 
-import {
-  type AnyFn,
-  generateTestSigningKey,
-  installTestJwks,
-  signTestUserToken,
-  type TestSigningKey,
-  stubModule,
-} from '@pipeline-builder/api-core/testing';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import http from 'node:http';
@@ -40,6 +32,15 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import {
+  type AnyFn,
+  bindTestAuditService,
+  generateTestSigningKey,
+  installTestJwks,
+  signTestUserToken,
+  type TestSigningKey,
+  stubModule,
+} from '@pipeline-builder/api-core/testing';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 
@@ -49,7 +50,7 @@ const JWT_SECRET = 'index-wiring-real-test-secret-0123456789';
 
 /**
  * Platform's ES256 signing key, published through the JWKS installed here. User
- * and step-up tokens are asymmetric since #5, so the shared `JWT_SECRET` this
+ * and step-up tokens are asymmetric since, so the shared `JWT_SECRET` this
  * service holds cannot mint one — asserted in the negative case below.
  */
 const signingKey: TestSigningKey = generateTestSigningKey();
@@ -104,7 +105,8 @@ const realServer = {
   ...(await import(`${API_SERVER}/tenant-context.js`)),
   ...(await import(`${API_SERVER}/route-wrapper.js`)),
   ...(await import(`${API_SERVER}/rate-limit-by-org.js`)),
-  ...(await import(`${API_SERVER}/quota-helpers.js`)),
+  ...(await import(`${API_SERVER}/meter-quota.js`)),
+  ...(await import(`${API_SERVER}/quota-reservation.js`)),
   ...(await import(`${API_SERVER}/metrics.js`)),
 };
 
@@ -129,16 +131,16 @@ jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   waitForWorkerReady: jest.fn(async () => undefined),
   shutdownQueue: jest.fn(async () => undefined),
 }));
-// The anonymous-submission gate queue (plan §4) — index.ts starts its worker at boot.
+// The anonymous-submission gate queue — index.ts starts its worker at boot.
 jest.unstable_mockModule('../src/queue/submission-build-queue.js', () => ({
   startSubmissionWorker: jest.fn<AnyFn>(),
   shutdownSubmissionQueue: jest.fn(async () => undefined),
   enqueueSubmissionBuild: jest.fn(async () => undefined),
 }));
-// The nightly vuln-rescan scheduler (W0.6) — index.ts builds + starts it at boot.
+// The nightly vuln-rescan scheduler — index.ts builds + starts it at boot.
 const mockRescanScheduler = { start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() };
 jest.unstable_mockModule('../src/queue/vuln-rescan.js', () => ({ createVulnRescanScheduler: () => mockRescanScheduler }));
-// The ecosystem-notification digest dispatcher (plan §5b) — index.ts builds + starts it at boot.
+// The ecosystem-notification digest dispatcher — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
   createEcosystemNotificationScheduler: () => ({ start: () => undefined, stop: () => undefined }),
   enqueueEcosystemNotification: async () => 'sent',
@@ -159,14 +161,14 @@ const mockMaintenanceScheduler = { start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>
 jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
   createEcosystemMaintenanceScheduler: () => mockMaintenanceScheduler,
 }));
-// The ecosystem gauge sampler (plan §9a) — index.ts builds + starts it at boot.
+// The ecosystem gauge sampler — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({
   createEcosystemMetricsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
   recordDecision: () => undefined,
   recordSubmission: () => undefined,
   recordSubmissionGateFailures: () => undefined,
 }));
-// The plugin_stats sweep (W4) — index.ts builds + starts it at boot.
+// The plugin_stats sweep — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/stats.js', () => ({
   createEcosystemStatsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
   refreshListingRating: async () => undefined,
@@ -182,7 +184,7 @@ const pluginService = {
   update: jest.fn(async (id: string) => ({ ...tombstone, id })),
   assertDeployable: jest.fn(async () => undefined),
   purgeExpired: jest.fn<AnyFn>(),
-  // W0.5 delete safety + W0.4/§3.1a immutability checks the write routes run.
+  // delete safety + immutability checks the write routes run.
   findByIds: jest.fn(async (ids: string[]) => ids.map((id) => ({ ...tombstone, id }))),
   deleteBlockers: jest.fn(async () => ({ frozen: false, listed: false, inUse: 0 })),
   versionImmutability: jest.fn(async () => null),
@@ -190,10 +192,6 @@ const pluginService = {
   promoteNextDefault: jest.fn(async () => null),
 };
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService }));
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-  emitPluginAudit: jest.fn<AnyFn>(),
-}));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(async () => undefined),
   deletePluginArtifact: jest.fn(async () => undefined),
@@ -211,6 +209,9 @@ jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () =
 }));
 
 await import('../src/index.js');
+// Boot bound the real 'plugin' audit client; rebind to a spy so audited routes
+// deliver nothing (no platform POST, no env-Redis spool).
+bindTestAuditService('plugin');
 // Captured at boot: the suite's clearMocks would reset it before any test runs.
 const rescanStartsAtBoot = mockRescanScheduler.start.mock.calls.length;
 const maintenanceStartsAtBoot = mockMaintenanceScheduler.start.mock.calls.length;
@@ -254,7 +255,7 @@ function stepUpToken(sub = 'user-1'): string {
 
 /**
  * An HS256 token, shaped like a real access token and signed with the shared
- * `JWT_SECRET` this service holds. Before #5 it was indistinguishable from a
+ * `JWT_SECRET` this service holds. Before it was indistinguishable from a
  * platform mint; now every verifier refuses it. Used by the negative case below.
  */
 function forgedHs256AccessToken(): string {
@@ -297,11 +298,11 @@ beforeEach(() => {
 // -- Tests --------------------------------------------------------------------
 
 describe('boot', () => {
-  it('starts the nightly vulnerability rescan scheduler (W0.6)', () => {
+  it('starts the nightly vulnerability rescan scheduler', () => {
     expect(rescanStartsAtBoot).toBe(1);
   });
 
-  it('starts the plugin-ecosystem maintenance scheduler (plan §3.3, §3.7)', () => {
+  it('starts the plugin-ecosystem maintenance scheduler', () => {
     expect(maintenanceStartsAtBoot).toBe(1);
   });
 });
@@ -334,7 +335,7 @@ describe('step-up gated routes share ONE step-up layer', () => {
 
   it('REJECTS an HS256 token that claims to be a user, through the real chain', async () => {
     // This service holds `JWT_SECRET` (it mints service tokens with it to push
-    // plugin images), so before #5 it could forge a platform-admin session for
+    // plugin images), so before it could forge a platform-admin session for
     // itself. The forged token below carries owner + isSuperAdmin and still 401s.
     const res = await call('POST', '/plugins/p-1/purge', {
       headers: { 'authorization': `Bearer ${forgedHs256AccessToken()}`, 'x-step-up-token': stepUpToken() },

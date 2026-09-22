@@ -13,29 +13,40 @@
  * effect, a manual override, etc.
  *
  * Billing's Subscription is the source of truth; this reads the ACTUAL enforced
- * state from the two stores the entitlement sync fans out to:
- *   - quota service  → the 9 tracked quota LIMITS (`GET /quotas/:orgId`)
+ * state from every store the entitlement sync fans out to:
+ *   - quota service  → the tracked quota LIMITS (`GET /quotas/:orgId`)
  *   - platform       → the `seats` LIMIT (`GET /organization/:orgId/seat-usage`)
  *                       and the account FEATURE entitlements
  *                       (`GET /organization/:orgId/feature-entitlements`)
+ *   - compliance     → the active content sets (`GET /compliance/entitlements/:orgId`)
+ *   - reporting      → the enforced retention (`GET /reports/retention-sync/:orgId`)
  *
- * Feature entitlements (platform `org.featureEntitlements`, e.g. `advanced_reporting`)
- * are compared alongside the numeric limits: the expected set is the union of
- * bundle-granted features from `effectiveEntitlements`, and the actual set is read
- * from the platform feature-entitlements endpoint (the feature sibling of
- * seat-usage). Any set difference is drift on the `features` dimension.
+ * Feature entitlements are compared as an unordered set: the expected set is the
+ * bundle-granted features from `effectiveEntitlements`. Any difference is drift
+ * on the `features` dimension. {@link reconcileEntitlementDrift} is the bounded
+ * lifecycle pass that runs the comparison and re-drives the sync on drift.
  */
 
-import { createLogger, createSafeClient, errorMessage, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
-import { billingServiceAuth, getBillingTimeout } from './billing-helpers.js';
-import { fetchQuotaSnapshot, fetchSeatUsage } from './quota-client.js';
+import { clampRetentionDays, complianceSetsForFeatures, createLogger, errorMessage, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
+import { effectiveEntitlements } from '../config/entitlements.js';
+import { billingServiceAuth, getBundleCatalog } from './billing-helpers.js';
+import { fetchQuotaSnapshot, fetchSeatUsage, getJson } from './downstream-client.js';
+import {
+  currentSubscriptionEntitlement,
+  effectiveFeatureSet,
+  pushComplianceSetsToCompliance,
+  syncEntitlements,
+} from './entitlement-sync.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
+import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 
 const logger = createLogger('entitlement-drift');
 
 /** ACTUAL enforced entitlement limits read back from the quota + platform stores. */
 export interface ActualEntitlements {
-  /** The 9 tracked quota limits, keyed by quota type. `-1` = unlimited. */
+  /** The tracked quota limits (one per `VALID_QUOTA_TYPES`), keyed by quota type. `-1` = unlimited. */
   quotaLimits: Record<string, number>;
   /** The enforced seat limit (platform-owned). `-1` = unlimited. */
   seats: number;
@@ -61,9 +72,11 @@ export interface DriftResult {
   dimensions: string[];
 }
 
-/** Read the 9 enforced quota limits from the quota service; `null` on any read failure. */
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** Read the enforced quota limits from the quota service; `null` on any read failure. */
 async function readEnforcedQuotaLimits(orgId: string, auth: string): Promise<Record<string, number> | null> {
-  // Shared quota-client owns the envelope parse + fail-soft; drift's own policy
+  // The downstream client owns the envelope parse + fail-soft; drift's own policy
   // (below) is that an INCOMPLETE snapshot is a read failure, not drift.
   const snapshot = await fetchQuotaSnapshot(orgId, auth);
   if (!snapshot) return null;
@@ -82,68 +95,40 @@ async function readEnforcedQuotaLimits(orgId: string, auth: string): Promise<Rec
 /** Read the enforced seat limit from platform; `null` on any read failure. */
 async function readEnforcedSeatLimit(orgId: string, auth: string): Promise<number | null> {
   // `fetchSeatUsage` returns `limit: null` on a missing/non-numeric value, which
-  // collapses to the same `null` read-failure signal the old inline reader gave.
+  // collapses into the same `null` read-failure signal.
   const seatSnapshot = await fetchSeatUsage(orgId, auth);
   return seatSnapshot?.limit ?? null;
 }
 
 /** Read the enforced account feature entitlements from platform; `null` on any read failure. */
 async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Promise<string[] | null> {
-  const client = createSafeClient({
-    host: config.platformService.host,
-    port: config.platformService.port,
-    timeout: getBillingTimeout(),
-  });
-  try {
-    const resp = await client.get<{ data?: { featureEntitlements?: unknown } }>(
-      `/organization/${orgId}/feature-entitlements`,
-      { headers: { 'Authorization': auth, 'x-org-id': orgId } },
-    );
-    if (!resp || resp.statusCode >= 400) return null;
-    const features = resp.body?.data?.featureEntitlements;
-    // A missing / non-array payload can't be safely compared — treat the read as
-    // failed so an incomplete response never false-drifts (a features-less account
-    // still returns `[]`, the platform model default).
-    if (!Array.isArray(features) || !features.every((f) => typeof f === 'string')) return null;
-    return features as string[];
-  } catch (err) {
-    logger.warn('Failed to read enforced feature entitlements', { orgId, error: errorMessage(err) });
-    return null;
-  }
+  const body = await getJson<{ data?: { featureEntitlements?: unknown } }>(
+    config.platformService, `/organization/${encodeURIComponent(orgId)}/feature-entitlements`, orgId, auth,
+  );
+  const features = body?.data?.featureEntitlements;
+  // A missing / non-array payload can't be safely compared — treat the read as
+  // failed so an incomplete response never false-drifts (a features-less account
+  // still returns `[]`, the platform model default).
+  return isStringArray(features) ? features : null;
 }
 
 /**
- * Read the compliance service's CURRENTLY-ACTIVE content sets for an org
- * (handshake #2): `GET /compliance/entitlements/:orgId` → `{ sets }`, the
- * distinct `set:<x>` values among the org's ACTIVE published-rule subscriptions.
- * Service-token auth, the SAME `authHeader || billingServiceAuth(orgId)` +
- * `{ Authorization, 'x-org-id' }` handshake `pushComplianceSetsToCompliance` uses.
- * Returns `null` on any read failure so the drift reconciler treats an unreachable
- * compliance service as a SKIP, never as drift. Tolerant of both a bare `{ sets }`
- * body and the `{ data: { sets } }` envelope `sendSuccess` produces.
+ * Read the compliance service's CURRENTLY-ACTIVE content sets for an org:
+ * `GET /compliance/entitlements/:orgId` → `data.sets`, the distinct `set:<x>`
+ * values among the org's ACTIVE published-rule subscriptions. Same service-token
+ * handshake `pushComplianceSetsToCompliance` uses. Returns `null` on any read
+ * failure so the drift reconciler treats an unreachable compliance service as a
+ * SKIP, never as drift.
  */
 export async function readEnforcedComplianceSets(orgId: string, auth: string): Promise<string[] | null> {
-  const client = createSafeClient({
-    host: config.complianceService.host,
-    port: config.complianceService.port,
-    timeout: getBillingTimeout(),
-  });
-  try {
-    const resp = await client.get<{ sets?: unknown; data?: { sets?: unknown } }>(
-      `/compliance/entitlements/${orgId}`,
-      { headers: { 'Authorization': auth, 'x-org-id': orgId } },
-    );
-    if (!resp || resp.statusCode >= 400) return null;
-    const sets = resp.body?.data?.sets ?? resp.body?.sets;
-    // A missing / non-string-array payload can't be safely compared — treat the
-    // read as failed so an incomplete response never false-drifts (an org with no
-    // active sets still returns `[]`).
-    if (!Array.isArray(sets) || !sets.every((s) => typeof s === 'string')) return null;
-    return sets as string[];
-  } catch (err) {
-    logger.warn('Failed to read enforced compliance sets', { orgId, error: errorMessage(err) });
-    return null;
-  }
+  const body = await getJson<{ data?: { sets?: unknown } }>(
+    config.complianceService, `/compliance/entitlements/${encodeURIComponent(orgId)}`, orgId, auth,
+  );
+  const sets = body?.data?.sets;
+  // A missing / non-string-array payload can't be safely compared — treat the
+  // read as failed so an incomplete response never false-drifts (an org with no
+  // active sets still returns `[]`).
+  return isStringArray(sets) ? sets : null;
 }
 
 /**
@@ -157,25 +142,13 @@ export async function readEnforcedRetention(
   orgId: string,
   auth: string,
 ): Promise<{ eventRetentionDays: number | null; doraRetentionDays: number | null } | null> {
-  const client = createSafeClient({
-    host: config.reportingService.host,
-    port: config.reportingService.port,
-    timeout: getBillingTimeout(),
-  });
-  try {
-    const resp = await client.get<{ data?: { eventRetentionDays?: unknown; doraRetentionDays?: unknown } }>(
-      `/reports/retention-sync/${orgId}`,
-      { headers: { 'Authorization': auth, 'x-org-id': orgId } },
-    );
-    if (!resp || resp.statusCode >= 400) return null;
-    const data = resp.body?.data;
-    const valid = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isInteger(v));
-    if (!data || !valid(data.eventRetentionDays) || !valid(data.doraRetentionDays)) return null;
-    return { eventRetentionDays: data.eventRetentionDays, doraRetentionDays: data.doraRetentionDays };
-  } catch (err) {
-    logger.warn('Failed to read enforced retention', { orgId, error: errorMessage(err) });
-    return null;
-  }
+  const body = await getJson<{ data?: { eventRetentionDays?: unknown; doraRetentionDays?: unknown } }>(
+    config.reportingService, `/reports/retention-sync/${encodeURIComponent(orgId)}`, orgId, auth,
+  );
+  const data = body?.data;
+  const valid = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isInteger(v));
+  if (!data || !valid(data.eventRetentionDays) || !valid(data.doraRetentionDays)) return null;
+  return { eventRetentionDays: data.eventRetentionDays, doraRetentionDays: data.doraRetentionDays };
 }
 
 /**
@@ -192,10 +165,11 @@ export function retentionDiffers(
 }
 
 /**
- * Pure set-equality check for two compliance content-set lists (order-independent).
- * `true` when the enforced active sets differ from what the account is entitled to.
+ * Pure set-equality check for two string lists (order-independent) — used for
+ * both the compliance content sets and the feature entitlements. `true` when
+ * the enforced values differ from what the account is entitled to.
  */
-export function complianceSetsDiffer(expected: readonly string[], actual: readonly string[]): boolean {
+export function setsDiffer(expected: readonly string[], actual: readonly string[]): boolean {
   const exp = new Set(expected);
   const act = new Set(actual);
   return exp.size !== act.size || [...exp].some((s) => !act.has(s));
@@ -203,23 +177,19 @@ export function complianceSetsDiffer(expected: readonly string[], actual: readon
 
 /**
  * Read the ACTUAL enforced entitlements (quota limits + seats + features) for an
- * account. Returns `null` if ANY store read fails — the caller must treat that as
- * a skip, never as drift (an unreachable store must not trigger a false re-sync).
- * `authHeader` may be `''`; a service token is minted for the target org, the
- * same way syncEntitlements does.
+ * account. The three reads run concurrently; returns `null` if ANY of them fails
+ * — the caller must treat that as a skip, never as drift (an unreachable store
+ * must not trigger a false re-sync). `authHeader` may be `''`; a service token is
+ * minted for the target org, the same way syncEntitlements does.
  */
 export async function readActualEntitlements(orgId: string, authHeader: string): Promise<ActualEntitlements | null> {
   const auth = authHeader || billingServiceAuth(orgId);
-
-  const quotaLimits = await readEnforcedQuotaLimits(orgId, auth);
-  if (!quotaLimits) return null;
-
-  const seats = await readEnforcedSeatLimit(orgId, auth);
-  if (seats === null) return null;
-
-  const features = await readEnforcedFeatureEntitlements(orgId, auth);
-  if (features === null) return null;
-
+  const [quotaLimits, seats, features] = await Promise.all([
+    readEnforcedQuotaLimits(orgId, auth),
+    readEnforcedSeatLimit(orgId, auth),
+    readEnforcedFeatureEntitlements(orgId, auth),
+  ]);
+  if (!quotaLimits || seats === null || features === null) return null;
   return { quotaLimits, seats, features };
 }
 
@@ -253,13 +223,9 @@ export function computeEntitlementDrift(
   }
 
   // Feature entitlements are an unordered SET — compare membership, not order.
-  const expected = new Set(expectedFeatures);
-  const enforced = new Set(actual.features);
-  const featuresDiffer =
-    expected.size !== enforced.size || [...expected].some((f) => !enforced.has(f));
-  if (featuresDiffer) {
-    const fmt = (s: Set<string>) => `[${[...s].sort().join(',')}]`;
-    drifted.push(`features=${fmt(enforced)} (expected ${fmt(expected)})`);
+  if (setsDiffer(expectedFeatures, actual.features)) {
+    const fmt = (list: readonly string[]) => `[${[...new Set(list)].sort().join(',')}]`;
+    drifted.push(`features=${fmt(actual.features)} (expected ${fmt(expectedFeatures)})`);
     dimensions.add('features');
   }
 
@@ -268,4 +234,230 @@ export function computeEntitlementDrift(
     drifted,
     dimensions: [...dimensions],
   };
+}
+
+/**
+ * Low-frequency, BOUNDED pass that catches SILENT entitlement drift — the case
+ * the durable-bus retry can't see. A KNOWN sync failure publishes a retry to
+ * the event bus, which redelivers until it succeeds; this pass instead finds subs
+ * whose sync returned success but whose ENFORCED state has
+ * since diverged from what the Subscription (tier + add-ons) says it should be:
+ * an out-of-band edit in the quota/platform store, a sync that didn't take
+ * effect, a manual override, etc.
+ *
+ * Billing's Subscription is the source of truth. For each candidate we compute
+ * the EXPECTED entitlements (`effectiveEntitlements`), read the ACTUAL enforced
+ * state (quota limits, seats, features, compliance sets, retention),
+ * and compare. On any mismatch we re-drive the SAME idempotent `syncEntitlements`
+ * path + emit
+ * `billing_entitlement_drift_total`. On a clean match we stamp
+ * `metadata.lastReconciledAt` and do nothing else.
+ *
+ * BOUNDED two ways so a large customer base is amortized, not scanned every tick:
+ *   1. a per-tick cap (`config.entitlementDriftMaxPerTick`), and
+ *   2. a per-sub `metadata.lastReconciledAt` gate — a sub reconciled within the
+ *      last `config.entitlementDriftIntervalMs` (~daily) is skipped by the query.
+ * `lastReconciledAt` is stamped after every completed check (match OR drift), so
+ * each sub rotates back into the window at most ~once per interval. A read
+ * failure leaves it UN-stamped, so it's retried next tick (never falsely re-synced).
+ *
+ * FAIL-SOFT: a store read failure for one sub logs + skips that sub — an
+ * unreachable store is NOT "drift". The pass never throws.
+ *
+ * COVERAGE: the tracked quota limits + seats + the account FEATURE entitlements
+ * (`featureEntitlements`, read from platform's feature-entitlements endpoint) +
+ * the COMPLIANCE content sets (standard/advanced, read from the compliance
+ * service) are all compared; a drift on any surfaces on its own metric dimension
+ * (`quota` | `seats` | `features` | `compliance`). The compliance leg also drives
+ * the Enterprise/Unlimited cutover, whose entitled sets have no billing event.
+ */
+export async function reconcileEntitlementDrift(): Promise<void> {
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  // Gate: only subs never reconciled, or last reconciled before the interval
+  // cutoff, and not inside a read-failure backoff. Oldest-reconciled first so a
+  // capped tick always makes progress through the whole base (an unsorted scan
+  // could keep returning the same never-matching rows).
+  const cutoff = new Date(now - config.entitlementDriftIntervalMs).toISOString();
+  const candidates = await Subscription.find(
+    {
+      $and: [
+        // Every status that can hold enforced entitlements: manageable rows
+        // (their plan tier, or developer once grace-downgraded) AND terminal rows
+        // (canceled/incomplete — must sit at the developer baseline; a missed
+        // downgrade leaves an unpaying org over-entitled). A terminal row is
+        // checked until it once confirms the baseline (`terminalReconciledAt`).
+        {
+          $or: [
+            { status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } },
+            { 'metadata.terminalReconciledAt': { $exists: false } },
+          ],
+        },
+        {
+          $or: [
+            { 'metadata.lastReconciledAt': { $exists: false } },
+            { 'metadata.lastReconciledAt': { $lte: cutoff } },
+          ],
+        },
+        {
+          $or: [
+            { 'metadata.driftRetryAfter': { $exists: false } },
+            { 'metadata.driftRetryAfter': { $lte: nowIso } },
+          ],
+        },
+      ],
+    },
+    null,
+    // Bound the scan at the DB level — never pull the whole base.
+    { sort: { 'metadata.lastReconciledAt': 1 }, limit: config.entitlementDriftMaxPerTick },
+  );
+
+  if (candidates.length === 0) return;
+
+  for (const subscription of candidates) {
+    const subscriptionId = subscription._id.toString();
+    const terminal = !(MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(subscription.status);
+    try {
+      // A terminal row is superseded when the org has a live subscription — that
+      // row owns the org's expected state. Settle this one without touching anything.
+      if (terminal && await Subscription.exists({
+        orgId: subscription.orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
+      })) {
+        await stampDriftChecked(subscriptionId, true);
+        continue;
+      }
+
+      // EXPECTED from the row's CURRENT state (plan tier + add-ons, or the
+      // developer baseline for a lapsed/terminal row) — the same derivation the
+      // entitlement-retry consumer uses.
+      const entitlement = await currentSubscriptionEntitlement(subscription);
+      if (!entitlement) {
+        logger.error('Cannot drift-check entitlements — plan not found', {
+          orgId: subscription.orgId, subscriptionId, planId: subscription.planId,
+        });
+        await backOffDriftCheck(subscription, 'plan_missing');
+        continue;
+      }
+      const { tier, addons } = entitlement;
+      const serviceAuth = billingServiceAuth(subscription.orgId);
+
+      // EXPECTED (from the sub) vs ACTUAL (enforced) — the compare is pure; the
+      // reads are fail-soft (null ⇒ a store was unreachable).
+      const { limits: expected, features: expectedFeatures } = effectiveEntitlements(tier, addons, getBundleCatalog());
+      // COMPLIANCE dimension: the content sets live in the compliance service; this
+      // also drives the Enterprise/Unlimited cutover (tier-baseline flags with no
+      // billing event to push them).
+      const effectiveFeatures = effectiveFeatureSet(tier, addons);
+      const expectedSets = complianceSetsForFeatures(effectiveFeatures);
+      // ACTUAL enforced state from every store, read concurrently. RETENTION is
+      // reporting's enforced override vs the clamped value the retention leg pushes.
+      const [actual, actualSets, actualRetention] = await Promise.all([
+        readActualEntitlements(subscription.orgId, serviceAuth),
+        readEnforcedComplianceSets(subscription.orgId, serviceAuth),
+        readEnforcedRetention(subscription.orgId, serviceAuth),
+      ]);
+      if (!actual || actualSets === null || !actualRetention) {
+        // A store read failed — an outage is NOT drift. Skip WITHOUT stamping
+        // lastReconciledAt (never re-sync on an unreachable store), but back off so
+        // a persistently failing store doesn't pin this sub to the head of every tick.
+        logger.warn('Entitlement drift check skipped — enforced-state read failed', {
+          orgId: subscription.orgId, subscriptionId,
+        });
+        await backOffDriftCheck(subscription, 'read_failed');
+        continue;
+      }
+
+      const drift = computeEntitlementDrift(expected, expectedFeatures, actual);
+      const retentionDrift = retentionDiffers(
+        {
+          eventRetentionDays: clampRetentionDays(expected.eventRetentionDays),
+          doraRetentionDays: clampRetentionDays(expected.doraRetentionDays),
+        },
+        actualRetention,
+      );
+
+      if (drift.status === 'drift' || retentionDrift) {
+        logger.warn('Entitlement drift detected — re-syncing enforced state', {
+          orgId: subscription.orgId, subscriptionId, tier, drifted: drift.drifted, retentionDrift,
+        });
+        // Re-drive the SAME idempotent fan-out. syncEntitlements runs it inline and,
+        // if a leg fails, publishes a durable-bus retry that redelivers until it lands.
+        await syncEntitlements(subscription.orgId, tier, serviceAuth, subscriptionId, addons);
+        for (const dimension of drift.dimensions) {
+          incCounter('billing_entitlement_drift_total', { dimension });
+        }
+        if (retentionDrift) incCounter('billing_entitlement_drift_total', { dimension: 'retention' });
+      }
+
+      // Compliance-set drift is re-driven SURGICALLY: re-push ONLY the entitled
+      // sets (not the full four-target sync) so a compliance-only divergence — or a
+      // never-pushed Enterprise cutover — is corrected without touching quota/seats.
+      if (setsDiffer(expectedSets, actualSets)) {
+        logger.warn('Compliance-set drift detected — re-syncing entitled sets', {
+          orgId: subscription.orgId,
+          subscriptionId,
+          tier,
+          expected: expectedSets,
+          actual: actualSets,
+        });
+        await pushComplianceSetsToCompliance(subscription.orgId, effectiveFeatures, serviceAuth, subscriptionId);
+        incCounter('billing_entitlement_drift_total', { dimension: 'compliance' });
+      }
+
+      // Stamp on a completed check (match OR post-resync) so this sub drops out
+      // of the query for the next interval, and clear any read-failure backoff.
+      await stampDriftChecked(subscriptionId, terminal);
+    } catch (err) {
+      // Never let one sub's failure abort the pass.
+      logger.error('Error reconciling entitlement drift', {
+        orgId: subscription.orgId, subscriptionId, error: errorMessage(err),
+      });
+      await backOffDriftCheck(subscription, 'error').catch(() => undefined);
+    }
+  }
+}
+
+/** Base delay before re-trying a drift check whose reads failed; doubles per failure. */
+const DRIFT_RETRY_BASE_MS = 15 * 60 * 1000;
+
+/**
+ * Record a failed drift attempt: stamp `lastDriftAttemptAt` and push
+ * `driftRetryAfter` out exponentially (capped at the reconcile interval), so an
+ * unreachable store is retried with backoff instead of every tick. Surgical
+ * dot-path writes so concurrent metadata markers aren't clobbered.
+ */
+async function backOffDriftCheck(
+  subscription: Pick<SubscriptionDocument, '_id' | 'metadata'>,
+  reason: string,
+): Promise<void> {
+  const failures = Number(subscription.metadata?.driftFailures ?? 0);
+  const delay = Math.min(DRIFT_RETRY_BASE_MS * 2 ** Math.min(failures, 16), config.entitlementDriftIntervalMs);
+  const now = Date.now();
+  await Subscription.updateOne(
+    { _id: subscription._id },
+    {
+      $set: {
+        'metadata.lastDriftAttemptAt': new Date(now).toISOString(),
+        'metadata.driftRetryAfter': new Date(now + delay).toISOString(),
+      },
+      $inc: { 'metadata.driftFailures': 1 },
+    },
+  );
+  incCounter('billing_entitlement_drift_skipped_total', { reason });
+}
+
+/** Stamp a completed drift check and clear any backoff state. */
+async function stampDriftChecked(subscriptionId: string, terminal: boolean): Promise<void> {
+  const at = new Date().toISOString();
+  await Subscription.updateOne(
+    { _id: subscriptionId },
+    {
+      $set: {
+        'metadata.lastReconciledAt': at,
+        'metadata.lastDriftAttemptAt': at,
+        ...(terminal ? { 'metadata.terminalReconciledAt': at } : {}),
+      },
+      $unset: { 'metadata.driftRetryAfter': '', 'metadata.driftFailures': '' },
+    },
+  );
 }

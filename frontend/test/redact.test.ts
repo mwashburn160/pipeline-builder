@@ -131,8 +131,8 @@ describe('display-surface redaction', () => {
 
 describe('redactDetails — fails closed', () => {
   it('redacts, rather than returns, anything nested past the depth cap', () => {
-    // It used to hand back the uninspected subtree verbatim — sensitive keys and
-    // account ids included — i.e. exactly the part it had not checked.
+    // Handing back the uninspected subtree verbatim would leak sensitive keys and
+    // account ids — exactly the part it had not checked.
     let deep: Record<string, unknown> = { token: 'sk-live-secret', owner: 'acct:123456789012' };
     for (let i = 0; i < 12; i++) deep = { child: deep };
     const text = JSON.stringify(redactDetails(deep));

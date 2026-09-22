@@ -8,17 +8,17 @@
  * soft-delete, this cuts off ALL access without per-read filtering.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
+import { selectLean } from './helpers/query-chain.js';
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      passwordMinLength: 8,
-      jwt: { secret: 'test-jwt-secret', expiresIn: 7200, algorithm: 'HS256', tierExpiresIn: {} },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: 2592000 },
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    passwordMinLength: 8,
+    jwt: { secret: 'test-jwt-secret', expiresIn: 7200, algorithm: 'HS256', tierExpiresIn: {} },
+    refreshToken: { secret: 'test-refresh-secret', expiresIn: 2592000 },
   },
 }));
 
@@ -42,7 +42,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: jest.fn(emptyFindChain) },
 }));
 
-const { issueTokens, signInAuth } = await import('../src/utils/token.js');
+const { signInAuth } = await import('../src/services/session/access-tokens.js');
+const { issueTokens } = await import('../src/services/session/refresh-sessions.js');
 const { installTestSigningKeys } = await import('./helpers/signing.js');
 installTestSigningKeys();
 
@@ -60,10 +61,6 @@ function findOneChain(membership: unknown) {
 function findChain(list: unknown[]) {
   return { sort: () => ({ lean: () => Promise.resolve(list) }) };
 }
-/** findById(...).select(...).lean() → org doc. */
-function orgChain(doc: unknown) {
-  return { select: () => ({ lean: () => Promise.resolve(doc) }) };
-}
 function orgIdOf(token: string): string | undefined {
   return (jwt.decode(token) as { organizationId?: string }).organizationId;
 }
@@ -75,7 +72,7 @@ beforeEach(() => {
 describe('resolveMembership soft-delete chokepoint (via issueTokens)', () => {
   it('scopes the token to a LIVE org (baseline)', async () => {
     mockUOFindOne.mockReturnValue(findOneChain({ role: 'admin', organizationId: 'org-live' }));
-    mockOrgFindById.mockReturnValue(orgChain({ name: 'Live', deletedAt: null }));
+    mockOrgFindById.mockReturnValue(selectLean({ name: 'Live', deletedAt: null }));
 
     const { accessToken } = await issueTokens(user(), 'org-live', login);
     expect(orgIdOf(accessToken)).toBe('org-live');
@@ -84,7 +81,7 @@ describe('resolveMembership soft-delete chokepoint (via issueTokens)', () => {
   it('REFUSES to scope a token to a soft-deleted org (falls through to none)', async () => {
     // Explicit active org is a member org, but it's soft-deleted.
     mockUOFindOne.mockReturnValue(findOneChain({ role: 'admin', organizationId: 'org-dead' }));
-    mockOrgFindById.mockReturnValue(orgChain({ name: 'Dead', deletedAt: new Date() }));
+    mockOrgFindById.mockReturnValue(selectLean({ name: 'Dead', deletedAt: new Date() }));
     // No other memberships to fall back to.
     mockUOFind.mockReturnValue(findChain([]));
 
@@ -102,7 +99,7 @@ describe('resolveMembership soft-delete chokepoint (via issueTokens)', () => {
       { organizationId: { toString: () => 'org-live' }, role: 'member' },
     ]));
     mockOrgFindById.mockImplementation((id: string) =>
-      orgChain(id === 'org-dead' ? { name: 'Dead', deletedAt: new Date() } : { name: 'Live', deletedAt: null }),
+      selectLean(id === 'org-dead' ? { name: 'Dead', deletedAt: new Date() } : { name: 'Live', deletedAt: null }),
     );
 
     const { accessToken } = await issueTokens(user(), 'org-dead', login);

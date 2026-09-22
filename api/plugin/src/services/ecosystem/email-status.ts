@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Whether platform can send email (docs/plans/plugin-ecosystem.md §4.2, D1,
- * E6): anonymous submissions are unavailable unless outbound email is
+ * Whether platform can send email (docs/plugin-publishing.md,
+ * ): anonymous submissions are unavailable unless outbound email is
  * configured — the magic link is the submitter's only verification. Read from
  * platform's `GET /internal/notify-email/status` (callers: `plugin`), cached
  * for {@link EMAIL_STATUS_TTL_MS}. FAILS CLOSED: an unreachable platform or an

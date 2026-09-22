@@ -9,17 +9,12 @@ const logger = createLogger('platform-api');
 // Controller Wrapper
 
 /**
- * Wrap a controller handler with unified error handling.
- * Eliminates the need for try-catch in every controller function.
+ * Wrap a controller handler with unified error handling: a thrown error is
+ * mapped through `errorMap` (or answered 500) by `handleControllerError`, so
+ * handlers need no try/catch of their own.
  *
  * @example
  * ```typescript
- * // Before:
- * export async function listOrgs(req: Request, res: Response) {
- *   try { ... } catch (error) { logger.error('[LIST ORGS]', error); sendError(res, 500, 'Error'); }
- * }
- *
- * // After:
  * export const listOrgs = withController('List organizations', async (req, res) => { ... });
  * ```
  */
@@ -55,25 +50,19 @@ export function isOrgAdmin(req: Request): boolean {
   return true;
 }
 
+/** The one 401 message the controller guards answer with. */
+const AUTH_REQUIRED = 'Authentication required';
+
 /**
- * Verify request is authenticated. Sends 401 if not.
- * Acts as a TypeScript type guard — after `if (!requireAuth(req, res)) return;`,
- * `req.user` is narrowed to non-null.
- *
- * NOTE: api-core also exports a `requireAuth` (`@pipeline-builder/api-core`)
- * but that is Express middleware with signature `(req, res, next) => void`.
- * The two are deliberately kept separate because they solve different
- * problems:
- *   - Use api-core's `requireAuth` in a router chain to *enforce* auth as
- *     middleware: `router.get('/x', requireAuth, handler)`.
- *   - Use THIS helper inside a controller body to short-circuit + narrow
- *     the type when the middleware was already applied at the route level
- *     but TypeScript can't see the guarantee.
- * If you're tempted to call both, you only need the middleware version.
+ * Inside a controller body: 401 when there is no authenticated user, and a
+ * TypeScript type guard otherwise — after `if (!ensureAuthenticated(req, res))
+ * return;`, `req.user` is non-null. The route's `requireAuth` middleware is
+ * what enforces authentication; this narrows the type the middleware already
+ * guaranteed (and still refuses if a route was wired without it).
  */
-export function requireAuth(req: Request, res: Response): req is Request & { user: NonNullable<Request['user']> } {
+export function ensureAuthenticated(req: Request, res: Response): req is Request & { user: NonNullable<Request['user']> } {
   if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
+    sendError(res, 401, AUTH_REQUIRED);
     return false;
   }
   return true;
@@ -85,7 +74,7 @@ export function requireAuth(req: Request, res: Response): req is Request & { use
 export function requireAuthUserId(req: Request, res: Response): string | null {
   const userId = req.user?.sub;
   if (!userId) {
-    sendError(res, 401, 'Unauthorized');
+    sendError(res, 401, AUTH_REQUIRED);
     return null;
   }
   return userId;
@@ -95,7 +84,7 @@ export function requireAuthUserId(req: Request, res: Response): string | null {
  * Verify request is from a system admin. Sends 401/403 if not.
  */
 export function requireSystemAdmin(req: Request, res: Response): boolean {
-  if (!requireAuth(req, res)) return false;
+  if (!ensureAuthenticated(req, res)) return false;
   if (!isSystemAdmin(req)) {
     sendError(res, 403, 'Forbidden: System admin access required');
     return false;
@@ -107,7 +96,7 @@ export function requireSystemAdmin(req: Request, res: Response): boolean {
  * Verify user belongs to an organization. Sends 400 if not.
  */
 export function requireOrgMembership(req: Request, res: Response): string | null {
-  if (!requireAuth(req, res)) return null;
+  if (!ensureAuthenticated(req, res)) return null;
 
   const orgId = req.user!.organizationId;
   if (!orgId) {
@@ -124,7 +113,7 @@ export function requireOrgMembership(req: Request, res: Response): string | null
  *
  *   const userId = req.user?.sub;
  *   const orgId  = req.user?.organizationId;
- *   if (!userId || !orgId) return sendError(res, 401, 'Unauthorized');
+ *   if (!userId || !orgId) return sendError(res, 401, 'Authentication required');
  *
  * with `const ctx = requireAuthContext(req, res); if (!ctx) return;`.
  *
@@ -169,7 +158,7 @@ export function getAdminContext(req: Request): AdminContext {
  */
 export function requireAdminContext(req: Request, res: Response): AdminContext | null {
   if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
+    sendError(res, 401, AUTH_REQUIRED);
     return null;
   }
   const ctx = getAdminContext(req);
@@ -203,7 +192,7 @@ export interface MemberManagementScope {
  */
 export function requireMemberManagementScope(req: Request, res: Response): MemberManagementScope | null {
   if (!req.user) {
-    sendError(res, 401, 'Unauthorized');
+    sendError(res, 401, AUTH_REQUIRED);
     return null;
   }
   if (isSystemAdmin(req)) return { isSuperAdmin: true };
@@ -297,11 +286,10 @@ export async function canManageOrgScope(req: Request, targetOrgId: string): Prom
 /**
  * Require {@link canManageOrgScope} over `targetOrgId` for a permission-gated
  * write. Sends 403 and returns false when the target is outside the caller's
- * tenancy scope; returns true otherwise. This is the tenancy-only successor to
- * {@link requireOrgAdmin} on the member/role routes: the route's
- * `requirePermission(members:manage|roles:manage|...)` is now the sole capability
- * gate, and this enforces only the remaining, non-redundant work — that the
- * `:id` org the caller is acting on is actually within their scope.
+ * tenancy scope; returns true otherwise. On a permission-gated route the
+ * route's `requirePermission(members:manage|roles:manage|...)` is the sole
+ * capability gate, and this enforces only the remaining work — that the `:id`
+ * org the caller is acting on is actually within their scope.
  */
 export async function requireOrgScope(req: Request, res: Response, targetOrgId: string): Promise<boolean> {
   if (!(await canManageOrgScope(req, targetOrgId))) {
@@ -384,10 +372,12 @@ export function handleControllerError(
 ): void {
   const errObj = (err && typeof err === 'object') ? err as Record<string, unknown> : null;
 
-  // 1. Check transaction error map
+  // 1. A mapped domain refusal. It is an answer, not a failure: a 4xx is the
+  // caller's problem (debug), a mapped 5xx is still worth a warning.
   if (errorMap && errObj?.message && typeof errObj.message === 'string' && errorMap[errObj.message]) {
-    logger.error(fallbackMessage, err);
     const mapped = errorMap[errObj.message];
+    if (mapped.status >= 500) logger.warn(fallbackMessage, { code: errObj.message, status: mapped.status });
+    else logger.debug(fallbackMessage, { code: errObj.message, status: mapped.status });
     return sendError(res, mapped.status, mapped.message, mapped.code);
   }
 

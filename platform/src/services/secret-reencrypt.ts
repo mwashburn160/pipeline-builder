@@ -76,7 +76,7 @@ export async function captureOrgSecrets(orgId: string): Promise<CapturedSecrets>
     }
   }
 
-  const idp = await OrgIdpConfig.findOne({ orgId }).select('clientSecretEncrypted').lean();
+  const idp = await OrgIdpConfig.findOne({ organizationId: orgId }).select('clientSecretEncrypted').lean();
   if (idp?.clientSecretEncrypted) {
     try {
       captured.idpClientSecret = await unwrapEncrypted(idp.clientSecretEncrypted, orgId, 'idpClientSecret');
@@ -113,7 +113,7 @@ export async function reencryptOrgSecrets(orgId: string, captured: CapturedSecre
 
   if (captured.idpClientSecret) {
     const wrapped = await wrapEncrypted(captured.idpClientSecret, orgId);
-    await OrgIdpConfig.updateOne({ orgId }, { $set: { clientSecretEncrypted: wrapped } });
+    await OrgIdpConfig.updateOne({ organizationId: orgId }, { $set: { clientSecretEncrypted: wrapped } });
     idpSecretReencrypted = true;
   }
 
@@ -195,14 +195,15 @@ export async function reencryptAllStoredSecrets(): Promise<ReencryptAllSummary> 
     }
   }
 
-  for await (const idp of OrgIdpConfig.find({}).select('orgId clientSecretEncrypted').cursor()) {
+  for await (const idp of OrgIdpConfig.find({}).select('organizationId clientSecretEncrypted').cursor()) {
     if (!idp.clientSecretEncrypted) continue;
+    const orgId = String(idp.organizationId);
     try {
-      const plaintext = await unwrapEncrypted(idp.clientSecretEncrypted, idp.orgId, 'idpClientSecret');
-      await OrgIdpConfig.updateOne({ _id: idp._id }, { $set: { clientSecretEncrypted: await wrapEncrypted(plaintext, idp.orgId) } });
+      const plaintext = await unwrapEncrypted(idp.clientSecretEncrypted, orgId, 'idpClientSecret');
+      await OrgIdpConfig.updateOne({ _id: idp._id }, { $set: { clientSecretEncrypted: await wrapEncrypted(plaintext, orgId) } });
       summary.idpSecretsReencrypted++;
     } catch (err) {
-      summary.failures.push({ orgId: idp.orgId, field: 'idpClientSecret', error: errorMessage(err) });
+      summary.failures.push({ orgId, field: 'idpClientSecret', error: errorMessage(err) });
     }
   }
 

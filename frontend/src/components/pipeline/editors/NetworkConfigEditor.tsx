@@ -188,7 +188,7 @@ export default function NetworkConfigEditor({
                     variant="link"
                     onClick={() => removeTag(idx)}
                     disabled={disabled}
-                    className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm"
+                    className="text-danger hover:text-danger text-sm"
                   >
                     Remove
                   </Button>

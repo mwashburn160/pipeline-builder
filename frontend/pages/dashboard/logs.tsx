@@ -32,7 +32,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useLogSearch, useLogVolume } from '@/hooks/useLogSearch';
 import { api } from '@/lib/api';
-import { triggerBlobDownload } from '@/lib/csv-export';
+import { triggerBlobDownload } from '@/lib/download';
 import { formatError } from '@/lib/constants';
 import { withoutAnchor } from '@/lib/log-context';
 import type { LogEntry, LogQueryParams, LogRangePreset, LogWindow } from '@/types/logs';
@@ -258,7 +258,7 @@ export default function LogsPage() {
           <p className="mt-2 text-xs text-fg-muted">
             Custom range: {new Date(window.fromMs).toLocaleString([], { hour12: false })} → {new Date(window.toMs).toLocaleString([], { hour12: false })}
             {' '}
-            <button type="button" className="text-blue-600 hover:underline dark:text-blue-400" onClick={() => setWindow({ kind: 'preset', key: '1h' })}>
+            <button type="button" className="text-info hover:underline" onClick={() => setWindow({ kind: 'preset', key: '1h' })}>
               reset
             </button>
           </p>
@@ -270,7 +270,7 @@ export default function LogsPage() {
       </Card>
 
       <Card className="!p-0">
-        <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs text-fg-muted dark:border-gray-800">
+        <div className="flex items-center justify-between border-b border-default px-3 py-2 text-xs text-fg-muted">
           <span>
             {loading ? 'Loading…' : error ? 'Search failed' : `${entries.length.toLocaleString()} entries`}
             {!error && entries.length >= limit && ' (limit reached — narrow the query or raise the limit)'}
@@ -343,7 +343,7 @@ export default function LogsPage() {
           </div>
           <div className="font-mono text-xs">
             {context.before.map((e, i) => <LogEntryRow key={`b-${i}`} entry={e} wrap showOrg={isSysadmin} />)}
-            <div className="my-1 border-y-2 border-blue-400 bg-blue-50 dark:bg-blue-950/40">
+            <div className="my-1 border-y-2 border-blue-400 bg-info-bg">
               <LogEntryRow entry={context.anchor} wrap showOrg={isSysadmin} />
             </div>
             {context.after.map((e, i) => <LogEntryRow key={`a-${i}`} entry={e} wrap showOrg={isSysadmin} />)}

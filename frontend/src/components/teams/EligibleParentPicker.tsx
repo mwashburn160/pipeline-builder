@@ -132,7 +132,7 @@ export function EligibleParentPicker({
           {loading ? (
             <div className="px-3 py-2 text-fg-muted" role="status">Searching…</div>
           ) : error ? (
-            <div className="px-3 py-2 text-red-600 dark:text-red-400">{error}</div>
+            <div className="px-3 py-2 text-danger">{error}</div>
           ) : options.length === 0 ? (
             <div className="px-3 py-2 text-fg-muted">
               No matching top-level organizations on the Team or Enterprise plan.

@@ -22,8 +22,8 @@ export interface PluginOptions {
   readonly name: string;
 
   /**
-   * Publisher handle of an installed ecosystem listing to resolve through
-   * (plugin ecosystem §3.5). Absent: the org's own plugin, then its parent
+   * Publisher handle of an installed ecosystem listing to resolve through.
+   * Absent: the org's own plugin, then its parent
    * org's, then the Official listing. Present: only that publisher's listing,
    * through an install.
    */

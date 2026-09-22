@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin-ecosystem governance console (plan §3.0, §5a.1).
+ * Plugin-ecosystem governance console.
  *
  * Exists ONLY in the system org, for its Ecosystem Managers (`plugins:moderate`
  * / `publishers:verify`) and superadmins. The nav hides the entry everywhere
@@ -38,8 +38,8 @@ import { hasPermission } from '@/lib/auth-helpers';
 
 /**
  * Each tab with the permissions its reads need (ANY of them) — the same gates
- * the console routes apply (`requireEcosystemPermission`). A `publishers:verify`
- * -only manager used to see every tab and get a 403 on most of them.
+ * the console routes apply (`requireEcosystemPermission`), so a
+ * `publishers:verify`-only manager doesn't see tabs that would 403.
  */
 const TABS = [
   { id: 'queue', label: 'Publish queue', requires: ['plugins:moderate', 'publishers:verify'] },

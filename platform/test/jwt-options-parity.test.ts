@@ -9,7 +9,7 @@
  *   through the JWKS and verifies with the published public key. Platform
  *   verifies the same token synchronously from its own key set — the two must
  *   reach the same answer, including on issuer/audience and a `kid` rotation.
- * - SERVICE tokens: ES256 signed by the CALLING service with its own key (#14),
+ * - SERVICE tokens: ES256 signed by the CALLING service with its own key,
  *   verified on both sides against the same per-service public bundle —
  *   including the rotation overlap (two published keys) and a token signed by
  *   the WRONG service.
@@ -22,14 +22,15 @@
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
 
 const jwtConfig: Record<string, unknown> = {};
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { jwt: jwtConfig } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { jwt: jwtConfig } }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {}, Organization: {}, UserOrganization: {}, Role: {}, RoleAssignment: {},
 }));
 
-const apiCoreAuth = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const apiCoreAuth = await import('@pipeline-builder/api-core/lib/middleware/jwt-verify.js');
 const { verifyPlatformJwt } = await import('../src/utils/jwt-options.js');
 const { signUserJwt, _setTokenSigningKeysForTests } = await import('../src/services/token-signing/index.js');
 const { generateSigningKey } = await import('./helpers/signing.js');

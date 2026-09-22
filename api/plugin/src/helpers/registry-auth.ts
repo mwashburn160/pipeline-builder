@@ -63,7 +63,7 @@ export type RegistryAccess = 'push' | 'pull';
  *    public realm with no credentials and gets 401.
  */
 export function writeAuthConfig(registry: RegistryInfo, orgId: string, ttlSeconds: number, access: RegistryAccess = 'push'): string {
-  // Signed as `plugin` — this IS the plugin service, and since #14 a service
+  // Signed as `plugin` — this IS the plugin service, and since a service
   // holds only its own key. image-registry grants push to a SERVICE principal
   // only when it is `plugin` and carries `plugins:write`.
   const password = signServiceToken({

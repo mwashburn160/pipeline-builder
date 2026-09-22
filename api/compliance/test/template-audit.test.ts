@@ -14,11 +14,12 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const createMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const emitComplianceAuditMock = jest.fn();
+const recordAuditMock = jest.fn();
 
 let validatePasses = true;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
   validateBody: (req: any) =>
     validatePasses ? { ok: true, value: req.body } : { ok: false, error: 'invalid' },
@@ -41,10 +42,6 @@ jest.unstable_mockModule('../src/data/rule-templates.js', () => ({
   ],
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
-}));
 
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
@@ -91,8 +88,8 @@ describe('POST /apply — emits compliance.template.apply per applied template',
 
     expect(status).toHaveBeenCalledWith(201);
     // Only the applied template produced an audit event.
-    expect(emitComplianceAuditMock).toHaveBeenCalledTimes(1);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledTimes(1);
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.template.apply',
       actorId: 'u-1',
       orgId: 'org-a',
@@ -111,6 +108,6 @@ describe('POST /apply — emits compliance.template.apply per applied template',
 
     expect(status).toHaveBeenCalledWith(400);
     expect(createMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });

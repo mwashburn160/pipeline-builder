@@ -18,10 +18,6 @@
  *     machine token (lifetime + optional capability scope), the history of the
  *     tokens I've been issued, and my access keys;
  *   - Service accounts — the org's machine identities (permission-gated).
- *
- * Old URLs still work: /dashboard/tokens and /dashboard/settings/service-accounts
- * redirect here, and /dashboard/settings?tab=security does too. That is a page
- * moving, not a compatibility layer — nothing keeps the old behaviour alive.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -178,8 +174,8 @@ function PasswordSection({ readOnly }: { readOnly: boolean }) {
   const [confirming, setConfirming] = useState(false);
   const form = useFormState();
   // The minimum that actually applies — the strictest across the person's
-  // orgs, not the platform floor the form used to advertise (a 14-character
-  // org policy then failed every 8-character attempt only after the step-up).
+  // orgs, not the platform floor — otherwise a 14-character org policy would
+  // fail every 8-character attempt only after the step-up.
   const policy = useFetch<number>(
     async (signal) => (await api.getOwnPasswordPolicy({ signal })).data?.minLength ?? PLATFORM_MIN_PASSWORD,
     [],
@@ -446,7 +442,7 @@ function TokenHistorySection() {
 }
 
 // ---------------------------------------------------------------------------
-// Current access token (the decoded view that used to be its own page tab)
+// Current access token (decoded)
 // ---------------------------------------------------------------------------
 
 const KNOWN_TIME_FIELDS = new Set(['exp', 'iat', 'nbf']);

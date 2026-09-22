@@ -20,8 +20,8 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ refreshUser: jest.fn<AnyFn>() }) }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: jest.fn<AnyFn>() })));
 jest.mock('@/components/admin/StepUpModal', () => ({ __esModule: true, StepUpModal: () => null }));
 
 import { AccountRecoveryCodes } from '../src/components/settings/RecoveryCodes';

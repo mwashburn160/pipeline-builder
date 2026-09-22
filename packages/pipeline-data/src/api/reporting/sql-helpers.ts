@@ -33,12 +33,6 @@ export function scrubOptional(value: string | undefined): string | undefined {
 }
 
 /**
- * Cache for reporting aggregations. Two tiers:
- * - Inventory queries (plugin summary/distribution/versions): 5 min TTL — changes on plugin CRUD
- * - Execution/build queries with date ranges: 2 min TTL — new events arrive continuously
- */
-
-/**
  * Roll a group of deploy/stage events (grouped per execution) up to one terminal
  * status: FAILED wins, then SUCCEEDED, else OTHER (still-running / non-terminal).
  * Shared by the three per-(env|stage, execution) rollup CTEs — DORA metrics, DORA
@@ -51,20 +45,25 @@ export const terminalStatusRollup = sql`CASE
               ELSE 'OTHER'
             END`;
 
+/** The report window on `e.started_at` (inclusive `[from, to]`). */
+export function startedAtWindow(from: string, to: string): ReturnType<typeof sql> {
+  return sql`e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz`;
+}
+
 /** Optional `[from,to]` window on `e.started_at` for the execution reports —
  *  a no-op `sql` fragment when either bound is absent (all-time). Shared by the
  *  execution-count and per-pipeline-execution reports so they narrow identically. */
 export function optionalStartedAtRange(range?: { from?: string; to?: string }): ReturnType<typeof sql> {
   return range?.from && range?.to
-    ? sql`AND e.started_at >= ${range.from}::timestamptz AND e.started_at <= ${range.to}::timestamptz`
+    ? sql`AND ${startedAtWindow(range.from, range.to)}`
     : sql``;
 }
 
 /**
- * Per-execution terminal deploy row (D1 — one row per (environment, execution),
+ * Per-execution terminal deploy row (one row per (environment, execution),
  * NOT per stage). The SQL rolls every deploy STAGE targeting an env within an
  * execution up to a single terminal status; the JS shaping buckets these by
- * environment. `commit_ts` (D2) is the execution's EARLIEST commit time across
+ * environment. `commit_ts` is the execution's EARLIEST commit time across
  * all its events — commit enrichment rides the PIPELINE/source event, not the
  * deploy STAGE — joined by execution_id (null when unresolved → lead `unknown`).
  * `in_window` is false for a look-back-only row kept solely so incidents opened

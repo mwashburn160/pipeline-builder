@@ -90,7 +90,7 @@ export function OrgSecurityCard({ orgId, canReadIdp }: OrgSecurityCardProps) {
               <span className="text-fg-muted">—</span>
             ) : (
               <>
-                <span className={without > 0 && policy.requireMfa ? 'text-amber-600 dark:text-amber-400' : undefined}>
+                <span className={without > 0 && policy.requireMfa ? 'text-warning' : undefined}>
                   {without} of {policy.enrolment.members}
                 </span>
                 {/* How many of them were ASKED and said no. Without it, "seven

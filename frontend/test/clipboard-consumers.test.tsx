@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Copy affordances that used to hand-roll `navigator.clipboard.writeText` now
- * ride useCopyToClipboard. What must hold for the user: the "copied" feedback
+ * Copy affordances ride useCopyToClipboard rather than calling
+ * `navigator.clipboard.writeText` themselves. What must hold for the user: the "copied" feedback
  * appears only once the write resolves, and a refused write never claims
  * success.
  */

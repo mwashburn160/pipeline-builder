@@ -10,7 +10,7 @@
  *   POST /auth/sso/discover          → { sso, required } (does SSO serve this email's domain? is it required?)
  *
  * `authorize` serves BOTH protocols: it resolves the org's `protocol` and hands
- * a SAML org to `controllers/saml.ts` (#4), returning the same `{ url, state }`
+ * a SAML org to `controllers/saml.ts`, returning the same `{ url, state }`
  * either way. The `callback` below is the OIDC leg only — SAML's assertion
  * arrives by IdP form POST at its own ACS route.
  *
@@ -26,16 +26,14 @@
 
 import crypto from 'crypto';
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { beginSamlLogin } from './saml.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
-import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
-import { bindLoginToBrowser, clearLoginBinding, isBoundToThisBrowser } from '../helpers/login-binding.js';
-import { idpEnforcesMfa, MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
+import { bindLoginToBrowser, isBoundToThisBrowser } from '../helpers/login-binding.js';
+import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
-import { deliverSessionTokens } from '../helpers/session-cookie.js';
+import { completeInteractiveSignIn, ssoAuth } from '../helpers/sign-in.js';
 import { assertSsoIdentityTrusted, findSsoCoverageForEmail, getEnforcedIdpProtocol, getEnforcedLoginConfig } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { JIT_SEAT_LIMIT } from '../services/idp-mapping-errors.js';
@@ -45,9 +43,9 @@ import {
   buildAuthorizeUrl,
   exchangeAndValidate,
 } from '../services/oidc-service.js';
+import { beginSamlLogin } from '../services/saml-login-state.js';
 import { SAML_ERROR_MAP } from '../services/saml-service.js';
 import { assertJitSeatAvailable, provisionJitMembership } from '../services/sso-jit-service.js';
-import { issueTokens, signInAuth } from '../utils/token.js';
 import { oauthCallbackSchema, ssoDiscoverSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('sso-controller');
@@ -80,7 +78,7 @@ const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string;
  * Begin a login against `orgId`'s enforced IdP and return the redirect the
  * browser needs — `{ url, state }` on either protocol.
  *
- * One entry point, two protocols (#4). The client redirects to `url` either way
+ * One entry point, two protocols. The client redirects to `url` either way
  * and never has to know which one its org federates over; where the browser
  * comes BACK to differs (the OIDC callback page vs the SAML ACS) and is decided
  * by what we register with the IdP, not by the client. Discovery runs here so an
@@ -147,7 +145,7 @@ function jitRefusalReason(err: unknown): string {
 }
 
 /**
- * Record a refused just-in-time provision (3a) and re-throw so the typed error
+ * Record a refused just-in-time provision and re-throw so the typed error
  * reaches `OIDC_ERROR_MAP`. A seat refusal is a real operational event — the org
  * has to free a seat or raise the limit before that person can sign in — so it
  * leaves an audit row and a metric, not just a 403.
@@ -205,7 +203,7 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
     throw err;
   }
 
-  // JIT (3a): seats are checked BEFORE the identity becomes an account, so a
+  // JIT: seats are checked BEFORE the identity becomes an account, so a
   // sign-in that the seat cap will refuse doesn't leave a user record (and its
   // personal org) behind. The authoritative check runs again inside the
   // provisioning transaction below.
@@ -259,26 +257,16 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
 
   // Prefer the SSO org as the active org; issueTokens' resolveMembership falls
   // back to the user's own membership when they aren't (yet) a member of it.
-  // Single sign-on opens an INTERACTIVE session (`amr: ['sso']`).
-  //
-  // ASSURANCE (#8): `aal: 2` only when the org has marked its own IdP as
-  // enforcing MFA. Providers don't send `amr` reliably — most OIDC IdPs send
-  // none at all — so the org's statement about the provider it administers is
-  // the evidence, and an unmarked IdP stays aal 1 rather than being guessed at.
-  const tokens = await issueTokens(user, orgId, {
-    kind: 'interactive',
-    auth: signInAuth('sso', { ...(await idpEnforcesMfa(orgId) ? { idpMfaOrgId: orgId } : {}) }),
-    client: clientInfoOf(req),
+  // Single sign-on opens an INTERACTIVE session (`amr: ['sso']`); its assurance
+  // is the org's statement about its own IdP (see `ssoAuth`).
+  await completeInteractiveSignIn(req, res, user, {
+    orgId,
+    auth: await ssoAuth(orgId),
+    affectedOrgId: orgId,
+    auditDetails: { method: 'sso' },
+    clearBinding: true,
   });
-
-  audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString(), affectedOrgId: orgId, details: { method: 'sso' } });
-  incCounter('platform_logins_total');
   logger.info('[SSO] login successful', { orgId, userId: user._id, provider });
-
-  // Same transport split as password/OAuth login: cookie for the browser.
-  // The flow is complete: its browser binding has done its job.
-  clearLoginBinding(res);
-  sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 }, { ...OIDC_ERROR_MAP, ...MFA_POLICY_ERROR_MAP });
 
 /**

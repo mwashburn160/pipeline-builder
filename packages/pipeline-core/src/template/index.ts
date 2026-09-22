@@ -4,10 +4,8 @@
 export {
   tokenize,
   hasTemplate,
-  TokenizerError,
   MAX_FIELD_SIZE_BYTES,
   MAX_PATH_DEPTH,
-  MAX_IDENTIFIER_LENGTH,
   type Token,
   type LiteralToken,
   type ExprToken,
@@ -16,20 +14,17 @@ export {
 
 export {
   resolve,
-  lookupPath,
   dependencies,
   type Scope,
   type EvalError,
 } from './evaluator.js';
 
 export {
-  walkAndBind,
   type WalkEntry,
   type FieldPredicate,
 } from './walker.js';
 
 export {
-  topoSort,
   type TopoNode,
   type TopoResult,
 } from './topo-sort.js';

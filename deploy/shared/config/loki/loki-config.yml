@@ -57,7 +57,7 @@ schema_config:
 querier:
   # Lets a system admin read across orgs in one request via a pipe-separated
   # header (X-Scope-OrgID: orgA|orgB). Loki has no "all tenants" wildcard, so
-  # platform enumerates the tenants it wants — see docs/plans/frontend-logs.md §3.2.
+  # platform enumerates the tenants it wants — see docs/observability-logs.md.
   multi_tenant_queries_enabled: true
 
 limits_config:

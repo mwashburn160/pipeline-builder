@@ -8,8 +8,8 @@ import {
   resolve,
   validateSource,
   previewResolve,
-  TokenizeError,
 } from '../src/lib/templates';
+import { TokenizerError } from '@pipeline-builder/pipeline-core/template';
 
 describe('frontend templates: tokenize', () => {
   it('returns a single literal for plain strings', () => {
@@ -29,8 +29,22 @@ describe('frontend templates: tokenize', () => {
     expect(t[0]).toMatchObject({ kind: 'expr', defaultValue: '0', coerce: 'number' });
   });
 
-  it('throws TokenizeError on malformed template', () => {
-    expect(() => tokenize('{{ broken')).toThrow(TokenizeError);
+  it('throws TokenizerError on malformed template', () => {
+    expect(() => tokenize('{{ broken')).toThrow(TokenizerError);
+  });
+
+  // The editor shares synth's tokenizer, so it rejects exactly what synth does.
+  it('caps the field in UTF-8 bytes, not UTF-16 code units', () => {
+    const emoji = '\u{1F600}'; // 4 bytes, 2 code units
+    expect(() => tokenize(emoji.repeat(1100))).toThrow(/max size of 4096 bytes/);
+  });
+
+  it('rejects an identifier longer than 64 characters', () => {
+    expect(validateSource(`{{ ${'a'.repeat(65)} }}`).valid).toBe(false);
+  });
+
+  it('treats the }} closing an escaped {{{{ as literal text', () => {
+    expect(validateSource(`docker inspect -f '{{{{.State.Status}}'`).valid).toBe(true);
   });
 });
 

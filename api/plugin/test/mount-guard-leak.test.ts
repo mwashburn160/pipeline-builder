@@ -92,7 +92,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       res.status(500).json({ message: err?.message ?? String(err) });
     }
   },
-  incrementQuotaFromCtx: jest.fn(),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -104,25 +104,21 @@ jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   waitForWorkerReady: jest.fn(async () => undefined),
   shutdownQueue: jest.fn(async () => undefined),
 }));
-// The anonymous-submission gate queue (plan §4) — index.ts starts its worker at boot.
+// The anonymous-submission gate queue — index.ts starts its worker at boot.
 jest.unstable_mockModule('../src/queue/submission-build-queue.js', () => ({
   startSubmissionWorker: jest.fn(),
   shutdownSubmissionQueue: jest.fn(async () => undefined),
   enqueueSubmissionBuild: jest.fn(async () => undefined),
 }));
-// The nightly vuln-rescan scheduler (W0.6) — index.ts builds + starts it at boot.
+// The nightly vuln-rescan scheduler — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/queue/vuln-rescan.js', () => ({ createVulnRescanScheduler: () => null }));
-// The ecosystem-notification digest dispatcher (plan §5b) — index.ts builds + starts it at boot.
+// The ecosystem-notification digest dispatcher — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
   createEcosystemNotificationScheduler: () => ({ start: () => undefined, stop: () => undefined }),
   enqueueEcosystemNotification: async () => 'sent',
 }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ getHealthRedisConnection: jest.fn() }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn() }),
-  emitPluginAudit: jest.fn(),
-}));
 jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () => ({
   AIEmptyOutputError: class extends Error {},
   dockerfileViolations: () => [],
@@ -165,11 +161,11 @@ const realEcosystemContext = await import('../src/services/ecosystem/context.js'
 jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ ...realEcosystemContext, initEcosystem: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/publishers.js', () => ({ ensureOfficialPublisher: jest.fn(async () => ({})) }));
 // app-routes registers the review → advisory seam at mount; the advisory service itself is not under test.
-jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ registerAdvisoryHooks: jest.fn(), deprecateListedFromSource: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ deprecateListedFromSource: jest.fn(), openReviewAdvisoryDraft: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
   createEcosystemMaintenanceScheduler: () => ({ start: () => undefined, stop: () => undefined }),
 }));
-// The ecosystem gauge sampler (plan §9a) — index.ts builds + starts it at boot.
+// The ecosystem gauge sampler — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({
   createEcosystemMetricsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
   recordDecision: () => undefined,

@@ -19,9 +19,11 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
   }),
 }));
 
-jest.unstable_mockModule('../src/middleware/auth.js', () => ({
+jest.unstable_mockModule('../src/middleware/service-tokens.js', () => ({
   getServiceAuthHeader: jest.fn(() => 'service-token-raw'),
-  // wireAuthzDenialAuditor registers via this; capture the sink for assertions.
+}));
+// wireAuthzDenialAuditor registers via this; capture the sink for assertions.
+jest.unstable_mockModule('../src/middleware/permission-gates.js', () => ({
   setAuthzDenialAuditor: jest.fn<AnyFn>(),
 }));
 
@@ -32,7 +34,7 @@ jest.unstable_mockModule('../src/services/http-client.js', () => ({
 }));
 
 const { createRemoteAuditClient, wireAuthzDenialAuditor } = await import('../src/services/remote-audit-client.js');
-const { setAuthzDenialAuditor } = await import('../src/middleware/auth.js');
+const { setAuthzDenialAuditor } = await import('../src/middleware/permission-gates.js');
 
 const EVENT = {
   action: 'pipeline.create' as const,
@@ -58,7 +60,7 @@ describe('createRemoteAuditClient.record', () => {
     // try. `record` fires with a bare `.then`, so the rejection went unhandled,
     // runServer's crash handler exited, and the pod crash-looped on its first
     // audited write or authz.denied event.
-    const { getServiceAuthHeader } = await import('../src/middleware/auth.js');
+    const { getServiceAuthHeader } = await import('../src/middleware/service-tokens.js');
     (getServiceAuthHeader as jest.Mock<AnyFn>).mockImplementationOnce(() => {
       throw new Error('service signing key unavailable');
     });

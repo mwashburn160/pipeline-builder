@@ -259,7 +259,7 @@ setup_service_account_key
 
 # ---- Official catalog loader service account --------------------------------
 # The Official plugin catalog is published through the plugin ecosystem's
-# request queue (plan §3.1, §3.0.3), not by sharing system-org plugins with
+# request queue (docs/runbooks/ecosystem-moderation.md), not by sharing system-org plugins with
 # `visibility=public`. load-plugins.sh uploads each plugin as this dedicated
 # account with `publishRequest=true`: on a fresh instance the one-time bootstrap
 # exception approves the initial catalog; on every later run the seeded

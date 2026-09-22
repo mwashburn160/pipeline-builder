@@ -18,7 +18,7 @@
  */
 
 import {
-  JwksCache, USER_TOKEN_ALGORITHM, createLogger, decodeJwtHeader, publicJwkFrom, setPlatformJwksCache,
+  JwksCache, USER_TOKEN_ALGORITHM, compactJws, createLogger, decodeJwtHeader, encodeJwsSigningInput, publicJwkFrom, setPlatformJwksCache,
   type JwksDocument, type PublicJwk,
 } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
@@ -31,11 +31,6 @@ const logger = createLogger('token-signing');
 
 let keySet: SigningKeySet | undefined;
 let initPromise: Promise<SigningKeySet> | undefined;
-
-/** base64url of a JSON value, the JWS way (no padding, URL alphabet). */
-function b64uJson(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), 'utf-8').toString('base64url');
-}
 
 /** Build the configured key set. Throws — a platform that cannot sign must not serve. */
 async function buildKeySet(): Promise<SigningKeySet> {
@@ -127,7 +122,7 @@ export interface SignOptions {
  * `iat`, `exp` and the optional `iss`/`aud` are stamped here for every token
  * class, so there is exactly one place that decides what a platform token says.
  */
-export async function signUserJwt(payload: Record<string, unknown>, options: SignOptions): Promise<string> {
+export async function signUserJwt(payload: object, options: SignOptions): Promise<string> {
   const { current } = await keys();
   if (!current.sign) throw new Error('The current token signing key cannot sign');
 
@@ -140,9 +135,9 @@ export async function signUserJwt(payload: Record<string, unknown>, options: Sig
     ...(issuer ? { iss: issuer } : {}),
     ...(audience ? { aud: audience } : {}),
   };
-  const signingInput = `${b64uJson({ alg: USER_TOKEN_ALGORITHM, typ: 'JWT', kid: current.kid })}.${b64uJson(body)}`;
+  const signingInput = encodeJwsSigningInput(current.kid, body);
   const signature = await current.sign(Buffer.from(signingInput, 'utf-8'));
-  return `${signingInput}.${signature.toString('base64url')}`;
+  return compactJws(signingInput, signature);
 }
 
 /**
@@ -190,11 +185,6 @@ export async function publishedJwks(): Promise<JwksDocument> {
     publicKeys.push(publicJwkFrom(key.publicKey));
   }
   return { keys: publicKeys };
-}
-
-/** The `kid` new tokens are being signed with (diagnostics, metrics, tests). */
-export async function currentSigningKid(): Promise<string> {
-  return (await keys()).current.kid;
 }
 
 /** True while a retiring key is still published — the rotation-overlap gauge. */

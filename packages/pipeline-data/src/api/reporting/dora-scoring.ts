@@ -17,7 +17,7 @@ import type { DoraLevel } from './types.js';
 export const HEADLINE_ENV = 'production';
 
 /**
- * Incident→deploy correlation window (Phase 5). An incident is attributed to the
+ * Incident→deploy correlation window. An incident is attributed to the
  * most recent SUCCESSFUL deploy to its environment whose `completed_at` is within
  * this many hours before the incident's `opened_at`. Default 24h; override via
  * `DORA_INCIDENT_WINDOW_HOURS`. Guarded to a positive finite number.
@@ -28,7 +28,7 @@ export const DORA_INCIDENT_WINDOW_HOURS = (() => {
 })();
 
 /**
- * Resolve the effective incident→deploy correlation window (Phase 5b). A per-org
+ * Resolve the effective incident→deploy correlation window. A per-org
  * override (from `dora_settings.incident_window_hours`, surfaced through the
  * settings endpoint and threaded into {@link DoraOptions.incidentWindowHours})
  * wins when it is a positive finite number; otherwise the global env default
@@ -40,7 +40,7 @@ export function resolveIncidentWindowHours(override?: number | null): number {
 }
 
 /**
- * Reporting retention windows (Phase 7). Records in `pipeline_events`,
+ * Reporting retention windows. Records in `pipeline_events`,
  * `deployment_outcomes`, and `incidents` grow unbounded without a sweep, so a
  * split, per-org retention purge (see {@link ReportingService.purgeExpiredReportingData})
  * hard-deletes rows older than these windows, by `created_at`:

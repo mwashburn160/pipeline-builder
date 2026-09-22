@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin-ecosystem notification delivery (docs/plans/plugin-ecosystem.md §5b).
+ * Plugin-ecosystem notification delivery.
  *
  * Platform is the relay because it owns the three things delivery needs: the
  * user directory (addresses), the Roles (who holds a permission RIGHT NOW) and
@@ -95,7 +95,7 @@ async function superadmins(): Promise<Array<{ id: string; lastActiveOrgId?: stri
   }));
 }
 
-/** How many people could decide an ecosystem request (§3.0.1). Counts, never identities. */
+/** How many people could decide an ecosystem request. Counts, never identities. */
 export interface EcosystemApproverCount {
   /** Active system-org members whose Roles carry the permission. */
   holders: number;
@@ -146,14 +146,14 @@ export async function resolveEcosystemRecipients(
   for (const spec of specs) {
     switch (spec.kind) {
       case 'user': {
-        const user = await User.findById(spec.userId).select('_id lastActiveOrgId').lean() as { _id: Id; lastActiveOrgId?: string | null } | null;
+        const user = await User.findById(spec.userId).select('_id lastActiveOrgId').lean();
         if (user) add(user._id.toString(), spec.orgId ?? (user.lastActiveOrgId ? String(user.lastActiveOrgId) : undefined));
         break;
       }
       case 'org_permission': {
         // Org approvers / publisher managers: holders in the org; a team whose
         // policy is inherited falls back to its ROOT org's holders; with nobody
-        // holding it anywhere, the org's owners (§5b "Recipient rules").
+        // holding it anywhere, the org's owners.
         let found = (await holdersOfPermission(spec.orgId, spec.permission)).map((u) => ({ u, org: spec.orgId }));
         if (found.length === 0 && spec.inheritFromRoot) {
           const { resolveOrgLineage } = await import('../helpers/org-hierarchy.js');
@@ -168,7 +168,7 @@ export async function resolveEcosystemRecipients(
       }
       case 'moderators': {
         // The system org's Ecosystem Managers, minus conflicts of interest; the
-        // superadmins when nobody else is eligible (§5a.1, §3.0.1).
+        // superadmins when nobody else is eligible.
         const excluded = new Set(spec.excludeUserIds ?? []);
         if (spec.excludeMembersOfOrgId) {
           for (const u of await activeMembers(spec.excludeMembersOfOrgId)) excluded.add(u);
@@ -265,16 +265,16 @@ export async function deliverEcosystemNotification(request: EcosystemNotifyReque
 }
 
 /**
- * N23 (§5a.1): someone was added to or removed from the system org's Ecosystem
+ * The `N23` notice: someone was added to or removed from the system org's Ecosystem
  * Manager role. Tells every superadmin and the affected user (in-app + email,
  * transactional). Fire-and-forget: never throws, never blocks the assignment.
  */
 export async function notifyEcosystemManagerChange(input: { userId: string; added: boolean; actorUserId?: string }): Promise<void> {
   try {
     const [user, actor] = await Promise.all([
-      User.findById(input.userId).select('email username').lean() as Promise<{ email?: string; username?: string } | null>,
+      User.findById(input.userId).select('email username').lean(),
       input.actorUserId
-        ? User.findById(input.actorUserId).select('email username').lean() as Promise<{ email?: string; username?: string } | null>
+        ? User.findById(input.actorUserId).select('email username').lean()
         : Promise.resolve(null),
     ]);
     const label = (u: { email?: string; username?: string } | null): string | undefined => u?.email || u?.username;

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The CLI's service-account provisioning (#12) — what `store-token` uses to turn
+ * The CLI's service-account provisioning — what `store-token` uses to turn
  * "store a credential" into "give the org a machine identity and issue it a key".
  *
  * The behaviours that matter here are the ones an operator gets wrong or that

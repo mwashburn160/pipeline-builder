@@ -4,16 +4,16 @@
 /**
  * Tenancy scoping and cache/context policy for reporting reads.
  *
- * These were private methods on ReportingService. They hold no instance state —
- * only the module-level logger and timeseries cache — so they are plain
- * functions here, which is what lets the per-domain query modules (dora.ts)
- * use the identical scoping rules without reaching back into the class.
+ * Plain functions (no instance state — only the module-level logger and
+ * timeseries cache) so the per-domain query modules (dora.ts) use the identical
+ * scoping rules as ReportingService.
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { timeseriesCache } from './caches.js';
-import { runWithTenantContext } from '../../database/tenancy.js';
+import { resultRows } from '../../database/pg-result.js';
+import { runWithTenantContext, withTenantTx } from '../../database/tenancy.js';
 
 const logger = createLogger('reporting-service');
 
@@ -64,4 +64,13 @@ export function runReport<T>(cacheKey: string, multi: boolean, exec: () => Promi
     : timeseriesCache.getOrSet(cacheKey, exec);
 }
 
-/** 1.1 Execution count per pipeline with status breakdown. */
+/**
+ * One org-scoped report read: build the SQL from the org-scope predicate, run it
+ * in the tenant transaction and return the rows, through {@link runReport}'s
+ * cache/rollup policy. `key` is the cache key below the org.
+ */
+export function report<T>(key: string, orgId: string, orgIds: string[] | undefined, query: (pred: SQL) => SQL): Promise<T[]> {
+  const { pred, multi } = orgScope(orgId, orgIds);
+  const exec = () => withTenantTx((tx) => tx.execute(query(pred))).then((r) => resultRows<T>(r));
+  return runReport(`${orgId}:${key}`, multi, exec);
+}

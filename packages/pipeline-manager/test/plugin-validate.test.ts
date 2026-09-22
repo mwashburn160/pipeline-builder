@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `plugin validate` (plugin-ecosystem W6, §3.1a): the server's schemas (shared
+ * `plugin validate`: the server's schemas (shared
  * from api-core), the template contract, and the catalog report — which field
  * would be empty or invalid, and where each value would come from.
  */
@@ -99,7 +99,7 @@ describe('validatePluginDir — server checks', () => {
   });
 });
 
-describe('validatePluginDir — malware heuristics (plugin-ecosystem E8)', () => {
+describe('validatePluginDir — malware heuristics', () => {
   it('runs the anonymous-submission heuristics over every file, lint or not', async () => {
     const clean = await validatePluginDir(write({ 'plugin-spec.yaml': SPEC, 'Dockerfile': 'FROM x\n' }), { lint: false });
     expect(clean.heuristics).toEqual([]);
@@ -116,7 +116,7 @@ describe('validatePluginDir — malware heuristics (plugin-ecosystem E8)', () =>
   });
 });
 
-describe('validatePluginDir — catalog detection (§3.1a)', () => {
+describe('validatePluginDir — catalog detection', () => {
   it('reports each field with the source the server would use', async () => {
     const r = await validatePluginDir(write({
       'plugin-spec.yaml': `${SPEC}license: MIT\nhomepageUrl: http://insecure.example.com\n`,

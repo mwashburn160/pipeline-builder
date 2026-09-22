@@ -184,7 +184,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
         </IconButton>
         <div className="text-center py-8 text-fg-muted">
           {scanError ?? 'Scan not found.'}
-          {scanError && <Button variant="link" onClick={fetchScan} className="ml-2 text-red-600 dark:text-red-400">Retry</Button>}
+          {scanError && <Button variant="link" onClick={fetchScan} className="ml-2 text-danger">Retry</Button>}
         </div>
       </div>
     );
@@ -220,7 +220,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
         return canExempt ? (
           <button
             onClick={() => openExempt(entry)}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-warning bg-warning-bg hover:bg-warning-bg transition-colors"
             title="Request an exemption for this violation"
           >
             <ShieldOff className="h-3.5 w-3.5" /> Exempt

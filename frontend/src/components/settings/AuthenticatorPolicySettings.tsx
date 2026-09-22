@@ -104,7 +104,7 @@ export function AuthenticatorPolicySettings({ orgId, readOnly }: { orgId: string
       const res = await api.updateAuthenticatorPolicy(orgId, { allowedAaguids: list }, stepUpToken);
       if (res.success) {
         toast.success(res.message || 'Authenticator policy saved');
-        read.refetch();
+        void read.refetch();
       }
       setError(null);
     } catch (e) {

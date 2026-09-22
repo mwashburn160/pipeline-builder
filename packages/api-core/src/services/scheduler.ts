@@ -1,16 +1,21 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { withLeaderLock, type LockRedis } from './leader-lock.js';
+import { acquireSharedEnvLock, releaseSharedEnvLock, withLeaderLock, type LockRedis } from './leader-lock.js';
 import { createLogger } from '../utils/logger.js';
 import { errorMessage } from '../utils/response.js';
 
-/** Optional cross-pod single-runner lock for a scheduler's cycle. The redis
- *  client is resolved per cycle. */
+/**
+ * Optional cross-pod single-runner lock for a scheduler's cycle. Without
+ * `redis` the scheduler uses the process's shared env-configured lock client
+ * (taken on `start`, released on `stop`); when Redis isn't configured the cycle
+ * runs on every pod, so the work it wraps must stay safe to run concurrently.
+ * A supplied `redis` factory is resolved per cycle (e.g. a BullMQ connection).
+ */
 export interface SchedulerLock {
-  redis: () => LockRedis;
   key: string;
   ttlMs: number;
+  redis?: () => LockRedis;
 }
 
 export interface SchedulerOptions {
@@ -52,6 +57,9 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
   let startup: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
   let running = false;
+  /** The shared env client this scheduler holds a reference on (own-client locks don't). */
+  let envLock: LockRedis | null = null;
+  let holdsEnvLock = false;
 
   const cycle = async (): Promise<void> => {
     // Same-pod re-entrancy guard: setInterval doesn't await the async cycle, so
@@ -65,8 +73,8 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
     }
     running = true;
     try {
-      if (opts.lock) {
-        const redis = opts.lock.redis();
+      const redis = opts.lock ? (opts.lock.redis ? opts.lock.redis() : envLock) : null;
+      if (opts.lock && redis) {
         const ran = await withLeaderLock(redis, opts.lock.key, opts.lock.ttlMs, opts.run);
         if (!ran) log.debug('Cycle skipped — another pod holds the lock');
       } else {
@@ -90,18 +98,27 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
     start(): void {
       if (interval || startup) return;
       stopped = false;
+      if (opts.lock && !opts.lock.redis && !holdsEnvLock) {
+        envLock = acquireSharedEnvLock();
+        holdsEnvLock = true;
+      }
       if (opts.startupDelayMs && opts.startupDelayMs > 0) {
         startup = setTimeout(() => { startup = null; begin(); }, opts.startupDelayMs);
         startup.unref();
       } else {
         begin();
       }
-      log.info('Scheduler started', { intervalMs: opts.intervalMs, locked: !!opts.lock });
+      log.info('Scheduler started', { intervalMs: opts.intervalMs, locked: !!opts.lock && (!!opts.lock.redis || !!envLock) });
     },
     stop(): void {
       stopped = true;
       if (startup) { clearTimeout(startup); startup = null; }
       if (interval) { clearInterval(interval); interval = null; }
+      if (holdsEnvLock) {
+        holdsEnvLock = false;
+        envLock = null;
+        void releaseSharedEnvLock();
+      }
       log.info('Scheduler stopped');
     },
   };

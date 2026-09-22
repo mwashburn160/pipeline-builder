@@ -15,8 +15,8 @@ interface CodeBlockProps {
 
 /**
  * A dark, monospace command/endpoint block with an optional language badge and a
- * copy button — replaces the hand-rolled `<pre className="bg-gray-50 …">` blocks
- * (api-catalog auth snippet, incident webhook endpoints, CLI commands).
+ * copy button (api-catalog auth snippet, incident webhook endpoints, CLI
+ * commands).
  */
 export function CodeBlock({ code, language, copyable = true, className = '' }: CodeBlockProps) {
   return (

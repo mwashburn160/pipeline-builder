@@ -3,7 +3,7 @@
 
 /**
  * The registry-only credential an anonymous submission's build runs with
- * (plugin ecosystem §4.2, E21).
+ *.
  *
  * The quarantine buildkitd executes untrusted code, and a build sees whatever
  * credential its session carries. So the plugin service never hands it a

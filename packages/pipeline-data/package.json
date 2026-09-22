@@ -190,7 +190,7 @@
           "default",
           "^default",
           "sharedGlobals",
-          "{workspaceRoot}/deploy/**/*",
+          "{workspaceRoot}/deploy/shared/postgres-init.sql",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]
@@ -200,7 +200,7 @@
           "default",
           "^default",
           "sharedGlobals",
-          "{workspaceRoot}/deploy/**/*",
+          "{workspaceRoot}/deploy/shared/postgres-init.sql",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The SCIM HTTP layer (3b), with the service mocked — so what is under test is
+ * The SCIM HTTP layer, with the service mocked — so what is under test is
  * the contract with the identity provider, not the provisioning policy:
  *
  *   - status codes and headers: 201 + `Location` on create, 204 with no body on
@@ -58,7 +58,9 @@ const svc = {
   resourceTypes: jest.fn<() => Promise<unknown>>(async () => ({ schemas: ['types'] })),
   schemas: jest.fn<() => Promise<unknown>>(async () => ({ schemas: ['schemas'] })),
 };
-jest.unstable_mockModule('../src/services/scim-service.js', () => svc);
+jest.unstable_mockModule('../src/services/scim-users.js', () => svc);
+jest.unstable_mockModule('../src/services/scim-groups.js', () => svc);
+jest.unstable_mockModule('../src/services/scim-discovery.js', () => svc);
 
 const ctl = await import('../src/controllers/scim.js');
 const { scimSeatLimit, scimNotEntitled, scimUniqueness } = await import('../src/services/scim-errors.js');

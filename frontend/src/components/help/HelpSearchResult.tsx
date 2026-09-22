@@ -72,7 +72,7 @@ export function HelpSearchResultCard({ result, query, defaultOpen = false }: Hel
             {/* Section ids aren't unique within a generated topic (two `overview`s). */}
             {sections.map(({ section, snippet }, i) => (
               <li key={`${section.id}:${i}`} className="text-xs leading-relaxed">
-                <span className="font-medium text-gray-800 dark:text-gray-200">
+                <span className="font-medium text-fg">
                   <Highlighted text={section.title} term={query} />
                 </span>
                 <span className="text-fg-subtle"> — </span>

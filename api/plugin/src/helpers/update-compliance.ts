@@ -17,7 +17,7 @@ const complianceClient = createComplianceClient();
 /**
  * Editable fields whose change can alter a plugin's compliance posture:
  * `visibility`, and the inventory `tags` (CIS 2.1) derived from `keywords` and
- * `labels`. The execution contract is not editable on update (G56), so a
+ * `labels`. The execution contract is not editable on update, so a
  * descriptive-only edit (summary, links, README, lifecycle, …) keeps the same
  * posture and shouldn't pay a round-trip or be blocked by a compliance outage.
  */

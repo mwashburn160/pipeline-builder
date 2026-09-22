@@ -20,7 +20,7 @@ export interface AuditQuickFilter {
   patterns: readonly string[];
 }
 
-/** The group definitions — the single source of truth (plan §5c "UI"). */
+/** The group definitions — the single source of truth. */
 export const AUDIT_QUICK_FILTERS: Readonly<Record<AuditQuickFilterKey, AuditQuickFilter>> = {
   ecosystem: {
     key: 'ecosystem',

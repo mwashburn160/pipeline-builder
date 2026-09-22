@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Ecosystem console panels (plan §3.0, §3.0.1, §3.0.2):
+ * Ecosystem console panels:
  *  - the queue's overview reports the server's approver standing and warns below
  *    two (and below the staffing minimum of three);
  *  - Verified applications show the automatic eligibility checks;
@@ -546,7 +546,7 @@ const eligibility = (over: Partial<Record<'plan' | 'domain' | 'owner_mfa', boole
   };
 };
 
-describe('Verified eligibility checks (plan §3.7)', () => {
+describe('Verified eligibility checks', () => {
   it('each application row shows the checks as recorded when it was submitted', async () => {
     api.listEcosystemRequests.mockResolvedValue({
       success: true,
@@ -586,7 +586,7 @@ describe('Verified eligibility checks (plan §3.7)', () => {
   });
 });
 
-describe('Per-request eligible approvers (plan §3.0.1)', () => {
+describe('Per-request eligible approvers', () => {
   it('says how many managers can decide after the requester\'s conflicts, and when a superadmin is needed', async () => {
     render(<PublishQueuePanel can={canAll} />);
     const item = { ...baseItem, requiresTwoPerson: true };

@@ -93,10 +93,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getBuildDuration: mockGetBuildDuration,
     getBuildFailures: mockGetBuildFailures,
     getPluginRuntime: mockGetPluginRuntime,
-    // Phase 8: the per-org build reports resolve the org's effective retention
+    // The per-org build reports resolve the org's effective retention
     // cap (resolveOrgMaxRangeMs) before parsing the date range. Default org (no
     // override) → the env-default event window.
-    getIncidentSettings: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({
+    getReportingSettings: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({
       eventRetentionDays: null,
       doraRetentionDays: null,
       defaultEventRetentionDays: 30,
@@ -105,7 +105,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   },
 }));
 
-const { sendSuccess, sendBadRequest } = await import('@pipeline-builder/api-core');
+const { sendSuccess, sendBadRequest, requireSystemAdmin } = await import('@pipeline-builder/api-core');
 const { createPluginReportRoutes, parsePluginRuntimeFilter } = await import('../src/routes/plugin-reports.js');
 
 describe('Plugin Report Routes', () => {
@@ -117,8 +117,15 @@ describe('Plugin Report Routes', () => {
   });
 
   function getHandler(path: string) {
-    return router.stack.find((l: any) => l.route?.path === path)?.route?.stack[0]?.handle;
+    // The LAST layer is the withRoute handler; gated routes put their gate first.
+    const stack = router.stack.find((l: any) => l.route?.path === path)?.route?.stack;
+    return stack?.[stack.length - 1]?.handle;
   }
+
+  it('gates /build-failures on the shared requireSystemAdmin middleware', () => {
+    const stack = router.stack.find((l: any) => l.route?.path === '/build-failures')?.route?.stack;
+    expect(stack[0].handle).toBe(requireSystemAdmin);
+  });
 
   describe('GET /summary', () => {
     it('should return plugin summary', async () => {
@@ -251,7 +258,7 @@ describe('Plugin Report Routes', () => {
     });
   });
 
-  // Plugin RUNTIME telemetry (W0.1): both routes read the one per-version
+  // Plugin RUNTIME telemetry: both routes read the one per-version
   // aggregate and project their half of it.
   describe('GET /runtime-success-rate and /runtime-duration', () => {
     const row = {

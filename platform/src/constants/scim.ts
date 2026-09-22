@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SCIM 2.0 protocol constants (3b) — schema URNs, the media type, the paging
+ * SCIM 2.0 protocol constants — schema URNs, the media type, the paging
  * bounds and the per-request member cap.
  *
  * Deliberately a module with NO imports, for the same reason
@@ -18,7 +18,6 @@ export const SCIM_CONTENT_TYPE = 'application/scim+json';
 export const SCIM_USER_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:User';
 export const SCIM_GROUP_SCHEMA = 'urn:ietf:params:scim:schemas:core:2.0:Group';
 export const SCIM_LIST_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:ListResponse';
-export const SCIM_PATCH_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:PatchOp';
 export const SCIM_ERROR_SCHEMA = 'urn:ietf:params:scim:api:messages:2.0:Error';
 
 /** Page size when the client doesn't ask, and the ceiling when it asks for more.

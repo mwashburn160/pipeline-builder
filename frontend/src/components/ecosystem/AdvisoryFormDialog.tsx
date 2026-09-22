@@ -39,7 +39,7 @@ interface Props {
 }
 
 /**
- * The advisory form (plan W8) shared by the publisher's "Submit advisory"
+ * The advisory form shared by the publisher's "Submit advisory"
  * request and the console's new-draft / edit-draft dialogs. The details are
  * raw markdown — edited here as text, never rendered (the server renders and
  * sanitizes them into `detailsHtml`).

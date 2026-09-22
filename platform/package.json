@@ -164,8 +164,7 @@
       "!src/services/index.ts",
       "!src/services/token-signing/signer.ts",
       "!src/types/index.ts",
-      "!src/types/jwt.ts",
-      "!src/utils/index.ts"
+      "!src/types/jwt.ts"
     ],
     "coverageThreshold": {
       "global": {
@@ -174,7 +173,7 @@
         "functions": 78,
         "lines": 86
       },
-      "**/src/services/scim-service.ts": {
+      "**/src/services/scim-*.ts": {
         "statements": 95,
         "branches": 95,
         "functions": 95,
@@ -208,8 +207,7 @@
           "default",
           "^default",
           "sharedGlobals",
-          "{workspaceRoot}/deploy/**/*",
-          "{workspaceRoot}/docs/**/*",
+          "{workspaceRoot}/deploy/*/*/k8s/per-org/*",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]
@@ -219,8 +217,7 @@
           "default",
           "^default",
           "sharedGlobals",
-          "{workspaceRoot}/deploy/**/*",
-          "{workspaceRoot}/docs/**/*",
+          "{workspaceRoot}/deploy/*/*/k8s/per-org/*",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]

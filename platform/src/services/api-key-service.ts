@@ -32,8 +32,9 @@ import { MFA_REQUIRED_FOR_ORG } from './auth-errors.js';
 import { PROFILE_PAT_LIMIT, PROFILE_USER_NOT_FOUND } from './user-errors.js';
 import type { ClientInfo } from '../helpers/client-info.js';
 import { publishAccessKeyRevocation } from '../helpers/session-revocation.js';
-import { PersonalAccessToken, User, type PersonalAccessTokenDocument } from '../models/index.js';
-import { enforceOrgAssurance, membershipForOrg, signApiKeyToken, signServiceAccountToken, type SessionAuth } from '../utils/token.js';
+import { PersonalAccessToken, User, type PersonalAccessTokenData } from '../models/index.js';
+import { enforceOrgAssurance, signApiKeyToken, signServiceAccountToken, type SessionAuth } from './session/access-tokens.js';
+import { membershipForOrg } from './session/membership-context.js';
 
 const logger = createLogger('api-key-service');
 
@@ -172,7 +173,7 @@ export interface RevokeSiblingSuccess {
 export type RevokeSiblingResult = RevokeSiblingSuccess | { ok: false; reason: RotationRefusal };
 
 function toView(
-  doc: PersonalAccessTokenDocument & { _id: unknown },
+  doc: PersonalAccessTokenData & { _id: unknown },
   serviceAccountName?: string | null,
 ): AccessKeyView {
   const now = Date.now();
@@ -191,7 +192,7 @@ function toView(
     serviceAccountName: serviceAccountName ?? null,
     scope: doc.scope ?? null,
     permissions: Array.isArray(doc.permissions) ? [...doc.permissions] : null,
-    organizationId: doc.organizationId ?? null,
+    organizationId: doc.organizationId ? String(doc.organizationId) : null,
     ipAllowlist: doc.ipAllowlist && doc.ipAllowlist.length > 0 ? [...doc.ipAllowlist] : null,
     createdAt: (doc.createdAt instanceof Date ? doc.createdAt : new Date(doc.createdAt)).toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -262,13 +263,13 @@ class ApiKeyService {
       ...(auth.aaguid ? { aaguid: auth.aaguid } : {}),
       ...(auth.aalAssertedBy ? { aalAssertedBy: auth.aalAssertedBy } : {}),
     });
-    return { key, view: toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown }) };
+    return { key, view: toView(doc) };
   }
 
   /** The user's keys, newest first (metadata only — never the secret). */
   async list(userId: string): Promise<AccessKeyView[]> {
     const docs = await PersonalAccessToken.find({ userId }).sort({ createdAt: -1 }).lean();
-    return docs.map((d) => toView(d as unknown as PersonalAccessTokenDocument & { _id: unknown }));
+    return docs.map((d) => toView(d));
   }
 
   // -------------------------------------------------------------------------
@@ -311,7 +312,7 @@ class ApiKeyService {
       aal: 1,
       authTime: new Date(),
     });
-    return { key, view: toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown }) };
+    return { key, view: toView(doc) };
   }
 
   /** A service account's keys, newest first (metadata only). */
@@ -331,7 +332,7 @@ class ApiKeyService {
     if (ids.length === 0) return byAccount;
     const docs = await PersonalAccessToken.find({ serviceAccountId: { $in: ids } }).sort({ createdAt: -1 }).lean();
     for (const d of docs) {
-      const doc = d as unknown as PersonalAccessTokenDocument & { _id: unknown };
+      const doc = d;
       const key = String(doc.serviceAccountId);
       const held = byAccount.get(key) ?? [];
       held.push(toView(doc));
@@ -359,7 +360,7 @@ class ApiKeyService {
     if (!doc) return null;
     // Its live exchanged token dies now, everywhere (`revoke:key:<id>`).
     await publishAccessKeyRevocation(id);
-    return toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown });
+    return toView(doc);
   }
 
   /** Delete every key of the given service accounts (account delete). The ORG
@@ -383,7 +384,7 @@ class ApiKeyService {
     // The key's live exchanged token (`jti` = key id) dies now, everywhere:
     // platform checks the record; other services read `revoke:key:<id>`.
     await publishAccessKeyRevocation(id);
-    return toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown });
+    return toView(doc);
   }
 
   /**
@@ -431,7 +432,7 @@ class ApiKeyService {
 
     let membership;
     if (record.organizationId) {
-      membership = await membershipForOrg(String(record.userId), record.organizationId);
+      membership = await membershipForOrg(String(record.userId), String(record.organizationId));
       // No live membership (removed / deactivated / ownership moved) or a
       // soft-deleted org: the key's authority is gone. Refuse rather than issue
       // an org-less token that would silently act outside any tenant.
@@ -485,7 +486,7 @@ class ApiKeyService {
       userId: String(user._id),
       userEmail: user.email,
       principalType: 'user',
-      ...(record.organizationId ? { organizationId: record.organizationId } : {}),
+      ...(record.organizationId ? { organizationId: String(record.organizationId) } : {}),
       ...(scope ? { scope } : {}),
     };
   }
@@ -501,7 +502,7 @@ class ApiKeyService {
    * `lastUsedAt` stamp happen here.
    */
   private async exchangeServiceAccountKey(
-    record: PersonalAccessTokenDocument & { _id: unknown },
+    record: PersonalAccessTokenData & { _id: unknown },
     presentedIp?: string,
   ): Promise<ExchangeResult> {
     // Lazily imported: service-account-service imports THIS module for its key
@@ -712,7 +713,7 @@ class ApiKeyService {
    */
   private async resolveRotationRecord(
     rawKey: string,
-  ): Promise<{ ok: true; doc: PersonalAccessTokenDocument & { _id: unknown } } | { ok: false; reason: RotationRefusal }> {
+  ): Promise<{ ok: true; doc: PersonalAccessTokenData & { _id: unknown } } | { ok: false; reason: RotationRefusal }> {
     if (!isOpaqueApiKey(rawKey)) return { ok: false, reason: 'malformed' };
     if (apiKeyPrefixOf(rawKey) !== 'pb_sa') return { ok: false, reason: 'not_service_account' };
     const record = await PersonalAccessToken.findOne({ keyHash: hashApiKey(rawKey) }).lean();
@@ -720,7 +721,7 @@ class ApiKeyService {
     if (record.revoked) return { ok: false, reason: 'revoked' };
     if (new Date(record.expiresAt).getTime() <= Date.now()) return { ok: false, reason: 'expired' };
     if (!record.serviceAccountId) return { ok: false, reason: 'orphan_key' };
-    return { ok: true, doc: record as unknown as PersonalAccessTokenDocument & { _id: unknown } };
+    return { ok: true, doc: record };
   }
 
   /** Revoke every live key a user holds (sign out everywhere, account teardown). */

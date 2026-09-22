@@ -19,6 +19,237 @@ import { relaxTlsForCli } from '../utils/tls.js';
 
 const { bold, cyan, dim, green } = pico;
 
+/** Parsed `pipeline create` flags. */
+interface CreatePipelineOptions {
+  file: string;
+  project?: string;
+  organization?: string;
+  name?: string;
+  visibility?: CreatePipelineRequest['visibility'];
+  default?: boolean;
+  active?: boolean;
+  deploy?: boolean;
+  requireApproval: string;
+  output: string;
+  profile?: string;
+  region?: string;
+  verifySsl?: boolean;
+  dryRun?: boolean;
+  storeTokens?: boolean;
+}
+
+/** Validate the props file (exists, size cap) and parse it as a JSON object. */
+function readPropsFile(file: string): Record<string, unknown> {
+  console.log('');
+  printSection('File Validation');
+
+  if (!fs.existsSync(file)) {
+    printError('Properties file not found', { path: file });
+    throw new ValidationError(`File not found: ${file}`, 'file');
+  }
+
+  const fileExt = path.extname(file).toLowerCase();
+  if (fileExt !== '.json') {
+    printWarning('File extension is not .json', { extension: fileExt });
+  }
+
+  const fileStats = fs.statSync(file);
+  if (fileStats.size > FILE_SIZE_LIMITS.PIPELINE_PROPS) {
+    printError('Properties file is too large', {
+      size: formatFileSize(fileStats.size),
+      limit: formatFileSize(FILE_SIZE_LIMITS.PIPELINE_PROPS),
+    });
+    throw new ValidationError('Properties file exceeds size limit', 'file');
+  }
+
+  printSuccess('File validation passed');
+  printKeyValue({
+    'File Path': file,
+    'File Size': formatFileSize(fileStats.size),
+    'Extension': fileExt,
+  });
+
+  console.log('');
+  printInfo('Reading pipeline properties...');
+
+  let props: Record<string, unknown>;
+  try {
+    props = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  } catch (error) {
+    printError('Invalid JSON in properties file', {
+      error: errorMessage(error),
+      hint: 'Ensure the file contains valid JSON syntax',
+    });
+    throw new ValidationError('Properties file must contain valid JSON', 'file');
+  }
+
+  if (typeof props !== 'object' || props === null) {
+    printError('Invalid properties format', {
+      type: typeof props,
+      hint: 'Properties must be a JSON object',
+    });
+    throw new ValidationError('Properties must be a valid object', 'file');
+  }
+
+  const propCount = Object.keys(props).length;
+  printSuccess('Properties parsed successfully');
+  printKeyValue({
+    'Total Keys': propCount.toString(),
+    'Sample Keys': Object.keys(props).slice(0, 5).join(', ') + (propCount > 5 ? '...' : ''),
+  });
+  if (propCount === 0) {
+    printWarning('Properties object is empty - pipeline will have no configuration');
+  }
+  return props;
+}
+
+/**
+ * Build the create request. Project & organization prefer the CLI flags and
+ * fall back to values embedded in the props file (builderProps).
+ */
+function buildCreatePayload(options: CreatePipelineOptions, props: Record<string, unknown>): CreatePipelineRequest {
+  const resolvedProject = options.project ?? (props.project as string | undefined);
+  const resolvedOrganization = options.organization ?? (props.organization as string | undefined);
+
+  if (!resolvedProject) {
+    printError('Project is required', {
+      hint: 'Provide -p/--project flag or include "project" in the props file',
+    });
+    throw new ValidationError('Project is required', 'project');
+  }
+  if (!resolvedOrganization) {
+    printError('Organization is required', {
+      hint: 'Provide -o/--organization flag or include "organization" in the props file',
+    });
+    throw new ValidationError('Organization is required', 'organization');
+  }
+
+  // Resolve pipelineName with the shared default (mirrors pipeline-core's
+  // pipeline-configuration.ts) so create + registry + CDK all agree.
+  const resolvedPipelineName = options.name
+    ?? (props.pipelineName as string | undefined)
+    ?? defaultPipelineName(resolvedOrganization, resolvedProject);
+
+  const payload: CreatePipelineRequest = {
+    project: resolvedProject,
+    organization: resolvedOrganization,
+    pipelineName: resolvedPipelineName,
+    props,
+  };
+  if (options.visibility) payload.visibility = options.visibility;
+  if (options.default !== undefined) payload.isDefault = options.default;
+  if (options.active !== undefined) payload.isActive = options.active;
+  return payload;
+}
+
+/** Print the request that would be sent, for `--dry-run`. */
+function printDryRun(options: CreatePipelineOptions, payload: CreatePipelineRequest): void {
+  console.log('');
+  printSection('Dry Run - Request Preview');
+  console.log(JSON.stringify(payload, null, 2));
+  console.log('');
+  printSuccess('✓ Validation complete - no pipeline created (dry run mode)');
+  console.log('');
+  if (options.deploy) {
+    printInfo('With --deploy, the pipeline would be deployed via CDK after creation', {
+      profile: options.profile || '(default)',
+      region: options.region || '(default)',
+      requireApproval: options.requireApproval,
+    });
+  }
+  printInfo('To create the pipeline, run the command without --dry-run');
+}
+
+/** Print the created pipeline and save it to `./output/pipeline-<id>.json`. */
+function reportCreatedPipeline(pipeline: Pipeline, executionId: string, requestDuration: number, startTime: number): void {
+  console.log('');
+  printSection('✓ Pipeline Created Successfully');
+  printKeyValue({
+    'Pipeline ID': green(bold(pipeline.id)),
+    'Project': pipeline.project,
+    'Organization': pipeline.organization,
+    'Name': pipeline.pipelineName || '(not set)',
+    'Visibility': pipeline.visibility || 'org',
+    'Default': pipeline.isDefault ? 'Yes' : 'No',
+    'Active': pipeline.isActive ? 'Yes' : 'No',
+    'Properties': pipeline.props ? `${Object.keys(pipeline.props).length} keys` : '(not returned)',
+  });
+
+  if (pipeline.createdAt) {
+    console.log('');
+    printKeyValue({ 'Created At': pipeline.createdAt });
+  }
+
+  console.log('');
+  printKeyValue({
+    'Execution ID': executionId,
+    'Request Duration': formatDuration(requestDuration),
+    'Total Duration': formatDuration(Date.now() - startTime),
+  });
+
+  const outputDir = './output';
+  ensureOutputDirectory(outputDir);
+  const outputFile = path.join(outputDir, `pipeline-${pipeline.id}.json`);
+  fs.writeFileSync(outputFile, JSON.stringify(pipeline, null, 2));
+
+  console.log('');
+  printSuccess('Pipeline details saved to file');
+  printKeyValue({
+    'Output File': outputFile,
+    'File Size': formatFileSize(fs.statSync(outputFile).size),
+  });
+}
+
+/**
+ * `--deploy`: run the same CDK deploy + ARN registration as `pipeline deploy
+ * --id`. The record already exists and is authoritative: if the deploy fails it
+ * is KEPT and the exact retry is surfaced rather than rolled back (never
+ * false-green).
+ */
+async function deployCreatedPipeline(
+  options: CreatePipelineOptions,
+  pipelineId: string,
+  executionId: string,
+  debug: boolean | undefined,
+): Promise<void> {
+  console.log('');
+  printSection('Deploying Pipeline');
+  try {
+    // Deploy touches the AWS SDK + the CDK synth subprocess; relax TLS the
+    // same way `deploy` does (refused in production by relaxTlsForCli).
+    relaxTlsForCli(options.verifySsl, printWarning);
+    // The async client adds --store-tokens (Secrets Manager) support and
+    // backs BOTH the props fetch and the registry callback.
+    const deployClient = await createAuthenticatedClientAsync(options);
+    const deployConfig = deployClient.getConfig() as PlatformDeployConfig;
+    // Re-fetch the just-created pipeline so plugins are resolved and the
+    // registry host is baked EXACTLY as `deploy --id` does — no drift.
+    const fetched = await fetchPipelineProps(deployClient, pipelineId);
+    await runDeploy({
+      pipeline: fetched.pipeline,
+      propsWithIds: fetched.propsWithIds,
+      profile: options.profile,
+      region: options.region,
+      requireApproval: options.requireApproval,
+      output: options.output,
+      debug,
+      executionId,
+      platformClient: deployClient,
+      platformPipelineUrl: deployConfig.api.pipelineUrl,
+      platformBaseUrl: deployConfig.api.baseUrl,
+    });
+  } catch (deployError) {
+    printError('Pipeline was created but the deploy failed', {
+      pipelineId,
+      error: errorMessage(deployError),
+      retry: `pipeline-manager pipeline deploy --id ${pipelineId}`,
+    });
+    // Re-throw so the process exits non-zero. The record is intentionally
+    // retained — re-run the deploy with the command above.
+    throw deployError;
+  }
+}
+
 /**
  * Registers the `create-pipeline` command with the CLI program.
  *
@@ -52,7 +283,7 @@ export function createPipeline(program: Command): void {
     ),
   )
     .option('--dry-run', 'Validate inputs without creating pipeline', false)
-    .action(async (options) => {
+    .action(async (options: CreatePipelineOptions) => {
       const executionId = printCommandHeader('Create Pipeline', 'Creating Pipeline');
       const startTime = Date.now();
 
@@ -76,136 +307,11 @@ export function createPipeline(program: Command): void {
         // Security warning for SSL verification disabled
         printSslWarning(options.verifySsl);
 
-        console.log('');
-        printSection('File Validation');
+        const props = readPropsFile(options.file);
+        const payload = buildCreatePayload(options, props);
 
-        // Validate file exists
-        if (!fs.existsSync(options.file)) {
-          printError('Properties file not found', { path: options.file });
-          throw new ValidationError(`File not found: ${options.file}`, 'file');
-        }
-
-        // Check file extension
-        const fileExt = path.extname(options.file).toLowerCase();
-        if (fileExt !== '.json') {
-          printWarning('File extension is not .json', { extension: fileExt });
-        }
-
-        const fileStats = fs.statSync(options.file);
-
-        // Check file size
-        if (fileStats.size > FILE_SIZE_LIMITS.PIPELINE_PROPS) {
-          printError('Properties file is too large', {
-            size: formatFileSize(fileStats.size),
-            limit: formatFileSize(FILE_SIZE_LIMITS.PIPELINE_PROPS),
-          });
-          throw new ValidationError('Properties file exceeds size limit', 'file');
-        }
-
-        printSuccess('File validation passed');
-        printKeyValue({
-          'File Path': options.file,
-          'File Size': formatFileSize(fileStats.size),
-          'Extension': fileExt,
-        });
-
-        // Read and parse properties file
-        console.log('');
-        printInfo('Reading pipeline properties...');
-
-        const fileContent = fs.readFileSync(options.file, 'utf-8');
-
-        let props: Record<string, unknown>;
-        try {
-          props = JSON.parse(fileContent);
-        } catch (error) {
-          printError('Invalid JSON in properties file', {
-            error: errorMessage(error),
-            hint: 'Ensure the file contains valid JSON syntax',
-          });
-          throw new ValidationError('Properties file must contain valid JSON', 'file');
-        }
-
-        // Validate properties structure
-        if (typeof props !== 'object' || props === null) {
-          printError('Invalid properties format', {
-            type: typeof props,
-            hint: 'Properties must be a JSON object',
-          });
-          throw new ValidationError('Properties must be a valid object', 'file');
-        }
-
-        const propCount = Object.keys(props).length;
-
-        printSuccess('Properties parsed successfully');
-        printKeyValue({
-          'Total Keys': propCount.toString(),
-          'Sample Keys': Object.keys(props).slice(0, 5).join(', ') + (propCount > 5 ? '...' : ''),
-        });
-
-        // Validate properties content
-        if (propCount === 0) {
-          printWarning('Properties object is empty - pipeline will have no configuration');
-        }
-
-        // Resolve project & organization: prefer CLI flags, fall back to
-        // values embedded inside the props file (builderProps).
-        const resolvedProject = options.project ?? (props.project as string | undefined);
-        const resolvedOrganization = options.organization ?? (props.organization as string | undefined);
-
-        if (!resolvedProject) {
-          printError('Project is required', {
-            hint: 'Provide -p/--project flag or include "project" in the props file',
-          });
-          throw new ValidationError('Project is required', 'project');
-        }
-        if (!resolvedOrganization) {
-          printError('Organization is required', {
-            hint: 'Provide -o/--organization flag or include "organization" in the props file',
-          });
-          throw new ValidationError('Organization is required', 'organization');
-        }
-
-        // Resolve pipelineName with the shared default (mirrors pipeline-core's
-        // pipeline-configuration.ts) so create + registry + CDK all agree.
-        const resolvedPipelineName = options.name
-          ?? (props.pipelineName as string | undefined)
-          ?? defaultPipelineName(resolvedOrganization, resolvedProject);
-
-        const payload: CreatePipelineRequest = {
-          project: resolvedProject,
-          organization: resolvedOrganization,
-          pipelineName: resolvedPipelineName,
-          props,
-        };
-
-        // Add optional fields only if provided
-        if (options.visibility) {
-          payload.visibility = options.visibility;
-        }
-        if (options.default !== undefined) {
-          payload.isDefault = options.default;
-        }
-        if (options.active !== undefined) {
-          payload.isActive = options.active;
-        }
-
-        // Dry run mode
         if (options.dryRun) {
-          console.log('');
-          printSection('Dry Run - Request Preview');
-          console.log(JSON.stringify(payload, null, 2));
-          console.log('');
-          printSuccess('✓ Validation complete - no pipeline created (dry run mode)');
-          console.log('');
-          if (options.deploy) {
-            printInfo('With --deploy, the pipeline would be deployed via CDK after creation', {
-              profile: options.profile || '(default)',
-              region: options.region || '(default)',
-              requireApproval: options.requireApproval,
-            });
-          }
-          printInfo('To create the pipeline, run the command without --dry-run');
+          printDryRun(options, payload);
           return;
         }
 
@@ -242,90 +348,10 @@ export function createPipeline(program: Command): void {
           throw new Error('Pipeline creation failed - no valid pipeline data received');
         }
 
-        console.log('');
-        printSection('✓ Pipeline Created Successfully');
+        reportCreatedPipeline(pipeline, executionId, requestDuration, startTime);
 
-        // Display created pipeline info
-        printKeyValue({
-          'Pipeline ID': green(bold(pipeline.id)),
-          'Project': pipeline.project,
-          'Organization': pipeline.organization,
-          'Name': pipeline.pipelineName || '(not set)',
-          'Visibility': pipeline.visibility || 'org',
-          'Default': pipeline.isDefault ? 'Yes' : 'No',
-          'Active': pipeline.isActive ? 'Yes' : 'No',
-          'Properties': pipeline.props ? `${Object.keys(pipeline.props).length} keys` : '(not returned)',
-        });
-
-        if (pipeline.createdAt) {
-          console.log('');
-          printKeyValue({
-            'Created At': pipeline.createdAt,
-          });
-        }
-
-        // Performance metrics
-        console.log('');
-        printKeyValue({
-          'Execution ID': executionId,
-          'Request Duration': formatDuration(requestDuration),
-          'Total Duration': formatDuration(Date.now() - startTime),
-        });
-
-        // Save pipeline info to file
-        const outputDir = './output';
-        ensureOutputDirectory(outputDir);
-
-        const outputFile = path.join(outputDir, `pipeline-${pipeline.id}.json`);
-        fs.writeFileSync(outputFile, JSON.stringify(pipeline, null, 2));
-
-        console.log('');
-        printSuccess('Pipeline details saved to file');
-        printKeyValue({
-          'Output File': outputFile,
-          'File Size': formatFileSize(fs.statSync(outputFile).size),
-        });
-
-        // ── Optional deploy (--deploy) ──
-        // The record now exists and is authoritative. If the deploy fails we KEEP
-        // it and surface the exact retry rather than rolling back (never false-green).
         if (options.deploy) {
-          console.log('');
-          printSection('Deploying Pipeline');
-          try {
-            // Deploy touches the AWS SDK + the CDK synth subprocess; relax TLS the
-            // same way `deploy` does (refused in production by relaxTlsForCli).
-            relaxTlsForCli(options.verifySsl, printWarning);
-            // The async client adds --store-tokens (Secrets Manager) support and
-            // backs BOTH the props fetch and the registry callback.
-            const deployClient = await createAuthenticatedClientAsync(options);
-            const deployConfig = deployClient.getConfig() as PlatformDeployConfig;
-            // Re-fetch the just-created pipeline so plugins are resolved and the
-            // registry host is baked EXACTLY as `deploy --id` does — no drift.
-            const fetched = await fetchPipelineProps(deployClient, pipeline.id);
-            await runDeploy({
-              pipeline: fetched.pipeline,
-              propsWithIds: fetched.propsWithIds,
-              profile: options.profile,
-              region: options.region,
-              requireApproval: options.requireApproval,
-              output: options.output,
-              debug: program.opts().debug,
-              executionId,
-              platformClient: deployClient,
-              platformPipelineUrl: deployConfig.api.pipelineUrl,
-              platformBaseUrl: deployConfig.api.baseUrl,
-            });
-          } catch (deployError) {
-            printError('Pipeline was created but the deploy failed', {
-              pipelineId: pipeline.id,
-              error: errorMessage(deployError),
-              retry: `pipeline-manager pipeline deploy --id ${pipeline.id}`,
-            });
-            // Re-throw so the process exits non-zero. The record is intentionally
-            // retained — re-run the deploy with the command above.
-            throw deployError;
-          }
+          await deployCreatedPipeline(options, pipeline.id, executionId, program.opts().debug);
         }
 
         // Next steps

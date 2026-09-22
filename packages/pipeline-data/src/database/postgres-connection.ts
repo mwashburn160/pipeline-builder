@@ -1,23 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, envBool, envInt, envStr } from '@pipeline-builder/api-core';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool, type PoolConfig } from 'pg';
 import { schema } from './drizzle-schema.js';
 import { ConnectionRetryStrategy } from './retry-strategy.js';
 
 const logger = createLogger('database');
-
-/**
- * Get database configuration from environment variables
- * Note: Uses environment variables directly to avoid circular dependency with pipeline-core
- */
-function parseIntEnv(value: string | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = parseInt(value, 10);
-  return Number.isNaN(parsed) ? fallback : parsed;
-}
 
 /** Detect Lambda environment for pool-size tuning */
 const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_NAME;
@@ -54,7 +44,7 @@ export function getSslConfig(explicit?: ConnectionOptions['ssl']): boolean | { r
   else enabled = process.env.NODE_ENV === 'production';
 
   if (!enabled) return false;
-  return { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true' };
+  return { rejectUnauthorized: envBool('DB_SSL_REJECT_UNAUTHORIZED', false) };
 }
 
 function getDatabaseConfig() {
@@ -64,14 +54,14 @@ function getDatabaseConfig() {
   const defaultIdleTimeout = isLambda ? 10000 : 30000;
 
   return {
-    host: process.env.DB_HOST || 'postgres',
-    port: parseIntEnv(process.env.DB_PORT, 5432),
-    database: process.env.DATABASE || 'pipeline_builder',
-    user: process.env.DB_USER || 'postgres',
+    host: envStr('DB_HOST', 'postgres'),
+    port: envInt('DB_PORT', 5432),
+    database: envStr('DATABASE', 'pipeline_builder'),
+    user: envStr('DB_USER', 'postgres'),
     password: process.env.DB_PASSWORD || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('DB_PASSWORD is required in production'); })() as string : ''),
-    maxPoolSize: parseIntEnv(process.env.DRIZZLE_MAX_POOL_SIZE, defaultPoolSize),
-    idleTimeoutMillis: parseIntEnv(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS, defaultIdleTimeout),
-    connectionTimeoutMillis: parseIntEnv(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS, 5000),
+    maxPoolSize: envInt('DRIZZLE_MAX_POOL_SIZE', defaultPoolSize),
+    idleTimeoutMillis: envInt('DRIZZLE_IDLE_TIMEOUT_MILLIS', defaultIdleTimeout),
+    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MILLIS', 5000),
   };
 }
 
@@ -151,11 +141,11 @@ export class Connection {
     this.options = {
       enableLogging: options.enableLogging ?? true,
       enableAutoRetry: options.enableAutoRetry ?? true,
-      maxRetries: options.maxRetries ?? parseInt(process.env.DB_MAX_RETRIES || '3', 10),
-      retryDelay: options.retryDelay ?? parseInt(process.env.DB_RETRY_DELAY_MS || '1000', 10),
+      maxRetries: options.maxRetries ?? envInt('DB_MAX_RETRIES', 3, { min: 0 }),
+      retryDelay: options.retryDelay ?? envInt('DB_RETRY_DELAY_MS', 1000, { min: 0 }),
       // Env-driven TLS: on-by-default in production, env-enableable elsewhere.
       // getInstance() is normally called with no options, so this is the only
-      // place production RDS connections pick up SSL (formerly hard-coded off).
+      // place production RDS connections pick up SSL.
       ssl: getSslConfig(options.ssl),
     };
 
@@ -269,7 +259,7 @@ export class Connection {
    * @param timeout - Maximum time to wait for connections to close (ms)
    * @returns Promise that resolves when pool is closed
    */
-  public async close(timeout: number = parseIntEnv(process.env.DB_CLOSE_TIMEOUT_MS, 5000)): Promise<void> {
+  public async close(timeout: number = envInt('DB_CLOSE_TIMEOUT_MS', 5000)): Promise<void> {
     if (this.isShuttingDown) {
       logger.warn('Connection is already shutting down');
       return;

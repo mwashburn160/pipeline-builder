@@ -61,13 +61,6 @@ export const DEFAULT_PAGE_LIMIT = envInt('DEFAULT_PAGE_LIMIT', 100, { min: 1 });
  *  (an unbounded offset is a scan-and-discard DoS amplifier on hot list routes). */
 export const MAX_PAGE_OFFSET = envInt('MAX_PAGE_OFFSET', 100000, { min: 0 });
 
-export const PaginationSchema = z.object({
-  limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
-  sortBy: z.string().optional(),
-  sortOrder: SortOrderSchema.optional(),
-});
-
 /**
  * Boolean query parameter schema
  * Handles string "true"/"false" and boolean values

@@ -1,9 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { VALID_TIERS } from '@pipeline-builder/api-core';
+import { VALID_QUOTA_TYPES, VALID_TIERS } from '@pipeline-builder/api-core';
 import { z } from 'zod';
-import { VALID_QUOTA_TYPES } from '../helpers/quota-helpers.js';
 
 const quotaLimit = z.number().int().min(-1);
 

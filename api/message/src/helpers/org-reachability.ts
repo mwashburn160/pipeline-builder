@@ -10,7 +10,6 @@ import {
   resolveRootOrgIdWith,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
 import { resolveOrgNames } from './org-names.js';
 
 const logger = createLogger('org-reachability');
@@ -26,10 +25,10 @@ const logger = createLogger('org-reachability');
 // The "same account" test resolves each side's root org (walking `parentOrgId`
 // up via platform's authoritative `GET /organization/:id/parent`) and compares:
 // two orgs are in the same account iff they share a root. This is SYMMETRIC —
-// exactly "an org you could also receive from". Orgs are flat today
-// (`parentOrgId` null on every row), so each root resolves to itself and the
-// account collapses to `{self}` — i.e. cross-org sends are closed until orgs
-// actually get parents, which is the intended default-closed posture.
+// exactly "an org you could also receive from". A flat org (`parentOrgId`
+// null, no teams) resolves to itself, so its account collapses to `{self}` —
+// cross-org sends stay closed until orgs are linked, the intended
+// default-closed posture.
 //
 // The HTTP mechanics (URL, signed service-token auth, timeout+retry) live in
 // the shared api-core helper; this module only supplies the message service's
@@ -38,10 +37,7 @@ const logger = createLogger('org-reachability');
 
 /** Build the platform org-hierarchy HTTP options for the message service. */
 function hierarchyOptions() {
-  const { services } = Config.get('server');
   return {
-    service: { host: services.platformHost, port: services.platformPort },
-    serviceName: 'message',
     // System-scoped service token: the lookup is a read of the org tree, not a
     // tenant-scoped operation. Never carries an AWS account id.
     authOrgId: SYSTEM_ORG_ID,

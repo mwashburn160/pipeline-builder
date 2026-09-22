@@ -38,6 +38,3 @@ export interface SigningKeySet {
   /** Retiring keys — published for verification only. */
   retiring: SigningKey[];
 }
-
-/** Builds a key set from configuration. Throws when the configuration is unusable. */
-export type SignerFactory = () => Promise<SigningKeySet>;

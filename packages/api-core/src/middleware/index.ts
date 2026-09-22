@@ -4,16 +4,23 @@
 export {
   verifyUserJwt,
   verifyBearerToken,
+  hasValidIdentityClaims,
+} from './jwt-verify.js';
+export {
   requireAuth,
+} from './auth.js';
+export {
   setTokenRevocationStore,
   isAccessTokenRevoked,
-  isHumanPrincipal,
+} from './revocation.js';
+export {
   requireAssurance,
   refuseWeakSession,
-  orgAdminAssuranceRefusal,
   refuseForOrgAdminAssurance,
   requireOrgAdminAssurance,
-  hasValidIdentityClaims,
+  type AssuranceOptions,
+} from './assurance.js';
+export {
   userHasPermission,
   setAuthzDenialAuditor,
   recordAuthzDenial,
@@ -22,11 +29,18 @@ export {
   requirePermissionOrService,
   requireServicePrincipal,
   requireInternalService,
-  isSystemOrgId,
   isSystemAdmin,
   hasScope,
   requireSystemAdmin,
   requireFeature,
+  type AuthzDenialInfo,
+} from './permission-gates.js';
+export {
+  isSystemOrgId,
+  SYSTEM_ORG_ID,
+  SYSTEM_ORG_SLUG,
+} from './system-org.js';
+export {
   serviceNameOf,
   isServiceTokenDenied,
   signServiceToken,
@@ -35,20 +49,13 @@ export {
   isServiceAccountPrincipal,
   isServicePrincipalNamed,
   verifyServicePrincipal,
-  type AssuranceOptions,
-  ORG_ADMIN_MFA_REASON,
-  type AuthzDenialInfo,
-  SYSTEM_ORG_ID,
-  SYSTEM_ORG_SLUG,
-} from './auth.js';
-export * from './ecosystem-guard.js';
+} from './service-tokens.js';
+export { requireSystemOrg, requireEcosystemPermission } from './ecosystem-guard.js';
 export {
   mongoSanitize,
   MAX_SANITIZE_DEPTH,
 } from './mongo-sanitize.js';
 export {
-  verifyStepUpToken,
-  consumeStepUpJti,
   requireStepUp,
   type StepUpMethod,
   STRONG_STEP_UP_METHODS,

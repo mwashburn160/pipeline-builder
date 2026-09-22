@@ -59,7 +59,7 @@ interface ComposeModalProps {
   /** Recently-messaged orgs (most-recent first) for a one-tap quick-pick above the
    *  recipient field. Value = org id, label = name. */
   recentRecipients?: ReadonlyArray<{ value: string; label: string }>;
-  /** Cross-org directory search (#8) — supplied only for sysadmins (who alone may
+  /** Cross-org directory search — supplied only for sysadmins (who alone may
    *  message an org they don't belong to). Feeds the recipient combobox so they can
    *  find any org by name; omitted ⇒ compose stays limited to own/recent orgs. */
   searchRecipients?: (query: string) => Promise<Array<{ value: string; label: string }>>;
@@ -104,7 +104,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   const [content, setContent] = useState('');
   const [validationError, setValidationError] = useState('');
   const [isAnnouncement, setIsAnnouncement] = useState(false);
-  // Optional channel/inbox bucket for an org→org send (#7). Support sends set
+  // Optional channel/inbox bucket for an org→org send. Support sends set
   // their own 'support' channel; this is for everything else. '' = no channel.
   const [channel, setChannel] = useState('');
   // Bumped to REMOUNT the RecipientPicker when a recent-recipient chip sets the
@@ -223,7 +223,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     }
 
     // Channel: support sends use the reserved 'support' channel; other org→org
-    // sends may carry an optional operator-chosen channel (#7). Validate its shape
+    // sends may carry an optional operator-chosen channel. Validate its shape
     // (matches the server's a-z/0-9/-/_ rule) so a bad tag fails fast here.
     const trimmedChannel = channel.trim().toLowerCase();
     if (!isSupportSend && trimmedChannel && !/^[a-z0-9_-]{1,50}$/.test(trimmedChannel)) {
@@ -344,7 +344,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 onClick={() => setIsAnnouncement(true)}
                 className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   isAnnouncement
-                    ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300'
+                    ? 'bg-warning-bg border-warning-border text-warning'
                     : 'border-default text-fg-muted hover:bg-surface-muted'
                 }`}
               >
@@ -353,7 +353,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
             </div>
           )}
 
-          {/* Recent recipients (#1) — one-tap quick-pick of orgs you've messaged. */}
+          {/* Recent recipients — one-tap quick-pick of orgs you've messaged. */}
           {canWrite && !isAnnouncement && recentRecipients.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               <span className="text-xs text-fg-subtle self-center mr-0.5">Recent:</span>
@@ -404,7 +404,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
             )
           )}
 
-          {/* Optional channel/inbox bucket for an org→org send (#7). */}
+          {/* Optional channel/inbox bucket for an org→org send. */}
           {isConcreteRecipient && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-fg-muted shrink-0">Channel (optional):</span>
@@ -484,7 +484,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 text-sm text-fg-muted hover:text-info disabled:opacity-50"
               >
                 <Paperclip className="w-4 h-4" />
                 {uploading ? 'Uploading…' : 'Attach files'}

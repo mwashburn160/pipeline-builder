@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
 import { formatError } from '@/lib/constants';
 import { CheckCircle, MailWarning, User, Building2, Trash2, Clock } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -32,7 +31,7 @@ import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import { decodeJwt } from '@/lib/jwt';
 import { useUrlTab } from '@/hooks/useUrlTab';
-import { SECURITY_HREF, SESSIONS_HREF } from '@/lib/security-links';
+import { SESSIONS_HREF } from '@/lib/security-links';
 
 // Account settings: who you are, and what your organization is configured to do.
 // Each tab is deep-linkable via `?tab=`.
@@ -57,17 +56,6 @@ export default function SettingsPage() {
   // takes `readOnly`). See the note on the Organization tab below.
   const canSeeOrgSettings = hasPermission(user, 'org:settings');
   const canSeeImpersonationPolicy = hasPermission(user, 'org:impersonation');
-  const router = useRouter();
-
-  // `?tab=security` was where factors and sessions used to live. Forward it —
-  // with whatever section the link named — so every bookmark, banner and
-  // enrolment prompt written against the old address still arrives.
-  const movedToSecurity = router.isReady && router.query.tab === 'security';
-  useEffect(() => {
-    if (!movedToSecurity) return;
-    const hash = typeof window !== 'undefined' ? window.location.hash : '';
-    void router.replace(`${SECURITY_HREF}?tab=factors${hash}`);
-  }, [movedToSecurity, router]);
 
   // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
   // shareable / back-forward-friendly — same pattern as the Billing page.
@@ -156,7 +144,7 @@ export default function SettingsPage() {
     }
   };
 
-  if (!isReady || !user || movedToSecurity) return <LoadingPage />;
+  if (!isReady || !user) return <LoadingPage />;
 
   return (
     <DashboardLayout title="Settings" subtitle="Account preferences and defaults">
@@ -254,7 +242,7 @@ export default function SettingsPage() {
               <ImpersonationPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
-            {/* Two-factor requirement (#8). Same capability as the other org
+            {/* Two-factor requirement. Same capability as the other org
                 security settings; the WRITE is step-up gated server-side because
                 turning it OFF removes a control for every member. */}
             {canSeeOrgSettings && user.organizationId && (

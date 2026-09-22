@@ -102,21 +102,21 @@ export function ImpersonationBanner({ className = '' }: ImpersonationBannerProps
     <div
       role="region"
       aria-label="Impersonation session"
-      className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm dark:border-amber-700 dark:bg-amber-900/30 ${className}`}
+      className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-warning-border bg-warning-bg px-4 py-2 text-sm ${className}`}
     >
-      <div className="flex min-w-0 items-start gap-2 text-amber-900 dark:text-amber-100">
+      <div className="flex min-w-0 items-start gap-2 text-warning-strong">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <div className="min-w-0">
           <p>
             <strong>Viewing as {who ?? 'another user'}</strong>
             {target.name && target.email && (
-              <span className="ml-1 text-amber-800 dark:text-amber-200">({target.email})</span>
+              <span className="ml-1 text-warning-strong">({target.email})</span>
             )}
             {target.organizationName && (
               <span className="ml-1">in <strong>{target.organizationName}</strong></span>
             )}
           </p>
-          <p className="text-xs text-amber-700 dark:text-amber-300">
+          <p className="text-xs text-warning">
             Read-only — changes are blocked for this session.
             {requestId && (
               <span className="ml-1">
@@ -130,7 +130,7 @@ export function ImpersonationBanner({ className = '' }: ImpersonationBannerProps
         {msLeft !== null && (
           <span
             className={`inline-flex items-center gap-1 text-xs font-medium tabular-nums ${
-              expired || endingSoon ? 'text-red-700 dark:text-red-300' : 'text-amber-800 dark:text-amber-200'
+              expired || endingSoon ? 'text-danger' : 'text-warning-strong'
             }`}
             data-testid="impersonation-countdown"
             // Announce only the state change, not every tick.

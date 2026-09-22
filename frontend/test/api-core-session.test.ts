@@ -13,7 +13,7 @@
  *    the session — network errors and 5xx are an outage, retried with bounded
  *    backoff, and when the retries run out the session is KEPT;
  *  - tabs coordinate by sharing the new ACCESS token over a BroadcastChannel,
- *    because the refresh token they used to hand each other is now unreadable.
+ *    because the refresh token is an HttpOnly cookie no tab can read.
  */
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';

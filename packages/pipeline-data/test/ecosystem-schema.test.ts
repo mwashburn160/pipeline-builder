@@ -7,7 +7,7 @@
  * `postgres-init.sql` (what actually exists). Column sets and index names must
  * agree, the org-scoped / ecosystem-global split must match the RLS blocks, and
  * the anonymous `ecosystem_public_reader` role must be able to read the two
- * `public_*` views and nothing else (§6a G28).
+ * `public_*` views and nothing else.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -227,7 +227,7 @@ describe('ecosystem_public_reader can read the public views and nothing else', (
   });
 
   it('filters to listed listings of non-suspended publishers (and non-paused versions)', () => {
-    // Unmaintained listings stay public (banner, §3.6); suspended/transferred don't.
+    // Unmaintained listings stay public (banner); suspended/transferred don't.
     expect(DDL).toMatch(/WHERE l\.state IN \('listed', 'unmaintained'\)\s+AND p\.suspended_at IS NULL;/);
     expect(DDL).not.toMatch(/l\.state = 'listed'/);
     // Paused versions are hidden. Yanked ones stay visible, FLAGGED, so the

@@ -41,7 +41,7 @@ function RatingTrend({ trend }: { trend: PublisherListingInsight['ratingTrend'] 
 }
 
 /**
- * The publisher dashboard's Insights tab (plan W7): per listing, installs,
+ * The publisher dashboard's Insights tab: per listing, installs,
  * k-anonymous active orgs ("<5" below five), 30-day success rate, rating and
  * its 12-month trend, open review reports and advisories, and the health score
  * with its breakdown on demand. Read-only (`plugins:read`).

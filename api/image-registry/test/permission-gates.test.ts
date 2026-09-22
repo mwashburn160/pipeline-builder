@@ -6,9 +6,9 @@
  *
  * These routes were previously behind a single `requireSystemAdmin` blanket
  * gate; they're now permission-gated per operation:
- *   - reads  (GET list/tags/manifest/blob) → `registry:read`
- *   - writes (manifest/repo DELETE)         → `registry:write`
- *   - copy   (POST /copy; read+write)       → BOTH (`requireAllPermissions`)
+ *   - reads (GET list/tags/manifest/blob) → `registry:read`
+ *   - writes (manifest/repo DELETE) → `registry:write`
+ *   - copy (POST /copy; read+write) → BOTH (`requireAllPermissions`)
  *
  * `registry:read`/`registry:write` are superadmin-only capabilities that no
  * built-in role bundles, so the effective access set is unchanged: a superadmin
@@ -23,10 +23,10 @@
  * stand in for what `requireAuth` populates in production.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, describe, it, expect, beforeEach, beforeAll, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -70,7 +70,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 // --- api-core mock: real-enough send helpers + the capability-aware gates ----
 // (`requirePermission`/`requireAllPermissions` come from the shared helper.)
-const emitAudit = jest.fn<AnyFn>();
+const logAuditEvent = jest.fn<AnyFn>();
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
@@ -82,7 +82,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   runConcurrent: async <T>(items: T[], _n: number, fn: (t: T) => Promise<void>) => {
     for (const item of items) await fn(item);
   },
-  emitAudit,
+  logAuditEvent,
 }));
 
 // SUT + express imported AFTER mocks are registered (ESM linking order).

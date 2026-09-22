@@ -14,7 +14,7 @@ import { render, screen, act } from '@testing-library/react';
 import { isPublicDirectoryRoute } from '../src/lib/public-directory/routes';
 
 let pathname = '/plugins';
-jest.mock('next/router', () => ({ useRouter: () => ({ pathname, asPath: pathname, query: {}, push: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ pathname, asPath: pathname, query: {}, push: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } })));
 const getConfig = jest.fn<AnyFn>(async () => ({ success: true, data: { serviceFeatures: {} } }));
 const restoreSession = jest.fn<AnyFn>(async () => false);
 jest.mock('@/lib/api', () => ({

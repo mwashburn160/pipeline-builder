@@ -10,6 +10,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { queryChain } from './helpers/query-chain.js';
 
 interface Org { _id: string; parentOrgId?: string | null; deletedAt?: Date | null; name?: string }
 interface Membership { userId: string; organizationId: string; role: string; isActive: boolean }
@@ -17,10 +18,6 @@ interface Membership { userId: string; organizationId: string; role: string; isA
 const orgs = new Map<string, Org>();
 let memberships: Membership[] = [];
 
-const chain = <T>(value: T) => {
-  const c: any = { lean: async () => value, select: () => c, sort: () => c };
-  return c;
-};
 function matches(m: Membership, q: Record<string, any>): boolean {
   if (q.userId !== undefined && m.userId !== q.userId) return false;
   if (q.organizationId !== undefined && m.organizationId !== String(q.organizationId)) return false;
@@ -40,14 +37,14 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unkno
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
-  Organization: { findById: (id: string) => chain(orgs.get(String(id)) ?? null) },
-  UserOrganization: { findOne: (q: Record<string, any>) => chain(memberships.find((m) => matches(m, q)) ?? null) },
+  Organization: { findById: (id: string) => queryChain(orgs.get(String(id)) ?? null) },
+  UserOrganization: { findOne: (q: Record<string, any>) => queryChain(memberships.find((m) => matches(m, q)) ?? null) },
   PersonalAccessToken: { findOne: jest.fn(), updateOne: jest.fn() },
   ImpersonationRequest: { findOne: jest.fn() },
   Role: { find: jest.fn() },
   RoleAssignment: { find: jest.fn() },
 }));
-jest.unstable_mockModule('../src/utils/index.js', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyAccessToken: jest.fn(),
   verifyRefreshToken: (...a: unknown[]) => mockVerifyRefreshToken(...a),
 }));

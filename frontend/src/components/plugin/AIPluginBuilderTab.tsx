@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useId } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { Sparkles, Rocket, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
@@ -17,6 +17,8 @@ import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
 import type { PluginGenerationDone, SimilarPlugin, Visibility } from '@/types';
+import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
 /** Props for the AIPluginBuilderTab component. */
 interface AIPluginBuilderTabProps {
@@ -115,13 +117,8 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
   const ai = useAIProviders(() => api.getPluginAIProviders(), { askAgent: true });
   const { generating, error, preview: streamPreview, setError, setPreview: setStreamPreview, generate } = useAiStreamGeneration();
-  // Track mount state so the 2s auto-close timer never fires onClose after
-  // the parent has already unmounted the tab (e.g. user clicked Cancel).
-  const mountedRef = useRef<boolean>(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const unmountedRef = useUnmountedRef();
+  const autoClose = useAutoCloseTimer();
 
   // Auto-complete on successful build
   useEffect(() => {
@@ -129,7 +126,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
       setSuccess(`Plugin "${generatedConfig?.name}" deployed successfully!`);
       onCreated();
       setTimeout(() => {
-        if (!mountedRef.current) return;
+        if (unmountedRef.current) return;
         onClose();
       }, 2000);
     }
@@ -190,7 +187,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         // Fallback: synchronous response
         setSuccess(`Plugin "${generatedConfig.name}" deployed successfully!`);
         onCreated();
-        setTimeout(() => { if (mountedRef.current) onClose(); }, 2000);
+        autoClose.schedule(onClose, 2000);
       }
     } catch (err: unknown) {
       const message = formatError(err, 'Deployment failed');
@@ -260,8 +257,8 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
       {/* Build failure */}
       {buildStatus === 'failed' && lastEvent && (
-        <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-          <p className="text-sm text-red-800 dark:text-red-300 flex items-center gap-2">
+        <div className="rounded-xl bg-danger-bg border border-danger-border p-3">
+          <p className="text-sm text-danger-strong flex items-center gap-2">
             <XCircle className="w-4 h-4" />
             {lastEvent.message}
           </p>
@@ -274,8 +271,8 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
           <p className="text-xs font-medium text-fg-muted mb-2">Build log</p>
           {events.map((event, i) => (
             <div key={i} className={`text-xs font-mono py-0.5 ${
-              event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
-              event.type === 'COMPLETED' ? 'text-green-600 dark:text-green-400' :
+              event.type === 'ERROR' ? 'text-danger' :
+              event.type === 'COMPLETED' ? 'text-success' :
               'text-fg-muted'
             }`}>
               {event.message}
@@ -321,7 +318,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
             <div className="flex items-center justify-between mb-2">
               <span className="label" id={`${uid}-generated-config`}>Generated plugin configuration</span>
               {dockerfileViolations.length === 0 ? (
-                <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                <span className="text-xs text-success font-medium">
                   Ready to deploy
                 </span>
               ) : (

@@ -49,7 +49,19 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   schema, withTenantTx, createSoftDeletePurgeScheduler,
 }));
 
-const { startSoftDeletePurge, stopSoftDeletePurge } = await import('../src/services/soft-delete-purge.js');
+const { softDeletePurgeSweep } = await import('../src/services/soft-delete-purge.js');
+
+/** What the sweep registry does with the definition: build once, start, stop. */
+let active: { start(): void; stop(): void } | null = null;
+function startSoftDeletePurge(): void {
+  if (active) return;
+  active = softDeletePurgeSweep.create();
+  active?.start();
+}
+function stopSoftDeletePurge(): void {
+  active?.stop();
+  active = null;
+}
 
 const NOW = new Date('2026-09-21T00:00:00Z');
 const entity = (name: string) => schedulerArgs!.entities.find((e) => e.name === name)!;

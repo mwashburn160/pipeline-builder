@@ -15,7 +15,7 @@ resources:
   - namespace.yaml
   - networkpolicy.yaml
   - istio.yaml
-  # Per-internal-route mesh policies + the waypoint that enforces them (#14).
+  # Per-internal-route mesh policies + the waypoint that enforces them.
   - istio-internal-routes.yaml
   - resource-limits.yaml
   - mongodb.yaml
@@ -26,7 +26,7 @@ resources:
   - platform.yaml
   - pipeline.yaml
   - plugin.yaml
-  # Isolated buildkitd for anonymous plugin submissions (plugin-ecosystem §4.2, W5).
+  # Isolated buildkitd for anonymous plugin submissions.
   - plugin-quarantine-builder.yaml
   - message.yaml
   - reporting.yaml

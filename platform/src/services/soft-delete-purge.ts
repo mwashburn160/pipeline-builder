@@ -14,13 +14,11 @@
  * SOFT_DELETE_PURGE_ENABLED=false.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, createSoftDeletePurgeScheduler, type PurgeableEntity } from '@pipeline-builder/pipeline-data';
 import { and, inArray, sql } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
-
-const logger = createLogger('platform-soft-delete-purge');
+import type { CustomSweepDefinition } from './background-sweeps.js';
 
 /** Hard-delete up to `limit` expired tombstones from one table
  *  (`deletedAt IS NOT NULL AND purge_after < now`). Mirrors
@@ -72,20 +70,9 @@ const ENTITIES: PurgeableEntity[] = [
   },
 ];
 
-let scheduler: ReturnType<typeof createSoftDeletePurgeScheduler> = null;
-
-/** Start the platform retention purge (idempotent). No-op when disabled. */
-export function startSoftDeletePurge(): void {
-  if (scheduler) return;
-  scheduler = createSoftDeletePurgeScheduler({ service: 'platform', entities: ENTITIES });
-  if (scheduler) {
-    scheduler.start();
-    logger.info('Platform soft-delete purge sweep started');
-  }
-}
-
-/** Stop the sweep (clean shutdown). */
-export function stopSoftDeletePurge(): void {
-  scheduler?.stop();
-  scheduler = null;
-}
+/** The retention purge as a background sweep; disabled (no scheduler) when
+ *  SOFT_DELETE_PURGE_ENABLED=false. Leader-locked inside the shared scheduler. */
+export const softDeletePurgeSweep: CustomSweepDefinition = {
+  name: 'soft-delete-purge',
+  create: () => createSoftDeletePurgeScheduler({ service: 'platform', entities: ENTITIES }),
+};

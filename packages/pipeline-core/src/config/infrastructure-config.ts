@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { envBool, envInt, envStr } from '@pipeline-builder/api-core';
 import path from 'path';
 import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, ObservabilityConfig, PluginBuildConfig, RegistryConfig } from './config-types.js';
 
@@ -22,8 +23,8 @@ import type { AWSConfig, BuildConfig, ComplianceConfig, DatabaseConfig, Observab
  * @returns Registry configuration
  */
 export function loadRegistryConfig(): RegistryConfig {
-  const host = process.env.IMAGE_REGISTRY_HOST || 'registry';
-  const port = parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10);
+  const host = envStr('IMAGE_REGISTRY_HOST', 'registry');
+  const port = envInt('IMAGE_REGISTRY_PORT', 5_000);
   // When no explicit pull host is set, derive it from PLATFORM_BASE_URL — the
   // public platform endpoint an out-of-cluster client (AWS CodeBuild) can
   // resolve, unlike the in-cluster `registry` ClusterIP. Only falls back to the
@@ -34,10 +35,10 @@ export function loadRegistryConfig(): RegistryConfig {
     port,
     pullHost: process.env.IMAGE_REGISTRY_PULL_HOST || platform?.host || host,
     pullPort: process.env.IMAGE_REGISTRY_PULL_PORT
-      ? parseInt(process.env.IMAGE_REGISTRY_PULL_PORT, 10)
+      ? envInt('IMAGE_REGISTRY_PULL_PORT', port)
       : (platform?.port ?? port),
-    network: process.env.DOCKER_NETWORK || '',
-    http: process.env.IMAGE_REGISTRY_HTTP !== 'false',
+    network: envStr('DOCKER_NETWORK', ''),
+    http: envBool('IMAGE_REGISTRY_HTTP', true),
   };
 }
 
@@ -68,53 +69,53 @@ export function parsePlatformBaseUrl(raw?: string): { host: string; port: number
  */
 export function loadPluginBuildConfig(): PluginBuildConfig {
   return {
-    concurrency: parseInt(process.env.PLUGIN_BUILD_CONCURRENCY || '1', 10),
-    maxAttempts: parseInt(process.env.PLUGIN_BUILD_MAX_ATTEMPTS || '2', 10),
-    backoffDelayMs: parseInt(process.env.PLUGIN_BUILD_BACKOFF_DELAY_MS || '5000', 10),
-    workerTimeoutMs: parseInt(process.env.PLUGIN_BUILD_WORKER_TIMEOUT_MS || '10000', 10),
-    tempDirMaxAgeMs: parseInt(process.env.TEMP_DIR_MAX_AGE_MS || '14400000', 10),
-    dlqMaxAttempts: parseInt(process.env.PLUGIN_DLQ_MAX_ATTEMPTS || '3', 10),
-    dlqBackoffBaseMs: parseInt(process.env.PLUGIN_DLQ_BACKOFF_BASE_MS || '300000', 10),
-    dlqMaxSize: parseInt(process.env.PLUGIN_DLQ_MAX_SIZE || '20', 10),
+    concurrency: envInt('PLUGIN_BUILD_CONCURRENCY', 1),
+    maxAttempts: envInt('PLUGIN_BUILD_MAX_ATTEMPTS', 2),
+    backoffDelayMs: envInt('PLUGIN_BUILD_BACKOFF_DELAY_MS', 5_000),
+    workerTimeoutMs: envInt('PLUGIN_BUILD_WORKER_TIMEOUT_MS', 10_000),
+    tempDirMaxAgeMs: envInt('TEMP_DIR_MAX_AGE_MS', 14_400_000),
+    dlqMaxAttempts: envInt('PLUGIN_DLQ_MAX_ATTEMPTS', 3),
+    dlqBackoffBaseMs: envInt('PLUGIN_DLQ_BACKOFF_BASE_MS', 300_000),
+    dlqMaxSize: envInt('PLUGIN_DLQ_MAX_SIZE', 20),
   };
 }
 
 export function loadDatabaseConfig(): DatabaseConfig {
   return {
     postgres: {
-      host: process.env.DB_HOST || 'postgres',
-      port: parseInt(process.env.DB_PORT || '5432', 10),
-      database: process.env.DATABASE || 'pipeline_builder',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || '',
+      host: envStr('DB_HOST', 'postgres'),
+      port: envInt('DB_PORT', 5_432),
+      database: envStr('DATABASE', 'pipeline_builder'),
+      user: envStr('DB_USER', 'postgres'),
+      password: envStr('DB_PASSWORD', ''),
     },
     drizzle: {
-      maxPoolSize: parseInt(process.env.DRIZZLE_MAX_POOL_SIZE || '20', 10),
-      idleTimeoutMillis: parseInt(process.env.DRIZZLE_IDLE_TIMEOUT_MILLIS || '30000', 10),
-      connectionTimeoutMillis: parseInt(process.env.DRIZZLE_CONNECTION_TIMEOUT_MILLIS || '10000', 10),
+      maxPoolSize: envInt('DRIZZLE_MAX_POOL_SIZE', 20),
+      idleTimeoutMillis: envInt('DRIZZLE_IDLE_TIMEOUT_MILLIS', 30_000),
+      connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MILLIS', 10_000),
     },
   };
 }
 
 export function loadObservabilityConfig(): ObservabilityConfig {
   return {
-    logLevel: process.env.LOG_LEVEL || 'info',
-    logFormat: process.env.LOG_FORMAT || 'json',
-    serviceName: process.env.SERVICE_NAME || 'api',
+    logLevel: envStr('LOG_LEVEL', 'info'),
+    logFormat: envStr('LOG_FORMAT', 'json'),
+    serviceName: envStr('SERVICE_NAME', 'api'),
     tracing: {
-      enabled: process.env.OTEL_TRACING_ENABLED === 'true',
-      endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',
+      enabled: envBool('OTEL_TRACING_ENABLED', false),
+      endpoint: envStr('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://localhost:4318/v1/traces'),
     },
   };
 }
 
 export function loadComplianceConfig(): ComplianceConfig {
   return {
-    scanSchedulerIntervalMs: parseInt(process.env.SCAN_SCHEDULER_INTERVAL_MS || '60000', 10),
-    systemOrgScansEnabled: process.env.SYSTEM_ORG_SCANS_ENABLED === 'true',
-    scanLockTtlMs: parseInt(process.env.SCAN_LOCK_TTL_MS || '300000', 10),
-    digestSchedulerIntervalMs: parseInt(process.env.DIGEST_SCHEDULER_INTERVAL_MS || '3600000', 10),
-    digestLockTtlMs: parseInt(process.env.DIGEST_LOCK_TTL_MS || '300000', 10),
+    scanSchedulerIntervalMs: envInt('SCAN_SCHEDULER_INTERVAL_MS', 60_000),
+    systemOrgScansEnabled: envBool('SYSTEM_ORG_SCANS_ENABLED', false),
+    scanLockTtlMs: envInt('SCAN_LOCK_TTL_MS', 300_000),
+    digestSchedulerIntervalMs: envInt('DIGEST_SCHEDULER_INTERVAL_MS', 3_600_000),
+    digestLockTtlMs: envInt('DIGEST_LOCK_TTL_MS', 300_000),
   };
 }
 
@@ -134,10 +135,10 @@ export function loadComplianceConfig(): ComplianceConfig {
 export function loadDockerConfig(): BuildConfig {
   return {
     tempRoot: process.env.DOCKER_BUILD_TEMP_ROOT || path.join(process.cwd(), 'tmp'),
-    timeoutMs: parseInt(process.env.DOCKER_BUILD_TIMEOUT_MS || '900000', 10),
-    pushTimeoutMs: parseInt(process.env.DOCKER_PUSH_TIMEOUT_MS || '300000', 10),
-    buildkitAddr: process.env.BUILDKIT_HOST || 'unix:///run/buildkit/buildkitd.sock',
-    signingPublicKeyFile: process.env.PLUGIN_SIGNING_PUBLIC_KEY_FILE || '/etc/pipeline-builder/plugin-signing/plugin-signing.pub',
+    timeoutMs: envInt('DOCKER_BUILD_TIMEOUT_MS', 900_000),
+    pushTimeoutMs: envInt('DOCKER_PUSH_TIMEOUT_MS', 300_000),
+    buildkitAddr: envStr('BUILDKIT_HOST', 'unix:///run/buildkit/buildkitd.sock'),
+    signingPublicKeyFile: envStr('PLUGIN_SIGNING_PUBLIC_KEY_FILE', '/etc/pipeline-builder/plugin-signing/plugin-signing.pub'),
   };
 }
 
@@ -157,22 +158,22 @@ export function loadDockerConfig(): BuildConfig {
 export function loadAWSConfig(): AWSConfig {
   return {
     lambda: {
-      runtime: process.env.LAMBDA_RUNTIME || 'nodejs24.x',
-      timeoutSeconds: parseInt(process.env.LAMBDA_TIMEOUT || '900', 10),
-      memorySize: parseInt(process.env.LAMBDA_MEMORY_SIZE || '512', 10),
+      runtime: envStr('LAMBDA_RUNTIME', 'nodejs24.x'),
+      timeoutSeconds: envInt('LAMBDA_TIMEOUT', 900),
+      memorySize: envInt('LAMBDA_MEMORY_SIZE', 512),
       architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64' ? 'x86_64' : 'arm64',
       reservedConcurrentExecutions: process.env.LAMBDA_RESERVED_CONCURRENCY
-        ? parseInt(process.env.LAMBDA_RESERVED_CONCURRENCY, 10)
+        ? envInt('LAMBDA_RESERVED_CONCURRENCY', 0)
         : undefined,
     },
 
     logging: {
-      groupName: process.env.LOG_GROUP_NAME || '/pipeline-builder/logs',
+      groupName: envStr('LOG_GROUP_NAME', '/pipeline-builder/logs'),
     },
 
     codeBuild: {
-      computeType: (process.env.CODEBUILD_COMPUTE_TYPE || 'SMALL').toUpperCase(),
-      defaultImage: process.env.CODEBUILD_DEFAULT_IMAGE || 'pipeline-bootstrap:1.0',
+      computeType: (envStr('CODEBUILD_COMPUTE_TYPE', 'SMALL')).toUpperCase(),
+      defaultImage: envStr('CODEBUILD_DEFAULT_IMAGE', 'pipeline-bootstrap:1.0'),
     },
   };
 }

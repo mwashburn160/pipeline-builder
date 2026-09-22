@@ -3,8 +3,9 @@
 
 import { z } from 'zod';
 import { VisibilitySchema } from './common-schemas.js';
+import { envInt } from '../utils/env.js';
 
-const MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000', 10);
+const MAX_PROMPT_LENGTH = envInt('MAX_PROMPT_LENGTH', 5000, { min: 1 });
 
 // AI Generation Request
 

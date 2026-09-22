@@ -18,8 +18,9 @@
  * return undefined), so the mint→consume round-trip stays within-process.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -41,9 +42,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, unknown>, key: string) => params?.[key],
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { oauth: { stateTtlMs: 600000, cleanupIntervalMs: 600000 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ oauth: { stateTtlMs: 600000, cleanupIntervalMs: 600000 } }));
 
 // Force the pending-state store's in-memory fallback (Redis unset).
 jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
@@ -61,8 +60,8 @@ jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   getEnforcedLoginConfig: (...a: unknown[]) => mockGetEnforcedLoginConfig(...a),
-  // `/authorize` serves both protocols now (#4) — it resolves the org's protocol
-  // first and hands a SAML org to controllers/saml.ts. These suites are the OIDC
+  // `/authorize` serves both protocols — it resolves the org's protocol first
+  // and hands a SAML org to services/saml-login-state.ts. These suites are the OIDC
   // path, so the dispatch always answers `oidc`.
   getEnforcedIdpProtocol: (...a: unknown[]) => mockGetEnforcedIdpProtocol(...a),
   getEnforcedSamlConfig: jest.fn(async () => { throw new Error('SAML_NOT_CONFIGURED'); }),
@@ -88,33 +87,33 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: (...a: unknown[]) => mockFindOrCreate(...a) },
 }));
 
-// JIT provisioning (3a) — the callback runs the seat pre-flight before turning
+// JIT provisioning — the callback runs the seat pre-flight before turning
 // the identity into an account, then provisions the membership + mapped Roles.
 jest.unstable_mockModule('../src/services/sso-jit-service.js', () => ({
   assertJitSeatAvailable: (...a: unknown[]) => mockAssertSeat(...a),
   provisionJitMembership: (...a: unknown[]) => mockProvisionJit(...a),
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn<AnyFn>(),
   signServiceAccountToken: jest.fn<AnyFn>(),
-  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   oauthCallbackSchema: {},
   ssoDiscoverSchema: {},
-  // The shared `/authorize` handler reaches controllers/saml.ts for a SAML org
-  // (#4), which pulls these in even though this suite only drives the OIDC path.
-  samlAcsSchema: {},
-  samlCompleteSchema: {},
   validateBody: (_schema: unknown, body: any, res: any) => {
     if (body?.email !== undefined) return body; // discover
     if (body?.code && body?.state) return body; // callback
@@ -125,9 +124,10 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
-// The SAML leg is its own module (controllers/saml.ts, tested separately); this
-// suite drives the OIDC path, so a SAML dispatch never happens here.
-jest.unstable_mockModule('../src/controllers/saml.js', () => ({
+// The SAML leg is its own module (services/saml-login-state.ts, tested with
+// controllers/saml.ts); this suite drives the OIDC path, so a SAML dispatch
+// never happens here.
+jest.unstable_mockModule('../src/services/saml-login-state.js', () => ({
   beginSamlLogin: jest.fn(async () => { throw new Error('SAML_NOT_CONFIGURED'); }),
 }));
 

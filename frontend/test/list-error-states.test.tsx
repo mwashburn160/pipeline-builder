@@ -4,10 +4,9 @@
 /**
  * A failed load must never render as an empty list.
  *
- * `useListPage` reports the failure in `error` but leaves `data` empty, so every
- * list page used to show "Failed to load…" AND "No users yet — Create user" at
- * once; people read the empty state and believed the org was empty. DataTable now
- * takes `loadFailed` and offers a retry instead, and the alert banners carry a
+ * `useListPage` reports the failure in `error` but leaves `data` empty, so a
+ * list page could show "Failed to load…" AND "No users yet — Create user" at
+ * once, and people would believe the org was empty. DataTable takes `loadFailed` and offers a retry instead, and the alert banners carry a
  * Retry action so a dead-end error can be recovered without a page reload.
  */
 

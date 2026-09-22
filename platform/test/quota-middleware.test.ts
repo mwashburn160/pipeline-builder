@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockCheck = jest.fn<AnyFn>();
 const mockReserveQuota = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -19,13 +20,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   decrementQuota: (...a: unknown[]) => mockDecrementQuota(...a),
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    quota: {
-      serviceHost: 'quota.test',
-      servicePort: 3000,
-      serviceTimeout: 5000,
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  quota: {
+    serviceHost: 'quota.test',
+    servicePort: 3000,
+    serviceTimeout: 5000,
   },
 }));
 
@@ -34,7 +33,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   resolveOrgLineage: (...a: unknown[]) => mockResolveOrgLineage(...a),
 }));
 
-const { getOrganizationQuotaStatus, reserveFeatureQuota, releaseFeatureQuota } =
+const { getOrganizationQuotaStatus, reserveFeatureQuota, releaseFeatureQuota, withFeatureQuota } =
   await import('../src/middleware/quota.js');
 
 
@@ -154,5 +153,50 @@ describe('releaseFeatureQuota — rolls back against the same resolved ROOT', ()
       'Feature-quota release skipped (root resolution failed)',
       expect.objectContaining({ error: 'lineage down' }),
     );
+  });
+});
+
+describe('withFeatureQuota', () => {
+  const resStub = () => {
+    const r: any = { headersSent: false };
+    r.status = jest.fn(() => r);
+    r.json = jest.fn(() => r);
+    r.setHeader = jest.fn();
+    return r;
+  };
+  const flush = () => new Promise((r) => setImmediate(r));
+  const reservation = { exceeded: false, quota: { resetAt: '2026-01-01T00:00:00.000Z' } };
+
+  beforeEach(() => {
+    mockReserveQuota.mockReset();
+    mockDecrementQuota.mockReset();
+    mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
+  });
+
+  it('answers the request and never runs the write when the quota is exceeded', async () => {
+    mockReserveQuota.mockResolvedValue({ exceeded: true, quota: { limit: 1, used: 1, remaining: 0, resetAt: 'x' } });
+    const res = resStub();
+    const write = jest.fn(async () => undefined);
+    await withFeatureQuota(res, 'org-1', 'dashboards', write);
+    expect(write).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(429);
+  });
+
+  it('keeps the slot when the write succeeds', async () => {
+    mockReserveQuota.mockResolvedValue(reservation);
+    await withFeatureQuota(resStub(), 'org-1', 'dashboards', async () => undefined);
+    await flush();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('releases the slot when the write returns false, and rethrows (after releasing) when it throws', async () => {
+    mockReserveQuota.mockResolvedValue(reservation);
+    await withFeatureQuota(resStub(), 'org-1', 'dashboards', async () => false);
+    await flush();
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+
+    await expect(withFeatureQuota(resStub(), 'org-1', 'dashboards', async () => { throw new Error('db'); })).rejects.toThrow('db');
+    await flush();
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(2);
   });
 });

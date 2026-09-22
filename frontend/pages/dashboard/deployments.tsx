@@ -129,7 +129,7 @@ export default function DeploymentsPage() {
   const rows = useMemo(() => registry.data ?? [], [registry.data]);
 
   // Current configs for the drift join — EVERY pipeline, not one capped page: a
-  // config past the cap used to read as "orphaned" and the banner urged
+  // config past the cap would read as "orphaned" and the banner would urge
   // deregistering a valid record. Cursor-drained + trimmed to three columns.
   // Best-effort: a failure renders every row "unknown" drift (never orphaned).
   const configsQ = useQuery(isReady ? queries.allPipelines(CONFIG_FIELDS) : null);
@@ -144,7 +144,7 @@ export default function DeploymentsPage() {
   const refetchConfigs = configsQ.refetch;
   const fetchAll = useCallback(() => {
     setActionError(null);
-    refetchRegistry();
+    void refetchRegistry();
     refetchConfigs();
   }, [refetchRegistry, refetchConfigs]);
 
@@ -232,7 +232,7 @@ export default function DeploymentsPage() {
     try {
       const res = await api.deregisterPipelineDeployment(row.id);
       if (res.success) {
-        refetchRegistry();
+        void refetchRegistry();
         toast.success('Deployment deregistered');
       } else {
         setActionError('Failed to deregister deployment');
@@ -268,7 +268,7 @@ export default function DeploymentsPage() {
           ) : (
             <Link
               href={`/dashboard/pipelines/${encodeURIComponent(r.pipelineId)}`}
-              className="text-sm font-medium text-fg hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
+              className="text-sm font-medium text-fg hover:text-info hover:underline"
             >
               {r.pipelineName}
             </Link>
@@ -334,7 +334,7 @@ export default function DeploymentsPage() {
         <button
           onClick={() => setConfirmTarget(r)}
           disabled={removing === r.id}
-          className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-fg-subtle hover:text-danger disabled:opacity-40 disabled:cursor-wait"
+          className="p-1 rounded hover:bg-danger-bg text-fg-subtle hover:text-danger disabled:opacity-40 disabled:cursor-wait"
           title="Deregister (does not delete the AWS stack)"
           aria-label={`Deregister ${r.pipelineName}`}
         >
@@ -365,7 +365,7 @@ export default function DeploymentsPage() {
         <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="deployments" orgName={user.organizationName} size="sm" />
 
         {driftCount > 0 && (
-          <div className="mb-4 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-3 flex items-center gap-3 text-sm text-yellow-900 dark:text-yellow-200">
+          <div className="mb-4 rounded-lg border border-warning-border bg-warning-bg p-3 flex items-center gap-3 text-sm text-warning-strong">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span className="flex-1">
               {driftCount} deployment{driftCount > 1 ? 's have' : ' has'} drifted from the current pipeline definitions. Orphaned rows point at a stack whose config was deleted; deregister them to reconcile.
@@ -455,7 +455,7 @@ export default function DeploymentsPage() {
             <p className="text-fg-muted">
               Deregister <strong className="font-mono">{confirmTarget.pipelineName}</strong> from the deployments registry?
             </p>
-            <div className="p-3 rounded border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200 text-xs">
+            <div className="p-3 rounded border border-warning-border bg-warning-bg text-warning-strong text-xs">
               This only removes the platform&apos;s record. It does NOT delete the CloudFormation stack or pipeline. Use this to reconcile drift when the AWS stack was already deleted out-of-band.
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -475,7 +475,7 @@ export default function DeploymentsPage() {
           onRegistered={() => {
             // Re-read the registry (the server upserts by pipelineId, so the
             // new or updated row is authoritative there).
-            refetchRegistry();
+            void refetchRegistry();
             setShowRegister(false);
             toast.success('Deployment registered');
           }}

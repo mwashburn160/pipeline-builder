@@ -17,9 +17,8 @@ import {
 const logger = createLogger('compliance-notifier');
 
 /** Per-channel delivery timeout. Tight on purpose — a slow webhook receiver
- *  shouldn't hold up the (fire-and-forget) notification. Guarded parse: a
- *  non-numeric override used to yield NaN, which `setTimeout` treats as ~1ms, so
- *  every delivery aborted immediately. */
+ *  shouldn't hold up the (fire-and-forget) notification. Guarded parse: a NaN
+ *  override would make `setTimeout` fire after ~1ms and abort every delivery. */
 const DELIVERY_TIMEOUT_MS = envInt('COMPLIANCE_NOTIFY_TIMEOUT_MS', 5000, { min: 1 });
 
 type NotificationKind = 'block' | 'warning';

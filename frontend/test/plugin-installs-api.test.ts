@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The W2 install / catalog / policy API domain: every method hits the contract's
+ * The install / catalog / policy API domain: every method hits the contract's
  * path with the right verb and body; the policy write carries the step-up token.
  */
 import { describe, it, expect, jest } from '@jest/globals';

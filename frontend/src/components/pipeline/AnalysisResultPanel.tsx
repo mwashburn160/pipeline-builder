@@ -40,7 +40,7 @@ const CHIP_TONES = {
   neutral: 'bg-surface-muted text-fg-muted',
   purple: 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300',
   cyan: 'bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-300',
-  orange: 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300',
+  orange: 'bg-warning-bg text-warning-strong',
 } as const;
 
 /** What the backend found in the repo, as a row of chips. */

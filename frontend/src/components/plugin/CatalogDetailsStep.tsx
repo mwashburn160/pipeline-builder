@@ -20,7 +20,7 @@ interface CatalogDetailsStepProps {
 }
 
 /**
- * The upload dialog's "Catalog details" step (plugin-ecosystem §3.1a, D19): the
+ * The upload dialog's "Catalog details" step: the
  * package is inspected (`POST /plugins/inspect`, a dry run) and every
  * descriptive field is listed with the value detected from it and where it came
  * from. Each field is accepted or edited (the shared {@link CatalogFieldEditor});

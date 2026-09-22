@@ -193,8 +193,8 @@ _pb_check_slack_url() {
 # So an unset/placeholder webhook fails the DEPLOY instead.
 #
 # This is the `CHANGE_ME` guard from pb_gen_env_secrets extended past .env to the
-# one CONFIG file that also used to ship a credential: alertmanager.yml must now
-# carry no webhook URL at all (the receivers read `api_url_file` out of the
+# one CONFIG file that could carry a credential: alertmanager.yml must carry no
+# webhook URL at all (the receivers read `api_url_file` out of the
 # alertmanager-slack Secret), so any `hooks.slack.com` / CHANGE_ME / T00000000
 # left in it means someone re-introduced a world-readable ConfigMap credential.
 #
@@ -321,7 +321,7 @@ pb_gen_env_secrets() {
   grafana=$(openssl rand -base64 24 | tr -d '=+/')
   # Kiali's session-signing key must be EXACTLY 16/24/32 bytes; hex 16 = 32 chars.
   kiali=$(openssl rand -hex 16)
-  # Anonymous plugin submissions (docs/plans/plugin-ecosystem.md §4.2, W5): the
+  # Anonymous plugin submissions: the
   # HMAC key that signs proof-of-work challenges, and the HMAC key the submitter
   # email is hashed under (rate limits + update ownership without storing the
   # address in the clear). Generated even while ANONYMOUS_SUBMISSIONS_ENABLED is

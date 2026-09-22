@@ -10,13 +10,14 @@
 
 import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { routeChain } from './helpers/route-chain.js';
 
 const tagged = (name: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { __mw: name });
 const requireStepUp = tagged('requireStepUp');
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Both call shapes: the bare middleware, and the factor-restricted form
-  // (`requireStepUp({ methods })`) the most dangerous routes use (#8).
+  // (`requireStepUp({ methods })`) the most dangerous routes use.
   requireStepUp: Object.assign((...args: unknown[]) => (
     args.length === 3 ? (requireStepUp as (...a: unknown[]) => unknown)(...args) : requireStepUp
   ), { __mw: 'requireStepUp' }),
@@ -73,15 +74,10 @@ const usersRouter = (await import('../src/routes/users.js')).default as any;
 const userRouter = (await import('../src/routes/user.js')).default as any;
 const organizationRouter = (await import('../src/routes/organization.js')).default as any;
 
-function chain(router: any, method: string, path: string): string[] {
-  const layer = router.stack.find((l: any) => l.route?.path === path && l.route.methods[method]);
-  expect(layer).toBeDefined();
-  return layer.route.stack.map((s: any) => s.handle.__mw);
-}
 
 describe('step-up route gates', () => {
   it('PUT /users/:id/features requires step-up after auth', () => {
-    const mw = chain(usersRouter, 'put', '/:id/features');
+    const mw = routeChain(usersRouter, 'put', '/:id/features');
     expect(mw).toContain('requireStepUp');
     expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
   });
@@ -93,7 +89,7 @@ describe('step-up route gates', () => {
       ['delete', '/:id/service-accounts/:accountId'],
       ['post', '/:id/service-accounts/:accountId/keys'],
     ] as const) {
-      const mw = chain(organizationRouter, method, path);
+      const mw = routeChain(organizationRouter, method, path);
       expect(mw).toContain('requireStepUp');
       expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
     }
@@ -102,28 +98,28 @@ describe('step-up route gates', () => {
   it('service-account key REVOCATION is deliberately not step-up gated', () => {
     // Revocation only ever removes access — a compromised key must be killable
     // immediately, without a second factor.
-    const mw = chain(organizationRouter, 'delete', '/:id/service-accounts/:accountId/keys/:keyId');
+    const mw = routeChain(organizationRouter, 'delete', '/:id/service-accounts/:accountId/keys/:keyId');
     expect(mw).toContain('requireAuth');
     expect(mw).not.toContain('requireStepUp');
   });
 
   it('PUT /organization/:id requires step-up after auth', () => {
-    const mw = chain(organizationRouter, 'put', '/:id');
+    const mw = routeChain(organizationRouter, 'put', '/:id');
     expect(mw).toContain('requireStepUp');
     expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
   });
 
   it('team delete and org move require step-up after auth; the deleted-team list does not', () => {
     for (const [method, path] of [['delete', '/:id/teams/:teamId'], ['post', '/:id/move']] as const) {
-      const mw = chain(organizationRouter, method, path);
+      const mw = routeChain(organizationRouter, method, path);
       expect(mw).toContain('requireStepUp');
       expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
     }
-    expect(chain(organizationRouter, 'get', '/:id/teams/deleted')).not.toContain('requireStepUp');
+    expect(routeChain(organizationRouter, 'get', '/:id/teams/deleted')).not.toContain('requireStepUp');
   });
 
   it('POST /user/generate-token is NOT step-up gated (unattended token renewal)', () => {
-    const mw = chain(userRouter, 'post', '/generate-token');
+    const mw = routeChain(userRouter, 'post', '/generate-token');
     expect(mw).not.toContain('requireStepUp');
   });
 });

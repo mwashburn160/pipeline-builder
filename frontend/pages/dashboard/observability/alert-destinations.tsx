@@ -60,13 +60,11 @@ export default function AlertDestinationsPage() {
   const ready = isReady && isAuthenticated;
   const [editing, setEditing] = useState<AlertDestination | null>(null);
   const [creating, setCreating] = useState(false);
-  // Sysadmin cross-tenant view (read-only) — folds in the former
-  // /dashboard/admin/alert-destinations page.
+  // Sysadmin cross-tenant view (read-only).
   const [allOrgs, setAllOrgs] = useState(false);
   const viewingAll = allOrgs && isSuperAdmin;
   // Deep-link: `?all=1` opens the cross-tenant view for sysadmins (used by the
-  // sysadmin home and the /dashboard/admin/alert-destinations redirect in
-  // next.config.js).
+  // sysadmin home).
   const router = useRouter();
   useEffect(() => {
     if (router.isReady && router.query.all === '1' && isSuperAdmin) setAllOrgs(true);
@@ -83,7 +81,7 @@ export default function AlertDestinationsPage() {
     [ready, viewingAll],
   );
   const destinations: AlertDestination[] = data ?? [];
-  const refresh = async () => { refetch(); };
+  const refresh = async () => { void refetch(); };
 
   // Delete confirmation (in-app modal, replacing the native confirm()).
   const [pendingDelete, setPendingDelete] = useState<AlertDestination | null>(null);
@@ -119,7 +117,7 @@ export default function AlertDestinationsPage() {
   };
 
   // Cross-tenant view: one flat table (sorted by org, then label) with search +
-  // channel filters — replaces the former per-org card groups.
+  // channel filters.
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return destinations

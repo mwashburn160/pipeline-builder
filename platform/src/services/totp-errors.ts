@@ -5,10 +5,13 @@
  * TOTP (authenticator-app) error codes.
  *
  * Thrown by `services/totp-service.ts` and mapped to HTTP status in
- * `controllers/totp.ts`. Dependency-free on purpose (see `webauthn-errors.ts`):
+ * `controllers/totp.ts`, plus the recovery-code set's own refusal (the codes
+ * back up whichever second factor the account holds). Dependency-free on purpose (see `webauthn-errors.ts`):
  * controllers and tests import the codes without loading the service or its
  * models.
  */
+
+import type { ErrorMap } from '../helpers/controller-helper.js';
 
 /** No enrolment at all, or one that was never confirmed, where an active one is
  *  required (verify a code, disable, regenerate recovery codes). → 409 */
@@ -32,3 +35,15 @@ export const TOTP_LAST_SIGN_IN_METHOD = 'TOTP_LAST_SIGN_IN_METHOD';
 export const TOTP_SSO_ENFORCED = 'TOTP_SSO_ENFORCED';
 /** The sign-in MFA challenge is unknown, expired or already spent. → 401 */
 export const TOTP_INVALID_CHALLENGE = 'TOTP_INVALID_CHALLENGE';
+
+/** `POST /auth/recovery-codes` on an account that has no second factor. */
+export const RECOVERY_CODES_NO_FACTOR = 'RECOVERY_CODES_NO_FACTOR';
+
+export const RECOVERY_CODES_ERROR_MAP: ErrorMap = {
+  [RECOVERY_CODES_NO_FACTOR]: {
+    status: 409,
+    message: 'Recovery codes back up a second factor — add a passkey or an authenticator app first.',
+    code: RECOVERY_CODES_NO_FACTOR,
+  },
+};
+

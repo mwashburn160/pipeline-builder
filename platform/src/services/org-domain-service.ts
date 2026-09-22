@@ -9,7 +9,7 @@ import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAIL
 import { ensureBaselineRole } from './roles-service.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
+import { withSeatGuard } from '../helpers/seats.js';
 import { emailDomain } from '../helpers/sso-enforcement.js';
 import { OrgDomain, JoinRequest, Organization, UserOrganization, User, type OrgDomainDocument, type DomainJoinMode } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -94,24 +94,24 @@ class OrgDomainService {
     if (!(await isDomainJoinEntitled(orgId))) throw new Error(DOMAIN_NOT_ENTITLED);
 
     // Same-org idempotency.
-    const mine = await OrgDomain.findOne({ orgId, domain });
+    const mine = await OrgDomain.findOne({ organizationId: orgId, domain });
     if (mine) return mine;
 
     // Another org has already VERIFIED (proven ownership of) this domain.
     const verifiedElsewhere = await OrgDomain.findOne({ domain, verified: true });
     if (verifiedElsewhere) throw new Error(DOMAIN_TAKEN);
 
-    const count = await OrgDomain.countDocuments({ orgId });
+    const count = await OrgDomain.countDocuments({ organizationId: orgId });
     if (count >= MAX_DOMAINS_PER_ORG) throw new Error(DOMAIN_LIMIT);
 
     const verificationToken = crypto.randomBytes(16).toString('hex');
     try {
-      return await OrgDomain.create({ orgId, domain, verificationToken, autoJoin: 'off', createdBy: userId });
+      return await OrgDomain.create({ organizationId: orgId, domain, verificationToken, autoJoin: 'off', createdBy: userId });
     } catch (err) {
       // Concurrent add of the same (orgId, domain) races past the `mine` check and
       // hits the unique index — return the row the winner created (idempotent).
       if ((err as { code?: number }).code === 11000) {
-        const existing = await OrgDomain.findOne({ orgId, domain });
+        const existing = await OrgDomain.findOne({ organizationId: orgId, domain });
         if (existing) return existing;
       }
       throw err;
@@ -119,7 +119,7 @@ class OrgDomainService {
   }
 
   listDomains(orgId: string): Promise<OrgDomainDocument[]> {
-    return OrgDomain.find({ orgId }).sort({ createdAt: -1 });
+    return OrgDomain.find({ organizationId: orgId }).sort({ createdAt: -1 });
   }
 
   /**
@@ -150,13 +150,13 @@ class OrgDomainService {
    *  the domain verified (retaining the token for the re-verify sweep). */
   async verifyDomain(orgId: string, domainId: string): Promise<OrgDomainDocument> {
     if (!isValidObjectId(domainId)) throw new Error(DOMAIN_NOT_FOUND);
-    const doc = await OrgDomain.findOne({ _id: domainId, orgId });
+    const doc = await OrgDomain.findOne({ _id: domainId, organizationId: orgId });
     if (!doc) throw new Error(DOMAIN_NOT_FOUND);
     if (doc.verified) return doc;
 
     // Re-check no other org has verified it since registration (race with a
     // concurrent verify) — the partial-unique index is the hard backstop.
-    const verifiedElsewhere = await OrgDomain.findOne({ domain: doc.domain, verified: true, orgId: { $ne: orgId } });
+    const verifiedElsewhere = await OrgDomain.findOne({ domain: doc.domain, verified: true, organizationId: { $ne: orgId } });
     if (verifiedElsewhere) throw new Error(DOMAIN_TAKEN);
 
     // Both a DNS error (null) and a genuine no-match (false) fail verification.
@@ -174,7 +174,7 @@ class OrgDomainService {
     }
     // Evict every other org's now-losing UNVERIFIED claim on this domain (first
     // to verify wins) so their dashboards don't imply a pending claim they can't win.
-    await OrgDomain.deleteMany({ domain: doc.domain, verified: false, orgId: { $ne: orgId } });
+    await OrgDomain.deleteMany({ domain: doc.domain, verified: false, organizationId: { $ne: orgId } });
     return doc;
   }
 
@@ -207,9 +207,9 @@ class OrgDomainService {
       doc.verified = false;
       doc.autoJoin = 'off';
       await doc.save();
-      await this.cancelPendingRequestsForDomain(doc.orgId, doc.domain);
+      await this.cancelPendingRequestsForDomain(String(doc.organizationId), doc.domain);
       unverified++;
-      logger.warn('Domain re-verification failed — un-verified', { orgId: doc.orgId, domain: doc.domain });
+      logger.warn('Domain re-verification failed — un-verified', { orgId: String(doc.organizationId), domain: doc.domain });
     }
     return { checked: stale.length, unverified };
   }
@@ -218,7 +218,7 @@ class OrgDomainService {
    *  verified AND the account to be entitled. */
   async setDomainMode(orgId: string, domainId: string, mode: DomainJoinMode): Promise<OrgDomainDocument> {
     if (!isValidObjectId(domainId)) throw new Error(DOMAIN_NOT_FOUND);
-    const doc = await OrgDomain.findOne({ _id: domainId, orgId });
+    const doc = await OrgDomain.findOne({ _id: domainId, organizationId: orgId });
     if (!doc) throw new Error(DOMAIN_NOT_FOUND);
     if (mode !== 'off') {
       if (!doc.verified) throw new Error(DOMAIN_NOT_VERIFIED);
@@ -233,9 +233,9 @@ class OrgDomainService {
 
   async deleteDomain(orgId: string, domainId: string): Promise<boolean> {
     if (!isValidObjectId(domainId)) throw new Error(DOMAIN_NOT_FOUND);
-    const doc = await OrgDomain.findOne({ _id: domainId, orgId });
+    const doc = await OrgDomain.findOne({ _id: domainId, organizationId: orgId });
     if (!doc) throw new Error(DOMAIN_NOT_FOUND);
-    await OrgDomain.deleteOne({ _id: domainId, orgId });
+    await OrgDomain.deleteOne({ _id: domainId, organizationId: orgId });
     // Deny any pending requests that came from this now-removed domain.
     await this.cancelPendingRequestsForDomain(orgId, doc.domain);
     return true;
@@ -307,7 +307,7 @@ class OrgDomainService {
    *  explicit admin rejection in `decideJoinRequest`, which IS sticky. */
   private async cancelPendingRequestsForDomain(orgId: string, domain: string): Promise<void> {
     const suffix = new RegExp(`@${domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-    await JoinRequest.deleteMany({ orgId, status: 'pending', email: suffix });
+    await JoinRequest.deleteMany({ organizationId: orgId, status: 'pending', email: suffix });
   }
 
   /**
@@ -325,19 +325,20 @@ class OrgDomainService {
     // Batch the candidate-org lookups into one query (verified-domain uniqueness
     // usually bounds this to a single row, but don't rely on that) + memoize the
     // per-org entitlement so a repeated orgId doesn't re-run the lineage lookup.
-    const orgs = await Organization.find({ _id: { $in: domains.map((d) => toOrgId(d.orgId)) } })
+    const orgs = await Organization.find({ _id: { $in: domains.map((d) => d.organizationId) } })
       .select('name deletedAt').lean();
     const orgById = new Map(orgs.map((o) => [String((o as { _id: unknown })._id), o as { name: string; deletedAt?: Date | null }]));
     const entitledById = new Map<string, boolean>();
 
     const out: DiscoverableOrg[] = [];
     for (const d of domains) {
-      const org = orgById.get(String(d.orgId));
+      const orgId = String(d.organizationId);
+      const org = orgById.get(orgId);
       if (!org || org.deletedAt) continue;
-      let entitled = entitledById.get(d.orgId);
-      if (entitled === undefined) { entitled = await isDomainJoinEntitled(d.orgId); entitledById.set(d.orgId, entitled); }
+      let entitled = entitledById.get(orgId);
+      if (entitled === undefined) { entitled = await isDomainJoinEntitled(orgId); entitledById.set(orgId, entitled); }
       if (!entitled) continue;
-      out.push({ orgId: d.orgId, orgName: org.name, autoJoin: d.autoJoin });
+      out.push({ orgId, orgName: org.name, autoJoin: d.autoJoin });
     }
     return out;
   }
@@ -359,7 +360,7 @@ class OrgDomainService {
     const orgIds = orgs.map((o) => o.orgId);
 
     const [requests, memberships] = await Promise.all([
-      JoinRequest.find({ userId: user._id, orgId: { $in: orgIds } }).select('orgId status').lean(),
+      JoinRequest.find({ userId: user._id, organizationId: { $in: orgIds } }).select('organizationId status').lean(),
       // `organizationId` is stored as an ObjectId, so match on the cast ids and
       // map back through the string spelling the discovery list uses.
       UserOrganization.find({ userId: user._id, organizationId: { $in: orgIds.map(toOrgId) }, isActive: true })
@@ -369,7 +370,7 @@ class OrgDomainService {
     // Org ids reach this map from three stores with three spellings (a domain
     // row's string, a request's string, a membership's ObjectId), so key on one
     // canonical lowercase hex rather than trusting them to match.
-    const statusByOrg = new Map(requests.map((r) => [String(r.orgId).toLowerCase(), r.status as 'pending' | 'approved' | 'denied']));
+    const statusByOrg = new Map(requests.map((r) => [String(r.organizationId).toLowerCase(), r.status as 'pending' | 'approved' | 'denied']));
     const memberOrgs = new Set(memberships.map((m) => String(m.organizationId).toLowerCase()));
 
     return orgs.map((o) => {
@@ -402,7 +403,7 @@ class OrgDomainService {
 
     // A prior DENIAL is sticky — the user cannot self-reopen it (anti-spam / anti-
     // harassment). Surface the denied state rather than silently re-queuing.
-    const prior = await JoinRequest.findOne({ orgId, userId: user._id }).lean();
+    const prior = await JoinRequest.findOne({ organizationId: orgId, userId: user._id }).lean();
     if (prior && (prior as { status?: string }).status === 'denied') {
       return { joined: false, status: 'denied' };
     }
@@ -421,7 +422,7 @@ class OrgDomainService {
     // `request` mode (or an auto-join that fell back). `prior` is absent or
     // pending here (denied returned above), so this is idempotent.
     await JoinRequest.updateOne(
-      { orgId, userId: user._id },
+      { organizationId: orgId, userId: user._id },
       { $set: { email: user.email.toLowerCase(), status: 'pending' }, $unset: { decidedBy: '', decidedAt: '' } },
       { upsert: true },
     );
@@ -430,7 +431,7 @@ class OrgDomainService {
   }
 
   listJoinRequests(orgId: string, status: 'pending' | 'approved' | 'denied' = 'pending') {
-    return JoinRequest.find({ orgId, status }).sort({ createdAt: -1 }).lean();
+    return JoinRequest.find({ organizationId: orgId, status }).sort({ createdAt: -1 }).lean();
   }
 
   /** Approve (→ create membership) or deny a pending join request. */
@@ -441,7 +442,7 @@ class OrgDomainService {
     deciderId: string,
   ): Promise<{ userId: string; status: 'approved' | 'denied' }> {
     if (!isValidObjectId(requestId)) throw new Error(JOIN_REQUEST_NOT_FOUND);
-    const reqDoc = await JoinRequest.findOne({ _id: requestId, orgId });
+    const reqDoc = await JoinRequest.findOne({ _id: requestId, organizationId: orgId });
     if (!reqDoc || reqDoc.status !== 'pending') throw new Error(JOIN_REQUEST_NOT_FOUND);
 
     if (decision === 'approve') {
@@ -478,27 +479,22 @@ class OrgDomainService {
       // deletion removes its join requests, but a decision can race it). Read in
       // the transaction so the membership is never created for a missing user.
       if (!(await User.exists({ _id: userId }).session(session))) throw new Error(JOIN_REQUESTER_GONE);
-      const alreadyHasSeat = await userHasSeatInAccount(userId, orgId, session);
-      if (!alreadyHasSeat && !(await seatCapacityAvailable(orgId, 1, session))) throw new Error(JOIN_SEAT_LIMIT);
-
-      const existing = await UserOrganization.findOne({ userId, organizationId: orgId }).session(session);
-      if (existing) {
-        if (existing.isActive) return; // already an active member
-        if (!opts.allowReactivate) throw new Error(JOIN_MEMBERSHIP_REVOKED);
-        // Admin-approved reactivation: reset to a clean member (drop any stale
-        // elevated role) and re-seed the baseline Member role.
-        existing.isActive = true;
-        existing.role = 'member';
-        await existing.save({ session });
-        await ensureBaselineRole(userId, toOrgId(orgId), session);
-      } else {
-        await UserOrganization.create([{ userId, organizationId: orgId, role: 'member' }], { session });
-        await ensureBaselineRole(userId, toOrgId(orgId), session);
-      }
-
-      // Post-write re-check: distinct concurrent inserts don't write-conflict, so
-      // both pre-checks could pass; re-count now the membership is committed.
-      if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(orgId, session))) throw new Error(JOIN_SEAT_LIMIT);
+      await withSeatGuard({ userId, orgId, session, errorCode: JOIN_SEAT_LIMIT }, async () => {
+        const existing = await UserOrganization.findOne({ userId, organizationId: orgId }).session(session);
+        if (existing) {
+          if (existing.isActive) return; // already an active member
+          if (!opts.allowReactivate) throw new Error(JOIN_MEMBERSHIP_REVOKED);
+          // Admin-approved reactivation: reset to a clean member (drop any stale
+          // elevated role) and re-seed the baseline Member role.
+          existing.isActive = true;
+          existing.role = 'member';
+          await existing.save({ session });
+          await ensureBaselineRole(userId, toOrgId(orgId), session);
+        } else {
+          await UserOrganization.create([{ userId, organizationId: orgId, role: 'member' }], { session });
+          await ensureBaselineRole(userId, toOrgId(orgId), session);
+        }
+      });
     });
   }
 }

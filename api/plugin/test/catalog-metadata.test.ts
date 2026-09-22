@@ -3,7 +3,7 @@
 
 /**
  * Tests for helpers/catalog-metadata — the storage mapping of a resolved
- * catalog (plugin-ecosystem §3.1a). Detection and accept-or-edit are api-core's
+ * catalog. Detection and accept-or-edit are api-core's
  * (`plugin-catalog-detect`), tested there.
  */
 

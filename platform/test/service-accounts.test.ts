@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Service-account rules that need no database (#2):
+ * Service-account rules that need no database:
  *   - the IP allowlist matcher (exact, CIDR, v4-mapped-v6, and the fail-closed
  *     "allowlist set but no presenting address" case);
  *   - the seat/quota contract: a service account takes NO seat and carries its
@@ -71,7 +71,7 @@ describe('service-account key limits', () => {
   });
 });
 
-describe('key capability scopes (#12)', () => {
+describe('key capability scopes', () => {
   it('offers exactly the scopes the consuming routes enforce', async () => {
     const { TOKEN_SCOPES } = await import('@pipeline-builder/api-core');
     // One closed catalog, shared by every mint path. `reporting:ingest` gates the

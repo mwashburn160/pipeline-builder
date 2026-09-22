@@ -12,7 +12,9 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { seatsMock } from './helpers/seats-mock.js';
 
 const mockInvitationFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFindOne = jest.fn<(...a: unknown[]) => unknown>();
@@ -33,9 +35,9 @@ class MockUser {
 }
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { invitation: { expirationDays: 7, maxPendingPerOrg: 10 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ invitation: { expirationDays: 7, maxPendingPerOrg: 10 } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: jest.fn(async () => undefined),
   assignBuiltinAdminRole: jest.fn(async () => true),

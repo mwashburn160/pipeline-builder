@@ -1,8 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, fetchOrgDescendants, userHasPermission } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
+import { createLogger, fetchOrgDescendants, RETENTION_MAX_DAYS, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 
 const _descLogger = createLogger('reporting-rollup');
@@ -13,12 +12,11 @@ const _descLogger = createLogger('reporting-rollup');
 // check is defense-in-depth — the route is the security boundary.
 
 export const MAX_REPORT_LIMIT = 1000;
-// Absolute retention ceiling (days). A per-org effective window (tier baseline +
-// purchased retention bundles) narrows this per request via
-// `resolveOrgRetentionWindow`; this constant is the hard ceiling an `-1` (unlimited)
-// org — and the system-admin cross-org reports — clamp to.
-export const MAX_REPORT_RANGE_DAYS = 730;
-export const MAX_REPORT_RANGE_MS = MAX_REPORT_RANGE_DAYS * 24 * 60 * 60 * 1000;
+// The absolute retention ceiling bounds every report range. A per-org effective
+// window (tier baseline + purchased retention bundles) narrows it per request via
+// `resolveOrgRetentionWindow`; an unlimited (`-1`) org — and the system-admin
+// cross-org reports — clamp to the ceiling itself.
+export const MAX_REPORT_RANGE_MS = RETENTION_MAX_DAYS * 24 * 60 * 60 * 1000;
 
 /** Patterns that match common credential leakage in error messages. */
 const CREDENTIAL_PATTERNS: ReadonlyArray<RegExp> = [
@@ -59,10 +57,7 @@ export function scrubField<T>(rows: readonly T[], key: string): Array<Record<str
  */
 export async function resolveOrgRollup(orgId: string): Promise<string[] | undefined> {
   try {
-    const { services } = Config.get('server');
     return await fetchOrgDescendants(orgId, {
-      service: { host: services.platformHost, port: services.platformPort },
-      serviceName: 'reporting',
       headers: { 'x-org-id': orgId },
       timeout: 3000,
     });

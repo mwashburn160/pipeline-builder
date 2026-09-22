@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Unit tests for the cost-allocation (showback) math (Phase 8). Pure — no mocks.
+ * Unit tests for the cost-allocation (showback) math. Pure — no mocks.
  * The key invariants: allocated cents sum EXACTLY to the root total (no rounding
  * leakage), discounts/credits/net are apportioned by the same share, and the
  * zero-usage edges leave cost on the root line.

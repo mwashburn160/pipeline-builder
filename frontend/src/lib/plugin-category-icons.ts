@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * One lucide glyph per plugin category (docs/plans/plugin-ecosystem.md §6a.1).
+ * One lucide glyph per plugin category.
  *
  * Kept OUT of `plugin-categories.ts`, which must stay dependency-free (it is on
  * every route's provider path). Glyphs draw in `currentColor`, so they follow
@@ -13,9 +13,9 @@ import {
   Activity, Bell, Bot, CodeXml, FlaskConical, Layers, Package, Rocket, ShieldCheck, Sparkles,
   type LucideIcon,
 } from 'lucide-react';
-import type { PluginCategory } from './plugin-categories';
+import type { PluginCatalogCategory } from './plugin-categories';
 
-export const CATEGORY_ICONS: Record<PluginCategory, LucideIcon> = {
+export const CATEGORY_ICONS: Record<PluginCatalogCategory, LucideIcon> = {
   language: CodeXml,
   security: ShieldCheck,
   quality: Sparkles,

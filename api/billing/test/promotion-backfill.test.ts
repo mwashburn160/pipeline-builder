@@ -14,12 +14,11 @@ import { apiCoreMock, loggerMock } from './helpers/mock-api-core.js';
 
 const logger = loggerMock();
 const start = jest.fn<AnyFn>();
-let schedulerOpts: { name: string; intervalMs: number; run: () => Promise<void>; lock?: { key: string; ttlMs: number; redis: () => unknown } } | undefined;
-const lockClient = { id: 'redis-lock' };
+const stop = jest.fn<AnyFn>();
+let schedulerOpts: { name: string; intervalMs: number; run: () => Promise<void>; lock?: { key: string; ttlMs: number; redis?: () => unknown } } | undefined;
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => logger,
-  createEnvRedisLock: () => lockClient,
-  createScheduler: (opts: typeof schedulerOpts) => { schedulerOpts = opts; return { start, stop: jest.fn() }; },
+  createScheduler: (opts: typeof schedulerOpts) => { schedulerOpts = opts; return { start, stop }; },
 }));
 
 const tenantScopes: unknown[] = [];
@@ -38,7 +37,7 @@ jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({ reconcil
 const find = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/promotion.js', () => ({ Promotion: { find } }));
 
-const { startPromotionBackfill } = await import('../src/helpers/promotion-backfill.js');
+const { startPromotionBackfill, stopPromotionBackfill } = await import('../src/helpers/promotion-backfill.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -50,7 +49,13 @@ beforeEach(() => {
 describe('promotion backfill cron', () => {
   it('is registered once, leader-locked, at the configured interval', () => {
     expect(schedulerOpts).toMatchObject({ name: 'promotion-backfill', intervalMs: 3_600_000, lock: { key: 'promotion-backfill', ttlMs: 5 * 60 * 1000 } });
-    expect(schedulerOpts!.lock!.redis()).toBe(lockClient);
+    // No own client: the scheduler uses the shared per-process env lock.
+    expect(schedulerOpts!.lock!.redis).toBeUndefined();
+  });
+
+  it('stops the scheduler on shutdown', () => {
+    stopPromotionBackfill();
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 
   it('does not start while promotions are disabled', () => {

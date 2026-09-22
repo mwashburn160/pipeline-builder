@@ -29,10 +29,10 @@
  * route cannot land unmapped. The test fails naming the route.
  *
  * ── Behavioural control coverage ──────────────────────────────────────────
- * The "does this control exist" half used to be `expect(source).toContain(
- * "can('x')")`. That is text in a file, not behaviour: it passed on a `can('x')`
- * left in a comment or a tooltip after the JSX around it was deleted. Every row
- * now carries a `behaviour` block instead, and the check renders the owning page
+ * The "does this control exist" half is not `expect(source).toContain(
+ * "can('x')")` — that is text in a file, not behaviour, and passes on a
+ * `can('x')` left in a comment after the JSX around it was deleted. Every row
+ * carries a `behaviour` block instead, and the check renders the owning page
  * (or, where a page cannot reach the control, the smallest component that owns
  * it — those rows say so in `renders`) with and without the permission.
  *
@@ -151,10 +151,7 @@ jest.mock('framer-motion', () => {
     useReducedMotion: () => false,
   };
 });
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => (globalThis as unknown as { __pbRouter: unknown }).__pbRouter,
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => (globalThis as unknown as { __pbRouter: unknown }).__pbRouter));
 jest.mock('@/lib/api', () => {
   const g = globalThis as unknown as { __pbApi: Record<string, unknown> };
   const client = new Proxy({}, {
@@ -198,7 +195,7 @@ interface RouteTableEntry {
   permissions: PermissionGate[];
   systemAdmin: boolean;
   servicePrincipal: boolean;
-  /** Non-empty on an INTERNAL route (#14): the services allowed to call it. No
+  /** Non-empty on an INTERNAL route: the services allowed to call it. No
    *  user token reaches such a route, so no UI control can ever drive one. */
   internalCallers: string[];
   stepUp: boolean;
@@ -735,7 +732,7 @@ const CONTROLS: Control[] = [
       api: {
         getPluginCatalog: { listings: [{
           listing: { id: 'l1', publisherHandle: 'acme', publisherDisplayName: 'Acme', publisherTier: 'verified', name: 'tf', summary: null, category: 'deploy', icon: null, latestVersion: '1.0.0', state: 'listed', paused: false, license: null },
-          install: null, installable: true, requiresApproval: false, blocked: null, resolved: null,
+          install: null, installable: true, needsApproval: false, blocked: null, resolved: null,
           reference: { publisher: 'acme', name: 'tf' }, shadowedBy: null,
         }] },
       },
@@ -785,7 +782,7 @@ const CONTROLS: Control[] = [
             upgrade: { version: '2.0.0', breaking: false, changelog: null, vulnDelta: { newCritical: 0, newHigh: 0 } },
             blocked: null, warnings: [], advisories: [], pendingChange: null,
           },
-          installable: false, requiresApproval: true, needsApproval: true, blocked: null, resolved: null,
+          installable: false, needsApproval: true, blocked: null, resolved: null,
           reference: { publisher: 'acme', name: 'tf' }, shadowedBy: null,
         }] },
       },
@@ -1795,7 +1792,7 @@ const CONTROLS: Control[] = [
       find: byText(/current period/i),
     },
   },
-  // ── Plugin ecosystem: the tenant Publisher page (plan §3.0, §3.1, §3.4) ──
+  // ── Plugin ecosystem: the tenant Publisher page ──
   {
     control: 'Create the publisher profile (claim a handle, accept the terms)',
     file: 'src/components/publisher/PublisherProfilePanel.tsx',
@@ -1904,7 +1901,7 @@ const CONTROLS: Control[] = [
       find: button(/^accept$/i),
     },
   },
-  // ── Plugin ecosystem: the system org's Ecosystem console (plan §3.0, §5a.1) ──
+  // ── Plugin ecosystem: the system org's Ecosystem console ──
   {
     control: 'Ecosystem console: review, approve / second-approve / reject a publish request',
     file: 'src/components/ecosystem/PublishQueuePanel.tsx',
@@ -2141,7 +2138,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   // ── Plugin ecosystem ──────────────────────────────────────────────────────
   'image-registry DELETE /internal/quarantine/:submissionId': {
     category: 'machine-only',
-    why: 'Service-principal route (callers: plugin): the plugin service drops a rejected / expired anonymous submission\'s quarantine/<id> image (W5, E4/E5); no user token is admitted.',
+    why: 'Service-principal route (callers: plugin): the plugin service drops a rejected / expired anonymous submission\'s quarantine/<id> image; no user token is admitted.',
   },
   ...group('plugin', [
     'POST /public/plugin-submissions',
@@ -2149,7 +2146,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /public/plugin-submissions/verify',
   ], {
     category: 'pre-session',
-    why: 'Anonymous plugin submission (W5, plan §4): the not-signed-in submit and verify pages (src/lib/api/domains/plugin-submissions.ts) drive them with a proof-of-work and a magic link; there is no session, so no permission applies. Quarantine only — nothing is published without the two-person console decision.',
+    why: 'Anonymous plugin submission: the not-signed-in submit and verify pages (src/lib/api/domains/plugin-submissions.ts) drive them with a proof-of-work and a magic link; there is no session, so no permission applies. Quarantine only — nothing is published without the two-person console decision.',
   }),
   ...group('plugin', [
     'GET /plugins/ecosystem/requests/:id/submission-sbom',
@@ -2165,9 +2162,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   },
   'platform GET /internal/notify-email/status': {
     category: 'machine-only',
-    why: 'Service-principal route (callers: plugin): the plugin service asks whether outbound email is configured before it enables anonymous submissions (W5, E6); no user token is admitted.',
+    why: 'Service-principal route (callers: plugin): the plugin service asks whether outbound email is configured before it enables anonymous submissions; no user token is admitted.',
   },
-  // A signed-in person's OWN review of a listing (W4): write, edit, delete, vote
+  // A signed-in person's OWN review of a listing: write, edit, delete, vote
   // helpful, report. `plugins:read` + a human session; the controls are on the
   // public plugin page's Reviews tab (src/components/reviews/ReviewsSection.tsx,
   // ReviewItem.tsx), shown to any signed-in viewer.
@@ -2528,12 +2525,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     why: 'The billing↔compliance entitlement sync leg: api/compliance/src/routes/entitlements.ts gates it with `requireBillingService`, so only the billing service reads it. The dashboard reads subscriptions, not the synced entitlement row.',
   },
 
-  // `POST /user/generate-token` used to sit here as "CLI / renewal-Lambda
-  // machine-credential mint, no UI". It has one: the "Generate machine token"
-  // panel on pages/dashboard/security.tsx, with lifetime, capability scope and
+  // `POST /user/generate-token` is not a no-UI machine mint: it has the
+  // "Generate machine token" panel on pages/dashboard/security.tsx, with lifetime, capability scope and
   // permission-subset selection. It belongs with the other own-account rows.
   'platform POST /user/generate-token': { category: 'own-account', why: 'Settings → Security, "Generate machine token" (pages/dashboard/security.tsx → MachineTokenSection, api.generateNewToken). Own account: the credential carries a subset of the caller\'s OWN permissions, so no org permission gates it — the org\'s admin-actions MFA policy does, and renewal by the machine session does not re-prompt.' },
-  'platform POST /organization/names': { category: 'machine-only', why: 'Batch org-id → name resolver called service-to-service (packages/api-core org-hierarchy-http.ts, api/compliance org-hierarchy-client.ts). Gated by requireServicePrincipal on the route, so a user token can never reach it; the check used to sit in the controller, which enforced correctly but left the route table advertising servicePrincipal:false.' },
+  'platform POST /organization/names': { category: 'machine-only', why: 'Batch org-id → name resolver called service-to-service (packages/api-core org-hierarchy-http.ts, api/compliance org-hierarchy-client.ts). Gated by requireServicePrincipal on the route (not in the controller), so a user token can never reach it and the route table says servicePrincipal:true.' },
   ...group('compliance', ['POST /compliance/validate/pipeline', 'POST /compliance/validate/plugin'], {
     category: 'no-ui',
     why: 'The enforcing (non dry-run) validation, called by the CDK / service principals at deploy time. The client layer only has the /dry-run variants.',
@@ -2744,7 +2740,7 @@ describe('generated route tables', () => {
   });
 
   it('never routes a UI control at an INTERNAL route', () => {
-    // An internal route (#14) refuses every user token, so a `can(...)`-gated
+    // An internal route refuses every user token, so a `can(...)`-gated
     // control that called one could only ever 403 — and the fact that it would
     // is exactly the kind of thing this file exists to catch before a user does.
     const internal = new Set(
@@ -2894,11 +2890,8 @@ describe('no write route lands unmapped', () => {
           .toEqual({ route, internal: true });
         continue;
       }
-      // The `no-ui` half. It used to sit behind `if (category !== 'machine-only')
-      // continue;` and therefore never ran — the assertion the title promised was
-      // vacuous, and two untrue rows sat under it (POST /user/generate-token, which
-      // has the full machine-token panel on Settings → Security, and DELETE
-      // /quotas/:orgId, filed as a sysadmin console control that does not exist).
+      // The `no-ui` half — it must run for every category, or the assertion the
+      // title promises is vacuous.
       // "No UI reaches this" is a claim about the API CLIENT: every dashboard call
       // leaves through src/lib/api/domains, so a client method for the route is
       // exactly what makes the claim false. Reachability from a page/component is
@@ -3082,9 +3075,14 @@ describe('MFA refusals are handled app-wide', () => {
     expect(layout).toContain('MfaRequiredDialog');
   });
 
-  it('the one raw-fetch policy route (log export) raises it too', () => {
-    const domain = readFileSync(resolve(FRONTEND_DIR, 'src/lib/api/domains/observability.ts'), 'utf8');
-    expect(domain).toContain("'mfa-required'");
+  it('no authenticated endpoint bypasses the fetch core with a raw fetch', () => {
+    // File / text / multipart endpoints use core.requestRaw / requestBlob /
+    // requestText, so their refusals take the same path. Only the anonymous
+    // public-submission client may call fetch itself.
+    const dir = resolve(FRONTEND_DIR, 'src/lib/api/domains');
+    const rawFetchers = readdirSync(dir)
+      .filter((f) => /\bfetch\(/.test(readFileSync(resolve(dir, f), 'utf8')));
+    expect(rawFetchers).toEqual(['plugin-submissions.ts']);
   });
 });
 

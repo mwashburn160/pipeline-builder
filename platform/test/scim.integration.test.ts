@@ -3,16 +3,17 @@
 
 /**
  * Real-Mongo (replica set — provisioning is transactional) test for SCIM 2.0
- * (3b). What only a real database shows:
+ *. What only a real database shows:
  *
  *   - a create that produces the account, the membership, the Member floor and
  *     a `meta`/`Location` that resolve;
  *   - `userName eq` / `externalId eq` filtering and startIndex/count paging over
  *     real rows;
  *   - the SEAT refusal against live membership + invite counts, naming the limit;
- *   - deactivate: the membership goes inactive, `tokenVersion` is bumped and the
- *     refresh slots are cleared IN THE SAME transaction (sessions revoked);
- *   - group membership driving Roles through 3a's resolver, with a HAND-GRANTED
+ *   - deactivate: the membership goes inactive and `claimsVersion` is bumped IN
+ *     THE SAME transaction, so every outstanding access token is stale while the
+ *     person's sessions (which span their other orgs) survive;
+ *   - group membership driving Roles through the IdP group-mapping resolver, with a HAND-GRANTED
  *     Role surviving every sync;
  *   - the DOWNGRADE ASYMMETRY: reads, deactivate and delete still work; create
  *     and update are refused;
@@ -55,7 +56,12 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     const { Registry } = await import('prom-client');
     const { setMetricsRegistry } = await import('../src/observability/metrics.js');
     setMetricsRegistry(new Registry());
-    scim = await import('../src/services/scim-service.js');
+    scim = {
+      ...(await import('../src/services/scim-filter.js')),
+      ...(await import('../src/services/scim-users.js')),
+      ...(await import('../src/services/scim-groups.js')),
+      ...(await import('../src/services/scim-discovery.js')),
+    };
     roles = {
       ...(await import('../src/services/roles-service.js')),
       ...(await import('../src/services/role-crud.js')),
@@ -94,7 +100,7 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     // `verified` partial-unique index allows only one org per domain).
     if (opts.domain !== null) {
       await m.OrgDomain.create({
-        orgId: id,
+        organizationId: id,
         domain: opts.domain ?? 'acme.com',
         verified: true,
         verificationToken: 'tok',
@@ -119,11 +125,11 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     }
     orgId = await makeOrg();
     ctx = { orgId, entitled: true };
-    // The group-mapping EDITOR (3a) requires an IdP config whose provider can
+    // The group-mapping EDITOR requires an IdP config whose provider can
     // carry groups; SCIM's own Groups endpoint does not, but the tests below use
     // the editor to say what a group is worth.
     await m.OrgIdpConfig.create({
-      orgId,
+      organizationId: orgId,
       provider: 'generic-oidc',
       clientId: 'cid',
       clientSecretEncrypted: 'blob',
@@ -219,11 +225,10 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     expect(res.schemas).toEqual(['urn:ietf:params:scim:api:messages:2.0:ListResponse']);
   });
 
-  it('DEACTIVATES on active:false — membership inactive, sessions revoked', async () => {
+  it('DEACTIVATES on active:false — membership inactive, access tokens stale', async () => {
     const created = await createAlice();
     const id = created.resource.id;
-    await m.User.updateOne({ _id: id }, { $set: { refreshSessions: [{ tokenHash: 'h', createdAt: new Date() }] } });
-    const before = await m.User.findById(id).select('+tokenVersion').lean();
+    const before = await m.User.findById(id).select('+claimsVersion').lean();
 
     const out = await scim.patchUser(ctx, id, [{ op: 'replace', value: { active: false } }]);
     expect(out.action).toBe('deactivate');
@@ -231,11 +236,10 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
 
     const membership = await m.UserOrganization.findOne({ userId: id, organizationId: orgId }).lean();
     expect(membership.isActive).toBe(false);
-    const after = await m.User.findById(id).select('+tokenVersion').lean();
+    const after = await m.User.findById(id).select('+claimsVersion').lean();
     // The bump is what makes every outstanding access token fail on its next
-    // request; clearing the slots blocks a silent re-issue.
-    expect(after.tokenVersion).toBeGreaterThan(before.tokenVersion);
-    expect(after.refreshSessions ?? []).toEqual([]);
+    // request; the next refresh re-mints into an org the person is still in.
+    expect(after.claimsVersion).toBeGreaterThan(before.claimsVersion ?? 0);
   });
 
   it('DELETE deactivates and revokes too, and is idempotent', async () => {
@@ -309,7 +313,7 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
 
   // -- Groups ---------------------------------------------------------------
 
-  it('maps group membership to Roles through the 3a resolver', async () => {
+  it('maps group membership to Roles through the IdP group-mapping resolver', async () => {
     const alice = (await createAlice()).resource.id;
     // The admin decides what the group is WORTH; SCIM only decides who is in it.
     await mapping.create(orgId, 'admin', { group: 'Engineering', roleIds: [engRoleId] }, ADMIN_ACTOR);
@@ -332,7 +336,7 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
 
     expect(out.resource.displayName).toBe('Contractors');
     expect(out.resource.members.map((mem: { value: string }) => mem.value)).toEqual([alice]);
-    const row = await m.IdpGroupMapping.findOne({ orgId, groupKey: 'contractors' }).lean();
+    const row = await m.IdpGroupMapping.findOne({ organizationId: orgId, groupKey: 'contractors' }).lean();
     // SCIM never writes roleIds — that is the whole reason a stolen SCIM key is
     // not a privilege-escalation primitive.
     expect(row.roleIds).toEqual([]);
@@ -358,7 +362,7 @@ suite('SCIM 2.0 provisioning (real Mongo replica set)', () => {
     expect(held).toContain(String(custom._id));
     expect(held).toContain(memberRoleId);
     expect(held).not.toContain(engRoleId);
-    expect(await m.IdpGroupMapping.findOne({ orgId, groupKey: 'engineering' })).toBeNull();
+    expect(await m.IdpGroupMapping.findOne({ organizationId: orgId, groupKey: 'engineering' })).toBeNull();
   });
 
   it('carries members across a group RENAME', async () => {

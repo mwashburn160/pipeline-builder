@@ -68,7 +68,7 @@ export function ManifestDetail({
   }
   if (error) {
     return (
-      <div className="m-3 p-3 text-sm border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded">
+      <div className="m-3 p-3 text-sm border border-danger-border bg-danger-bg text-danger-strong rounded">
         <div className="font-medium mb-1">Failed to load manifest</div>
         <div className="text-xs">{formatError(error, 'Something went wrong')}</div>
       </div>

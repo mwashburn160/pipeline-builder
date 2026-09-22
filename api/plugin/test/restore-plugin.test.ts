@@ -16,8 +16,8 @@
  * spies the real helper uses, so every branch is exercised end-to-end.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -47,6 +47,7 @@ const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?:
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPluginAudit,
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   requireVisibilityWriteAccess,
   sendSuccess,
@@ -55,11 +56,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   loadAndRestore: jest.fn(async (
     req: any,
     res: any,
-    orgId: string,
-    userId: string,
     service: any,
-    label: string,
-    publishPermission: string,
+    { orgId, userId, label, publishPermission }: { orgId: string; userId: string; label: string; publishPermission: string },
   ) => {
     const id = req.params?.id;
     if (!id) {
@@ -72,7 +70,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       return null;
     }
     if (!requireVisibilityWriteAccess(req, res, existing, userId, publishPermission)) return null;
-    const restored = await service.restore(id, orgId, userId || 'system');
+    const restored = await service.restore(id, orgId, userId);
     if (!restored) {
       sendEntityNotFound(res, label);
       return null;
@@ -110,10 +108,6 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 }));
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPluginAudit: mockEmitPluginAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 // shapePlugin adds a computed `uri`; identity-ish stub suffices here.
 jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({

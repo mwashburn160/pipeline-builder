@@ -1,9 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { parseDateRange } from '@pipeline-builder/api-core';
-import { reportingService } from '@pipeline-builder/pipeline-data';
-import { MAX_REPORT_RANGE_DAYS } from './report-helpers.js';
+import { clampRetentionDays, parseDateRange, RETENTION_MAX_DAYS, RETENTION_UNLIMITED } from '@pipeline-builder/api-core';
+import { reportingService, type ReportingSettings } from '@pipeline-builder/pipeline-data';
 
 const MS_PER_DAY = 86_400_000;
 
@@ -29,19 +28,14 @@ export function retentionOrgIdFor(
 export type RetentionKind = 'event' | 'dora';
 
 /**
- * Shape of the retention-relevant fields on the org's reporting settings row.
- * `getIncidentSettings` returns both the per-org override (null when unset) and
- * the env default for each window — the override wins when present.
+ * The retention-relevant fields of the org's reporting settings: the per-org
+ * override (null when unset) and the env default for each window — the
+ * override wins when present.
  */
-export interface RetentionSettings {
-  eventRetentionDays: number | null;
-  doraRetentionDays: number | null;
-  defaultEventRetentionDays: number;
-  defaultDoraRetentionDays: number;
-}
+export type RetentionSettings = Pick<ReportingSettings, 'eventRetentionDays' | 'doraRetentionDays' | 'defaultEventRetentionDays' | 'defaultDoraRetentionDays'>;
 
 /**
- * The retention horizon a per-org report is bounded to (Phase 8, D4).
+ * The retention horizon a per-org report is bounded to.
  *
  * - `maxRangeMs` — the maximum `[from,to]` WIDTH (ms). Narrows `parseDateRange`'s
  *   absolute 730-day ceiling to the org's effective entitlement.
@@ -70,10 +64,10 @@ export function effectiveRetentionDays(s: RetentionSettings, kind: RetentionKind
 /**
  * The widest `[from,to]` span (days) a report may cover under an effective
  * retention of `effDays`: the retention itself, clamped to the absolute
- * {@link MAX_REPORT_RANGE_DAYS} ceiling (unlimited `-1` ⇒ the ceiling).
+ * {@link RETENTION_MAX_DAYS} ceiling (unlimited `-1` ⇒ the ceiling).
  */
 export function maxRangeDaysFor(effDays: number): number {
-  return effDays === -1 ? MAX_REPORT_RANGE_DAYS : Math.min(MAX_REPORT_RANGE_DAYS, effDays);
+  return effDays === RETENTION_UNLIMITED ? RETENTION_MAX_DAYS : clampRetentionDays(effDays);
 }
 
 /**
@@ -85,7 +79,7 @@ export function maxRangeDaysFor(effDays: number): number {
  * (`minFromMs = 0`).
  *
  * Split from {@link resolveOrgRetentionWindow} so the `/dora` route — which
- * already fetches `getIncidentSettings(orgId)` for its incident window — can
+ * already fetches `getReportingSettings(orgId)` for its incident window — can
  * derive the window from that single call instead of re-fetching.
  */
 export function orgRetentionWindowFromSettings(
@@ -102,7 +96,7 @@ export function orgRetentionWindowFromSettings(
 /**
  * Resolve the per-org retention window (width cap + `from` floor) for the given
  * retention `kind`. Self-contained: reads reporting's own `dora_settings` via
- * `getIncidentSettings` (never pipeline-data resolver internals).
+ * `getReportingSettings` (never pipeline-data resolver internals).
  */
 export async function resolveOrgRetentionWindow(
   orgId: string,
@@ -110,8 +104,8 @@ export async function resolveOrgRetentionWindow(
   retentionOrgId: string,
   now: number = Date.now(),
 ): Promise<RetentionWindow> {
-  const s = await reportingService.getIncidentSettings(orgId, retentionOrgId);
-  return orgRetentionWindowFromSettings(s as RetentionSettings, kind, now);
+  const s = await reportingService.getReportingSettings(orgId, retentionOrgId);
+  return orgRetentionWindowFromSettings(s, kind, now);
 }
 
 /**

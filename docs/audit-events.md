@@ -122,9 +122,13 @@ applies a second redaction pass before rendering or exporting.
 
 ## Service-remote ingest (`POST /audit/events`)
 
-Non-platform services deliver events through `RemoteAuditClient`, which is
-best-effort and **fire-and-forget** — a failed audit never blocks or fails the
-originating mutation. Three properties make it safe and durable:
+Non-platform services emit with api-core's ONE call, `recordAudit(event)`. The
+service identity is bound once at boot by `wireServiceSecurity(serviceName)`
+(every service calls it), so no call site names its service; calling
+`recordAudit` before that binding throws "audit not initialised" rather than
+sending an unattributed event. Delivery goes through `RemoteAuditClient`, which
+is best-effort and **fire-and-forget** — a failed audit never blocks or fails
+the originating mutation. Three properties make it safe and durable:
 
 - **Anti-forgery subset lock** — the ingest authenticates the caller as a service
   principal (`requireServiceAuth`) and validates `action` against the
@@ -297,7 +301,7 @@ is recorded even though it changes nothing. See [Logs](observability-logs.md).
 
 #### Plugin ecosystem: actor and affected-org rules
 
-The ecosystem actions above (see [docs/plans/plugin-ecosystem.md §5c](plans/plugin-ecosystem.md#5c-audit-events))
+The ecosystem actions above
 follow these rules:
 
 - **Actor:** `actorId({ userId })` as everywhere else. Automated jobs (auto-approval,
@@ -372,7 +376,7 @@ and neither are the heuristics excerpts.
 ## Registry structured-log events
 
 Independently of the Mongo trail, image-registry emits `eventCategory: 'audit'`
-structured log lines (via `emitAudit` in
+structured log lines (via `logAuditEvent(logger, event)` in
 [packages/api-core/src/utils/audit.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/utils/audit.ts))
 that the log aggregator (Loki, in the default deploy) routes into a dedicated
 stream. The event-name union is
@@ -394,7 +398,7 @@ org; plain members see neither.
   API applies the same predicate as `GET /audit`
   (`buildAuditQuery` in `platform/src/services/audit-service.ts`).
 
-The cross-service `emitAudit` lines described above also land in Loki with
+The cross-service `logAuditEvent` lines described above also land in Loki with
 `service_name`, `eventCategory`, `event`, `actor`, and `pluginName` promoted to
 labels, searchable in Grafana (Explore → Loki). They carry no org label, so they are not
 a tenant-scoped surface. Deep-link to a filtered Audit Activity view via the registry's
@@ -466,7 +470,7 @@ after a successful delete.
    [remote-audit-client.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/services/remote-audit-client.ts)
    AND to the platform `AuditAction` union / `ALL_AUDIT_ACTIONS` (the subset-guard
    test enforces `REMOTE_AUDIT_ACTIONS ⊆ AuditAction`).
-2. Emit it via the service's `getAuditClient().record({ action, actorId, orgId, targetId, details }, '<service>')` after the mutation succeeds.
+2. Emit it with `recordAudit({ action, actorId, orgId, targetId, details })` (from `@pipeline-builder/api-core`) after the mutation succeeds — no service argument; the service is the one bound by `wireServiceSecurity`. In tests, pass a spy as `apiCoreMock({ recordAudit: spy })`, or call `bindTestAuditService(serviceName)` from `@pipeline-builder/api-core/testing` when the suite runs the real api-core.
 3. Declare it on the route with api-core's `audited('new.action')` middleware (see
    [route coverage](permissions.md#route-coverage)) — the per-service test fails
    on a write route that declares no action, and on an action that isn't in

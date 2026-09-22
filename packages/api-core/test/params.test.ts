@@ -5,25 +5,14 @@ import { describe, it, expect } from '@jest/globals';
 
 import {
   getParam,
-  getOrgId,
   parseQueryInt,
   parseQueryString,
   parseQueryIntClamped,
   validateBulkArray,
   parseDateRange,
   REPORT_INTERVALS,
+  parseOptionalDate,
 } from '../src/utils/params.js';
-
-// Mock Express Request
-function mockReq(overrides: Record<string, unknown> = {}) {
-  return {
-    params: {},
-    headers: {},
-    query: {},
-    user: undefined,
-    ...overrides,
-  } as any;
-}
 
 // Tests
 
@@ -38,56 +27,6 @@ describe('getParam', () => {
 
   it('should return undefined for missing key', () => {
     expect(getParam({}, 'id')).toBeUndefined();
-  });
-});
-
-describe('getOrgId', () => {
-  it('should return orgId from route params', () => {
-    const req = mockReq({ params: { orgId: 'org-from-params' } });
-    expect(getOrgId(req)).toBe('org-from-params');
-  });
-
-  it('should return orgId from x-org-id header', () => {
-    const req = mockReq({ headers: { 'x-org-id': 'org-from-header' } });
-    expect(getOrgId(req)).toBe('org-from-header');
-  });
-
-  it('should return orgId from authenticated user', () => {
-    const req = mockReq({ user: { organizationId: 'org-from-user' } });
-    expect(getOrgId(req)).toBe('org-from-user');
-  });
-
-  it('prefers the verified JWT identity over a spoofable header/param (cross-tenant guard)', () => {
-    const req = mockReq({
-      params: { orgId: 'from-params' },
-      headers: { 'x-org-id': 'from-header' },
-      user: { organizationId: 'from-user' },
-    });
-    // JWT identity wins — an x-org-id header (or route param) must not override
-    // an authenticated user's org.
-    expect(getOrgId(req)).toBe('from-user');
-  });
-
-  it('falls back to route param, then header, only when there is no authenticated identity (pre-auth)', () => {
-    // No req.user → route param wins over header.
-    expect(getOrgId(mockReq({
-      params: { orgId: 'from-params' },
-      headers: { 'x-org-id': 'from-header' },
-    }))).toBe('from-params');
-    // No req.user, no param → header is the last resort.
-    expect(getOrgId(mockReq({
-      headers: { 'x-org-id': 'from-header' },
-    }))).toBe('from-header');
-  });
-
-  it('should return undefined when no org available', () => {
-    const req = mockReq();
-    expect(getOrgId(req)).toBeUndefined();
-  });
-
-  it('should trim whitespace from header org id', () => {
-    const req = mockReq({ headers: { 'x-org-id': '  org-1  ' } });
-    expect(getOrgId(req)).toBe('org-1');
   });
 });
 
@@ -320,5 +259,14 @@ describe('REPORT_INTERVALS', () => {
     for (const interval of REPORT_INTERVALS) {
       expect(typeof interval).toBe('string');
     }
+  });
+});
+
+describe('parseOptionalDate', () => {
+  it('absent → undefined, malformed → null, valid → Date', () => {
+    expect(parseOptionalDate(undefined)).toBeUndefined();
+    expect(parseOptionalDate('')).toBeUndefined();
+    expect(parseOptionalDate('not-a-date')).toBeNull();
+    expect(parseOptionalDate('2026-01-02')?.toISOString()).toBe('2026-01-02T00:00:00.000Z');
   });
 });

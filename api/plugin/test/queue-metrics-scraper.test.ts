@@ -11,8 +11,8 @@
  *   - clears the interval on `stopQueueMetricsScraper` and on SIGTERM
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import type { Queue } from 'bullmq';
 import { apiCoreMock } from './helpers/mock-api-core.js';

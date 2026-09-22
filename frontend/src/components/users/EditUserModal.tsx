@@ -153,7 +153,7 @@ export function EditUserModal({
         <div>
           <label className="label" htmlFor={`${uid}-organization`}>Organization</label>
           {/* The user's CURRENT org is always the selected option, even when it
-              is past any page cap — a blank select used to save them out of it. */}
+              is past any page cap — a blank select would save them out of it. */}
           <OrgPicker
             id={`${uid}-organization`}
             value={editOrgId}

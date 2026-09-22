@@ -1,47 +1,35 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState } from 'react';
 import { Shield, Loader2 } from 'lucide-react';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterSelect } from '@/components/ui/FilterSelect';
+import { RetryError } from '@/components/ui/RetryError';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import type { ComplianceRule, RuleTarget } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
 import { InheritedBadge } from './InheritedBadge';
 
 export default function EnforcedRulesView() {
-  const [rules, setRules] = useState<ComplianceRule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
 
-  // Stale-response guard: a rapid target-filter switch (or unmount) must not
-  // let an older in-flight response overwrite the current filter's rules.
-  const genRef = useRef(0);
-
-  const fetchRules = useCallback(async () => {
-    const gen = ++genRef.current;
-    setLoading(true);
-    setError(null);
+  // A filter switch supersedes the in-flight read, so an older response can't
+  // overwrite the current filter's rules.
+  const { data, loading, error, refetch } = useFetch<ComplianceRule[]>(async () => {
+    const params: Record<string, string> = {};
+    if (targetFilter) params.target = targetFilter;
+    let res: Awaited<ReturnType<typeof api.getEnforcedRules>>;
     try {
-      const params: Record<string, string> = {};
-      if (targetFilter) params.target = targetFilter;
-      const res = await api.getEnforcedRules(params);
-      if (gen !== genRef.current) return;
-      if (res.success && res.data) setRules(res.data.rules);
-      else setError(res.message || 'Failed to load enforced rules');
+      res = await api.getEnforcedRules(params);
     } catch {
-      if (gen !== genRef.current) return;
-      setError('Failed to load enforced rules');
+      throw new Error('Failed to load enforced rules');
     }
-    if (gen === genRef.current) setLoading(false);
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load enforced rules');
+    return res.data.rules;
   }, [targetFilter]);
-
-  useEffect(() => {
-    void fetchRules();
-    return () => { genRef.current++; };
-  }, [fetchRules]);
+  const rules = data ?? [];
 
   const orgRules = rules.filter(r => r.scope === 'org');
   const subscribedRules = rules.filter(r => r.scope === 'published');
@@ -64,12 +52,7 @@ export default function EnforcedRulesView() {
         </FilterSelect>
       </div>
 
-      {error && !loading && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-          <span>{error}</span>
-          <button onClick={fetchRules} className="underline hover:no-underline">Retry</button>
-        </div>
-      )}
+      {error && !loading && <RetryError message={error.message} onRetry={() => void refetch()} />}
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-success" /></div>

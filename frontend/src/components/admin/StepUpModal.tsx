@@ -39,7 +39,7 @@ interface Props {
    *  forward it via the `X-Step-Up-Token` header. */
   onConfirmed: (stepUpToken: string) => void | Promise<void>;
   /**
-   * The route accepts ONLY a second factor (#8): a passkey or an
+   * The route accepts ONLY a second factor: a passkey or an
    * authenticator-app code. Hides the password field and the provider buttons,
    * which would mint a token the server refuses with `STEP_UP_METHOD_REQUIRED`.
    *
@@ -87,8 +87,8 @@ function optionLabel(option: ReauthProvider): string {
  *   - a password field (POST /api/auth/step-up), and/or
  *   - "Sign in again with <provider>" for each linked social/SSO provider, which
  *     runs the provider round trip in a popup (src/lib/step-up-reauth).
- * Accounts created through Google/GitHub/SSO have no password at all, and used to
- * be locked out of every step-up-gated action.
+ * Accounts created through Google/GitHub/SSO have no password at all, so a
+ * password-only step-up would lock them out of every gated action.
  *
  * Every path returns the same 60s step-up token, which is handed to
  * `onConfirmed` and replayed by the caller's API call; the backend's
@@ -116,7 +116,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
   // The control the dialog opens on. Which one that is isn't known until the
   // account's factors arrive — a TOTP-only account has no password field at all
   // — so it is attached by callback ref to whichever control wins, and Modal
-  // focuses it when it appears (it used to focus "Close" and stay there).
+  // focuses it when it appears (not "Close").
   const focusRef = useRef<HTMLElement | null>(null);
   const assignFocus = useCallback((el: HTMLElement | null) => { focusRef.current = el; }, []);
   // Lets Cancel abort a provider round trip that's still waiting on the popup.

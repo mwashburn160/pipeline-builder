@@ -40,14 +40,11 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 }));
 
 // Remote-audit spy: route handlers emit attributed `message.*` events via
-// getAuditClient().record. Mock the module so tests can assert on the emitted
+// api-core `recordAudit`, overridden in the api-core mock so tests can assert on the emitted
 // event and that NO message body reaches the trail.
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: mockAuditRecord }),
-}));
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ ...routeApiCoreOverrides(), recordAudit: mockAuditRecord }));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
@@ -208,13 +205,38 @@ describe('Remote audit emissions (delete)', () => {
         action: 'message.delete',
         actorId: 'admin-9',
         orgId: 'org-1',
+        affectedOrgId: 'org-1', // deleted.orgId
+        targetType: 'message',
         targetId: 'msg-1',
         details: expect.objectContaining({ isAnnouncement: true }),
       }),
-      'message',
     );
 
-    const [event] = mockAuditRecord.mock.calls[0] as [any, string];
+    const [event] = mockAuditRecord.mock.calls[0] as [any];
     expect(event.details).not.toHaveProperty('content');
+  });
+
+  it('records the owning org as affectedOrgId on a cross-org sysadmin delete', async () => {
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    mockDeleteAsSysadmin.mockResolvedValue({
+      id: 'msg-2',
+      threadId: null,
+      orgId: 'tenant-7',
+      recipientOrgId: '000000000000000000000001',
+      messageType: 'conversation',
+    });
+    mockDeleteThread.mockResolvedValue(undefined);
+
+    const req = mockReq({ user: { sub: 'admin-9' }, params: { id: 'msg-2' } });
+    const res = mockRes();
+    await deleteHandler(req, res);
+
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'message.delete',
+      orgId: 'org-1',
+      affectedOrgId: 'tenant-7',
+      targetType: 'message',
+      targetId: 'msg-2',
+    }));
   });
 });

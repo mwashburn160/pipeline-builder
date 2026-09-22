@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Group-claim extraction (3a, helpers/idp-claims.ts).
+ * Group-claim extraction (helpers/idp-claims.ts).
  *
  * This is the boundary where an id_token stops being the IdP's word and becomes
  * a list the mapping engine acts on, so the tests are about what it REFUSES to

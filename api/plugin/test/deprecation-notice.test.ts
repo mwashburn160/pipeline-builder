@@ -2,17 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The W0.4 deprecation notice: §5b event N14, addressed to the org approvers of
+ * The deprecation notice: event N14, addressed to the org approvers of
  * every org whose pipelines use the version — as per-org recipient RULES, so the
  * publisher never learns who installed and no notice names another org.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindOrgsUsingVersion = jest.fn<(...a: any[]) => Promise<string[]>>();
 const mockEnqueue = jest.fn<(...a: any[]) => Promise<string>>();
-const mockEmitCounter = jest.fn();
+const mockIncCounter = jest.fn();
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { findOrgsUsingVersion: mockFindOrgsUsingVersion },
@@ -20,7 +21,8 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
   enqueueEcosystemNotification: mockEnqueue,
 }));
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ emitCounter: mockEmitCounter }));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockIncCounter }));
 const mockDeprecateListed = jest.fn(async (..._a: unknown[]) => 0);
 jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ deprecateListedFromSource: mockDeprecateListed }));
 
@@ -48,7 +50,7 @@ describe('onPluginDeprecated → N14', () => {
     await onPluginDeprecated(plugin, 'u-1');
 
     expect(mockFindOrgsUsingVersion).toHaveBeenCalledWith(plugin);
-    // A listed copy of the version is deprecated too (W8).
+    // A listed copy of the version is deprecated too.
     expect(mockDeprecateListed).toHaveBeenCalledWith(plugin, 'u-1');
     expect(mockEnqueue).toHaveBeenCalledTimes(1);
     const [event, recipients, content] = mockEnqueue.mock.calls[0]!;
@@ -59,8 +61,8 @@ describe('onPluginDeprecated → N14', () => {
     ]);
     // The relay would accept it.
     expect(typeof parseEcosystemNotifyRequest({ event, recipients, ...(content as object) })).toBe('object');
-    expect(mockEmitCounter).toHaveBeenCalledWith('plugin_deprecations_total');
-    expect(mockEmitCounter).toHaveBeenCalledWith('plugin_deprecation_notices_total');
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_deprecations_total');
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_deprecation_notices_total');
   });
 
   it('never addresses the publisher org\'s managers or names the using orgs in the body', async () => {
@@ -91,7 +93,7 @@ describe('onPluginDeprecated → N14', () => {
   it('never rejects: a lookup or send failure is counted and swallowed', async () => {
     mockFindOrgsUsingVersion.mockRejectedValue(new Error('db down'));
     await expect(onPluginDeprecated(plugin, 'u-1')).resolves.toBeUndefined();
-    expect(mockEmitCounter).toHaveBeenCalledWith('plugin_deprecation_notice_failures_total');
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_deprecation_notice_failures_total');
 
     mockFindOrgsUsingVersion.mockResolvedValue(['org-a']);
     mockEnqueue.mockRejectedValue(new Error('invalid'));

@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
-import { formatError } from '@/lib/constants';
+import { formatError, formatEnvelopeError } from '@/lib/constants';
 import type { BulkCreateResult, BulkPipelineSpec } from '@/lib/api/domains/pipelines';
 
 /**
@@ -72,7 +72,7 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
           toast.error(`${created} created, ${failed} failed`);
         }
       } else {
-        setError(formatError(res, 'Bulk create failed'));
+        setError(formatEnvelopeError(res, 'Bulk create failed'));
       }
     } catch (err) {
       setError(formatError(err, 'Bulk create failed'));
@@ -121,7 +121,7 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
               {result.failed > 0 && <Badge color="red">{result.failed} failed</Badge>}
             </div>
             {result.errors.length > 0 && (
-              <ul className="text-xs text-red-700 dark:text-red-300 space-y-1 max-h-40 overflow-y-auto">
+              <ul className="text-xs text-danger space-y-1 max-h-40 overflow-y-auto">
                 {result.errors.map((e) => (
                   <li key={e.index}>
                     <span className="font-mono">#{e.index}</span>: {e.error}

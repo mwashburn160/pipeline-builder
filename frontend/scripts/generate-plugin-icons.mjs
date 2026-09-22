@@ -4,8 +4,7 @@
 /**
  * Copy the curated plugin icon set into the frontend's static assets.
  *
- * Source: `deploy/plugins/_icons/<key>.svg` (one file per vendor/tool key, see
- * docs/plans/plugin-ecosystem.md §6a.1) plus `SOURCES.md`, which records each
+ * Source: `deploy/plugins/_icons/<key>.svg` (one file per vendor/tool key) plus `SOURCES.md`, which records each
  * icon's source, licence and brand colour.
  *
  * Output:

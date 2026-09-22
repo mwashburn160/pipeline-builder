@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -40,7 +41,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
 }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8 } }));
 jest.unstable_mockModule('../src/services/mfa-recovery.js', () => ({
   MFA_RESET_ALREADY_PENDING: 'MFA_RESET_ALREADY_PENDING',
   MFA_RESET_EXPIRED: 'MFA_RESET_EXPIRED',
@@ -77,7 +78,7 @@ const pending = (over: Record<string, unknown> = {}) => ({
 });
 
 // The controller-helper runs FOR REAL (see helpers/controller-helper-mock.ts):
-// `requireAuth` reads `req.user`, and `canAdministerOrg` reads api-core's
+// `ensureAuthenticated` reads `req.user`, and `canAdministerOrg` reads api-core's
 // `isSystemAdmin` (the `isSuperAdmin` claim), then `isOrgAdmin` (the `role`
 // claim), then the caller's `organizationId` vs. the target org — falling back
 // to the mocked ancestor walk. Authority is therefore expressed by the FIXTURE.

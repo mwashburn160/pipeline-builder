@@ -3,7 +3,7 @@
 
 /**
  * helpers/base-image — the base image's `created` time recorded on a listed
- * version (plugin ecosystem §6 W7 freshness): reference parsing, provenance
+ * version (its freshness): reference parsing, provenance
  * materials, which base is chosen, where it is read from, and that every
  * failure is a quiet null.
  */

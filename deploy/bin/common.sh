@@ -64,6 +64,13 @@ log_skip() { echo -e "  ${YELLOW}SKIP${NC} $1"; SKIPPED=$((SKIPPED + 1)); }
 log_warn() { echo -e "  ${YELLOW}WARN${NC} $1"; }
 log_info() { echo -e "${BLUE}==>${NC} $1"; }
 
+# Every MinIO bucket the stack creates — THE canonical list. backup.sh/restore.sh
+# mirror these by default, and each target's minio-init (compose + the k8s
+# minio.yaml files) plus the eks backup CronJob must create/mirror the same set
+# (deploy contract test). A bucket missing here is silently left out of backups.
+# shellcheck disable=SC2034
+PB_MINIO_BUCKETS="message-attachments registry loki thanos plugins plugin-quarantine audit-heads"
+
 # ---------------------------------------------------------------------------
 # mc_setup_aliases — configure the two MinIO client aliases used by backup/restore:
 #   pbsrc = this deploy's MinIO (MINIO_ENDPOINT + root creds)
@@ -357,14 +364,13 @@ yq_buildargs() {
 # compute_image_tag — deterministic image tag from plugin directory contents
 #
 # Hashes the SHA256 of every file in the plugin directory (except the build
-# outputs `image.tar`, `plugin.zip`, and the `.image-hash` cache sidecar),
+# outputs `image.tar` and `plugin.zip`, and config.yaml — see below),
 # plus the plugin-spec.yaml buildArgs.
 # Files are listed in sorted order so the hash is stable across runs.
 #
-# Why hash the whole directory: previously this hashed only the Dockerfile +
-# buildArgs, which silently shipped stale `image.tar`s when COPY'd files
-# (entrypoint scripts, configs, sibling sources) changed. Anything visible
-# to the build context now bumps the tag.
+# Why hash the whole directory: hashing only the Dockerfile + buildArgs would
+# ship stale `image.tar`s when COPY'd files (entrypoint scripts, configs,
+# sibling sources) change. Anything visible to the build context bumps the tag.
 #
 #   $1 plugin directory
 #   Outputs: p-{name}-{sha256-first-12}
@@ -397,7 +403,6 @@ compute_image_tag() {
     find . -type f \
       -not -name 'image.tar' \
       -not -name 'plugin.zip' \
-      -not -name '.image-hash' \
       -not -name 'config.yaml' \
       -not -name '.DS_Store' \
       | LC_ALL=C sort \
@@ -891,9 +896,9 @@ _admin_org_id() {
 # setup_service_account_key — create (or reuse) the system-org `setup` service
 # account and issue ONE short-lived key for the remaining init steps.
 #
-# Why: the plugin, template and compliance loads used to re-run `login` with the
-# admin's PASSWORD between steps, which both kept a human credential in the
-# script's environment and burned a refresh-session slot per run. A service
+# Why: re-running `login` with the admin's PASSWORD between the plugin,
+# template and compliance loads would keep a human credential in the script's
+# environment and burn a refresh-session slot per run. A service
 # account is the org's own machine identity: it holds the system org's roles, it
 # takes no seat, its key expires on its own (24h by default), and every action it
 # performs is audited as the ACCOUNT rather than as the operator.
@@ -931,7 +936,7 @@ setup_service_account_key() {
 
 # ---------------------------------------------------------------------------
 # official_loader_service_account_key — the dedicated OFFICIAL CATALOG LOADER
-# identity (plugin ecosystem §3.0.3): the system-org service account
+# identity: the system-org service account
 # `official-catalog-loader`, holding ONLY a custom "Official Catalog Loader"
 # role (plugins:read, plugins:write, plugins:publish). load-plugins.sh uploads
 # the Official catalog as this account with `publishRequest=true`, so every

@@ -5,7 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The submission proof-of-work solver (plan §4.2, E3) must find exactly what
+ * The submission proof-of-work solver must find exactly what
  * the server accepts: a decimal nonce with SHA-256("<challenge>:<nonce>")
  * starting with ≥ difficulty zero bits, searched from 0 so a challenge always
  * yields the same nonce. Checked three ways:

@@ -21,7 +21,7 @@ jest.mock('@/hooks/useExecutionStatusStream', () => ({ useExecutionStatusStream:
 jest.mock('@/components/reports/ReportHelpers', () => ({ DateRangePicker: () => null }));
 
 const push = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push, query: {}, pathname: '/dashboard/executions' }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push, query: {}, pathname: '/dashboard/executions' })));
 
 let rows: ExecutionCountRow[] = [];
 jest.mock('@/hooks/useQuery', () => ({

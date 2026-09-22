@@ -8,18 +8,15 @@
  * services (SSEManager, QuotaService, db, buildAndPush).
  */
 
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 // Type-only import (erased at compile), safe to sit with the other imports even
 // though it references a mocked module — it has no runtime effect.
 import type { PluginBuildJobData } from '../src/helpers/plugin-helpers.js';
-// `intFromEnv` lives in the dependency-free leaf module env-int.js; import it
-// directly rather than through the plugin-build-queue re-export.
-import { intFromEnv } from '../src/queue/env-int.js';
 
-// Mock state  must be hoisted before imports
+// Mock state must be hoisted before imports
 
 const mockQueueAdd = jest.fn<(...args: any[]) => any>();
 const mockQueueClose = jest.fn<AnyFn>().mockResolvedValue(undefined);
@@ -70,7 +67,7 @@ const mockDeployVersion = jest.fn<(...args: any[]) => any>();
 // Plugin ecosystem: the post-build publish request (`publishRequest=true`).
 const mockSubmitAfterBuild = jest.fn<(...args: any[]) => any>();
 
-/** Image facts the worker establishes after push (W0.6). */
+/** Image facts the worker establishes after push. */
 const SCANNED_FACTS = {
   vulnCritical: 0,
   vulnHigh: 2,
@@ -83,11 +80,9 @@ const SCANNED_FACTS = {
 const mockEstablishImageFacts = jest.fn<(...args: any[]) => any>(async () => SCANNED_FACTS);
 const mockAssertPostBuildCompliance = jest.fn<(...args: any[]) => any>(async () => undefined);
 
-// Shared remote-audit `record` spy. services/audit.ts caches a single
-// ServiceAuditClient, and BOTH the tier queue (getAuditClient().record →
-// client.record) and the DLQ (emitPluginAudit → client.emit → client.record)
-// route through it — so one spy captures every `plugin.build.*`
-// terminal/completed event across the whole build lifecycle.
+// Shared central-trail spy: the tier queue, the failure handler and the DLQ all
+// emit through api-core's `recordAudit` — so one spy captures every
+// `plugin.build.*` terminal/completed event across the whole build lifecycle.
 const mockAuditRecord = jest.fn<(...args: any[]) => any>();
 
 const mockPipelineCoreConfig: Record<string, any> = {
@@ -200,7 +195,7 @@ function registerMocks() {
   }));
   jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: mockSubmitAfterBuild }));
 
-  // W0.6 image facts: the scan + USER + post-build compliance check the worker
+  // image facts: the scan + USER + post-build compliance check the worker
   // runs between push and deploy. Real behaviour is covered by image-facts.test.ts.
   jest.unstable_mockModule('../src/helpers/image-facts.js', () => ({
     establishImageFacts: mockEstablishImageFacts,
@@ -234,12 +229,7 @@ function registerMocks() {
     // DLQ replay / failed-retry re-reserves a plugin slot; default to capacity available.
     reserveQuota: mockReserveQuota,
     getServiceAuthHeader: () => 'Bearer test-service-token',
-    createRemoteAuditClient: () => ({ record: mockAuditRecord }),
-    // services/audit.ts builds via createRemoteAuditAccessor; keep both `emit`
-    // and the underlying `client.record` bound to the one spy so getAuditClient()
-    // (client.record) and emitPluginAudit (emit) still land on it.
-    createServiceAuditClient: () => ({ emit: (e: any) => mockAuditRecord(e, 'plugin'), client: { record: mockAuditRecord } }),
-    createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: mockAuditRecord }), emit: (e: any) => mockAuditRecord(e, 'plugin') }),
+    recordAudit: mockAuditRecord,
     VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
     DEFAULT_TIER: 'developer',
     // Env-resolved Redis (REDIS_URL / REDIS_SENTINELS). The queue builds its
@@ -504,7 +494,7 @@ describe('plugin-build-queue', () => {
       // The uploader's visibility authority, snapshotted into the job, reaches the
       // deploy so the worker applies the same overwrite gate the route did — and
       // the signed digest + image source are persisted with the row.
-      // W0.6: the image's scan + USER facts land on the row (the quota snapshot
+      // the image's scan + USER facts land on the row (the quota snapshot
       // becomes a Date column; this job carried none).
       const { packages: _packages, ...scanFacts } = SCANNED_FACTS;
       expect(mockDeployVersion).toHaveBeenCalledWith(
@@ -548,7 +538,7 @@ describe('plugin-build-queue', () => {
       expect(sse.send).toHaveBeenCalledWith('req-123', 'WARN', 'Publish request: The organization has no publisher', {});
     });
 
-    it('does not deploy when the post-build compliance check blocks the image (W0.6)', async () => {
+    it('does not deploy when the post-build compliance check blocks the image', async () => {
       queueModule.startWorker(makeSseManager(), makeQuotaService());
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'d'.repeat(64)}`, imageSource: 'built' });
       mockAssertPostBuildCompliance.mockRejectedValueOnce(new Error('COMPLIANCE_VIOLATION: the built image failed compliance rules'));
@@ -574,7 +564,7 @@ describe('plugin-build-queue', () => {
       }));
     });
 
-    it('binds the build-log stream owner (requestId, orgId) before the first SSE send (F3 backstop)', async () => {
+    it('binds the build-log stream owner (requestId, orgId) before the first SSE send (a backstop)', async () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
 
@@ -633,7 +623,7 @@ describe('plugin-build-queue', () => {
       mockExistsSync.mockReturnValue(true);
       mockRmSync.mockImplementation(() => { throw new Error('permission denied'); });
 
-      // Should not throw  cleanup error is caught internally
+      // Should not throw cleanup error is caught internally
       const result = await getMainProcessor()(makeJob(makeJobData()));
       expect(result).toEqual({ pluginId: 'p1', fullImage: 'img' });
     });
@@ -657,7 +647,7 @@ describe('plugin-build-queue', () => {
 
       failedHandler(job, error);
 
-      // F8: the generic message is replaced by a bounded reason/summary. A plain
+      // the generic message is replaced by a bounded reason/summary. A plain
       // error (no build tail) degrades to the masked message + reason.
       expect(sse.send).toHaveBeenCalledWith('req-123', 'ERROR', 'Build failed (timed out): Build timeout', expect.objectContaining({
         jobId: 'job-1',
@@ -831,7 +821,7 @@ describe('plugin-build-queue', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Period-safe plugin-quota refund (#36: reservedResetAt snapshot)
+  // Period-safe plugin-quota refund (reservedResetAt snapshot)
   // ---------------------------------------------------------------------------
   //
   // A DLQ retry can span a quota-period reset. The reserve-time `resetAt`
@@ -904,30 +894,7 @@ describe('plugin-build-queue', () => {
     });
   });
 
-  describe('intFromEnv()', () => {
-    afterEach(() => { delete process.env.PLUGIN_TEST_INT; });
-
-    it('falls back to the default for a non-numeric env value', () => {
-      process.env.PLUGIN_TEST_INT = 'not-a-number';
-      expect(intFromEnv('PLUGIN_TEST_INT', 42)).toBe(42);
-    });
-
-    it('falls back for unset, empty, zero, and negative values', () => {
-      delete process.env.PLUGIN_TEST_INT;
-      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
-      process.env.PLUGIN_TEST_INT = '';
-      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
-      process.env.PLUGIN_TEST_INT = '0';
-      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
-      process.env.PLUGIN_TEST_INT = '-5';
-      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(7);
-    });
-
-    it('parses a valid positive integer', () => {
-      process.env.PLUGIN_TEST_INT = '99';
-      expect(intFromEnv('PLUGIN_TEST_INT', 7)).toBe(99);
-    });
-
+  describe('env-derived settings', () => {
     it('TIER_CACHE_TTL_MS is a real positive number even when the env is garbage', async () => {
       process.env.PLUGIN_TIER_CACHE_TTL_MS = 'garbage';
       jest.resetModules();
@@ -1224,7 +1191,7 @@ describe('plugin-build-queue', () => {
       expect(mockReserveQuota).not.toHaveBeenCalled();
     });
 
-    // E20: a re-run carries the RETRIER's authority, never the uploader's snapshot.
+    // a re-run carries the RETRIER's authority, never the uploader's snapshot.
     const MEMBER = { userId: 'retrier-1', isSystemAdmin: false, canPublish: false, caller: { userId: 'retrier-1', orgId: 'org-1', principalType: 'user', isSuperAdmin: false, permissions: ['plugins:write'], features: [] } };
 
     it('runs the replay as the retrier: their userId + access, public clamped to org and the publish dropped without plugins:publish', async () => {

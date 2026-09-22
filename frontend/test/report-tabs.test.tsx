@@ -16,10 +16,7 @@ import { PluginsTab } from '../src/components/reports/tabs/PluginsTab';
 import { DoraTab } from '../src/components/reports/tabs/DoraTab';
 import type { SharedFilters } from '../src/components/reports/useReportData';
 
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn<AnyFn>() })));
 
 const getExecutionCount = jest.fn<AnyFn>();
 const getSuccessRate = jest.fn<AnyFn>();

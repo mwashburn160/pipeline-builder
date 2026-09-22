@@ -4,12 +4,10 @@
 /**
  * Docs-drift guard for configuration.
  *
- * Five env parsers with four different conventions used to coexist in this
- * repo; they are now one (`envInt` / `envBool` / `envStr` in
- * `utils/env.ts`). The other half of that consolidation is this test: a
- * variable read through the canonical readers MUST appear in
- * `docs/environment-variables.md`, so an operator-facing knob can no longer be
- * added in code and silently stay undocumented.
+ * Config is read through one set of readers (`envInt` / `envBool` / `envStr`
+ * in `utils/env.ts`). A variable read through them MUST appear in
+ * `docs/environment-variables.md`, so an operator-facing knob can't be added in
+ * code and silently stay undocumented.
  *
  * Scope is deliberately the shared readers, not every `process.env.*` access:
  * those also cover third-party/runtime variables the platform merely observes

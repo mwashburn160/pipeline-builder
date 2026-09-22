@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The anonymous public plugin directory's database connection
- * (plugin-ecosystem §6a, G28).
+ * The anonymous public plugin directory's database connection.
  *
  * A second, SMALL pool that logs in as `ecosystem_public_reader` — a role that
  * can SELECT the `public_*` views and nothing else (postgres-init.sql). It
@@ -17,6 +16,7 @@
  * is off; callers check {@link isPublicReaderConfigured} and answer 404.
  */
 
+import { envInt } from '@pipeline-builder/api-core';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 
@@ -28,11 +28,6 @@ export const PUBLIC_READER_ROLE = 'ecosystem_public_reader';
 
 let pool: Pool | null = null;
 let readerDb: ReturnType<typeof drizzle<typeof schema>> | null = null;
-
-function intEnv(name: string, fallback: number): number {
-  const n = Number.parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 /** Whether the public reader login is configured (the directory can serve). */
 export function isPublicReaderConfigured(): boolean {
@@ -51,17 +46,17 @@ export function getPublicReaderDb(): ReturnType<typeof drizzle<typeof schema>> {
   }
   pool = new Pool({
     host: process.env.DB_HOST || 'pgbouncer',
-    port: intEnv('DB_PORT', 6432),
+    port: envInt('DB_PORT', 6432, { min: 1 }),
     database: process.env.PUBLIC_DIRECTORY_DB_NAME || 'pipeline_builder_public',
     user: PUBLIC_READER_ROLE,
     password: process.env.ECOSYSTEM_PUBLIC_READER_PASSWORD,
     // Below pgbouncer's per-user cap (5), so a replica never queues inside pgbouncer.
-    max: intEnv('PUBLIC_DIRECTORY_POOL_SIZE', 4),
+    max: envInt('PUBLIC_DIRECTORY_POOL_SIZE', 4, { min: 1 }),
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: intEnv('DRIZZLE_CONNECTION_TIMEOUT_MILLIS', 5000),
+    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MILLIS', 5000, { min: 1 }),
     // Client-side bound on one directory query. pgbouncer (transaction mode)
     // refuses a `statement_timeout` startup parameter, so it can't be set there.
-    query_timeout: intEnv('PUBLIC_DIRECTORY_QUERY_TIMEOUT_MS', 5000),
+    query_timeout: envInt('PUBLIC_DIRECTORY_QUERY_TIMEOUT_MS', 5000, { min: 1 }),
     ssl: getSslConfig(),
     allowExitOnIdle: true,
   });

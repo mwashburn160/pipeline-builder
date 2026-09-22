@@ -14,8 +14,8 @@
  * fallback, which is the same code path Redis-less deployments use.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // The config module refuses to load without these (no NODE_ENV=production here,
@@ -42,12 +42,9 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter:
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findForTokenIssue: (...a: unknown[]) => mockFindForTokenIssue(...a) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
-  issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUp(...a),
-  findRefreshSession: (...a: unknown[]) => mockFindRefreshSession(...a),
   // Faithful stand-in for the real helper (whose own semantics — inherit, never
   // raise, fail closed — are covered in the token suites). Importing the real
   // module here would drag in mongoose models for no added coverage.
@@ -58,11 +55,16 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
     return { amr: [...claims.amr], aal: claims.aal, authTime: new Date(claims.auth_time * 1000) };
   },
 }));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
+  findRefreshSession: (...a: unknown[]) => mockFindRefreshSession(...a),
+}));
 
 const {
   startDeviceCode, deviceToken, getDeviceRequest, approveDeviceRequest, denyDeviceRequest,
 } = await import('../src/controllers/device-auth.js');
-const { _resetDeviceStoresForTests } = await import('../src/services/device-auth-service.js');
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 
 function mockRes() {
   const res: any = {};
@@ -110,7 +112,7 @@ const realNow = Date.now;
 beforeEach(() => {
   jest.clearAllMocks();
   clockOffset = 0;
-  _resetDeviceStoresForTests();
+  _resetAllPendingStoresForTests();
   mockIssueTokens.mockResolvedValue({ accessToken: 'access.jwt', refreshToken: 'refresh.jwt', expiresIn: 900 });
   mockIssueStepUp.mockReturnValue({ token: 'stepup.jwt', expiresAt: 1_700_000_060 });
   mockFindForTokenIssue.mockResolvedValue({ _id: 'user-1', tokenVersion: 1 });

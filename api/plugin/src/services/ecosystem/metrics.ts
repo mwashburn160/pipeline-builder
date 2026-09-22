@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin-ecosystem operations metrics (docs/plans/plugin-ecosystem.md §9a).
+ * Plugin-ecosystem operations metrics (docs/plugin-publishing.md).
  *
  * GAUGES are sampled by {@link sampleEcosystemMetrics} on EVERY replica (a
  * plain, unlocked scheduler — the reads are small), so whichever pod
@@ -18,7 +18,7 @@
  *    decision permission (`kind="holders"`) and superadmins, sampled from
  *    platform at most every {@link APPROVER_SAMPLE_MS};
  *  - `plugin_submission_backlog` — anonymous submissions in `pending_review`
- *    (gates running or awaiting moderation, §4).
+ *    (gates running or awaiting moderation).
  *
  * COUNTERS and HISTOGRAMS are recorded where the event happens:
  * `ecosystem_decisions_total{kind,decision}` and
@@ -34,7 +34,8 @@ import { createLogger, createScheduler, errorMessage, REQUEST_SLA_HOURS, type Sc
 import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
 import type { PluginPublishRequest } from '@pipeline-builder/pipeline-data';
 
-import { platformReads, type DecisionPermission } from './platform-reads.js';
+import { platformReads } from './platform-reads.js';
+import type { DecisionPermission } from './policy.js';
 import { pendingResignJobs } from './resign.js';
 import { OPEN_STATUSES, requests } from './store.js';
 import { submissions } from './submissions-store.js';
@@ -53,7 +54,7 @@ const LANES = ['standard', 'security'] as const;
 let lastPendingKeys = new Set<string>();
 let lastApproverSample = 0;
 
-/** The SLA hours of a lane (§3.0). */
+/** The SLA hours of a lane. */
 export function slaHoursFor(lane: string): number {
   return (REQUEST_SLA_HOURS as Record<string, number>)[lane] ?? REQUEST_SLA_HOURS.standard;
 }
@@ -131,12 +132,12 @@ export function recordDecision(
   }
 }
 
-/** An anonymous submission entered `status` (§4, E13). */
+/** An anonymous submission entered `status`. */
 export function recordSubmission(status: string): void {
   incCounter('plugin_submissions_total', { status });
 }
 
-/** One count per failed automated gate of a submission (§4.2, E13). */
+/** One count per failed automated gate of a submission. */
 export function recordSubmissionGateFailures(gates: readonly string[]): void {
   for (const gate of new Set(gates)) incCounter('plugin_submission_gate_failures_total', { gate });
 }

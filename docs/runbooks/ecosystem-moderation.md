@@ -7,9 +7,9 @@ title: Ecosystem Moderation
 
 For **Ecosystem Managers** and superadmins: the people in the system
 organization who decide everything that enters or changes the plugin
-ecosystem (docs/plans/plugin-ecosystem.md §3.0, §5a.1). This is a staff
-runbook, linked from the Ecosystem console; it is not part of in-app help.
-Publisher-facing behaviour is in [Plugin Publishing](../plugin-publishing.md).
+ecosystem. This is a staff runbook, linked from the Ecosystem console; it is not
+part of in-app help. Publisher-facing behaviour, and the reasoning behind the
+governance model, is in [Plugin Publishing](../plugin-publishing.md#why-the-ecosystem-works-this-way).
 
 ## Before you start
 
@@ -148,7 +148,7 @@ Two rules are seeded:
 
 - **Verified updates**: patch/minor versions and text-only listing updates from
   Verified publishers.
-- **Official catalog** (§3.0.3): patch/minor versions and text-only listing
+- **Official catalog**: patch/minor versions and text-only listing
   updates of existing Official listings, only from the
   `official-catalog-loader` service account, at most **1 version per listing
   and 50 per day**. `OFFICIAL_AUTO_APPROVAL_ENABLED=false` turns it off for the
@@ -186,7 +186,7 @@ still answers 202; the refusal is on the build's log stream as
 
 - a failing submit gate: no `license` in the spec, no `README.md` in the plugin
   directory, the image **not scanned** (grype unavailable in the plugin
-  service: W0.6 scanning must work for the catalog to list), or criticals above
+  service: vulnerability scanning must work for the catalog to list), or criticals above
   `ECOSYSTEM_VULN_GATE_MAX_CRITICAL`;
 - the `official-catalog-loader` account lacking `plugins:publish` (its
   "Official Catalog Loader" role).
@@ -237,7 +237,7 @@ with a reason) so every listed version is signed with the new key.
 
 ## Plan effects
 
-The same scheduler watches publishers' plans (§3.7):
+The same scheduler watches publishers' plans (see [Plans and limits](../plugin-publishing.md#plans-and-limits)):
 
 - a Verified publisher whose plan drops below Team gets a 30-day grace period
   (N29, reminders at 14 and 3 days), then returns to Community with a re-sign
@@ -345,7 +345,7 @@ When something goes wrong:
 
 Never loosen the quarantine builder's isolation to fix a build. It has no
 env, no secrets, no token, and a narrow NetworkPolicy and mesh policy.
-`platform/test/deploy-quarantine-builder-contract.test.ts` fails if any of
+`test/deploy-contracts/test/quarantine-builder-contract.test.ts` fails if any of
 that changes.
 
 ## Audit
@@ -362,6 +362,22 @@ Use the **Ecosystem** and **Moderation** quick filters. Key actions:
 `plugin.submission.approve`, `plugin.submission.reject`,
 `plugin.submission.gate-fail`, `plugin.submission.expire`,
 `plugin.submission.claim`, and `registry.gc` for quarantine cleanup.
+
+## Kill switches
+
+Instance flags (plugin service env; restart to apply). The per-publisher
+**suspend** and per-listing **suspend / yank** actions above are the targeted
+switches; these turn a whole surface off.
+
+| Flag | Default | Off means |
+|---|---|---|
+| `PUBLIC_DIRECTORY_ENABLED` | on | `/plugins` and `/api/public/plugins*` return 404 |
+| `PLUGIN_PUBLISHING_ENABLED` | on when billing is on (hosted), off otherwise | tenants can't submit requests; existing listings still resolve |
+| `PLUGIN_REVIEWS_ENABLED` | on | reviews are read-only |
+| `ANONYMOUS_SUBMISSIONS_ENABLED` | **off** | the submission API returns 404; Submit becomes a sign-in link |
+| `OFFICIAL_AUTO_APPROVAL_ENABLED` | on | the Official catalog rule never fires; every Official update waits for two-person approval |
+
+Full descriptions: [Environment Variables](../environment-variables.md).
 
 ## Staffing
 

@@ -54,3 +54,10 @@ describe('Config.overrideScoped', () => {
     expect(Config.get('registry').host).toBe('registry');
   });
 });
+
+describe('Config.getAny', () => {
+  it('returns the same section as the typed accessor', () => {
+    Config._resetForTesting();
+    expect(Config.getAny('registry')).toEqual(Config.get('registry'));
+  });
+});

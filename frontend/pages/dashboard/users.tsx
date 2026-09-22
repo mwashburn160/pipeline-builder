@@ -370,7 +370,7 @@ export default function UsersPage() {
 
     if (result !== null) {
       list.refresh();
-      detail.refetch();
+      void detail.refetch();
       setNewPassword('');
       const savedId = editingUser.id;
       editClose.schedule(() => {
@@ -533,7 +533,7 @@ export default function UsersPage() {
       {pendingGrant && (
         <StepUpModal
           action={`${pendingGrant.isSuperAdmin ? 'Revoke' : 'Grant'} platform-admin for ${pendingGrant.email}`}
-          /* Backed by a route that accepts only a SECOND FACTOR (#8) — a
+          /* Backed by a route that accepts only a SECOND FACTOR — a
              passkey or an authenticator code. A password re-prompt proves
              nothing an attacker holding this session doesn't already have. */
           requireStrongFactor
@@ -553,7 +553,7 @@ export default function UsersPage() {
       {impersonateTarget && (
         <StepUpModal
           action={`Start read-only impersonation of ${impersonateTarget.email}`}
-          /* Backed by a route that accepts only a SECOND FACTOR (#8) — a
+          /* Backed by a route that accepts only a SECOND FACTOR — a
              passkey or an authenticator code. A password re-prompt proves
              nothing an attacker holding this session doesn't already have. */
           requireStrongFactor
@@ -580,7 +580,7 @@ export default function UsersPage() {
       {breakglassTarget && breakglassJustification && (
         <StepUpModal
           action={`Take emergency access to ${breakglassTarget.email}`}
-          /* Backed by a route that accepts only a SECOND FACTOR (#8) — a
+          /* Backed by a route that accepts only a SECOND FACTOR — a
              passkey or an authenticator code. A password re-prompt proves
              nothing an attacker holding this session doesn't already have. */
           requireStrongFactor
@@ -620,7 +620,7 @@ export default function UsersPage() {
         onBreakglass={() => setBreakglassTarget(editingUser)}
         onSubmit={handleSaveUser}
         onClose={() => setEditingUser(null)}
-        onFeatureSaved={() => { list.refresh(); detail.refetch(); }}
+        onFeatureSaved={() => { list.refresh(); void detail.refetch(); }}
         detailLoading={detail.loading}
         detailError={detail.error ? formatError(detail.error, 'Could not load this user\'s latest details — showing the list row.') : null}
       />

@@ -119,12 +119,12 @@ export function RowActionsMenu({
           <button type="button" role="menuitem" onClick={run(onNamespace)} className={itemClass}>
             <FileDown className="w-3.5 h-3.5 text-fg-subtle" /> Namespace YAML
           </button>
-          <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
+          <div className="my-1 border-t border-default" />
           <button
             type="button"
             role="menuitem"
             onClick={run(onDelete)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger-bg transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete organization
           </button>

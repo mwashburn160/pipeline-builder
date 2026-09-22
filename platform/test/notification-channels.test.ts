@@ -19,6 +19,7 @@
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- mocks --------------------------------------------------------------------
@@ -45,7 +46,7 @@ const mockInsert = jest.fn(() => ({ values: mockValues }));
 const mockWithTenantTx = jest.fn(async (fn: (tx: unknown) => unknown) => fn({ insert: mockInsert }));
 
 const mockSend = jest.fn<(opts: { to: string; subject: string; text?: string }) => Promise<boolean>>(async () => true);
-const mockConfig = { email: { enabled: true }, observability: { alertEmailDedupeTtlMs: 600_000 } };
+const cfg = { email: { enabled: true }, observability: { alertEmailDedupeTtlMs: 600_000 } };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createWebhookChannel: (opts: Record<string, any> = {}) => {
@@ -82,7 +83,7 @@ jest.unstable_mockModule('../src/utils/email.js', () => ({
   emailService: { send: mockSend },
   default: { send: mockSend },
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: mockConfig }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig(cfg));
 
 const { getNotificationChannel, plainTextBody, severityToPriority, subjectLine } =
   await import('../src/services/notification-channels.js');
@@ -117,7 +118,7 @@ const signal = () => new AbortController().signal;
 beforeEach(() => {
   insertedRows.length = 0;
   mockSend.mockClear();
-  mockConfig.email.enabled = true;
+  cfg.email.enabled = true;
   sent.length = 0;
   results.webhook = { ok: true, code: 200 };
   results.slack = { ok: true, code: 200 };
@@ -244,7 +245,7 @@ describe('email channel', () => {
     expect(emailOpts[0].dedupeTtlMs).toBe(600_000);
     expect(typeof emailOpts[0].enabled).toBe('function');
     expect(emailOpts[0].enabled()).toBe(true);
-    mockConfig.email.enabled = false;
+    cfg.email.enabled = false;
     expect(emailOpts[0].enabled()).toBe(false);
   });
 
@@ -264,7 +265,7 @@ describe('email channel', () => {
   });
 
   it('reports skipped without sending when email is disabled on the deploy', async () => {
-    mockConfig.email.enabled = false;
+    cfg.email.enabled = false;
     const res = await getNotificationChannel('email')!.deliver(
       baseMsg(), target({ value: 'a@b.com' }), signal());
 

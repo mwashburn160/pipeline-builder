@@ -7,8 +7,9 @@
  * answers to the INVITING org's policy.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -24,7 +25,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   isSystemOrgId: () => false,
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { billing: { enabled: false }, compliance: { enabled: false } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ billing: { enabled: false }, compliance: { enabled: false } }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ rejectIfSsoEnforced: async () => false }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
@@ -40,11 +41,13 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { register: (...a: unknown[]) => mockRegister(...a) },
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
   issueTokens: jest.fn<AnyFn>(),
   renewSessionTokens: jest.fn<AnyFn>(),
 }));

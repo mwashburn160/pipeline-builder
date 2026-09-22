@@ -20,6 +20,8 @@ import {
   sendEntityNotFound,
   errorMessage,
   actorId,
+  envInt,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute, incCounter, rateLimitByOrg } from '@pipeline-builder/api-server';
 import type { RequestContext, SSEManager } from '@pipeline-builder/api-server';
@@ -31,21 +33,10 @@ import type { NewMessageNotification } from '../helpers/new-message.js';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reachability.js';
 import { attachmentService } from '../services/attachment-service.js';
-import { getAuditClient } from '../services/audit.js';
 import { messageService } from '../services/message-service.js';
 
 type MessageInsert = typeof schema.message.$inferInsert;
 
-/**
- * Create the message creation router (authenticated).
- *
- * Registers:
- * - POST /messages           -- create a new announcement or conversation
- * - POST /messages/support   -- contact the support desk (recipient forced)
- * - POST /messages/:id/reply -- reply to an existing thread
- * @param sseManager - SSE manager for pushing real-time notifications
- * @returns Express Router
- */
 /** Reserved channel every support-contact message is filed under, so system-org
  *  readers can filter the support desk out of the rest of their inbox. */
 const SUPPORT_CHANNEL = 'support';
@@ -54,8 +45,8 @@ const SUPPORT_CHANNEL = 'support';
  *  Verified service principals are exempt; unauthenticated falls back to per-IP. */
 const sendLimiter = rateLimitByOrg({
   name: 'message-send',
-  max: Math.max(1, Number.parseInt(process.env.MESSAGE_SEND_RATE_MAX ?? '60', 10) || 60),
-  windowMs: Math.max(1000, Number.parseInt(process.env.MESSAGE_SEND_RATE_WINDOW_MS ?? '60000', 10) || 60000),
+  max: envInt('MESSAGE_SEND_RATE_MAX', 60, { min: 1 }),
+  windowMs: envInt('MESSAGE_SEND_RATE_WINDOW_MS', 60000, { min: 1000 }),
   message: 'Too many messages sent, please slow down.',
 });
 
@@ -129,6 +120,16 @@ async function persistAndRespond(
   return sendSuccess(res, 201, await enrichOneWithOrgNames(message), opts.successMessage);
 }
 
+/**
+ * Create the message creation router (authenticated).
+ *
+ * Registers:
+ * - POST /messages           -- create a new announcement or conversation
+ * - POST /messages/support   -- contact the support desk (recipient forced)
+ * - POST /messages/:id/reply -- reply to an existing thread
+ * @param sseManager - SSE manager for pushing real-time notifications
+ * @returns Express Router
+ */
 export function createCreateMessageRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
@@ -236,10 +237,10 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       // 1:1 conversations/replies are intentionally NOT audited — they are noisy
       // and would pull private message content into the trail. `details` carries
       // SAFE METADATA ONLY (subject/type/recipient scope) — never the body.
-      // Fire-and-forget: RemoteAuditClient.record never throws and is not awaited.
+      // Fire-and-forget: emission never throws and is not awaited.
       onPersisted: (messageId) => {
         if (messageType !== 'announcement') return;
-        getAuditClient().record({
+        recordAudit({
           action: 'message.announcement.create',
           actorId: actorId({ userId }),
           orgId,
@@ -249,7 +250,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
             messageType,
             recipientScope: 'org-wide',
           },
-        }, 'message');
+        });
       },
       successMessage: 'Message created successfully',
     });

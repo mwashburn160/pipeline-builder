@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * W2 install surfaces: the shared install controls (every state and the calls
+ * Install surfaces: the shared install controls (every state and the calls
  * they make), the consumption-policy tab (read-only vs editable, inheritance,
  * step-up save of only the changed fields), the approvals tab and the catalog.
  */
@@ -12,7 +12,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { POLICY, catalogEntry, installView, officialEntry } from './helpers/pluginInstallFixtures';
 
 const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
 
 let stepUpToken = 'tok';
 jest.mock('@/components/admin/StepUpModal', () => ({
@@ -21,7 +21,7 @@ jest.mock('@/components/admin/StepUpModal', () => ({
     <button type="button" data-testid="stepup-confirm" onClick={() => onConfirmed(stepUpToken)}>confirm step-up</button>
   ),
 }));
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ isReady: true, query: {}, replace: jest.fn(), push: jest.fn() }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: {}, replace: jest.fn(), push: jest.fn() })));
 
 const api = {
   createPluginInstall: jest.fn<AnyFn>(),
@@ -64,7 +64,7 @@ describe('InstallControls', () => {
   it('installs, and reports a pending request when approval is required', async () => {
     const onChanged = jest.fn<AnyFn>();
     api.createPluginInstall.mockReturnValue(ok({ install: installView({ status: 'pending_approval' }) }));
-    render(<InstallControls entry={catalogEntry({ requiresApproval: true })} canInstall onChanged={onChanged} />);
+    render(<InstallControls entry={catalogEntry({ needsApproval: true })} canInstall onChanged={onChanged} />);
     fireEvent.click(screen.getByRole('button', { name: 'Request install' }));
     expect(await screen.findByRole('status')).toHaveTextContent('An approver in your organization has been notified');
     expect(api.createPluginInstall).toHaveBeenCalledWith({ publisher: 'acme', name: 'terraform-plan' });

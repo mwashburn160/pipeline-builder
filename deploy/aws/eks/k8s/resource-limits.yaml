@@ -36,12 +36,11 @@ spec:
       # emits `pods "..." is forbidden: maximum memory usage per Container is X,
       # but limit is Y` and the Deployment sits at 0/1 with no pod to inspect.
       #
-      # ask-model (the Ollama 7B, limits cpu 4 / memory 10Gi) is now that largest
-      # container, so both values are literals sized to it. They previously read
-      # cpu "2" / ${BUILDKIT_MEMORY_LIMIT} (6144Mi here), which silently forbade
-      # every ask-model pod the moment it was added to kustomization.yaml.
+      # ask-model (the Ollama 7B, limits cpu 4 / memory 10Gi) is that largest
+      # container, so both values are literals sized to it — a smaller cap
+      # silently forbids every ask-model pod.
       #
-      # The memory value therefore no longer tracks BUILDKIT_MEMORY_LIMIT: keep
+      # The memory value therefore does not track BUILDKIT_MEMORY_LIMIT: keep
       # that <= 10Gi (it is the buildkitd sidecar's cgroup limit; default 6144Mi)
       # or the plugin pod hits this same cap. The Pod-level max below must stay
       # >= these, since ask-model is a single-container pod.

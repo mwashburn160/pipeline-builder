@@ -102,7 +102,7 @@ export function routeApiServerMock(overrides: Record<string, unknown> = {}): Rec
         return sendInternalErrorForRoute(res, msg);
       }
     },
-    incrementQuotaFromCtx: jest.fn(),
+    meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
     // Both helpers are spread into route signatures (`...createAuthenticatedWithOrgRoute()`).
     // Return [] so the route stack contains only guards + the final withRoute handler.
     createProtectedRoute: jest.fn(() => []),

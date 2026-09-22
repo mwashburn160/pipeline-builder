@@ -63,7 +63,7 @@ function main(): void {
 
   // Synthesize now (App.synth() is cached, so the CLI's own synth is a no-op)
   // and drop the step manifest next to the template: `deploy` reads it back
-  // from `--output` and ships it with the registry registration (W0.1).
+  // from `--output` and ships it with the registry registration.
   const assembly = app.synth();
   writeFileSync(join(assembly.directory, STEP_MANIFEST_FILE), JSON.stringify(builder.stepManifest));
 

@@ -12,8 +12,8 @@
 import { useState, useEffect } from 'react';
 import { useTicketedSSE } from './useTicketedSSE';
 import { BUILD_SSE_MAX_RETRIES, MAX_BUILD_EVENTS } from '@/lib/constants';
-import { clearPluginCache } from './usePlugins';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 
 /** Discriminator for SSE build event payloads. */
 export type BuildEventType = 'INFO' | 'ERROR' | 'COMPLETED' | 'ROLLBACK';
@@ -63,7 +63,7 @@ export function useBuildStatus(requestId: string | null) {
       switch (parsed.type) {
         case 'COMPLETED':
           setStatus('completed');
-          clearPluginCache();
+          invalidate.plugins();
           return true; // terminal — close the stream
         case 'ERROR':
           setStatus('failed');

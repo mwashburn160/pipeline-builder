@@ -20,15 +20,12 @@ const SERVICE_TOKEN = 'Bearer service-minted-token';
 
 const mockAnswerHowTo = jest.fn<(...a: any[]) => any>();
 const mockStreamHowTo = jest.fn<(...a: any[]) => any>();
-const mockResolveModel = jest.fn<(...a: any[]) => any>(() => ({ id: 'model' }));
-const mockCreateModelWithKey = jest.fn<(...a: any[]) => any>(() => ({ id: 'model' }));
 const mockGetAvailableProviders = jest.fn<(...a: any[]) => any>(() => [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet-5', name: 'Claude Sonnet 5' }] }]);
 
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
+  resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5' })),
   answerHowTo: mockAnswerHowTo,
   streamHowTo: mockStreamHowTo,
-  resolveModel: mockResolveModel,
-  createModelWithKey: mockCreateModelWithKey,
   getAvailableProviders: mockGetAvailableProviders,
   getProviderModels: jest.fn(() => [{ id: 'claude-sonnet-5', name: 'Claude Sonnet 5' }]),
 }));
@@ -39,6 +36,7 @@ const mockReserveQuota = jest.fn<(...a: any[]) => any>(() =>
 const mockDecrementQuota = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (event: unknown) => auditRecord(event, 'ask'),
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   getServiceAuthHeader: mockGetServiceAuthHeader,
   reserveQuota: mockReserveQuota,
@@ -49,7 +47,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   audited: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireFeature: () => (_req: unknown, _res: unknown, next: () => void) => next(),
-  initSSEStream: jest.fn(() => ({ aborted: () => false })),
+  initSSEStream: jest.fn((_req: unknown, res: { write: (s: string) => unknown }) => ({
+    signal: new AbortController().signal,
+    aborted: () => false,
+    send: (e: unknown) => { res.write(`data: ${JSON.stringify(e)}\n\n`); },
+    done: (e?: unknown) => { if (e !== undefined) res.write(`data: ${JSON.stringify(e)}\n\n`); res.write('data: [DONE]\n\n'); },
+  })),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendQuotaReserveDenied: jest.fn((res: any, _t: string, r: { unavailable?: boolean }) => res.status(r.unavailable ? 503 : 429).json({ message: r.unavailable ? 'quota unavailable' : 'quota exceeded' })),
   sendSuccess: jest.fn((res: any, code: number, data?: any) => res.status(code).json({ success: true, data })),
@@ -61,9 +64,11 @@ jest.unstable_mockModule('../src/services/docs-index.js', () => ({
 }));
 
 const auditRecord = jest.fn();
-jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: auditRecord }) }));
 
+// The REAL reservation helper (its api-core calls hit this file's api-core mock).
+let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -78,6 +83,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 },
 }));
 
+({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createAskRoutes } = await import('../src/routes/ask.js');
 
 // -- Helpers ------------------------------------------------------------------

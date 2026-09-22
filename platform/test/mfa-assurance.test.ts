@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * ISSUANCE-TIME assurance (#8) — `signInAuth`, and the bootstrap-session
+ * ISSUANCE-TIME assurance — `signInAuth`, and the bootstrap-session
  * reach allowlist.
  *
  * `signInAuth` is the one place a sign-in is described, so it is the one place
@@ -13,18 +13,17 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Pure logic under test: the assurance decision and the allowlist. The config,
 // models and metrics graphs are stubbed so neither needs a database — the
-// database-backed halves of #8 live in `mfa-bootstrap.integration.test.ts`.
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600, tierExpiresIn: {} },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
-      passwordMinLength: 8,
-    },
+// database-backed halves live in `mfa-bootstrap.integration.test.ts`.
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600, tierExpiresIn: {} },
+    refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
+    passwordMinLength: 8,
   },
 }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -48,7 +47,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 
-const { signInAuth, authFromClaims } = await import('../src/utils/token.js');
+const { signInAuth, authFromClaims } = await import('../src/services/session/access-tokens.js');
 const { bootstrapSessionMayReach, isBootstrapSetupRequest, isBootstrapSuperAdminEmail } = await import('../src/helpers/bootstrap-admin.js');
 
 describe('signInAuth — assurance for every factor combination', () => {

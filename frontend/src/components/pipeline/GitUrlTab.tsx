@@ -1,18 +1,15 @@
-import { useState, useImperativeHandle, forwardRef, useCallback, useId } from 'react';
-import { GitBranch, ChevronDown, Plug, Loader } from 'lucide-react';
-import { BuilderProps, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
+import { useImperativeHandle, forwardRef, useId } from 'react';
+import { GitBranch, Loader } from 'lucide-react';
+import type { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
-import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useRepoAnalysis } from '@/hooks/internal/useRepoAnalysis';
-import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
-import { applyPluginPick, pickName, type PluginPick } from '@/lib/plugin-installs';
 import { PrivateRepoFields } from '@/components/pipeline/PrivateRepoFields';
 import { AnalysisResultPanel, PluginStatusPanel } from '@/components/pipeline/AnalysisResultPanel';
-import { formatJSON } from '@/lib/constants';
+import { GeneratedConfigReview, GenerationProgress, stageProgress, useGeneratedProps } from '@/components/pipeline/GeneratedConfigReview';
 
 /** Methods exposed to the parent modal via ref. */
 export interface GitUrlTabRef {
@@ -34,74 +31,6 @@ interface GitUrlTabProps {
   autoGenerate?: boolean;
 }
 
-/** Props for the inline plugin review section. */
-interface PluginReviewSectionProps {
-  props: BuilderProps;
-  onPluginChange: (path: string, pluginName: string, pick: PluginPick | null) => void;
-  disabled?: boolean;
-}
-
-/** Displays AI-selected plugins with combobox dropdowns for swapping. */
-function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSectionProps) {
-  const [expanded, setExpanded] = useState(true);
-  const synth = asGeneratedSynth(props.synth);
-  const stages = asGeneratedStages(props.stages);
-
-  return (
-    <div className="rounded-xl bg-surface-muted border border-default">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-fg-muted hover:bg-surface-muted rounded-xl transition-colors"
-      >
-        <span className="flex items-center gap-2">
-          <Plug className="w-4 h-4 text-fg-muted" />
-          Review Plugins
-        </span>
-        <ChevronDown className={`w-5 h-5 text-fg-subtle transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
-      {expanded && (
-        <div className="px-4 pb-4 border-t border-default space-y-4">
-          {/* Synth plugin */}
-          <div className="pt-3">
-            <PluginNameCombobox
-              value={synth?.plugin?.name ?? ''}
-              publisher={synth?.plugin?.publisher}
-              onChange={(name) => onPluginChange('synth', name, null)}
-              onSelectPlugin={(pick) => onPluginChange('synth', pickName(pick), pick)}
-              disabled={disabled}
-              label="Synth plugin"
-            />
-          </div>
-
-          {/* Stage step plugins */}
-          {stages.map((stage, si) => (
-            <div key={si}>
-              <p className="text-xs font-semibold text-fg-muted mb-2">
-                Stage: {stage.stageName}
-              </p>
-              <div className="space-y-3 pl-3">
-                {(stage.steps ?? []).map((step, stepIdx) => (
-                  <PluginNameCombobox
-                    key={`${si}-${stepIdx}`}
-                    value={step.plugin?.name ?? ''}
-                    publisher={step.plugin?.publisher}
-                    onChange={(name) => onPluginChange(`stages.${si}.steps.${stepIdx}`, name, null)}
-                    onSelectPlugin={(pick) => onPluginChange(`stages.${si}.steps.${stepIdx}`, pickName(pick), pick)}
-                    disabled={disabled}
-                    label={`Step ${stepIdx + 1} Plugin`}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
   ({ disabled, initialUrl, autoGenerate }, ref) => {
     const uid = useId();
@@ -119,46 +48,15 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       generate: handleGenerate,
     } = useRepoAnalysis({ initialUrl, autoGenerate });
 
-    /** Update a plugin reference at the given path when the user swaps via combobox. */
-    const handlePluginChange = useCallback((path: string, pluginName: string, pick: PluginPick | null) => {
-      if (!generatedProps) return;
-      const updated = structuredClone(generatedProps);
-
-      // Locate the target plugin ref
-      let target: GeneratedPluginRef;
-      if (path === 'synth') {
-        if (!updated.synth) return;
-        target = asGeneratedSynth(updated.synth).plugin;
-      } else {
-        const [, stageIdx, , stepIdx] = path.split('.');
-        const stages = asGeneratedStages(updated.stages);
-        const si = Number(stageIdx);
-        const stepI = Number(stepIdx);
-        if (!stages?.[si]?.steps?.[stepI]) return;
-        target = stages[si].steps[stepI].plugin;
-      }
-
-      // Always update name (covers both typing and dropdown selection)
-      target.name = pluginName;
-
-      // A dropdown selection rewrites the reference (publisher / filter) and clears the alias
-      if (pick) applyPluginPick(target, pick);
-
-      setGeneratedProps(updated);
-      setPreviewJson(formatJSON(updated));
-    }, [generatedProps, setGeneratedProps, setPreviewJson]);
+    const { onPluginChange, withOverrides } = useGeneratedProps({
+      generatedProps, setGeneratedProps, setPreviewJson, projectOverride, organizationOverride,
+    });
 
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
-        if (!generatedProps) {
-          setError('Generate a configuration first using the button below.');
-          return null;
-        }
-        return {
-          ...generatedProps,
-          project: projectOverride.trim() || generatedProps.project,
-          organization: organizationOverride.trim() || generatedProps.organization,
-        };
+        const props = withOverrides();
+        if (!props) setError('Generate a configuration first using the button below.');
+        return props;
       },
       getDescription: () => generatedDescription,
       getKeywords: () => generatedKeywords,
@@ -220,25 +118,11 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
           </Button>
         </div>
 
-        {/* Streaming progress */}
         {generating && !previewJson && (
-          // role="status" — repo analysis + generation can run for a minute, and
-          // was entirely silent to a screen reader.
-          <div role="status" className="rounded-xl bg-info-bg border border-info-border p-4 flex items-center gap-3">
-            <LoadingSpinner size="sm" label={null} />
-            <div>
-              <p className="text-sm font-medium text-info-strong">
-                {analyzing ? 'Analyzing repository structure...' : 'Generating pipeline configuration...'}
-              </p>
-              <p className="text-xs text-info mt-1">
-                {analyzing
-                  ? 'Scanning files, languages, and frameworks'
-                  : stageCount > 0
-                    ? `Building pipeline — ${stageCount} stage${stageCount > 1 ? 's' : ''} generated so far`
-                    : 'AI is building your pipeline — this may take a minute with local models'}
-              </p>
-            </div>
-          </div>
+          <GenerationProgress
+            title={analyzing ? 'Analyzing repository structure...' : 'Generating pipeline configuration...'}
+            detail={analyzing ? 'Scanning files, languages, and frameworks' : stageProgress(stageCount)}
+          />
         )}
 
         {/* Error */}
@@ -246,75 +130,28 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
 
         {analysis && <AnalysisResultPanel analysis={analysis} />}
 
-        {/* Project & Organization Override */}
-        {generatedProps && (
-          <div className="grid grid-cols-2 gap-4">
-            <FormField label="Project">
-              <Input
-                type="text"
-                value={projectOverride}
-                onChange={(e) => setProjectOverride(e.target.value)}
-                placeholder="Project name"
-                className="text-sm"
-                disabled={disabled || generating}
-              />
-            </FormField>
-            <FormField label="Organization">
-              <Input
-                type="text"
-                value={organizationOverride}
-                onChange={(e) => setOrganizationOverride(e.target.value)}
-                placeholder="Organization name"
-                className="text-sm"
-                disabled={disabled || generating}
-              />
-            </FormField>
-          </div>
-        )}
-
-        {/* Plugin Review — lets user swap AI-selected plugins before submitting */}
-        {generatedProps && !generating && (
-          <PluginReviewSection
-            props={generatedProps}
-            onPluginChange={handlePluginChange}
-            disabled={disabled || generating}
-          />
-        )}
-
-        {/* Plugin Status */}
-        {checkingPlugins && (
-          <div className="rounded-xl bg-info-bg border border-info-border p-4">
-            <div className="flex items-center gap-2">
-              <Loader className="w-4 h-4 text-brand animate-spin" />
-              <span className="text-sm text-info-strong font-medium">Checking referenced plugins...</span>
+        <GeneratedConfigReview
+          generatedProps={generatedProps}
+          previewJson={previewJson}
+          generating={generating}
+          disabled={disabled}
+          projectOverride={projectOverride}
+          setProjectOverride={setProjectOverride}
+          organizationOverride={organizationOverride}
+          setOrganizationOverride={setOrganizationOverride}
+          onPluginChange={onPluginChange}
+          regenerateHint="or regenerate with a different URL."
+        >
+          {checkingPlugins && (
+            <div className="rounded-xl bg-info-bg border border-info-border p-4">
+              <div className="flex items-center gap-2">
+                <Loader className="w-4 h-4 text-brand animate-spin" />
+                <span className="text-sm text-info-strong font-medium">Checking referenced plugins...</span>
+              </div>
             </div>
-          </div>
-        )}
-        {pluginStatus && <PluginStatusPanel status={pluginStatus} />}
-
-        {/* Generated Output */}
-        {previewJson && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="label" id={`${uid}-generated-config`}>Generated configuration</span>
-              {generating ? (
-                <span className="text-xs text-info font-medium flex items-center gap-1">
-                  <LoadingSpinner size="sm" /> Streaming...
-                </span>
-              ) : (
-                <span role="status" className="text-xs text-success font-medium">
-                  Ready to submit
-                </span>
-              )}
-            </div>
-            <pre aria-labelledby={`${uid}-generated-config`} className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
-              {previewJson}
-            </pre>
-            <p className="mt-2 text-xs text-fg-muted">
-              Review the configuration above. Click &quot;Create&quot; to submit, or regenerate with a different URL.
-            </p>
-          </div>
-        )}
+          )}
+          {pluginStatus && <PluginStatusPanel status={pluginStatus} />}
+        </GeneratedConfigReview>
       </div>
     );
   },

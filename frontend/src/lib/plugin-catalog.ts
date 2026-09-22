@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Client-side helpers for a plugin's descriptive CATALOG fields (plugin-ecosystem
- * §3.1a): labels, editor kinds, value <-> form-text conversion and LIGHT checks.
+ * Client-side helpers for a plugin's descriptive CATALOG fields:
+ * labels, editor kinds, value <-> form-text conversion and LIGHT checks.
  *
  * The server's validator (api-core `validation/plugin-catalog-metadata.ts`) is
  * authoritative — these checks only catch the obvious mistakes (length caps,
@@ -11,7 +11,7 @@
  * user ultimately sees. The limits mirror that file; keep them in step.
  */
 
-import type { PluginCatalogEdits, PluginCatalogField, PluginIcon, PluginMetadataSource } from '@/types';
+import type { PluginCatalogEdits, PluginCatalogField, PluginIcon, MetadataSource } from '@/types';
 import { PLUGIN_CATEGORIES } from '@/lib/plugin-categories';
 
 export const PLUGIN_SUMMARY_MAX = 160;
@@ -70,7 +70,7 @@ export const CATALOG_FIELD_HINTS: Partial<Record<PluginCatalogField, string>> = 
 };
 
 /** Badge label per detected source. */
-export const CATALOG_SOURCE_LABELS: Record<PluginMetadataSource, string> = {
+export const CATALOG_SOURCE_LABELS: Record<MetadataSource, string> = {
   spec: 'Spec',
   readme: 'README',
   dockerfile: 'Dockerfile',

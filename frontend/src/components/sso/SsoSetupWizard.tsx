@@ -50,8 +50,7 @@ function presetForConfig(config: OrgIdpConfigDto | null, protocol: IdpProtocol):
 }
 
 /**
- * The SSO SETUP WIZARD — replaces the long page of stacked editors with six
- * short steps:
+ * The SSO SETUP WIZARD — six short steps:
  *
  *   1. pick the protocol (OIDC / SAML) and a provider preset;
  *   2. copy this deployment's SP values (from the server) into the IdP;

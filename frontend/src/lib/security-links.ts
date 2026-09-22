@@ -4,17 +4,15 @@
 /**
  * The Security page's address book.
  *
- * Personal factors, sessions, access keys and the org's service accounts used to
- * live on four pages that pointed at each other ("the real one is over there"),
- * and the prompts that send someone to enrol — the MFA banner, the MFA dialog,
- * the step-up modal, the bootstrap-admin sign-in, the device-approval page — each
- * spelled their own `?tab=…#…` link. One of those tabs no longer existed, and
- * nothing failed loudly when a link named a section on the wrong tab.
+ * The prompts that send someone to enrol — the MFA banner, the MFA dialog, the
+ * step-up modal, the bootstrap-admin sign-in, the device-approval page — must
+ * not each spell their own `?tab=…#…` link, where nothing fails loudly when a
+ * link names a section on the wrong tab.
  *
  * So the routes live here, once: the tab ids the page renders, which section
  * belongs to which tab (`SECURITY_HASH_TABS`, consumed by `useUrlTab` so a
  * fragment opens the tab that actually renders it), and a named link per
- * destination. A link and the page can no longer disagree — a test asserts every
+ * destination. A link and the page can't disagree — a test asserts every
  * href here resolves to a real tab.
  */
 

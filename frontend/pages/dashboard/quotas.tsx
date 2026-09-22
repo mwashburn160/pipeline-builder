@@ -243,7 +243,7 @@ export default function QuotasPage() {
     const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
     applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug, keepPool: orgData.pool });
     toast.success('Usage counters reset');
-    fetchAtRisk();
+    void fetchAtRisk();
   }
 
   const filteredOrgs = platformOrgs.filter((o) => {

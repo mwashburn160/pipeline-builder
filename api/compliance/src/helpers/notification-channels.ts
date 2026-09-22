@@ -4,26 +4,21 @@
 /**
  * Compliance notification channels.
  *
- * The channel CONTRACT and the webhook + email TRANSPORTS now live in api-core
- * (`services/notification-channels.ts`). This file used to carry a full fork of
- * both, incompatible with platform's fork down to the field names (`target.url`
- * vs `target.value`, a priority enum vs a severity enum, no `skipped` in the
- * result). The pinned-connection SSRF posture this file pioneered was the better
- * of the two and is what api-core's `safeFetch` now does for everyone.
+ * The channel CONTRACT and the webhook + email TRANSPORTS live in api-core
+ * (`services/notification-channels.ts`), shared with platform.
  *
  * What is left here is the ONE transport that legitimately differs per service:
- * `in-app`. Compliance posts to the message service over HTTP (platform, which
- * is the Alertmanager ingress, writes the shared table directly — see the
- * layering note in platform's copy).
+ * `in-app`. Compliance sends a system notification through the message
+ * service (platform, which is the Alertmanager ingress, writes the shared table
+ * directly — see the layering note in platform's copy).
  */
 
 import {
   createChannelRegistry,
   createEmailChannel,
   createWebhookChannel,
-  errorMessage,
   getServiceAuthHeader,
-  SYSTEM_ORG_ID,
+  sendSystemNotification,
   type ChannelTarget,
   type NotificationChannel,
   type NotificationMessage,
@@ -31,33 +26,22 @@ import {
 } from '@pipeline-builder/api-core';
 
 import { emailClient } from './email-client.js';
-import { messageClient } from './message-client.js';
 
 export type { ChannelTarget, NotificationMessage, NotificationPriority };
 
 const inAppChannel: NotificationChannel = {
   channel: 'in-app',
   async deliver(n) {
-    // Authored by the system org (cross-tenant write to the message service);
-    // the recipient org's inbox surfaces it. Always a service-minted token —
-    // the originating user's bearer can't write across tenants.
-    try {
-      await messageClient.post('/messages', {
-        recipientOrgId: n.recipientOrgId,
-        messageType: n.messageType,
-        subject: n.subject,
-        content: n.body,
-        priority: n.priority,
-      }, {
-        headers: {
-          'Authorization': getServiceAuthHeader({ serviceName: 'compliance', orgId: SYSTEM_ORG_ID, role: 'member' }),
-          'x-org-id': SYSTEM_ORG_ID,
-        },
-      });
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: errorMessage(err) };
-    }
+    // A SYSTEM-authored message into the recipient org's inbox, via the message
+    // service's internal notify route. Reported as sent only on a 2xx — a
+    // refusal must not be logged as a delivered notification.
+    const delivered = await sendSystemNotification({
+      recipientOrgId: n.recipientOrgId,
+      subject: n.subject,
+      content: n.body,
+      priority: n.priority,
+    });
+    return delivered ? { ok: true } : { ok: false, error: 'message service did not accept the notification' };
   },
 };
 
@@ -74,7 +58,9 @@ const webhookChannel = createWebhookChannel();
  */
 const emailChannel = createEmailChannel({
   send: async (req) => {
-    await emailClient.post('/internal/notify-email', {
+    // The client resolves (not throws) on a 4xx/5xx, so the status is the only
+    // signal that platform refused or failed the send.
+    const resp = await emailClient.post('/internal/notify-email', {
       orgId: req.orgId,
       targetUsers: req.targetUsers ?? null,
       subject: req.subject,
@@ -83,12 +69,11 @@ const emailChannel = createEmailChannel({
       headers: {
         // Scoped to the TENANT the email is for: platform's relay is tenant-bound
         // (a non-superadmin service token may only email its own org's users),
-        // so a system-org token naming a tenant `orgId` was refused 403 and every
-        // compliance email was logged as failed.
+        // so a system-org token naming a tenant `orgId` is refused 403.
         Authorization: getServiceAuthHeader({ serviceName: 'compliance', orgId: req.orgId, role: 'member' }),
       },
     });
-    return true;
+    return resp.statusCode < 400;
   },
 });
 

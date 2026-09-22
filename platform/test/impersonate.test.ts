@@ -8,8 +8,8 @@
  * return a token issued by `issueImpersonationToken`.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUserFindById = jest.fn<AnyFn>();
@@ -100,17 +100,21 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { findOne: (...a: unknown[]) => mockUOFindOne(...a) },
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn<AnyFn>(),
   signServiceAccountToken: jest.fn<AnyFn>(),
-  membershipForOrg: jest.fn(async () => undefined),
   issueImpersonationToken: (...a: unknown[]) => mockIssueImpersonation(...a),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
 }));
 // This is a CONTROLLER test: stub the request lifecycle at the service boundary
 // the same way the token helper is stubbed. The service's own state machine is
@@ -320,7 +324,7 @@ describe('redeemImpersonationRequest', () => {
 
   it('lets the requester redeem an approved request for a token', async () => {
     mockRequestFindById.mockReturnValue(leanOf({
-      requesterId: 'sysadmin', targetUserId: 'target', orgId: 'org-a', approvalReason: 'consent',
+      requesterId: 'sysadmin', targetUserId: 'target', organizationId: 'org-a', approvalReason: 'consent',
     }));
     mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
@@ -358,7 +362,7 @@ describe('redeemImpersonationRequest', () => {
   });
 
   it('re-resolves the requester\'s authority at redemption — lost authority gets no token', async () => {
-    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'parent-admin', targetUserId: 'target', orgId: 'team-a' }));
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'parent-admin', targetUserId: 'target', organizationId: 'team-a' }));
     mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     // Approved while they administered the parent org; demoted since.
     mockResolveAuthority.mockResolvedValue({ kind: 'none' });
@@ -372,7 +376,7 @@ describe('redeemImpersonationRequest', () => {
   });
 
   it('break-glass: refuses a requester who is no longer a sysadmin', async () => {
-    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'ex-sysadmin', targetUserId: 'target', orgId: 'org-a', breakglass: true }));
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'ex-sysadmin', targetUserId: 'target', organizationId: 'org-a', breakglass: true }));
     mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     mockIsSystemAdmin.mockReturnValue(false);
     // Even if an ancestor-org path would admit them, break-glass is sysadmin-only.
@@ -385,7 +389,7 @@ describe('redeemImpersonationRequest', () => {
   });
 
   it('break-glass: a sysadmin requester still redeems', async () => {
-    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 'target', orgId: 'org-a', breakglass: true }));
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 'target', organizationId: 'org-a', breakglass: true }));
     mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     mockIsSystemAdmin.mockReturnValue(true);
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
@@ -425,7 +429,7 @@ describe('decideImpersonationRequest — authorization', () => {
 
   it('REFUSES a requester deciding their OWN request — the consent bypass', async () => {
     // Without this, a sysadmin opens a consent request and approves it themselves.
-    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 't', orgId: 'org-a' }));
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 't', organizationId: 'org-a' }));
     mockIsSystemAdmin.mockReturnValue(true);
     // Grant EVERY other form of authority, as reality would for a sysadmin who
     // also administers the org. canAdministerOrg really does return true for any
@@ -444,7 +448,7 @@ describe('decideImpersonationRequest — authorization', () => {
   it('REFUSES a different sysadmin approving a tenant CONSENT request', async () => {
     // Consent belongs to the tenant. Sysadmin status must not confer it —
     // canAdministerOrg would have returned true here.
-    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin-a', targetUserId: 't', orgId: 'org-a' }));
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin-a', targetUserId: 't', organizationId: 'org-a' }));
     mockIsSystemAdmin.mockReturnValue(true);
     mockCanAdministerOrg.mockResolvedValue(true);
     mockIsTenantAdminOf.mockResolvedValue(false);
@@ -456,7 +460,7 @@ describe('decideImpersonationRequest — authorization', () => {
   });
 
   it('lets a genuine tenant admin decide a consent request', async () => {
-    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 't', orgId: 'org-a' }));
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 't', organizationId: 'org-a' }));
     mockIsTenantAdminOf.mockResolvedValue(true);
     mockDecide.mockResolvedValue({ ok: true, request: { status: 'approved' } });
 
@@ -468,7 +472,7 @@ describe('decideImpersonationRequest — authorization', () => {
 
   it('lets the named approver decide', async () => {
     mockRequestFindById.mockReturnValue(leanOf({
-      requesterId: 'sysadmin', targetUserId: 't', orgId: 'org-a', approverUserId: 'the-user',
+      requesterId: 'sysadmin', targetUserId: 't', organizationId: 'org-a', approverUserId: 'the-user',
     }));
     mockDecide.mockResolvedValue({ ok: true, request: { status: 'approved' } });
 
@@ -478,7 +482,7 @@ describe('decideImpersonationRequest — authorization', () => {
 
   it('FOUR-EYES: a second sysadmin may approve break-glass', async () => {
     mockRequestFindById.mockReturnValue(leanOf({
-      requesterId: 'sysadmin-a', targetUserId: 't', orgId: 'org-a', breakglass: true,
+      requesterId: 'sysadmin-a', targetUserId: 't', organizationId: 'org-a', breakglass: true,
     }));
     mockIsSystemAdmin.mockReturnValue(true);
     mockDecide.mockResolvedValue({ ok: true, request: { status: 'approved' } });
@@ -492,7 +496,7 @@ describe('decideImpersonationRequest — authorization', () => {
 
   it('FOUR-EYES: a tenant admin may NOT approve break-glass', async () => {
     mockRequestFindById.mockReturnValue(leanOf({
-      requesterId: 'sysadmin-a', targetUserId: 't', orgId: 'org-a', breakglass: true,
+      requesterId: 'sysadmin-a', targetUserId: 't', organizationId: 'org-a', breakglass: true,
     }));
     mockIsTenantAdminOf.mockResolvedValue(true);
 
@@ -504,7 +508,7 @@ describe('decideImpersonationRequest — authorization', () => {
 
   it('FOUR-EYES: the requesting sysadmin cannot be their own second pair of eyes', async () => {
     mockRequestFindById.mockReturnValue(leanOf({
-      requesterId: 'sysadmin-a', targetUserId: 't', orgId: 'org-a', breakglass: true,
+      requesterId: 'sysadmin-a', targetUserId: 't', organizationId: 'org-a', breakglass: true,
     }));
     mockIsSystemAdmin.mockReturnValue(true);
 
@@ -607,12 +611,12 @@ describe('listImpersonationRequests', () => {
     expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'me', isSysadmin: false, adminOrgIds: [] }, 'to-decide', { limit: undefined, offset: undefined });
   });
 
-  it('forwards limit/offset and returns a pagination envelope', async () => {
+  it('forwards the raw limit/offset (the service clamps them) and returns a pagination envelope', async () => {
     mockListForCaller.mockResolvedValue({ requests: [{ id: 'r1' }], total: 45, limit: 20, offset: 20 });
 
     const res = await list({ sub: 'me' }, 'mine', { limit: '20', offset: '20' });
 
-    expect(mockListForCaller).toHaveBeenCalledWith(expect.anything(), 'mine', { limit: 20, offset: 20 });
+    expect(mockListForCaller).toHaveBeenCalledWith(expect.anything(), 'mine', { limit: '20', offset: '20' });
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       data: { requests: [{ id: 'r1' }], pagination: { total: 45, offset: 20, limit: 20, hasMore: true } },
     }));
@@ -653,7 +657,7 @@ describe('revokeImpersonationSession — cross-service', () => {
   const consumedAt = new Date();
 
   beforeEach(() => {
-    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'op', targetUserId: 'me', orgId: 'org-a' }));
+    mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'op', targetUserId: 'me', organizationId: 'org-a' }));
     mockRevoke.mockResolvedValue({ ok: true, request: { jti: 'sess-1', consumedAt } });
   });
 
@@ -839,7 +843,7 @@ describe('decideImpersonationRequest — requester is told', () => {
 
   beforeEach(() => {
     mockRequestFindById.mockReturnValue(leanOf({
-      requesterId: 'op', targetUserId: 'the-user', orgId: 'org-a', approverUserId: 'the-user',
+      requesterId: 'op', targetUserId: 'the-user', organizationId: 'org-a', approverUserId: 'the-user',
     }));
     mockDecide.mockResolvedValue({ ok: true, request: { status: 'approved' } });
   });

@@ -54,6 +54,7 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPipelineAudit,
   sendSuccess: jest.fn<AnyFn>(),
   sendBadRequest: jest.fn<AnyFn>(),
   sendError: jest.fn<AnyFn>(),
@@ -65,10 +66,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPipelineAudit: mockEmitPipelineAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 // Execution idempotency guard — controls the short double-submit window. Default
 // (set in beforeEach) claims successfully; a test overrides it to simulate a
@@ -83,10 +80,10 @@ jest.unstable_mockModule('../src/services/execution-idempotency.js', () => ({
 // AWS account id never reaches a log sink). Cleared by jest.clearAllMocks().
 const mockCtxLog = jest.fn<AnyFn>();
 
-// apiCalls quota metering added to the trigger route (D1). checkQuota is a
-// middleware factory (no-op here — the suite drives the handler directly);
-// incrementQuotaFromCtx is asserted on to prove the successful trigger is metered.
-const mockIncrementQuotaFromCtx = jest.fn<AnyFn>();
+// apiCalls quota metering on the trigger route. checkQuota is a middleware
+// factory (no-op here — the suite drives the handler directly); the meter is a
+// tagged no-op so the suite can assert it sits on the trigger route (its
+// "only on 2xx" behaviour is api-server's meterQuotaOnSuccess, tested there).
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   // Auth + orgId chain the execution routes now spread in per-route (the write
@@ -94,7 +91,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   // suite drives the withRoute handler directly.
   createAuthenticatedWithOrgRoute: () => [],
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
-  incrementQuotaFromCtx: mockIncrementQuotaFromCtx,
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: mockCtxLog, identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
@@ -103,7 +100,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 const { sendSuccess, sendError } = await import('@pipeline-builder/api-core') as unknown as Record<string, jest.Mock<AnyFn>>;
 const { createExecutionRoutes } = await import('../src/routes/executions.js');
-const { emitPipelineAudit } = await import('../src/services/audit.js');
 
 /** Build an AWS-style error whose `.name` drives the service's classification. */
 function awsError(name: string, message = name): Error {
@@ -135,6 +131,10 @@ describe('pipeline execution write routes', () => {
     return stack?.[stack.length - 1]?.handle;
   }
 
+  function routeStackFor(path: string): any[] {
+    return router.stack.find((l: any) => l.route?.path === path && l.route?.methods?.post)?.route?.stack ?? [];
+  }
+
   const triggerHandler = () => handlerFor('/:pipelineId/executions');
   const stopHandler = () => handlerFor('/:pipelineId/executions/:executionId/stop');
 
@@ -157,15 +157,9 @@ describe('pipeline execution write routes', () => {
     expect(sendSuccess).toHaveBeenCalledWith(res, 202, { executionId: 'exec-123' });
   });
 
-  it('trigger: meters a successful trigger against the apiCalls quota', async () => {
-    mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
-    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
-
-    expect(mockIncrementQuotaFromCtx).toHaveBeenCalledTimes(1);
-    expect(mockIncrementQuotaFromCtx).toHaveBeenCalledWith(
-      quotaServiceStub, expect.objectContaining({ orgId: 'acme' }), 'apiCalls',
-    );
+  it('trigger: the route meters apiCalls (once per 2xx)', () => {
+    expect(routeStackFor('/:pipelineId/executions').some((l: any) => l.handle.meters === 'apiCalls')).toBe(true);
+    expect(routeStackFor('/:pipelineId/executions/:executionId/stop').some((l: any) => l.handle.meters)).toBe(false);
   });
 
   it('trigger: claims the idempotency window keyed on (orgId, pipelineId)', async () => {
@@ -176,23 +170,14 @@ describe('pipeline execution write routes', () => {
     expect(mockClaim).toHaveBeenCalledWith('acme', 'p-1');
   });
 
-  it('trigger: duplicate submit inside the window → 409 and NO AWS call / audit / quota spend', async () => {
+  it('trigger: duplicate submit inside the window → 409 and NO AWS call / audit', async () => {
     mockClaim.mockResolvedValue(null); // window already claimed by a prior trigger
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
 
     expect(sendError).toHaveBeenCalledWith(res, 409, expect.stringMatching(/just triggered/), expect.any(String));
     expect(mockSend).not.toHaveBeenCalled();
-    expect(emitPipelineAudit).not.toHaveBeenCalled();
-    expect(mockIncrementQuotaFromCtx).not.toHaveBeenCalled();
-  });
-
-  it('trigger: does NOT meter the quota when the AWS start fails', async () => {
-    mockSend.mockRejectedValue(awsError('ThrottlingException', 'Rate exceeded'));
-    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
-
-    expect(mockIncrementQuotaFromCtx).not.toHaveBeenCalled();
+    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
   });
 
   it('trigger: emits an attributed pipeline.execution.start audit event on success', async () => {
@@ -200,8 +185,8 @@ describe('pipeline execution write routes', () => {
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
 
-    expect(emitPipelineAudit).toHaveBeenCalledTimes(1);
-    expect(emitPipelineAudit).toHaveBeenCalledWith(
+    expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitPipelineAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'pipeline.execution.start',
         actorId: 'user-1',
@@ -218,7 +203,7 @@ describe('pipeline execution write routes', () => {
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
 
-    expect(emitPipelineAudit).not.toHaveBeenCalled();
+    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
   });
 
   it('trigger: unregistered / wrong-org pipeline → 404 and no AWS call', async () => {
@@ -328,8 +313,8 @@ describe('pipeline execution write routes', () => {
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: { reason: 'stop it' } }, res);
 
-    expect(emitPipelineAudit).toHaveBeenCalledTimes(1);
-    expect(emitPipelineAudit).toHaveBeenCalledWith(
+    expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitPipelineAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'pipeline.execution.cancel',
         actorId: 'user-1',
@@ -346,7 +331,7 @@ describe('pipeline execution write routes', () => {
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
 
-    expect(emitPipelineAudit).not.toHaveBeenCalled();
+    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
   });
 
   it('stop: PipelineExecutionNotStoppableException → 409', async () => {

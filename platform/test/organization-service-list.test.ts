@@ -10,8 +10,9 @@
  *   Organization.find(filter).populate(...).sort(...).skip(n).limit(m).lean()
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgFind = jest.fn<AnyFn>();
 const mockOrgFindById = jest.fn<AnyFn>();
@@ -107,14 +108,12 @@ jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   QuotaType: {},
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    quota: {
-      tier: {
-        developer: { plugins: 10, pipelines: 5, apiCalls: 1000, aiCalls: 100 },
-        pro: { plugins: 100, pipelines: 50, apiCalls: 10000, aiCalls: 1000 },
-        enterprise: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 },
-      },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  quota: {
+    tier: {
+      developer: { plugins: 10, pipelines: 5, apiCalls: 1000, aiCalls: 100 },
+      pro: { plugins: 100, pipelines: 50, apiCalls: 10000, aiCalls: 1000 },
+      enterprise: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1 },
     },
   },
 }));

@@ -32,10 +32,7 @@ jest.mock('@/hooks/useFeatureGate', () => ({
   }),
 }));
 
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 
 const listOrgDomains = jest.fn<AnyFn>();
 const listOrgJoinRequests = jest.fn<AnyFn>();
@@ -70,8 +67,8 @@ describe('DomainJoinSettings', () => {
 
   it('is named and anchored for BOTH consumers, so the SSO wizard can deep link to it', async () => {
     const { container } = render(<DomainJoinSettings orgId="org-1" />);
-    // The card used to be titled "Domain-based join" — a name about joining,
-    // for a card SSO setup also sends people to.
+    // Not "Domain-based join" — a name about joining, for a card SSO setup
+    // also sends people to.
     expect(await screen.findByText('Email domains')).toBeInTheDocument();
     expect(screen.getByText(/single sign-on serves/i)).toBeInTheDocument();
     // …and the wizard's link resolves to something on the page.

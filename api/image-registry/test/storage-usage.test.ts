@@ -23,7 +23,7 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => registryCli
   getManifest,
   headBlob,
 }));
-// An org's usage also counts the public/<handle>/* repos it owns (§3.3); none here.
+// An org's usage also counts the public/<handle>/* repos it owns; none here.
 jest.unstable_mockModule('../src/services/public-publications.js', () => ({
   publicRepositoriesOwnedBy: jest.fn(async () => ({ repositories: [], complete: true })),
 }));

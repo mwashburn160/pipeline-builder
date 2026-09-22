@@ -25,17 +25,18 @@ const cloneRuleMock = jest.fn(async () => ({ id: 'clone-1' }));
 const findOrgEntitiesMock = jest.fn(async () => []);
 const setActiveMock = jest.fn(async (..._args: unknown[]) => ({ id: 'sub-1', isActive: true }));
 const bulkSetActiveMock = jest.fn(async (_o: unknown, ids: string[], ..._rest: unknown[]) => ids);
-const emitComplianceAuditMock = jest.fn<AnyFn>();
+const recordAuditMock = jest.fn<AnyFn>();
 const recordMock = jest.fn<AnyFn>();
 
 // api-core's REAL authorization gates and `authz.denied` sink, imported from
 // their module files (the package-specifier mock below does not intercept these
 // paths), so the route's inline gates and denial audit are exercised for real.
-const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/permission-gates.js');
 const { wireAuthzDenialAuditor } = await import('@pipeline-builder/api-core/lib/services/remote-audit-client.js');
 wireAuthzDenialAuditor('compliance', () => ({ record: recordMock }) as any);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   validateBody: (req: any, schema: any) => {
@@ -84,19 +85,12 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-}));
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: {
     setActive: (...a: unknown[]) => setActiveMock(...(a as [])),
     bulkSetActive: (...a: unknown[]) => bulkSetActiveMock(...(a as [unknown, string[]])),
   },
-  CS_RULE_NOT_FOUND: 'CS_RULE_NOT_FOUND',
-  CS_SUBSCRIPTION_NOT_FOUND: 'CS_SUBSCRIPTION_NOT_FOUND',
-  CS_NOT_PUBLISHED: 'CS_NOT_PUBLISHED',
-  CS_SYSTEM_ORG: 'CS_SYSTEM_ORG',
 }));
 
 const { createSubscriptionRoutes } = await import('../src/routes/subscriptions.js');

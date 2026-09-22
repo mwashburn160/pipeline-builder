@@ -3,7 +3,8 @@
 
 /**
  * `/internal/ecosystem/*` — the two platform reads the plugin service's
- * ecosystem governance needs (docs/plans/plugin-ecosystem.md §3.0.1, §3.7).
+ * ecosystem governance needs (Verified-publisher eligibility and the approver
+ * count behind two-person approval — docs/runbooks/ecosystem-moderation.md).
  * INTERNAL routes: the `plugin` service's signed token only (the route gate);
  * no user token reaches them. Both return counts and domain names, never a
  * member list.

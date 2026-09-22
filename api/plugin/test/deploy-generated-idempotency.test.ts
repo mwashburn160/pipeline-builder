@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for the Idempotency-Key guard on POST /plugins/deploy-generated (#35/F4).
+ * Tests for the Idempotency-Key guard on POST /plugins/deploy-generated.
  *
  * The auto-plugin-creation path (generate-pipeline.ts) sends
  * `Idempotency-Key: <requestId>:<name>`; an SSE retry must NOT enqueue a
  * duplicate buildkit build or double the `plugins` quota. The route claims the
- * key via the Wave-1 Redis IdempotencyStore (SET…NX) BEFORE reserving quota or
+ * key via the Redis IdempotencyStore (SET…NX) BEFORE reserving quota or
  * enqueuing, and releases it on any pre-enqueue failure so a legit retry isn't
  * wrongly suppressed.
  */
@@ -34,7 +34,7 @@ const mockEnqueueBuild = jest.fn<(...args: any[]) => any>().mockResolvedValue(un
 const mockGetOrgTier = jest.fn<(...args: any[]) => any>().mockResolvedValue('developer');
 const mockCreateBuildJobData = jest.fn<(...args: any[]) => any>((p) => p);
 const mockEmitPluginAudit = jest.fn();
-// F3: the route binds the build-log stream's owner at enqueue so a cross-org
+// the route binds the build-log stream's owner at enqueue so a cross-org
 // ticket mint for this requestId is refused.
 const mockBindStreamOwner = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockRmSync = jest.fn();
@@ -65,6 +65,7 @@ const realQuota = await import('@pipeline-builder/api-core/lib/services/quota.js
 const unreachableQuotaService = realQuota.createQuotaService({ host: '127.0.0.1', port: 1, timeout: 500 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPluginAudit,
   reserveQuota: mockReserveQuota,
   decrementQuota: mockDecrementQuota,
   getServiceAuthHeader: () => 'Bearer service-token',
@@ -114,7 +115,6 @@ jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({ BUILD_TEMP_R
 jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuildJobData: mockCreateBuildJobData }));
 jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({ validateBuildArgs: jest.fn() }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: mockGetOrgTier }));
-jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: mockEmitPluginAudit }));
 // Overwrite gate pre-check (throws a typed 403/409 for a non-writable / tombstoned
 // (name, version)); default: deployable.
 const mockAssertDeployable = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
@@ -183,9 +183,18 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     expect(mockReserveQuota).toHaveBeenCalledTimes(1);
     expect(mockEnqueueBuild).toHaveBeenCalledTimes(1);
     expect(mockIdemDelete).not.toHaveBeenCalled();
-    // F3: stream owner bound (requestId, orgId) before the build was queued.
+    // stream owner bound (requestId, orgId) before the build was queued.
     expect(mockBindStreamOwner).toHaveBeenCalledWith('req-1', 'org-1');
     expect(res.status).toHaveBeenCalledWith(202);
+  });
+
+  it('defers the image facts in the compliance preflight (evaluated post-build), like the upload', async () => {
+    await handler(mockReq(), mockRes());
+    const [orgId, attributes, , , name, action, deferred] = mockValidatePlugin.mock.calls[0] as any[];
+    expect([orgId, name, action]).toEqual(['org-1', 'my-plugin', 'deploy-generated']);
+    expect(attributes).toMatchObject({ buildType: 'build_image', tags: expect.any(Array) });
+    expect(attributes).not.toHaveProperty('signed');
+    expect(deferred).toEqual(expect.arrayContaining(['signed', 'scanned']));
   });
 
   it('suppresses a duplicate (key already claimed): no quota reserve, no enqueue', async () => {

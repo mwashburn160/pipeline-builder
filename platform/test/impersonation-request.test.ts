@@ -10,8 +10,9 @@
  * introducing the record changed no user-visible behaviour.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { leanOf } from './helpers/query-chain.js';
 
 const mockCreate = jest.fn<AnyFn>();
 const mockFindOneAndUpdate = jest.fn<AnyFn>();
@@ -42,7 +43,6 @@ const { impersonationService, decideInitialApproval, effectiveStatus, BREAKGLASS
 const { IMP_NOT_APPROVED, IMP_EXPIRED, IMP_ALREADY_DECIDED, IMP_NOT_LIVE } = await import('../src/services/impersonation-errors.js');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const leanChain = (doc: unknown) => ({ lean: () => Promise.resolve(doc) });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -144,7 +144,7 @@ describe('consume', () => {
   it('refuses a second redemption of the same approval', async () => {
     // Already consumed → the status guard matches nothing.
     mockFindOneAndUpdate.mockResolvedValue(null);
-    mockFindById.mockReturnValue(leanChain({ status: 'consumed', expiresAt: new Date(Date.now() + 1000) }));
+    mockFindById.mockReturnValue(leanOf({ status: 'consumed', expiresAt: new Date(Date.now() + 1000) }));
 
     await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({
       ok: false, code: IMP_NOT_APPROVED,
@@ -153,7 +153,7 @@ describe('consume', () => {
 
   it('reports expiry distinctly and flips the row to expired', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
-    mockFindById.mockReturnValue(leanChain({ status: 'approved', expiresAt: new Date(Date.now() - 1000) }));
+    mockFindById.mockReturnValue(leanOf({ status: 'approved', expiresAt: new Date(Date.now() - 1000) }));
 
     await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({
       ok: false, code: IMP_EXPIRED,
@@ -167,7 +167,7 @@ describe('consume', () => {
 
   it('refuses a request that was denied', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
-    mockFindById.mockReturnValue(leanChain({ status: 'denied', expiresAt: new Date(Date.now() + 1000) }));
+    mockFindById.mockReturnValue(leanOf({ status: 'denied', expiresAt: new Date(Date.now() + 1000) }));
 
     await expect(impersonationService.consume('req-1', 'jti-1')).resolves.toEqual({
       ok: false, code: IMP_NOT_APPROVED,
@@ -201,7 +201,7 @@ describe('decide', () => {
 
   it('refuses a second decision instead of overwriting the first', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
-    mockFindById.mockReturnValue(leanChain({ status: 'approved', expiresAt: new Date(Date.now() + 1000) }));
+    mockFindById.mockReturnValue(leanOf({ status: 'approved', expiresAt: new Date(Date.now() + 1000) }));
 
     // Under org_admin fan-out the challenge reaches every admin; the losers are
     // holding a live-looking prompt for a settled request.
@@ -212,7 +212,7 @@ describe('decide', () => {
 
   it('reports an elapsed challenge window distinctly', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
-    mockFindById.mockReturnValue(leanChain({ status: 'pending', expiresAt: new Date(Date.now() - 1000) }));
+    mockFindById.mockReturnValue(leanOf({ status: 'pending', expiresAt: new Date(Date.now() - 1000) }));
 
     await expect(impersonationService.decide('req-1', 'approver', true)).resolves.toEqual({
       ok: false, code: IMP_EXPIRED,
@@ -233,7 +233,7 @@ describe('revoke', () => {
 
   it('refuses to revoke a request that was never redeemed', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
-    mockFindById.mockReturnValue(leanChain({ status: 'approved' }));
+    mockFindById.mockReturnValue(leanOf({ status: 'approved' }));
 
     await expect(impersonationService.revoke('req-1', 'the-user')).resolves.toEqual({
       ok: false, code: IMP_NOT_LIVE,
@@ -242,7 +242,7 @@ describe('revoke', () => {
 
   it('is idempotent-safe: a second revoke reports no live session', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
-    mockFindById.mockReturnValue(leanChain({ status: 'revoked' }));
+    mockFindById.mockReturnValue(leanOf({ status: 'revoked' }));
 
     await expect(impersonationService.revoke('req-1', 'the-user')).resolves.toEqual({
       ok: false, code: IMP_NOT_LIVE,
@@ -370,7 +370,7 @@ describe('listForCaller — visibility mirrors decide/revoke authorization', () 
     // line that closed the self-approval bypass.
     const sysadminOnly = branches.filter((b) => b.breakglass === true);
     expect(sysadminOnly).toHaveLength(1);
-    expect(branches.some((b) => b.breakglass?.$ne === true && !('approverUserId' in b) && !('orgId' in b))).toBe(false);
+    expect(branches.some((b) => b.breakglass?.$ne === true && !('approverUserId' in b) && !('organizationId' in b))).toBe(false);
   });
 
   it('to-decide: never shows the caller their OWN request', async () => {
@@ -388,7 +388,7 @@ describe('listForCaller — visibility mirrors decide/revoke authorization', () 
   it('to-decide: a tenant admin also sees consent requests for their org subtree', async () => {
     await impersonationService.listForCaller(caller({ adminOrgIds: ['org-a', 'team-1'] }), 'to-decide');
 
-    expect(filterOf().$or).toContainEqual({ breakglass: { $ne: true }, orgId: { $in: ['org-a', 'team-1'] } });
+    expect(filterOf().$or).toContainEqual({ breakglass: { $ne: true }, organizationId: { $in: ['org-a', 'team-1'] } });
   });
 
   it('to-decide: hides requests whose window has already closed', async () => {

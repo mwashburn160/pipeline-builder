@@ -69,7 +69,7 @@ describe('pipeline vars round-trip (form builder)', () => {
   });
 });
 
-describe('plugin publisher round-trip (W2 §3.5)', () => {
+describe('plugin publisher round-trip', () => {
   const rawProps = {
     project: 'p',
     organization: 'o',

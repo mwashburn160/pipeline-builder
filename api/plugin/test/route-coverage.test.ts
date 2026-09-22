@@ -59,12 +59,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
   {
     path: /^(PUT|DELETE) \/plugins\/reviews\/:id\/helpful$/,
     waive: 'audit',
-    reason: 'A review "helpful" vote is not audited by design (plugin-ecosystem §5c: votes are a signal, not a state change anyone is accountable for); gated on plugins:read + a human session, one vote per user, throttled per user and org.',
+    reason: 'A review "helpful" vote is not audited by design (votes are a signal, not a state change anyone is accountable for); gated on plugins:read + a human session, one vote per user, throttled per user and org.',
   },
   {
     path: /^(GET|POST) \/public\/plugin-submissions/,
     waive: 'permission',
-    reason: 'Anonymous plugin submissions (plugin-ecosystem §4): no caller identity by design. 404 unless ANONYMOUS_SUBMISSIONS_ENABLED + outbound email; every write needs a single-use proof-of-work; rate limited per trusted IP and capped per email/IP per day. Quarantine only — nothing reaches a plugins row or public/* without the two-person submission request.',
+    reason: 'Anonymous plugin submissions: no caller identity by design. 404 unless ANONYMOUS_SUBMISSIONS_ENABLED + outbound email; every write needs a single-use proof-of-work; rate limited per trusted IP and capped per email/IP per day. Quarantine only — nothing reaches a plugins row or public/* without the two-person submission request.',
   },
   {
     method: 'POST',
@@ -75,7 +75,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
   {
     path: /^GET \/public\/plugins/,
     waive: 'permission',
-    reason: 'Anonymous public plugin directory (plugin-ecosystem §6a): no caller identity by design (nginx strips credentials), reads only the public_* views through the view-only ecosystem_public_reader role, rate limited per trusted IP.',
+    reason: 'Anonymous public plugin directory: no caller identity by design (nginx strips credentials), reads only the public_* views through the view-only ecosystem_public_reader role, rate limited per trusted IP.',
   },
 ];
 
@@ -84,7 +84,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * in both directions (and mirrored by the Istio `plugin-allow` policy).
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  // image-registry: which of an org's plugins its teams may pull (E22).
+  // image-registry: which of an org's plugins its teams may pull.
   { method: 'GET', path: '/internal/plugins/public-names', callers: ['image-registry'] },
 ];
 
@@ -114,7 +114,7 @@ describe('plugin route coverage', () => {
     expect(violations).toEqual([]);
   });
 
-  // Plugin-ecosystem governance (plan §3.0): every route gated on a
+  // Plugin-ecosystem governance: every route gated on a
   // system-org-only permission (plugins:moderate, publishers:verify) must also
   // run requireSystemOrg and demand aal2 — use requireEcosystemPermission. No
   // exception list: passes today, bites the day a governance route lacks it.

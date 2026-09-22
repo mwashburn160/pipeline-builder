@@ -22,7 +22,7 @@ interface RecentActionsPanelProps {
  * can verify the event landed without leaving Pipeline Builder.
  *
  * NOT persisted — refresh clears it. The authoritative source is the
- * structured audit log shipped via `emitAudit` in api-core.
+ * structured audit log shipped via `logAuditEvent` in api-core.
  */
 export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
   if (actions.length === 0) return null;
@@ -45,13 +45,13 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
             return (
               // Stable key (kind+timestamp+digest) — this is a shifting ring buffer,
               // so an index key would bind a row's copy-state to the wrong entry.
-              <li key={`${a.kind}-${a.at}-${a.digest}`} className="flex items-start gap-2 py-1 border-t border-gray-200 dark:border-gray-800 first:border-t-0">
+              <li key={`${a.kind}-${a.at}-${a.digest}`} className="flex items-start gap-2 py-1 border-t border-default first:border-t-0">
                 <span className="text-fg-subtle font-mono w-12 flex-shrink-0">
                   {new Date(a.at).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
                 {a.kind === 'copy' ? (
                   <span className="flex-1 break-all">
-                    <span className={a.isPromotion ? 'text-yellow-700 dark:text-yellow-300 font-medium' : 'text-info-strong'}>
+                    <span className={a.isPromotion ? 'text-warning font-medium' : 'text-info-strong'}>
                       {a.isPromotion ? 'Promoted' : 'Copied'}
                     </span>{' '}
                     <span className="font-mono">{a.source}</span> → <span className="font-mono">{a.target}</span>
@@ -59,7 +59,7 @@ export function RecentActionsPanel({ actions }: RecentActionsPanelProps) {
                   </span>
                 ) : (
                   <span className="flex-1 break-all">
-                    <span className="text-red-700 dark:text-red-300">Deleted</span>{' '}
+                    <span className="text-danger">Deleted</span>{' '}
                     <span className="font-mono">{a.repo}:{a.ref}</span>
                   </span>
                 )}

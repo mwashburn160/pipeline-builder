@@ -12,7 +12,7 @@
  * without an import cycle.
  */
 
-import { createLogger, createRedisClient, DEFAULT_TIER, describeRedisConnection, errorMessage, resolveRedisConnection, VALID_TIERS } from '@pipeline-builder/api-core';
+import { CacheService, envInt, createLogger, createRedisClient, DEFAULT_TIER, describeRedisConnection, errorMessage, resolveRedisConnection, VALID_TIERS } from '@pipeline-builder/api-core';
 import type { QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import type { PluginBuildConfig } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
@@ -20,7 +20,6 @@ import { Queue } from 'bullmq';
 import type { ConnectionOptions, Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 
-import { intFromEnv } from './env-int.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('plugin-build-queue');
@@ -215,25 +214,27 @@ export async function findFailedJob(jobId: string): Promise<Job<PluginBuildJobDa
 // Per-org tier cache
 // ---------------------------------------------------------------------------
 
-export const TIER_CACHE_TTL_MS = intFromEnv('PLUGIN_TIER_CACHE_TTL_MS', 300000);
-const tierCache = new Map<string, { tier: QuotaTier; expiresAt: number }>();
+export const TIER_CACHE_TTL_MS = envInt('PLUGIN_TIER_CACHE_TTL_MS', 300000, { min: 1 });
+// Bounded (LRU) and process-local: a stale tier only routes a build to a
+// neighbouring queue until the TTL, so no cross-replica invalidation is needed.
+const tierCache = new CacheService({ prefix: 'plugin-tier:', defaultTtlSeconds: TIER_CACHE_TTL_MS / 1000, maxEntries: 5_000, invalidationBus: null });
 
 /** Look up the org's tier with a short-TTL in-process cache. Falls open to
  *  DEFAULT_TIER (and caches the fallback) when the quota service is
  *  unreachable so a transient outage doesn't fail every build submission. */
 export async function getOrgTier(quotaService: QuotaService, orgId: string, authHeader: string): Promise<QuotaTier> {
-  const cached = tierCache.get(orgId);
-  if (cached && cached.expiresAt > Date.now()) return cached.tier;
+  const cached = await tierCache.get<QuotaTier>(orgId);
+  if (cached) return cached;
 
+  let tier: QuotaTier;
   try {
-    const tier = await quotaService.getTier(orgId, authHeader);
-    tierCache.set(orgId, { tier, expiresAt: Date.now() + TIER_CACHE_TTL_MS });
-    return tier;
+    tier = await quotaService.getTier(orgId, authHeader);
   } catch (err) {
     logger.warn('Quota tier lookup failed; using default tier', { orgId, error: errorMessage(err) });
-    tierCache.set(orgId, { tier: DEFAULT_TIER, expiresAt: Date.now() + TIER_CACHE_TTL_MS });
-    return DEFAULT_TIER;
+    tier = DEFAULT_TIER;
   }
+  await tierCache.set(orgId, tier);
+  return tier;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,5 +256,5 @@ export async function closeQueuesAndConnections(): Promise<void> {
     conn.disconnect();
   }
   connectionsByDb.clear();
-  tierCache.clear();
+  await tierCache.clear();
 }

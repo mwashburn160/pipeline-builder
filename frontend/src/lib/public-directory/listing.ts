@@ -11,7 +11,7 @@ export function categoryLabel(category: string): string {
 }
 
 /**
- * Nominative-use note for a vendor logo (§6a.1): shown unless the publisher IS
+ * Nominative-use note for a vendor logo: shown unless the publisher IS
  * the vendor. A Verified publisher may only use curated keys it owns, so a
  * vendor icon on a Verified listing is the vendor's own; on any other tier
  * (Official included — the platform team is not Snyk) it is someone else's mark.

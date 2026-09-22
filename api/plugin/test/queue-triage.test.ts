@@ -9,8 +9,8 @@
  * - Non-admin users (role=member) get 403.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -31,7 +31,7 @@ jest.unstable_mockModule('../src/queue/requeue.js', () => ({
   retryFailedJob: jest.fn<AnyFn>(),
 }));
 
-// Quota service stub  required by createQueueStatusRoutes since.
+// Quota service stub required by createQueueStatusRoutes since.
 const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('developer') } as any;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -102,6 +102,7 @@ function makeRes() {
 const job = (id: string, orgId: string, error = 'Docker build failed') => ({
   id,
   data: {
+    orgId,
     pluginRecord: { name: `plugin-${id}`, orgId },
     lastError: error,
   },
@@ -109,7 +110,7 @@ const job = (id: string, orgId: string, error = 'Docker build failed') => ({
   finishedOn: 1717000000000,
 });
 
-describe('GET /triage  auth and tenant isolation', () => {
+describe('GET /triage auth and tenant isolation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     queueGetJobs.mockResolvedValue([]);
@@ -212,7 +213,7 @@ describe('GET /triage  auth and tenant isolation', () => {
   it('case-insensitive orgId comparison', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([
-      { id: '1', data: { pluginRecord: { name: 'p1', orgId: 'ORG-A' }, lastError: 'fail' }, failedReason: 'fail' },
+      { id: '1', data: { orgId: 'ORG-A', pluginRecord: { name: 'p1', orgId: 'ORG-A' }, lastError: 'fail' }, failedReason: 'fail' },
     ]);
     const handler = getTriageHandler();
     const { res, json } = makeRes();

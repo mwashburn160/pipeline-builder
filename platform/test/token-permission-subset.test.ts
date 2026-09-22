@@ -9,14 +9,13 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      passwordMinLength: 8,
-      jwt: { expiresIn: 900, tierExpiresIn: {} },
-      refreshToken: { expiresIn: 2592000 },
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    passwordMinLength: 8,
+    jwt: { expiresIn: 900, tierExpiresIn: {} },
+    refreshToken: { expiresIn: 2592000 },
   },
 }));
 
@@ -31,7 +30,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: jest.fn(emptyFindChain) },
 }));
 
-const { signApiKeyToken, verifyAccessToken, signInAuth } = await import('../src/utils/token.js');
+const { signApiKeyToken, signInAuth } = await import('../src/services/session/access-tokens.js');
+const { verifyAccessToken } = await import('../src/utils/token.js');
 const { installTestSigningKeys } = await import('./helpers/signing.js');
 installTestSigningKeys();
 

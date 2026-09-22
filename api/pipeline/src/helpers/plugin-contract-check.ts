@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin contract enforcement at pipeline create / update (plugin-ecosystem
- * W0.2). Each plugin step's resolved plugin declares the metadata / vars keys
+ * Plugin contract enforcement at pipeline create / update. Each plugin step's resolved plugin declares the metadata / vars keys
  * a pipeline must supply and their types (`requiredMetadata`, `requiredVars`,
  * `metadataTypes`, `varsTypes`); a pipeline that doesn't meet them would fail
  * at synth (or worse, run with a blank value), so it is refused up front with
@@ -11,7 +10,7 @@
  *
  * The checks themselves live in pipeline-core (`checkPluginContract`), shared
  * with the synth-time guard. This module only resolves each step's plugin the
- * way synth does (plugin ecosystem §3.5): the same lookup filter
+ * way synth does (see docs/plugin-installing.md): the same lookup filter
  * (`pluginLookupFilter`, which carries the reference's `publisher`); without a
  * publisher the caller's own rows (own org, then the parent org's shared rows;
  * exact name, live rows, default, highest semver), then the Official listing

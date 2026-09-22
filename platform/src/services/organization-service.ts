@@ -42,7 +42,7 @@ interface OrgSummary {
   kmsConfigured: boolean;
   /** True iff an OrgIdpConfig document exists for this org. */
   idpConfigured: boolean;
-  /** Parent org id when this org is a team (org-team-hierarchy); null = root. */
+  /** Parent org id when this org is a team; null = root. */
   parentOrgId?: string | null;
   /** Parent org's display name, when resolvable — for hierarchy display in the
    *  admin list. Absent for root orgs or when the parent is missing. */
@@ -138,7 +138,7 @@ class OrganizationService {
         { $match: { organizationId: { $in: orgIds }, isActive: true } },
         { $group: { _id: '$organizationId', count: { $sum: 1 } } },
       ]),
-      OrgIdpConfig.find({ orgId: { $in: orgIds.map((id) => id.toString()) } }).distinct('orgId'),
+      OrgIdpConfig.find({ organizationId: { $in: orgIds } }).distinct('organizationId'),
     ]);
     const memberCountMap = new Map(memberCountRows.map((r) => [String(r._id), r.count]));
     const idpSet = new Set(idpOrgIds.map((id) => String(id)));
@@ -213,7 +213,7 @@ class OrganizationService {
     return withMongoTransaction(async (session) => {
       // A team (child org) is a pooled sub-unit of the root: it inherits the
       // root's tier and gets locally-unlimited quotas (-1) so ONLY the root's
-      // pooled cap binds (see docs/org-team-hierarchy.md §4/§5.1). A root org
+      // pooled cap binds (docs/billing-bundles.md "Pooling across teams"). A root org
       // seeds its own quotas from its tier preset (matches setTier).
       let tier: QuotaTier;
       let quotas: Record<string, number>;
@@ -327,11 +327,11 @@ class OrganizationService {
         .limit(membersLimit)
         .lean(),
       UserOrganization.countDocuments({ organizationId: org._id }),
-      OrgIdpConfig.exists({ orgId: org._id.toString() }),
+      OrgIdpConfig.exists({ organizationId: org._id }),
     ]);
 
     const members = memberships.map(m => ({
-      ...(m.userId as unknown as Record<string, unknown>),
+      ...m.userId,
       role: m.role,
       joinedAt: m.joinedAt,
     }));

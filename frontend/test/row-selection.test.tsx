@@ -4,8 +4,7 @@
 /**
  * `useRowSelection` is the ONE row-selection implementation — the users,
  * invitations and registry-tag tables each had their own copy of it. The
- * header-checkbox variant (`toggleAll`) is the part they needed and the hook
- * previously lacked, so it carries the interesting rules:
+ * header-checkbox variant (`toggleAll`) carries the interesting rules:
  *   - select-all acts on the ids it is GIVEN (the visible page, the pending
  *     rows, the tags in view), never the whole set
  *   - ids outside that slice are left alone, so a selection built across

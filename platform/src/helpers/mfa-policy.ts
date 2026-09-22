@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * An organization's "require MFA" policy (#8) — the single place the stored
+ * An organization's "require MFA" policy — the single place the stored
  * fields on {@link Organization} are turned into a decision.
  *
  * ENFORCED AT ISSUANCE, NOT PER ROUTE. A session scoped to an org that requires
@@ -47,6 +47,10 @@ export const DEFAULT_MFA_GRACE_DAYS = 14;
 
 /** Maximum grace an admin may choose — beyond this the policy is decorative. */
 export const MAX_MFA_GRACE_DAYS = 90;
+
+/** The longest enrolment grace an approver may grant after an MFA reset —
+ *  beyond a week an MFA-required org would have a member quietly exempt from it. */
+export const MFA_RESET_GRACE_MAX_HOURS = 168;
 
 /** The stored policy fields of one org document. */
 export interface StoredMfaPolicy {
@@ -104,12 +108,12 @@ async function ancestorPolicies(orgId: string): Promise<Array<StoredMfaPolicy & 
   let current = orgId;
   for (let depth = 0; depth < MAX_ANCESTOR_DEPTH; depth += 1) {
     const doc = await Organization.findById(toOrgId(current))
-      .select('parentOrgId requireMfa mfaRequiredSince mfaGraceUntil adminActionsRequireMfa').lean() as (StoredMfaPolicy & { _id: unknown; parentOrgId?: string | null }) | null;
+      .select('parentOrgId requireMfa mfaRequiredSince mfaGraceUntil adminActionsRequireMfa').lean();
     const parent = doc?.parentOrgId;
     if (!parent || seen.has(String(parent))) return out;
     seen.add(String(parent));
     const parentDoc = await Organization.findById(toOrgId(String(parent)))
-      .select('requireMfa mfaRequiredSince mfaGraceUntil adminActionsRequireMfa').lean() as (StoredMfaPolicy & { _id: unknown }) | null;
+      .select('requireMfa mfaRequiredSince mfaGraceUntil adminActionsRequireMfa').lean();
     if (!parentDoc) return out;
     out.push({ ...parentDoc, _id: String(parentDoc._id) });
     current = String(parent);
@@ -135,7 +139,7 @@ function isEnforcedNow(policy: StoredMfaPolicy, now: Date): boolean {
 export async function resolveEffectiveMfaPolicy(orgId: string, now: Date = new Date()): Promise<EffectiveMfaPolicy> {
   const { Organization, toOrgId } = await deps();
   const org = await Organization.findById(toOrgId(orgId))
-    .select('requireMfa mfaRequiredSince mfaGraceUntil idpEnforcesMfa adminActionsRequireMfa parentOrgId').lean() as (StoredMfaPolicy & { parentOrgId?: string | null }) | null;
+    .select('requireMfa mfaRequiredSince mfaGraceUntil idpEnforcesMfa adminActionsRequireMfa parentOrgId').lean();
   const own = org?.requireMfa === true;
   const base: EffectiveMfaPolicy = {
     requireMfa: own,

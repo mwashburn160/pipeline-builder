@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getServiceAuthHeader, QUOTA_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams } from '@pipeline-builder/api-core';
+import { createLogger, getServiceAuthHeader, QUOTA_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
 import { ORG_SEAT_LIMIT_NOT_ROOT } from './org-errors.js';
 import { config } from '../config/index.js';
@@ -27,25 +27,27 @@ const logger = createLogger('organization-service');
 const RETENTION_DIMS = ['eventRetentionDays', 'doraRetentionDays'] as const;
 
 /**
- * Tier-preset dimensions that must NEVER be copied onto the org doc's `quotas`
- * when reseeding from a `QUOTA_TIERS[tier].limits` preset:
- *   - `seats` is preserved separately — it is the one dim a bundle raises
- *     directly on the org doc, so the reseed sets it from billing's effective
- *     entitlement (tier base + bundles), never clobbers it with the bare base.
- *   - the {@link RETENTION_DIMS} live only on `dora_settings`, never here.
- * Used by setSeatLimit's degraded reseed (which skips `seats` too because it
- * writes seats separately); the keep-max reseed paths use {@link stripRetentionDims}.
+ * The org-doc `quotas` a tier's preset reseeds, from `QUOTA_TIERS[tier].limits`
+ * (so every QuotaTierLimits field stays in lockstep) — never the billing-owned
+ * {@link RETENTION_DIMS}, which live only on `dora_settings`.
+ *
+ * `seats` is the one dim a bundle raises DIRECTLY on the org doc (billing's
+ * seat_pack pushes the effective tier base + bundles through `setSeatLimit`), so
+ * a reseed never clobbers it with the bare base: it keeps the LARGER of the new
+ * base and `currentSeats` (-1 = unlimited outranks any finite base). Only seats
+ * keep-max: a blanket max would strand the previous tier's higher base on the
+ * other dims, and a genuine seat REDUCTION never rides a tier change — billing
+ * pushes it through `setSeatLimit`. Every other dim is synced to the quota
+ * SERVICE by billing, so reseeding the org-doc copy to the new base is correct.
  */
-const RESEED_EXCLUDED_DIMS: ReadonlySet<string> = new Set<string>(['seats', ...RETENTION_DIMS]);
-
-/**
- * Strip the billing-owned {@link RETENTION_DIMS} from a reseeded quota preset,
- * in place. For the reseed path (setTier) that PRESERVE `seats`
- * via keep-max, so — unlike setSeatLimit's per-dim skip — only the retention
- * dims are removed here.
- */
-function stripRetentionDims(quotas: Record<string, unknown>): void {
-  for (const dim of RETENTION_DIMS) delete quotas[dim];
+export function tierBaseQuotaSet(tier: QuotaTier, currentSeats: number | undefined): QuotaTierLimits {
+  const quotas: QuotaTierLimits = { ...QUOTA_TIERS[tier].limits };
+  for (const dim of RETENTION_DIMS) delete (quotas as Partial<QuotaTierLimits>)[dim];
+  if (typeof currentSeats === 'number' && typeof quotas.seats === 'number') {
+    if (currentSeats === -1) quotas.seats = -1;
+    else if (quotas.seats !== -1 && currentSeats > quotas.seats) quotas.seats = currentSeats;
+  }
+  return quotas;
 }
 
 /** Added/removed feature-entitlement delta (order-independent) for the audit trail. */
@@ -170,6 +172,38 @@ async function propagateToSubtree(
 }
 
 /**
+ * The shared tail of an account-level change (seat/entitlement sync, tier
+ * change), inside the caller's transaction:
+ *   1. propagate `propagate` (featureEntitlements and/or the tier label) from
+ *      `orgId` onto its descendant teams — skipped when undefined or empty;
+ *   2. on an access REDUCTION (`reduction` names why: a feature removed, a tier
+ *      downgrade), invalidate every active member's outstanding tokens across
+ *      exactly the orgs the propagation wrote to, and log the blast radius.
+ * No bump on a pure add / upgrade — a stale token then under-grants, which is
+ * safe. Returns the bumped member ids for the caller to publish AFTER commit.
+ */
+async function applyAccountAccessChange(
+  orgId: string,
+  change: { propagate?: Record<string, unknown>; reduction?: string; source: string },
+  session: ClientSession,
+): Promise<Types.ObjectId[]> {
+  const subtreeIds = change.propagate && Object.keys(change.propagate).length > 0
+    ? await propagateToSubtree(orgId, change.propagate, session)
+    : [orgId];
+  if (!change.reduction) return [];
+  const bumped = await bumpActiveMembersClaimsVersion(subtreeIds, session);
+  // Security-relevant outcome: how many members were invalidated across how
+  // many subtree orgs, and why — so incident review can reconstruct the blast
+  // radius of an access reduction.
+  logger.info(`${change.source}: invalidated active members after access reduction`, {
+    bumpedMembers: bumped.length,
+    subtreeOrgs: subtreeIds.length,
+    reason: change.reduction,
+  });
+  return bumped;
+}
+
+/**
  * Set the account seat limit on the org's ROOT. Platform owns `seats` (it is
  * not a quota-service type), so billing syncs the effective seat entitlement
  * (tier base + bundles) here. `orgId` MUST be the account root: a team id is
@@ -211,11 +245,6 @@ export async function setSeatLimit(
     // (advanced_reporting) access grant/revoke — not just the resulting set.
     // Undefined when `features` was not part of this call (no entitlement change).
     let featureDelta: FeatureDelta | undefined;
-    // The org subtree a feature/tier change propagates to (root + descendant
-    // teams). Defaults to the root alone; widened below once the descendant
-    // scope is resolved, so the token-invalidation bump covers EXACTLY the orgs
-    // the propagation writes to.
-    let subtreeIds: string[] = [rootOrgId];
     const needsPreRead = features !== undefined || tier !== undefined;
     const current = needsPreRead
       ? await Organization.findById(toOrgId(rootOrgId))
@@ -243,19 +272,11 @@ export async function setSeatLimit(
       // (mirrors `setTier`'s reseed). This changes ONLY the degraded fallback — the
       // quota SERVICE stays authoritative for the happy path.
       //
-      // `seats` is PRESERVED: it is the one dim a bundle raises directly on the org
-      // doc, and `set['quotas.seats']` above already carries billing's effective
-      // (tier base + bundles) seat entitlement — clobbering it with the bare tier
-      // base would silently discard paid-for seats. Every OTHER dim is synced to
-      // the quota SERVICE (billing's `syncTierToQuotaService`), so reseeding the
-      // org-doc copy of those to the new tier base is correct. We write the non-seat
-      // dims via dot-notation so they don't conflict with the `quotas.seats` key.
-      const base = QUOTA_TIERS[tier]?.limits;
-      if (base) {
-        for (const [dim, value] of Object.entries(base)) {
-          if (RESEED_EXCLUDED_DIMS.has(dim)) continue;
-          set[`quotas.${dim}`] = value;
-        }
+      // `seats` is left out: `set['quotas.seats']` above already carries
+      // billing's effective (tier base + bundles) seat entitlement. The other
+      // dims are written via dot-notation so they don't conflict with that key.
+      for (const [dim, value] of Object.entries(tierBaseQuotaSet(tier, seats))) {
+        if (dim !== 'seats') set[`quotas.${dim}`] = value;
       }
     }
 
@@ -267,39 +288,19 @@ export async function setSeatLimit(
     if (result.matchedCount === 0) return null;
 
     // Propagate account-level fields (featureEntitlements and/or the tier label)
-    // onto descendant teams so a team member's token carries them.
+    // onto descendant teams so a team member's token carries them. Only
+    // propagate featureEntitlements when the set actually changed — an
+    // idempotent re-sync would otherwise rewrite identical values subtree-wide.
     const propagate: Record<string, unknown> = {};
-    // Only propagate featureEntitlements when the set actually changed — an
-    // idempotent re-sync of the same members would otherwise issue a redundant
-    // subtree updateMany writing identical values. (The root `$set` still writes
-    // it unconditionally; the token bump is already gated on a reduction.)
     if (features !== undefined && featuresChanged) propagate.featureEntitlements = features;
     if (set.tier !== undefined) propagate.tier = tier;
-    if (Object.keys(propagate).length > 0) {
-      // [root, ...descendants] — the exact set the fields propagate to, so the
-      // token bump below covers precisely the orgs this write touched.
-      subtreeIds = await propagateToSubtree(rootOrgId, propagate, session);
-    }
-
-    // An access REDUCTION — a bundle removal (strips `requireFeature`-gated
-    // capabilities) or a tier downgrade (drops tier-included features) — leaves
-    // members' existing JWTs over-granting until expiry, so invalidate them now.
-    // No bump on a pure add / upgrade (a stale token then under-grants, which is
-    // safe). featureEntitlements + tier propagate across the whole subtree, so a
-    // stale token held by ANY subtree member still over-grants — bump them all.
-    if (featureShrink || tierDowngrade) {
-      bumpedMemberIds = await bumpActiveMembersClaimsVersion(subtreeIds, session);
-      // Security-relevant outcome: how many members were invalidated across how
-      // many subtree orgs, and why — so incident review can reconstruct the blast
-      // radius of an access reduction.
-      logger.info('setSeatLimit: invalidated active members after access reduction', {
-        bumpedMembers: bumpedMemberIds.length,
-        subtreeOrgs: subtreeIds.length,
-        reason: featureShrink && tierDowngrade
-          ? 'feature_shrink+tier_downgrade'
-          : featureShrink ? 'feature_shrink' : 'tier_downgrade',
-      });
-    }
+    bumpedMemberIds = await applyAccountAccessChange(rootOrgId, {
+      propagate,
+      reduction: featureShrink && tierDowngrade
+        ? 'feature_shrink+tier_downgrade'
+        : featureShrink ? 'feature_shrink' : tierDowngrade ? 'tier_downgrade' : undefined,
+      source: 'setSeatLimit',
+    }, session);
     return { rootOrgId, seats, featureDelta };
   });
   // Post-commit: publish the affected members' now-current access version.
@@ -309,7 +310,7 @@ export async function setSeatLimit(
 
 /**
  * Whether changing `orgId`'s account to `newTier` would drop a COUNT quota's
- * cap below current pooled usage (docs/billing-bundles.md §8) — mirrors the
+ * cap below current pooled usage — mirrors the
  * billing over-cap gate for the sysadmin tier-change path. Guards seats
  * (pooled), plugins, pipelines (count quotas whose usage lives on the shared
  * org doc). Rate quotas (apiCalls/aiCalls) aren't guarded — they reset. Empty
@@ -363,7 +364,7 @@ export async function checkTierOvercap(
   // silently under-count and wave a stranding downgrade through.
   // `listings` is deliberately NOT guarded: a publisher over its new plan's
   // listing limit keeps every listing listed and is only refused NEW version /
-  // listing-update requests (docs/plans/plugin-ecosystem.md §3.7 "Downgrade").
+  // listing-update requests (docs/plugin-publishing.md "Plans and limits").
   const COUNT_QUOTAS = ['plugins', 'pipelines', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'] as const;
   // Only the dims the NEW tier actually caps (limit !== -1) can be over-cap; a
   // field left unlimited is `continue`-skipped below and contributes nothing. So
@@ -443,37 +444,10 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     // Team: tier is derived (display-only). Its quotas stay pooled (-1) so the
     // ROOT's cap is the only binding one — do NOT reseed from the preset.
   } else if (config.quota.tier[newTier]) {
-    // Root: reseed its OWN quotas from the new tier (source from QUOTA_TIERS
-    // so every QuotaTierLimits field stays in lockstep).
-    //
-    // PRESERVE purchased seat capacity across the reseed. `seats` is the one
-    // quota dimension a bundle raises DIRECTLY on the org doc: billing's
-    // seat_pack pushes the effective (tier base + bundle) seat limit here via
-    // `setSeatLimit`/`pushSeatLimitToPlatform`. Every OTHER bundle-raised dim is
-    // synced to the quota SERVICE (billing's `syncTierToQuotaService`), so
-    // reseeding those on the org doc to the bare tier base is correct — but
-    // clobbering `seats` with the tier base would silently discard paid-for
-    // seats until (if ever) a later billing sync happened to restore them
-    // (ordering-coupled, no guard). So keep the LARGER of {new tier base,
-    // current seats}, treating -1 (unlimited) as the max. `featureEntitlements`
-    // is a separate top-level field, so this quotas reseed never touches it.
-    //
-    // Only `seats` is preserved (not a blanket per-dim max): a blanket max
-    // would also strand the PREVIOUS tier's higher base for non-bundle dims, so
-    // a downgrade would never actually lower them. A genuine seat REDUCTION
-    // never rides setTier — billing pushes it through `setSeatLimit` — so
-    // keep-max here can't strand a removed seat bundle.
-    const reseeded = { ...QUOTA_TIERS[newTier].limits };
-    // Keep the billing-owned retention dims off the persisted quota doc.
-    stripRetentionDims(reseeded as Record<string, unknown>);
-    const currentSeats = org.quotas?.seats;
-    if (typeof currentSeats === 'number' && typeof reseeded.seats === 'number') {
-      if (currentSeats === -1) {
-        reseeded.seats = -1; // current unlimited seats outrank any finite base
-      } else if (reseeded.seats !== -1 && currentSeats > reseeded.seats) {
-        reseeded.seats = currentSeats; // purchased/bundle-raised cap survives
-      }
-    }
+    // Root: reseed its OWN quotas from the new tier, keeping purchased seat
+    // capacity (see `tierBaseQuotaSet`). `featureEntitlements` is a separate
+    // top-level field, so this never touches it.
+    const reseeded = tierBaseQuotaSet(newTier, org.quotas?.seats);
     org.quotas = reseeded;
     org.markModified('quotas');
   }
@@ -486,33 +460,13 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
   await withMongoTransaction(async (session) => {
     await org.save({ session });
 
-    // The org subtree the tier label propagates to. Defaults to the org itself
-    // (a team, or a flat org with no descendants); widened to the full scope for
-    // a root so the token-invalidation bump matches the propagation set.
-    let subtreeIds: string[] = [org._id.toString()];
-
-    // Propagate the tier label to descendant teams so their derived tier tracks
-    // the root (their quotas stay pooled at -1). No-op for a flat org / a team.
-    if (!org.parentOrgId) {
-      subtreeIds = await propagateToSubtree(org._id.toString(), { tier: newTier }, session);
-    }
-
-    // On a downgrade, invalidate active members' outstanding access tokens so
-    // the reduced tier / lost features take effect immediately rather than at
-    // token expiry. The tier propagates to the whole subtree, so bump members
-    // across it — root + descendant teams (deduped by `distinct`). Same
-    // transaction as the tier write. No bump on an upgrade.
-    if (isDowngrade) {
-      bumpedMemberIds = await bumpActiveMembersClaimsVersion(subtreeIds, session);
-      // Security-relevant outcome: how many members were invalidated across how
-      // many subtree orgs, and why — so incident review can reconstruct the blast
-      // radius of the downgrade.
-      logger.info('setTier: invalidated active members after tier downgrade', {
-        bumpedMembers: bumpedMemberIds.length,
-        subtreeOrgs: subtreeIds.length,
-        reason: 'tier_downgrade',
-      });
-    }
+    // A root propagates the tier label to its descendant teams (their quotas
+    // stay pooled at -1); a team or flat org has nothing below it.
+    bumpedMemberIds = await applyAccountAccessChange(org._id.toString(), {
+      propagate: org.parentOrgId ? undefined : { tier: newTier },
+      reduction: isDowngrade ? 'tier_downgrade' : undefined,
+      source: 'setTier',
+    }, session);
   });
   // Post-commit: publish the affected members' now-current access version so the
   // reduced tier / lost features take effect on the stateless services now.

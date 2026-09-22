@@ -17,8 +17,8 @@ import type {
 } from '@pipeline-builder/pipeline-data';
 
 import { decisionNeedsStepUp, needsTwoPerson, requiredDecisionPermission } from './policy.js';
+import { iso, roundTo } from './util.js';
 
-const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
 
 export function publisherView(p: Publisher) {
   return {
@@ -103,7 +103,7 @@ export function listingView(
 }
 export type ListingView = ReturnType<typeof listingView>;
 
-/** A request payload as the API returns it: a claim's claimant email hash (E10) stays server-side. */
+/** A request payload as the API returns it: a claim's claimant email hash stays server-side. */
 function publicPayload(payload: Record<string, unknown> | null | undefined): Record<string, unknown> {
   const { claimantEmailHash: _hash, ...rest } = payload ?? {};
   return rest;
@@ -155,12 +155,12 @@ export function queueItemView(
   const open = r.status === 'pending' || r.status === 'pending_second_approval';
   return {
     ...requestView(r, publisher, listingName),
-    ageHours: Math.round(ageHours * 10) / 10,
+    ageHours: roundTo(ageHours, 1),
     slaHours,
     slaBreached: open && ageHours > slaHours,
     requiresTwoPerson: needsTwoPerson(r.kind, publisher?.tier ?? 'community'),
     requiresStepUp: decisionNeedsStepUp(r.kind),
-    requiredPermission: requiredDecisionPermission(r.kind),
+    requiredPermission: requiredDecisionPermission(r.kind, r.payload),
     conflictOfInterest: conflict.conflict,
     conflictReason: conflict.reason,
   };

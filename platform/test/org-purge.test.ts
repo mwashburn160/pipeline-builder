@@ -7,16 +7,16 @@
  * has lapsed. Fail-closed, idempotent, never throws.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { leaderLockMock } from './helpers/leader-lock-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { selectLean } from './helpers/query-chain.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { organization: { purgeSweepIntervalMs: 1000 }, audit: { retentionDays: 90 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ organization: { purgeSweepIntervalMs: 1000 }, audit: { retentionDays: 90 } }));
 
 const mockOrgFind = jest.fn<AnyFn>();
 const mockCascade = jest.fn<(...a: unknown[]) => Promise<any>>();
@@ -42,12 +42,20 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({
 
 jest.unstable_mockModule('../src/utils/leader-lock.js', () => leaderLockMock());
 
-const { purgeExpiredOrgs, startOrgPurgeSweep, stopOrgPurgeSweep } = await import('../src/services/org-purge.js');
+const { purgeExpiredOrgs, orgPurgeSweep } = await import('../src/services/org-purge.js');
+const { buildSweep } = await import('../src/services/background-sweeps.js');
+
+let sweep: { start(): void; stop(): void } | null = null;
+function startOrgPurgeSweep(intervalMs: number): void {
+  sweep ??= buildSweep(orgPurgeSweep(intervalMs));
+  sweep!.start();
+}
+function stopOrgPurgeSweep(): void {
+  sweep?.stop();
+  sweep = null;
+}
 
 /** `Organization.find(...).select(...).lean()` chain returning `rows`. */
-function findChain(rows: unknown[]) {
-  return { select: () => ({ lean: () => Promise.resolve(rows) }) };
-}
 function okReport() {
   return { postgres: {}, mongo: {}, mongoFailures: [] as string[], quota: { ok: true }, billing: { ok: true }, auditArchive: { ok: true } };
 }
@@ -62,7 +70,7 @@ afterEach(() => stopOrgPurgeSweep());
 
 describe('purgeExpiredOrgs', () => {
   it('scans for tombstoned orgs whose purgeAfter has lapsed', async () => {
-    mockOrgFind.mockReturnValue(findChain([]));
+    mockOrgFind.mockReturnValue(selectLean([]));
     await purgeExpiredOrgs();
 
     const filter = mockOrgFind.mock.calls[0][0] as any;
@@ -71,7 +79,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('runs the cascade + hard delete for each expired org', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }, { _id: 'org-b' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }, { _id: 'org-b' }]));
 
     const res = await purgeExpiredOrgs();
 
@@ -82,7 +90,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('writes an admin.org.delete audit event after each successful hard delete', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
     mockCascade.mockResolvedValue({
       ...okReport(),
       postgres: { pipelines: { ok: true, rowCount: 3 }, pipeline_events: { ok: true, rowCount: 0 } },
@@ -119,7 +127,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('does NOT audit admin.org.delete when the purge is deferred (fail-closed)', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
     mockCascade.mockResolvedValue({ ...okReport(), billing: { ok: false } });
 
     await purgeExpiredOrgs();
@@ -129,7 +137,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('an audit-recorder failure never fails the purge (fire-and-forget)', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
     mockCreateEvent.mockImplementation(() => { throw new Error('audit store down'); });
 
     const res = await purgeExpiredOrgs();
@@ -141,7 +149,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('FAIL-CLOSED: defers the hard delete when ANY Postgres table failed to tear down', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
     mockCascade.mockResolvedValue({
       ...okReport(),
       postgres: { pipelines: { ok: true, rowCount: 3 }, pipeline_events: { ok: false, error: 'boom' } },
@@ -157,7 +165,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('FAIL-CLOSED: defers the hard delete when a Mongo collection leg failed', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
     mockCascade.mockResolvedValue({ ...okReport(), mongoFailures: ['personalAccessTokens'] });
 
     const res = await purgeExpiredOrgs();
@@ -167,7 +175,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('FAIL-CLOSED: defers the hard delete when a billing/quota leg failed', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
     mockCascade.mockResolvedValue({ ...okReport(), billing: { ok: false } });
 
     const res = await purgeExpiredOrgs();
@@ -180,7 +188,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('FAIL-CLOSED: defers the hard delete when the audit-trail archive failed', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
     mockCascade.mockResolvedValue({ ...okReport(), auditArchive: { ok: false } });
 
     const res = await purgeExpiredOrgs();
@@ -194,7 +202,7 @@ describe('purgeExpiredOrgs', () => {
   });
 
   it('is idempotent + resilient: one org failing does not abort the others', async () => {
-    mockOrgFind.mockReturnValue(findChain([{ _id: 'org-a' }, { _id: 'org-b' }]));
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }, { _id: 'org-b' }]));
     mockCascade.mockImplementationOnce(() => Promise.reject(new Error('cascade boom')));
 
     const res = await purgeExpiredOrgs();
@@ -210,12 +218,12 @@ describe('purgeExpiredOrgs', () => {
   });
 });
 
-describe('startOrgPurgeSweep', () => {
+describe('orgPurgeSweep', () => {
   beforeEach(() => { jest.useFakeTimers(); });
   afterEach(() => { jest.useRealTimers(); });
 
   it('runs an immediate sweep and repeats on the interval', async () => {
-    mockOrgFind.mockReturnValue(findChain([]));
+    mockOrgFind.mockReturnValue(selectLean([]));
     startOrgPurgeSweep(1000);
 
     expect(mockOrgFind).toHaveBeenCalledTimes(1); // immediate
@@ -224,7 +232,7 @@ describe('startOrgPurgeSweep', () => {
   });
 
   it('is idempotent — a second start does not add a second timer', async () => {
-    mockOrgFind.mockReturnValue(findChain([]));
+    mockOrgFind.mockReturnValue(selectLean([]));
     startOrgPurgeSweep(1000);
     startOrgPurgeSweep(1000);
     expect(mockOrgFind).toHaveBeenCalledTimes(1);
@@ -246,7 +254,7 @@ describe('startOrgPurgeSweep', () => {
   });
 
   it('stop halts the interval', async () => {
-    mockOrgFind.mockReturnValue(findChain([]));
+    mockOrgFind.mockReturnValue(selectLean([]));
     startOrgPurgeSweep(1000);
     stopOrgPurgeSweep();
     await jest.advanceTimersByTimeAsync(5000);

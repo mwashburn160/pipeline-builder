@@ -42,7 +42,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: jest.fn() },
 }));
 
-jest.unstable_mockModule('../src/utils/index.js', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyAccessToken: jest.fn(),
   verifyRefreshToken: (...a: unknown[]) => mockVerifyRefreshToken(...a),
 }));
@@ -79,6 +79,24 @@ describe('deliverSessionTokens — browser', () => {
       path: '/api/auth/refresh',
       maxAge: 2592000 * 1000,
     });
+  });
+
+  it('sizes Max-Age with the same strict parser as the token TTL (a malformed value is the default, not a prefix)', () => {
+    const prev = process.env.REFRESH_TOKEN_EXPIRES_IN;
+    try {
+      // config's envInt rejects `12abc` (→ 2592000); a parseInt here would say 12.
+      process.env.REFRESH_TOKEN_EXPIRES_IN = '12abc';
+      const res = makeRes();
+      deliverSessionTokens(browserReq(), res, TOKENS);
+      expect(res.cookie.mock.calls[0][2]).toMatchObject({ maxAge: 2592000 * 1000 });
+
+      process.env.REFRESH_TOKEN_EXPIRES_IN = '7200';
+      const res2 = makeRes();
+      deliverSessionTokens(browserReq(), res2, TOKENS);
+      expect(res2.cookie.mock.calls[0][2]).toMatchObject({ maxAge: 7200 * 1000 });
+    } finally {
+      if (prev === undefined) delete process.env.REFRESH_TOKEN_EXPIRES_IN; else process.env.REFRESH_TOKEN_EXPIRES_IN = prev;
+    }
   });
 
   it('never returns the refresh token in the body', () => {
@@ -151,6 +169,18 @@ describe('requireClientType — CSRF gate', () => {
       requireClientType(req, makeRes(), next as any);
       expect(next).toHaveBeenCalled();
     }
+  });
+});
+
+describe('isValidRefreshToken — a database outage is not a bad token', () => {
+  it('answers 503 (not 401) when the user lookup fails, so the client keeps its session', async () => {
+    mockVerifyRefreshToken.mockReturnValue({ sub: 'u1', tokenVersion: 3, sid: 's1' });
+    mockUserFindById.mockReturnValue({ select: () => Promise.reject(new Error('mongo down')) });
+    const res = makeRes();
+    const next = jest.fn();
+    await isValidRefreshToken(cliReq({ body: { refreshToken: 'body.jwt' } }), res, next as any);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(next).not.toHaveBeenCalled();
   });
 });
 

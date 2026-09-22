@@ -27,14 +27,14 @@ export function isStepUpErrorCode(code?: string): boolean {
     || code === 'STEP_UP_INVALID'
     || code === 'STEP_UP_MISMATCH'
     || code === 'STEP_UP_REPLAY'
-    // The confirmation was real but earned by the wrong factor (#8): the route
+    // The confirmation was real but earned by the wrong factor: the route
     // demands a passkey or an authenticator code. Same handling — re-prompt —
     // with the modal restricted to those two.
     || code === 'STEP_UP_METHOD_REQUIRED';
 }
 
 /**
- * True iff the backend refused because the SESSION is not strong enough (#8),
+ * True iff the backend refused because the SESSION is not strong enough,
  * rather than because it is invalid.
  *
  * These 401s must NOT be treated like an expired token: refreshing can never

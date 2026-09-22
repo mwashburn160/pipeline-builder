@@ -9,9 +9,9 @@
  * test can seed and inspect.
  *
  * Usage (before importing any module under test):
- *   const db = createFakeEcosystemDb();
- *   jest.unstable_mockModule('drizzle-orm', () => drizzleMock(db.ops));
- *   jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ ...actual, ...db.pipelineData }));
+ *   const db = createFakeEcosystemDb;
+ *   jest.unstable_mockModule('drizzle-orm', => drizzleMock(db.ops));
+ *   jest.unstable_mockModule('@pipeline-builder/pipeline-data', => ({...actual,...db.pipelineData }));
  */
 
 import { randomUUID } from 'node:crypto';
@@ -278,6 +278,25 @@ export function createFakeEcosystemDb(): FakeEcosystemDb {
     return full;
   };
 
+  /** Every table's rows (by identity) with a copy of each as the transaction found it. */
+  type Snapshot = Map<string, Map<Row, Row>>;
+  const openTxs = new Set<Snapshot>();
+  /** Fold what the committed transaction (`done`) changed into a still-open one's snapshot. */
+  const foldCommit = (done: Snapshot, open: Snapshot) => {
+    for (const [name, rows] of Object.entries(tables)) {
+      const before = done.get(name) ?? new Map<Row, Row>();
+      const target = open.get(name) ?? new Map<Row, Row>();
+      open.set(name, target);
+      const now = new Set(rows);
+      for (const ref of rows) {
+        const was = before.get(ref);
+        const changed = !was || Object.keys({ ...was, ...ref }).some((k) => was[k] !== ref[k]);
+        if (changed) target.set(ref, { ...ref });
+      }
+      for (const ref of before.keys()) if (!now.has(ref)) target.delete(ref);
+    }
+  };
+
   const tableName = (t: unknown) => (t as { __tableName: string }).__tableName;
 
   function query(name: string, fields?: Record<string, Col | Agg>) {
@@ -391,15 +410,23 @@ export function createFakeEcosystemDb(): FakeEcosystemDb {
       schema,
       // A transaction: a throw out of `fn` rolls every table back to where it
       // was (row objects are restored IN PLACE, so a test's references stay live).
+      // Transactions are INDEPENDENT, as in Postgres: one that commits while
+      // another is open is folded into the other's snapshot, so the other's
+      // rollback cannot undo it — a store call that opens its own transaction
+      // instead of joining the ambient one persists even when that one fails.
       withTenantTx: async (fn: (t: typeof tx) => unknown) => {
-        const snapshot = Object.entries(tables).map(([name, rows]) => [name, rows.map((r) => [r, { ...r }] as const)] as const);
-        const known = new Set(Object.keys(tables));
+        const snap: Snapshot = new Map(Object.entries(tables).map(([name, rows]) => [name, new Map(rows.map((r) => [r, { ...r }]))]));
+        openTxs.add(snap);
         try {
-          return await fn(tx);
+          const out = await fn(tx);
+          openTxs.delete(snap);
+          for (const other of openTxs) foldCommit(snap, other);
+          return out;
         } catch (err) {
-          for (const name of Object.keys(tables)) if (!known.has(name)) delete tables[name];
-          for (const [name, rows] of snapshot) {
-            tables[name] = rows.map(([ref, copy]) => {
+          openTxs.delete(snap);
+          for (const name of Object.keys(tables)) if (!snap.has(name)) delete tables[name];
+          for (const [name, rows] of snap) {
+            tables[name] = [...rows].map(([ref, copy]) => {
               for (const k of Object.keys(ref)) if (!(k in copy)) delete ref[k];
               return Object.assign(ref, copy);
             });

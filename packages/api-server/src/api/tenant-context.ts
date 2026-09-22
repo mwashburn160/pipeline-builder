@@ -33,9 +33,8 @@ setLogContextProvider(() => {
 
 /**
  * Resolves the RLS tenant scope for a request. The default reads the CALLER's
- * authenticated identity org (`ctx.identity.orgId`, validated by requireOrgId) — NOT
- * `getOrgId(req)`, which prefers route params (the queried scope), the wrong tenant for
- * RLS. Services with a different request boundary supply their own resolver (e.g. platform
+ * authenticated identity org (`ctx.identity.orgId`, validated by requireOrgId) — never a
+ * route param, which names the QUERIED scope, the wrong tenant for RLS. Services with a different request boundary supply their own resolver (e.g. platform
  * sets the scope pre-auth from an unverified JWT peek so unauthenticated endpoints still
  * get a sane default).
  */
@@ -67,9 +66,9 @@ const identityScope: TenantScopeResolver = (req) => ({
  * Default placement is AFTER `requireAuth` + `requireOrgId` (the route factories do this);
  * pass a custom `resolve` for a different boundary. A thrown resolver means tenant identity
  * could NOT be established (a wiring bug — this runs after auth) — we hard-FAIL the request
- * (500 via next(err)) rather than proceed. Proceeding would run queries with empty RLS GUCs;
- * under FORCE RLS that hides rows, but while RLS is in owner-bypass mode the app-layer WHERE
- * clause is the only tenant gate, so a scopeless request must not silently continue.
+ * (500 via next(err)) rather than proceed. Proceeding would run queries with empty RLS GUCs,
+ * which under FORCE RLS hide every row and refuse writes — a wiring bug surfacing as a
+ * silently empty result instead of an error.
  */
 export function withTenantContext(resolve: TenantScopeResolver = identityScope) {
   return (req: Request, _res: Response, next: NextFunction): void => {

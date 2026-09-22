@@ -36,7 +36,7 @@ function MetadataValueInput({
   const hasTemplate = validation.hasTemplate;
   const invalid = hasTemplate && !validation.valid;
   const border = invalid
-    ? 'border-red-400 dark:border-red-500'
+    ? 'border-danger-border'
     : hasTemplate
       ? 'border-indigo-400 dark:border-indigo-500'
       : 'border-default';
@@ -52,7 +52,7 @@ function MetadataValueInput({
         className={`w-full px-3 py-1.5 border ${border} rounded-lg text-sm bg-surface text-fg placeholder:text-fg-subtle focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-ring)] focus:border-brand transition-colors`}
       />
       {invalid && (
-        <div className="mt-0.5 text-xs text-red-600 dark:text-red-400" role="alert">
+        <div className="mt-0.5 text-xs text-danger" role="alert">
           {validation.error}
         </div>
       )}
@@ -246,7 +246,7 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
               variant="link"
               onClick={() => handleRemove(idx)}
               disabled={disabled}
-              className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm"
+              className="text-danger hover:text-danger text-sm"
             >
               Remove
             </Button>

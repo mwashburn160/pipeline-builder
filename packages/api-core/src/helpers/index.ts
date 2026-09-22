@@ -12,6 +12,8 @@ export {
   loadAndPurge,
   type RestorableService,
   type PurgeableService,
+  type TombstoneAuthorizer,
+  type TombstoneRouteOptions,
 } from './restore-helpers.js';
 export * from './sse-helpers.js';
 export * from './org-hierarchy.js';

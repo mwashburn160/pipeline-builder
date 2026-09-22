@@ -91,7 +91,7 @@ function VarRow({
   const validation = useTemplateValidation(entry.type === 'string' ? entry.value : undefined);
   const invalid = validation.hasTemplate && !validation.valid;
   const valueBorder = invalid
-    ? 'border-red-400 dark:border-red-500'
+    ? 'border-danger-border'
     : validation.hasTemplate
       ? 'border-indigo-400 dark:border-indigo-500'
       : 'border-default';
@@ -133,13 +133,13 @@ function VarRow({
           type="button"
           onClick={onRemove}
           disabled={disabled}
-          className="text-sm text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 px-2 disabled:opacity-50"
+          className="text-sm text-danger hover:text-danger px-2 disabled:opacity-50"
         >
           Remove
         </button>
       </div>
       {invalid && (
-        <div className="mt-0.5 text-xs text-red-600 dark:text-red-400" role="alert">{validation.error}</div>
+        <div className="mt-0.5 text-xs text-danger" role="alert">{validation.error}</div>
       )}
       {validation.hasTemplate && validation.valid && (
         <div className="mt-0.5 text-xs text-indigo-600 dark:text-indigo-400">

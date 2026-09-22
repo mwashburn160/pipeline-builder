@@ -11,7 +11,7 @@
  * audits + meters without issuing anything.
  *
  * The `amr: ['stepup', 'mfa']` claim the token itself carries — the groundwork
- * #8 will read — is pinned in `totp-step-up-claims.test.ts`, which needs the
+ * the assurance model reads — is pinned in `totp-step-up-claims.test.ts`, which needs the
  * REAL `utils/token` this suite stubs.
  */
 
@@ -46,13 +46,15 @@ jest.unstable_mockModule('../src/services/totp-service.js', () => ({
   hasActiveTotp: async () => true,
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUpToken(...a),
-  issueTokens: jest.fn(),
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  issueTokens: jest.fn(),
   renewSessionTokens: jest.fn(async () => null),
 }));
 

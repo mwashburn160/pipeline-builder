@@ -7,8 +7,8 @@
  * compliant NEW password → the session the sign-in earned.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -52,9 +52,12 @@ const account = {
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: () => ({ select: async () => account }) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
+  signInAuth: (method: string) => ({ amr: [method], aal: 1, authTime: new Date(0) }),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
@@ -62,9 +65,10 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   requiredPasswordChangeSchema: {},
 }));
 
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 const { completeRequiredPasswordChange } = await import('../src/controllers/password-change-required.js');
 const {
-  createPasswordChangeChallenge, claimPasswordChangeChallenge, restorePasswordChangeChallenge, _resetPasswordChangeChallengesForTests,
+  createPasswordChangeChallenge, claimPasswordChangeChallenge, restorePasswordChangeChallenge,
 } = await import('../src/services/password-change-challenge.js');
 
 /** Inspect a challenge without spending it (claim, then hand straight back). */
@@ -99,7 +103,7 @@ const open = (aal: 1 | 2 = 1) => createPasswordChangeChallenge({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  _resetPasswordChangeChallengesForTests();
+  _resetAllPendingStoresForTests();
   account.tokenVersion = 4;
 });
 

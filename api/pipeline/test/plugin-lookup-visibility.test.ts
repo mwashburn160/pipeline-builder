@@ -39,8 +39,8 @@ describe('availablePluginConditions — visibility ladder', () => {
   });
 
   it('never includes system-org rows (Official plugins reach tenants as listings)', () => {
-    // Plugin ecosystem (plan §3.1, G26): `public` on a system-org row no longer
-    // reaches other orgs; the Official catalog resolves as installed listings.
+    // `public` on a system-org row does not reach other orgs; the Official
+    // catalog resolves as installed listings.
     const { params } = render({ orgId: 'org-a', userId: 'user-1', isSuperAdmin: false }, 'org-a');
     expect(params).not.toContain(SYSTEM_ORG_ID);
     expect(params).toEqual(['org-a', 'private', 'user-1', true]);

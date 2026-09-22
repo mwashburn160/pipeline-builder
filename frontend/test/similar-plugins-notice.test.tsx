@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The AI plugin builder's "similar plugins already exist" hint (plugin-ecosystem
- * W6): the generator returns the closest catalog plugins so the user can reuse
+ * The AI plugin builder's "similar plugins already exist" hint: the
+ * generator returns the closest catalog plugins so the user can reuse
  * one instead of deploying a duplicate.
  */
 

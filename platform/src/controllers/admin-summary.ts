@@ -18,6 +18,7 @@
  */
 
 import { sendSuccess } from '@pipeline-builder/api-core';
+import { envLite } from '../config/env-lite.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { Organization, User } from '../models/index.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
@@ -53,13 +54,13 @@ export const getAdminSummary = withController('Get admin summary', async (req, r
       // The PerOrgKmsKeyProvider opt-in is process-level (env). Mirror it
       // here so the dashboard can label "per-org KMS active in this
       // deploy" vs "shared-master only".
-      perOrgKmsEnabled: (process.env.SECRET_ENCRYPTION_PER_ORG_KMS || '').toLowerCase() === 'true',
+      perOrgKmsEnabled: envLite.perOrgKmsEnabled,
     },
     rls: {
       // Operators rolling out RLS strict mode want to see the current
       // mode at a glance from the dashboard. Reads the same env the
       // tenancy module reads.
-      contextMode: (process.env.RLS_CONTEXT_MODE || 'warn').toLowerCase(),
+      contextMode: envLite.rlsContextMode,
     },
   });
 });

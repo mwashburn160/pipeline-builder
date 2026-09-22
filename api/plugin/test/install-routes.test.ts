@@ -10,8 +10,8 @@
  * step-up — are checked against the real route table in route-coverage.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -25,6 +25,11 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
     try {
       await fn({ req: rq, res: rs, ctx: { log: jest.fn<AnyFn>() }, orgId: 'org-b', userId: 'u-b' });
     } catch (err: any) {
+      // The real wrapper's AppError mapping: status, code and structured details.
+      if (typeof err.statusCode === 'number' && err.code) {
+        rs.status(err.statusCode).json({ success: false, message: err.message, code: err.code, ...(err.details ? { details: err.details } : {}) });
+        return;
+      }
       rs.status(500).json({ success: false, message: err.message });
     }
   },

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 26fe654c02aa8cd9d30576101a57c94504372fa6269ba982fa96466dc0d97dcb
+// SOURCE-SHA256: f2efd56cdd0e27f03a8993d4bec44f02c749fcf830d9fa016ff8a7430e46fec5
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -159,7 +159,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "ALLOW = default-deny once selected. Every scrape-annotated workload admits prometheus on its metrics port — the app services on 3000, and every exporter on its own port (postgres 9187, pgbouncer 9127, mongodb 9216, redis/sentinel 9121, grafana 3000, thanos 10902, jaeger 14269); every app API lists nginx (the single ingress principal); registry/minio list default (bootstrap Jobs). platform/test/deploy-network-contract.test.ts asserts, for every target, that each scrape-annotated pod is admitted on its port by BOTH its mesh policy and a NetworkPolicy — an exporter a policy forgot is otherwise a healthy datastore that ServiceDown pages for."
+          "content": "ALLOW = default-deny once selected. Every scrape-annotated workload admits prometheus on its metrics port — the app services on 3000, and every exporter on its own port (postgres 9187, pgbouncer 9127, mongodb 9216, redis/sentinel 9121, grafana 3000, thanos 10902, jaeger 14269); every app API lists nginx (the single ingress principal); registry/minio list default (bootstrap Jobs). test/deploy-contracts/test/network-contract.test.ts asserts, for every target, that each scrape-annotated pod is admitted on its port by BOTH its mesh policy and a NetworkPolicy — an exporter a policy forgot is otherwise a healthy datastore that ServiceDown pages for."
         },
         {
           "type": "text",

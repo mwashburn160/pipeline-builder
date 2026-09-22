@@ -12,28 +12,35 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 import { formatError } from '@/lib/constants';
+import type { VALUELESS_RULE_OPERATORS } from '@pipeline-builder/api-core';
 
-const OPERATORS: { value: RuleOperator; label: string }[] = [
-  { value: 'eq', label: 'Equals' },
-  { value: 'neq', label: 'Not equals' },
-  { value: 'contains', label: 'Contains' },
-  { value: 'notContains', label: 'Not contains' },
-  { value: 'regex', label: 'Regex' },
-  { value: 'gt', label: '>' },
-  { value: 'gte', label: '>=' },
-  { value: 'lt', label: '<' },
-  { value: 'lte', label: '<=' },
-  { value: 'in', label: 'In list' },
-  { value: 'notIn', label: 'Not in list' },
-  { value: 'exists', label: 'Exists' },
-  { value: 'notExists', label: 'Not exists' },
-  { value: 'countGt', label: 'Count >' },
-  { value: 'countLt', label: 'Count <' },
-  { value: 'lengthGt', label: 'Length >' },
-  { value: 'lengthLt', label: 'Length <' },
-];
+/** Exhaustive over the wire vocabulary: a new operator is a compile error here, not an editor that can't show it. */
+const OPERATOR_LABELS: Record<RuleOperator, string> = {
+  eq: 'Equals',
+  neq: 'Not equals',
+  contains: 'Contains',
+  notContains: 'Not contains',
+  regex: 'Regex',
+  gt: '>',
+  gte: '>=',
+  lt: '<',
+  lte: '<=',
+  in: 'In list',
+  notIn: 'Not in list',
+  exists: 'Exists',
+  notExists: 'Not exists',
+  notEmpty: 'Not empty',
+  countGt: 'Count >',
+  countLt: 'Count <',
+  lengthGt: 'Length >',
+  lengthLt: 'Length <',
+};
 
-const NO_VALUE_OPS = new Set<string>(['exists', 'notExists']);
+const OPERATORS = (Object.keys(OPERATOR_LABELS) as RuleOperator[]).map((value) => ({ value, label: OPERATOR_LABELS[value] }));
+
+/** Presence-only operators take no comparison value (exhaustive over api-core's list). */
+const VALUELESS: Record<(typeof VALUELESS_RULE_OPERATORS)[number], true> = { exists: true, notExists: true, notEmpty: true };
+const NO_VALUE_OPS: ReadonlySet<string> = new Set(Object.keys(VALUELESS));
 
 const safeStringify = (v: unknown): string => {
   try { return JSON.stringify(v); } catch { return String(v); }
@@ -470,7 +477,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                   {dryRunResult.violations.map((v, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
                       <XCircle className="h-3 w-3 text-danger shrink-0" />
-                      <span className="text-red-700 dark:text-red-400">{v.ruleName}: {v.message}</span>
+                      <span className="text-danger">{v.ruleName}: {v.message}</span>
                     </div>
                   ))}
                 </div>
@@ -480,7 +487,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                   {dryRunResult.warnings.map((w, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
                       <AlertTriangle className="h-3 w-3 text-warning shrink-0" />
-                      <span className="text-yellow-700 dark:text-yellow-400">{w.ruleName}: {w.message}</span>
+                      <span className="text-warning">{w.ruleName}: {w.message}</span>
                     </div>
                   ))}
                 </div>
@@ -510,7 +517,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">Impact on your existing entities</span>
                   <span className="text-xs text-fg-muted">
-                    <span className={impactResult.wouldFail > 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'text-green-600 dark:text-green-400'}>
+                    <span className={impactResult.wouldFail > 0 ? 'text-danger font-medium' : 'text-success'}>
                       {impactResult.wouldFail}
                     </span>
                     {' / '}{impactResult.total}{' would fail'}
@@ -519,7 +526,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 {impactResult.samples.length > 0 && (
                   <ul className="space-y-1">
                     {impactResult.samples.map((s) => (
-                      <li key={s.entityId} className="flex items-start gap-1.5 text-xs text-red-700 dark:text-red-300">
+                      <li key={s.entityId} className="flex items-start gap-1.5 text-xs text-danger">
                         <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
                         <span>
                           <span className="font-medium">{s.entityName ?? s.entityId.slice(0, 8)}</span>
@@ -533,7 +540,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                   </ul>
                 )}
                 {impactResult.wouldFail === 0 && (
-                  <div className="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400">
+                  <div className="flex items-center gap-1.5 text-xs text-success">
                     <CheckCircle className="h-3.5 w-3.5" /> No existing entities would fail this rule.
                   </div>
                 )}

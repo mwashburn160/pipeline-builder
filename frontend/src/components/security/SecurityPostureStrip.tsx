@@ -45,7 +45,7 @@ const TONE_ICON: Record<Tone, LucideIcon> = {
 
 const TONE_CLASS: Record<Tone, string> = {
   good: 'text-success',
-  warn: 'text-amber-600 dark:text-amber-400',
+  warn: 'text-warning',
   neutral: 'text-fg-muted',
 };
 

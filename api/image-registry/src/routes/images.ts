@@ -23,13 +23,13 @@ import { registerListRoutes } from './images/images-list.js';
  * reach the underlying registry directly through these routes.
  *
  * Routes:
- *  - GET    /api/images                            (?nonEmpty=true hides zero-tag repos)
- *  - GET    /api/images/:name/tags
- *  - GET    /api/images/:name/manifests/:reference
+ *  - GET /api/images (?nonEmpty=true hides zero-tag repos)
+ *  - GET /api/images/:name/tags
+ *  - GET /api/images/:name/manifests/:reference
  *  - DELETE /api/images/:name/manifests/:reference
- *  - DELETE /api/images/:name                      (prune a whole repo — deletes all tags)
- *  - GET    /api/images/:name/blobs/:digest        (5MB cap; config blobs only)
- *  - POST   /api/images/copy                       (cross-repo; multi-arch aware)
+ *  - DELETE /api/images/:name (prune a whole repo — deletes all tags)
+ *  - GET /api/images/:name/blobs/:digest (5MB cap; config blobs only)
+ *  - POST /api/images/copy (cross-repo; multi-arch aware)
  *
  * Note on repo names: the registry treats `library/pipeline-foo` as one repo.
  * Multi-segment names are passed URL-ENCODED (`library%2Fpipeline-foo`) so a

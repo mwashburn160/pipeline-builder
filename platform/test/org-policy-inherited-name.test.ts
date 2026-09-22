@@ -8,8 +8,9 @@
  * not be able to read. Absent when nothing is inherited.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -26,23 +27,24 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-// These reads are `canAdministerOrg`-gated and that gate runs FOR REAL (see
+// These reads are `canManageOrgScope`-gated and that gate runs FOR REAL (see
 // helpers/controller-helper-mock.ts). The fixture below is a genuine
 // PARENT-org admin reading its TEAM's policy, which is exactly the cross-org
-// branch `canAdministerOrg` resolves by lazily importing this module — so
+// branch `canManageOrgScope` resolves by lazily importing this module — so
 // `isAncestorOrg` is mocked alongside `getOrgName`: root IS an ancestor of team.
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   getOrgName: (...a: unknown[]) => mockGetOrgName(...a),
   isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
 }));
-jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
+jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false, bootstrapSuperAdminEmails: () => new Set<string>() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 // Only reached when the admin-actions policy changes; stubbed so its graph stays out.
 jest.unstable_mockModule('../src/services/admin-mfa-claims.js', () => ({ refreshAdminPolicyClaims: jest.fn(async () => 0) }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8 } }));
 jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({
   DEFAULT_MFA_GRACE_DAYS: 14,
   MAX_MFA_GRACE_DAYS: 90,
+  MFA_RESET_GRACE_MAX_HOURS: 168,
   resolveEffectiveMfaPolicy: (...a: unknown[]) => mockMfaPolicy(...a),
 }));
 jest.unstable_mockModule('../src/helpers/impersonation-policy.js', () => ({
@@ -128,7 +130,7 @@ describe('GET /organization/:id/impersonation-policy — inheritedFromName', () 
  * gate and not a formality: a caller who is not an admin of an ancestor org
  * gets 403 and the policy is never resolved.
  */
-describe('policy reads — the canAdministerOrg gate', () => {
+describe('policy reads — the canManageOrgScope gate', () => {
   it.each([
     ['an anonymous caller', null, 401],
     ['a plain member of the parent org', { sub: 'u2', organizationId: 'root' }, 403],

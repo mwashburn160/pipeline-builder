@@ -49,7 +49,7 @@ export function ManageTeamsModal({
         Select which teams <strong>{target.username}</strong> belongs to.
         A member can be on multiple teams; each membership keeps its own role.
       </p>
-      {error && <p className="text-sm text-red-600 dark:text-red-400 mb-3 whitespace-pre-line">{error}</p>}
+      {error && <p className="text-sm text-danger mb-3 whitespace-pre-line">{error}</p>}
       {loading ? (
         <p className="text-sm text-fg-muted">Loading teams…</p>
       ) : roster.length === 0 ? (

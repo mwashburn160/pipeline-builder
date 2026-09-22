@@ -32,13 +32,11 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 }));
 
 // Remote-audit spy: the restore handler emits an attributed `message.restore`
-// event via getAuditClient().record with SAFE METADATA ONLY (never the body).
+// event via recordAudit with SAFE METADATA ONLY (never the body).
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: mockAuditRecord }),
-}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockAuditRecord,
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   isSystemAdmin: jest.fn(() => false),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
@@ -91,7 +89,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   schema: { message: { $inferInsert: {} } },
 }));
 
-const { sendBadRequest, sendError, isSystemAdmin, sendEntityNotFound } = await import('@pipeline-builder/api-core');
+const { sendError, isSystemAdmin } = await import('@pipeline-builder/api-core');
 const { createRestoreMessageRoutes } = await import('../src/routes/restore-message.js');
 
 // Helpers
@@ -184,11 +182,10 @@ describe('POST /messages/:id/restore (restore)', () => {
         targetId: 'msg-1',
         details: expect.objectContaining({ isAnnouncement: true }),
       }),
-      'message',
     );
 
     // The message body must never reach the audit trail.
-    const [event] = mockAuditRecord.mock.calls[0] as [any, string];
+    const [event] = mockAuditRecord.mock.calls[0] as [any];
     expect(event.details).not.toHaveProperty('content');
   });
 
@@ -203,12 +200,11 @@ describe('POST /messages/:id/restore (restore)', () => {
     await handler(req, res);
 
     // Sysadmin load spans orgs (no org pin) and restore drops the org pin ('').
-    expect(mockFindDeletedById).toHaveBeenCalledWith('msg-1');
+    expect(mockFindDeletedById).toHaveBeenCalledWith('msg-1', undefined);
     expect(mockRestore).toHaveBeenCalledWith('msg-1', '', 'user-1');
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockAuditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'message.restore', affectedOrgId: 'other-org' }),
-      'message',
     );
   });
 
@@ -256,7 +252,7 @@ describe('POST /messages/:id/restore (restore)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Message');
+    expect(res.status).toHaveBeenCalledWith(404);
     expect(mockRestore).not.toHaveBeenCalled();
     expect(mockAuditRecord).not.toHaveBeenCalled();
   });
@@ -271,7 +267,7 @@ describe('POST /messages/:id/restore (restore)', () => {
     await handler(req, res);
 
     expect(mockRestore).toHaveBeenCalledWith('msg-1', 'org-1', 'user-1');
-    expect(sendEntityNotFound).toHaveBeenCalledWith(res, 'Message');
+    expect(res.status).toHaveBeenCalledWith(404);
     expect(mockAuditRecord).not.toHaveBeenCalled();
   });
 
@@ -280,7 +276,7 @@ describe('POST /messages/:id/restore (restore)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(sendBadRequest).toHaveBeenCalledWith(res, 'Message ID is required', 'MISSING_REQUIRED_FIELD');
+    expect(res.status).toHaveBeenCalledWith(400);
     expect(mockFindDeletedById).not.toHaveBeenCalled();
   });
 

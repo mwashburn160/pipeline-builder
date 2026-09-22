@@ -4,11 +4,9 @@
 /**
  * Search over the help corpus.
  *
- * Extracted from pages/dashboard/help.tsx, which previously did a flat
- * `topicSearchText(topic).includes(q)` filter. That was too coarse to be useful:
- * the corpus is 18 topics but several are thousands of lines (deployment,
- * env-variables, api-reference), so "this topic matches" left the reader to find
- * the hit themselves inside a collapsed accordion. Matching at SECTION level and
+ * A flat "does this topic match" filter is too coarse to be useful: several
+ * topics are thousands of lines (deployment, env-variables, api-reference), so
+ * it would leave the reader to find the hit inside a collapsed accordion. Matching at SECTION level and
  * returning a snippet is what makes the result actionable.
  *
  * Pure and dependency-free so it can be unit-tested without rendering.

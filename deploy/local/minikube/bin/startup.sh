@@ -33,10 +33,16 @@ MK_PROFILE_DIR="${MINIKUBE_HOME:-$HOME/.minikube}/profiles/$PROFILE"
 # here; a warning below says so rather than letting it look honoured.)
 ASK_MODEL="${ASK_MODEL:-0}"
 
-# Shared helpers (preflight). Sourcing common.sh cd's to /tmp — every path above
-# is absolute, so that's safe.
+# Shared helpers (preflight; pb_port_forward). Sourcing common.sh cd's to /tmp —
+# every path above is absolute, so that's safe.
 # shellcheck source=../../../bin/common.sh
 . "$BIN_DIR/common.sh"
+# shellcheck disable=SC2034
+PB_KUBECTL="kubectl"
+# shellcheck disable=SC2034
+PB_NAMESPACE="$NAMESPACE"
+# shellcheck source=../../../bin/k8s-resources.sh
+. "$BIN_DIR/k8s-resources.sh"
 
 log() { echo ""; echo "=== $1 ==="; }
 
@@ -50,17 +56,6 @@ if [ ! -f "$MK_PROFILE_DIR/config.json" ]; then
   echo "       Provision it first: deploy/local/minikube/bin/setup.sh" >&2
   exit 1
 fi
-
-port_forward() {
-  local name="$1" svc="$2" ports="$3"
-  kubectl port-forward "svc/$svc" "$ports" -n "$NAMESPACE" >/dev/null 2>&1 &
-  local pid=$!; sleep 1
-  if kill -0 "$pid" 2>/dev/null; then
-    echo "  $name → $ports (PID $pid)"
-  else
-    echo "  WARNING: $name port-forward failed"
-  fi
-}
 
 # -- Resume the cluster -------------------------------------------------------
 # No sizing flags on a resume (create-only; passing them can force a rebuild that
@@ -103,19 +98,19 @@ pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
 sleep 1
 
 # Gateway: HTTPS 8443 only (see the setup.sh note on why 8080 isn't bound here).
-port_forward "Nginx" nginx "8443:8443"
+pb_port_forward "Nginx" nginx "8443:8443"
 # Admin UIs only when actually deployed (skipped under a LEAN provision).
 if kubectl get svc mongo-express -n "$NAMESPACE" >/dev/null 2>&1; then
-  port_forward "Mongo Express" mongo-express "8081:8081"
+  pb_port_forward "Mongo Express" mongo-express "8081:8081"
 fi
 if kubectl get svc pgadmin -n "$NAMESPACE" >/dev/null 2>&1; then
-  port_forward "pgAdmin" pgadmin "5480:80"
+  pb_port_forward "pgAdmin" pgadmin "5480:80"
 fi
 if kubectl get svc grafana -n "$NAMESPACE" >/dev/null 2>&1; then
-  port_forward "Grafana" grafana "3001:3000"
+  pb_port_forward "Grafana" grafana "3001:3000"
 fi
 if kubectl get svc kiali -n "$NAMESPACE" >/dev/null 2>&1; then
-  port_forward "Kiali" kiali "20001:20001"
+  pb_port_forward "Kiali" kiali "20001:20001"
 fi
 
 # Verify gateway

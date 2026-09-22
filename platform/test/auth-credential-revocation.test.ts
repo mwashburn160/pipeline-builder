@@ -15,6 +15,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { selectLean } from './helpers/query-chain.js';
 
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
@@ -36,7 +37,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   ImpersonationRequest: { findOne: jest.fn() },
   PersonalAccessToken: { exists: (...a: unknown[]) => mockKeyExists(...a) },
 }));
-jest.unstable_mockModule('../src/utils/index.js', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyAccessToken: (...a: unknown[]) => mockVerifyAccessToken(...a),
   verifyRefreshToken: jest.fn(),
 }));
@@ -51,7 +52,6 @@ function makeRes() {
   return res;
 }
 const req = () => ({ headers: { authorization: 'Bearer a.jwt' } }) as any;
-const selectLean = (doc: unknown) => ({ select: () => ({ lean: () => Promise.resolve(doc) }) });
 const identity = { principalType: 'user', amr: ['pwd'], aal: 1, auth_time: 1_700_000_000 };
 
 async function run(): Promise<{ res: any; next: jest.Mock }> {
@@ -126,5 +126,24 @@ describe('requireAuth — claims version vs hard revocation', () => {
     const { res, next } = await run();
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+describe('requireAuth — a database outage is not a bad token', () => {
+  it('answers 503 (not 401 TOKEN_INVALID) when the user lookup fails', async () => {
+    mockVerifyAccessToken.mockReturnValue({ type: 'access', sub: 'u1', token_use: 'access', tokenVersion: 1, ...identity });
+    mockUserFindById.mockReturnValue({ select: () => ({ lean: () => Promise.reject(new Error('mongo down')) }) });
+    const { res, next } = await run();
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('still answers 401 TOKEN_INVALID when the token does not verify', async () => {
+    mockVerifyAccessToken.mockImplementation(() => { throw new Error('bad signature'); });
+    const { res } = await run();
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'TOKEN_INVALID' });
+    expect(mockUserFindById).not.toHaveBeenCalled();
   });
 });

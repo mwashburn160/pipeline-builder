@@ -8,9 +8,11 @@
  * everything pooled at the account root.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { queryChain } from './helpers/query-chain.js';
 
 interface Org {
   _id: string;
@@ -53,10 +55,6 @@ const mockPublish = jest.fn(async (..._a: unknown[]) => undefined);
 /** Billing's `GET /billing/subscriptions/by-org/:orgId/billable` answer. */
 const mockBillingGet = jest.fn(async (..._a: unknown[]): Promise<unknown> => ({ statusCode: 200, body: { data: { billable: false } } }));
 
-const chain = <T>(value: T) => {
-  const c: any = { lean: async () => value, select: () => c, session: () => c, sort: () => c };
-  return c;
-};
 const idsIn = (q: any): string[] => (q.organizationId?.$in ?? [q.organizationId]).map(String);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -94,9 +92,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     enterprise: { limits: { plugins: -1, seats: -1, eventRetentionDays: -1, doraRetentionDays: -1 } },
   },
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { billing: { enabled: true, serviceHost: 'billing', servicePort: 3000, serviceTimeout: 1000 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ billing: { enabled: true, serviceHost: 'billing', servicePort: 3000, serviceTimeout: 1000 } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishSessionSlotRevocation: async () => true, publishAccessKeyRevocation: async () => true, publishUsersRevocation: (...a: unknown[]) => mockPublish(...a) }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
@@ -119,14 +115,14 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
-    findById: (id: string) => chain(orgs.get(String(id)) ?? null),
+    findById: (id: string) => queryChain(orgs.get(String(id)) ?? null),
     find: (q: any) => {
       // The session-bound downward walk: live direct children of a frontier.
       if (q?.parentOrgId?.$in) {
         const frontier: string[] = q.parentOrgId.$in.map(String);
-        return chain([...orgs.values()].filter((o) => o.parentOrgId && frontier.includes(String(o.parentOrgId)) && !o.deletedAt));
+        return queryChain([...orgs.values()].filter((o) => o.parentOrgId && frontier.includes(String(o.parentOrgId)) && !o.deletedAt));
       }
-      return chain(mockOrgFind(q));
+      return queryChain(mockOrgFind(q));
     },
     exists: (q: any) => ({
       session: async () => ([...orgs.values()].some((o) => String(o.parentOrgId) === String(q.parentOrgId)) ? { _id: 'x' } : null),
@@ -140,7 +136,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     distinct: (_f: string, q: any) => ({ session: async () => [...new Set(idsIn(q).flatMap((id) => invites.get(id) ?? []))] }),
   },
   User: {
-    find: (q: { lastActiveOrgId: string }) => chain([...lastActive].filter(([, org]) => org === q.lastActiveOrgId).map(([_id]) => ({ _id }))),
+    find: (q: { lastActiveOrgId: string }) => queryChain([...lastActive].filter(([, org]) => org === q.lastActiveOrgId).map(([_id]) => ({ _id }))),
     updateMany: (...a: unknown[]) => mockUserUpdateMany(...a),
   },
 }));
@@ -317,11 +313,11 @@ describe('move — a root being nested must have no billable subscription', () =
 });
 
 /**
- * Concurrency. Every structural check used to run BEFORE the transaction, so
- * two interleaved sysadmin moves each validated against a tree the other was
+ * Concurrency. Structural checks run only BEFORE the transaction would let
+ * two interleaved sysadmin moves each validate against a tree the other was
  * about to change — enough to nest a root under its own descendant (a parent
  * cycle), which silently corrupts pooled quota, seats and tier propagation for
- * both accounts. The checks now re-run inside the session and the write is a
+ * both accounts. The checks re-run inside the session and the write is a
  * compare-and-set on the parent this request read.
  */
 describe('move — concurrent moves', () => {

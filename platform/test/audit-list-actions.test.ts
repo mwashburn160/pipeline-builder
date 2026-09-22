@@ -7,8 +7,9 @@
  * service as one filter (one query, real pagination).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -23,7 +24,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   withController: (_name: string, fn: (req: unknown, res: unknown) => Promise<void>) => fn,
 }));
 jest.unstable_mockModule('../src/helpers/audit-chain.js', () => ({ verifyAuditChain: jest.fn<AnyFn>(), PublishedHeadInvalidError: class extends Error {} }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({}));
 jest.unstable_mockModule('../src/services/audit-head-export.js', () => ({ verifyAuditChainAnchored: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/service-tenant.js', () => ({ resolveServiceTenant: jest.fn<AnyFn>() }));
 

@@ -54,7 +54,7 @@ export const RL_ASSIGN_EXCEEDS_CEILING = 'RL_ASSIGN_EXCEEDS_CEILING';
  *  carrying a SYSTEM-ORG-ONLY permission (`plugins:moderate`,
  *  `publishers:verify` — the system org's "Ecosystem Manager" Role). An org
  *  admin of the system org is refused too: ecosystem governance is a platform
- *  decision, not in-org delegation (docs/plans/plugin-ecosystem.md §5a.1). */
+ *  decision, not in-org delegation (docs/permissions.md). */
 export const RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN = 'RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN';
 /** A Role carrying a system-org-only permission can only be held inside the
  *  system org — refused when the target org is any other org. */

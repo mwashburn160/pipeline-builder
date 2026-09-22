@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
-import { triggerBlobDownload } from '@/lib/csv-export';
+import { triggerBlobDownload } from '@/lib/download';
 import { Building2, ExternalLink, Plus, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -138,9 +138,8 @@ export default function OrganizationsPage() {
     String(list.filters.deleted || 'hide') !== 'hide';
 
   // Deleting an org is destructive AND step-up gated (the backend requires the
-  // token), so it is ONE dialog that states what is lost and takes the factor.
-  // It used to collect intent in a DeleteConfirmModal and then re-prompt in a
-  // StepUpModal — the same question, asked twice.
+  // token), so it is ONE dialog that states what is lost and takes the factor —
+  // never the same question asked twice.
   const [pendingDeleteOrg, setPendingDeleteOrg] = useState<Organization | null>(null);
   // Restore a soft-deleted org. Step-up gated like delete, so it routes through
   // a StepUpModal before POST /organization/:id/restore fires.

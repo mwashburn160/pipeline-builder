@@ -18,8 +18,8 @@
  * arguments the route hands the builder and on the emitted status/body.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -44,14 +44,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 const mockBuildUsageRollupFor = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/helpers/usage-helpers.js', () => ({
   buildUsageRollupFor: (...a: unknown[]) => mockBuildUsageRollupFor(...a),
-}));
-
-// The route now widens the sub lookup to the manageable (non-terminal) set via
-// the shared const. Mock billing-helpers so importing it here doesn't drag in
-// the real config module (which throws without MONGODB_URI); re-export the real
-// constant so the `$in` filter isn't `undefined`.
-jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
 }));
 
 // Subscription.findOne(...).lean()  and  Plan.findById(...).lean()

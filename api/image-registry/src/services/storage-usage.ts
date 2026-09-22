@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
+import { inQuarantineNamespace, PUBLIC_PREFIX } from './namespaces.js';
 import { publicRepositoriesOwnedBy } from './public-publications.js';
 import {
   listRepositoriesUnderPrefix,
@@ -25,7 +26,7 @@ const logger = createLogger('storage-usage');
  * dashboard auto-refresh doesn't hammer the registry.
  */
 /** Override via `REGISTRY_STORAGE_CACHE_TTL_MS`. */
-const CACHE_TTL_MS = parseInt(process.env.REGISTRY_STORAGE_CACHE_TTL_MS || '60000', 10);
+const CACHE_TTL_MS = envInt('REGISTRY_STORAGE_CACHE_TTL_MS', 60_000, { min: 1 });
 const cache = new Map<string, { bytes: number; repos: number; blobs: number; computedAt: number }>();
 
 export interface StorageUsage {
@@ -84,7 +85,7 @@ export async function computeStorageUsage(
   // (the quarantine GC sweep's gauge), never inside a shorter prefix a tenant or
   // admin rollup could pass (`q`, `` …).
   const reposBeingScanned = (await listRepositoriesUnderPrefix(prefix))
-    .filter((r) => prefix.startsWith(QUARANTINE_PREFIX) || !r.startsWith(QUARANTINE_PREFIX));
+    .filter((r) => inQuarantineNamespace(prefix) || !inQuarantineNamespace(r));
   const { bytes: totalBytes, blobs, incomplete } = await scanRepositories(reposBeingScanned);
 
   const now = Date.now();
@@ -98,7 +99,7 @@ export async function computeStorageUsage(
       computedAt: now,
     });
   }
-  // The whole public namespace's footprint (plugin ecosystem §9a) — refreshed
+  // The whole public namespace's footprint — refreshed
   // whenever it is rolled up (the GC scheduler's sweep, or the admin route).
   if (prefix === PUBLIC_PREFIX && !incomplete) setGauge(PUBLIC_STORAGE_GAUGE, {}, totalBytes);
   return {
@@ -111,14 +112,12 @@ export async function computeStorageUsage(
   };
 }
 
-const PUBLIC_PREFIX = 'public/';
-const QUARANTINE_PREFIX = 'quarantine/';
 /** Gauge: unique blob bytes under `public/*`. */
 export const PUBLIC_STORAGE_GAUGE = 'registry_public_storage_bytes';
 
 /**
  * An ORG's `storageBytes` rollup: its own `org-<id>/*` namespace PLUS every
- * `public/<handle>/<name>` repository billed to it (plugin ecosystem G40 — the
+ * `public/<handle>/<name>` repository billed to it (the
  * publisher pays for what it published, even after deleting its private copy).
  * Blobs are deduplicated across the whole set: a public copy MOUNTS the org's
  * blobs, so a layer shared by both is one set of bytes on disk and counted once.

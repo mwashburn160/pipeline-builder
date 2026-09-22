@@ -27,7 +27,7 @@ jest.mock('@/components/pipeline/ScorecardCard', () => ({ __esModule: true, Scor
 jest.mock('@/components/pipeline/PipelineContextCard', () => ({ __esModule: true, PipelineContextCard: () => null }));
 
 const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/pipelines', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 const invalidatePipelines = jest.fn<AnyFn>();
 jest.mock('@/lib/api-cache', () => {

@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, audited, isSystemAdmin, requirePermission, validateBody, actorId } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, audited, isSystemAdmin, requirePermission, validateBody, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
 import { compliancePolicyService } from '../services/policy-service.js';
 
 const CompliancePolicyCreateSchema = z.object({
@@ -46,7 +45,7 @@ export function createCreatePolicyRoutes(): Router {
 
     // Best-effort attributed audit — the policy create succeeded. Safe scalar
     // metadata only (name/version/template flag), never linked rule bodies.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.policy.create',
       actorId: actorId({ userId }),
       orgId,

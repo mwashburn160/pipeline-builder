@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState, useId } from 'react';
+import { useCallback, useState, useId } from 'react';
 import { KeyRound, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
@@ -36,10 +37,9 @@ interface Props {
  */
 export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const uid = useId();
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [configured, setConfigured] = useState(false);
-  const [currentKeyId, setCurrentKeyId] = useState<string | undefined>();
+  // The config as this modal last wrote it; until then, as loaded.
+  const [written, setWritten] = useState<{ configured: boolean; keyId?: string } | null>(null);
   const [keyId, setKeyId] = useState('');
   const [ciphertextBase64, setCiphertextBase64] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -48,23 +48,15 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   // Gate destructive ops (save/clear) on a step-up password reverify.
   const [pendingOp, setPendingOp] = useState<'save' | 'clear' | null>(null);
 
-  // Initial fetch of the current state.
-  useEffect(() => {
-    let cancelled = false;
-    api.getOrgKmsConfig(org.id).then((res) => {
-      if (cancelled) return;
-      if (res.success) {
-        // `data` may be omitted on a not-yet-configured org; treat as
-        // "not configured" rather than an error.
-        setConfigured(res.data?.configured ?? false);
-        setCurrentKeyId(res.data?.keyId);
-      } else {
-        setError(res.message || 'Failed to load KMS config');
-      }
-    }).catch((e) => !cancelled && setError(formatError(e)))
-      .finally(() => !cancelled && setLoading(false));
-    return () => { cancelled = true; };
+  // `data` may be omitted on a not-yet-configured org: that is "not
+  // configured", not an error.
+  const { data: loaded, loading, error: loadError } = useFetch(async () => {
+    const res = await api.getOrgKmsConfig(org.id);
+    if (!res.success) throw new Error(res.message || 'Failed to load KMS config');
+    return { configured: res.data?.configured ?? false, keyId: res.data?.keyId };
   }, [org.id]);
+  const configured = written?.configured ?? loaded?.configured ?? false;
+  const currentKeyId = written ? written.keyId : loaded?.keyId;
 
   const executeSave = useCallback(async (stepUpToken: string) => {
     setSubmitting(true);
@@ -72,8 +64,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
     try {
       const res = await api.putOrgKmsConfig(org.id, { keyId, ciphertextBase64 }, undefined, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to save KMS config');
-      setConfigured(true);
-      setCurrentKeyId(res.data?.keyId);
+      setWritten({ configured: true, keyId: res.data?.keyId });
       setKeyId('');
       setCiphertextBase64('');
       onSaved?.();
@@ -115,8 +106,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
     try {
       const res = await api.deleteOrgKmsConfig(org.id, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to clear KMS config');
-      setConfigured(false);
-      setCurrentKeyId(undefined);
+      setWritten({ configured: false });
       onSaved?.();
       setSubmitting(false);
       onClose();
@@ -171,10 +161,10 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
         <div className="space-y-4">
           {loading && <LoadingSpinner size="sm" />}
 
-          <ErrorAlert message={error} />
+          <ErrorAlert message={error ?? (loadError ? formatError(loadError) : null)} />
 
           {testResult && (
-            <div className="rounded-lg bg-info-bg px-3 py-2 text-sm text-blue-800 dark:text-blue-300 font-mono">
+            <div className="rounded-lg bg-info-bg px-3 py-2 text-sm text-info-strong font-mono">
               {testResult}
             </div>
           )}
@@ -188,7 +178,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
             </div>
           </div>
 
-          <div className="flex gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+          <div className="flex gap-2 rounded-lg bg-warning-bg px-3 py-2 text-sm text-warning-strong">
             <AlertTriangle className="w-5 h-5 flex-shrink-0" />
             <div>
               Saving rotates the org&apos;s KMS binding and re-encrypts existing AI keys and IdP secrets under the new CMK.
@@ -235,7 +225,7 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           action={pendingOp === 'save'
             ? `Rotate KMS binding for ${org.name} (re-encrypts AI keys + IdP secret)`
             : `Clear KMS binding for ${org.name} (fall back to shared master)`}
-          /* The KMS routes accept only a SECOND FACTOR (#8): pointing an org at
+          /* The KMS routes accept only a SECOND FACTOR: pointing an org at
              another key is close to "read every secret this org has", so a
              password re-prompt — which an attacker holding the session may
              already have — is not enough. */

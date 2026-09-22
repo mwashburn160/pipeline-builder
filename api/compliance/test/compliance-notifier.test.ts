@@ -11,12 +11,6 @@ const mockGetPreference = jest.fn<(orgId: string) => Promise<unknown>>();
 const mockRecordLog = jest.fn<AnyFn>();
 const mockRecordPendingDigest = jest.fn<AnyFn>();
 
-jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
-  messageClient: {
-    post: (...args: unknown[]) => mockPost(...args),
-  },
-}));
-
 jest.unstable_mockModule('../src/helpers/email-client.js', () => ({
   emailClient: {
     post: (...args: unknown[]) => mockEmailPost(...args),
@@ -43,6 +37,14 @@ const webhookCtl: { result: Record<string, unknown>; target?: Record<string, unk
 const emailCtl: { target?: Record<string, unknown>; calls: number } = { calls: 0 };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  // In-app delivery = api-core's system notification; routed through this
+  // file's post spy (undefined ⇒ accepted, a 4xx/5xx or a throw ⇒ refused).
+  sendSystemNotification: async (n: unknown) => {
+    try {
+      const r = await mockPost('/messages/internal/notify', n) as { statusCode?: number } | undefined;
+      return r === undefined || (r.statusCode ?? 200) < 300;
+    } catch { return false; }
+  },
   getServiceAuthHeader: () => 'Bearer test-service-token',
   createWebhookChannel: () => ({
     channel: 'webhook',
@@ -103,7 +105,7 @@ describe('notifyComplianceBlock', () => {
     mockPost.mockReset();
     mockPost.mockResolvedValue(undefined);
     mockEmailPost.mockReset();
-    mockEmailPost.mockResolvedValue(undefined);
+    mockEmailPost.mockResolvedValue({ statusCode: 200, body: {} });
     mockGetPreference.mockReset();
     mockGetPreference.mockResolvedValue(null); // default: no preference row → notify on
     mockRecordLog.mockReset();
@@ -123,19 +125,14 @@ describe('notifyComplianceBlock', () => {
     await notifyComplianceBlock('org-1', 'plugin', 'my-plugin', [makeViolation()]);
 
     expect(mockPost).toHaveBeenCalledTimes(1);
-    const [path, body, opts] = mockPost.mock.calls[0];
-    expect(path).toBe('/messages');
+    const [path, body] = mockPost.mock.calls[0];
+    expect(path).toBe('/messages/internal/notify');
     expect(body.recipientOrgId).toBe('org-1');
     expect(body.priority).toBe('high');
     expect(body.subject).toContain('plugin');
     expect(body.subject).toContain('my-plugin');
     expect(body.content).toContain('rule-1');
     expect(body.content).toContain('mismatch');
-    // Always uses a service-minted token now (not the user's bearer).
-    expect(opts.headers.Authorization).toBe('Bearer test-service-token');
-    // The spoofable `x-internal-service` header was dropped — routes authenticate
-    // via the service JWT, not this header, so nothing trusted it.
-    expect(opts.headers['x-internal-service']).toBeUndefined();
   });
 
   it('skips when all violations have suppressNotification', async () => {
@@ -180,6 +177,14 @@ describe('notifyComplianceBlock', () => {
     await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
     expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({
       orgId: 'org-1', channel: 'in-app', status: 'sent',
+    }));
+  });
+
+  it.each([[403], [500]])('logs a failed status when the message service answers %i', async (statusCode) => {
+    mockPost.mockResolvedValue({ statusCode });
+    await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
+    expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'in-app', status: 'failed',
     }));
   });
 
@@ -275,7 +280,7 @@ describe('notifyComplianceBlock — webhook channel', () => {
 describe('notifyComplianceBlock — email channel', () => {
   beforeEach(() => {
     mockPost.mockReset(); mockPost.mockResolvedValue(undefined);
-    mockEmailPost.mockReset(); mockEmailPost.mockResolvedValue(undefined);
+    mockEmailPost.mockReset(); mockEmailPost.mockResolvedValue({ statusCode: 200, body: {} });
     mockGetPreference.mockReset();
     mockRecordLog.mockReset(); mockRecordLog.mockResolvedValue(undefined);
   });
@@ -308,12 +313,22 @@ describe('notifyComplianceBlock — email channel', () => {
     expect(mockEmailPost.mock.calls[0][1].targetUsers).toBeNull();
     expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({ channel: 'email', status: 'failed' }));
   });
+
+  // The HTTP client resolves (does not throw) on a 4xx/5xx — platform refusing
+  // the relay must still log the email as failed, not sent.
+  it('logs a failed email when platform answers with an error status', async () => {
+    mockEmailPost.mockResolvedValue({ statusCode: 403, body: { message: 'forbidden' } });
+    mockGetPreference.mockResolvedValue({ notifyOnBlock: true, emailEnabled: true, targetUsers: null });
+    await notifyComplianceBlock('org-1', 'plugin', 'p', [makeViolation()]);
+    expect(mockRecordLog).toHaveBeenCalledWith(expect.objectContaining({ channel: 'email', status: 'failed' }));
+    expect(mockRecordLog).not.toHaveBeenCalledWith(expect.objectContaining({ channel: 'email', status: 'sent' }));
+  });
 });
 
 describe('notifyComplianceWarnings', () => {
   beforeEach(() => {
     mockPost.mockReset(); mockPost.mockResolvedValue(undefined);
-    mockEmailPost.mockReset(); mockEmailPost.mockResolvedValue(undefined);
+    mockEmailPost.mockReset(); mockEmailPost.mockResolvedValue({ statusCode: 200, body: {} });
     mockGetPreference.mockReset();
     mockRecordLog.mockReset(); mockRecordLog.mockResolvedValue(undefined);
   });

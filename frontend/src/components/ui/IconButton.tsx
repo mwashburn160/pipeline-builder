@@ -35,7 +35,7 @@ const TONE_CLASS: Record<IconButtonTone, string> = {
   purple: 'hover:text-purple-600 hover:bg-purple-50 dark:hover:text-purple-400 dark:hover:bg-purple-900/20',
   danger: 'hover:text-danger hover:bg-danger-bg',
   warn: 'hover:text-warning hover:bg-warning-bg',
-  orange: 'hover:text-orange-600 hover:bg-orange-50 dark:hover:text-orange-400 dark:hover:bg-orange-900/20',
+  orange: 'hover:text-warning hover:bg-warning-bg',
   success: 'hover:text-success hover:bg-success-bg',
 };
 
@@ -48,7 +48,7 @@ const REST_CLASS: Record<IconButtonTone, string> = {
   purple: 'text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20',
   danger: 'text-danger hover:bg-danger-bg',
   warn: 'text-warning hover:bg-warning-bg',
-  orange: 'text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20',
+  orange: 'text-warning hover:bg-warning-bg',
   success: 'text-success hover:bg-success-bg',
 };
 

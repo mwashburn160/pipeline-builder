@@ -127,7 +127,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
           You are about to delete <strong>{refs.length}</strong> tag{refs.length === 1 ? '' : 's'} from <span className="font-mono">{repo}</span>.
         </div>
 
-        <div className="p-3 text-sm border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-200 rounded max-h-48 overflow-auto">
+        <div className="p-3 text-sm border border-warning-border bg-warning-bg text-warning-strong rounded max-h-48 overflow-auto">
           <div className="font-medium mb-1">Tags:</div>
           <ul className="font-mono text-xs space-y-0.5">
             {refs.map((r) => <li key={r}>{r}</li>)}
@@ -150,7 +150,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
         </div>
 
         {needsTypeConfirm && !submitting && (
-          <div className="p-3 text-sm border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-900 dark:text-red-200 rounded">
+          <div className="p-3 text-sm border border-danger-border bg-danger-bg text-danger-strong rounded">
             <label htmlFor="bulk-delete-confirm" className="block text-xs font-medium mb-1">
               Type <code className="font-mono font-bold">{expectedPhrase}</code> (the count) to confirm:
             </label>
@@ -161,7 +161,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
               onChange={(e) => setConfirmPhrase(e.target.value)}
               placeholder={expectedPhrase}
               aria-label={`Type ${expectedPhrase} to confirm bulk delete`}
-              className="w-full px-3 py-1.5 text-sm font-mono border border-red-400 dark:border-red-600 rounded-md bg-surface text-fg"
+              className="w-full px-3 py-1.5 text-sm font-mono border border-danger-border rounded-md bg-surface text-fg"
               autoFocus
             />
           </div>
@@ -170,7 +170,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
         {submitting && (
           <div className="text-sm text-fg-muted">
             Deleting… {progress.done}/{refs.length}
-            {progress.failed > 0 && <span className="text-red-600 dark:text-red-400"> ({progress.failed} failed)</span>}
+            {progress.failed > 0 && <span className="text-danger"> ({progress.failed} failed)</span>}
           </div>
         )}
 

@@ -119,7 +119,7 @@ export function continueAfterStepUp<T = unknown>(err: unknown, onResumed: (resul
 }
 
 /**
- * Thrown when a route refuses the SESSION rather than the request (#8):
+ * Thrown when a route refuses the SESSION rather than the request:
  * `MFA_REQUIRED` (the session is single-factor and the route needs two) or
  * `REAUTH_REQUIRED` (it is MFA-grade but older than the route allows).
  *

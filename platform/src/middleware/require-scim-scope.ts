@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The gate on the SCIM surface (3b): a SERVICE-ACCOUNT token carrying the `scim`
+ * The gate on the SCIM surface: a SERVICE-ACCOUNT token carrying the `scim`
  * capability scope, and nothing else.
  *
  * Three separate things are checked, because each closes a different door:

@@ -11,11 +11,11 @@
  * service WITHOUT those columns exercises the no-op / no-lifecycle branches.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
-import type { PgTable } from 'drizzle-orm/pg-core';
+import { PgDialect, boolean, pgTable, timestamp, uuid, varchar, type PgTable } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSelect = jest.fn<AnyFn>();
@@ -311,5 +311,68 @@ describe('CrudService tombstone visibility', () => {
     const where = captureWhere();
     await svc.findDeleted('org1');
     expect(rendered(where())).not.toContain('private');
+  });
+});
+
+// A tombstone must not be reachable through the live by-id paths: reading it
+// by id, or `PUT {isActive:true}`, would half-revive it (deletedAt/purgeAfter
+// stay set, so the sweep later purges a row the UI shows as live).
+describe('live by-id paths exclude tombstones', () => {
+  const realTable = pgTable('t', {
+    id: uuid('id'),
+    orgId: varchar('org_id'),
+    name: varchar('name'),
+    isActive: boolean('is_active'),
+    isDefault: boolean('is_default'),
+    deletedAt: timestamp('deleted_at'),
+    purgeAfter: timestamp('purge_after'),
+  });
+  const barePgTable = pgTable('b', { id: uuid('id'), orgId: varchar('org_id'), isActive: boolean('is_active'), isDefault: boolean('is_default') });
+  class RealService extends BaseTestService {
+    protected getOrgColumn(): AnyColumn { return realTable.orgId; }
+  }
+  const dialect = new PgDialect();
+  function captureWhere(kind: 'update' | 'select'): { sql: () => string } {
+    let where: SQL | undefined;
+    const whereFn = jest.fn((w: SQL) => {
+      where = w;
+      return kind === 'update'
+        ? { returning: jest.fn<AnyFn>().mockResolvedValue([]) }
+        : { limit: jest.fn<AnyFn>().mockResolvedValue([]) };
+    });
+    if (kind === 'update') mockUpdate.mockReturnValue({ set: jest.fn<AnyFn>().mockReturnValue({ where: whereFn }) });
+    else mockSelect.mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where: whereFn }) });
+    return { sql: () => dialect.sqlToQuery(where!).sql };
+  }
+
+  it('update (e.g. PUT isActive=true on a deleted row) matches only non-deleted rows', async () => {
+    const svc = new RealService(realTable as unknown as PgTable);
+    const w = captureWhere('update');
+    expect(await svc.update('00000000-0000-0000-0000-000000000001', { name: 'x' }, 'org1', 'u')).toBeNull();
+    expect(w.sql()).toContain('"t"."deleted_at" is null');
+  });
+
+  it('findById matches only non-deleted rows', async () => {
+    const svc = new RealService(realTable as unknown as PgTable);
+    const w = captureWhere('select');
+    expect(await svc.findById('00000000-0000-0000-0000-000000000001', 'org1')).toBeNull();
+    expect(w.sql()).toContain('"t"."deleted_at" is null');
+  });
+
+  it('delete and bulkDelete never re-stamp an existing tombstone', async () => {
+    const svc = new RealService(realTable as unknown as PgTable);
+    let w = captureWhere('update');
+    await svc.delete('00000000-0000-0000-0000-000000000001', 'org1', 'u');
+    expect(w.sql()).toContain('"t"."deleted_at" is null');
+    w = captureWhere('update');
+    await svc.bulkDelete(['00000000-0000-0000-0000-000000000001'], 'org1', 'u');
+    expect(w.sql()).toContain('"t"."deleted_at" is null');
+  });
+
+  it('entities without a deletedAt column get no tombstone predicate', async () => {
+    const svc = new RealService(barePgTable as unknown as PgTable);
+    const w = captureWhere('update');
+    await svc.update('00000000-0000-0000-0000-000000000001', {}, 'org1', 'u');
+    expect(w.sql()).not.toContain('deleted_at');
   });
 });

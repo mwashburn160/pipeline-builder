@@ -1,8 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Request } from 'express';
-import { getHeaderString } from './headers.js';
 import { MAX_PAGE_OFFSET } from '../validation/common-schemas.js';
 
 /**
@@ -51,46 +49,6 @@ export function getParam(
 }
 
 /**
- * Extract the organization ID from request.
- * Checks params, headers, and user object.
- *
- * @param req - Express request object
- * @returns Organization ID or undefined
- *
- * @example
- * ```typescript
- * const orgId = getOrgId(req);
- * if (!orgId) {
- *   return sendError(res, 400, 'Organization ID required');
- * }
- * ```
- */
-export function getOrgId(req: Request): string | undefined {
-  // Prefer the VERIFIED JWT identity first. A spoofable `x-org-id` header must
-  // never override an authenticated user's org (cross-tenant footgun). For a
-  // superadmin acting cross-org, requireAuth already re-points
-  // `req.user.organizationId` to the chosen org via the isSuperAdmin-gated
-  // header override, so this still yields the intended scope.
-  const userOrgId = req.user?.organizationId?.trim();
-  if (userOrgId) {
-    return userOrgId;
-  }
-
-  // Pre-auth fallbacks only (req.user unset): route param, then header.
-  const paramOrgId = getParam(req.params, 'orgId');
-  if (paramOrgId) {
-    return paramOrgId;
-  }
-
-  const headerOrgId = getHeaderString(req.headers['x-org-id'])?.trim();
-  if (headerOrgId) {
-    return headerOrgId;
-  }
-
-  return undefined;
-}
-
-/**
  * Parse a query parameter as an integer.
  *
  * @param value - Query parameter value
@@ -123,6 +81,17 @@ export function parseQueryInt(value: unknown, defaultValue: number): number {
 export function parseQueryString(value: unknown): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   return String(value);
+}
+
+/**
+ * Parse an optional ISO date query param: `undefined` when absent, `null` when
+ * malformed (the route answers a 400), else the Date.
+ */
+export function parseOptionalDate(raw: unknown): Date | undefined | null {
+  const s = parseQueryString(raw);
+  if (!s) return undefined;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /**
@@ -178,11 +147,9 @@ export interface Page {
  * from a service-layer options object — numeric values work too).
  *
  * `limit` clamps to `[1, max]` and falls back to `def`; `offset` clamps to
- * `[0, maxOffset]`. Three different conventions with six disagreeing defaults
- * (10/20/25/50, caps of 1000/200/100) used to answer the same `?limit=`,
- * each hand-rolling `Math.min(Math.max(...))` at the call site. Route defaults
- * are still per-route — a queue listing and a member roster want different page
- * sizes — but they are now DECLARED here rather than re-derived, and no caller
+ * `[0, maxOffset]`. Route defaults are per-route — a queue listing and a member
+ * roster want different page sizes — but they are DECLARED here rather than
+ * hand-rolled with `Math.min(Math.max(...))` at the call site, and no caller
  * can forget the cap.
  *
  * @example

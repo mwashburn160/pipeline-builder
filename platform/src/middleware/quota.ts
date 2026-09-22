@@ -1,12 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createQuotaService, getServiceAuthHeader, reserveQuota, decrementQuota, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, getServiceAuthHeader, reserveQuota, decrementQuota, errorMessage, sendQuotaReserveDenied } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaCheckResult, QuotaReserveResult } from '@pipeline-builder/api-core';
+import type { Response } from 'express';
 import { config } from '../config/index.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 
 export type { QuotaType };
+
+const logger = createLogger('feature-quota');
 
 /** Singleton quota service client configured from platform config. */
 const quotaService = createQuotaService({
@@ -69,6 +72,35 @@ export function releaseFeatureQuota(
     .catch((err: unknown) => logWarn('Feature-quota release skipped (root resolution failed)', {
       error: errorMessage(err),
     }));
+}
+
+/**
+ * Run a write that adds one live row of a feature-quota type (create, clone,
+ * restore) under a reservation: reserve against the account root first — an
+ * exceeded/unavailable quota answers the request (429/503) and `write` never
+ * runs — then give the slot back if `write` throws or returns `false` (it wrote
+ * nothing, e.g. a 404 it already answered). Anything else keeps the slot.
+ */
+export async function withFeatureQuota(
+  res: Response,
+  orgId: string,
+  quotaType: QuotaType,
+  write: () => Promise<boolean | void>,
+): Promise<void> {
+  const reservation = await reserveFeatureQuota(orgId, quotaType);
+  if (reservation.exceeded) {
+    sendQuotaReserveDenied(res, quotaType, reservation);
+    return;
+  }
+  const release = () => releaseFeatureQuota(orgId, quotaType, logger.warn.bind(logger), reservation);
+  let kept: boolean | void;
+  try {
+    kept = await write();
+  } catch (err) {
+    release();
+    throw err;
+  }
+  if (kept === false) release();
 }
 
 /**

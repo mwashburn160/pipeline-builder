@@ -57,13 +57,16 @@ jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({
 jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuildJobData: (p: unknown) => p, toPluginInsert: (p: unknown) => p }));
 jest.unstable_mockModule('../src/helpers/build-strategy.js', () => ({ getBuildStrategy: () => ({ producesImage: true }) }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: jest.fn(), getOrgTier: jest.fn() }));
-jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: jest.fn() }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'k',
 }));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { assertDeployable: jest.fn(async () => undefined), deployVersion: jest.fn() },
 }));
+
+// The ecosystem graph (publish-request submission) is not under test here.
+jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ callerFromRequest: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: jest.fn() }));
 
 const { createUploadPluginRoutes } = await import('../src/routes/upload-plugin.js');
 

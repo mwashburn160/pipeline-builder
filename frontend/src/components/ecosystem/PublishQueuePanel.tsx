@@ -107,7 +107,7 @@ function OverviewHeader({ overview }: { overview: EcosystemOverview }) {
 
 type Decision = 'approve' | 'second-approve' | 'reject';
 
-/** One request with its §3.0.2 review diff and the decision controls. */
+/** One request with its review diff and the decision controls. */
 export function QueueItemDetail({ id, can, onBack, onDecided, backLabel = 'Back to the queue' }: {
   id: string;
   can: Props['can'];
@@ -136,7 +136,7 @@ export function QueueItemDetail({ id, can, onBack, onDecided, backLabel = 'Back 
   const { request: item, review, approvers, eligibility, submission, claimEmailMatch } = detailQ.data;
   const mayDecide = can(item.requiredPermission);
   const isSubmission = item.kind === 'submission';
-  // E10: a claim whose email doesn't match the community submitter needs a written justification.
+  // A claim whose email doesn't match the community submitter needs a written justification.
   const needsJustification = item.kind === 'claim' && claimEmailMatch === false;
   const open = item.status === 'pending' || item.status === 'pending_second_approval';
   const blocked = item.conflictOfInterest;
@@ -155,7 +155,7 @@ export function QueueItemDetail({ id, can, onBack, onDecided, backLabel = 'Back 
       await api.secondApproveEcosystemRequest(item.id, text || undefined, token);
       toast.success('Second approval recorded; the request was executed');
     }
-    detailQ.refetch();
+    void detailQ.refetch();
     onDecided();
   };
 
@@ -269,9 +269,9 @@ const QUEUE_PAGE = 100;
 const OLDEST_FIRST_STATUSES = new Set<QueueStatusFilter>(['open', 'pending', 'pending_second_approval']);
 
 /**
- * Ecosystem console → Publish queue (plan §3.0): every publish, version,
+ * Ecosystem console → Publish queue: every publish, version,
  * listing-update, yank, transfer, profile and moderation request awaiting a
- * system-org decision, with the §3.0.2 review diff per request. Decisions
+ * system-org decision, with the review diff per request. Decisions
  * respect separation of duties (`conflictOfInterest`), two-person approval and
  * step-up exactly as the server reports them per item.
  */
@@ -292,15 +292,14 @@ export function PublishQueuePanel({ can }: Props) {
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load the queue');
     return res.data;
   }, [status, kind, lane]);
-  // Pages after the first, appended by "Load more". The queue used to stop at
-  // its first 100 NEWEST requests, so the oldest — the ones nearest their SLA —
-  // were exactly the ones a busy queue hid.
+  // Pages after the first, appended by "Load more" — without them a busy queue
+  // would hide its oldest requests, the ones nearest their SLA.
   const [more, setMore] = useState<{ items: QueueItem[]; nextCursor: string | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   useEffect(() => { setMore(null); setMoreError(null); }, [queueQ.data]);
 
-  const refreshAll = () => { overviewQ.refetch(); queueQ.refetch(); };
+  const refreshAll = () => { void overviewQ.refetch(); void queueQ.refetch(); };
   const items = [...(queueQ.data?.requests ?? []), ...(more?.items ?? [])];
   const total = queueQ.data?.total ?? items.length;
   const nextCursor = more ? more.nextCursor : queueQ.data?.nextCursor ?? null;

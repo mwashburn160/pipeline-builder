@@ -10,7 +10,6 @@ import {
 } from '../validation/ai-schemas.js';
 import {
   VisibilitySchema,
-  PaginationSchema,
   BaseFilterSchema,
 } from '../validation/common-schemas.js';
 import {
@@ -62,10 +61,6 @@ export function registerSchemas(): void {
   registry.register('Visibility', VisibilitySchema.openapi({
     description: 'Sharing rung: "private" (author only), "org" (everyone in the owning organization), or "public" (the org, its teams, and — from the system org — every org)',
     example: 'private',
-  }));
-
-  registry.register('PaginationParams', PaginationSchema.openapi({
-    description: 'Standard pagination and sorting parameters',
   }));
 
   registry.register('BaseFilter', BaseFilterSchema.openapi({

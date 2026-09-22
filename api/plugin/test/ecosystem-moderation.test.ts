@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The system-org side of the plugin ecosystem (plan §3.0, §3.0.1, §3.0.2,
- * §3.3, §3.6, §3.7, §8a) against an in-memory database: deciding every request
+ * The system-org side of the plugin ecosystem (
+ * ) against an in-memory database: deciding every request
  * kind, separation of duties and two-person approval (neither can be bypassed,
  * not even by a superadmin acting twice), the pinned digest failing closed,
  * the console's direct actions, auto-approval rule governance, the review
@@ -19,6 +19,7 @@ import {
 const h = setupEcosystemHarness();
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
 const decisions = await import('../src/services/ecosystem/decisions.js');
+const bootstrap = await import('../src/services/ecosystem/bootstrap.js');
 const consoleSvc = await import('../src/services/ecosystem/console.js');
 const resign = await import('../src/services/ecosystem/resign.js');
 const maintenance = await import('../src/services/ecosystem/maintenance.js');
@@ -101,11 +102,11 @@ describe('approving a tenant new listing', () => {
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.listing.publish', orgId: SYSTEM_ORG, affectedOrgId: 'org-acme' }));
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.request.approve' }));
     expect(h.notify).toHaveBeenCalledWith('N25', [expect.objectContaining({ orgId: 'org-acme', permission: 'publishers:manage' })], expect.anything(), {});
-    expect((await decisions.bootstrapState()).reason).toBe('first_reviewed_decision');
+    expect((await bootstrap.bootstrapState()).reason).toBe('first_reviewed_decision');
     await rejects(decisions.approve(MOD_A, request.id, null), 'CONFLICT');
   });
 
-  it('fails closed when the digest moved after submit (G25) and rolls the request back', async () => {
+  it('fails closed when the digest moved after submit and rolls the request back', async () => {
     seedPublishers(db);
     const { plugin, request } = await submitNewListing();
     plugin.imageDigest = DIGEST_B;
@@ -133,7 +134,7 @@ describe('approving a tenant new listing', () => {
     await rejects(decisions.approve(MOD_A, request.id, null), 'CONFLICT');
   });
 
-  it('refuses to publish a version that is no longer public (E19)', async () => {
+  it('refuses to publish a version that is no longer public', async () => {
     seedPublishers(db);
     const { request } = await submitNewListing();
     db.tables.plugins![0]!.visibility = 'org';
@@ -142,7 +143,7 @@ describe('approving a tenant new listing', () => {
     expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'pending' });
   });
 
-  it('reuses an EMPTY listing shell of the same publisher instead of refusing (E5)', async () => {
+  it('reuses an EMPTY listing shell of the same publisher instead of refusing', async () => {
     const { acme } = seedPublishers(db);
     const { request } = await submitNewListing();
     const shell = db.seed('plugin_listings', { publisherId: acme.id, name: 'lint' });
@@ -152,7 +153,7 @@ describe('approving a tenant new listing', () => {
     expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'approved', listingId: shell.id });
   });
 
-  it('a failed version write leaves NO listing behind — every write is one transaction (E5)', async () => {
+  it('a failed version write leaves NO listing behind — every write is one transaction', async () => {
     seedPublishers(db);
     const { request } = await submitNewListing();
     const writes: string[] = [];
@@ -166,7 +167,7 @@ describe('approving a tenant new listing', () => {
   });
 });
 
-describe('separation of duties + two-person approval (§3.0.1, §8a)', () => {
+describe('separation of duties + two-person approval', () => {
   it('tenant orgs can never approve: the decision needs the system-org permission', async () => {
     seedPublishers(db);
     const { request } = await submitNewListing();
@@ -338,7 +339,7 @@ describe('executing the other request kinds', () => {
 // Console
 // -----------------------------------------------------------------------------
 
-describe('console queue + review diff (§3.0.2)', () => {
+describe('console queue + review diff', () => {
   it('lists the open queue oldest first with SLA, two-person and conflict flags', async () => {
     seedPublishers(db);
     await submitNewListing();
@@ -353,7 +354,7 @@ describe('console queue + review diff (§3.0.2)', () => {
     await rejects(consoleSvc.queue(MOD_A, { status: 'bogus' }), 'VALIDATION_ERROR');
   });
 
-  it('pages the open queue OLDEST first in SQL — the oldest request is never cut off by the limit (E11)', async () => {
+  it('pages the open queue OLDEST first in SQL — the oldest request is never cut off by the limit', async () => {
     seedPublishers(db);
     await submitNewListing();
     await submitNewListing({ name: 'fmt' });
@@ -421,6 +422,20 @@ describe('console publisher actions', () => {
     await rejects(consoleSvc.unsuspendPublisher(MOD_A, acme.id, {}), 'CONFLICT');
   });
 
+  it('decides lifting a suspension and granting Verified under publishers:verify — a moderate-only manager cannot give the second approval', async () => {
+    const { acme } = seedPublishers(db);
+    const MOD_ONLY = moderator('mod-c', { permissions: ['plugins:read', 'plugins:moderate'] }) as any;
+    await consoleSvc.suspendPublisher(MOD_A, acme.id, { reason: 'malware' });
+    const item = await consoleSvc.unsuspendPublisher(MOD_A, acme.id, { reason: 'cleaned' });
+    expect(item.requiredPermission).toBe('publishers:verify');
+    await rejects(decisions.secondApprove(MOD_ONLY, item.id, null), 'INSUFFICIENT_PERMISSIONS');
+    expect(acme.suspendedAt).not.toBeNull();
+
+    const up = await consoleSvc.setPublisherTier(MOD_A, acme.id, { tier: 'verified', reason: 'known vendor' });
+    await rejects(decisions.secondApprove(MOD_ONLY, (up as any).request.id, null), 'INSUFFICIENT_PERMISSIONS');
+    expect(acme.tier).not.toBe('verified');
+  });
+
   it('changes tier: to Verified is two-person, to Community is immediate', async () => {
     const { acme, official } = seedPublishers(db);
     const up = await consoleSvc.setPublisherTier(MOD_A, acme.id, { tier: 'verified', reason: 'known vendor' });
@@ -469,7 +484,7 @@ describe('console listing actions', () => {
     version.sourcePluginId = source.id;
     const after = await consoleSvc.yankVersion(MOD_A, listing.id, '1.0.0', { reason: 'CVE' });
     expect(after.versions![0]!.yankedAt).not.toBeNull();
-    // Resolution reads listing versions (W2): the org's source row is never touched.
+    // Resolution reads listing versions: the org's source row is never touched.
     expect(source).toMatchObject({ yankedAt: null, frozenAt: null });
     expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/yank', { imageRepository: 'public/acme/lint', version: '1.0.0', digest: DIGEST_B }, expect.anything());
     await rejects(consoleSvc.yankVersion(MOD_A, listing.id, '1.0.0', { reason: 'x' }), 'CONFLICT');
@@ -504,7 +519,7 @@ describe('console listing actions', () => {
   });
 });
 
-describe('auto-approval rule governance (§3.0.1)', () => {
+describe('auto-approval rule governance', () => {
   const conditions = { requestKinds: ['new_version'], publisherTiers: ['verified'], bumps: ['patch'] };
 
   it('creates a rule DISABLED with its enable pending; only a different manager can apply it', async () => {
@@ -558,9 +573,9 @@ describe('auto-approval rule governance (§3.0.1)', () => {
 // Re-sign job + plan upkeep
 // -----------------------------------------------------------------------------
 
-describe('re-sign job (§3.3, G34)', () => {
-  it('keeps the PREVIOUS signature acceptable at lookup until the re-sign finishes, and kicks the run at once (E1)', async () => {
-    const installs = await import('../src/services/ecosystem/installs.js');
+describe('re-sign job', () => {
+  it('keeps the PREVIOUS signature acceptable at lookup until the re-sign finishes, and kicks the run at once', async () => {
+    const lookup = await import('../src/services/ecosystem/lookup.js');
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     const { listing, version } = listed(acme, 'lint', '1.0.0');
     let signed = { tier: 'verified', publisher: 'acme' };
@@ -579,17 +594,17 @@ describe('re-sign job (§3.3, G34)', () => {
       expect(h.resignKick).toHaveBeenCalled();
       const res = () => ({ publisher: db.tables.publishers!.find((p) => p.id === acme.id) as any, listing: listing as any, version: version as any });
       // Still signed `verified`, the publisher is community now: the grace accepts it.
-      await expect(installs.verifyListedImage(res())).resolves.toBeUndefined();
+      await expect(lookup.verifyListedImage(res())).resolves.toBeUndefined();
       // A signature for someone else is still refused.
       signed = { tier: 'verified', publisher: 'mallory' };
-      await expect(installs.verifyListedImage(res())).rejects.toThrow(/must be re-signed/);
+      await expect(lookup.verifyListedImage(res())).rejects.toThrow(/must be re-signed/);
       signed = { tier: 'verified', publisher: 'acme' };
       expect(await resign.runResignJobs()).toMatchObject({ completed: 1 });
       expect(signed).toEqual({ tier: 'community', publisher: 'acme' });
-      await expect(installs.verifyListedImage(res())).resolves.toBeUndefined();
+      await expect(lookup.verifyListedImage(res())).resolves.toBeUndefined();
       // The job is gone, and with it the grace: the old signature no longer passes.
       signed = { tier: 'verified', publisher: 'acme' };
-      await expect(installs.verifyListedImage(res())).rejects.toThrow(/not community\/acme/);
+      await expect(lookup.verifyListedImage(res())).rejects.toThrow(/not community\/acme/);
     } finally {
       h.registryPost.mockReset().mockImplementation(async (path: string, body: any) => ({
         statusCode: 200,
@@ -599,7 +614,7 @@ describe('re-sign job (§3.3, G34)', () => {
     }
   });
 
-  it('a change landing MID-RUN is never lost: the stale runner neither deletes nor overwrites the newer job (E2)', async () => {
+  it('a change landing MID-RUN is never lost: the stale runner neither deletes nor overwrites the newer job', async () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     listed(acme, 'lint', '1.0.0');
     await resign.enqueueResign('publisher', acme.id, 'tier_change', 'mod-a', { tier: 'community', handle: 'acme' });
@@ -665,7 +680,7 @@ describe('re-sign job (§3.3, G34)', () => {
   });
 });
 
-describe('plan-change upkeep (§3.7, N29)', () => {
+describe('plan-change upkeep (N29)', () => {
   it('starts a Verified grace period on a downgrade, reminds at 14 and 3 days, and ends it with a re-sign', async () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     h.quota.getTierStrict.mockResolvedValue('pro');
@@ -703,7 +718,7 @@ describe('plan-change upkeep (§3.7, N29)', () => {
     expect(await maintenance.checkListingsLimit(acme as any)).toBe('ok');
   });
 
-  it('never flags or clears the listings limit on an unreadable quota (E4)', async () => {
+  it('never flags or clears the listings limit on an unreadable quota', async () => {
     const { acme } = seedPublishers(db);
     listed(acme, 'a', '1.0.0');
     listed(acme, 'b', '1.0.0');
@@ -726,7 +741,7 @@ describe('plan-change upkeep (§3.7, N29)', () => {
     expect(h.quota.getTierStrict).not.toHaveBeenCalled();
   });
 
-  it('a failing re-sign pass is counted, and the rest of the pass still runs (E3)', async () => {
+  it('a failing re-sign pass is counted, and the rest of the pass still runs', async () => {
     // No tenant publishers: the first settings read is the re-sign job listing.
     db.failNextSelect('ecosystem_settings', new Error('db blip'));
     const out = await maintenance.runEcosystemMaintenance();
@@ -737,7 +752,7 @@ describe('plan-change upkeep (§3.7, N29)', () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     db.seed('publishers', { handle: 'gone', ownerOrgId: 'org-gone', displayName: 'Gone', suspendedAt: new Date() });
     // An unreadable tier (the fail-closed read's null) skips the publisher — no
-    // grace period is started on a fallback tier (E4).
+    // grace period is started on a fallback tier.
     h.quota.getTierStrict.mockResolvedValueOnce(null);
     const out = await maintenance.runEcosystemMaintenance();
     expect(out).toMatchObject({ publishers: 1, failures: 1 });
@@ -751,11 +766,11 @@ describe('plan-change upkeep (§3.7, N29)', () => {
 describe('Official requests from the loader', () => {
   it('bootstrap does not apply once a person decided anything', async () => {
     seedPublishers(db);
-    await decisions.closeBootstrap('first_reviewed_decision', 'mod-a');
-    await decisions.closeBootstrap('again', 'mod-a');
+    await bootstrap.closeBootstrap('first_reviewed_decision', 'mod-a');
+    await bootstrap.closeBootstrap('again', 'mod-a');
     const up = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG }));
     expect((await requestsSvc.submitAfterBuild(loader() as any, up.id)).status).toBe('pending');
-    expect((await decisions.bootstrapState()).reason).toBe('first_reviewed_decision');
+    expect((await bootstrap.bootstrapState()).reason).toBe('first_reviewed_decision');
     expect(DIGEST_A).toBeDefined();
   });
 });

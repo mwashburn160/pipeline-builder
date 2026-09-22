@@ -19,10 +19,7 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 jest.mock('@/components/RecentlyDeletedPanel', () => ({ __esModule: true, RecentlyDeletedPanel: () => null }));
 // Memberships include an org OUTSIDE the account — it must not be offered.
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ organizations: [{ id: 'org-1', name: 'Mine' }, { id: 'other-acct', name: 'Elsewhere' }] }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ organizations: [{ id: 'org-1', name: 'Mine' }, { id: 'other-acct', name: 'Elsewhere' }] })));
 jest.mock('@/hooks/useFeatures', () => ({ __esModule: true, useFeatures: () => ({ supportAlias: 'support@x.io', supportAliases: [] }) }));
 jest.mock('@/hooks/useMessageNotifications', () => ({
   __esModule: true,
@@ -42,7 +39,7 @@ jest.mock('next/dynamic', () => ({
 }));
 
 const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/messages', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 const getRecipientOrgs = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({

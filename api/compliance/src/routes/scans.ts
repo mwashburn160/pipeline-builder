@@ -14,11 +14,11 @@ import {
   validateBody,
   validateQuery,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceScanService } from '../services/compliance-scan-service.js';
 
 /**
@@ -90,7 +90,7 @@ export function createScanRoutes(): Router {
     // every entity of its target against the current rules and can block ones
     // that passed before, so it carries the same trail as its cancel. Safe
     // scalar metadata only (target + dry-run flag), never the filter body.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.scan.create',
       actorId: actorId({ userId }),
       orgId,
@@ -113,7 +113,7 @@ export function createScanRoutes(): Router {
     ctx.log('COMPLETED', 'Cancelled compliance scan', { scanId: id });
 
     // Best-effort attributed audit — the scan cancel succeeded.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.scan.cancel',
       actorId: actorId({ userId }),
       orgId,

@@ -12,7 +12,6 @@ import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
-import { clearPluginCache } from '@/hooks/usePlugins';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
@@ -39,6 +38,7 @@ import { CatalogTab } from '@/components/plugin-installs/CatalogTab';
 import { InstallsTab } from '@/components/plugin-installs/InstallsTab';
 import { ApprovalsTab } from '@/components/plugin-installs/ApprovalsTab';
 import { PolicyTab } from '@/components/plugin-installs/PolicyTab';
+import { invalidate } from '@/lib/api-cache';
 
 // Modals and the recently-deleted panel load on first use — none of them is
 // part of the list's first paint, and the create modal carries the AI builder.
@@ -49,7 +49,7 @@ const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedP
 /** `fields` for the list request — every rendered column, never the build spec. */
 const LIST_FIELDS = PLUGIN_LIST_FIELDS.join(',');
 
-/** Page tabs (`?tab=`): the org's own plugins, then the ecosystem side (W2). */
+/** Page tabs (`?tab=`): the org's own plugins, then the ecosystem side. */
 const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy'] as const;
 type PageTab = typeof PAGE_TABS[number];
 
@@ -66,10 +66,10 @@ export default function PluginsPage() {
   const canWrite = can('plugins:write');
   // Publishing (making a plugin PUBLIC) is a distinct capability the backend
   // gates upload/update/delete/bulk on — mirror the pipelines pattern
-  // (`can('pipelines:publish')`) instead of the old `isSuperAdmin` proxy, so a
-  // custom-group member granted `plugins:publish` can publish. Superadmins bypass.
+  // (`can('pipelines:publish')`), so a custom-group member granted
+  // `plugins:publish` can publish. Superadmins bypass.
   const canPublish = can('plugins:publish');
-  // Ecosystem consumption (W2): installing listings, and the org-local
+  // Ecosystem consumption: installing listings, and the org-local
   // consumption policy + install approvals.
   const canInstall = can('plugins:install');
   const canManageInstalls = can('plugin_installs:manage');
@@ -195,7 +195,7 @@ export default function PluginsPage() {
   // plugin catalog (usePlugins), which would otherwise offer a deleted or
   // deactivated plugin until its TTL ran out.
   const { refresh: refreshList } = list;
-  const afterWrite = useCallback(() => { clearPluginCache(); refreshList(); }, [refreshList]);
+  const afterWrite = useCallback(() => { invalidate.plugins(); refreshList(); }, [refreshList]);
 
   const del = useDelete<PluginSummary>(
     (p) => api.deletePlugin(p.id),
@@ -313,7 +313,7 @@ export default function PluginsPage() {
   const [createInitialTab, setCreateInitialTab] = useState<'upload' | 'ai' | null>(null);
   const [editPlugin, setEditPlugin] = useState<PluginSummary | null>(null);
   const [viewPlugin, setViewPlugin] = useState<PluginSummary | null>(null);
-  // Deprecate / clear deprecation / yank a version (W0.4) — one confirm dialog.
+  // Deprecate / clear deprecation / yank a version — one confirm dialog.
   const [lifecycleTarget, setLifecycleTarget] = useState<{ plugin: PluginSummary; action: PluginLifecycleAction } | null>(null);
   const openLifecycle = useCallback((plugin: PluginSummary, action: PluginLifecycleAction) => setLifecycleTarget({ plugin, action }), []);
 

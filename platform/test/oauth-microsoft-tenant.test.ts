@@ -11,8 +11,9 @@
  * 'common'` and asserts the handler throws before any account link.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -32,28 +33,26 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => { res.status(status).json(data); return res; },
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    oauth: {
-      callbackBaseUrl: 'https://app.test',
-      stateTtlMs: 600000,
-      cleanupIntervalMs: 600000,
-      google: provider(),
-      github: provider(),
-      facebook: provider(),
-      // The one under test: enabled, but on the SHARED `common` tenant.
-      microsoft: provider({
-        clientId: 'ms',
-        clientSecret: 's',
-        enabled: true,
-        tenant: 'common',
-        authorizeUrl: 'https://login.microsoft.test/{tenant}/authorize',
-        tokenUrl: 'https://login.microsoft.test/{tenant}/token',
-        userinfoUrl: 'https://graph.microsoft.test/oidc/userinfo',
-      }),
-      gitlab: provider({ baseUrl: 'https://gitlab.test' }),
-      linkedin: provider(),
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  oauth: {
+    callbackBaseUrl: 'https://app.test',
+    stateTtlMs: 600000,
+    cleanupIntervalMs: 600000,
+    google: provider(),
+    github: provider(),
+    facebook: provider(),
+    // The one under test: enabled, but on the SHARED `common` tenant.
+    microsoft: provider({
+      clientId: 'ms',
+      clientSecret: 's',
+      enabled: true,
+      tenant: 'common',
+      authorizeUrl: 'https://login.microsoft.test/{tenant}/authorize',
+      tokenUrl: 'https://login.microsoft.test/{tenant}/token',
+      userinfoUrl: 'https://graph.microsoft.test/oidc/userinfo',
+    }),
+    gitlab: provider({ baseUrl: 'https://gitlab.test' }),
+    linkedin: provider(),
   },
 }));
 
@@ -66,23 +65,28 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ rejectIfSsoEnforced: async () => false }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn<AnyFn>(),
   signServiceAccountToken: jest.fn<AnyFn>(),
-  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
   issueTokens: jest.fn<AnyFn>(),
   renewSessionTokens: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({ oauthCallbackSchema: {}, validateBody: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
-const { verifyOAuthCode, getAuthUrl } = await import('../src/controllers/oauth.js');
+const { getAuthUrl } = await import('../src/controllers/oauth.js');
+const { verifyOAuthCode } = await import('../src/services/oauth-providers.js');
 const { OAUTH_MICROSOFT_TENANT_NOT_PINNED } = await import('../src/services/auth-errors.js');
 
 /** The browser-binding cookie the last minted flow set (helpers/login-binding.ts). */

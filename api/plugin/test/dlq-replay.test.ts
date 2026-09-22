@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for POST /dlq/:jobId/replay  operator endpoint to re-enqueue
+ * Tests for POST /dlq/:jobId/replay operator endpoint to re-enqueue
  * a single dead-letter job.
  *
  * Verifies * - 403 for non-admin/owner roles.
@@ -12,8 +12,8 @@
  * - Successful replay returns the new job id and removes the DLQ entry.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -38,7 +38,7 @@ jest.unstable_mockModule('../src/queue/requeue.js', () => ({
   retryFailedJob: jest.fn<AnyFn>(),
 }));
 
-// Quota service stub  required by createQueueStatusRoutes since.
+// Quota service stub required by createQueueStatusRoutes since.
 const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('developer') } as any;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -192,22 +192,9 @@ describe('POST /dlq/:jobId/replay', () => {
     expect(replayHelper).not.toHaveBeenCalled();
   });
 
-  it('falls back to pluginRecord.orgId for older jobs without top-level orgId', async () => {
+  it('rejects a job with no top-level orgId for a non-system admin (the plugin record is not an owner)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
-    dlqGetJob.mockResolvedValue({ id: 'j-old', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
-    const handler = getReplayHandler();
-    const { res, json } = makeRes();
-    await handler({
-      __orgId: 'org-a',
-      user: { role: 'admin', organizationId: 'org-a' },
-      params: { jobId: 'j-old' },
-    } as any, res);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
-  });
-
-  it('rejects when both orgId fields are missing for non-system admin', async () => {
-    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
-    dlqGetJob.mockResolvedValue({ id: 'j-orphan', data: {} });
+    dlqGetJob.mockResolvedValue({ id: 'j-orphan', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();
     await handler({

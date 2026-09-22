@@ -27,8 +27,8 @@ interface Props {
 }
 
 /**
- * The changed-fields-only `listing_update` offer for a new version (plan §3.1a
- * step 4): each field whose detected value differs from the live listing, with
+ * The changed-fields-only `listing_update` offer for a new version: each
+ * field whose detected value differs from the live listing, with
  * **Accept** (take the new value), **Keep current** (the default — nothing flows
  * to the listing silently) or **Edit**.
  */

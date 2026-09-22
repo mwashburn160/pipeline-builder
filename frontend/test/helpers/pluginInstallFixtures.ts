@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/** Fixtures for the W2 install / catalog / policy surfaces. */
+/** Fixtures for the install / catalog / policy surfaces. */
 import type { CatalogEntry, ConsumptionPolicy, InstallView } from '../../src/types/plugin-installs';
 
 export function installView(over: Partial<InstallView> = {}): InstallView {
@@ -55,7 +55,6 @@ export function catalogEntry(over: Partial<CatalogEntry> = {}): CatalogEntry {
     needsApproval: false,
     install: null,
     installable: true,
-    requiresApproval: false,
     blocked: null,
     resolved: null,
     reference: { publisher: 'acme', name: 'terraform-plan' },

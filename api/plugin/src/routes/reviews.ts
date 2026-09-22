@@ -2,27 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Signed-in review routes (docs/plans/plugin-ecosystem.md §5, §5a). The
+ * Signed-in review routes (docs/plugin-publishing.md). The
  * anonymous read is `GET /public/plugins/:publisher/:name/reviews`.
  *
- *   GET    /plugins/listings/:publisher/:name/review-state   plugins:read
- *   POST   /plugins/listings/:publisher/:name/reviews        plugins:read + person   write a review
- *   PATCH  /plugins/reviews/:id                              plugins:read + person   the author edits
- *   DELETE /plugins/reviews/:id                              plugins:read + person   the author deletes
- *   PUT    /plugins/reviews/:id/helpful                      plugins:read + person   vote (not audited, §5c)
- *   DELETE /plugins/reviews/:id/helpful                      plugins:read + person
- *   POST   /plugins/reviews/:id/report                       plugins:read + person   abuse / security report
- *   PUT    /plugins/reviews/:id/reply                        publishers:manage + person   the publisher's one reply
- *   DELETE /plugins/reviews/:id/reply                        publishers:manage + person
+ *   GET /plugins/listings/:publisher/:name/review-state plugins:read
+ *   POST /plugins/listings/:publisher/:name/reviews plugins:read + person write a review
+ *   PATCH /plugins/reviews/:id plugins:read + person the author edits
+ *   DELETE /plugins/reviews/:id plugins:read + person the author deletes
+ *   PUT /plugins/reviews/:id/helpful plugins:read + person vote (not audited)
+ *   DELETE /plugins/reviews/:id/helpful plugins:read + person
+ *   POST /plugins/reviews/:id/report plugins:read + person abuse / security report
+ *   PUT /plugins/reviews/:id/reply publishers:manage + person the publisher's one reply
+ *   DELETE /plugins/reviews/:id/reply publishers:manage + person
  *
  * "person" = a HUMAN SESSION (`requireAssurance({ minAssurance: 1 })`): service
- * accounts and exchanged access keys are refused `HUMAN_SESSION_REQUIRED`
- * (§5a). Every write is throttled per user and per org; a NEW review also per
- * trusted client IP (20 a day, G16) — the per-org daily cap is counted in the
+ * accounts and exchanged access keys are refused `HUMAN_SESSION_REQUIRED`.
+ * Every write is throttled per user and per org; a NEW review also per
+ * trusted client IP (20 a day) — the per-org daily cap is counted in the
  * service.
  */
 
-import { audited, requireAssurance, requirePermission, sendSuccess } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requirePermission, sendSuccess, envInt } from '@pipeline-builder/api-core';
 import { rateLimitByOrg } from '@pipeline-builder/api-server';
 import { Router, type RequestHandler } from 'express';
 
@@ -33,22 +33,17 @@ import {
 
 const DAY_MS = 24 * 3_600_000;
 
-function intEnv(name: string, fallback: number): number {
-  const n = Number.parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
 /** Build the review router (mounted at `/plugins`, behind the shared auth + org chain). */
 export function createReviewRoutes(): Router {
   const router = Router();
   const read = requirePermission('plugins:read') as RequestHandler;
   const person = requireAssurance({ minAssurance: 1 }) as RequestHandler;
-  const perUser = rateLimitByOrg({ name: 'review-write-user', keyBy: 'user', max: intEnv('REVIEW_WRITE_RATE_LIMIT_PER_MIN', 30), windowMs: 60_000 }) as RequestHandler;
-  const perOrg = rateLimitByOrg({ name: 'review-write-org', max: intEnv('REVIEW_ORG_WRITE_RATE_LIMIT_PER_MIN', 120), windowMs: 60_000 }) as RequestHandler;
+  const perUser = rateLimitByOrg({ name: 'review-write-user', keyBy: 'user', max: envInt('REVIEW_WRITE_RATE_LIMIT_PER_MIN', 30, { min: 1 }), windowMs: 60_000 }) as RequestHandler;
+  const perOrg = rateLimitByOrg({ name: 'review-write-org', max: envInt('REVIEW_ORG_WRITE_RATE_LIMIT_PER_MIN', 120, { min: 1 }), windowMs: 60_000 }) as RequestHandler;
   const perIpDaily = rateLimitByOrg({
     name: 'review-create-ip',
     keyBy: 'ip',
-    max: intEnv('REVIEW_IP_DAILY_LIMIT', 20),
+    max: envInt('REVIEW_IP_DAILY_LIMIT', 20, { min: 1 }),
     windowMs: DAY_MS,
     message: 'Too many new reviews from this network today.',
   }) as RequestHandler;

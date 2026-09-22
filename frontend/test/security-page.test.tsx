@@ -14,10 +14,7 @@
  *     accounts only exist for someone who may manage them;
  *   - `?tab=…#section` lands on the right tab, and a bare `#section` opens the
  *     tab that owns it;
- *   - the old addresses (/dashboard/settings/service-accounts,
- *     /dashboard/settings?tab=security) forward here, per old tab (the old
- *     /dashboard/tokens tabs are server redirects — see next-redirects.test.ts);
- *   - the nav names it honestly and no longer advertises the moved pages;
+ *   - the nav names it honestly;
  *   - impersonation is disclosed on every tab.
  */
 
@@ -62,14 +59,9 @@ jest.mock('@/lib/api', () => ({
 
 const replace = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/security', replace, push: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query, pathname: '/dashboard/security', replace, push: jest.fn<AnyFn>() })));
 
 import SecurityPage from '../pages/dashboard/security';
-import ServiceAccountsPageMoved from '../pages/dashboard/settings/service-accounts';
-import SettingsPage from '../pages/dashboard/settings';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -238,30 +230,6 @@ describe('enrolment deep links land', () => {
   });
 });
 
-describe('the pages that moved still forward', () => {
-  it('sends the service-accounts page to its tab', async () => {
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
-    render(<ServiceAccountsPageMoved />);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith(SERVICE_ACCOUNTS_HREF));
-  });
-
-  it('keeps the permission gate on the forwarding page rather than bouncing a denial', () => {
-    mockAuthGuard({
-      user: { id: 'u1', organizationId: 'org-1' },
-      accessDenied: { kind: 'permission', permission: 'service_accounts:manage', pathname: '/dashboard/settings/service-accounts' },
-    });
-    render(<ServiceAccountsPageMoved />);
-    expect(replace).not.toHaveBeenCalled();
-  });
-
-  it('sends settings?tab=security to the factors tab, fragment and all', async () => {
-    query = { tab: 'security' };
-    window.location.hash = '#totp';
-    render(<SettingsPage />);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/dashboard/security?tab=factors#totp'));
-  });
-});
-
 describe('the nav says what is there', () => {
   const items = NAV_SECTIONS.flatMap((s) => s.items);
 
@@ -270,18 +238,6 @@ describe('the nav says what is there', () => {
     expect(security?.title).toBe('Security');
     // The settings entry covers profile AND organization, and says so.
     expect(items.find((i) => i.href === '/dashboard/settings')?.title).toBe('Profile & organization');
-  });
-
-  it('no longer advertises the pages that moved', () => {
-    expect(items.map((i) => i.href)).not.toContain('/dashboard/tokens');
-    expect(items.map((i) => i.href)).not.toContain('/dashboard/settings/service-accounts');
-  });
-
-  it('stays highlighted on the old service-accounts address while it forwards', () => {
-    const security = items.find((i) => i.href === '/dashboard/security');
-    // /dashboard/tokens is a server redirect now — it never renders, so it
-    // needs no highlight rule.
-    expect(security?.extraActivePaths).toEqual(['/dashboard/settings/service-accounts']);
   });
 
   it('is visible to an ordinary member — everyone has credentials', () => {

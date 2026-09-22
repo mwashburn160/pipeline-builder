@@ -24,7 +24,8 @@ import api from './api';
 import { CACHE_TTL_MS } from './constants';
 import { invalidateQueries, type Query } from './query-cache';
 import type { SessionMeta } from './api/domains/auth';
-import type { Pipeline, TotpStatus } from '@/types';
+import type { Pipeline, Plugin, TotpStatus } from '@/types';
+import type { CatalogEntry, ShadowingEntry } from '@/types/plugin-installs';
 
 /**
  * Stable key fragment for a params object — sorted, `undefined` dropped — so
@@ -55,6 +56,7 @@ const PREFIX = {
   subscription: 'subscription',
   totpStatus: 'totp-status',
   sessions: 'sessions',
+  plugins: 'plugins/',
 } as const;
 
 type PipelineParams = Record<string, string>;
@@ -128,6 +130,33 @@ export const queries = {
    *  Security page (the posture strip and the sessions panel). Throws on
    *  failure for the same reason as {@link queries.totpStatus} — a false-empty
    *  reads as "nothing is signed in" when devices may well be. */
+  /** The org's active plugins (the pipeline editor's picker). Rarely changes
+   *  within a session, so it keeps the longer window. */
+  activePlugins: (): Query<Plugin[]> => ({
+    key: `${PREFIX.plugins}active`,
+    run: async (signal) => (await api.listPlugins({ limit: '500', isActive: 'true' }, { signal })).data?.plugins ?? [],
+    staleMs: CACHE_TTL_MS,
+  }),
+
+  /**
+   * The in-app catalog the pipeline editor resolves listings from (every listed
+   * listing with its install state), plus the org's shadowing report. `GET
+   * /plugins` returns only the org's own rows, so Official and installed
+   * listings reach the editor only through here. Each half fails soft on its
+   * own — a catalog outage must not take the editor's own-plugin list with it.
+   */
+  pluginCatalog: (): Query<{ entries: CatalogEntry[]; shadowing: ShadowingEntry[] }> => ({
+    key: `${PREFIX.plugins}catalog`,
+    run: async (signal) => {
+      const [entries, shadowing] = await Promise.all([
+        api.getAllPluginCatalog({ signal }).catch(() => [] as CatalogEntry[]),
+        api.getPluginShadowing({ signal }).then((r) => r.data?.shadowing ?? []).catch(() => [] as ShadowingEntry[]),
+      ]);
+      return { entries, shadowing };
+    },
+    staleMs: CACHE_TTL_MS,
+  }),
+
   sessions: (): Query<{ sessions: SessionMeta[]; machineSessions: SessionMeta[] }> => ({
     key: PREFIX.sessions,
     run: async (signal) => {
@@ -153,4 +182,7 @@ export const invalidate = {
   subscription: () => invalidateQueries(PREFIX.subscription),
   totpStatus: () => invalidateQueries(PREFIX.totpStatus),
   sessions: () => invalidateQueries(PREFIX.sessions),
+  /** The editor's plugin list and catalog — after a plugin write, an install
+   *  change or a finished build. */
+  plugins: () => invalidateQueries(PREFIX.plugins),
 };

@@ -19,7 +19,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { billingServiceAuth } from './billing-helpers.js';
-import { fetchQuotaSnapshot, fetchSeatUsage } from './quota-client.js';
+import { fetchQuotaSnapshot, fetchSeatUsage } from './downstream-client.js';
 
 const logger = createLogger('team-usage');
 

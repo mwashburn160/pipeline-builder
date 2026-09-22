@@ -20,8 +20,8 @@ function defaultFormat(v: number): string {
 }
 
 /**
- * Single big number from a Prometheus instant query. v1 ships without a
- * delta-vs-previous-period readout — explicit non-goal in the plan.
+ * Single big number from a Prometheus instant query (no
+ * delta-vs-previous-period readout).
  */
 export function StatPanel({ queryKey, title, range, span = 3, format = defaultFormat }: StatPanelProps) {
   const { data, loading, error } = useObservabilityQuery(queryKey, range);

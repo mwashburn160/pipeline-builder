@@ -20,12 +20,12 @@ export interface RegistryUpsertInput {
   organization?: string;
   stackName?: string;
   /**
-   * The synth's step manifest (W0.1). When present, the pipeline's stored
+   * The synth's step manifest. When present, the pipeline's stored
    * manifest is REPLACED with it in the same tx as the registry upsert; when
    * absent (a manual register), the stored manifest is left as is.
    */
   steps?: StepManifestEntry[];
-  /** The caller's parent (root) org when it is a team: its installs apply (G33). */
+  /** The caller's parent (root) org when it is a team: its installs apply. */
   parentOrgId?: string;
 }
 
@@ -43,8 +43,8 @@ interface ManifestPlugin {
 }
 
 /**
- * The LISTED versions among `ids` that the org actually reaches (plugin
- * ecosystem §3.5): a listing version the synth resolved through an install —
+ * The LISTED versions among `ids` that the org actually reaches (see
+ * docs/plugin-installing.md): a listing version the synth resolved through an install —
  * explicit (the org's own, or its root org's for a team) or the implicit
  * Official one — and that the org's policy doesn't block. Attributed to the
  * listing's publisher, with its `public/*` repository. Read ELEVATED (the

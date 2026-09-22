@@ -58,7 +58,7 @@ const axiosCreate = jest.fn(makeInstance);
 jest.unstable_mockModule('axios', () => ({ default: { create: axiosCreate } }));
 
 const { headBlob, listTags, deleteManifest, getManifest } = await import('../src/services/registry-client.js');
-const { copyManifestTree } = await import('../src/routes/images/manifest-copy.js');
+const { copyManifestTree } = await import('../src/services/manifest-copy.js');
 
 beforeEach(() => {
   httpGet.mockImplementation(defaultGet);

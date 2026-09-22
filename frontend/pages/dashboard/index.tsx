@@ -43,8 +43,8 @@ const stagger = {
  * Dashboard home. Orients the user toward action: a primary "create a pipeline"
  * hero, then role-adaptive signal (sysadmin fleet ops / org-admin health), and
  * for members their personal action items (recent runs + inbox) BEFORE the
- * org-wide stats and trend. The old AWS-Console-style service tile grid was
- * removed — it duplicated the sidebar; navigation lives in one place now.
+ * org-wide stats and trend. No service tile grid — navigation lives in the
+ * sidebar.
  */
 export default function DashboardPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isAdmin, can, isReadOnly } = useAuthGuard();
@@ -138,8 +138,8 @@ export default function DashboardPage() {
     refetchExec();
     refetchPipelines();
     refetchMembers();
-    refetchPluginSummary();
-    refetchUnread();
+    void refetchPluginSummary();
+    void refetchUnread();
   }, [refetchExec, refetchPipelines, refetchMembers, refetchPluginSummary, refetchUnread]);
 
   // Read onboarding flags from localStorage once the user/org is known.

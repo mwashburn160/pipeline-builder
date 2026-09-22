@@ -9,13 +9,15 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import type Stripe from 'stripe';
-import { createBillingEvent, calculatePeriodEnd, syncEntitlements, recordReactivatePlanMissing, MANAGEABLE_SUBSCRIPTION_STATUSES } from './billing-helpers.js';
+import { createBillingEvent, calculatePeriodEnd, recordReactivatePlanMissing } from './billing-helpers.js';
 import { ingestStripeInvoice } from './billing-ledger.js';
 import { billingPeriodKey } from './billing-period.js';
 import { reconcileDiscountsOnInvoice } from './discount-helpers.js';
+import { syncEntitlements } from './entitlement-sync.js';
 import { grantRecurringPromotions, qualifyReferral } from './promotion-engine.js';
 import { findSubscriptionByStripeId, invoiceSubscriptionId, type StripeEventMeta } from './stripe-helpers.js';
 import { acceptStripeEvent, grantOnBecomingEntitled } from './stripe-subscription-handlers.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
 import { Plan } from '../models/plan.js';
 

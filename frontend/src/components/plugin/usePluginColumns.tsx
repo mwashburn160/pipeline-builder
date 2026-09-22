@@ -11,7 +11,7 @@ import type { Column } from '@/components/ui/DataTable';
 import { IconButton } from '@/components/ui/IconButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
-import { CATEGORY_DISPLAY_NAMES, type PluginCategory } from '@/lib/plugin-categories';
+import { CATEGORY_DISPLAY_NAMES, type PluginCatalogCategory } from '@/lib/plugin-categories';
 import { pluginUsageKey, shadowingMessage } from '@/lib/plugin-installs';
 import { registryHrefFor } from './PluginDetailModal';
 import { PluginLifecycleBadges } from './PluginLifecycleBadges';
@@ -185,7 +185,7 @@ export function usePluginColumns({
       sortValue: (p) => p.category || 'unknown',
       render: (p) => (
         <Badge color="blue">
-          {CATEGORY_DISPLAY_NAMES[(p.category || 'unknown') as PluginCategory] || p.category || 'unknown'}
+          {CATEGORY_DISPLAY_NAMES[(p.category || 'unknown') as PluginCatalogCategory] || p.category || 'unknown'}
         </Badge>
       ),
     },

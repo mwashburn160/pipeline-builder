@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Real-Mongo integration test for the domain-join (P2b) MODEL INDEXES — the
+ * Real-Mongo integration test for the domain-join MODEL INDEXES — the
  * security-critical invariants that unit tests (mocked models) can't exercise:
  *
  *   1. Uniqueness is enforced only among VERIFIED domains (partial unique index),
@@ -23,7 +23,7 @@ process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
 const suite = integrationSuite();
 
-suite('OrgDomain indexes (real Mongo, P2b)', () => {
+suite('OrgDomain indexes (real Mongo)', () => {
   let mongod: { getUri: () => string; stop: () => Promise<boolean> };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mongoose: any;
@@ -49,21 +49,24 @@ suite('OrgDomain indexes (real Mongo, P2b)', () => {
   });
 
   const base = (over: Record<string, unknown>) => ({ domain: 'acme.com', verificationToken: 't', createdBy: 'u1', ...over });
+  const ORG_A = '650000000000000000000a01';
+  const ORG_B = '650000000000000000000a02';
+  const ORG_C = '650000000000000000000a03';
 
   it('allows two DIFFERENT orgs to hold the same UNVERIFIED domain', async () => {
-    await OrgDomain.create(base({ orgId: 'orgA', verified: false }));
-    await expect(OrgDomain.create(base({ orgId: 'orgB', verified: false }))).resolves.toBeTruthy();
+    await OrgDomain.create(base({ organizationId: ORG_A, verified: false }));
+    await expect(OrgDomain.create(base({ organizationId: ORG_B, verified: false }))).resolves.toBeTruthy();
   });
 
   it('rejects a SECOND org verifying a domain another org already verified', async () => {
-    await OrgDomain.create(base({ domain: 'beta.com', orgId: 'orgA', verified: true }));
-    await expect(OrgDomain.create(base({ domain: 'beta.com', orgId: 'orgB', verified: true })))
+    await OrgDomain.create(base({ domain: 'beta.com', organizationId: ORG_A, verified: true }));
+    await expect(OrgDomain.create(base({ domain: 'beta.com', organizationId: ORG_B, verified: true })))
       .rejects.toThrow(/duplicate key|E11000/i);
   });
 
   it('rejects the SAME org registering a domain twice', async () => {
-    await OrgDomain.create(base({ domain: 'gamma.com', orgId: 'orgC', verified: false }));
-    await expect(OrgDomain.create(base({ domain: 'gamma.com', orgId: 'orgC', verified: false })))
+    await OrgDomain.create(base({ domain: 'gamma.com', organizationId: ORG_C, verified: false }));
+    await expect(OrgDomain.create(base({ domain: 'gamma.com', organizationId: ORG_C, verified: false })))
       .rejects.toThrow(/duplicate key|E11000/i);
   });
 });

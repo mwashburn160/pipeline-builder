@@ -21,7 +21,7 @@ const STACK_NAME = EVENTS_STACK_NAME;
 /**
  * Registers the `redrive-events` command with the CLI program.
  *
- * Manual fallback for the events Lambda's self-healing redrive (Phase 3): calls
+ * Manual fallback for the events Lambda's self-healing redrive: calls
  * SQS `StartMessageMoveTask(DLQ → main queue)` for the `pipeline-builder-events`
  * stack, moving messages that exhausted their receive count in the dead-letter
  * queue back onto `pipeline-builder-events` so the ingestion Lambda re-processes

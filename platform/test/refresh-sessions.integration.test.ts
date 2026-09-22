@@ -15,9 +15,10 @@
  *   - a scoped slot keeps its scope through renewal and can never be re-minted
  *     unscoped or under another scope (no machine-token privilege escalation);
  *   - MACHINE slots (generate-token) live under their own cap, survive the
- *     operator's sign-ins and refreshes, renew in place, can never open another
- *     slot, and are refused by POST /auth/refresh — the four failure modes the
- *     stored `store-token` credentials used to hit;
+ *     operator's sign-ins and refreshes, rotate in place through their own
+ *     refresh token, and can never open another slot;
+ *   - a just-rotated token is answered from the rotation grace, and is reuse
+ *     once the grace has passed;
  *   - sessions and devices: the slot list records device details, marks the
  *     current session, refuses self-revoke, and revoking stops renewal.
  *
@@ -38,6 +39,8 @@ suite('refresh-session slots (real Mongo)', () => {
   let mongod: { getUri: () => string; stop: () => Promise<boolean> };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mongoose: any, User: any, token: any, authMw: any, authCtl: any, profileCtl: any, jwt: any;
+  /** Let the refresh-rotation grace lapse (it lives in the pending-state store). */
+  let endRotationGrace: () => void;
 
   beforeAll(async () => {
     const { MongoMemoryServer } = await import('mongodb-memory-server');
@@ -46,7 +49,13 @@ suite('refresh-session slots (real Mongo)', () => {
     process.env.MONGODB_URI = mongod.getUri();
     await mongoose.connect(process.env.MONGODB_URI);
     ({ User } = await import('../src/models/index.js'));
-    token = await import('../src/utils/token.js');
+    ({ _resetAllPendingStoresForTests: endRotationGrace } = await import('../src/helpers/pending-state-store.js'));
+    token = {
+      ...(await import('../src/services/session/membership-context.js')),
+      ...(await import('../src/services/session/access-tokens.js')),
+      ...(await import('../src/services/session/refresh-sessions.js')),
+      ...(await import('../src/utils/token.js')),
+    };
     authMw = await import('../src/middleware/auth.js');
     authCtl = await import('../src/controllers/auth.js');
     profileCtl = await import('../src/controllers/user-profile.js');
@@ -179,6 +188,13 @@ suite('refresh-session slots (real Mongo)', () => {
     const b = await signIn();
     const rotated = (await refresh(a.refreshToken)).body.data;
 
+    // Inside the grace a concurrent loser gets the SAME replacement pair …
+    const raced = await refresh(a.refreshToken);
+    expect(raced.status).toBe(200);
+    expect(raced.body.data.refreshToken).toBe(rotated.refreshToken);
+
+    // … past it, the rotated-away token is reuse.
+    endRotationGrace();
     const reuse = await refresh(a.refreshToken);
     expect(reuse.status).toBe(401);
 
@@ -231,13 +247,14 @@ suite('refresh-session slots (real Mongo)', () => {
       .rejects.toThrow('TOKEN_SCOPE_ESCALATION');
   });
 
-  it('machine slots are NOT refreshable — POST /auth/refresh refuses without revoking the slot', async () => {
+  it('a machine slot rotates in place through its own refresh token', async () => {
     const machine = await token.issueTokens(await loadUser(), undefined, { kind: 'machine', auth: token.signInAuth('pwd') });
     const out = await refresh(machine.refreshToken);
-    expect(out.status).toBe(401);
-    // The slot is untouched: the credential still renews through generate-token.
-    expect((await slots()).map((sl) => sl.id)).toContain(sidOf(machine.accessToken));
-    expect((await generateToken(token.verifyAccessToken(machine.accessToken))).status).toBe(200);
+    expect(out.status).toBe(200);
+    expect(sidOf(out.body.data.refreshToken)).toBe(sidOf(machine.refreshToken));
+    const slot = await slotOf(machine.accessToken);
+    expect(slot.kind).toBe('machine');
+    expect(slot.hash).toBe(token.hashRefreshToken(out.body.data.refreshToken));
   });
 
   it('EVICTION: ten later sign-ins never drop a stored machine credential', async () => {
@@ -260,6 +277,7 @@ suite('refresh-session slots (real Mongo)', () => {
     // The operator's CLI refreshes the login it used, then reuses the old token —
     // which revokes the operator's OWN slot (presumed stolen) …
     expect((await refresh(operator.refreshToken)).status).toBe(200);
+    endRotationGrace();
     expect((await refresh(operator.refreshToken)).status).toBe(401);
     expect((await slots()).map((sl) => sl.id)).not.toContain(sidOf(operator.accessToken));
 
@@ -295,7 +313,8 @@ suite('refresh-session slots (real Mongo)', () => {
 
     const renewed = await generateToken(token.verifyAccessToken(machine.body.data.accessToken));
     expect(renewed.status).toBe(200);
-    expect(renewed.body.data.refreshToken).toBeUndefined(); // no second long-lived secret
+    // The same slot's refresh token, rotated — not a second credential.
+    expect(sidOf(renewed.body.data.refreshToken)).toBe(sidOf(machine.body.data.refreshToken));
     const after = (await slots()).filter((sl) => sl.kind === 'machine');
     expect(after).toHaveLength(before.length);
     expect(sidOf(renewed.body.data.accessToken)).toBe(sidOf(machine.body.data.accessToken));
@@ -317,8 +336,9 @@ suite('refresh-session slots (real Mongo)', () => {
     expect(ids).not.toContain(sidOf(minted[1].body.data.accessToken));
   });
 
-  it('generate-token from a scoped access key (no session slot) opens a machine slot and cannot drop the scope', async () => {
-    // An exchanged access-key token: `token_use: 'api_key'`, no `sid`.
+  it('generate-token refuses an access-key token (no session slot) and opens nothing', async () => {
+    // An exchanged access-key token: `token_use: 'api_key'`, no `sid`. Revoking
+    // the key must not leave a long-lived credential derived from it behind.
     const keyToken = await token.signApiKeyToken(
       await loadUser(), undefined, 'key-id-1', token.signInAuth('pwd'), 'reporting:ingest',
     );
@@ -327,11 +347,9 @@ suite('refresh-session slots (real Mongo)', () => {
     expect(caller.token_use).toBe('api_key');
 
     const out = await generateToken(caller);
-    expect(out.status).toBe(200);
-    const minted = jwt.decode(out.body.data.accessToken) as { scope?: string; permissions?: string[] };
-    expect(minted.scope).toBe('reporting:ingest');
-    expect(minted.permissions).toEqual([]);
-    expect((await slotOf(out.body.data.accessToken)).kind).toBe('machine');
+    expect(out.status).toBe(403);
+    expect(out.body.code).toBe('SESSION_SLOT_REQUIRED');
+    expect((await slots()).filter((sl) => sl.kind === 'machine')).toHaveLength(0);
   });
 
   it('generate-token refuses a caller whose own slot is gone (revoked or evicted)', async () => {

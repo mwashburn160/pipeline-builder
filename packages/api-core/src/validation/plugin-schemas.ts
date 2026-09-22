@@ -11,7 +11,7 @@ import { PUBLISHER_HANDLE_PATTERN } from '../types/ecosystem.js';
  */
 export const PluginFilterSchema = BaseFilterSchema.extend({
   name: z.string().min(1).optional(),
-  /** Resolve through this publisher's installed listing (§3.5); lookup only. */
+  /** Resolve through this publisher's installed listing; lookup only. */
   publisher: z.string().max(39).regex(PUBLISHER_HANDLE_PATTERN).optional(),
   version: z.string().min(1).optional(),
   orgId: z.string().min(1).optional(),
@@ -54,7 +54,7 @@ export const PluginCreateSchema = z.object({
 /**
  * Plugin update schema (`PUT /plugins/:id`).
  *
- * DESCRIPTIVE catalog fields only (§3.1a, G56) plus the version's operational
+ * DESCRIPTIVE catalog fields only plus the version's operational
  * flags and developer-portal metadata. Execution-contract keys (commands, env,
  * secrets, compute type, …) are never accepted — the route refuses them with a
  * 400 naming the keys before this schema runs, and `.strict()` refuses anything
@@ -81,7 +81,7 @@ export const PluginUploadBodySchema = z.object({
   /**
    * `true`: once the build completes, submit a publish request (new listing, or
    * new version of the org's existing listing) for the built version as the
-   * uploader (docs/plans/plugin-ecosystem.md §3.1). Needs `plugins:publish` and
+   * uploader (docs/plugin-publishing.md). Needs `plugins:publish` and
    * `visibility=public`. The Official catalog loader always sets it.
    */
   publishRequest: z.enum(['true', 'false']).optional(),

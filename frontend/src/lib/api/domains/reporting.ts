@@ -79,7 +79,7 @@ export interface DoraTrendPoint {
   total: number;
 }
 
-/** Per-stage build-health metrics for one pipeline (Phase 6). */
+/** Per-stage build-health metrics for one pipeline. */
 export interface BuildHealthStage {
   stage: string;
   runs: number;
@@ -94,7 +94,7 @@ export interface BuildHealthStage {
 }
 
 /**
- * Per-pipeline build-health breakdown (Phase 6), returned under `data.buildHealth`.
+ * Per-pipeline build-health breakdown, returned under `data.buildHealth`.
  * Standard reporting — available on EVERY tier (NOT `advanced_reporting`-gated).
  */
 export interface BuildHealth {
@@ -103,7 +103,7 @@ export interface BuildHealth {
 }
 
 /**
- * What the AWS events forwarder last reported for this org (Phase 3). Written by
+ * What the AWS events forwarder last reported for this org. Written by
  * the ingest Lambda's heartbeat; read by the Reports freshness indicator.
  */
 export interface IngestHealth {
@@ -128,8 +128,8 @@ export interface IngestHealthResponse {
 }
 
 /**
- * Per-org reporting settings — the incident correlation-window override (Phase 5b)
- * plus the two split retention windows (Phase 7). Each override is null when unset
+ * Per-org reporting settings — the incident correlation-window override
+ * plus the two split retention windows. Each override is null when unset
  * (the paired default* field shows the env fallback applied).
  */
 export interface IncidentSettings {
@@ -137,9 +137,9 @@ export interface IncidentSettings {
   incidentWindowHours: number | null;
   /** The global env default applied when no override is stored. */
   defaultWindowHours: number;
-  /** Standard-event retention override in days, or null when unset (Phase 7). */
+  /** Standard-event retention override in days, or null when unset. */
   eventRetentionDays: number | null;
-  /** DORA-source retention override in days, or null when unset (Phase 7). */
+  /** DORA-source retention override in days, or null when unset. */
   doraRetentionDays: number | null;
   /** Global standard-event retention default applied when unset (days). */
   defaultEventRetentionDays: number;
@@ -186,7 +186,7 @@ export interface IncidentListItem {
   deployCompletedAt: string | null;
 }
 
-/** Result of the wiring-test dry-run correlation (Phase 5b). */
+/** Result of the wiring-test dry-run correlation. */
 export interface IncidentTestResult {
   environment: string;
   openedAt: string;
@@ -283,7 +283,7 @@ export function reportingApi(core: ApiCore) {
     },
 
     // ============================================
-    // Ingestion health (Phase 3)
+    // Ingestion health
     // ============================================
 
     /**
@@ -292,8 +292,8 @@ export function reportingApi(core: ApiCore) {
      * NOT the same as stale; `now` is the server clock, so staleness is measured
      * without trusting the browser's. `reports:read`, org-scoped.
      */
-    getIngestHealth: async (signal?: AbortSignal) => {
-      const res = await core.request<ApiResponse<IngestHealthResponse>>('/api/reports/ingest-health', { signal });
+    getIngestHealth: async (opts?: { signal?: AbortSignal }) => {
+      const res = await core.request<ApiResponse<IngestHealthResponse>>('/api/reports/ingest-health', { signal: opts?.signal });
       return res.data;
     },
 
@@ -304,7 +304,7 @@ export function reportingApi(core: ApiCore) {
     },
 
     // ============================================
-    // Incident reporting config + surfaces (Phase 5b)
+    // Incident reporting config + surfaces
     // ============================================
 
     /** Read the per-org incident correlation-window setting (+ the env default). */

@@ -43,15 +43,15 @@ interface TriageGroup {
  * legend half-tokenised and visually inconsistent.
  */
 const CATEGORY_LABELS: Record<string, { label: string; hint: string; color: string }> = {
-  'docker-build': { label: 'Docker build', hint: 'Dockerfile or image build failed — check Dockerfile syntax / base-image pulls', color: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-200' },
-  'template': { label: 'Template resolution', hint: 'Plugin templates reference missing metadata/vars — run `pipeline-manager template validate`', color: 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200' },
+  'docker-build': { label: 'Docker build', hint: 'Dockerfile or image build failed — check Dockerfile syntax / base-image pulls', color: 'bg-danger-bg border-danger-border text-danger-strong' },
+  'template': { label: 'Template resolution', hint: 'Plugin templates reference missing metadata/vars — run `pipeline-manager template validate`', color: 'bg-warning-bg border-warning-border text-warning-strong' },
   'quota': { label: 'Quota exceeded', hint: 'Org hit plugin / build quota — raise limit or reduce concurrency', color: 'bg-purple-50 border-purple-200 text-purple-800 dark:bg-purple-900/20 dark:border-purple-800 dark:text-purple-200' },
-  'timeout': { label: 'Timeout', hint: 'Build exceeded configured timeout — bump timeout in plugin-spec or investigate hangs', color: 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-200' },
-  'auth-secrets': { label: 'Auth / Secrets', hint: 'Missing or invalid secret — check secrets yaml in plugin-spec and Secrets Manager path', color: 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-900/20 dark:border-rose-800 dark:text-rose-200' },
+  'timeout': { label: 'Timeout', hint: 'Build exceeded configured timeout — bump timeout in plugin-spec or investigate hangs', color: 'bg-info-bg border-info-border text-info-strong' },
+  'auth-secrets': { label: 'Auth / Secrets', hint: 'Missing or invalid secret — check secrets yaml in plugin-spec and Secrets Manager path', color: 'bg-danger-bg border-danger-border text-danger-strong' },
   'network': { label: 'Network', hint: 'DNS / connect failure — check platform URL, DNS, outbound egress', color: 'bg-indigo-50 border-indigo-200 text-indigo-800 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-indigo-200' },
-  'validation': { label: 'Validation', hint: 'Plugin spec failed validation — missing required fields or bad schema', color: 'bg-orange-50 border-orange-200 text-orange-800 dark:bg-orange-900/20 dark:border-orange-800 dark:text-orange-200' },
-  'other': { label: 'Other', hint: 'Uncategorized failure — open a sample for the raw error', color: 'bg-gray-50 border-gray-200 text-gray-800 dark:bg-gray-800/40 dark:border-gray-700 dark:text-gray-200' },
-  'unknown': { label: 'Unknown', hint: 'No error message captured on the job', color: 'bg-gray-50 border-gray-200 text-gray-800 dark:bg-gray-800/40 dark:border-gray-700 dark:text-gray-200' },
+  'validation': { label: 'Validation', hint: 'Plugin spec failed validation — missing required fields or bad schema', color: 'bg-warning-bg border-warning-border text-warning-strong' },
+  'other': { label: 'Other', hint: 'Uncategorized failure — open a sample for the raw error', color: 'bg-gray-50 border-default text-fg dark:bg-gray-800/40' },
+  'unknown': { label: 'Unknown', hint: 'No error message captured on the job', color: 'bg-gray-50 border-default text-fg dark:bg-gray-800/40' },
 };
 
 export default function TriagePage() {
@@ -105,7 +105,7 @@ export default function TriagePage() {
       const newJobId = res.data?.newJobId ?? '?';
       setReplayMsg(jobId, { text: `Re-enqueued as job ${newJobId}`, isError: false });
       // Refresh so the replayed sample disappears.
-      load();
+      void load();
     } catch (err) {
       setReplayMsg(jobId, { text: formatError(err), isError: true });
     } finally {

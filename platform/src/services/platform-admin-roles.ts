@@ -28,7 +28,7 @@ import { withMongoTransaction } from '../utils/mongo-tx.js';
  * because the assignment persists), closing the direct-flag divergence. Also
  * clears the refresh-session slots on a real change so the session can't be re-issued.
  *
- * Self-healing + idempotent: a legacy user who has the flag but no assignment
+ * Self-healing + idempotent: a user who has the flag but no assignment
  * gets the assignment added with no session churn (`changed:false`); an already-
  * granted user is a no-op. Returns whether the effective grant changed (for the
  * caller's audit + response).
@@ -62,7 +62,7 @@ export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boo
 /**
  * Revoke platform-admin by removing the system-org Super Admin Role assignment,
  * then recomputing (which clears `User.isSuperAdmin` + bumps `tokenVersion`).
- * Counterpart of {@link grantPlatformAdmin}; works even for a legacy user who
+ * Counterpart of {@link grantPlatformAdmin}; works even for a user who
  * had the flag set directly but never held the Role (recompute clears the flag
  * from the now-absent assignment). Clears the refresh-session slots on a real change.
  */

@@ -114,7 +114,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
             <div
               className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-semibold relative ${
                 isAnnouncement
-                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                  ? 'bg-warning-bg text-warning'
                   : 'bg-info-bg text-info-strong'
               }`}
             >
@@ -157,7 +157,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
                   )}
                   {msg.channel && (
                     <span
-                      className="text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+                      className="text-2xs uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-success-bg text-success"
                       title={`Channel: ${msg.channel}`}
                     >
                       {msg.channel}
@@ -179,7 +179,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
             {onDelete && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(msg.id); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-fg-subtle hover:text-danger hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-fg-subtle hover:text-danger hover:bg-danger-bg opacity-0 group-hover:opacity-100 transition-all"
                 title="Delete message"
                 aria-label="Delete message"
               >
@@ -196,7 +196,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
           <button
             onClick={onLoadMore}
             disabled={loadingMore}
-            className="w-full text-center text-xs font-medium py-2 rounded-lg text-brand hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full text-center text-xs font-medium py-2 rounded-lg text-brand hover:bg-info-bg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {loadingMore ? 'Loading…' : 'Load more'}
           </button>

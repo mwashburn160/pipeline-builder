@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Paperclip, Download } from 'lucide-react';
 import api from '@/lib/api';
 import { getAttachmentImageUrl } from '@/lib/attachment-image-cache';
+import { triggerBlobDownload } from '@/lib/download';
 import { formatBytes } from '@/lib/format';
 import type { MessageAttachment } from '@/types';
 
@@ -63,17 +64,7 @@ function AttachmentItem({ att }: { att: MessageAttachment }) {
     setDownloading(true);
     setDownloadFailed(false);
     try {
-      const blob = await api.fetchAttachmentBlob(att.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = att.filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Revoke on a later tick — revoking synchronously right after click() can
-      // cancel the download in some browsers.
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      triggerBlobDownload(await api.fetchAttachmentBlob(att.id), att.filename);
     } catch {
       setDownloadFailed(true);
     } finally {

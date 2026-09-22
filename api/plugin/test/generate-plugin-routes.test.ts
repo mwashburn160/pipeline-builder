@@ -11,8 +11,8 @@
  * upload-plugin / deploy-generated-plugin quota-auth contract.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -46,6 +46,14 @@ jest.unstable_mockModule('../src/services/similar-plugin-lookup.js', () => ({
   findSimilarPlugins: mockFindSimilarPlugins,
 }));
 
+/** A fake SSE stream writing through the route's `res`, as the real one does. */
+const sseFor = (aborted: boolean) => (_req: unknown, res: { write: (s: string) => void }) => ({
+  signal: new AbortController().signal,
+  aborted: () => aborted,
+  send: (e: unknown) => { if (!aborted) res.write(`data: ${JSON.stringify(e)}\n\n`); },
+  done: () => { if (!aborted) res.write('data: [DONE]\n\n'); },
+});
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: mockGetServiceAuthHeader,
   reserveQuota: mockReserveQuota,
@@ -55,7 +63,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendQuotaReserveDenied: jest.fn((res: any, _t: string, r: { unavailable?: boolean }) => res.status(r.unavailable ? 503 : 429).json({ message: r.unavailable ? 'quota unavailable' : 'quota exceeded' })),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any) => res.status(statusCode).json({ success: true, data })),
   handleAIError: jest.fn((res: any, message: string) => res.status(502).json({ message })),
-  initSSEStream: jest.fn(() => ({ aborted: () => false })),
+  initSSEStream: jest.fn(sseFor(false)),
   AIGenerateBodySchema: {},
 }));
 
@@ -206,7 +214,7 @@ describe('POST /generate/stream — quota reserve auth', () => {
   // (and its $ cost) was incurred. This matches generate-pipeline.ts; the plugin
   // path previously refunded here, which is the inconsistency this aligns.
   it('does NOT refund the aiCalls slot on a completed but empty stream', async () => {
-    (initSSEStream as jest.Mock<AnyFn>).mockReturnValue({ aborted: () => false });
+    (initSSEStream as jest.Mock<AnyFn>).mockImplementation(sseFor(false) as AnyFn);
     mockStreamPluginConfig.mockReturnValue({
       partialOutputStream: (async function* () { /* no partials */ })(),
       output: Promise.resolve(null), // completed, but empty/unparseable output
@@ -224,7 +232,7 @@ describe('POST /generate/stream — quota reserve auth', () => {
   // Keep-on-provider-contact: once a partial has streamed the provider was
   // reached, so a later failure keeps the slot …
   it('keeps the aiCalls slot when the stream fails AFTER the provider responded', async () => {
-    (initSSEStream as jest.Mock<AnyFn>).mockReturnValue({ aborted: () => false });
+    (initSSEStream as jest.Mock<AnyFn>).mockImplementation(sseFor(false) as AnyFn);
     mockStreamPluginConfig.mockReturnValue({
       partialOutputStream: (async function* () {
         yield { name: 'x' };
@@ -240,7 +248,7 @@ describe('POST /generate/stream — quota reserve auth', () => {
 
   // … while a failure before the provider was ever reached refunds it.
   it('refunds the aiCalls slot when the stream fails BEFORE the provider responded', async () => {
-    (initSSEStream as jest.Mock<AnyFn>).mockReturnValue({ aborted: () => false });
+    (initSSEStream as jest.Mock<AnyFn>).mockImplementation(sseFor(false) as AnyFn);
     mockStreamPluginConfig.mockImplementation(() => { throw new Error('unknown model'); });
 
     await handler(mockReq(), mockRes());
@@ -253,7 +261,7 @@ describe('POST /generate/stream — quota reserve auth', () => {
   // The ABORT (client disconnect) refund path stays intact — the caller never
   // consumed the output, so the reserved slot is returned.
   it('refunds the aiCalls slot when the stream is aborted before completion', async () => {
-    (initSSEStream as jest.Mock<AnyFn>).mockReturnValue({ aborted: () => true });
+    (initSSEStream as jest.Mock<AnyFn>).mockImplementation(sseFor(true) as AnyFn);
     mockStreamPluginConfig.mockReturnValue({
       partialOutputStream: (async function* () { /* no partials */ })(),
       output: Promise.resolve({ dockerfile: 'FROM node', name: 'x' }),
@@ -267,7 +275,7 @@ describe('POST /generate/stream — quota reserve auth', () => {
   });
 });
 
-// W6: catalog context — the closest existing plugins go into the prompt and
+// catalog context — the closest existing plugins go into the prompt and
 // back to the caller as a `similarPlugins` hint.
 describe('similarPlugins hint', () => {
   const generate = getHandler('post', '/generate');
@@ -277,7 +285,7 @@ describe('similarPlugins hint', () => {
     jest.clearAllMocks();
     mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 100, used: 1, remaining: 99, resetAt: '2026-08-01T00:00:00Z' } });
     mockFindSimilarPlugins.mockResolvedValue(SIMILAR);
-    (initSSEStream as jest.Mock<AnyFn>).mockReturnValue({ aborted: () => false });
+    (initSSEStream as jest.Mock<AnyFn>).mockImplementation(sseFor(false) as AnyFn);
   });
 
   it('POST /generate looks up similar plugins for the caller (with parent org), passes them to the model, and returns them', async () => {

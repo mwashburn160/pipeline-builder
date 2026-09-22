@@ -15,7 +15,7 @@
  * (seeding, the Member floor, the built-in Admin grant) that these build on.
  */
 
-import { createLogger, isValidPermission } from '@pipeline-builder/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import {
   assertActorMayAssignRole,
@@ -23,7 +23,7 @@ import {
   carriesSystemOrgOnlyPermission,
   sanitizePermissions,
 } from './role-authority.js';
-import type { ActorPermissionCeiling, OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
+import type { ActorPermissionCeiling, RoleAssignmentActor, UserId } from './role-authority.js';
 import {
   RL_CANNOT_REMOVE_SELF,
   RL_LAST_PRIVILEGED_MEMBER,
@@ -74,7 +74,7 @@ export async function listRolesWithMembers(
 
   const byRole = new Map<string, RoleWithMembers['members']>();
   for (const m of assignments) {
-    const u = m.userId as unknown as { _id: mongoose.Types.ObjectId; username: string; email: string } | null;
+    const u = m.userId;
     if (!u || !u._id) continue; // assignment for a deleted user — skip
     const key = String(m.roleId);
     const list = byRole.get(key) ?? [];
@@ -94,33 +94,6 @@ export async function listRolesWithMembers(
     })),
     total,
   };
-}
-
-/**
- * Flattened, deduped fine-grained permissions granted to a user by the Roles
- * they hold in an org/team. Single-source model: this union IS the user's
- * effective permission set at token-issue time (`resolveUserPermissions` in
- * api-core; superadmin ⇒ all) — there is no role-derived baseline.
- * Invalid/stale permission strings are dropped.
- */
-export async function getUserRolePermissions(
-  userId: UserId,
-  organizationId: OrgId,
-  session?: mongoose.ClientSession,
-): Promise<string[]> {
-  const assignments = await RoleAssignment.find({ userId, organizationId })
-    .session(session ?? null).select('roleId').lean();
-  const roleIds = assignments.map((m) => m.roleId);
-  if (roleIds.length === 0) return [];
-  const roles = await Role.find({ _id: { $in: roleIds } })
-    .session(session ?? null).select('permissions').lean();
-  const perms = new Set<string>();
-  for (const g of roles) {
-    for (const p of ((g.permissions as string[]) ?? [])) {
-      if (isValidPermission(p)) perms.add(p);
-    }
-  }
-  return [...perms];
 }
 
 /**
@@ -382,7 +355,7 @@ export async function addUserToRole(
  * The name of `roleId` in `orgId` when it is an ecosystem-governance Role (one
  * carrying a system-org-only permission — the system org's "Ecosystem
  * Manager"), else `undefined`. Membership changes to such a Role are audited
- * with `details.role` (docs/plans/plugin-ecosystem.md §5c) and announced as N23.
+ * with `details.role` and announced as the `N23` ecosystem notice.
  */
 export async function ecosystemRoleName(orgId: string, roleId: string): Promise<string | undefined> {
   const role = await Role.findOne({ _id: roleId, organizationId: toOrgId(orgId) }).select('name permissions').lean();
@@ -428,8 +401,8 @@ export async function assertNotLastPrivilegedMember(
  * `User.isSuperAdmin` (handled by {@link recomputeUserOrgRole}).
  *
  * Lockout guards on privilege-granting Roles (Admin / Super Admin):
- *   - G2: you can't remove YOURSELF from one (`actorUserId` === target).
- *   - G3: you can't remove the LAST member of one (would leave it empty).
+ *   - you can't remove YOURSELF from one (`actorUserId` === target).
+ *   - you can't remove the LAST member of one (would leave it empty).
  * Member-only Roles (the built-in Member Role) are unguarded — losing them revokes nothing.
  *
  * Removing a member of a `superadmin`-granting Role requires the caller to be
@@ -495,11 +468,11 @@ export async function removeUserFromRole(
     // Only meaningful if the user actually holds a privilege-granting Role — a
     // no-op remove of a non-member must not trip the guards.
     if (role.grantsRole !== 'member' && await RoleAssignment.exists({ userId, roleId }).session(session)) {
-      // G2: self-removal from a Role granting your own admin/superadmin.
+      // Self-removal from a Role granting your own admin/superadmin.
       if (opts.actorUserId && String(opts.actorUserId) === String(userId)) {
         throw new Error(RL_CANNOT_REMOVE_SELF);
       }
-      // G3: never empty an admin/superadmin-granting Role.
+      // Never empty an admin/superadmin-granting Role.
       await assertNotLastPrivilegedMember(session, userId, roleId);
     }
     await RoleAssignment.deleteOne({ userId, roleId }, { session });

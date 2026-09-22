@@ -39,8 +39,8 @@ export const TEMPLATE_PAGE_SIZE = 24;
 /** Badge tint per visibility rung — widest reach is the most prominent. */
 const VISIBILITY_BADGE: Record<string, string> = {
   private: 'bg-surface-muted/50 text-fg-muted',
-  org: 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300',
-  public: 'bg-info-bg text-blue-800 dark:text-blue-300',
+  org: 'bg-success-bg text-success-strong',
+  public: 'bg-info-bg text-info-strong',
 };
 
 /** Hover text spelling out who each rung actually reaches. */
@@ -217,7 +217,7 @@ export default function TemplatesPage() {
       if (res.success) {
         toast.success('Template deleted');
         setDeleteTarget(null);
-        fetchAll();
+        void fetchAll();
       } else {
         // Surface the real reason (permission / not found), not a generic message.
         toast.error((res as { message?: string }).message || 'Failed to delete template');

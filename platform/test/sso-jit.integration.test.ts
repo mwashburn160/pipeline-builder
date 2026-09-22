@@ -3,9 +3,9 @@
 
 /**
  * Real-Mongo (replica set — provisioning is transactional) test for just-in-time
- * SSO membership + group → Role mapping (3a). What only a real database shows:
+ * SSO membership + group → Role mapping. What only a real database shows:
  *
- *   - the (orgId, groupKey) unique index, so one group can't carry two rule sets;
+ *   - the (organizationId, groupKey) unique index, so one group can't carry two rule sets;
  *   - a full sign-in provisioning a membership + the Member floor + mapped Roles,
  *     with the coarse role derived (never `owner`);
  *   - the seat cap refusing the sign-in against live membership/invite counts;
@@ -91,7 +91,7 @@ suite('SSO just-in-time provisioning (real Mongo replica set)', () => {
     }
     orgId = await makeOrg();
     await m.OrgIdpConfig.create({
-      orgId,
+      organizationId: orgId,
       provider: 'generic-oidc',
       clientId: 'cid',
       clientSecretEncrypted: 'blob',
@@ -111,7 +111,7 @@ suite('SSO just-in-time provisioning (real Mongo replica set)', () => {
       .rejects.toThrow('IGM_GROUP_TAKEN');
     // …and the unique index backs the service-level check at the storage layer.
     await expect(m.IdpGroupMapping.create({
-      orgId, group: 'ENGINEERING', groupKey: 'engineering', roleIds: [], createdBy: 'x', updatedBy: 'x',
+      organizationId: orgId, group: 'ENGINEERING', groupKey: 'engineering', roleIds: [], createdBy: 'x', updatedBy: 'x',
     })).rejects.toThrow();
   });
 

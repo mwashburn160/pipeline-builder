@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Catalog metadata on requests (docs/plans/plugin-ecosystem.md §3.1a, D19):
+ * Catalog metadata on requests (docs/plugin-publishing.md):
  * a version's EFFECTIVE metadata (what upload detected and the user accepted
  * or edited, with provenance), the listing's live values, the changed-fields
  * offer a new version triggers, and applying an accepted set to a listing.
@@ -18,7 +18,7 @@ import {
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
 import type { PluginIcon, PluginListing, PluginListingInsert } from '@pipeline-builder/pipeline-data';
 
-import { sameValue } from './policy.js';
+import { isLinkField, sameValue } from './policy.js';
 import type { PluginRow } from './store.js';
 
 /** The fields a LISTING stores (displayName, documentationUrl and changelog are per version). */
@@ -88,7 +88,7 @@ function listingDiffers(p: PluginRow, l: PluginListing, field: PluginCatalogFiel
 }
 
 /**
- * The changed-fields-only `listing_update` offer a new version brings (§3.1a
+ * The changed-fields-only `listing_update` offer a new version brings (
  * step 4): each listing field whose detected value differs from the live
  * listing, with both values. Nothing flows to the listing unless the publisher
  * submits it.
@@ -133,4 +133,15 @@ export function listingColumns(values: RequestMetadata['values']): Partial<Plugi
     out.readmeHtml = md !== null ? renderUntrustedMarkdown(md) : null;
   }
   return out;
+}
+
+/**
+ * One review row for a catalog field: the proposed value next to the live one
+ * (`hasListing` false for a new listing), with its provenance. A user-edited
+ * link that changes is highlighted — the field a reviewer must look at.
+ */
+export function metadataRow(field: string, value: unknown, previous: unknown, source: string | null, hasListing: boolean) {
+  const userEdited = source === 'user';
+  const changed = hasListing ? !sameValue(value, previous) : value !== null;
+  return { field, value, previous, source, changed, userEdited, isLink: isLinkField(field), highlight: userEdited && isLinkField(field) && changed };
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Test helper for the PER-SERVICE internal-token chain (#14) in its REAL,
+ * Test helper for the PER-SERVICE internal-token chain in its REAL,
  * `configured` shape: private keys on disk, one public bundle, `SERVICE_NAME`
  * naming the signer.
  *
@@ -27,7 +27,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { _resetServiceKeysForTests, signServiceJwt, type ServiceKeyBundle } from '../services/service-keys.js';
-import { publicJwkFrom, type PublicJwk } from '../utils/jwk.js';
+import { compactJws, encodeJwsSigningInput, publicJwkFrom, type PublicJwk } from '../utils/jwk.js';
 
 /** One generated service keypair, in the forms a test needs. */
 export interface TestServiceKey {
@@ -78,11 +78,6 @@ export function testServiceIdentityClaims(serviceName: string, role: 'owner' | '
     role,
     isAdmin: role === 'owner' || role === 'admin',
   };
-}
-
-/** base64url of a JSON value, the JWS way. */
-function b64uJson(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), 'utf-8').toString('base64url');
 }
 
 /**
@@ -161,9 +156,9 @@ export function installTestServiceKeys(serviceNames: string[]): TestServiceKeysH
         iat: now,
         exp: now + 300,
       };
-      const signingInput = `${b64uJson({ alg: 'ES256', typ: 'JWT', kid: signer.kid })}.${b64uJson(body)}`;
+      const signingInput = encodeJwsSigningInput(signer.kid, body);
       const signature = crypto.sign('sha256', Buffer.from(signingInput, 'utf-8'), { key: signer.privateKey, dsaEncoding: 'ieee-p1363' });
-      return `${signingInput}.${signature.toString('base64url')}`;
+      return compactJws(signingInput, signature);
     },
     publish: writeBundle,
     publishKeys: writeBundleFrom,

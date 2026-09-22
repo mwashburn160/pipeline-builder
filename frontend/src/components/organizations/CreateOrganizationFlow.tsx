@@ -171,7 +171,7 @@ function CreateOrganizationModal({ onClose, onCreated }: {
           <EligibleParentPicker value={parent} onChange={setParent} disabled={createForm.loading} />
         )}
       </div>
-      {createForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{createForm.error}</p>}
+      {createForm.error && <p className="text-sm text-danger mt-3">{createForm.error}</p>}
     </Modal>
   );
 }

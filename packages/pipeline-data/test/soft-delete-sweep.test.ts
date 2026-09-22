@@ -3,8 +3,8 @@
 
 /**
  * Tests for the soft-delete retention sweep orchestrator + scheduler factory
- * (src/api/soft-delete-sweep.ts). api-core is mocked so createScheduler /
- * createEnvRedisLock are spies; tenancy is mocked so runWithTenantContext is a
+ * (src/api/soft-delete-sweep.ts). api-core is mocked so createScheduler is a
+ * spy; tenancy is mocked so runWithTenantContext is a
  * pass-through we can assert the sysadmin scope on.
  */
 
@@ -13,11 +13,9 @@ import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const createSchedulerSpy = jest.fn((_opts: unknown) => ({ start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() }));
-const createEnvRedisLockSpy = jest.fn<() => unknown>(() => null);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createScheduler: createSchedulerSpy,
-  createEnvRedisLock: createEnvRedisLockSpy,
 }));
 
 const runWithTenantContextSpy = jest.fn(<T>(_ctx: unknown, fn: () => T): T => fn());
@@ -40,7 +38,7 @@ function fakeEntity(name: string, batches: number[]) {
 
 const ENV_KEY = 'SOFT_DELETE_PURGE_ENABLED';
 let savedEnv: string | undefined;
-beforeEach(() => { savedEnv = process.env[ENV_KEY]; jest.clearAllMocks(); createEnvRedisLockSpy.mockReturnValue(null); });
+beforeEach(() => { savedEnv = process.env[ENV_KEY]; jest.clearAllMocks(); });
 afterEach(() => { if (savedEnv === undefined) delete process.env[ENV_KEY]; else process.env[ENV_KEY] = savedEnv; });
 
 describe('runSoftDeletePurge', () => {
@@ -98,24 +96,14 @@ describe('createSoftDeletePurgeScheduler', () => {
     expect(createSchedulerSpy).not.toHaveBeenCalled();
   });
 
-  it('builds a scheduler when enabled, with a leader lock when Redis is configured', () => {
+  it('builds a leader-locked scheduler when enabled', () => {
     process.env[ENV_KEY] = 'true';
-    const lock = { set: jest.fn<AnyFn>() };
-    createEnvRedisLockSpy.mockReturnValue(lock);
     const sched = createSoftDeletePurgeScheduler({ service: 'plugin', entities: [fakeEntity('plugin', [])] });
     expect(sched).not.toBeNull();
     expect(createSchedulerSpy).toHaveBeenCalledTimes(1);
     const opts = createSchedulerSpy.mock.calls[0][0] as { name: string; lock?: { key: string } };
     expect(opts.name).toBe('soft-delete-purge:plugin');
     expect(opts.lock?.key).toBe('soft-delete-purge:plugin:leader');
-  });
-
-  it('omits the lock when Redis is not configured', () => {
-    process.env[ENV_KEY] = 'true';
-    createEnvRedisLockSpy.mockReturnValue(null);
-    createSoftDeletePurgeScheduler({ service: 'plugin', entities: [] });
-    const opts = createSchedulerSpy.mock.calls[0][0] as { lock?: unknown };
-    expect(opts.lock).toBeUndefined();
   });
 });
 

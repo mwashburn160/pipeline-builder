@@ -4,10 +4,9 @@
 /**
  * Typed environment-variable readers with consistent parsing + defaults.
  *
- * Services previously hand-rolled `parseInt(process.env.X || '…', 10)` /
- * `process.env.X === 'true'` at hundreds of call sites — which drifts (the same
- * var parsed with different defaults in different packages) and silently returns
- * the default on a typo'd name. These helpers centralize the parsing so a value
+ * Hand-rolled `parseInt(process.env.X || '…', 10)` / `process.env.X === 'true'`
+ * drifts (the same var parsed with different defaults in different packages)
+ * and silently returns the default on a typo'd name. These helpers centralize the parsing so a value
  * is read the same way everywhere, and make shared constants importable rather
  * than re-derived (see `MAX_PAGE_LIMIT` / `DEFAULT_PAGE_LIMIT` in
  * `validation/common-schemas.ts`).

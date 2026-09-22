@@ -11,19 +11,20 @@ import {
   sendError,
   sendSuccess,
   SYSTEM_ORG_ID,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import express, { Router, type RequestHandler } from 'express';
 
-import { isQuarantineRepo, repoOwnerOrgId } from './images/repo-access.js';
 import { registerPublicationRoutes } from './internal-publications.js';
-import { emitImageRegistryAudit } from '../services/audit.js';
+import { QUARANTINE_PREFIX, inQuarantineNamespace, isPluginRepository, isPublicRepository, isQuarantineRepository, isSha256Digest, repoOwnerOrgId } from '../services/namespaces.js';
 import {
-  isPluginRepository, isPublicRepository, isQuarantineRepository, isSha256Digest, PluginSigningError, signPluginImage,
+  PluginSigningError,
+  signPluginImage,
 } from '../services/plugin-signing.js';
 import { isQuarantineSubmissionId, mintQuarantineCredential } from '../services/quarantine-credential.js';
 import { headManifest } from '../services/registry-client.js';
-import { deleteQuarantineRepository, QUARANTINE_PREFIX } from '../services/registry-gc.js';
+import { deleteQuarantineRepository } from '../services/registry-gc.js';
 
 /** Path of the signing route — also excluded from the app's global 1mb JSON parser. */
 export const PLUGIN_SIGNATURES_PATH = '/internal/plugin-signatures';
@@ -49,7 +50,7 @@ const SBOM_BODY_LIMIT = '32mb';
  *    submission's quarantined build (`quarantine/<submissionId>`) once it is
  *    decided or expired.
  *  - POST /internal/quarantine/:submissionId/credential — plugin → the
- *    registry-only credential that submission's build pushes with (E21).
+ *    registry-only credential that submission's build pushes with.
  */
 export function createInternalRoutes(): Router {
   const router: Router = Router();
@@ -68,7 +69,7 @@ export function createInternalRoutes(): Router {
       // `quarantine/<submissionId>` is signed so its SBOM attestation survives into
       // the approved public copy; it is owned by the system org (repoOwnerOrgId).
       if (typeof repository !== 'string' || !isPluginRepository(repository) || isPublicRepository(repository)
-        || (isQuarantineRepo(repository) && !isQuarantineRepository(repository))) {
+        || (inQuarantineNamespace(repository) && !isQuarantineRepository(repository))) {
         return sendBadRequest(res, 'repository must be system/<name>, org-<orgId>/<name> or quarantine/<submissionId>', ErrorCode.VALIDATION_ERROR);
       }
       if (typeof digest !== 'string' || !isSha256Digest(digest)) {
@@ -102,7 +103,7 @@ export function createInternalRoutes(): Router {
       }
 
       ctx.log('COMPLETED', 'Signed plugin image', { repository, digest });
-      emitImageRegistryAudit({
+      recordAudit({
         action: 'registry.image.sign',
         actorId: actorId({}),
         orgId: ownerOrgId,
@@ -116,7 +117,7 @@ export function createInternalRoutes(): Router {
     }),
   );
 
-  // Anonymous plugin submissions (plugin ecosystem §4.2 / W5): the plugin
+  // Anonymous plugin submissions: the plugin
   // service's hook for a submission that reached a terminal state (rejected,
   // gate_failed, expired, or approved once the publish copied it out). Deletes
   // every manifest in `quarantine/<submissionId>`; idempotent (a gone repo →
@@ -139,7 +140,7 @@ export function createInternalRoutes(): Router {
       const result = await deleteQuarantineRepository(repository, 'requested');
       ctx.log('COMPLETED', 'Deleted quarantine repository', { repository, deleted: result.deleted });
       if (result.deleted > 0) {
-        emitImageRegistryAudit({
+        recordAudit({
           action: 'registry.gc',
           actorId: actorId({}),
           orgId: SYSTEM_ORG_ID,
@@ -154,7 +155,7 @@ export function createInternalRoutes(): Router {
     }),
   );
 
-  // The credential an anonymous submission's build runs with (E21): push/pull on
+  // The credential an anonymous submission's build runs with: push/pull on
   // `quarantine/<submissionId>` only, accepted by no platform service. Minting
   // one changes no durable state (it expires on its own; the token endpoint
   // re-checks it on every use) — see the route-coverage waiver.

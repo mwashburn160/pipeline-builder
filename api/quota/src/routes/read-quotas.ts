@@ -11,16 +11,14 @@ import {
   ErrorCode,
   VALID_QUOTA_TYPES,
   getParam,
-  parseQueryIntClamped,
+  isValidQuotaType,
+  parsePage,
 } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { config } from '../config.js';
-import {
-  isValidQuotaType,
-} from '../helpers/quota-helpers.js';
 import { authorizeOrg } from '../middleware/authorize-org.js';
 import { type AtRiskEntry, type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
 
@@ -33,16 +31,6 @@ interface AtRiskCacheEntry {
 // findAll() page is capped here (and by findAll's own FIND_ALL_MAX_LIMIT) while
 // the loop walks the whole org collection to exhaustion.
 const ORG_SCAN_PAGE_SIZE = 1000;
-
-/**
- * Hard ceiling on the 1-based `offset` query param of GET /quotas/all. The
- * limit was already clamped, but the offset was not: `offset=99999999999` made
- * Mongo walk (and discard) every matching document before returning an empty
- * page, so a single sysadmin request could pin a mongod core. Deep paging past
- * this is not a real access pattern — the at-risk scan, which genuinely walks
- * the whole collection, calls the service directly.
- */
-const MAX_LIST_OFFSET = 100_000;
 
 export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
@@ -79,13 +67,13 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     // another tenant's numbers.
     requireSystemAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const limit = parseQueryIntClamped(req.query.limit, 100, 1000);
-      // 1-based page start, clamped like `limit` — see MAX_LIST_OFFSET.
-      const offset = parseQueryIntClamped(req.query.offset, 1, MAX_LIST_OFFSET) - 1;
+      // 0-based offset, clamped (MAX_PAGE_OFFSET) so a huge `?offset=` can't make
+      // Mongo walk and discard the whole collection.
+      const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 100, max: 1000 });
 
-      const organizations = await svc.findAll({ limit, offset });
-      ctx.log('COMPLETED', 'Listed all organizations', { total: organizations.length, limit, offset });
-      return sendSuccess(res, 200, { organizations, total: organizations.length, limit, offset });
+      const { organizations, total } = await svc.findAll({ limit, offset });
+      ctx.log('COMPLETED', 'Listed all organizations', { total, limit, offset });
+      return sendSuccess(res, 200, { organizations, total, limit, offset });
     }),
   );
 

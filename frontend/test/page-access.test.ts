@@ -5,9 +5,8 @@
  * Deep-link read gates.
  *
  * The sidebar hides a link the viewer can't use, but a bookmark, a shared URL or
- * a post-login redirect goes straight to the page. Those pages used to render
- * the full chrome and then 403 panel by panel. `src/lib/page-access.ts` now
- * declares what every dashboard route requires — derived from the SAME nav entry
+ * a post-login redirect goes straight to the page, which must not render the
+ * full chrome and then 403 panel by panel. `src/lib/page-access.ts` declares what every dashboard route requires — derived from the SAME nav entry
  * the sidebar filters on — and `useAuthGuard` applies it.
  *
  * Two things have to stay true for that to hold, and neither is visible in a

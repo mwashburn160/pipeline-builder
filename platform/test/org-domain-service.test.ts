@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { Types } from 'mongoose';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { seatsMock } from './helpers/seats-mock.js';
 
 const mockDomainFindOne = jest.fn<AnyFn>();
 const mockDomainFind = jest.fn<AnyFn>();
@@ -65,7 +66,7 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, resolveOrgLineage: (...a: unknown[]) => mockResolveLineage(...a) }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ emailDomain: (e: string) => (e.includes('@') ? e.split('@')[1].toLowerCase() : null) }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({
+jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
   seatCapacityAvailable: (...a: unknown[]) => mockSeatAvailable(...a),
   seatCapacityStillWithinCap: (...a: unknown[]) => mockSeatStillWithin(...a),
   userHasSeatInAccount: (...a: unknown[]) => mockUserHasSeat(...a),
@@ -80,7 +81,7 @@ const { orgDomainService } = svc;
 const entitledOrg = (over: Record<string, unknown> = {}) =>
   ({ select: () => ({ lean: () => Promise.resolve({ tier: 'team', name: 'Acme', deletedAt: null, ...over }) }) });
 const discoverable = (autoJoin = 'request') =>
-  ({ lean: () => Promise.resolve([{ orgId: 'org-1', domain: 'acme.com', autoJoin }]) });
+  ({ lean: () => Promise.resolve([{ organizationId: 'org-1', domain: 'acme.com', autoJoin }]) });
 // The batch org fetch in findDiscoverableOrgsByEmail (Organization.find(...).select().lean()).
 // Valid 24-hex ObjectIds for the id-shape guards (isValidObjectId).
 const DID = '0123456789abcdef01234567';
@@ -126,16 +127,16 @@ describe('addDomain', () => {
   });
 
   it('is idempotent for the same org', async () => {
-    mockDomainFindOne.mockResolvedValueOnce({ orgId: 'org-1', domain: 'acme.com' }); // mine
+    mockDomainFindOne.mockResolvedValueOnce({ organizationId: 'org-1', domain: 'acme.com' }); // mine
     const doc: any = await orgDomainService.addDomain('org-1', 'acme.com', 'u1');
-    expect(doc.orgId).toBe('org-1');
+    expect(doc.organizationId).toBe('org-1');
     expect(mockDomainCreate).not.toHaveBeenCalled();
   });
 
   it('rejects a domain already VERIFIED by another org', async () => {
     mockDomainFindOne
       .mockResolvedValueOnce(null) // mine
-      .mockResolvedValueOnce({ orgId: 'org-2', verified: true }); // verifiedElsewhere
+      .mockResolvedValueOnce({ organizationId: 'org-2', verified: true }); // verifiedElsewhere
     await expect(orgDomainService.addDomain('org-1', 'acme.com', 'u1')).rejects.toThrow(DOMAIN_TAKEN);
   });
 
@@ -150,7 +151,7 @@ describe('verifyDomain', () => {
   it('verifies on TXT match and evicts other unverified claims', async () => {
     const save = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
     mockDomainFindOne
-      .mockResolvedValueOnce({ _id: 'd1', orgId: 'org-1', domain: 'acme.com', verified: false, verificationToken: 'tok', save }) // by id
+      .mockResolvedValueOnce({ _id: 'd1', organizationId: 'org-1', domain: 'acme.com', verified: false, verificationToken: 'tok', save }) // by id
       .mockResolvedValueOnce(null); // verifiedElsewhere race check
     mockResolveTxt.mockResolvedValue([['pb-verify=tok']]);
     const doc: any = await orgDomainService.verifyDomain('org-1', DID);
@@ -159,13 +160,13 @@ describe('verifyDomain', () => {
   });
 
   it('fails when the TXT record is absent/mismatched', async () => {
-    mockDomainFindOne.mockResolvedValueOnce({ _id: 'd1', orgId: 'org-1', domain: 'acme.com', verified: false, verificationToken: 'tok', save: jest.fn<AnyFn>() }).mockResolvedValueOnce(null);
+    mockDomainFindOne.mockResolvedValueOnce({ _id: 'd1', organizationId: 'org-1', domain: 'acme.com', verified: false, verificationToken: 'tok', save: jest.fn<AnyFn>() }).mockResolvedValueOnce(null);
     mockResolveTxt.mockResolvedValue([['pb-verify=WRONG']]);
     await expect(orgDomainService.verifyDomain('org-1', DID)).rejects.toThrow(DOMAIN_VERIFY_FAILED);
   });
 
   it('fails (not hangs) when DNS rejects', async () => {
-    mockDomainFindOne.mockResolvedValueOnce({ _id: 'd1', orgId: 'org-1', domain: 'acme.com', verified: false, verificationToken: 'tok', save: jest.fn<AnyFn>() }).mockResolvedValueOnce(null);
+    mockDomainFindOne.mockResolvedValueOnce({ _id: 'd1', organizationId: 'org-1', domain: 'acme.com', verified: false, verificationToken: 'tok', save: jest.fn<AnyFn>() }).mockResolvedValueOnce(null);
     mockResolveTxt.mockRejectedValue(new Error('ENOTFOUND'));
     await expect(orgDomainService.verifyDomain('org-1', DID)).rejects.toThrow(DOMAIN_VERIFY_FAILED);
   });
@@ -178,30 +179,30 @@ describe('verifyDomain', () => {
 
 describe('setDomainMode', () => {
   it('refuses a non-off mode on an unverified domain', async () => {
-    mockDomainFindOne.mockResolvedValue({ _id: 'd1', orgId: 'org-1', verified: false, save: jest.fn<AnyFn>() });
+    mockDomainFindOne.mockResolvedValue({ _id: 'd1', organizationId: 'org-1', verified: false, save: jest.fn<AnyFn>() });
     await expect(orgDomainService.setDomainMode('org-1', DID, 'auto')).rejects.toThrow(DOMAIN_NOT_VERIFIED);
   });
 
   it('sets a mode on a verified, entitled domain', async () => {
     const save = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
-    mockDomainFindOne.mockResolvedValue({ _id: 'd1', orgId: 'org-1', domain: 'acme.com', verified: true, autoJoin: 'off', save });
+    mockDomainFindOne.mockResolvedValue({ _id: 'd1', organizationId: 'org-1', domain: 'acme.com', verified: true, autoJoin: 'off', save });
     const out: any = await orgDomainService.setDomainMode('org-1', DID, 'auto');
     expect(out.autoJoin).toBe('auto');
   });
 
   it('cancels pending requests when set to off', async () => {
     const save = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
-    mockDomainFindOne.mockResolvedValue({ _id: 'd1', orgId: 'org-1', domain: 'acme.com', verified: true, autoJoin: 'auto', save });
+    mockDomainFindOne.mockResolvedValue({ _id: 'd1', organizationId: 'org-1', domain: 'acme.com', verified: true, autoJoin: 'auto', save });
     await orgDomainService.setDomainMode('org-1', DID, 'off');
     expect(mockJoinDeleteMany).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: 'org-1', status: 'pending' }),
+      expect.objectContaining({ organizationId: 'org-1', status: 'pending' }),
     );
   });
 });
 
 describe('deleteDomain', () => {
   it('deletes and cancels that domain’s pending requests', async () => {
-    mockDomainFindOne.mockResolvedValue({ _id: 'd1', orgId: 'org-1', domain: 'acme.com' });
+    mockDomainFindOne.mockResolvedValue({ _id: 'd1', organizationId: 'org-1', domain: 'acme.com' });
     mockDomainDeleteOne.mockResolvedValue({ deletedCount: 1 });
     await orgDomainService.deleteDomain('org-1', DID);
     expect(mockDomainDeleteOne).toHaveBeenCalled();
@@ -257,7 +258,7 @@ describe('requestOrAutoJoin', () => {
     const res = await orgDomainService.requestOrAutoJoin(user, 'org-1');
     expect(res.status).toBe('requested');
     expect(mockJoinUpdateOne).toHaveBeenCalledWith(
-      expect.objectContaining({ orgId: 'org-1' }),
+      expect.objectContaining({ organizationId: 'org-1' }),
       expect.objectContaining({ $set: expect.objectContaining({ status: 'pending' }) }),
       expect.objectContaining({ upsert: true }),
     );
@@ -304,7 +305,7 @@ describe('requestOrAutoJoin', () => {
 describe('reverifyStaleDomains', () => {
   const staleDoc = (over: Record<string, unknown> = {}) => ({
     _id: 'd1',
-    orgId: 'org-1',
+    organizationId: 'org-1',
     domain: 'acme.com',
     verified: true,
     verificationToken: 'tok',
@@ -349,7 +350,7 @@ describe('decideJoinRequest', () => {
 
   it('approves → re-validates eligibility, creates membership, marks approved', async () => {
     const save = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
-    mockJoinFindOne.mockResolvedValue({ _id: 'r1', orgId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending', save });
+    mockJoinFindOne.mockResolvedValue({ _id: 'r1', organizationId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending', save });
     mockDomainFind.mockReturnValue(discoverable('request')); // still eligible
     // Robust: the pre-check uses .lean(), the in-tx guard uses .session() — both null.
     mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve(null), session: () => Promise.resolve(null) });
@@ -359,7 +360,7 @@ describe('decideJoinRequest', () => {
   });
 
   it('refuses to approve a request whose requester was deleted — no orphan membership', async () => {
-    mockJoinFindOne.mockResolvedValue({ _id: 'r1', orgId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending', save: jest.fn<AnyFn>() });
+    mockJoinFindOne.mockResolvedValue({ _id: 'r1', organizationId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending', save: jest.fn<AnyFn>() });
     mockDomainFind.mockReturnValue(discoverable('request'));
     mockUserOrgFindOne.mockReturnValue({ lean: () => Promise.resolve(null), session: () => Promise.resolve(null) });
     mockUserExists.mockResolvedValue(null);
@@ -368,14 +369,14 @@ describe('decideJoinRequest', () => {
   });
 
   it('refuses to approve when the domain is no longer discoverable', async () => {
-    mockJoinFindOne.mockResolvedValue({ _id: 'r1', orgId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending', save: jest.fn<AnyFn>() });
+    mockJoinFindOne.mockResolvedValue({ _id: 'r1', organizationId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending', save: jest.fn<AnyFn>() });
     mockDomainFind.mockReturnValue({ lean: () => Promise.resolve([]) }); // no longer eligible
     await expect(orgDomainService.decideJoinRequest('org-1', RID, 'approve', decider)).rejects.toThrow(JOIN_NOT_ELIGIBLE);
   });
 
   it('denies without creating a membership', async () => {
     const save = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
-    mockJoinFindOne.mockResolvedValue({ _id: 'r1', orgId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending', save });
+    mockJoinFindOne.mockResolvedValue({ _id: 'r1', organizationId: 'org-1', userId: new Types.ObjectId(), email: 'jane@acme.com', status: 'pending', save });
     const res = await orgDomainService.decideJoinRequest('org-1', RID, 'deny', decider);
     expect(res.status).toBe('denied');
     expect(mockUserOrgCreate).not.toHaveBeenCalled();

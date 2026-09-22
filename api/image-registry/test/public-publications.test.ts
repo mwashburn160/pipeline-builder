@@ -4,7 +4,7 @@
 /**
  * Tests for services/public-publications — the ownership records that say which
  * org is billed for each `public/<handle>/<name>` repository (plugin ecosystem
- * §3.3 / G40). Records are OCI artifacts stored IN the registry under
+ * ). Records are OCI artifacts stored IN the registry under
  * `registry-meta/publications/<handle>/<name>:owner`.
  *
  * The registry client is replaced by a small in-memory registry so records are

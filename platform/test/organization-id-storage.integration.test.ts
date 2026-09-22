@@ -17,7 +17,7 @@
  *  - `Organization._id` (default `() => new ObjectId()`) is stored as an ObjectId.
  *  - Because the path is now a real ObjectId (not Mixed), Mongoose auto-casts a
  *    24-hex string in a `findById`/filter, so both a raw-string lookup AND a
- *    `toOrgId(<24-hex>)` lookup HIT — the old Mixed casting split (#13) is gone.
+ *    `toOrgId(<24-hex>)` lookup HIT.
  *    `toOrgId` stays a safe canonical caster (24-hex → ObjectId, else untouched).
  *  - `UserOrganization.organizationId` is stored as an ObjectId when set from
  *    `org._id`, and matches by string or cast for the same reason.
@@ -48,7 +48,7 @@ const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
 // is REQUIRED — see helpers/integration-gate.ts for why skipping there is unsafe.
 const suite = integrationSuite();
 
-suite('organization id storage (real Mongo, #13)', () => {
+suite('organization id storage (real Mongo)', () => {
   // Loosely typed — deps load dynamically inside beforeAll so a skipped run
   // pulls in nothing (and needs no mongod binary present).
   let mongod: { getUri: () => string; stop: () => Promise<boolean> };
@@ -158,5 +158,26 @@ suite('organization id storage (real Mongo, #13)', () => {
     const info = await loadActiveOrgInfo(userId, String(org._id));
     expect(info.organizationName).toBe('Delta');
     expect(info.activeOrgRole).toBe('admin');
+  });
+  // Every per-org collection keys its org as `organizationId: ObjectId`, so one
+  // query shape (string id or cast id) matches in all of them. AuditEvent is the
+  // deliberate exception (`orgId`, part of its hash-chain / ingest contract).
+  it('stores organizationId as an ObjectId on every per-org collection', async () => {
+    const models = await import('../src/models/index.js');
+    const org = await Organization.create({ name: 'Epsilon', owner: new Types.ObjectId() });
+    const idStr = String(org._id);
+    const userId = new Types.ObjectId();
+    const docs: Array<[string, Record<string, unknown>]> = [
+      ['OrgDomain', { domain: 'eps.example', verificationToken: 't', createdBy: 'u' }],
+      ['JoinRequest', { userId, email: 'x@eps.example' }],
+      ['IdpGroupMapping', { group: 'g', groupKey: 'g', roleIds: [], createdBy: 'u', updatedBy: 'u' }],
+    ];
+    for (const [name, body] of docs) {
+      const Model = (models as Record<string, any>)[name];
+      await Model.create({ organizationId: idStr, ...body });
+      const stored = await Model.collection.findOne({ organizationId: org._id });
+      expect(stored?.organizationId).toBeInstanceOf(Types.ObjectId);
+      expect(await Model.findOne({ organizationId: idStr })).not.toBeNull();
+    }
   });
 });

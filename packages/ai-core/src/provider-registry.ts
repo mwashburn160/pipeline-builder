@@ -74,10 +74,10 @@ const KEYLESS_PROVIDERS = new Set(['amazon-bedrock']);
  * A configured region is NOT such a signal: every deploy target sets
  * `AWS_REGION` (it is needed for pipeline synthesis), including minikube and
  * docker-compose, where nothing grants the pod AWS credentials. Gating Bedrock
- * on the region alone therefore advertised it on local installs as the ONLY
- * provider, `resolveAskModel` picked it as the default, and every Ask turn died
- * with "Could not load credentials from any providers" — an error about AWS
- * that has nothing to do with what the user asked.
+ * on the region alone would advertise it on local installs as the ONLY
+ * provider, `resolveModelSelection` would pick it as the default, and every Ask
+ * turn would die with "Could not load credentials from any providers" — an
+ * error about AWS that has nothing to do with what the user asked.
  *
  * Each check below corresponds to a way `fromNodeProviderChain()` can succeed:
  *   - static keys in the environment;
@@ -223,4 +223,82 @@ export function createModelWithKey(providerId: string, modelId: string, apiKey: 
     return factory()(modelId);
   }
   return factory(apiKey)(modelId);
+}
+
+/** What a caller asked for; every field optional (see {@link resolveModelSelection}). */
+export interface ModelSelection {
+  provider?: string;
+  model?: string;
+  /** Ephemeral bring-your-own key — the request is billed to it, never to a platform key. */
+  apiKey?: string;
+  /** Platform providers to try, in order, with their first model if the requested one can't be resolved. */
+  fallbacks?: string[];
+}
+
+/** A resolved model plus who actually serves it. */
+export interface ResolvedModelSelection {
+  model: LanguageModel;
+  provider: string;
+  modelId: string;
+  /** Set when a fallback provider serves the request: the provider originally asked for. */
+  fallbackFrom?: string;
+}
+
+/**
+ * Resolve a LanguageModel for a request:
+ * - `provider` + `model` → use them (with an optional ephemeral BYO key);
+ * - `provider` only → the provider's first catalog model;
+ * - `model` only → error (ambiguous — the provider is unknown);
+ * - neither → the first env-configured provider (a cloud key or the local
+ *   OpenAI-compatible endpoint) so AI features work out of the box.
+ *
+ * If the requested provider/model can't be resolved, `fallbacks` are tried in
+ * order with each provider's first model — EXCEPT for a BYO-key request: the
+ * fallbacks resolve through the platform's env-configured keys, which would
+ * silently spend the platform's AI budget on a request the caller meant to bill
+ * to their own key. A BYO failure is terminal.
+ *
+ * @throws Error when nothing resolves (the original error when fallbacks are exhausted)
+ */
+export function resolveModelSelection(selection: ModelSelection): ResolvedModelSelection {
+  const { provider, model, apiKey, fallbacks } = selection;
+
+  if (!provider) {
+    if (model) {
+      throw new Error('A `model` was supplied without a `provider` — specify both, or neither.');
+    }
+    const first = getAvailableProviders()[0];
+    const firstModel = first?.models[0]?.id;
+    if (!first || !firstModel) {
+      throw new Error('AI is not configured: no provider API key is set and OPENAI_COMPATIBLE_BASE_URL is unset.');
+    }
+    return { model: resolveModel(first.id, firstModel), provider: first.id, modelId: firstModel };
+  }
+
+  try {
+    const modelId = model ?? getProviderModels(provider)[0]?.id;
+    if (!modelId) {
+      throw new Error(`AI provider "${provider}" has no configured models.`);
+    }
+    const resolved = apiKey ? createModelWithKey(provider, modelId, apiKey) : resolveModel(provider, modelId);
+    return { model: resolved, provider, modelId };
+  } catch (primaryError) {
+    if (apiKey || !fallbacks?.length) throw primaryError;
+
+    for (const fallbackProvider of fallbacks) {
+      const fallbackModel = getAvailableProviders().find((p) => p.id === fallbackProvider)?.models[0]?.id;
+      if (!fallbackModel) continue;
+      try {
+        return {
+          model: resolveModel(fallbackProvider, fallbackModel),
+          provider: fallbackProvider,
+          modelId: fallbackModel,
+          fallbackFrom: provider,
+        };
+      } catch {
+        continue;
+      }
+    }
+    throw primaryError;
+  }
 }

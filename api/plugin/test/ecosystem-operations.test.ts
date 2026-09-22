@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Ecosystem operations (docs/plans/plugin-ecosystem.md §3.0.1, §3.7, §5b N22,
- * §9a) against the in-memory database:
+ * Ecosystem operations (docs/plugin-publishing.md N22,
+ * ) against the in-memory database:
  *
  *  - automatic Verified eligibility (plan, DNS-verified domain, owner MFA) at
  *    application AND decision time, failing closed when platform can't answer;
  *  - the approver standing on the overview and per request (conflicts removed);
- *  - the §9a gauges, decision counters and SLA-breach notices (N22, once per
- *    request).
+ *  - the gauges, decision counters and SLA-breach notices (N22, once per
+ * request).
  */
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
@@ -70,7 +70,7 @@ beforeEach(() => {
 // Verified eligibility
 // -----------------------------------------------------------------------------
 
-describe('Verified eligibility at application time (§3.7)', () => {
+describe('Verified eligibility at application time', () => {
   it('records all three passing checks on the request', async () => {
     seedPublishers(db);
     const out = await requestsSvc.submit(APPLICANT, { kind: 'verify', application: { domain: 'ACME.dev' } });
@@ -167,7 +167,7 @@ describe('Verified eligibility at decision time', () => {
 });
 
 // -----------------------------------------------------------------------------
-// Approver standing (§3.0.1)
+// Approver standing
 // -----------------------------------------------------------------------------
 
 describe('eligible approvers', () => {
@@ -214,7 +214,7 @@ describe('eligible approvers', () => {
 });
 
 // -----------------------------------------------------------------------------
-// §9a metrics
+// metrics
 // -----------------------------------------------------------------------------
 
 function openRequest(publisherId: string, over: Record<string, unknown> = {}) {

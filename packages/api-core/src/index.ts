@@ -22,7 +22,7 @@
  * **Utilities**
  * - createLogger — Winston-based structured logger factory
  * - sendSuccess, sendError, sendPaginatedNested, sendBadRequest, sendInternalError — HTTP response helpers
- * - getParam, getOrgId — request parameter extraction
+ * - getParam — request parameter extraction
  * - parseQueryInt, parseQueryString — query string parsing
  * - getIdentity — identity extraction from requests
  * - actorId — the audit actor for a route context (one `system` sentinel)

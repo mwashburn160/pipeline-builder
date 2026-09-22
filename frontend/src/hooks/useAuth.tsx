@@ -6,15 +6,14 @@ import api, { ApiError } from '@/lib/api';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
 import { syncAdminConsoleCookie } from '@/lib/admin-console';
 import { clearQueryCache } from '@/lib/query-cache';
-import { clearPluginCache } from './usePlugins';
 import { useLoginActions, type LoginResult } from './internal/useLoginActions';
 
 /**
  * Minimum gap between profile refreshes triggered by the tab becoming visible.
  *
- * The handler used to fire on EVERY `visibilitychange`, so alt-tabbing across a
- * few windows, or a screen-share preview flipping the tab, cost a `/auth/profile`
- * plus a `/user/organizations` round trip each time. The refresh exists to catch
+ * Without it, alt-tabbing across a few windows, or a screen-share preview
+ * flipping the tab, would cost a `/auth/profile` plus a `/user/organizations`
+ * round trip on every `visibilitychange`. The refresh exists to catch
  * a token that expired while browser timers were throttled in the background —
  * a minute's granularity is ample for that, and the API client still refreshes
  * the token on demand before any request that needs one.
@@ -105,7 +104,7 @@ interface RawUserData {
   features?: string[];
   permissions?: string[];
   featureOverrides?: Record<string, boolean>;
-  /** The active org's two-factor requirement (#8), when it has one. */
+  /** The active org's two-factor requirement, when it has one. */
   mfaPolicy?: SessionMfaPolicy;
   /** Which factors the account holds. Read by the security posture strip, the
    *  step-up modal and the password-only prompt. */
@@ -140,7 +139,6 @@ function keepIfUnchanged<T>(prev: T, next: T): T {
  * the reset is now explicit instead of a side effect of a re-key.
  */
 function clearSessionCaches(): void {
-  clearPluginCache();
   clearAttachmentImageCache();
   clearQueryCache();
 }
@@ -199,7 +197,6 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
             organizationName: rawUser.organizationName,
             // Sysadmin claim from the JWT — gates sysadmin-only routes
             // (Registry, Build Queue, All Users, etc.) via isSystemAdmin().
-            // Missing here previously, so the sidebar filter always saw false.
             isSuperAdmin: rawUser.isSuperAdmin === true,
             isEmailVerified: rawUser.isEmailVerified ?? false,
             needsOnboarding: rawUser.needsOnboarding === true,

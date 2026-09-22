@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, envInt, type Scheduler } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { lt } from 'drizzle-orm';
 import type { RuleValidationResult } from '../engine/rule-engine.js';
@@ -68,51 +68,27 @@ export async function pruneComplianceAudit(maxAgeDays: number = DEFAULT_AUDIT_RE
  * Start a daily background prune of the compliance audit log.
  * Returns a `stop()` handle for graceful shutdown / tests.
  *
- * Schedules the next run at a small jitter past 24h to avoid thundering-herd
- * across multiple service replicas. The first run fires `firstRunDelayMs`
- * after start (default: 60s) so service boot isn't blocked.
+ * The first run fires `firstRunDelayMs` after start (default: 60s) so service
+ * boot isn't blocked. Leader-locked so only one replica prunes per window (the
+ * DELETE is idempotent, so a lock-less deployment is still correct).
  */
 export function startAuditPruneCron(opts: {
   maxAgeDays?: number;
   intervalMs?: number;
   firstRunDelayMs?: number;
-} = {}): { stop: () => void } {
+} = {}): Scheduler {
   const maxAgeDays = opts.maxAgeDays ?? DEFAULT_AUDIT_RETENTION_DAYS;
   const intervalMs = opts.intervalMs ?? 24 * 60 * 60 * 1000; // 24 h
   const firstRunDelayMs = opts.firstRunDelayMs ?? 60_000;
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  // `stopped` is consulted in the `finally` block so a `stop()` that fires
-  // mid-tick doesn't reschedule a phantom timer (which would leak past the
-  // requested shutdown and keep the process alive in tests).
-  let stopped = false;
-  const tick = async () => {
-    try {
-      await pruneComplianceAudit(maxAgeDays);
-    } catch (err) {
-      logger.error('Audit prune tick failed', { err });
-    } finally {
-      if (!stopped) {
-        // Schedule next run with ±2.5 min symmetric jitter to spread replicas.
-        // Floor at a small positive value so we never schedule a setTimeout
-        // with a negative delay (which Node treats as 1 ms).
-        const jitter = Math.floor((Math.random() - 0.5) * 5 * 60_000);
-        const nextDelay = Math.max(1_000, intervalMs + jitter);
-        timer = setTimeout(tick, nextDelay);
-        timer.unref();
-      }
-    }
-  };
-  timer = setTimeout(tick, firstRunDelayMs);
-  timer.unref();
+  const scheduler = createScheduler({
+    name: 'compliance-audit-prune',
+    intervalMs,
+    startupDelayMs: firstRunDelayMs,
+    lock: { key: 'compliance-audit-prune:leader', ttlMs: 10 * 60_000 },
+    run: async () => { await pruneComplianceAudit(maxAgeDays); },
+  });
+  scheduler.start();
   logger.info('Audit prune cron scheduled', { maxAgeDays, intervalMs, firstRunDelayMs });
-
-  return {
-    stop: () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      timer = undefined;
-    },
-  };
+  return scheduler;
 }
-

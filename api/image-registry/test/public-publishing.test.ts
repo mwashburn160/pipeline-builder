@@ -3,7 +3,7 @@
 
 /**
  * Tests for services/public-publishing — the registry side of the plugin
- * ecosystem's read-only `public/<handle>/<name>` namespace (§3.3 / §3.4):
+ * ecosystem's read-only `public/<handle>/<name>` namespace:
  *
  *  - publish copies the approved digest's manifest + blobs (never its `.sig` /
  *    `.att`), signs it FRESH in `public/*` with the trust-tier + publisher
@@ -606,14 +606,16 @@ describe('verifyPublication', () => {
     await expect(verifyPublication(TARGET, DIGEST)).rejects.toBeInstanceOf(PluginSigningError);
   });
 
-  it('bounds the cache: at capacity it is flushed rather than grown', async () => {
+  it('bounds the cache: at capacity the least-recently-used entry is evicted', async () => {
     verifyPluginSignature.mockImplementation(async (repo, d) => [{
       dockerReference: repo, manifestDigest: d, annotations: { 'pb.trust': 'verified', 'pb.publisher': 'acme' },
     }]);
     for (let i = 0; i < 5000; i++) await verifyPublication(`public/acme/p${i}`, DIGEST);
-    // Full: the next insert clears everything first, so exactly one entry remains.
+    // Full: the next insert evicts the oldest entry, so the size stays at the cap.
     await verifyPublication('public/acme/overflow', DIGEST);
-    expect(invalidateVerifyCache()).toBe(1);
+    expect(invalidateVerifyCache('public/acme/p0')).toBe(0);
+    expect(invalidateVerifyCache('public/acme/p1')).toBe(1);
+    expect(invalidateVerifyCache()).toBe(4999);
   });
 });
 

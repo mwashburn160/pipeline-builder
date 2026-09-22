@@ -24,7 +24,7 @@ const logger = createLogger('dashboard-seeder');
  * start, writes org_id='system' rows directly to the DB (no auth, no HTTP),
  * and is the single source of truth. Editing a default dashboard means
  * editing its JSON — there's no parallel hand-maintained array to drift from
- * (that drift is exactly what previously broke a renamed query key).
+ * (a drifted copy breaks a renamed query key).
  *
  * The JSON is bundled into `lib/` at compile time (tsc copies imported JSON
  * under rootDir to outDir) and ships in the Docker image via the existing

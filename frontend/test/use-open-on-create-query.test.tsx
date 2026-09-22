@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `?create=1` must wait until the page can decide. It used to be consumed the
- * moment the router was ready — on a full page load that is before the user
- * profile (and its permissions) has loaded, so `open` saw no write access, did
- * nothing, and the param was stripped anyway: the bookmarked / Quick Actions
+ * `?create=1` must wait until the page can decide. Consumed the moment the
+ * router is ready — on a full page load, before the user profile (and its
+ * permissions) has loaded — `open` would see no write access, do nothing, and
+ * the param would be stripped anyway: the bookmarked / Quick Actions
  * URL never opened the create modal.
  */
 
@@ -16,7 +16,7 @@ import { useOpenOnCreateQuery } from '../src/hooks/useOpenOnCreateQuery';
 
 const replace = jest.fn<AnyFn>();
 const router = { isReady: true, pathname: '/dashboard/pipelines', query: { create: '1' } as Record<string, string>, replace };
-jest.mock('next/router', () => ({ useRouter: () => router }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => router));
 
 beforeEach(() => { replace.mockClear(); router.query = { create: '1' }; });
 

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `plugin_stats` upkeep (docs/plans/plugin-ecosystem.md §5, §6a, W4): the
+ * `plugin_stats` upkeep (docs/plugin-publishing.md): the
  * numbers the public directory shows and sorts by.
  *
  *  - RATINGS — a Bayesian average (prior 3.5 over 10 votes) where a
- *    verified-use review weighs 1.0 and an unverified one 0.5 (D9, G16), the
+ *    verified-use review weighs 1.0 and an unverified one 0.5, the
  *    raw published count, the star distribution, and the same average over the
  *    last two minor versions ("recent versions"). Recomputed for a listing on
  *    every review write that changes what is published, so the page is never
@@ -16,8 +16,8 @@
  *    use counts, since nothing else records it), joined on the publisher id.
  *  - ADOPTION — distinct orgs that ran it in the last 30 days, from the
  *    manifest-attributed runtime events, plus the 30-day success rate. The
- *    `public_listings` view hides the org count below 5 (k-anonymity, G15).
- *  - HEALTH (W7) — the 0–100 score and its breakdown (api-core
+ *    `public_listings` view hides the org count below 5 (k-anonymity).
+ *  - HEALTH — the 0–100 score and its breakdown (api-core
  *    `computeHealthScore`) from the runtime success rate, the latest listed
  *    version's scan, release and base-image age, signature and smoke test, the
  *    README/license and the rating; and per publisher the run-weighted success
@@ -32,19 +32,21 @@ import {
 } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 import {
+  executeRows,
   compareSemver, parseSemver, schema, type PluginListing, type PluginListingVersion, type PluginReview,
 } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
 
 import { listingStats, reviews } from './reviews-store.js';
-import { ACTIVE_LISTING_STATES, elevated, listings, versions } from './store.js';
+import { elevated, listings, versions } from './store.js';
+import { isActiveListing } from './util.js';
 
 const logger = createLogger('ecosystem-stats');
 
-/** The Bayesian prior: a new listing starts at 3.5 stars, worth 10 votes (§5). */
+/** The Bayesian prior: a new listing starts at 3.5 stars, worth 10 votes. */
 export const RATING_PRIOR_MEAN = 3.5;
 export const RATING_PRIOR_WEIGHT = 10;
-/** Review weights (D9): verified use counts fully, unverified at half weight. */
+/** Review weights: verified use counts fully, unverified at half weight. */
 export const VERIFIED_WEIGHT = 1;
 export const UNVERIFIED_WEIGHT = 0.5;
 /** The adoption window (distinct orgs that ran it, success rate). */
@@ -112,11 +114,6 @@ export async function refreshListingRating(listingId: string): Promise<void> {
   }
 }
 
-function rowsOf<T>(res: unknown): T[] {
-  const rows = (res as { rows?: unknown } | null)?.rows;
-  return Array.isArray(rows) ? (rows as T[]) : [];
-}
-
 const num = (v: unknown): number => {
   const n = typeof v === 'number' ? v : Number.parseFloat(String(v ?? ''));
   return Number.isFinite(n) ? n : 0;
@@ -124,11 +121,11 @@ const num = (v: unknown): number => {
 
 /**
  * Distinct orgs per listing with an active explicit install or a LIVE pipeline
- * whose deployed step manifest references it (E8: a deleted pipeline's
- * manifest never counts). Joined on the publisher ID (E12): a handle can change.
+ * whose deployed step manifest references it (a deleted pipeline's
+ * manifest never counts). Joined on the publisher ID: a handle can change.
  */
 async function installCounts(): Promise<Map<string, number>> {
-  const res = await elevated((tx) => tx.execute(sql`
+  const rows = await elevated((tx) => executeRows<{ listingId: string; installCount: unknown }>(tx, sql`
     SELECT o.listing_id AS "listingId", COUNT(DISTINCT o.org_id)::int AS "installCount"
       FROM (
         SELECT i.listing_id, lower(i.org_id) AS org_id
@@ -141,7 +138,7 @@ async function installCounts(): Promise<Map<string, number>> {
           JOIN plugin_listings l ON l.publisher_id = m.plugin_publisher_id AND l.name = m.plugin_name
       ) o
      GROUP BY o.listing_id`));
-  return new Map(rowsOf<{ listingId: string; installCount: unknown }>(res).map((r) => [r.listingId, num(r.installCount)]));
+  return new Map(rows.map((r) => [r.listingId, num(r.installCount)]));
 }
 
 interface Adoption {
@@ -153,7 +150,7 @@ interface Adoption {
 
 /** Per listing over the adoption window: distinct orgs that ran it, the success rate and the run count. */
 async function adoption(): Promise<Map<string, Adoption>> {
-  const res = await elevated((tx) => tx.execute(sql`
+  const rows = await elevated((tx) => executeRows<{ listingId: string; activeOrgCount: unknown; successRate30d: unknown; runs30d: unknown }>(tx, sql`
     SELECT l.id AS "listingId",
            COUNT(DISTINCT e.org_id)::int AS "activeOrgCount",
            (COUNT(*) FILTER (WHERE e.status = 'SUCCEEDED'))::float / NULLIF(COUNT(*), 0) AS "successRate30d",
@@ -164,7 +161,7 @@ async function adoption(): Promise<Map<string, Adoption>> {
        AND e.status IN ('SUCCEEDED', 'FAILED')
        AND e.completed_at >= now() - make_interval(days => ${ADOPTION_WINDOW_DAYS})
      GROUP BY l.id`));
-  return new Map(rowsOf<{ listingId: string; activeOrgCount: unknown; successRate30d: unknown; runs30d: unknown }>(res).map((r) => [r.listingId, {
+  return new Map(rows.map((r) => [r.listingId, {
     activeOrgCount: num(r.activeOrgCount),
     successRate30d: r.successRate30d === null || r.successRate30d === undefined ? null : num(r.successRate30d),
     runs30d: num(r.runs30d),
@@ -194,7 +191,7 @@ function declaresSmokeTest(spec: Record<string, unknown> | null | undefined): bo
   return t !== null && typeof t === 'object' && Object.keys(t).length > 0;
 }
 
-/** One listing's health (W7) from its row, its versions, its rating columns and its runtime. */
+/** One listing's health from its row, its versions, its rating columns and its runtime. */
 export function listingHealth(
   listing: Pick<PluginListing, 'latestVersion' | 'readmeHtml' | 'license'>,
   listingVersions: readonly PluginListingVersion[],
@@ -222,7 +219,7 @@ export function listingHealth(
   }, now);
 }
 
-/** Write a publisher's W7 roll-ups (without touching `updated_at`: the profile didn't change). */
+/** Write a publisher's roll-ups (without touching `updated_at`: the profile didn't change). */
 async function writePublisherRollup(publisherId: string, successRate30d: number | null, healthScore: number | null): Promise<void> {
   await elevated(async (tx) => {
     await tx.update(schema.publisher).set({ successRate30d, healthScore }).where(eq(schema.publisher.id, publisherId));
@@ -239,7 +236,7 @@ export async function refreshAllStats(signal?: AbortSignal): Promise<{ listings:
     installCounts(),
     adoption(),
   ]);
-  // Grouped by push, never by re-spreading the bucket (O(n), not O(n²), E13).
+  // Grouped by push, never by re-spreading the bucket (O(n), not O(n²)).
   const groupBy = <T extends { listingId: string }>(rows: readonly T[]): Map<string, T[]> => {
     const out = new Map<string, T[]>();
     for (const row of rows) {
@@ -265,7 +262,7 @@ export async function refreshAllStats(signal?: AbortSignal): Promise<{ listings:
     const rating = ratingStats(reviewsBy.get(id) ?? [], listingVersionRows.map((v) => v.version));
     const health = listingHealth(listing, listingVersionRows, rating, run, now);
     const installCount = installs.get(id) ?? 0;
-    if ((ACTIVE_LISTING_STATES as readonly string[]).includes(listing.state)) {
+    if (isActiveListing(listing)) {
       const row = { healthScore: health.score, installCount, successRate30d: run?.successRate30d ?? null, runs30d: run?.runs30d ?? 0 };
       const bucket = rollups.get(listing.publisherId);
       if (bucket) bucket.push(row);

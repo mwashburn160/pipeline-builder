@@ -3,34 +3,32 @@
 
 import {
   getAvailableProviders,
+  resolveModelSelection,
   streamHowTo,
 } from '@pipeline-builder/ai-core';
 import {
   audited,
+  clientAbortSignal,
   createLogger,
-  decrementQuota,
   errorMessage,
-  getServiceAuthHeader,
   handleAIError,
   initSSEStream,
   requireFeature,
-  reserveQuota,
   sendBadRequest,
-  sendQuotaReserveDenied,
   sendSuccess,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute, incCounter, observe } from '@pipeline-builder/api-server';
+import { withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
-import { clientAbortSignal } from '../client-abort.js';
 import { AskBodySchema } from '../request-schema.js';
-import { getAuditClient } from '../services/audit.js';
+import { recordAi } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
-import { ASK_MAX_OUTPUT_TOKENS, resolveAskModel } from '../services/model.js';
+import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
 
 const logger = createLogger('ask');
 
@@ -43,27 +41,14 @@ function auditAskQuery(
   orgId: string,
   details: { queryLength: number; sources?: number; streamed: boolean; outcome: 'success' | 'failure' },
 ): void {
-  getAuditClient().record({
+  recordAudit({
     action: 'ask.query',
     actorId: actorId({ userId }),
     orgId,
     targetType: 'ask',
     outcome: details.outcome,
     details,
-  }, 'ask');
-}
-
-/**
- * Emit AI request metrics for a how-to turn (previously the ask paths emitted
- * none, blinding on-call to provider brownouts / spend). `provider` is the
- * requested one or 'default' when the server picks; kept low-cardinality.
- */
-function recordAi(route: string, provider: string | undefined, outcome: 'success' | 'error' | 'aborted', startedAt: number): void {
-  const providerLabel = provider ?? 'default';
-  incCounter('ai_requests_total', { route, provider: providerLabel, outcome });
-  if (outcome === 'success') {
-    observe('ai_generation_duration_seconds', { route, provider: providerLabel }, (Date.now() - startedAt) / 1000);
-  }
+  });
 }
 
 /**
@@ -94,46 +79,35 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
     }
     const { query, provider, model, apiKey, history } = parsed.data;
-    const authHeader = getServiceAuthHeader({ serviceName: 'ask', orgId, role: 'member' });
-
-    const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
-    if (reservation.exceeded) {
-      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-    }
-
-    // True once the provider STARTED responding (a paid call) — the same
-    // `provider-responded` signal the stream path uses. The answer is collected
-    // from the stream rather than a one-shot generate, because a one-shot call
-    // gives no such signal: a provider that responded and THEN failed (mid-body
-    // error, client abort) looked "never contacted" and was refunded for free.
-    let providerContacted = false;
-
     const startedAt = Date.now();
-    try {
+    // The provider STARTED responding (a paid call) marks the slot consumed — the
+    // same `provider-responded` signal the stream path uses. The answer is
+    // collected from the stream rather than a one-shot generate, because a
+    // one-shot call gives no such signal: a provider that responded and THEN
+    // failed (mid-body error, client abort) looked "never contacted" and was
+    // refunded for free.
+    await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
       ctx.log('INFO', 'Ask how-to requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      const aiModel = resolveAskModel(provider, model, apiKey);
+      const aiModel = resolveModelSelection({ provider, model, apiKey }).model;
       const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal: clientAbortSignal(res), maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
       let text = '';
       for await (const event of events) {
-        if (event.type === 'provider-responded') providerContacted = true;
+        if (event.type === 'provider-responded') slot.markConsumed();
         else text += event.text;
       }
       const result = { text, sources };
       ctx.log('COMPLETED', 'Ask how-to answered', { sources: result.sources.length });
       recordAi('howto', provider, 'success', startedAt);
       auditAskQuery(userId, orgId, { queryLength: query.length, sources: result.sources.length, streamed: false, outcome: 'success' });
-      return sendSuccess(res, 200, result);
-    } catch (error) {
+      sendSuccess(res, 200, result);
+    }, (error) => {
       const message = errorMessage(error);
       logger.error('Ask how-to failed', { requestId: ctx.requestId, error: message });
       recordAi('howto', provider, 'error', startedAt);
       auditAskQuery(userId, orgId, { queryLength: query.length, streamed: false, outcome: 'failure' });
-      if (!providerContacted) {
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-      }
-      return handleAIError(res, message, 'Failed to answer the question');
-    }
+      handleAIError(res, message, 'Failed to answer the question');
+    });
   }));
 
   // -- POST /ask/stream  grounded how-to answer as SSE -----------------------
@@ -143,65 +117,50 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
     }
     const { query, provider, model, apiKey, history } = parsed.data;
-    const authHeader = getServiceAuthHeader({ serviceName: 'ask', orgId, role: 'member' });
-
-    const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
-    if (reservation.exceeded) {
-      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-    }
-    let reserved = true;
-    // True once the provider has started responding (a paid call), so a later
-    // failure or abort keeps the slot; a failure before that refunds it.
-    let providerContacted = false;
-
     const startedAt = Date.now();
-    try {
+    // Once the provider has started responding (a paid call) a later failure or
+    // abort keeps the slot; a failure before that refunds it.
+    await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
+      let providerContacted = false;
       ctx.log('INFO', 'Ask how-to stream requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      const aiModel = resolveAskModel(provider, model, apiKey);
+      const aiModel = resolveModelSelection({ provider, model, apiKey }).model;
 
-      initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
-      const abortSignal = clientAbortSignal(res);
-      const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
+      const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
+      const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal: sse.signal, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
 
       // Emit the grounded sources up-front so the UI can show them while tokens arrive.
-      if (!abortSignal.aborted) res.write(`data: ${JSON.stringify({ type: 'sources', data: sources })}\n\n`);
+      sse.send({ type: 'sources', data: sources });
 
-      // A provider error throws out of `events` into the catch below.
+      // A provider error throws out of `events` into the error handler below.
       for await (const event of events) {
         if (event.type === 'provider-responded') {
           providerContacted = true;
+          slot.markConsumed();
           continue;
         }
-        if (abortSignal.aborted) break;
-        res.write(`data: ${JSON.stringify({ type: 'token', data: event.text })}\n\n`);
+        if (sse.aborted()) break;
+        sse.send({ type: 'token', data: event.text });
       }
 
-      if (!abortSignal.aborted) {
-        res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-        res.write('data: [DONE]\n\n');
+      if (!sse.aborted()) {
+        sse.done({ type: 'done' });
         // Completed stream keeps the reserved slot (provider round-trip incurred).
         recordAi('howto-stream', provider, 'success', startedAt);
         auditAskQuery(userId, orgId, { queryLength: query.length, sources: sources.length, streamed: true, outcome: 'success' });
       } else {
-        if (!providerContacted) {
-          decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
-        }
+        if (!providerContacted) slot.refund();
         recordAi('howto-stream', provider, 'aborted', startedAt);
         auditAskQuery(userId, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
       }
       res.end();
-    } catch (error) {
+    }, (error) => {
       const message = errorMessage(error);
       logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: message });
       recordAi('howto-stream', provider, 'error', startedAt);
       auditAskQuery(userId, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
-      if (reserved && !providerContacted) {
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-      }
       handleAIError(res, message, 'Failed to answer the question');
-    }
+    });
   }));
 
   return router;

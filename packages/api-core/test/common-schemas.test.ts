@@ -6,7 +6,6 @@ import { describe, it, expect } from '@jest/globals';
 import {
   VisibilitySchema,
   SortOrderSchema,
-  PaginationSchema,
   BooleanQuerySchema,
   UUIDSchema,
   UUIDPrefixSchema,
@@ -36,34 +35,6 @@ describe('SortOrderSchema', () => {
 
   it('should reject invalid values', () => {
     expect(() => SortOrderSchema.parse('ascending')).toThrow();
-  });
-});
-
-describe('PaginationSchema', () => {
-  it('should parse valid pagination params', () => {
-    const result = PaginationSchema.parse({ limit: '10', offset: '0', sortBy: 'name', sortOrder: 'asc' });
-    expect(result.limit).toBe(10);
-    expect(result.offset).toBe(0);
-    expect(result.sortBy).toBe('name');
-    expect(result.sortOrder).toBe('asc');
-  });
-
-  it('should allow all fields to be optional', () => {
-    const result = PaginationSchema.parse({});
-    expect(result.limit).toBeUndefined();
-    expect(result.offset).toBeUndefined();
-  });
-
-  it('should reject limit < 1', () => {
-    expect(() => PaginationSchema.parse({ limit: '0' })).toThrow();
-  });
-
-  it('should reject limit > 1000', () => {
-    expect(() => PaginationSchema.parse({ limit: '1001' })).toThrow();
-  });
-
-  it('should reject negative offset', () => {
-    expect(() => PaginationSchema.parse({ offset: '-1' })).toThrow();
   });
 });
 

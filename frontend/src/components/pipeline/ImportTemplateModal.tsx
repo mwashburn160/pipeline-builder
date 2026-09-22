@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Upload, FileUp } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -13,6 +13,7 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
 interface ImportTemplateModalProps {
   /** `templates:publish` — required to import a PUBLIC template. */
@@ -45,11 +46,7 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const autoClose = useAutoCloseTimer();
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -103,7 +100,7 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
         const note = requested === 'public' && !canPublish ? ' (imported as org-shared — publishing needs templates:publish)' : '';
         setSuccess(`Template "${parsed.name.trim()}" imported${note}.`);
         onImported();
-        setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
+        autoClose.schedule(onClose, 1500);
       } else {
         setError(res.message || 'Failed to import template.');
       }

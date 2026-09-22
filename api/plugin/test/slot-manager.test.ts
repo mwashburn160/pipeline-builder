@@ -76,8 +76,8 @@ const mockGetDeadLetterQueue = jest.fn<() => any>(() => ({ name: 'plugin-build-d
 
 // Registered as a function so the NaN-fallback test can re-apply the mocks
 // after `jest.resetModules()` and re-import slot-manager with a garbage env.
-// NOTE: `env-int.js` is intentionally NOT mocked — the real `intFromEnv` runs
-// so the fallback behaviour is exercised end-to-end.
+// NOTE: api-core's `envInt` is the real one, so the fallback behaviour is
+// exercised end-to-end.
 function registerMocks() {
   jest.unstable_mockModule('../src/queue/connections.js', () => ({
     getConnectionForDb: () => redis,

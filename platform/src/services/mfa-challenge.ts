@@ -58,11 +58,6 @@ const challenges = createPendingStateStore<PendingMfaChallenge>({
   maxEntries: config.auth.totp.maxPendingChallenges,
 });
 
-/** Test hook: drop in-memory challenge state between cases. */
-export function _resetChallengesForTests(): void {
-  challenges._resetForTests();
-}
-
 export interface IssuedMfaChallenge {
   challengeId: string;
   /** Unix seconds. */

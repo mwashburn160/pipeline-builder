@@ -26,8 +26,7 @@ interface SectionCardProps {
 /**
  * The dashboard's structured content card: a header row (icon + title +
  * description + actions), a padded body, and an optional footer. Token-driven
- * (`--pb-*`, dark-mode correct) and replaces the ad-hoc `<Card>` + hand-rolled
- * `flex items-center gap-2` + drifting `h2/h3` headers repeated across settings,
+ * (`--pb-*`, dark-mode correct) — the one card-with-header for the settings,
  * incident, api-catalog, notifications, tokens, and roles pages.
  *
  * The title uses the shared `.h2` heading style — 16px sans, which is what

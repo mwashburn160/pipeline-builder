@@ -160,3 +160,26 @@ export function createEnvRedisLock(): LockRedis | null {
   if (inst) lockLogger.info('Redis leader-lock client initialized');
   return inst;
 }
+
+// One env-configured lock client per process, shared by every scheduler that
+// asks for a lock without supplying its own client. Reference-counted so the
+// connection is closed when the last such scheduler stops.
+let sharedLock: LockRedis | null | undefined;
+let sharedLockUsers = 0;
+
+/** Take a reference on the shared env lock client (`null` when Redis isn't configured). */
+export function acquireSharedEnvLock(): LockRedis | null {
+  if (sharedLock === undefined) sharedLock = createEnvRedisLock();
+  sharedLockUsers++;
+  return sharedLock;
+}
+
+/** Drop a reference taken by {@link acquireSharedEnvLock}; the last one closes the client. */
+export async function releaseSharedEnvLock(): Promise<void> {
+  if (sharedLockUsers === 0) return;
+  sharedLockUsers--;
+  if (sharedLockUsers > 0) return;
+  const client = sharedLock;
+  sharedLock = undefined;
+  await closeLeaderLock(client);
+}

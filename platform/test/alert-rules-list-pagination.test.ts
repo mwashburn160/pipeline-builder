@@ -4,12 +4,14 @@
 /**
  * `listAlertRules` pages server-side: it parses `?offset&limit`, hands them to
  * the service, and returns the shared `{ total, offset, limit, hasMore }`
- * envelope — the alert-rules page used to fetch every rule in one unbounded read.
+ * envelope — never every rule in one unbounded read.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
+import { featureQuotaMock } from './helpers/feature-quota-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockListForOrg = jest.fn<(...a: unknown[]) => Promise<{ rules: unknown[]; total: number }>>();
@@ -22,7 +24,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-jest.unstable_mockModule('../src/middleware/quota.js', () => ({
+jest.unstable_mockModule('../src/middleware/quota.js', () => featureQuotaMock({
   reserveFeatureQuota: jest.fn(),
   releaseFeatureQuota: jest.fn(),
 }));
@@ -33,6 +35,7 @@ jest.unstable_mockModule('../src/services/alert-rule-service.js', () => ({
   renderRulesYaml: jest.fn(),
   validateRule: jest.fn(),
 }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig());
 
 const { listAlertRules } = await import('../src/controllers/alert-rules.js');
 const call = listAlertRules as unknown as (req: any, res: any) => Promise<void>;

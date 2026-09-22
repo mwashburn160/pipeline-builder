@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tenant publishers (docs/plans/plugin-ecosystem.md §3.1, §3.6, §3.7, W1):
+ * Tenant publishers (docs/plugin-publishing.md):
  * one publisher per ROOT org — a handle claimed against a reserved list,
  * versioned terms acceptance, the description/homepage the publisher edits
- * directly (post-moderated), its own listings, and pausing them (D14). Handle
+ * directly (post-moderated), its own listings, and pausing them. Handle
  * and display-name changes, transfers and the Verified application are
  * REQUESTS (see requests.ts), decided by the system org.
  */
@@ -23,12 +23,12 @@ import {
 } from '@pipeline-builder/api-core';
 import { OFFICIAL_PUBLISHER_HANDLE, type Publisher } from '@pipeline-builder/pipeline-data';
 
+import { ecosystemAudit } from './audit.js';
 import { can, ecosystemDeps, EcosystemError, type Caller } from './context.js';
 import { notifyListingPaused } from './install-notify.js';
 import { listingStats } from './reviews-store.js';
 import { requests as requestStore, listings, publishers, reservedNames, versions, OPEN_STATUSES } from './store.js';
 import { listingView, publisherView } from './views.js';
-import { emitPluginAudit } from '../audit.js';
 
 /** Publisher display-name / description caps (mirror the columns). */
 export const DISPLAY_NAME_MAX = 255;
@@ -66,7 +66,7 @@ export async function listingsQuota(orgId: string, publisherId: string | null): 
   if (orgId === SYSTEM_ORG_ID) return { used, limit: -1, failOpen: false };
   const result = await ecosystemDeps().quotaService.check(orgId, 'listings', getQuotaServiceAuthHeader(orgId));
   // `failOpen` = the quota service could not be read; the -1 it then reports is
-  // NOT a real "unlimited", and callers must not act on it (E4).
+  // NOT a real "unlimited", and callers must not act on it.
   return { used, limit: result.unlimited ? -1 : result.limit, failOpen: result.failOpen === true };
 }
 
@@ -77,7 +77,7 @@ export async function listingsQuotaOrThrow(orgId: string, publisherId: string | 
   return quota;
 }
 
-/** Whether the caller's org may apply for Verified (feature `verified_publisher`, Team+ — §3.7). */
+/** Whether the caller's org may apply for Verified (feature `verified_publisher`, Team+). */
 export function verifiedEligible(caller: Caller): boolean {
   return caller.isSuperAdmin || caller.features.includes('verified_publisher');
 }
@@ -88,7 +88,7 @@ export function termsAccepted(publisher: Pick<Publisher, 'handle' | 'termsVersio
   return publisher.handle === OFFICIAL_PUBLISHER_HANDLE || publisher.termsVersion === publisherTermsVersion();
 }
 
-/** Refuse a caller acting for a publisher from a team org (§3.1, G33). */
+/** Refuse a caller acting for a publisher from a team org. */
 export function assertRootOrg(caller: Caller): void {
   if (caller.parentOrgId) {
     throw new EcosystemError(ErrorCode.PUBLISHER_ROOT_ORG_REQUIRED,
@@ -160,9 +160,9 @@ export async function claimPublisher(caller: Caller, body: Record<string, unknow
     termsVersion: publisherTermsVersion(),
     termsAcceptedAt: now,
   });
-  const base = { actorId: actorId({ userId: caller.userId }), orgId: caller.orgId, targetType: 'publisher', targetId: publisher.id };
-  emitPluginAudit({ ...base, action: 'publisher.create', details: { handle, tier: 'community' } });
-  emitPluginAudit({ ...base, action: 'publisher.terms.accept', details: { termsVersion: publisherTermsVersion() } });
+  const base = { actor: actorId({ userId: caller.userId }), orgId: caller.orgId, targetType: 'publisher', targetId: publisher.id };
+  ecosystemAudit({ ...base, action: 'publisher.create', details: { handle, tier: 'community' } });
+  ecosystemAudit({ ...base, action: 'publisher.terms.accept', details: { termsVersion: publisherTermsVersion() } });
   return publisherView(publisher);
 }
 
@@ -173,7 +173,7 @@ export async function ownPublisher(caller: Caller): Promise<Publisher> {
   return publisher;
 }
 
-/** PATCH /plugins/publisher — description and homepage (post-moderated, §5a). Handle/name changes are requests. */
+/** PATCH /plugins/publisher — description and homepage (post-moderated). Handle/name changes are requests. */
 export async function updatePublisherProfile(caller: Caller, body: Record<string, unknown>) {
   assertRootOrg(caller);
   const publisher = await ownPublisher(caller);
@@ -185,9 +185,9 @@ export async function updatePublisherProfile(caller: Caller, body: Record<string
   if ('homepageUrl' in body) patch.homepageUrl = optionalUrl(body.homepageUrl, 'homepageUrl');
   if (Object.keys(patch).length === 0) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'Nothing to update');
   const updated = (await publishers.update(publisher.id, patch))!;
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'publisher.update',
-    actorId: actorId({ userId: caller.userId }),
+    actor: actorId({ userId: caller.userId }),
     orgId: caller.orgId,
     targetType: 'publisher',
     targetId: publisher.id,
@@ -204,9 +204,9 @@ export async function acceptTerms(caller: Caller, termsVersion: unknown) {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `The current publisher terms version is ${publisherTermsVersion()}.`);
   }
   const updated = (await publishers.update(publisher.id, { termsVersion: publisherTermsVersion(), termsAcceptedAt: new Date() }))!;
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'publisher.terms.accept',
-    actorId: actorId({ userId: caller.userId }),
+    actor: actorId({ userId: caller.userId }),
     orgId: caller.orgId,
     targetType: 'publisher',
     targetId: publisher.id,
@@ -233,7 +233,7 @@ export async function ownListings(caller: Caller) {
 /**
  * POST /plugins/publisher/listings/:id/pause — the publisher pauses its own
  * listing (no new installs) or one version (hidden from new resolution), at once
- * and without review (D14): it only narrows its own reach. Unpausing is a request.
+ * and without review: it only narrows its own reach. Unpausing is a request.
  */
 export async function pause(caller: Caller, listingId: string, version: string | undefined) {
   assertRootOrg(caller);
@@ -242,15 +242,15 @@ export async function pause(caller: Caller, listingId: string, version: string |
   const listing = await listings.byId(listingId);
   if (!listing || listing.publisherId !== publisher.id) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Listing not found');
   const now = new Date();
-  const base = { actorId: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: caller.orgId };
+  const base = { actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: caller.orgId };
   if (version) {
     const v = await versions.get(listing.id, version);
     if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
     if (!v.pausedAt) await versions.update(v.id, { pausedAt: now });
-    emitPluginAudit({ ...base, action: 'plugin.version.pause', targetType: 'plugin-listing-version', targetId: v.id, details: { listing: listing.name, version } });
+    ecosystemAudit({ ...base, action: 'plugin.version.pause', targetType: 'plugin-listing-version', targetId: v.id, details: { listing: listing.name, version } });
   } else {
     if (!listing.pausedAt) await listings.update(listing.id, { pausedAt: now });
-    emitPluginAudit({ ...base, action: 'plugin.listing.pause', targetType: 'plugin-listing', targetId: listing.id, details: { listing: listing.name } });
+    ecosystemAudit({ ...base, action: 'plugin.listing.pause', targetType: 'plugin-listing', targetId: listing.id, details: { listing: listing.name } });
   }
   // N26: the installing orgs are told (in-app); their installs keep resolving.
   const fresh = (await listings.byId(listing.id))!;

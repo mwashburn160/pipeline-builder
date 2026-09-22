@@ -13,9 +13,10 @@
  *   - Idempotent + cheap on a no-op (re-run inserts nothing, rewrites nothing).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { selectLean } from './helpers/query-chain.js';
 
 const mockGroupFind = jest.fn<AnyFn>();
 const mockGroupUpdateOne = jest.fn<AnyFn>();
@@ -57,7 +58,6 @@ const MEMBER_BUNDLE = [...ROLE_PERMISSIONS.member];
 const ADMIN_BUNDLE = [...ROLE_PERMISSIONS.admin];
 
 // `.select(...).lean()` chain used by both Role.find + UserOrganization.find.
-const selectLean = (rows: unknown[]) => ({ select: () => ({ lean: () => Promise.resolve(rows) }) });
 
 // Pass A finds ALL system Roles (no `grantsRole` filter); Pass B finds only the
 // member/admin built-ins (filter carries `grantsRole`). Discriminate on that.
@@ -176,7 +176,7 @@ describe('backfillRbacRoles', () => {
 
   it('re-syncs a built-in Role whose stored list is missing entirely', async () => {
     // A Role doc with no `permissions` field at all still gets the current bundle
-    // (the old only-when-empty fill covered this; the re-sync must too).
+    // (a Role with no list at all is the most-stale case).
     mockGroupFind.mockImplementation(findImpl(
       [{ _id: 'gD', grantsRole: 'member' }], // no permissions field
       [],

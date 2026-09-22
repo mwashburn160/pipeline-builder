@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The committed curated icon set (`deploy/plugins/_icons/`, plan §6a.1 / D17):
+ * The committed curated icon set (`deploy/plugins/_icons/`):
  * every Official spec's `icon` key and badge resolves to a file, every file has a
  * `SOURCES.md` row (and vice versa), every SVG passes the lint, and every spec's
  * category has a glyph. Specs without a key must say why (`# icon: none — …`).

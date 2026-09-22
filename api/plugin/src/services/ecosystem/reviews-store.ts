@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Data access for reviews and ratings (docs/plans/plugin-ecosystem.md §5):
+ * Data access for reviews and ratings (docs/plugin-publishing.md):
  * reviews, their edit history, publisher replies, reports, "helpful" votes and
  * the denormalized `plugin_stats` rows.
  *
@@ -28,8 +28,8 @@ import {
 import { and, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 
 import { elevated } from './store.js';
+import { first } from './util.js';
 
-const first = <T>(rows: T[]): T | null => rows[0] ?? null;
 const RV = () => schema.pluginReview;
 const RH = () => schema.pluginReviewHistory;
 const RR = () => schema.pluginReviewReply;
@@ -52,14 +52,17 @@ export const reviews = {
       eq(RV().listingId, listingId),
       ...(statuses ? [inArray(RV().status, statuses)] : []),
     ))),
+  /** The reviews of these listings (any status). */
+  forListings: (listingIds: string[]): Promise<PluginReview[]> =>
+    listingIds.length === 0 ? Promise.resolve([]) : elevated(async (tx) => tx.select().from(RV()).where(inArray(RV().listingId, listingIds))),
   /** Every review in these statuses, newest activity first (the moderation queue; stats). */
   withStatus: (statuses: ReviewStatus[], limit = 10_000): Promise<PluginReview[]> =>
     elevated(async (tx) => tx.select().from(RV()).where(inArray(RV().status, statuses)).orderBy(desc(RV().updatedAt)).limit(limit)),
-  /** Reviews an org's members wrote since `since` (the per-org daily cap, G16). */
+  /** Reviews an org's members wrote since `since` (the per-org daily cap). */
   countByOrgSince: (orgId: string, since: Date): Promise<number> =>
     elevated(async (tx) => (await tx.select({ id: RV().id }).from(RV())
       .where(and(eq(RV().authorOrgId, orgId), gte(RV().createdAt, since)))).length),
-  /** Reviews written on a listing since `since` (burst detection, G16). */
+  /** Reviews written on a listing since `since` (burst detection). */
   onListingSince: (listingId: string, since: Date): Promise<PluginReview[]> =>
     elevated(async (tx) => tx.select().from(RV()).where(and(eq(RV().listingId, listingId), gte(RV().createdAt, since)))),
   insert: (values: PluginReviewInsert): Promise<PluginReview> =>

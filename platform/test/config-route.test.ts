@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // A known QUOTA_TIERS shape so we can assert tierPresets echoes the four displayed
@@ -30,14 +31,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   VALID_TIERS: ['developer', 'pro', 'team', 'enterprise', 'unlimited'],
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    billing: { enabled: true },
-    email: { enabled: false, provider: 'ses', ses: { secretAccessKey: 'SUPER_SECRET' }, smtp: { pass: 'smtp-password' } },
-    oauth: { google: { enabled: true, clientSecret: 'oauth-client-secret' } },
-    deployTarget: 'local',
-    kms: { keyArn: 'arn:aws:kms:us-east-1:123:key/abc' },
-  },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  billing: { enabled: true },
+  email: { enabled: false, provider: 'ses', ses: { secretAccessKey: 'SUPER_SECRET' }, smtp: { pass: 'smtp-password' } },
+  oauth: { google: { enabled: true, clientSecret: 'oauth-client-secret' } },
+  deployTarget: 'local',
+  kms: { keyArn: 'arn:aws:kms:us-east-1:123:key/abc' },
 }));
 
 const { default: configRouter } = await import('../src/routes/config.js');

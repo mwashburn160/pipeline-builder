@@ -6,9 +6,10 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { EMAIL_PATTERN } from './email-address.js';
 import { config } from '../config/index.js';
-import { MAX_MFA_GRACE_DAYS } from '../helpers/mfa-policy.js';
+import { PASSWORD_MAX_LENGTH, PASSWORD_RULES } from '../constants/password.js';
+import { MAX_ALLOWED_AAGUIDS } from '../helpers/authenticator-policy.js';
+import { MAX_MFA_GRACE_DAYS, MFA_RESET_GRACE_MAX_HOURS } from '../helpers/mfa-policy.js';
 import { isCustomGoogleDiscoveryUrl, isReservedDiscoveryUrl, isReservedIssuer } from '../helpers/reserved-issuers.js';
-import { PASSWORD_MAX_LENGTH, PASSWORD_RULES } from '../models/user.js';
 
 /**
  * Validate data against a Zod schema.
@@ -27,21 +28,19 @@ export function validateBody<T>(
   schema: z.ZodType<T>,
   body: unknown,
   res: Response,
+  /** Error code per top-level field, for a route whose clients branch on it
+   *  (default `VALIDATION_ERROR`). */
+  codes?: Record<string, string>,
 ): T | null {
-  try {
-    return schema.parse(body);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      const firstIssue = error.issues[0];
-      const message = firstIssue
-        ? `${firstIssue.path.join('.')}: ${firstIssue.message}`
-        : 'Validation failed';
-      sendError(res, 400, message, 'VALIDATION_ERROR');
-      return null;
-    }
-    sendError(res, 400, 'Validation failed', 'VALIDATION_ERROR');
-    return null;
-  }
+  const result = schema.safeParse(body);
+  if (result.success) return result.data;
+  const firstIssue = result.error.issues[0];
+  const message = firstIssue
+    ? `${firstIssue.path.join('.')}: ${firstIssue.message}`
+    : 'Validation failed';
+  const code = (firstIssue && codes?.[String(firstIssue.path[0])]) || 'VALIDATION_ERROR';
+  sendError(res, 400, message, code);
+  return null;
 }
 
 /**
@@ -235,7 +234,7 @@ export const updateImpersonationPolicySchema = z
   });
 
 /**
- * `PATCH /organization/:id/mfa-policy` (#8).
+ * `PATCH /organization/:id/mfa-policy`.
  *
  * `graceDays` is only meaningful while TURNING the requirement on — it is what
  * the deadline is computed from, server-side, so a client can never post a
@@ -280,7 +279,7 @@ export const updatePasswordPolicySchema = z.object({
  * all-zero refusal happen in the controller (`normalizeAaguid`).
  */
 export const updateAuthenticatorPolicySchema = z.object({
-  allowedAaguids: z.array(z.string().trim().min(1).max(64)).max(100),
+  allowedAaguids: z.array(z.string().trim().min(1).max(64)).max(MAX_ALLOWED_AAGUIDS),
 }).strict();
 
 /** Owner/admin self-serve org identity update (name and/or slug). At least one
@@ -342,7 +341,7 @@ export const updateRoleSchema = z.object({
   permissions: z.array(z.string()).max(100).optional(),
 });
 
-// Service accounts (#2)
+// Service accounts
 
 /** A service-account name is a machine identifier: lowercase, URL-safe, stable. */
 const serviceAccountNameSchema = z.string().trim().toLowerCase().regex(
@@ -374,7 +373,7 @@ export const createServiceAccountKeySchema = z.object({
   expiresIn: z.number().int().min(60).max(365 * 24 * 60 * 60).optional(),
   ipAllowlist: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
   /**
-   * Narrow capability scope (#12). A scoped key exchanges to a least-privilege
+   * Narrow capability scope. A scoped key exchanges to a least-privilege
    * token — the account's Roles are dropped in favour of this one capability —
    * so a key that only has to ingest events or push images cannot do anything
    * else with the account's authority. Validated against api-core's closed
@@ -403,7 +402,7 @@ const awsRegionSchema = z.string().regex(/^[a-z]{2}-[a-z]+-\d$/, 'Invalid AWS re
 /** Create/upsert an org IdP config. Core credentials are required non-empty
  *  strings; `generic-oidc` additionally requires a discoveryUrl, and `cognito`
  *  requires region + userPoolId (from which the discovery URL is derived). */
-/** Name of the id_token claim carrying group memberships (3a). Claim names are
+/** Name of the id_token claim carrying group memberships. Claim names are
  *  JSON keys and are frequently namespaced (`cognito:groups`,
  *  `https://acme.example/groups`), so the shape is deliberately permissive —
  *  what it may NOT be is a provider that issues no groups at all (below). */
@@ -428,7 +427,7 @@ function noReservedIssuer(data: { protocol?: string; provider?: string; discover
   return !isReservedDiscoveryUrl(data.discoveryUrl);
 }
 
-/** Which protocol the org federates over (#4). Mirrors `IdpProtocol` in
+/** Which protocol the org federates over. Mirrors `IdpProtocol` in
  *  models/org-idp-config.ts. */
 const idpProtocolSchema = z.enum(['oidc', 'saml']);
 
@@ -556,7 +555,7 @@ export const orgIdpPatchSchema = z.object({
   groupsClaim: z.union([groupsClaimSchema, z.literal('')]).optional(),
   allowedEmailDomains: z.array(z.string()).optional(),
   enabled: z.boolean().optional(),
-  /** Org policy "SSO required" (#5). Switching it ON is gated server-side on an
+  /** Org policy "SSO required". Switching it ON is gated server-side on an
    *  enabled IdP, a verified domain and a successful test connection. */
   ssoRequired: z.boolean().optional(),
 }).refine(
@@ -567,7 +566,7 @@ export const orgIdpPatchSchema = z.object({
   { message: RESERVED_ISSUER_MESSAGE, path: ['discoveryUrl'] },
 );
 
-// SAML login flow (#4)
+// SAML login flow
 
 /**
  * What an IdP POSTs to the ACS. `RelayState` is optional ON THE WIRE — an
@@ -596,7 +595,7 @@ export const samlCompleteSchema = z.object({
   handoff: z.string().min(1).max(256),
 });
 
-// IdP group → Role mapping (3a)
+// IdP group → Role mapping
 
 /** A group value as the IdP asserts it. Free text — directories use spaces,
  *  slashes and distinguished names — so only length is constrained. */
@@ -644,3 +643,190 @@ export const orgKmsConfigSchema = z.object({
     .regex(/^[A-Za-z0-9+/=]+$/, 'ciphertextBase64 must be valid base64'),
 });
 
+
+// Second factors: authenticator app, passkeys, MFA reset
+
+/**
+ * A code, generated or recovery, as typed. Loose on purpose — the service is
+ * what decides whether six digits or a `XXXXX-XXXXX` recovery code verifies, and
+ * a stricter schema here would leak WHICH kind was expected through the
+ * validation error.
+ */
+export const totpCodeSchema = z.object({ code: z.string().trim().min(6).max(32) });
+
+/** The sign-in second leg: the challenge handle plus the code. */
+export const mfaVerifySchema = totpCodeSchema.extend({ challengeId: z.string().min(1).max(256) });
+
+/**
+ * A WebAuthn authenticator's reply, forwarded verbatim from
+ * `@simplewebauthn/browser`. Validated only for SHAPE — the library re-parses
+ * and cryptographically verifies every field, so re-describing the WebAuthn
+ * schema here would be a second source of truth that could only drift.
+ */
+export const webauthnCeremonySchema = z.object({
+  ceremonyId: z.string().min(1).max(256),
+  response: z.object({ id: z.string().min(1).max(512) }).passthrough(),
+});
+
+export const webauthnRegisterVerifySchema = webauthnCeremonySchema.extend({
+  name: z.string().trim().min(1).max(64),
+});
+
+export const passkeyRenameSchema = z.object({ name: z.string().trim().min(1).max(64) });
+
+const mfaResetUserId = z.string().regex(/^[a-f0-9]{24}$/i, 'must be a user id');
+const mfaResetReason = z.string().trim().min(10, 'give a reason of at least 10 characters').max(500);
+const mfaResetGraceHours = z.number().int().min(1).max(MFA_RESET_GRACE_MAX_HOURS).optional();
+
+/** Two-person MFA reset: the request, its approval / denial, and the sysadmin's direct reset. */
+export const mfaResetRequestSchema = z.object({ userId: mfaResetUserId, reason: mfaResetReason }).strict();
+export const mfaResetApproveSchema = z.object({ graceHours: mfaResetGraceHours }).strict();
+export const mfaResetDenySchema = z.object({ note: z.string().trim().max(500).optional() }).strict();
+export const mfaResetDirectSchema = z.object({ reason: mfaResetReason, graceHours: mfaResetGraceHours }).strict();
+
+/** Step-up re-auth through a linked social provider or the org's SSO. */
+export const stepUpReauthStartSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('oauth'), provider: z.string().min(1).max(40) }),
+  z.object({ type: z.literal('sso'), orgId: z.string().min(1).max(64) }),
+]);
+
+/** Completion of an SSO test connection (a dry run that opens no session). */
+export const ssoTestCompleteSchema = z.object({
+  state: z.string().min(1).max(512),
+  code: z.string().min(1).max(4096).optional(),
+  /** The IdP's `?error=` when it refused (OIDC). */
+  error: z.string().max(256).optional(),
+});
+
+// Observability: alert destinations and dashboards
+
+const {
+  alertDestinationMaxLabel,
+  dashboardMaxName,
+  dashboardMaxDescription,
+  dashboardMaxPanelTitle,
+  dashboardMaxPanels,
+} = config.observability;
+
+const alertChannelSchema = z.enum(['slack', 'webhook', 'in-app', 'email'], { message: 'must be slack, webhook, in-app, or email' });
+const alertSeveritySchema = z.enum(['warning', 'critical'], { message: 'must be warning or critical' });
+/** `enabled` is honoured only when it is a real boolean; anything else leaves it unset. */
+const optionalBoolean = z.unknown().optional().transform((v) => (typeof v === 'boolean' ? v : undefined));
+
+/** POST /observability/alert-destinations. The target's per-channel rules and
+ *  the webhook SSRF check need the channel (and, on update, the stored row), so
+ *  the controller applies them after this shape check. */
+export const createAlertDestinationSchema = z.object({
+  channel: alertChannelSchema,
+  label: z.string().min(1, 'is required').max(alertDestinationMaxLabel),
+  target: z.unknown().optional().transform((v) => (typeof v === 'string' ? v : '')),
+  minSeverity: alertSeveritySchema.optional(),
+  enabled: optionalBoolean,
+});
+
+/** PUT /observability/alert-destinations/:id — every field optional; an empty
+ *  target means "keep the stored one". */
+export const updateAlertDestinationSchema = z.object({
+  channel: alertChannelSchema.optional(),
+  label: z.string().min(1).max(alertDestinationMaxLabel).optional(),
+  target: z.string().optional(),
+  minSeverity: alertSeveritySchema.optional(),
+  enabled: optionalBoolean,
+});
+
+type DashboardLayout = Record<string, { x: number; y: number; w: number; h: number }>;
+
+/** One panel's SHAPE. Whether its catalog key exists and is available to the
+ *  caller is decided in the controller (it depends on who is asking). */
+const dashboardPanelSchema = z.object({
+  queryKey: z.string().min(1).max(100),
+  title: z.string().min(1).max(dashboardMaxPanelTitle),
+  vizKind: z.string().min(1).max(30).optional(),
+  span: z.number().min(1).max(12).optional(),
+  groupBy: z.unknown().optional().transform((v) => (typeof v === 'string' ? v : null)),
+  format: z.unknown().optional().transform((v) => (typeof v === 'string' ? v : null)),
+  position: z.unknown().optional().transform((v) => (typeof v === 'number' ? v : undefined)),
+});
+
+const dashboardFields = {
+  description: z.string().min(1).max(dashboardMaxDescription).nullish(),
+  visibility: z.enum(['private', 'org', 'public'], { message: 'must be one of: private, org, public' }).optional(),
+  /** Grid positions by panel; a non-object is ignored rather than refused. */
+  layoutJson: z.unknown().optional().transform((v) => (v && typeof v === 'object' ? v as DashboardLayout : undefined)),
+  panels: z.array(dashboardPanelSchema).max(dashboardMaxPanels, `exceeds the ${dashboardMaxPanels}-panel cap`).optional(),
+};
+
+/** POST /dashboards. */
+export const createDashboardSchema = z.object({
+  name: z.string().min(1, 'is required').max(dashboardMaxName),
+  ...dashboardFields,
+});
+
+/** PUT /dashboards/:id — a partial update; `panels`, when present, replaces the set. */
+export const updateDashboardSchema = z.object({
+  name: z.string().min(1).max(dashboardMaxName).optional(),
+  ...dashboardFields,
+});
+
+// Alert rules
+
+const alertRuleFields = {
+  forDuration: z.string().optional(),
+  severity: z.enum(['warning', 'critical'], { message: 'must be warning or critical' }).optional(),
+  description: z.string().optional(),
+  enabled: z.boolean().optional(),
+};
+
+/** POST /observability/alert-rules. The PromQL itself is checked (and scoped
+ *  to the org) by the alert-rule service after this shape check. */
+export const createAlertRuleSchema = z.object({
+  name: z.string({ message: 'is required' }),
+  expr: z.string({ message: 'is required' }),
+  summary: z.string({ message: 'is required' }),
+  ...alertRuleFields,
+});
+
+/** PUT /observability/alert-rules/:id — any subset of the same fields. */
+export const updateAlertRuleSchema = z.object({
+  name: z.string().optional(),
+  expr: z.string().optional(),
+  summary: z.string().optional(),
+  ...alertRuleFields,
+});
+
+// Access keys (pre-auth: the key in the body IS the credential)
+
+const presentedKey = z.string({ message: 'is required' }).trim().min(1, 'is required');
+
+/** The field → error code the key routes answer with, which the CLI branches on. */
+export const ACCESS_KEY_BODY_CODES = { key: 'INVALID_ACCESS_KEY', expiresIn: 'INVALID_EXPIRES_IN', keyId: 'INVALID_KEY_ID' };
+
+/** POST /auth/token/exchange. */
+export const tokenExchangeSchema = z.object({ key: presentedKey });
+
+/** POST /auth/key/rotate — a service-account key mints its own replacement. */
+export const keyRotateSchema = z.object({
+  key: presentedKey,
+  /** Blank means "keep the presented key's name". */
+  name: z.unknown().optional().transform((v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 100) : undefined)),
+  expiresIn: z.union([z.number(), z.string()]).optional()
+    .transform((v) => (v === undefined ? undefined : Number.parseInt(String(v), 10)))
+    .refine((v) => v === undefined || Number.isFinite(v), 'must be a positive integer (seconds)'),
+});
+
+/** POST /auth/key/revoke — retire a sibling key with the live one. */
+export const keyRevokeSchema = z.object({
+  key: presentedKey,
+  keyId: z.string({ message: 'is required' }).trim().min(1, 'is required'),
+});
+
+// Internal notices
+
+/** POST /internal/notify-email (compliance): email an org's users. */
+export const notifyEmailSchema = z.object({
+  orgId: z.string({ message: 'is required' }).min(1, 'is required'),
+  subject: z.string({ message: 'is required' }).min(1, 'is required'),
+  text: z.string({ message: 'is required' }).min(1, 'is required'),
+  /** Specific recipients; non-strings are dropped, absent means the org's admins. */
+  targetUsers: z.unknown().optional().transform((v) => (Array.isArray(v) ? v.filter((u): u is string => typeof u === 'string') : null)),
+});

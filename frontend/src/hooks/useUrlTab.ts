@@ -31,9 +31,9 @@ interface UrlTabOptions<T extends string> {
  *
  * THE HASH IS PART OF THE ADDRESS. A deep link like
  * `/dashboard/security?tab=factors#passkeys` names both a tab and a section on
- * it, and two things used to break it: the write-back dropped the fragment, and
- * the browser's own "scroll to #passkeys" fires before the tab's content has
- * mounted, so it silently scrolls nowhere. Both are handled here — the fragment
+ * it. Two things work against it: a write-back that drops the fragment, and
+ * the browser's own "scroll to #passkeys", which fires before the tab's content
+ * has mounted and so scrolls nowhere. Both are handled here — the fragment
  * is carried (and deliberately dropped when the user leaves the tab it belongs
  * to), and the scroll is retried until the section exists.
  *

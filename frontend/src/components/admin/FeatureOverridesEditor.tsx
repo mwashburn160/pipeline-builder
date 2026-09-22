@@ -92,7 +92,7 @@ export function FeatureOverridesEditor({
           return (
             <li key={flag} className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-xs font-medium text-gray-800 dark:text-gray-200">{meta.label}</div>
+                <div className="text-xs font-medium text-fg">{meta.label}</div>
                 <div className="text-xs text-fg-muted">{meta.description}</div>
               </div>
               <FilterSelect

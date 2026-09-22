@@ -16,17 +16,11 @@ import { OAUTH_INTENT_KEY } from '../src/lib/oauth-intent';
 
 let mockQuery: Record<string, string> = {};
 const mockReplace = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: mockQuery, replace: mockReplace }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: mockQuery, replace: mockReplace })));
 
 const mockRefreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const mockCompleteMfaLogin = jest.fn<AnyFn>().mockResolvedValue({ status: 'complete' });
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ refreshUser: mockRefreshUser, completeMfaLogin: mockCompleteMfaLogin }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: mockRefreshUser, completeMfaLogin: mockCompleteMfaLogin })));
 
 jest.mock('framer-motion', () => ({
   __esModule: true,

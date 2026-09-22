@@ -176,8 +176,8 @@ export default function InboxPage() {
   const refetchUnread = unread.refetch;
   const fetchAll = () => {
     if (joinEnabled) { refetchOwned(); refetchCounts(); }
-    refetchExemptions();
-    refetchUnread();
+    void refetchExemptions();
+    void refetchUnread();
   };
 
   if (!isReady || !user) return <LoadingPage />;

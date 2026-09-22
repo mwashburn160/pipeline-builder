@@ -12,16 +12,19 @@
  * ordinary step-up token issued (with `method: 'reauth'`).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { z } from 'zod';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { selectLean } from './helpers/query-chain.js';
 
 const GOOGLE_ISSUER = 'https://accounts.google.com';
 
 // -- Fixtures the mocks read -------------------------------------------------
 let userDoc: Record<string, unknown> | null;
 let memberships: Array<{ organizationId: string }>;
-let idpConfigs: Array<{ orgId: string; provider: string }>;
+let idpConfigs: Array<{ organizationId: string; provider: string }>;
 let orgs: Array<{ _id: string; name: string }>;
 let enabledProviders: Set<string>;
 let ssoEnforcement: { orgId: string; provider: string } | null;
@@ -40,14 +43,17 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => { res.status(status).json({ success: true, data }); return res; },
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { oauth: { stateTtlMs: 600_000, cleanupIntervalMs: 600_000, maxPendingStates: 1000 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ oauth: { stateTtlMs: 600_000, cleanupIntervalMs: 600_000, maxPendingStates: 1000 } }));
 
 // Body validation: run the controller's real zod schema when it has one,
 // else mirror oauthCallbackSchema's min(1) on code + state.
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   oauthCallbackSchema: {},
+  // The real start-schema shape (the controller's own contract).
+  stepUpReauthStartSchema: z.discriminatedUnion('type', [
+    z.object({ type: z.literal('oauth'), provider: z.string().min(1).max(40) }),
+    z.object({ type: z.literal('sso'), orgId: z.string().min(1).max(64) }),
+  ]),
   validateBody: (schema: any, body: any, res: any) => {
     if (typeof schema?.safeParse === 'function') {
       const parsed = schema.safeParse(body);
@@ -60,12 +66,11 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   },
 }));
 
-const leanOf = (value: unknown) => ({ select: () => ({ lean: async () => value }) });
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  User: { findById: () => leanOf(userDoc) },
-  UserOrganization: { find: () => leanOf(memberships) },
-  OrgIdpConfig: { find: () => leanOf(idpConfigs) },
-  Organization: { find: () => leanOf(orgs) },
+  User: { findById: () => selectLean(userDoc) },
+  UserOrganization: { find: () => selectLean(memberships) },
+  OrgIdpConfig: { find: () => selectLean(idpConfigs) },
+  Organization: { find: () => selectLean(orgs) },
   PersonalAccessToken: {},
   UserPreferences: {},
   // `resolveAuthFactors` reports the account's real passkey count, and whether
@@ -76,14 +81,16 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUpToken(...a),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
 }));
 // No Redis in tests → the pending-state store uses its in-process fallback.
 jest.unstable_mockModule('../src/utils/redis-client.js', () => ({ getRedisClient: async () => null }));
@@ -92,7 +99,7 @@ jest.unstable_mockModule('../src/helpers/oauth-config.js', () => ({
   isOAuthProviderEnabled: (name: string) => enabledProviders.has(name),
 }));
 
-jest.unstable_mockModule('../src/controllers/oauth.js', () => ({
+jest.unstable_mockModule('../src/services/oauth-providers.js', () => ({
   OAUTH_ERROR_MAP: {},
   buildOAuthReauthUrl: (name: string, state: string) => ({
     url: `https://provider.test/${name}?prompt=select_account&max_age=0&state=${state}`,
@@ -115,7 +122,7 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   GOOGLE_ISSUER,
   findSsoEnforcementForEmail: async () => ssoEnforcement,
   isSsoEntitled: async (orgId: string) => entitledOrgs.has(orgId),
-  getEnforcedLoginConfig: async (orgId: string) => ({ orgId, provider: idpConfigs.find(c => c.orgId === orgId)?.provider ?? 'generic-oidc', clientId: 'c', clientSecret: 's', discoveryUrl: 'https://idp.test', allowedEmailDomains: [] }),
+  getEnforcedLoginConfig: async (orgId: string) => ({ orgId, provider: idpConfigs.find(c => c.organizationId === orgId)?.provider ?? 'generic-oidc', clientId: 'c', clientSecret: 's', discoveryUrl: 'https://idp.test', allowedEmailDomains: [] }),
   assertSsoIdentityTrusted: async () => undefined,
 }));
 
@@ -198,21 +205,21 @@ describe('resolveAuthFactors', () => {
 
   it('offers an SSO org whose enabled + entitled IdP matches the linked issuer', async () => {
     userDoc = { _id: 'u1', email: 'dev@acme.test', oauth: { 'generic-oidc': { id: 'sso-sub', issuer: 'https://idp.test' } } };
-    idpConfigs = [{ orgId: 'org1', provider: 'generic-oidc' }];
+    idpConfigs = [{ organizationId: 'org1', provider: 'generic-oidc' }];
     const factors = await resolveAuthFactors((await loadFactorUser('u1'))!);
     expect(factors.providers).toEqual([{ type: 'sso', provider: 'generic-oidc', orgId: 'org1', orgName: 'Acme' }]);
   });
 
   it('refuses SSO re-auth for a platform administrator', async () => {
     userDoc = { _id: 'u1', email: 'ops@pb.test', isSuperAdmin: true, oauth: { 'generic-oidc': { id: 'sso-sub', issuer: 'https://idp.test' } } };
-    idpConfigs = [{ orgId: 'org1', provider: 'generic-oidc' }];
+    idpConfigs = [{ organizationId: 'org1', provider: 'generic-oidc' }];
     const factors = await resolveAuthFactors((await loadFactorUser('u1'))!);
     expect(factors.providers).toEqual([]);
   });
 
   it('skips an SSO org that is not entitled to SSO', async () => {
     userDoc = { _id: 'u1', email: 'dev@acme.test', oauth: { 'generic-oidc': { id: 'sso-sub', issuer: 'https://idp.test' } } };
-    idpConfigs = [{ orgId: 'org1', provider: 'generic-oidc' }];
+    idpConfigs = [{ organizationId: 'org1', provider: 'generic-oidc' }];
     entitledOrgs = new Set();
     const factors = await resolveAuthFactors((await loadFactorUser('u1'))!);
     expect(factors.providers).toEqual([]);
@@ -234,7 +241,7 @@ describe('POST /auth/step-up/reauth', () => {
 
   it('starts an SSO re-auth with prompt=login + max_age=0', async () => {
     userDoc = { _id: 'u1', email: 'dev@acme.test', oauth: { 'generic-oidc': { id: 'sso-sub', issuer: 'https://idp.test' } } };
-    idpConfigs = [{ orgId: 'org1', provider: 'generic-oidc' }];
+    idpConfigs = [{ organizationId: 'org1', provider: 'generic-oidc' }];
     const res = await call(startStepUpReauth, asUser({ type: 'sso', orgId: 'org1' }));
     expect(res.code).toBe(200);
     expect(res.body.data.url).toContain('prompt=login');
@@ -331,7 +338,7 @@ describe('POST /auth/step-up/reauth/callback', () => {
 
   it('requires an SSO id_token auth_time for a generic OIDC IdP', async () => {
     userDoc = { _id: 'u1', email: 'dev@acme.test', oauth: { 'generic-oidc': { id: 'sso-sub', issuer: 'https://idp.test' } } };
-    idpConfigs = [{ orgId: 'org1', provider: 'generic-oidc' }];
+    idpConfigs = [{ organizationId: 'org1', provider: 'generic-oidc' }];
     const state = await startedState({ type: 'sso', orgId: 'org1' });
     mockExchangeAndValidate.mockResolvedValue({ subject: 'sso-sub', issuer: 'https://idp.test', email: 'dev@acme.test' });
 
@@ -341,7 +348,7 @@ describe('POST /auth/step-up/reauth/callback', () => {
 
   it('accepts an SSO re-auth whose issuer + subject match the linked identity', async () => {
     userDoc = { _id: 'u1', email: 'dev@acme.test', oauth: { 'generic-oidc': { id: 'sso-sub', issuer: 'https://idp.test' } } };
-    idpConfigs = [{ orgId: 'org1', provider: 'generic-oidc' }];
+    idpConfigs = [{ organizationId: 'org1', provider: 'generic-oidc' }];
     const state = await startedState({ type: 'sso', orgId: 'org1' });
     mockExchangeAndValidate.mockResolvedValue({
       subject: 'sso-sub', issuer: 'https://idp.test', email: 'dev@acme.test', authTime: Math.floor(Date.now() / 1000),
@@ -358,7 +365,7 @@ describe('POST /auth/step-up/reauth/callback', () => {
 
   it('refuses an SSO identity from a different issuer', async () => {
     userDoc = { _id: 'u1', email: 'dev@acme.test', oauth: { 'generic-oidc': { id: 'sso-sub', issuer: 'https://idp.test' } } };
-    idpConfigs = [{ orgId: 'org1', provider: 'generic-oidc' }];
+    idpConfigs = [{ organizationId: 'org1', provider: 'generic-oidc' }];
     const state = await startedState({ type: 'sso', orgId: 'org1' });
     mockExchangeAndValidate.mockResolvedValue({
       subject: 'sso-sub', issuer: 'https://evil-idp.test', email: 'dev@acme.test', authTime: Math.floor(Date.now() / 1000),

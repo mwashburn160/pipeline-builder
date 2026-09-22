@@ -24,7 +24,7 @@ export type { RoleWithMembers } from './roles-service.js';
 export { permissionsForGrantsRole } from './role-authority.js';
 export type { ActorPermissionCeiling, RoleAssignmentActor } from './role-authority.js';
 export {
-  getUserRolePermissions, listRolesWithMembers, addUserToRole, removeUserFromRole,
+  listRolesWithMembers, addUserToRole, removeUserFromRole,
   createRole, updateRole, deleteRole, ecosystemRoleName,
 } from './role-crud.js';
 export { deliverEcosystemNotification, notifyEcosystemManagerChange } from './ecosystem-notifications.js';
@@ -33,7 +33,7 @@ export {
 } from './service-account-roles.js';
 export { assertMappableRoleSet, syncMappedRoles } from './mapped-roles.js';
 export type { MappableRole } from './mapped-roles.js';
-export { idpGroupMappingService, MAX_MAPPINGS_PER_ORG } from './idp-group-mapping-service.js';
+export { idpGroupMappingService } from './idp-group-mapping-service.js';
 export type { IdpGroupMappingDto } from './idp-group-mapping-service.js';
 export { assertJitSeatAvailable, provisionJitMembership } from './sso-jit-service.js';
 export type { JitProvisionResult, JitSkipReason } from './sso-jit-service.js';

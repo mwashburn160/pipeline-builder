@@ -21,15 +21,9 @@ const authGuard = {
   can: () => false,
   user: { id: 'u1', organizationId: 'org-a', organizationName: 'Alpha', role: 'owner' },
 };
-jest.mock('@/hooks/useAuthGuard', () => ({ __esModule: true, useAuthGuard: () => authGuard }));
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ organizations: [{ id: 'org-a', name: 'Alpha' }, { id: 'org-b', name: 'Beta' }] }),
-}));
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => authGuard));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ organizations: [{ id: 'org-a', name: 'Alpha' }, { id: 'org-b', name: 'Beta' }] })));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() })));
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 // Deferred quota fetches, keyed by orgId, so the test controls resolution order.

@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, audited, createLogger, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, reserveQuota, decrementQuota, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, createComplianceClient, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata } from '@pipeline-builder/api-core';
+import { ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, type SSEManager } from '@pipeline-builder/api-server';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -12,18 +12,17 @@ import { Router, type Request, type Response, type RequestHandler, type ErrorReq
 import multer from 'multer';
 
 import { getBuildStrategy } from '../helpers/build-strategy.js';
+import { compliancePreflight, queuePluginBuild, reservePluginSlot, type PluginSlot } from '../helpers/build-submission.js';
 import { catalogColumns } from '../helpers/catalog-metadata.js';
-import { uploadComplianceImageFacts } from '../helpers/plugin-compliance.js';
+import { DEFAULT_PLUGIN_VERSION } from '../helpers/default-version.js';
 import { createBuildJobData, toPluginInsert } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, specContractFields, validateBuildArgs, type ParsedPlugin } from '../helpers/plugin-spec.js';
-import { enqueueBuild, getOrgTier } from '../queue/connections.js';
-import { emitPluginAudit } from '../services/audit.js';
+import { callerFromRequest } from '../services/ecosystem/context.js';
+import { submitAfterBuild } from '../services/ecosystem/requests.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('upload-plugin');
-
-const complianceClient = createComplianceClient();
 
 const MAX_UPLOAD_SIZE = CoreConstants.PLUGIN_MAX_UPLOAD_MB * 1024 * 1024;
 
@@ -91,7 +90,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
   const router: Router = Router();
 
   // Upload timeout: 5 minutes for large plugin ZIPs (overrides global HANDLER_TIMEOUT_MS)
-  const UPLOAD_TIMEOUT_MS = parseInt(process.env.PLUGIN_UPLOAD_TIMEOUT_MS || '300000', 10);
+  const UPLOAD_TIMEOUT_MS = envInt('PLUGIN_UPLOAD_TIMEOUT_MS', 300_000, { min: 1 });
 
   router.post( '/',
     // Extend timeout before multer starts reading the body
@@ -100,17 +99,11 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
       req.setTimeout(UPLOAD_TIMEOUT_MS);
       next();
     }) as RequestHandler,
-    // AUTHORIZE BEFORE ACCEPTING THE BODY.
-    //
-    // `upload.single` used to run FIRST, so multer streamed the whole request to
-    // UPLOAD_DEST (cap PLUGIN_MAX_UPLOAD_MB, default 4096) before anything
-    // checked who was calling — an unauthenticated caller could fill the
-    // build-scratch volume, bounded only by the global per-IP limiter. Worse,
-    // the only unlink is the handler's `finally`, which never runs when
-    // requireAuth 401s, and `cleanupStaleTempDirs` scans BUILD_TEMP_ROOT rather
-    // than UPLOAD_DEST — so the leaked files were permanent.
-    //
-    // Everything here reads only headers, so none of it needs the parsed body.
+    // AUTHORIZE BEFORE ACCEPTING THE BODY. Multer streams the whole request to
+    // UPLOAD_DEST (up to PLUGIN_MAX_UPLOAD_MB), so running it first would let an
+    // unauthenticated caller fill the build-scratch volume — and nothing reclaims
+    // a file whose handler never ran (the stale-temp sweep scans
+    // BUILD_TEMP_ROOT, not UPLOAD_DEST). Everything here reads only headers.
     requireAuth as RequestHandler,
     requireOrgId() as RequestHandler,
     // Gate the mutation on `plugins:write` (mirrors the factory write routes and
@@ -153,8 +146,8 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
       // service-to-service authorization checks; mint a service token instead.
       const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
 
-      let reserved = false;
-      let reservedResetAt: string | undefined; // resetAt observed at reserve time (for conditional rollback)
+      let slot: PluginSlot | null = null;
+      const logWarn = ctx.log.bind(null, 'WARN');
 
       try {
         if (!req.file) {
@@ -168,17 +161,16 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // Defaults to `org` like pipelines — an uploaded plugin is a team asset.
         const visibility = resolveVisibility(req, validation.value.visibility, 'plugins:publish', 'org');
 
-        // Catalog edits (§3.1a, D19): the optional `metadata` part carries the
-        // user's accept-or-edit result; absent ⇒ every detected value is
-        // accepted (scripts, the Official loader). Contract keys are refused
-        // by name (G56). Checked before the quota slot is reserved.
+        // Catalog edits (docs/plugin-publishing.md): the optional `metadata`
+        // part carries the user's accept-or-edit result; absent ⇒ every
+        // detected value is accepted (scripts, the Official loader). Contract
+        // keys are refused by name. Checked before the quota slot is reserved.
         const edits = parseCatalogEditsPart(validation.value.metadata);
         if (!edits.ok) return sendBadRequest(res, edits.error, ErrorCode.VALIDATION_ERROR);
 
-        // Plugin ecosystem (§3.1): `publishRequest=true` submits a publish
-        // request once the version is deployed. A request needs a `public`
-        // version and the right to request publishing — checked up front, not
-        // discovered after the build.
+        // `publishRequest=true` submits a publish request once the version is
+        // deployed. A request needs a `public` version and the right to request
+        // publishing — checked up front, not discovered after the build.
         const publishRequest = validation.value.publishRequest === 'true';
         if (publishRequest) {
           if (!userHasPermission(req, 'plugins:publish')) {
@@ -188,22 +180,19 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             return sendBadRequest(res, 'publishRequest needs visibility=public', ErrorCode.VALIDATION_ERROR);
           }
         }
-        // Loaded only when asked for: the ecosystem services are a separate graph.
-        const publish = publishRequest
-          ? { caller: (await import('../services/ecosystem/context.js')).callerFromRequest(req) }
-          : undefined;
+        const publish = publishRequest ? { caller: callerFromRequest(req) } : undefined;
 
         // Reserve the plugins quota slot. Done AFTER multer + body validation
         // so a bad-request never consumes quota. The quota service's atomic
         // reserve means two concurrent uploads at the limit can't both pass.
-        const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
-        if (reservation.exceeded) {
+        const reserved = await reservePluginSlot(quotaService, orgId, authHeader, logWarn);
+        if (!reserved.slot) {
+          const { reservation } = reserved;
           ctx.log('WARN', reservation.unavailable ? 'Plugin quota unconfirmable (quota service unavailable)' : 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
           // 503 + Retry-After when the quota service couldn't confirm; 429 when over limit.
           return sendQuotaReserveDenied(res, 'plugins', reservation);
         }
-        reserved = true;
-        reservedResetAt = reservation.quota.resetAt;
+        slot = reserved.slot;
 
         const zipPath = req.file.path;
         ctx.log('INFO', 'Upload received', {
@@ -216,31 +205,21 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         const plugin = await parsePluginZip(zipPath);
         validateBuildArgs(plugin.pluginSpec.buildArgs);
         const catalog = catalogColumns(resolveCatalogMetadata(detectCatalogMetadata(catalogInputs(plugin)), edits.value));
+        const s = plugin.pluginSpec;
+        const version = s.version || DEFAULT_PLUGIN_VERSION;
 
-        ctx.log('INFO', 'Spec validated', {
-          pluginName: plugin.pluginSpec.name,
-          version: plugin.pluginSpec.version,
-        });
+        ctx.log('INFO', 'Spec validated', { pluginName: s.name, version });
 
         // Refuse up front (before compliance, S3 staging and an image build) a
         // re-upload that would overwrite a version the caller can't write or
         // un-delete a tombstone. Throws a typed 403/409; the catch below refunds
         // the slot. deployVersion re-checks under its lock.
         const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
-        await pluginService.assertDeployable(orgId, plugin.pluginSpec.name, plugin.pluginSpec.version || '0.0.0', userId || 'system', access);
+        await pluginService.assertDeployable(orgId, s.name, version, userId || 'system', access);
 
         // -- Compliance check (fail-closed) -----------------------------------
-        const s = plugin.pluginSpec;
-        // Image facts (`signed`, `scanned`, `vuln*`, `runAsRoot`, `packages`)
-        // don't exist until the worker has built, signed and scanned the image:
-        // they are DEFERRED here and evaluated by the worker's post-build check.
-        const imageFacts = uploadComplianceImageFacts({
-          buildType: plugin.buildType,
-          pluginType: s.pluginType ?? 'CodeBuildStep',
-          keywords: catalog.keywords,
-        });
-        try {
-          const complianceResult = await complianceClient.validatePlugin(orgId, {
+        const preflight = await compliancePreflight(orgId, authHeader, {
+          attributes: {
             name: s.name,
             version: s.version,
             pluginType: s.pluginType,
@@ -254,44 +233,33 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             visibility,
             secrets: s.secrets,
             metadata: s.metadata,
-            keywords: catalog.keywords,
-            buildType: plugin.buildType,
-            ...imageFacts.attributes,
-          }, authHeader, undefined, s.name, 'upload', imageFacts.deferredFields);
-
-          if (complianceResult.blocked) {
-            ctx.log('WARN', 'Plugin upload blocked by compliance', {
-              pluginName: s.name,
-              violations: complianceResult.violations.length,
-            });
-            decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-            reserved = false;
-            return sendError(res, 403, 'Plugin upload blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
-              violations: complianceResult.violations,
-            });
-          }
-
-          if (complianceResult.warnings.length > 0) {
-            ctx.log('WARN', 'Compliance warnings on plugin upload', {
-              pluginName: s.name,
-              warnings: complianceResult.warnings.length,
-            });
-          }
-        } catch (err) {
-          // Fail-closed: if compliance service is unreachable, reject the upload
-          ctx.log('ERROR', 'Compliance service unavailable', {
-            error: errorMessage(err),
+          },
+          buildType: plugin.buildType,
+          pluginType: s.pluginType ?? 'CodeBuildStep',
+          keywords: catalog.keywords,
+          action: 'upload',
+        });
+        if (preflight.status === 'blocked') {
+          ctx.log('WARN', 'Plugin upload blocked by compliance', { pluginName: s.name, violations: preflight.violations.length });
+          slot.release();
+          return sendError(res, 403, 'Plugin upload blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+            violations: preflight.violations,
           });
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
+        }
+        if (preflight.status === 'unavailable') {
+          ctx.log('ERROR', 'Compliance service unavailable', { error: preflight.error });
+          slot.release();
           return sendError(res, 503, 'Compliance service unavailable  plugin upload rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+        }
+        if (preflight.warnings > 0) {
+          ctx.log('WARN', 'Compliance warnings on plugin upload', { pluginName: s.name, warnings: preflight.warnings });
         }
 
         // -- Build plugin record --------------------------------------------------
         const pluginRecord = {
           orgId,
           name: s.name,
-          version: s.version || '0.0.0',
+          version,
           metadata: (s.metadata || {}) as Record<string, string | number | boolean>,
           pluginType: s.pluginType || 'CodeBuildStep',
           computeType: s.computeType || 'SMALL',
@@ -306,14 +274,14 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           failureBehavior: s.failureBehavior || 'fail',
           secrets: s.secrets || [],
           buildType: plugin.buildType,
-          // Execution contract (W0.2): spec-only, persisted, never editable.
+          // Execution contract: spec-only, persisted, never editable.
           ...specContractFields(s),
-          // Catalog metadata (§3.1a): detected, then accepted or edited, with
+          // Catalog metadata: detected, then accepted or edited, with
           // per-field provenance.
           ...catalog,
           // The quota period this upload's slot was charged to, so a later
           // delete/purge can refund it conditionally (never into a new period).
-          quotaResetAt: reservedResetAt ?? null,
+          quotaResetAt: slot.resetAt ?? null,
         };
 
         // -- No image to build (metadata_only): deploy directly ----------------
@@ -324,13 +292,11 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             pluginName: s.name,
             pluginId: result.id,
           });
-          const publishOutcome = publish
-            ? await (await import('../services/ecosystem/requests.js')).submitAfterBuild(publish.caller, result.id)
-            : undefined;
+          const publishOutcome = publish ? await submitAfterBuild(publish.caller, result.id) : undefined;
 
           // Best-effort attributed audit — the source upload landed (deployed
           // directly, no image build), so we have the persisted plugin id.
-          emitPluginAudit({
+          recordAudit({
             action: 'plugin.upload',
             actorId: actorId({ userId }),
             orgId,
@@ -366,8 +332,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           await putPluginArtifact(s3Key, await fs.promises.readFile(zipPath));
         } catch (s3Err) {
           ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
+          slot.release();
           return sendError(res, 503, 'Object storage unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
         }
 
@@ -379,14 +344,14 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           access,
           // Period snapshot for the reserved slot so a DLQ retry spanning a
           // quota reset refunds the correct period (see releasePluginQuota).
-          reservedResetAt,
+          reservedResetAt: slot.resetAt,
           ...(publish ? { publish } : {}),
           buildRequest: {
             contextDir: plugin.extractDir,
             s3Key,
             dockerfile: plugin.dockerfile,
             name: s.name,
-            version: s.version || '0.0.0',
+            version,
             orgId,
             registry,
             buildArgs: s.buildArgs || {},
@@ -395,48 +360,35 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           pluginRecord,
         });
 
-        // Bind the build-log stream's owner BEFORE the requestId is returned to
-        // the caller (F3): a client can mint a ticket as soon as it has the
-        // requestId, so the owner must be recorded first or a tenant could mint a
-        // ticket for another tenant's guessed stream. Best-effort — a Redis hiccup
-        // must not fail an accepted upload; the worker re-binds as a backstop.
-        await sseManager.bindStreamOwner(ctx.requestId, orgId).catch((bindErr) =>
-          ctx.log('WARN', 'Stream-owner bind failed (non-fatal)', { error: errorMessage(bindErr) }));
-
         try {
-          // route to the org's per-tier queue. Tier lookup is cached
-          // (5-min TTL) so submission stays single round-trip on hot orgs.
-          const tier = await getOrgTier(quotaService, orgId, authHeader);
-          await enqueueBuild(tier, `${s.name}:${s.version || '0.0.0'}`, jobData);
+          await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `${s.name}:${version}`, jobData, logWarn });
         } catch (queueErr) {
           ctx.log('ERROR', 'Failed to enqueue build job', {
             error: errorMessage(queueErr),
           });
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
+          slot.release();
           // The build won't run — drop the staged context so it doesn't orphan
           // (best-effort; the bucket's expiry lifecycle is the backstop).
           await deletePluginArtifact(s3Key);
           return sendError(res, 503, 'Build queue unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
         }
+        // Queued: the build worker owns the slot now (it refunds on permanent failure).
+        slot = null;
 
-        ctx.log('INFO', 'Build queued', {
-          pluginName: s.name,
-          version: s.version || '0.0.0',
-        });
+        ctx.log('INFO', 'Build queued', { pluginName: s.name, version });
 
         // Best-effort attributed audit — the source upload was accepted and the
         // build queued. No plugin id exists yet (the worker persists the record
         // on build completion, where plugin.build.completed carries the id), so
         // `targetId` is omitted here; name/version identify the artifact.
-        emitPluginAudit({
+        recordAudit({
           action: 'plugin.upload',
           actorId: actorId({ userId }),
           orgId,
           targetType: 'plugin',
           details: {
             pluginName: s.name,
-            version: s.version || '0.0.0',
+            version,
             visibility,
             buildType: plugin.buildType,
           },
@@ -445,15 +397,13 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         return sendSuccess(res, 202, {
           requestId: ctx.requestId,
           pluginName: s.name,
-          version: s.version || '0.0.0',
+          version,
         }, 'Plugin build queued');
       } catch (err) {
-        // Any unexpected throw (e.g. parsePluginZip, deployVersion)  roll
+        // Any unexpected throw (e.g. parsePluginZip, deployVersion) — roll
         // back the reserved slot before propagating, otherwise the slot
         // sticks until period reset.
-        if (reserved) {
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservedResetAt);
-        }
+        slot?.release();
         throw err;
       } finally {
         // Remove the uploaded temp ZIP on EVERY outcome — early returns (bad
@@ -465,7 +415,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     }),
   );
 
-  // POST /plugins/inspect — DRY-RUN parse of a plugin zip (§3.1a, D19): every
+  // POST /plugins/inspect — DRY-RUN parse of a plugin zip: every
   // descriptive catalog field with its detected value, source and validation
   // error, for the upload dialog's "Catalog details" step (and the CLI).
   // Same chain and zip bounds as the upload (auth, orgId, plugins:write, a

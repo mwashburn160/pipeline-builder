@@ -48,7 +48,7 @@ export function CopyableId({ value, display, size }: Props) {
         onClick={handleClick}
         title={state === 'copied' ? 'Copied!' : state === 'failed' ? 'Copy failed' : 'Copy to clipboard'}
         aria-label="Copy to clipboard"
-        className="inline-flex h-5 w-5 items-center justify-center rounded text-fg-subtle hover:bg-gray-100 hover:text-fg dark:hover:bg-gray-800"
+        className="inline-flex h-5 w-5 items-center justify-center rounded text-fg-subtle hover:bg-surface-muted hover:text-fg"
       >
         {state === 'copied' ? (
           <Check className="h-3.5 w-3.5 text-success" />

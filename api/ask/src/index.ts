@@ -5,7 +5,6 @@ import { createLogger, createQuotaService, wireServiceSecurity } from '@pipeline
 import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
 
 import { mountRoutes } from './app-routes.js';
-import { getAuditClient } from './services/audit.js';
 import { getDocsIndex } from './services/docs-index.js';
 
 const logger = createLogger('ask');
@@ -17,7 +16,7 @@ const quotaService = createQuotaService();
 const { app, sseManager } = createApp();
 
 // Forward denied (non-GET) requests to the shared authz.denied audit sink.
-wireServiceSecurity('ask', getAuditClient);
+wireServiceSecurity('ask');
 
 // Attach request context (identity + logging) to all requests.
 app.use(attachRequestContext(sseManager));

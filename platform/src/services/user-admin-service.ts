@@ -11,9 +11,9 @@ import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND,
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
-import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
+import { withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole, type UserData } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -29,7 +29,7 @@ interface ListFilter {
 }
 
 interface ListResult {
-  users: Array<Record<string, unknown>>;
+  users: Array<UserData & { _id: Types.ObjectId }>;
   total: number;
   /** Per-user memberships, indexed by userId-string. */
   membershipsByUser: Map<string, Array<{ organizationId: Types.ObjectId | string; role: string }>>;
@@ -106,7 +106,7 @@ class UserAdminService {
       : [];
     const orgNameMap = new Map(orgs.map(o => [o._id.toString(), o.name]));
 
-    return { users: users as unknown as Array<Record<string, unknown>>, total, membershipsByUser, orgNameMap };
+    return { users, total, membershipsByUser, orgNameMap };
   }
 
   /**
@@ -288,7 +288,8 @@ class UserAdminService {
     body: {
       username?: string;
       email?: string;
-      role?: string;
+      /** Ownership is not assignable here — it moves only via transferOwnership. */
+      role?: 'admin' | 'member';
       organizationId?: string | null;
       password?: string;
     },
@@ -298,7 +299,6 @@ class UserAdminService {
       scopeOrgId?: string;
       /** The caller's authority, for the Admin-Role assignment ceiling. */
       actor: RoleAssignmentActor;
-      passwordMinLength: number;
     },
   ) {
     const changes: string[] = [];
@@ -345,7 +345,7 @@ class UserAdminService {
       // Role applies to the user's membership in a specific org. An org-scoped
       // caller changes the role in their own org; a platform admin targets the
       // supplied organizationId or falls back to the user's last-active org.
-      if (body.role !== undefined && ['owner', 'admin', 'member'].includes(body.role)) {
+      if (body.role !== undefined) {
         const targetOrgId = options.scopeOrgId
           ?? (body.organizationId || user.lastActiveOrgId?.toString());
         if (targetOrgId) {
@@ -387,9 +387,6 @@ class UserAdminService {
       }
 
       if (body.password !== undefined) {
-        if (typeof body.password !== 'string' || body.password.length < options.passwordMinLength) {
-          throw new Error(`Password must be at least ${options.passwordMinLength} characters`);
-        }
         user.password = body.password;
         // HARD revocation: an admin password reset ends every session.
         user.tokenVersion = (user.tokenVersion || 0) + 1;
@@ -417,30 +414,18 @@ class UserAdminService {
           }).session(session);
           if (!existingMembership) {
             // Enforce the account's pooled seat cap even for a sysadmin assignment
-            // (resolved at the root). Seats count DISTINCT humans across the subtree,
-            // so a user who already holds a seat elsewhere in the account consumes no
-            // new seat — only check capacity when they don't (mirrors addMember).
-            const alreadyHasSeat = await userHasSeatInAccount(user._id, String(body.organizationId), session);
-            if (!alreadyHasSeat && !(await seatCapacityAvailable(String(body.organizationId), 1, session))) {
-              throw new Error(UA_SEAT_LIMIT);
-            }
-            await UserOrganization.create(
-              [{ userId: user._id, organizationId: toOrgId(body.organizationId), role: 'member' }],
-              { session },
-            );
-            // Post-write re-check (the documented G5 pattern that addMember /
-            // bulkAddMemberToTeams / activateMember run): the pre-check above can
-            // race a concurrent invite-accept against an account one seat under
-            // cap — both pre-checks pass, both insert, account lands over its
-            // pooled seat cap. Re-counting AFTER our insert (and aborting the tx)
-            // closes that window. Skip when the user already held a seat (no new
-            // seat consumed).
-            if (!alreadyHasSeat && !(await seatCapacityStillWithinCap(String(body.organizationId), session))) {
-              throw new Error(UA_SEAT_LIMIT);
-            }
-            // Single-source RBAC: give the newly-assigned plain member the
-            // built-in Member Role floor.
-            await ensureBaselineRole(user._id, toOrgId(body.organizationId), session);
+            // (resolved at the root). A user who already holds a seat elsewhere
+            // in the account consumes no new seat.
+            const targetOrgId = String(body.organizationId);
+            await withSeatGuard({ userId: user._id, orgId: targetOrgId, session, errorCode: UA_SEAT_LIMIT }, async () => {
+              await UserOrganization.create(
+                [{ userId: user._id, organizationId: toOrgId(targetOrgId), role: 'member' }],
+                { session },
+              );
+              // Single-source RBAC: give the newly-assigned plain member the
+              // built-in Member Role floor.
+              await ensureBaselineRole(user._id, toOrgId(targetOrgId), session);
+            });
           }
           user.lastActiveOrgId = String(body.organizationId);
           changes.push('organizationId');

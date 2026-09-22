@@ -33,7 +33,7 @@ const recordMock = jest.fn<AnyFn>();
 // api-core's REAL authorization gates and `authz.denied` sink, imported from
 // their module files (the package-specifier mock below does not intercept these
 // paths), so the route's inline gates and denial audit are exercised for real.
-const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/permission-gates.js');
 const { wireAuthzDenialAuditor } = await import('@pipeline-builder/api-core/lib/services/remote-audit-client.js');
 wireAuthzDenialAuditor('compliance', () => ({ record: recordMock }) as any);
 
@@ -97,10 +97,6 @@ jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
     bulkSetActive: (...args: unknown[]) => bulkSetActiveMock(...(args as [string, string[]])),
     unsubscribe: (...args: unknown[]) => unsubscribeMock(...args),
   },
-  CS_RULE_NOT_FOUND: 'CS_RULE_NOT_FOUND',
-  CS_SUBSCRIPTION_NOT_FOUND: 'CS_SUBSCRIPTION_NOT_FOUND',
-  CS_NOT_PUBLISHED: 'CS_NOT_PUBLISHED',
-  CS_SYSTEM_ORG: 'CS_SYSTEM_ORG',
 }));
 
 const { createSubscriptionRoutes } = await import('../src/routes/subscriptions.js');

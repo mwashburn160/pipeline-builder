@@ -13,7 +13,7 @@
  * context for the cross-org sweep, started/stopped from index.ts.
  */
 
-import { createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { dispatchImmediate } from './compliance-notifier.js';
@@ -108,14 +108,12 @@ async function sweep(): Promise<void> {
 }
 
 // Cross-pod leader lock so that with multiple compliance replicas only ONE pod
-// flushes per window (others no-op). Backed by the shared env-configured Redis
-// client (`createEnvRedisLock`); null when Redis isn't configured, in which case
-// the scheduler runs lock-free (digest flush is idempotent per due window).
-const lockClient = createEnvRedisLock();
+// flushes per window (others no-op). Without Redis the scheduler runs lock-free
+// (digest flush is idempotent per due window).
 const scheduler: Scheduler = createScheduler({
   name: 'digest-scheduler',
   intervalMs: SCHEDULER_INTERVAL_MS,
-  ...(lockClient ? { lock: { redis: () => lockClient, key: LOCK_KEY, ttlMs: LOCK_TTL_MS } } : {}),
+  lock: { key: LOCK_KEY, ttlMs: LOCK_TTL_MS },
   run: sweep,
 });
 

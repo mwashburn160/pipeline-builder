@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SCIM 2.0 PROTOCOL conformance (3b), with the models mocked — so what is under
+ * SCIM 2.0 PROTOCOL conformance, with the models mocked — so what is under
  * test is the wire contract, not Mongo:
  *
  *   - filter parsing (`userName eq`, `externalId eq`, `displayName eq`, and the
@@ -20,9 +20,11 @@
  * a manual step; these fixtures are what keeps the parsing honest in CI.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { seatsMock } from './helpers/seats-mock.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 
@@ -44,9 +46,8 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/idp-group-mapping-service.js', () => ({
   idpGroupMappingService: { resolveMappedRoles: async () => ({ roleIds: [], matchedGroups: [] }) },
-  MAX_MAPPINGS_PER_ORG: 100,
 }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({
+jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
   pooledSeatUsage: async () => ({ limit: 3, used: 3 }),
   seatCapacityAvailable: async () => true,
   seatCapacityStillWithinCap: async () => true,
@@ -59,14 +60,19 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   isSsoEntitled: async () => true,
 }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({ withMongoTransaction: async (fn: (s: unknown) => Promise<unknown>) => fn({}) }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { app: { frontendUrl: 'https://pb.example.com/' } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ app: { frontendUrl: 'https://pb.example.com/' } }));
 
 const counters: Array<{ name: string; labels: Record<string, string> }> = [];
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({
   incCounter: (name: string, labels: Record<string, string> = {}) => { counters.push({ name, labels }); },
 }));
 
-const scim = await import('../src/services/scim-service.js');
+const scim = {
+  ...(await import('../src/services/scim-filter.js')),
+  ...(await import('../src/services/scim-users.js')),
+  ...(await import('../src/services/scim-groups.js')),
+  ...(await import('../src/services/scim-discovery.js')),
+};
 const { sendScimError } = await import('../src/utils/scim-response.js');
 const { requireScimScope } = await import('../src/middleware/require-scim-scope.js');
 const errors = await import('../src/services/scim-errors.js');

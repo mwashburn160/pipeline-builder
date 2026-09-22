@@ -8,8 +8,8 @@
  * branches of the report helper, not the AWS call itself (see providers.test.ts).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -19,6 +19,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const schedulerStart = jest.fn<AnyFn>();
 const schedulerStop = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockAuditRecord,
   createScheduler: (opts: { run: () => Promise<void> }) => ({
     start: () => { schedulerStart(); void opts.run(); },
     stop: () => { schedulerStop(); },
@@ -45,7 +46,6 @@ jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({ grantRec
 const mockRecordMarketplaceConsumption = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ recordMarketplaceConsumption: (...a: unknown[]) => mockRecordMarketplaceConsumption(...a) }));
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: mockAuditRecord }) }));
 
 const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockSubscriptionFind = jest.fn<(...args: unknown[]) => unknown>();

@@ -35,7 +35,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  incrementQuotaFromCtx: jest.fn<AnyFn>(),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
   rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
   requireOrgId: () => (_req: any, _res: any, next: () => void) => next(),
   withTenantContext: () => (_req: any, _res: any, next: () => void) => next(),

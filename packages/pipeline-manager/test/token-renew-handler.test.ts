@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The scheduled KEY ROTATOR (#N2).
+ * The scheduled KEY ROTATOR.
  *
  * The behaviour worth testing is not "does it rotate" but the ORDER, because
  * the order is what guarantees the deployment always holds a working

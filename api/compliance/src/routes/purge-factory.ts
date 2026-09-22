@@ -1,36 +1,29 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, requireStepUp, actorId } from '@pipeline-builder/api-core';
+import { sendSuccess, audited, loadAndPurge, requirePermission, requireStepUp, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { emitComplianceAudit } from '../services/audit.js';
 
 /** Minimal surface a purgeable compliance entity's service must expose. */
 interface PurgeableService {
-  findDeletedById(id: string, orgId: string): Promise<{ orgId: string; name: string } | null>;
-  purgeById(id: string, orgId: string): Promise<string | null>;
+  findDeletedById(id: string, orgId?: string): Promise<{ orgId: string; name: string } | null>;
+  purgeById(id: string, orgId?: string): Promise<string | null>;
 }
 
 /**
  * Shared `POST /:id/purge` route for compliance rules + policies — the manual,
- * on-demand hard-delete of a soft-deleted tombstone, finalizing an already-
- * soft-deleted item ahead of the retention sweep. It reuses the sweep's
- * `purgeById` (same `onBeforePurge`/`onAfterPurge` teardown) to destroy the
- * tombstone permanently.
+ * on-demand hard-delete of a soft-deleted tombstone ahead of the retention
+ * sweep, reusing the sweep's `purgeById` (same `onBeforePurge`/`onAfterPurge`
+ * teardown).
  *
  * Like restore, this route owns its full authorization chain —
  * `compliance:write` then `requireStepUp` (password re-verify) — rather than
  * inheriting a gate from the `/compliance/{rules,policies}` mount, which
- * supplies only auth + orgId + quota. Purge is an irreversible hard-delete, so
- * it re-verifies before destroying the tombstone, matching the restore route's
- * "re-verify before a destructive action". The frontend sends the step-up token
- * in the same header restore uses.
- *
- * Mirrors {@link createComplianceRestoreRoutes}: load the own-org tombstone for
- * access-control gating (and to capture name/orgId for the audit record), then
- * hard-delete it, emitting an attributed `compliance.{rule,policy}.purge` event
- * only after the purge succeeds.
+ * supplies only auth + orgId + quota. Purge is irreversible, so it re-verifies
+ * before destroying the tombstone. The tombstone is loaded first (own-org, 404
+ * otherwise) so name/orgId survive for the audit record, emitted only after
+ * the purge succeeds.
  */
 export function createCompliancePurgeRoutes(opts: {
   service: PurgeableService;
@@ -42,27 +35,19 @@ export function createCompliancePurgeRoutes(opts: {
   const router = Router();
 
   router.post('/:id/purge', requirePermission('compliance:write'), requireStepUp, audited(action), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendBadRequest(res, `${label} ID is required`, ErrorCode.MISSING_REQUIRED_FIELD);
+    const result = await loadAndPurge(req, res, service, { orgId, userId, label, authorize: () => true });
+    if (!result) return;
+    const { existing, purgedId } = result;
 
-    // Load the tombstone first: gates on own-org scope + genuine soft-delete
-    // (404 otherwise) and captures name/orgId for the audit record before the row
-    // is destroyed.
-    const existing = await service.findDeletedById(id, orgId);
-    if (!existing) return sendEntityNotFound(res, label);
+    ctx.log('COMPLETED', `Purged compliance ${targetType}`, { id: purgedId, name: existing.name });
 
-    const purgedId = await service.purgeById(id, orgId);
-    if (!purgedId) return sendEntityNotFound(res, label);
-
-    ctx.log('COMPLETED', `Purged compliance ${targetType}`, { id, name: existing.name });
-
-    emitComplianceAudit({
+    recordAudit({
       action,
       actorId: actorId({ userId }),
       orgId,
       affectedOrgId: existing.orgId,
       targetType,
-      targetId: id,
+      targetId: purgedId,
       details: { name: existing.name },
     });
 

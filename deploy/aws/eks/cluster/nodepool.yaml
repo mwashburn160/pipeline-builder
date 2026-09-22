@@ -119,7 +119,7 @@ spec:
 # =============================================================================
 # plugin-quarantine — the isolated build pool for anonymous plugin submissions
 # =============================================================================
-# docs/plans/plugin-ecosystem.md §4.2 "Isolated build pool" (W5): anonymous
+# Isolated build pool (docs/plugin-publishing.md#submitting-without-an-account): anonymous
 # submissions build on a SEPARATE node pool and buildkitd, never the shared
 # tenant one. The only pod that tolerates this taint is
 # k8s/plugin-quarantine-builder.yaml (which also nodeSelects this pool), so a

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, fetchOrgNames, fetchParentOrgId, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('org-hierarchy-client');
 
@@ -28,10 +27,7 @@ const logger = createLogger('org-hierarchy-client');
  */
 export async function resolveParentOrgId(orgId: string): Promise<string | undefined> {
   try {
-    const { services } = Config.get('server');
     return await fetchParentOrgId(orgId, {
-      service: { host: services.platformHost, port: services.platformPort },
-      serviceName: 'compliance',
       authOrgId: SYSTEM_ORG_ID,
       throwOnHttpError: true,
     });
@@ -51,10 +47,7 @@ export async function resolveParentOrgId(orgId: string): Promise<string | undefi
  */
 export async function resolveOrgName(orgId: string): Promise<string | undefined> {
   try {
-    const { services } = Config.get('server');
     const names = await fetchOrgNames([orgId], {
-      service: { host: services.platformHost, port: services.platformPort },
-      serviceName: 'compliance',
       authOrgId: SYSTEM_ORG_ID,
     });
     return names[orgId.toLowerCase()];

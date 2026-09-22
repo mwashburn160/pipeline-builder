@@ -1,14 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { COMPLIANCE_CONTENT_SETS, ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, desc, inArray, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { paginatedList } from './paginated-list.js';
-import { subscriptionService, KNOWN_CONTENT_SETS } from './subscription-service.js';
+import { subscriptionService } from './subscription-service.js';
 import { validateRuleRegexPatterns } from '../engine/rule-operators.js';
 import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier.js';
 
@@ -39,7 +39,7 @@ export class InvalidSetTagError extends Error {
   }
 }
 
-const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(KNOWN_CONTENT_SETS);
+const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(COMPLIANCE_CONTENT_SETS);
 
 /**
  * Reject a published rule whose tags include a `set:<x>` marker with an unknown
@@ -53,7 +53,7 @@ function invalidSetTagMessage(tags: unknown): string | null {
     if (typeof tag !== 'string' || !tag.startsWith('set:')) continue;
     const name = tag.slice('set:'.length);
     if (!KNOWN_CONTENT_SET_NAMES.has(name)) {
-      return `Unknown content set tag "${tag}" — must be one of: ${KNOWN_CONTENT_SETS.map((s) => `set:${s}`).join(', ')}`;
+      return `Unknown content set tag "${tag}" — must be one of: ${COMPLIANCE_CONTENT_SETS.map((s) => `set:${s}`).join(', ')}`;
     }
   }
   return null;
@@ -168,9 +168,10 @@ export class ComplianceRuleService extends CrudService<
         eq(schema.complianceRule.propagateToChildren, true),
       )!,
     )!;
-    // A widened read runs under sysadmin tenant context (CrudService.runRead),
-    // which is outside the RLS policy that otherwise hides tombstones — so the
-    // soft-delete filter has to be asserted here rather than assumed.
+    // RLS never hides soft-deleted rows and a widened read runs under sysadmin
+    // tenant context (CrudService.runRead), so the parent's tombstones must be
+    // excluded in the WHERE clause. (By-id reads and writes get the same filter
+    // from CrudService itself.)
     conditions.push(isNull(schema.complianceRule.deletedAt));
     return conditions;
   }
@@ -391,7 +392,7 @@ export class ComplianceRuleService extends CrudService<
   }
 
   /**
-   * Feature #6: Get all enforced rules for an org (org rules + active subscribed rules merged).
+   * Get all enforced rules for an org (org rules + active subscribed rules merged).
    */
   async findAllEnforced(orgId: string, target?: RuleTarget, parentOrgId?: string): Promise<EnforcedRule[]> {
     const targets: RuleTarget[] = target ? [target] : ['plugin', 'pipeline'];

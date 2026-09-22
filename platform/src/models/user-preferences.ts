@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { EcosystemEmailPreferenceField } from '@pipeline-builder/api-core';
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, Types, type HydratedDocument } from 'mongoose';
 
 /**
- * Plugin-ecosystem EMAIL opt-outs (docs/plans/plugin-ecosystem.md §5b
- * "Preferences"), keyed by api-core `ECOSYSTEM_EMAIL_PREFERENCE_FIELDS`
+ * Plugin-ecosystem EMAIL opt-outs, keyed by api-core `ECOSYSTEM_EMAIL_PREFERENCE_FIELDS`
  * (`ecosystem.reviews.email` → `reviewsEmail`, …). All default ON. Read by the
  * notification relay when it mails a non-transactional ecosystem notice; the
  * in-app copy is always delivered, and transactional/security notices ignore
@@ -31,7 +30,7 @@ export interface NotificationPreferences {
  * plugin id means nothing outside its org), so the record is keyed on
  * `(userId, organizationId)`.
  */
-export interface UserPreferencesDocument extends Document {
+export interface UserPreferencesData {
   userId: Types.ObjectId;
   organizationId: string;
   /** Favorited resource ids (e.g. plugin ids), org-scoped. */
@@ -42,7 +41,9 @@ export interface UserPreferencesDocument extends Document {
   updatedAt: Date;
 }
 
-const userPreferencesSchema = new Schema<UserPreferencesDocument>(
+export type UserPreferencesDocument = HydratedDocument<UserPreferencesData>;
+
+const userPreferencesSchema = new Schema<UserPreferencesData>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     organizationId: { type: String, required: true },
@@ -76,4 +77,4 @@ const userPreferencesSchema = new Schema<UserPreferencesDocument>(
 // One preferences document per user per org.
 userPreferencesSchema.index({ userId: 1, organizationId: 1 }, { unique: true });
 
-export default mongoose.model<UserPreferencesDocument>('UserPreferences', userPreferencesSchema);
+export default mongoose.model<UserPreferencesData>('UserPreferences', userPreferencesSchema);

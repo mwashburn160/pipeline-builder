@@ -50,11 +50,6 @@ const challenges = createPendingStateStore<PendingPasswordChange>({
   maxEntries: config.auth.totp.maxPendingChallenges,
 });
 
-/** Test hook: drop in-memory challenge state between cases. */
-export function _resetPasswordChangeChallengesForTests(): void {
-  challenges._resetForTests();
-}
-
 export interface IssuedPasswordChangeChallenge {
   challengeId: string;
   expiresAt: number;

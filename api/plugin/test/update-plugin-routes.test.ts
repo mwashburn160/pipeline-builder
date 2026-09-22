@@ -8,8 +8,8 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -200,7 +200,7 @@ describe('PUT /plugins/:id (update)', () => {
     [{ name: 'attempted-rename', version: '9.9.9' }, ['name', 'version']],
     [{ commands: ['rm -rf /'], env: { A: 'b' }, description: 'x' }, ['commands', 'env']],
     [{ computeType: 'LARGE', secrets: [], timeout: 5 }, ['secrets', 'computeType', 'timeout']],
-  ])('refuses execution-contract keys %j with 400 naming them (G56)', async (body, keys) => {
+  ])('refuses execution-contract keys %j with 400 naming them', async (body, keys) => {
     const res = mockRes();
     await handler(mockReq({ body }), res);
 
@@ -246,7 +246,7 @@ describe('PUT /plugins/:id (update)', () => {
     },
   );
 
-  it('refuses a VISIBILITY change on a frozen version — approval must still find it public (E19)', async () => {
+  it('refuses a VISIBILITY change on a frozen version — approval must still find it public', async () => {
     mockFindById.mockResolvedValue({ ...existingPlugin, visibility: 'public' });
     mockVersionImmutability.mockResolvedValueOnce('frozen');
     const res = mockRes();

@@ -26,7 +26,7 @@ const EntityEventSchema = z.object({
  * This route is called by the compliance event subscriber registered in
  * plugin/pipeline services via `registerComplianceEventSubscriber()`.
  * It is NOT user-facing — `requireAuth` + `requireInternalService` admits only
- * those two services' own signed tokens (#14), and refuses every user token.
+ * those two services' own signed tokens, and refuses every user token.
  */
 export function createEntityEventRoutes(): Router {
   const router = Router();

@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS } from '@pipeline-builder/api-core';
+import { envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -32,7 +32,6 @@ import {
   getTierQueue,
   isTierConnectionReady,
 } from './connections.js';
-import { intFromEnv } from './env-int.js';
 import { createBuildFailedHandler } from './failure-handler.js';
 import { startDlqWorker, closeDlqWorker } from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
@@ -42,7 +41,6 @@ import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build
 import type { BuildResult } from '../helpers/docker-build.js';
 import { assertPostBuildCompliance, establishImageFacts, type ImageFacts } from '../helpers/image-facts.js';
 import { toPluginInsert, type PluginBuildJobData } from '../helpers/plugin-helpers.js';
-import { getAuditClient } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('plugin-build-queue');
@@ -91,11 +89,11 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
   const { concurrency } = getBuildCfg();
   const tierConcurrency: Record<QuotaTier, number> = {
-    developer: intFromEnv('PLUGIN_BUILD_CONCURRENCY_DEVELOPER', concurrency),
-    pro: intFromEnv('PLUGIN_BUILD_CONCURRENCY_PRO', concurrency),
-    team: intFromEnv('PLUGIN_BUILD_CONCURRENCY_TEAM', concurrency),
-    enterprise: intFromEnv('PLUGIN_BUILD_CONCURRENCY_ENTERPRISE', concurrency),
-    unlimited: intFromEnv('PLUGIN_BUILD_CONCURRENCY_UNLIMITED', concurrency),
+    developer: envInt('PLUGIN_BUILD_CONCURRENCY_DEVELOPER', concurrency, { min: 1 }),
+    pro: envInt('PLUGIN_BUILD_CONCURRENCY_PRO', concurrency, { min: 1 }),
+    team: envInt('PLUGIN_BUILD_CONCURRENCY_TEAM', concurrency, { min: 1 }),
+    enterprise: envInt('PLUGIN_BUILD_CONCURRENCY_ENTERPRISE', concurrency, { min: 1 }),
+    unlimited: envInt('PLUGIN_BUILD_CONCURRENCY_UNLIMITED', concurrency, { min: 1 }),
   };
 
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
@@ -126,7 +124,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           observe('plugin_job_wait_seconds', {}, (Date.now() - job.timestamp) / 1000);
         }
 
-        // Ensure/refresh the build-log stream's owner binding (F3 backstop) so a
+        // Ensure/refresh the build-log stream's owner binding (a backstop) so a
         // cross-tenant ticket mint for this requestId is refused — covers a retry/
         // replay whose original route-time binding TTL lapsed, and any producer
         // that didn't bind at enqueue. Best-effort: a Redis hiccup here must not
@@ -170,7 +168,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           sseManager.send(requestId, 'INFO', 'Image pushed and signed', { fullImage, digest: result.digest });
         }
 
-        // W0.6: scan the signed image (grype over its signed SBOM), resolve its
+        // scan the signed image (grype over its signed SBOM), resolve its
         // USER, then run the compliance rules the upload deferred — signed,
         // scanned, vuln*, runAsRoot, packages — on the REAL facts, before the
         // version is persisted. A block fails the build permanently.
@@ -224,7 +222,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           durationMs,
         });
 
-        getAuditClient().record({
+        recordAudit({
           action: 'plugin.build.completed',
           actorId: userId ?? 'system',
           orgId,
@@ -238,9 +236,9 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
             ...(image && { imageDigest: image.imageDigest, imageSource: image.imageSource }),
             ...(facts && { scanned: facts.scannedAt !== null, vulnCritical: facts.vulnCritical, vulnHigh: facts.vulnHigh, runAsRoot: facts.runAsRoot }),
           },
-        }, 'plugin');
+        });
 
-        // Plugin ecosystem (§3.1): the upload asked for a publish request —
+        // Plugin ecosystem: the upload asked for a publish request —
         // submit it now that the version (and its signed digest) exists. Never
         // fails the build: the refusal is reported on the build stream.
         if (job.data.publish) {

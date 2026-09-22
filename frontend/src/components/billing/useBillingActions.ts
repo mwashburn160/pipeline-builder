@@ -102,9 +102,8 @@ export function useBillingActions({
   const doSubscribe = async (planId: string) => {
     setActionLoading(true);
     // Set once we hand the tab to Stripe. A `return` inside `try` still runs
-    // `finally`, so the old "keep the loading state while navigating away"
-    // comment was false: the buttons re-enabled while Checkout was loading, and
-    // a second click opened a second Checkout session.
+    // `finally`, which would re-enable the buttons while Checkout loads — and a
+    // second click would open a second Checkout session.
     let navigating = false;
     try {
       if (subscription) {

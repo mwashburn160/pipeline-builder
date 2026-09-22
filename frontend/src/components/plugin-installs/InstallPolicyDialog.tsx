@@ -11,7 +11,7 @@ import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { VERSION_POLICIES, VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
-import type { ListingVersionState, VersionPolicy } from '@/types/plugin-installs';
+import type { ListingVersionState, InstallVersionPolicy } from '@/types/plugin-installs';
 
 /**
  * Choose a version policy and baseline version for an install — used to pin an
@@ -25,7 +25,7 @@ export function InstallPolicyDialog({
   publisher: string;
   name: string;
   title: string;
-  initialPolicy?: VersionPolicy;
+  initialPolicy?: InstallVersionPolicy;
   initialVersion?: string | null;
   submitLabel?: string;
   /** Widening to `latest` needs an approver for this caller: choosing it sends
@@ -33,10 +33,10 @@ export function InstallPolicyDialog({
    *  refusal into one), so the option says so. */
   latestNeedsApproval?: boolean;
   /** `version` is undefined for "the latest stable version" (server default). */
-  onSubmit: (body: { versionPolicy: VersionPolicy; version?: string }) => Promise<void>;
+  onSubmit: (body: { versionPolicy: InstallVersionPolicy; version?: string }) => Promise<void>;
   onClose: () => void;
 }) {
-  const [policy, setPolicy] = useState<VersionPolicy>(initialPolicy);
+  const [policy, setPolicy] = useState<InstallVersionPolicy>(initialPolicy);
   const [version, setVersion] = useState<string>(initialVersion ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +77,7 @@ export function InstallPolicyDialog({
             ? 'Following every new version (latest) needs an approver in your organization — choosing it sends them a request.'
             : 'Which new versions your pipelines pick up automatically. A major version never flows in without an upgrade.'}
         >
-          <Select aria-label="Version policy" value={policy} onChange={(e) => setPolicy(e.target.value as VersionPolicy)}>
+          <Select aria-label="Version policy" value={policy} onChange={(e) => setPolicy(e.target.value as InstallVersionPolicy)}>
             {VERSION_POLICIES.map((p) => (
               <option key={p} value={p}>
                 {VERSION_POLICY_LABELS[p]}{p === 'latest' && latestNeedsApproval && initialPolicy !== 'latest' ? ' (sends a request to an approver)' : ''}

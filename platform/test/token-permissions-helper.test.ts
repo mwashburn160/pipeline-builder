@@ -18,10 +18,14 @@ const mockMembershipForOrg = jest.fn(async (..._args: unknown[]) => ({ organizat
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: () => ({ select: () => ({ lean: async () => storedUser }) }) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
-  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
   membershipForOrg: mockMembershipForOrg,
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
 }));
 
 const { callerRestriction, resolveRequestedPermissions } = await import('../src/helpers/token-permissions.js');

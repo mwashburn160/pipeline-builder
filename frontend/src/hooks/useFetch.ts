@@ -15,8 +15,8 @@ import { runCancellableFetch } from './internal/fetchCore';
  * It stores the fetcher in a ref so callers DON'T need to memoize it, returns
  * `error: Error | null` + `refetch()`, and cancels the in-flight request on
  * unmount/deps-change. The fetcher receives an `AbortSignal`; forward it to the
- * API client to stop the request on the wire (callers that ignore it simply
- * keep the old "drop the late answer" behaviour).
+ * API client to stop the request on the wire (callers that ignore it only drop
+ * the late answer).
  *
  * @example
  * const { data, loading, error, refetch } = useFetch(
@@ -24,14 +24,24 @@ import { runCancellableFetch } from './internal/fetchCore';
  *   [orgId],
  * );
  */
+export interface UseFetchOptions<T> {
+  /** Called with a loaded value in the same render as `data` — e.g. to seed a
+   *  form from it without an intermediate unseeded render. */
+  onSuccess?: (value: T) => void;
+  /** Called with a failed load's error (e.g. to toast it). Prior `data` is kept. */
+  onError?: (err: Error) => void;
+}
+
 export function useFetch<T>(
   fetcher: (signal: AbortSignal) => Promise<T>,
   deps: ReadonlyArray<unknown>,
+  options: UseFetchOptions<T> = {},
 ): {
   data: T | null;
   loading: boolean;
   error: Error | null;
-  refetch: () => void;
+  /** Re-run the fetcher; resolves once that run has settled — `true` when it succeeded. */
+  refetch: () => Promise<boolean>;
 } {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,20 +49,42 @@ export function useFetch<T>(
   const [tick, setTick] = useState(0);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  const onSuccessRef = useRef(options.onSuccess);
+  onSuccessRef.current = options.onSuccess;
+  const onErrorRef = useRef(options.onError);
+  onErrorRef.current = options.onError;
+  // `refetch()` callers waiting for the run they triggered (or a later one) to settle.
+  const waitersRef = useRef<Array<(ok: boolean) => void>>([]);
 
   useEffect(() => {
+    let ok = false;
     return runCancellableFetch((signal) => fetcherRef.current(signal), {
       onStart: () => {
         setLoading(true);
         setError(null);
       },
-      onSuccess: setData,
-      onError: setError,
-      onSettled: () => setLoading(false),
+      onSuccess: (value) => {
+        ok = true;
+        setData(value);
+        onSuccessRef.current?.(value);
+      },
+      onError: (err) => {
+        setError(err);
+        onErrorRef.current?.(err);
+      },
+      onSettled: () => {
+        setLoading(false);
+        const waiters = waitersRef.current;
+        waitersRef.current = [];
+        for (const resolve of waiters) resolve(ok);
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the caller's `deps` are spread in, so the list size is not statically known
   }, [...deps, tick]);
 
-  const refetch = useCallback(() => setTick((t) => t + 1), []);
+  const refetch = useCallback(() => new Promise<boolean>((resolve) => {
+    waitersRef.current.push(resolve);
+    setTick((t) => t + 1);
+  }), []);
   return { data, loading, error, refetch };
 }

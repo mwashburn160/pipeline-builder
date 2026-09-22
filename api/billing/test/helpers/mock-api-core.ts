@@ -40,6 +40,7 @@
  * is hand-copied into 10 suites).
  */
 import { jest } from '@jest/globals';
+import { TIER_FEATURES } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 import {
   baseApiCoreMock,
   loggerMock,
@@ -49,7 +50,6 @@ import {
 } from '@pipeline-builder/api-core/testing';
 // Real TIER_FEATURES (side-effect-free deep import) so the mock can't drift from
 // api-core — billing derives entitlement copy from it.
-import { TIER_FEATURES } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 
 export { loggerMock };
 
@@ -81,7 +81,7 @@ const billingDefaults = (): Record<string, unknown> => ({
     alertDestinations: 10,
     idpConfigs: 1,
     listings: 3,
-    // Phase 8 retention baselines — standard tiers 30/180; `unlimited` -1
+    // retention baselines — standard tiers 30/180; `unlimited` -1
     // (the retention leg pushes these effective values to reporting).
     eventRetentionDays: tier === 'unlimited' ? -1 : 30,
     doraRetentionDays: tier === 'unlimited' ? -1 : 180,

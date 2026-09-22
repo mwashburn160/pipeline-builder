@@ -7,10 +7,10 @@
  * plaintext crosses the wire), upsert idempotency.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { randomBytes } from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { resetDefaultKeyProvider } from '@pipeline-builder/api-core';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
 const mockSave = jest.fn<AnyFn>();
 const mockCreate = jest.fn<AnyFn>();
@@ -28,7 +28,7 @@ jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   },
 }));
 
-// The service's DTO now carries the derived SAML service-provider URLs (#4), so
+// The service's DTO now carries the derived SAML service-provider URLs, so
 // importing it loads `config`, which refuses to initialize without an encryption
 // key. Each test still sets a real per-test key below; this only gets the module
 // graph up.

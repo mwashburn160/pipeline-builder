@@ -34,7 +34,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
   developer: {
     key: 'developer',
     label: 'Developer',
-    pillClass: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+    pillClass: 'bg-info-bg text-info-strong',
     dotClass: 'bg-blue-500',
     badgeColor: 'gray',
     sort: 0,
@@ -50,7 +50,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
   team: {
     key: 'team',
     label: 'Team',
-    pillClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+    pillClass: 'bg-success-bg text-success-strong',
     dotClass: 'bg-emerald-500',
     badgeColor: 'green',
     sort: 2,
@@ -58,7 +58,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
   enterprise: {
     key: 'enterprise',
     label: 'Enterprise',
-    pillClass: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+    pillClass: 'bg-warning-bg text-warning-strong',
     dotClass: 'bg-amber-500',
     badgeColor: 'red',
     sort: 3,
@@ -69,7 +69,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
   unlimited: {
     key: 'unlimited',
     label: 'Unlimited',
-    pillClass: 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200',
+    pillClass: 'bg-slate-200 text-fg dark:bg-slate-700',
     dotClass: 'bg-slate-500',
     badgeColor: 'indigo',
     sort: 4,

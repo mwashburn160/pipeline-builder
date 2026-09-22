@@ -1,6 +1,6 @@
 ---
 # =============================================================================
-# Mesh identity for INTERNAL routes (#14)
+# Mesh identity for INTERNAL routes
 # =============================================================================
 # The internal routes — `/internal/*`, the quota usage counters, the entity-event
 # and audit ingests, and the billing→compliance / billing→reporting entitlement
@@ -69,7 +69,7 @@ spec:
 ---
 # -- platform ----------------------------------------------------------------
 # POST /internal/notify-email — compliance relays notification emails, and the
-# plugin service relays plugin-ecosystem notices (plan §5b), through platform,
+# plugin service relays plugin-ecosystem notices, through platform,
 # which holds the SMTP credentials and the user directory.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -93,7 +93,7 @@ spec:
             methods: ["POST"]
             paths: ["/internal/notify-email"]
     # GET /internal/notify-email/status — `{ enabled }`, the precondition the
-    # plugin service checks before serving anonymous submissions (§4.2).
+    # plugin service checks before serving anonymous submissions.
     - from:
         - source:
             notPrincipals:
@@ -104,8 +104,8 @@ spec:
             paths: ["/internal/notify-email/status"]
 ---
 # GET /internal/ecosystem/* — the plugin service's plugin-ecosystem governance
-# reads (plan §3.0.1 approver count, §3.7 Verified eligibility: verified
-# domains and owner MFA). Counts and domain names only.
+# reads (eligible-approver count for two-person approval; Verified eligibility:
+# verified domains and owner MFA). Counts and domain names only.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -159,11 +159,12 @@ spec:
             paths: ["/audit/events"]
 ---
 # -- message -----------------------------------------------------------------
-# POST /messages/internal/notify and
-# DELETE /messages/internal/org/:orgId/attachments — both are platform-only
-# (the domain-join notifications and the org-delete cascade). One prefix covers
-# the whole internal surface, so a future internal route under it is denied to
-# everyone else by default rather than being open until someone remembers.
+# POST /messages/internal/notify — system notifications, from platform, billing
+# (renewal reminders) and compliance (the in-app channel).
+# Everything else under /messages/internal/ (the org-delete attachment cascade)
+# is platform-only. The prefix rule covers the whole internal surface, so a
+# future internal route under it is denied to everyone else by default rather
+# than being open until someone remembers.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -180,9 +181,19 @@ spec:
         - source:
             notPrincipals:
               - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/compliance
+      to:
+        - operation:
+            paths: ["/messages/internal/notify"]
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
       to:
         - operation:
             paths: ["/messages/internal/*"]
+            notPaths: ["/messages/internal/notify"]
 ---
 # -- compliance --------------------------------------------------------------
 # POST /compliance/events/entity — entity lifecycle events from pipeline/plugin.
@@ -388,7 +399,7 @@ spec:
         - operation:
             paths: ["/internal/quarantine/*"]
 ---
-# -- plugin-quarantine-builder (anonymous plugin submissions, §4.2 / W5) -----
+# -- plugin-quarantine-builder (anonymous plugin submissions) -----
 # The quarantine builder's only legitimate waypoint hop is image-registry's
 # registry-token realm (GET /token) during a push/pull. Deny it every other
 # path on image-registry, and every other waypoint-fronted Service outright —

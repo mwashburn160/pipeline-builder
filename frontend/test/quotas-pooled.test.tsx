@@ -20,10 +20,7 @@ import { POOLING_TITLE } from '../src/components/quotas/constants';
 import type { OrgQuotaResponse } from '@/types';
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() })));
 
 const summary = (limit: number, used: number) => ({ limit, used, remaining: Math.max(0, limit - used), unlimited: false, resetAt: '' });
 const quotas = {

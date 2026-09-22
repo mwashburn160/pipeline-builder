@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { SYSTEM_ORG_ID, type RuleConditionMode, type RuleOperator, type RuleScope, type RuleSeverity, type RuleTarget } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
@@ -9,38 +9,7 @@ import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index
 // Compliance Service Tables
 // ========================================
 
-/**
- * Compliance rule severity levels.
- */
-export type RuleSeverity = 'warning' | 'error' | 'critical';
-
-/**
- * Compliance rule target entity types.
- */
-export type RuleTarget = 'plugin' | 'pipeline';
-
-/**
- * Compliance rule operators for field evaluation.
- */
-export type RuleOperator =
-  | 'eq' | 'neq'
-  | 'contains' | 'notContains'
-  | 'regex'
-  | 'gt' | 'gte' | 'lt' | 'lte'
-  | 'in' | 'notIn'
-  | 'exists' | 'notExists' | 'notEmpty'
-  | 'countGt' | 'countLt'
-  | 'lengthGt' | 'lengthLt';
-
-/**
- * Cross-field condition mode for multi-condition rules.
- */
-export type RuleConditionMode = 'all' | 'any';
-
-/**
- * Rule scope  org-level or published (system org only, opt-in via subscription).
- */
-export type RuleScope = 'org' | 'published';
+export type { RuleSeverity, RuleTarget, RuleOperator, RuleConditionMode, RuleScope };
 
 /**
  * A single condition in a cross-field rule.

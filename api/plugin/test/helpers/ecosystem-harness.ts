@@ -13,7 +13,7 @@
  */
 
 import { jest } from '@jest/globals';
-import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
+import { bindTestAuditService, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 
 import { createFakeEcosystemDb, type FakeEcosystemDb, type NewRow, type Row } from './fake-ecosystem-db.js';
 
@@ -23,7 +23,7 @@ export const DIGEST_B = `sha256:${'b'.repeat(64)}`;
 
 export interface Harness {
   db: FakeEcosystemDb;
-  audit: ReturnType<typeof jest.fn>;
+  audit: ReturnType<typeof bindTestAuditService>;
   notify: ReturnType<typeof jest.fn>;
   registryPost: ReturnType<typeof jest.fn>;
   /** image-registry `DELETE /internal/quarantine/:id`. */
@@ -40,7 +40,7 @@ export interface Harness {
   platform: { eligibility: ReturnType<typeof jest.fn>; approvers: ReturnType<typeof jest.fn> };
   /** Set the tenant listings limit the fake quota service reports (-1 = unlimited). */
   setListingsLimit: (limit: number) => void;
-  /** The background re-sign kick (E1) — recorded, never run: suites drive `runResignJobs` themselves. */
+  /** The background re-sign kick — recorded, never run: suites drive `runResignJobs` themselves. */
   resignKick: ReturnType<typeof jest.fn>;
 }
 
@@ -51,13 +51,13 @@ export function setupEcosystemHarness(): Harness {
   jest.unstable_mockModule('drizzle-orm', () => drizzleMock(db.ops));
   jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { ...actualData, ...db.pipelineData }));
 
-  const audit = jest.fn();
-  jest.unstable_mockModule('../../src/services/audit.js', () => ({ emitPluginAudit: audit, getAuditClient: () => ({ record: jest.fn() }) }));
+  // The ecosystem's `ecosystemAudit` → api-core `recordAudit`, bound to a spy.
+  const audit = bindTestAuditService('plugin');
 
   const notify = jest.fn(async () => 'sent');
   jest.unstable_mockModule('../../src/services/ecosystem-notifications.js', () => ({ enqueueEcosystemNotification: notify }));
 
-  // freezeVersion against the fake table: pins the digest (G25) like the real one.
+  // freezeVersion against the fake table: pins the digest like the real one.
   jest.unstable_mockModule('../../src/services/plugin-service.js', () => ({
     pluginService: {
       freezeVersion: jest.fn(async (orgId: string, id: string, digest: string | null) => {
@@ -115,7 +115,8 @@ export function setupEcosystemHarness(): Harness {
 /** Plug the fakes into the imported ecosystem modules. */
 export async function wireEcosystemHarness(h: Harness): Promise<void> {
   const { setRegistryClientForTests } = await import('../../src/services/ecosystem/registry.js');
-  const { setBaseImageProbeForTests, setMembershipProbeForTests } = await import('../../src/services/ecosystem/decisions.js');
+  const { setMembershipProbeForTests } = await import('../../src/services/ecosystem/conflict.js');
+  const { setBaseImageProbeForTests } = await import('../../src/services/ecosystem/execute.js');
   const { initEcosystem } = await import('../../src/services/ecosystem/context.js');
   const { setPlatformReadsForTests } = await import('../../src/services/ecosystem/platform-reads.js');
   const { setResignKickForTests } = await import('../../src/services/ecosystem/resign.js');
@@ -123,7 +124,7 @@ export async function wireEcosystemHarness(h: Harness): Promise<void> {
   setRegistryClientForTests({ post: h.registryPost as any, get: jest.fn() as any, delete: h.registryDelete as any });
   setPlatformReadsForTests(h.platform as any);
   setMembershipProbeForTests(h.membership as any);
-  // W7 base-image age: no registry in tests (a test that needs it overrides this).
+  // base-image age: no registry in tests (a test that needs it overrides this).
   setBaseImageProbeForTests(async () => null);
   initEcosystem({ quotaService: h.quota as any });
 }

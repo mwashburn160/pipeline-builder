@@ -3,7 +3,7 @@
 
 /**
  * Queries behind the anonymous public plugin directory
- * (docs/plans/plugin-ecosystem.md §6a).
+ * (docs/plugin-publishing.md).
  *
  * Every query here reads ONLY the `public_listings`, `public_listed_versions`,
  * `public_advisories` and `public_reviews` views, through the `ecosystem_public_reader`
@@ -22,6 +22,7 @@ import { sql, type SQL } from 'drizzle-orm';
 
 import { advisoryRangeCovers } from './plugin-resolution.js';
 import { compareSemver } from './semver-range.js';
+import { resultRows } from '../database/pg-result.js';
 import { getPublicReaderDb } from '../database/public-reader.js';
 
 // -----------------------------------------------------------------------------
@@ -34,7 +35,7 @@ export type DirectorySort = 'relevance' | 'rating' | 'installs' | 'updated' | 'n
 
 export const DIRECTORY_SORTS: readonly DirectorySort[] = ['relevance', 'rating', 'installs', 'updated', 'name', 'health'];
 
-/** Per-component health scores (W7): `{ score: 0..1 | null (missing), weight }`. */
+/** Per-component health scores: `{ score: 0..1 | null (missing), weight }`. */
 export type DirectoryHealthBreakdown = Record<string, { score: number | null; weight: number }>;
 export const DIRECTORY_TIERS: readonly DirectoryTrustTier[] = ['official', 'verified', 'community', 'unverified'];
 
@@ -74,7 +75,7 @@ export interface DirectoryListingCard {
   iconBadge: string | null;
   rating: { score: number; count: number } | null;
   installCount: number;
-  /** 0–100 health score (W7); null when fewer than three components are known. */
+  /** 0–100 health score; null when fewer than three components are known. */
   healthScore: number | null;
   updatedAt: string;
   state: 'listed' | 'unmaintained';
@@ -151,7 +152,7 @@ export interface DirectoryListingDetail extends DirectoryListingCard {
     cveIds: string[];
   }[];
   ratingDistribution: Record<'1' | '2' | '3' | '4' | '5', number> | null;
-  /** The Bayesian rating over reviews of the last two minor versions (§5). */
+  /** The Bayesian rating over reviews of the last two minor versions. */
   recentRating: number | null;
   activeOrgCount: number | null;
   /** Per-component health scores behind {@link DirectoryListingCard.healthScore}. */
@@ -172,7 +173,7 @@ export interface PublicReviewReply {
   updatedAt: string;
 }
 
-/** One published review as the directory shows it: display name only, never an org (G15). */
+/** One published review as the directory shows it: display name only, never an org. */
 export interface PublicReviewItem {
   id: string;
   rating: number;
@@ -249,7 +250,7 @@ function iso(v: Date | string | null | undefined): string {
 }
 
 /**
- * The icon fallback chain (§6a.1): uploaded (if the tier may upload) → curated
+ * The icon fallback chain: uploaded (if the tier may upload) → curated
  * vendor key (Official, and Verified publishers for marks they own — ownership
  * is checked when the icon is approved) → monogram. Community and anonymous
  * listings can never show a curated vendor mark.
@@ -316,11 +317,11 @@ export function highlightText(text: string, q: string): string | undefined {
 }
 
 /** Opaque cursor: an offset, base64url-encoded so clients don't depend on it. */
-export function encodeCursor(offset: number): string {
+export function encodeOffsetCursor(offset: number): string {
   return Buffer.from(JSON.stringify({ o: offset })).toString('base64url');
 }
 
-export function decodeCursor(cursor: string | undefined): number {
+export function decodeOffsetCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
   try {
     const o = (JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { o?: unknown }).o;
@@ -403,19 +404,12 @@ function orderBy(sort: DirectorySort, hasQuery: boolean): SQL {
   }
 }
 
-/** Rows of a `db.execute` result (node-postgres returns `{ rows }`). */
-function rowsOf<T>(res: unknown): T[] {
-  if (Array.isArray(res)) return res as T[];
-  const rows = (res as { rows?: unknown } | null)?.rows;
-  return Array.isArray(rows) ? (rows as T[]) : [];
-}
-
 /** Search the directory: one page of cards, facet counts, total and next cursor. */
 export async function searchPublicListings(params: DirectorySearchParams): Promise<DirectorySearchResult> {
   const db = getPublicReaderDb();
   const q = normalizeQuery(params.q);
   const limit = clampLimit(params.limit);
-  const offset = decodeCursor(params.cursor);
+  const offset = decodeOffsetCursor(params.cursor);
   const sort = params.sort && DIRECTORY_SORTS.includes(params.sort) ? params.sort : 'relevance';
   const base = baseQuery(params, q);
 
@@ -437,7 +431,7 @@ export async function searchPublicListings(params: DirectorySearchParams): Promi
        GROUP BY GROUPING SETS ((category), (publisher_tier), (license), (compute_type), (needs_secrets))`),
   ]);
 
-  const page = rowsOf<PublicListingRow & { total: number | string }>(pageRes);
+  const page = resultRows<PublicListingRow & { total: number | string }>(pageRes);
   const total = page.length > 0 ? num(page[0]!.total) : 0;
   const items = page.map((row) => {
     const card = toListingCard(row);
@@ -464,7 +458,7 @@ export async function searchPublicListings(params: DirectorySearchParams): Promi
     g_secrets: number;
     n: number | string;
   };
-  for (const r of rowsOf<FacetRow>(facetRes)) {
+  for (const r of resultRows<FacetRow>(facetRes)) {
     const n = num(r.n);
     if (Number(r.g_category) === 0 && r.category) facets.category[r.category] = n;
     else if (Number(r.g_tier) === 0 && r.publisher_tier) facets.tier[r.publisher_tier] = n;
@@ -477,7 +471,7 @@ export async function searchPublicListings(params: DirectorySearchParams): Promi
     items,
     facets,
     total,
-    nextCursor: offset + items.length < total ? encodeCursor(offset + items.length) : null,
+    nextCursor: offset + items.length < total ? encodeOffsetCursor(offset + items.length) : null,
   };
 }
 
@@ -500,7 +494,7 @@ export async function listPublicCategories(topPerCategory = 3): Promise<Director
     SELECT * FROM ranked WHERE rn <= ${Math.max(0, Math.min(topPerCategory, 10))} ORDER BY category ASC, rn ASC`);
 
   const byCategory = new Map<string, DirectoryCategorySummary>();
-  for (const row of rowsOf<PublicListingRow & { category_count: number | string }>(res)) {
+  for (const row of resultRows<PublicListingRow & { category_count: number | string }>(res)) {
     let summary = byCategory.get(row.category);
     if (!summary) {
       summary = { id: row.category, count: num(row.category_count), top: [] };
@@ -558,15 +552,15 @@ export async function getPublicListing(publisherHandle: string, name: string): P
     SELECT * FROM public_listings
      WHERE publisher_handle = ${publisherHandle} AND name = ${name} AND paused_at IS NULL
      LIMIT 1`);
-  const row = rowsOf<PublicListingRow>(listingRes)[0];
+  const row = resultRows<PublicListingRow>(listingRes)[0];
   if (!row) return null;
 
   const [versionRes, advisoryRes] = await Promise.all([
     db.execute(sql`SELECT * FROM public_listed_versions WHERE listing_id = ${row.id}`),
     db.execute(sql`SELECT * FROM public_advisories WHERE listing_id = ${row.id} ORDER BY published_at DESC`),
   ]);
-  const versionRows = rowsOf<VersionRow>(versionRes).sort((a, b) => compareSemver(b.version, a.version));
-  const advisoryRows = rowsOf<AdvisoryRow>(advisoryRes);
+  const versionRows = resultRows<VersionRow>(versionRes).sort((a, b) => compareSemver(b.version, a.version));
+  const advisoryRows = resultRows<AdvisoryRow>(advisoryRes);
   // The version the page describes: the listing's latest, else the newest non-yanked one.
   const current = versionRows.find((v) => v.version === row.latest_version && !v.yanked)
     ?? versionRows.find((v) => !v.yanked)
@@ -644,7 +638,7 @@ export async function getPublicListedVersion(
      WHERE publisher_handle = ${publisherHandle} AND name = ${name} AND version = ${version} AND NOT yanked
        AND listing_id IN (SELECT id FROM public_listings WHERE paused_at IS NULL)
      LIMIT 1`);
-  const row = rowsOf<{ image_repository: string | null; image_digest: string | null }>(res)[0];
+  const row = resultRows<{ image_repository: string | null; image_digest: string | null }>(res)[0];
   if (!row?.image_repository || !row.image_digest) return null;
   return { imageRepository: row.image_repository, imageDigest: row.image_digest };
 }
@@ -709,12 +703,12 @@ export function toPublicReview(row: Omit<ReviewRow, 'total'>): PublicReviewItem 
 }
 
 /**
- * One page of a listing's published reviews (§5, §6a "Reviews" tab), or null
+ * One page of a listing's published reviews (the directory's Reviews tab), or null
  * when the listing isn't public. Held and removed reviews never reach the view.
  */
 export async function listPublicReviews(publisherHandle: string, name: string, query: PublicReviewQuery = {}): Promise<PublicReviewPage | null> {
   const db = getPublicReaderDb();
-  const listing = rowsOf<{ id: string }>(await db.execute(sql`
+  const listing = resultRows<{ id: string }>(await db.execute(sql`
     SELECT id FROM public_listings
      WHERE publisher_handle = ${publisherHandle} AND name = ${name} AND paused_at IS NULL
      LIMIT 1`))[0];
@@ -724,12 +718,12 @@ export async function listPublicReviews(publisherHandle: string, name: string, q
   const limit = !query.limit || !Number.isFinite(query.limit)
     ? REVIEWS_DEFAULT_LIMIT
     : Math.min(Math.max(Math.trunc(query.limit), 1), REVIEWS_MAX_LIMIT);
-  const offset = decodeCursor(query.cursor);
+  const offset = decodeOffsetCursor(query.cursor);
   const where: SQL[] = [sql`listing_id = ${listing.id}`];
   if (query.rating !== undefined && Number.isInteger(query.rating) && query.rating >= 1 && query.rating <= 5) {
     where.push(sql`rating = ${query.rating}`);
   }
-  const rows = rowsOf<ReviewRow>(await db.execute(sql`
+  const rows = resultRows<ReviewRow>(await db.execute(sql`
     SELECT id, version, rating, title, body_html, author_display_name, verified_use, helpful_count, edited,
            created_at, updated_at, publisher_display_name, reply_body_html, reply_created_at, reply_updated_at,
            COUNT(*) OVER () AS total
@@ -741,7 +735,7 @@ export async function listPublicReviews(publisherHandle: string, name: string, q
   return {
     reviews: rows.map(toPublicReview),
     total,
-    nextCursor: offset + rows.length < total ? encodeCursor(offset + rows.length) : null,
+    nextCursor: offset + rows.length < total ? encodeOffsetCursor(offset + rows.length) : null,
   };
 }
 
@@ -751,6 +745,6 @@ export async function listPublicListingsForSitemap(max = 5000): Promise<{ publis
   const res = await db.execute(sql`
     SELECT publisher_handle, name, updated_at FROM public_listings
      WHERE paused_at IS NULL ORDER BY updated_at DESC LIMIT ${Math.min(Math.max(max, 1), 50_000)}`);
-  return rowsOf<{ publisher_handle: string; name: string; updated_at: Date | string }>(res)
+  return resultRows<{ publisher_handle: string; name: string; updated_at: Date | string }>(res)
     .map((r) => ({ publisher: r.publisher_handle, name: r.name, updatedAt: iso(r.updated_at) }));
 }

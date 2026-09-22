@@ -15,7 +15,7 @@ router.get('/', requireAuth, listAuditEvents);
 router.get('/verify', requireAuth, requireSystemAdmin, verifyAuditChainHandler);
 
 /**
- * POST /audit/events — INTERNAL audit ingest for the non-platform services (#14).
+ * POST /audit/events — INTERNAL audit ingest for the non-platform services.
  *
  * Every service forwards its audit trail here through api-core's
  * `RemoteAuditClient`, so the caller list is the rest of the fleet; platform

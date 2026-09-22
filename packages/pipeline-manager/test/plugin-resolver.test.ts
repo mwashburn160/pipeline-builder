@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 import type { ApiClient } from '../src/utils/api-client.js';
-import { lookupWarningsOf, resolvePluginsForProps } from '../src/utils/plugin-resolver.js';
+import { resolvePluginsForProps } from '../src/utils/plugin-resolver.js';
 
 /** Minimal props with one stage-step plugin ref. */
 function propsWithPlugin(name: string, filter?: Record<string, unknown>) {
@@ -95,7 +95,7 @@ describe('resolvePluginsForProps — image signature verification', () => {
       .rejects.toThrow(/java-corretto" image failed signature verification/);
   });
 
-  // A listing the org can't use (plugin ecosystem §3.2, §3.4) is not an outage
+  // A listing the org can't use is not an outage
   // either: the synth stops with the refusal.
   it.each(['PLUGIN_NOT_INSTALLED', 'PLUGIN_BLOCKED_BY_POLICY', 'PLUGIN_UNAVAILABLE'])('aborts on %s', async (code) => {
     const client = clientRejecting(403, { success: false, code, message: 'acme/lint is not installed' });
@@ -205,24 +205,7 @@ describe('resolvePluginsForProps — alias collisions', () => {
   });
 });
 
-describe('lookupWarningsOf — lifecycle warnings synth prints (plugin-ecosystem W0.4)', () => {
-  it('reads the messages beside the plugin in the lookup answer', () => {
-    expect(lookupWarningsOf({
-      plugin: PLUGIN,
-      warnings: [
-        { code: 'PLUGIN_DEPRECATED', message: 'Plugin java-corretto@1.0.0 is deprecated: Use 2.x.' },
-        { code: 'PLUGIN_YANKED', message: '' },
-        'junk',
-      ],
-    })).toEqual(['Plugin java-corretto@1.0.0 is deprecated: Use 2.x.']);
-  });
-
-  it('yields none for a missing or malformed warnings field', () => {
-    expect(lookupWarningsOf({ plugin: PLUGIN })).toEqual([]);
-    expect(lookupWarningsOf({ warnings: 'nope' })).toEqual([]);
-    expect(lookupWarningsOf(undefined)).toEqual([]);
-  });
-
+describe('lookup answers carrying lifecycle warnings', () => {
   it('still resolves the plugin when the answer carries warnings', async () => {
     const client = clientReturning({ success: true, data: { plugin: PLUGIN, warnings: [{ code: 'PLUGIN_DEPRECATED', message: 'deprecated' }] } });
     const resolved = await resolvePluginsForProps(client, propsWithPlugin('java-corretto'));
@@ -230,7 +213,7 @@ describe('lookupWarningsOf — lifecycle warnings synth prints (plugin-ecosystem
   });
 });
 
-describe('resolvePluginsForProps — publisher references (§3.5)', () => {
+describe('resolvePluginsForProps — publisher references', () => {
   it('sends the publisher and keys the result by <publisher>-<name>-alias', async () => {
     const sink: Array<Record<string, unknown>> = [];
     const resolved = await resolvePluginsForProps(

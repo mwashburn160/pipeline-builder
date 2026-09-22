@@ -2,26 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * TENANT publisher + publish-request routes (docs/plans/plugin-ecosystem.md
- * §3.0, §3.1, §3.1a, §3.4, §5a). Everything here is a REQUEST or a RESTRICTION
+ * TENANT publisher + publish-request routes (docs/plugin-publishing.md
+ * ). Everything here is a REQUEST or a RESTRICTION
  * of the caller's own reach — nothing a tenant route does admits, expands or
  * decides anything in the ecosystem (the governance test enforces that):
  *
- *   GET    /plugins/publisher                               plugins:read
- *   POST   /plugins/publisher                               publishers:manage   claim a handle + accept terms
- *   PATCH  /plugins/publisher                               publishers:manage   description / homepage
- *   POST   /plugins/publisher/terms                         publishers:manage   re-accept the terms
- *   GET    /plugins/publisher/listings                      plugins:read
- *   GET    /plugins/publisher/insights                      plugins:read        installs, k-anonymous adoption, health (W7)
- *   POST   /plugins/publisher/listings/:listingId/pause     plugins:publish     pause a listing or a version (D14)
- *   POST   /plugins/publisher/listings/:listingId/deprecate plugins:publish     deprecate a listed version (W8; narrows only)
- *   GET    /plugins/publisher/advisories                    publishers:manage   own advisories, incl. private drafts (W8)
- *   GET    /plugins/publisher/incoming-transfers            publishers:manage
- *   GET    /plugins/publish-requests                        plugins:read
- *   GET    /plugins/publish-requests/draft                  plugins:publish     the §3.1a request form
- *   POST   /plugins/publish-requests                        plugins:publish | publishers:manage (per kind)
- *   POST   /plugins/publish-requests/:id/withdraw           plugins:publish | publishers:manage
- *   POST   /plugins/publish-requests/:id/transfer-response  publishers:manage + step-up
+ *   GET /plugins/publisher plugins:read
+ *   POST /plugins/publisher publishers:manage claim a handle + accept terms
+ *   PATCH /plugins/publisher publishers:manage description / homepage
+ *   POST /plugins/publisher/terms publishers:manage re-accept the terms
+ *   GET /plugins/publisher/listings plugins:read
+ *   GET /plugins/publisher/insights plugins:read installs, k-anonymous adoption, health
+ *   POST /plugins/publisher/listings/:listingId/pause plugins:publish pause a listing or a version
+ *   POST /plugins/publisher/listings/:listingId/deprecate plugins:publish deprecate a listed version (narrows only)
+ *   GET /plugins/publisher/advisories publishers:manage own advisories, incl. private drafts
+ *   GET /plugins/publisher/incoming-transfers publishers:manage
+ *   GET /plugins/publish-requests plugins:read
+ *   GET /plugins/publish-requests/draft plugins:publish the request form
+ *   POST /plugins/publish-requests plugins:publish | publishers:manage (per kind)
+ *   POST /plugins/publish-requests/:id/withdraw plugins:publish | publishers:manage
+ *   POST /plugins/publish-requests/:id/transfer-response publishers:manage + step-up
  */
 
 import { audited, requirePermission, requireStepUp, sendSuccess } from '@pipeline-builder/api-core';

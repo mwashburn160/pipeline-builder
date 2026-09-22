@@ -46,7 +46,7 @@ export interface StageBuilderProps {
    */
   readonly pipelineScope: Record<string, unknown>;
 
-  /** Records each step's resolved plugin for the step manifest (W0.1). */
+  /** Records each step's resolved plugin for the step manifest. */
   readonly stepManifest?: StepManifestRecorder;
 }
 
@@ -129,7 +129,7 @@ export class StageBuilder {
 
   private resolveStep(stepConfig: StageOptions['steps'][number], stageName: string, stageAlias: string) {
     const plugin = this.pluginLookup.plugin(stepConfig.plugin);
-    // Contract (W0.2): the pipeline must supply the plugin's required
+    // Contract: the pipeline must supply the plugin's required
     // metadata/vars with the declared types. The API refuses such a pipeline
     // at create/update; this stops one that reached synth another way.
     assertPluginContract(plugin, contractScopeFromTemplateScope(this.pipelineScope),
@@ -146,11 +146,11 @@ export class StageBuilder {
     //    it stays as it always was (`alias ?? name`), because changing it
     //    renames the CodeBuild project's logical id and CloudFormation would
     //    REPLACE every unaliased step's project on the next deploy — for no
-    //    benefit. A `publisher` reference adds the publisher (§3.5).
+    //    benefit. A `publisher` reference adds the publisher.
     //  - `pluginAlias` is the ARTIFACT-KEY segment and must follow the one rule
-    //    every key consumer uses (`pluginArtifactAlias`). It used to reuse the
-    //    construct value, so an unaliased step registered `…:nodejs-build:dist`
-    //    while the UI asked for `…:nodejs-build-alias:dist` and synth failed.
+    //    every key consumer uses (`pluginArtifactAlias`). Reusing the construct
+    //    value would register `…:nodejs-build:dist` for an unaliased step while
+    //    the UI asks for `…:nodejs-build-alias:dist`, and synth would fail.
     const stepIdAlias = pluginStepIdAlias(stepConfig.plugin);
     const pluginAlias = pluginArtifactAlias(stepConfig.plugin);
 

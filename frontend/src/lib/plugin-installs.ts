@@ -3,7 +3,7 @@
 
 /**
  * Pure helpers for plugin installs and the org consumption policy
- * (docs/plans/plugin-ecosystem.md §3.1 D16, §3.2, §3.5 — W2): which install
+ *: which install
  * action a listing offers, the plugin-usage key of a reference, and the
  * consumption-policy form's draft logic. No React, no I/O — tested directly.
  */
@@ -11,7 +11,7 @@
 import type { Plugin } from '@/types';
 import type { PublisherTier } from '@/types/ecosystem';
 import type {
-  BlockedInfo, CatalogEntry, ConsumptionPolicy, InstallStatus, InstallView, PluginReference, VersionPolicy,
+  BlockedInfo, CatalogEntry, ConsumptionPolicy, InstallStatus, InstallView, PluginReference, InstallVersionPolicy,
 } from '@/types/plugin-installs';
 
 /** The Official publisher's handle (the system org's catalog). */
@@ -26,9 +26,9 @@ export const PUBLISHER_TIER_LABELS: Record<PublisherTier, string> = {
   unverified: 'Community · unverified',
 };
 
-export const VERSION_POLICIES: readonly VersionPolicy[] = ['pinned', 'patch', 'minor', 'latest'];
+export const VERSION_POLICIES: readonly InstallVersionPolicy[] = ['pinned', 'patch', 'minor', 'latest'];
 
-export const VERSION_POLICY_LABELS: Record<VersionPolicy, string> = {
+export const VERSION_POLICY_LABELS: Record<InstallVersionPolicy, string> = {
   pinned: 'Pinned (exact version)',
   patch: 'Patch updates (~)',
   minor: 'Minor updates (^)',
@@ -39,23 +39,6 @@ export const INSTALL_STATUS_LABELS: Record<InstallStatus, string> = {
   active: 'Installed',
   pending_approval: 'Pending approval',
   denied: 'Denied',
-};
-
-export const BLOCKED_REASON_LABELS: Record<BlockedInfo['reason'], string> = {
-  tier: 'Publisher tier not allowed by your organization',
-  blocked_listing: 'Blocked by your organization',
-  advisory: 'Blocked by a security advisory',
-  suspended: 'Suspended',
-};
-
-/** The default consumption policy (§3.2), used before the server answers. */
-export const DEFAULT_CONSUMPTION_POLICY: ConsumptionPolicy = {
-  allowedTiers: ['official', 'verified'],
-  requireApprovalTiers: ['community', 'unverified'],
-  secretsAllowedTiers: ['official', 'verified'],
-  blockOnAdvisory: 'critical',
-  officialInstalls: 'implicit',
-  blockedListings: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -114,14 +97,14 @@ export function shadowingMessage(name: string, publisher: string = OFFICIAL_PUBL
 export type InstallActionState =
   /** Already installed (explicit). `upgrade` is the newest version outside the range. */
   | { kind: 'installed'; install: InstallView }
-  /** The virtual Official install (D16); pinning creates an explicit install. */
+  /** The virtual Official install; pinning creates an explicit install. */
   | { kind: 'implicit'; install: InstallView }
   | { kind: 'pending'; install: InstallView }
   | { kind: 'denied'; install: InstallView }
   | { kind: 'blocked'; blocked: BlockedInfo }
   | { kind: 'paused' }
-  /** May be installed now; `requiresApproval` = it would become a request. */
-  | { kind: 'install'; requiresApproval: boolean }
+  /** May be installed now; `needsApproval` = it would become a request. */
+  | { kind: 'install'; needsApproval: boolean }
   /** Not installable for a reason the server did not name. */
   | { kind: 'unavailable' };
 
@@ -136,7 +119,7 @@ export function installActionState(entry: CatalogEntry): InstallActionState {
   }
   if (entry.blocked) return { kind: 'blocked', blocked: entry.blocked };
   if (entry.listing.paused) return { kind: 'paused' };
-  if (entry.installable) return { kind: 'install', requiresApproval: entry.requiresApproval };
+  if (entry.installable) return { kind: 'install', needsApproval: entry.needsApproval };
   return { kind: 'unavailable' };
 }
 
@@ -320,7 +303,6 @@ export function entryFromInstall(install: InstallView): CatalogEntry {
     install,
     needsApproval: install.needsApproval ?? false,
     installable: false,
-    requiresApproval: false,
     blocked: install.blocked,
     resolved: null,
     reference: install.publisherHandle === OFFICIAL_PUBLISHER_HANDLE

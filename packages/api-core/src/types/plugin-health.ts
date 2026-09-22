@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The plugin HEALTH SCORE (docs/plans/plugin-ecosystem.md §6 W7): one 0–100
+ * The plugin HEALTH SCORE (docs/plugin-publishing.md): one 0–100
  * number per listing, from seven components. Pure and dependency-free so the
  * plugin service (the stats sweep), the frontend (the breakdown panel's
  * labels) and the tests share one definition.

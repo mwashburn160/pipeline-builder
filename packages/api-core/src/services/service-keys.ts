@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Per-service signing keys for INTERNAL service-to-service tokens (#14).
+ * Per-service signing keys for INTERNAL service-to-service tokens.
  *
  * Before this, every service held one shared `JWT_SECRET`, so any service could
  * mint a token naming any OTHER service — "billing said so" was unfalsifiable,
@@ -14,7 +14,7 @@
  *
  * ## Why public keys are distributed by CONFIG, not by per-service JWKS endpoints
  *
- * The user chain (#5) fetches platform's JWKS over HTTP because there is exactly
+ * The user chain fetches platform's JWKS over HTTP because there is exactly
  * one signer and it is the one service that must be up for anybody to sign in.
  * The service chain is the opposite shape, and three properties decided it:
  *
@@ -56,7 +56,7 @@
 import crypto, { type KeyObject } from 'crypto';
 import { readFileSync, statSync } from 'fs';
 import jwt from 'jsonwebtoken';
-import { publicJwkFrom, publicKeyFromJwk, type PublicJwk } from '../utils/jwk.js';
+import { compactJws, encodeJwsSigningInput, publicJwkFrom, publicKeyFromJwk, type PublicJwk } from '../utils/jwk.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
@@ -162,11 +162,10 @@ export function serviceKeyMode(): 'configured' | 'ephemeral' {
  * The key `serviceName` must be signed with.
  *
  * In `configured` mode there is exactly ONE key — this service's — so a request
- * to sign as some OTHER service is a bug and throws. That matters: before #14 a
- * service could legitimately mint `service:platform` with the shared secret
- * (api/plugin did, for its registry pushes), and under per-service keys such a
- * token would be silently unverifiable everywhere. Failing at the mint turns
- * that into an immediate, obvious error instead of a runtime 401.
+ * to sign as some OTHER service is a bug and throws: such a token would be
+ * unverifiable everywhere (its `kid` names this service, its `sub` another).
+ * Failing at the mint makes that an immediate, obvious error instead of a
+ * runtime 401.
  */
 function signingKeyFor(serviceName: string): LocalSigningKey {
   const file = process.env.SERVICE_SIGNING_KEY_FILE;
@@ -298,11 +297,6 @@ export function knownServiceNames(): string[] {
 // Sign / verify
 // ---------------------------------------------------------------------------
 
-/** base64url of a JSON value, the JWS way (no padding, URL alphabet). */
-function b64uJson(value: unknown): string {
-  return Buffer.from(JSON.stringify(value), 'utf-8').toString('base64url');
-}
-
 /**
  * Sign `claims` as this service's internal token: ES256, `kid` = the signer's
  * thumbprint, `sub` = `service:<serviceName>`. `iat`/`exp` and the optional
@@ -327,12 +321,12 @@ export function signServiceJwt(
     ...(options.issuer ? { iss: options.issuer } : {}),
     ...(options.audience ? { aud: options.audience } : {}),
   };
-  const signingInput = `${b64uJson({ alg: SERVICE_TOKEN_ALGORITHM, typ: 'JWT', kid: key.kid })}.${b64uJson(body)}`;
+  const signingInput = encodeJwsSigningInput(key.kid, body);
   const signature = crypto.sign('sha256', Buffer.from(signingInput, 'utf-8'), {
     key: key.privateKey,
     dsaEncoding: 'ieee-p1363',
   });
-  return `${signingInput}.${signature.toString('base64url')}`;
+  return compactJws(signingInput, signature);
 }
 
 /**
@@ -341,7 +335,7 @@ export function signServiceJwt(
  * The security property this function exists for: the `kid` selects the key
  * AND names the signer, and the token's `sub` must agree. So `billing` cannot
  * be impersonated by any other service — not even one that holds a valid key of
- * its own — which is what the shared secret could never guarantee.
+ * its own — a guarantee no shared secret can give.
  *
  * @throws {jwt.JsonWebTokenError} unknown `kid`, wrong algorithm, bad
  *         signature, expired, or a `sub` that disagrees with the signing key.
@@ -377,8 +371,7 @@ export function verifyServiceJwt<T = Record<string, unknown>>(
   }
   if (claims.sub !== `${SERVICE_SUBJECT_PREFIX}${entry.serviceName}`) {
     // A valid signature by the WRONG service: the key belongs to `entry.serviceName`
-    // but the token speaks for someone else. This is the cross-service forgery
-    // the shared secret made undetectable.
+    // but the token speaks for someone else: a cross-service forgery.
     emitCounter('service_token_verify_total', { result: 'subject_mismatch', service: entry.serviceName });
     throw new jwt.JsonWebTokenError(`Service token subject ${String(claims.sub)} was signed by ${entry.serviceName}`);
   }

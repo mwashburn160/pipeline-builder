@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Version specs for plugin lookups (docs/plans/plugin-ecosystem.md W0.3).
+ * Version specs for plugin lookups (docs/plugin-installing.md).
  *
  * A small, dependency-free matcher for exactly the forms plugin references use:
  *

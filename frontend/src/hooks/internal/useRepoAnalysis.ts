@@ -5,12 +5,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { BuilderProps } from '@/types';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
-import { clearPluginCache } from '@/hooks/usePlugins';
 import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { formatJSON } from '@/lib/constants';
 import { useUnmountedRef } from '../useUnmountedRef';
+import { invalidate } from '@/lib/api-cache';
 
 /** Analysis data returned by the backend analyzing event. */
 export interface RepoAnalysisData {
@@ -144,7 +144,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
             setCheckingPlugins(false);
             if (event.data) {
               setPluginStatus(event.data as PluginCreationStatus);
-              clearPluginCache();
+              invalidate.plugins();
             }
             break;
         }

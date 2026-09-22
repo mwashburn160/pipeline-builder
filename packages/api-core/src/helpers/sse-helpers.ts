@@ -17,24 +17,68 @@ export function writeSseHeaders(res: Response): void {
   res.setHeader('X-Accel-Buffering', 'no');
 }
 
+/** The slice of an Express/Node response needed to observe a client disconnect. */
+interface ClosableResponse {
+  on(event: 'close', listener: () => void): unknown;
+  readonly writableFinished: boolean;
+}
+
 /**
- * Set SSE response headers and flush.
- * Returns an `aborted()` function to check if the client disconnected.
+ * An AbortSignal that fires when the client disconnects before the response
+ * finished — cancels a provider call (avoids wasted spend) and tells the route
+ * to stop writing.
  *
  * Disconnect is detected on the RESPONSE: `res` emits 'close' when the
  * underlying connection goes away, and `writableFinished` tells an early close
  * (client gone) from the normal close after `res.end()`. The request's own
  * 'close' is not a disconnect signal — on current Node it fires once the request
- * BODY has been consumed, which for a POST stream happens before this listener
- * is attached, so a disconnect was never observed.
+ * BODY has been consumed (express.json() does that before the handler runs), so
+ * a disconnect would never be observed.
  */
-export function initSSEStream(_req: Request, res: Response, timeoutMs: number): { aborted: () => boolean } {
+export function clientAbortSignal(res: ClosableResponse): AbortSignal {
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) controller.abort();
+  });
+  return controller.signal;
+}
+
+/** An open SSE response. */
+export interface SseStream {
+  /** Aborted when the client disconnects before the stream finished. */
+  readonly signal: AbortSignal;
+  /** True once the client has disconnected. */
+  aborted(): boolean;
+  /** Write one `data:` frame carrying `event` as JSON. A no-op after a disconnect. */
+  send(event: unknown): void;
+  /** Write the terminal `data: [DONE]` frame (preceded by `event`, when given).
+   *  A no-op after a disconnect. The caller still ends the response. */
+  done(event?: unknown): void;
+}
+
+/**
+ * Set SSE response headers, flush, and return the stream's writer plus its
+ * client-disconnect signal (see {@link clientAbortSignal}).
+ */
+export function initSSEStream(_req: Request, res: Response, timeoutMs: number): SseStream {
   writeSseHeaders(res);
   res.setTimeout(timeoutMs);
   res.flushHeaders();
-  let _aborted = false;
-  res.on('close', () => { if (!res.writableFinished) _aborted = true; });
-  return { aborted: () => _aborted };
+  const signal = clientAbortSignal(res);
+  const send = (event: unknown): void => {
+    if (signal.aborted) return;
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+  return {
+    signal,
+    aborted: () => signal.aborted,
+    send,
+    done: (event?: unknown): void => {
+      if (signal.aborted) return;
+      if (event !== undefined) send(event);
+      res.write('data: [DONE]\n\n');
+    },
+  };
 }
 
 /**

@@ -45,7 +45,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
   }), []);
   const { items: policies, loading, loadError, mutationError, clearError, total, fetch: fetchPolicies, create: createPolicy, update: updatePolicy, remove: deletePolicy } = useCrudResource<CompliancePolicy, PolicyCreate, PolicyUpdate, PolicyParams>(crudApi, 'compliance policies');
 
-  // useCrudResource no longer auto-fetches; trigger the initial load.
+  // useCrudResource doesn't auto-fetch; trigger the initial load.
   useEffect(() => {
     void fetchPolicies();
   }, [fetchPolicies]);
@@ -105,7 +105,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       id: 'status',
       header: 'Status',
       render: (policy) => (
-        <StatusPill className={policy.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-surface-muted text-fg-muted'}>
+        <StatusPill className={policy.isActive ? 'bg-success-bg text-success' : 'bg-surface-muted text-fg-muted'}>
           {policy.isActive ? 'Active' : 'Inactive'}
         </StatusPill>
       ),

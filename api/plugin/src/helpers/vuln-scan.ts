@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin image vulnerability scanning (W0.6) and the image's effective USER.
+ * Plugin image vulnerability scanning and the image's effective USER.
  *
  * The scan reads the image's SIGNED SBOM ({@link fetchImageSbom}: the SPDX
  * document image-registry attested at build) and runs `grype sbom:<file>` over
@@ -29,7 +29,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter, observe } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 
@@ -55,7 +55,7 @@ export interface VulnCounts {
   low: number;
 }
 
-/** One critical/high finding — what a W8 advisory draft is built from. */
+/** One critical/high finding — what a advisory draft is built from. */
 export interface VulnFinding {
   id: string;
   severity: 'critical' | 'high';
@@ -90,10 +90,7 @@ export interface ScanColumns {
 // Config
 // -----------------------------------------------------------------------------
 
-function envMs(name: string, def: number): number {
-  const n = Number.parseInt(process.env[name] ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : def;
-}
+const envMs = (name: string, def: number): number => envInt(name, def, { min: 1 });
 
 const SCAN_TIMEOUT_MS = envMs('PLUGIN_VULN_SCAN_TIMEOUT_MS', 300_000);
 const DB_UPDATE_TIMEOUT_MS = envMs('PLUGIN_GRYPE_DB_UPDATE_TIMEOUT_MS', 600_000);
@@ -322,7 +319,7 @@ export function scanColumns(scan: VulnScanResult | null): ScanColumns {
 }
 
 // -----------------------------------------------------------------------------
-// New critical/high findings (the W8 advisory entry point)
+// New critical/high findings (the advisory entry point)
 // -----------------------------------------------------------------------------
 
 /** A rescanned plugin version, with the listing versions it was published as. */
@@ -348,7 +345,7 @@ export function hasNewCriticalOrHigh(before: Pick<VulnCounts, 'critical' | 'high
  * Called by the nightly rescan when a fresh vulnerability DB finds new
  * critical/high vulnerabilities in a plugin version. Emits
  * `plugin_vuln_new_findings_total{severity,listed}` and a structured warning
- * carrying the findings. The W8 advisory draft for a LISTED version is opened
+ * carrying the findings. The advisory draft for a LISTED version is opened
  * by the rescan itself (`openRescanDraft`), against the listing version's own
  * stored facts.
  */

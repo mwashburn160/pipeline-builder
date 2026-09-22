@@ -3,10 +3,10 @@
 
 import type { ApiCore } from '../core';
 import { ApiError } from '../errors';
-import { API_URL, buildQuery } from '../util';
+import { buildQuery } from '../util';
 import type { ApiResponse } from '@/types';
 import type {
-  AdvisoryInput, AdvisoryState, AdvisoryView, AutoRule, AutoRuleConditions, EcosystemListingState, EcosystemOverview, EcosystemPublisher, EcosystemRequestDetail,
+  AdvisoryInput, AdvisoryState, AdvisoryView, AutoRule, AutoRuleConditions, ListingState, EcosystemOverview, EcosystemPublisher, EcosystemRequestDetail,
   ListingView, Publisher, PublisherContext, PublisherInsights, PublishDraft, PublishRequestBody, PublishRequestKind, PublishRequestLane,
   PublishRequestStatus, PublishRequestView, QueueItem, QueueStatusFilter, ReservedName,
 } from '@/types/ecosystem';
@@ -15,10 +15,10 @@ const enc = encodeURIComponent;
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
 
 /**
- * Plugin-ecosystem routes (plugin service, docs/plans/plugin-ecosystem.md W1).
+ * Plugin-ecosystem routes (plugin service; see docs/plugin-publishing.md and docs/runbooks/ecosystem-moderation.md).
  *
  * Tenant half: the org's publisher profile, its listings (pause), and the
- * publish REQUESTS it submits — every decision is the system org's (§3.0).
+ * publish REQUESTS it submits — every decision is the system org's.
  * Console half (`/plugins/ecosystem/*`): system-org only, aal2 session; the
  * methods that take a `stepUpToken` forward it as `X-Step-Up-Token`.
  */
@@ -59,7 +59,7 @@ export function ecosystemApi(core: ApiCore) {
     deprecateListingVersion: async (listingId: string, version: string, message: string) =>
       post<{ listing: ListingView }>(`/api/plugins/publisher/listings/${enc(listingId)}/deprecate`, { version, message }),
 
-    /** Per-listing installs, k-anonymous adoption, success rate, rating trend, reports, advisories and health (W7). */
+    /** Per-listing installs, k-anonymous adoption, success rate, rating trend, reports, advisories and health. */
     getPublisherInsights: async (opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<PublisherInsights>>('/api/plugins/publisher/insights', { signal: opts?.signal }),
 
@@ -158,7 +158,7 @@ export function ecosystemApi(core: ApiCore) {
 
     // ── Console: listings ─────────────────────────────────────────────────
     listEcosystemListings: async (
-      params?: { state?: EcosystemListingState; q?: string; publisherId?: string },
+      params?: { state?: ListingState; q?: string; publisherId?: string },
       opts?: { signal?: AbortSignal },
     ) => core.request<ApiResponse<{ listings: ListingView[] }>>(
       `/api/plugins/ecosystem/listings${buildQuery(params)}`,
@@ -262,13 +262,13 @@ export function ecosystemApi(core: ApiCore) {
     deleteReservedName: async (name: string) =>
       core.request<ApiResponse<{ deleted: true }>>(`/api/plugins/ecosystem/reserved-names/${enc(name)}`, { method: 'DELETE' }),
 
-    // ── Console: community submissions (W5) ───────────────────────────────
+    // ── Console: community submissions ───────────────────────────────
     /**
      * Download a console artifact the server linked (a submission's SBOM or
      * scan report). Only console paths are fetched — the link comes from the
      * server, but it is never allowed to point the session's token elsewhere.
      */
-    /** The quarantined build's SBOM / scan report paths for a `submission` request (W5), for downloadEcosystemArtifact. */
+    /** The quarantined build's SBOM / scan report paths for a `submission` request, for downloadEcosystemArtifact. */
     submissionArtifactPath: (requestId: string, kind: 'sbom' | 'scan'): string => (kind === 'sbom'
       ? `/api/plugins/ecosystem/requests/${enc(requestId)}/submission-sbom`
       : `/api/plugins/ecosystem/requests/${enc(requestId)}/submission-scan`),
@@ -276,17 +276,7 @@ export function ecosystemApi(core: ApiCore) {
       if (!path.startsWith('/api/plugins/ecosystem/') || path.includes('..')) {
         throw new ApiError('Refusing to download from outside the Ecosystem console API', 400, 'VALIDATION_ERROR');
       }
-      await core.ensureFreshToken();
-      const res = await fetch(`${API_URL}${path}`, {
-        headers: core.authHeaders() as Record<string, string>,
-        credentials: 'same-origin',
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { code?: string; message?: string };
-        throw new ApiError(data.message || 'Download failed', res.status, data.code);
-      }
-      const match = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '');
-      return { blob: await res.blob(), filename: match?.[1] ?? fallbackName };
+      return core.requestBlob(path, fallbackName, { errorMessage: 'Download failed' });
     },
   };
 }

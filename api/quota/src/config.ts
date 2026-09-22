@@ -1,29 +1,22 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, getTierLimits } from '@pipeline-builder/api-core';
+import { envInt, getTierLimits, VALID_QUOTA_TYPES, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
+import type { QuotaType } from '@pipeline-builder/api-core';
 
 // Unprovisioned-org fallback = the developer-tier preset, sourced from api-core
-// so it can't drift (the previous hardcoded copy had gone stale — notably
-// apiCalls: -1, which re-opened the shared-resource DoS hole the tier
-// restructure closed). Env vars still override per field.
+// so it can't drift. Env vars still override per field.
 const DEV = getTierLimits('developer');
 
-interface QuotaDefaults {
-  plugins: number;
-  pipelines: number;
-  apiCalls: number;
-  aiCalls: number;
-  /** aggregate registry storage cap per org, in bytes. -1 = unlimited. */
-  storageBytes: number;
-  /** Count caps on user-editable feature tables; match the developer-tier
-   *  preset in api-core's quota-tiers.ts. -1 = unlimited. */
-  dashboards: number;
-  alertRules: number;
-  alertDestinations: number;
-  idpConfigs: number;
-  /** Active plugin-ecosystem listings (count quota). -1 = unlimited. */
-  listings: number;
+/**
+ * Per-type fallback limits (-1 = unlimited; `storageBytes` is in bytes). One
+ * entry per `VALID_QUOTA_TYPES` member, so a new quota type needs no edit here.
+ */
+type QuotaDefaults = Record<QuotaType, number>;
+
+/** `apiCalls` → `QUOTA_DEFAULT_API_CALLS`. */
+export function quotaDefaultEnvName(type: QuotaType): string {
+  return `QUOTA_DEFAULT_${type.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()}`;
 }
 
 interface AppConfig {
@@ -61,25 +54,11 @@ export const config: AppConfig = {
     // created + seeded by the platform service, and enforcement reserves against
     // those STORED limits, so changing these does NOT change the cap an existing
     // org is held to; it only changes what a not-yet-provisioned org reads back.
-    defaults: {
-      plugins: envInt('QUOTA_DEFAULT_PLUGINS', DEV.plugins),
-      pipelines: envInt('QUOTA_DEFAULT_PIPELINES', DEV.pipelines),
-      apiCalls: envInt('QUOTA_DEFAULT_API_CALLS', DEV.apiCalls),
-      aiCalls: envInt('QUOTA_DEFAULT_AI_CALLS', DEV.aiCalls),
-      // Aggregate registry storage cap (bytes). Override via
-      // QUOTA_DEFAULT_STORAGE_BYTES for orgs that need a different baseline.
-      storageBytes: envInt('QUOTA_DEFAULT_STORAGE_BYTES', DEV.storageBytes),
-      // Count caps on user-editable feature tables. Operators can override
-      // per-org via the existing PUT /quotas CRUD endpoint.
-      dashboards: envInt('QUOTA_DEFAULT_DASHBOARDS', DEV.dashboards),
-      alertRules: envInt('QUOTA_DEFAULT_ALERT_RULES', DEV.alertRules),
-      alertDestinations: envInt('QUOTA_DEFAULT_ALERT_DESTINATIONS', DEV.alertDestinations),
-      idpConfigs: envInt('QUOTA_DEFAULT_IDP_CONFIGS', DEV.idpConfigs),
-      listings: envInt('QUOTA_DEFAULT_LISTINGS', DEV.listings),
-    },
-    // Guarded: a raw parseInt turned a typo'd QUOTA_RESET_DAYS into NaN, which
-    // made every getNextResetDate() an Invalid Date. Clamp to >= 1 day.
-    resetDays: envInt('QUOTA_RESET_DAYS', 3, { min: 1 }),
+    defaults: Object.fromEntries(
+      VALID_QUOTA_TYPES.map((t) => [t, envInt(quotaDefaultEnvName(t), DEV[t])]),
+    ) as QuotaDefaults,
+    // The shared usage-counter period (api-core owns the one definition).
+    resetDays: QUOTA_RESET_DAYS,
     atRiskCacheTtlMs: envInt('QUOTA_AT_RISK_CACHE_TTL_MS', 60000, { min: 0 }),
     // Grace window for the pooled root cap. A team's OWN limits are seeded -1
     // on every dimension (only the root's pooled cap binds), so a failed pool

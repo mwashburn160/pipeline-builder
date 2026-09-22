@@ -3,7 +3,7 @@
 
 /**
  * `requireAuth({ minAssurance })`, `requireAssurance`, the bootstrap-session
- * refusal and the factor-restricted step-up (#8).
+ * refusal and the factor-restricted step-up.
  *
  * These are the gates a route relies on to mean "a PERSON, with a second
  * factor, recently" — so every refusal is asserted on its CODE, not just on the
@@ -15,9 +15,9 @@
 import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
 import express, { type Request, type Response } from 'express';
-import {
-  isHumanPrincipal, requireAssurance, requireAuth, signServiceToken,
-} from '../src/middleware/auth.js';
+import { isHumanPrincipal, requireAssurance } from '../src/middleware/assurance.js';
+import { requireAuth } from '../src/middleware/auth.js';
+import { signServiceToken } from '../src/middleware/service-tokens.js';
 import {
   buildRouteTable, getRouteGates,
 } from '../src/middleware/route-table.js';

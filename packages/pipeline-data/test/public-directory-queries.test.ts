@@ -30,7 +30,7 @@ jest.unstable_mockModule('../src/database/public-reader.js', () => ({
 
 const {
   searchPublicListings, listPublicCategories, getPublicListing, getPublicListedVersion,
-  listPublicListingsForSitemap, listPublicReviews, decodeCursor, encodeCursor,
+  listPublicListingsForSitemap, listPublicReviews, decodeOffsetCursor, encodeOffsetCursor,
 } = await import('../src/api/public-directory.js');
 
 function listingRow(overrides: Record<string, unknown> = {}) {
@@ -97,7 +97,7 @@ describe('searchPublicListings', () => {
     expect(result.items[0]).toMatchObject({ name: 'terraform-plan', rating: { score: 4.2, count: 3 }, installCount: 10 });
     expect(result.items[0].highlight).toEqual({ name: '<mark>terraform</mark>-plan', summary: 'Plan <mark>terraform</mark> changes' });
     expect(result.items[1].highlight).toBeUndefined();
-    expect(decodeCursor(result.nextCursor as string)).toBe(2);
+    expect(decodeOffsetCursor(result.nextCursor as string)).toBe(2);
   });
 
   it('has no next page on the last page, and no highlight without a query', async () => {
@@ -111,7 +111,7 @@ describe('searchPublicListings', () => {
 
   it('continues from the cursor offset', async () => {
     responses = [[{ ...listingRow(), total: 3 }], []];
-    const result = await searchPublicListings({ cursor: encodeCursor(2), limit: 1 });
+    const result = await searchPublicListings({ cursor: encodeOffsetCursor(2), limit: 1 });
     expect(executed[0].params.slice(-2)).toEqual([1, 2]);
     expect(result.nextCursor).toBeNull();
   });
@@ -370,7 +370,7 @@ describe('listPublicReviews', () => {
     expect(executed[1].params).toEqual(expect.arrayContaining(['l1', 4, 2, 0]));
     expect(page).toEqual({
       total: 3,
-      nextCursor: encodeCursor(2),
+      nextCursor: encodeOffsetCursor(2),
       reviews: [
         {
           id: 'r1',
@@ -411,7 +411,7 @@ describe('listPublicReviews', () => {
 
   it('ignores an out-of-range star filter, caps the page size and continues from the cursor', async () => {
     responses = [[{ id: 'l1' }], [review('r3')]];
-    const page = await listPublicReviews('acme', 'x', { rating: 9, limit: 500, cursor: encodeCursor(2) });
+    const page = await listPublicReviews('acme', 'x', { rating: 9, limit: 500, cursor: encodeOffsetCursor(2) });
     expect(executed[1].sql).not.toMatch(/rating = /);
     expect(executed[1].params).toEqual(['l1', 50, 2]);
     expect(page!.nextCursor).toBeNull();

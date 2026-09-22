@@ -9,6 +9,8 @@ import {
   DEFAULT_TIER,
   isValidTier,
   getTierLimits,
+  nextQuotaResetDate,
+  QUOTA_RESET_DAYS,
 } from '../src/types/quota-tiers.js';
 
 // storageBytes sized per tier. Tiers: developer / pro / team / enterprise.
@@ -220,5 +222,13 @@ describe('getTierLimits', () => {
   it('should fall back to developer limits for invalid tiers', () => {
     expect(getTierLimits('invalid')).toEqual(developerLimits);
     expect(getTierLimits('')).toEqual(developerLimits);
+  });
+});
+
+describe('nextQuotaResetDate', () => {
+  it('is local midnight N days out (default QUOTA_RESET_DAYS)', () => {
+    const now = new Date(2026, 0, 10, 15, 30);
+    expect(nextQuotaResetDate(3, now)).toEqual(new Date(2026, 0, 13, 0, 0, 0, 0));
+    expect(nextQuotaResetDate(undefined, now)).toEqual(new Date(2026, 0, 10 + QUOTA_RESET_DAYS, 0, 0, 0, 0));
   });
 });

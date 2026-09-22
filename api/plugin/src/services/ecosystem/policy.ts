@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The pure rules of the publish-request queue (docs/plans/plugin-ecosystem.md
- * §3.0–§3.4): version bumps, contract deltas, the submit gates, who decides
+ * The pure rules of the publish-request queue (docs/plugin-publishing.md
+ * ): version bumps, contract deltas, the submit gates, who decides
  * what, two-person approval, and auto-approval rule evaluation. No I/O — the
  * request service feeds it rows and acts on the verdicts.
  */
 
 import {
-  PLUGIN_CATALOG_LINK_FIELDS,
+  envInt, PLUGIN_CATALOG_LINK_FIELDS,
   STEP_UP_REQUEST_KINDS,
   VERIFY_REQUEST_KINDS,
   type PluginCatalogField,
@@ -47,7 +47,7 @@ export function latestVersion(versions: readonly string[]): string | null {
 }
 
 // -----------------------------------------------------------------------------
-// The frozen per-version snapshot (§3.3 / §3.6) and contract deltas (§3.0.2)
+// The frozen per-version snapshot and contract deltas
 // -----------------------------------------------------------------------------
 
 /**
@@ -161,7 +161,7 @@ export function vulnDelta(previous: VulnCounts | null, current: VulnCounts): { n
 }
 
 // -----------------------------------------------------------------------------
-// Submit gates (§3.1: public visibility, license, README, a passing vuln gate)
+// Submit gates (public visibility, license, README, a passing vuln gate)
 // -----------------------------------------------------------------------------
 
 export interface Gate {
@@ -172,8 +172,7 @@ export interface Gate {
 
 /** Highest number of CRITICAL vulnerabilities a version may carry to be requested (the vuln gate). */
 export function vulnGateMaxCritical(): number {
-  const n = Number.parseInt(process.env.ECOSYSTEM_VULN_GATE_MAX_CRITICAL ?? '0', 10);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+  return envInt('ECOSYSTEM_VULN_GATE_MAX_CRITICAL', 0, { min: 0 });
 }
 
 /**
@@ -209,22 +208,35 @@ export function versionGates(p: PluginRow): Gate[] {
 // Who decides, and how
 // -----------------------------------------------------------------------------
 
-/** The system-org permission a request's decision needs. */
-export function requiredDecisionPermission(kind: string): 'plugins:moderate' | 'publishers:verify' {
-  return VERIFY_REQUEST_KINDS.includes(kind) ? 'publishers:verify' : 'plugins:moderate';
+export type DecisionPermission = 'plugins:moderate' | 'publishers:verify';
+
+/** Moderation actions that change a publisher's standing — opened, and so decided, under `publishers:verify`. */
+const VERIFY_MODERATION_ACTIONS: readonly string[] = ['unsuspend_publisher', 'tier_verified'];
+
+/**
+ * The system-org permission a request's decision needs. A `moderation`
+ * request is decided under the permission that OPENED it: lifting a
+ * suspension or granting Verified takes `publishers:verify` for both
+ * approvals, not just the first.
+ */
+export function requiredDecisionPermission(kind: string, payload?: unknown): DecisionPermission {
+  if (VERIFY_REQUEST_KINDS.includes(kind)) return 'publishers:verify';
+  const action = (payload as { action?: unknown } | null | undefined)?.action;
+  if (kind === 'moderation' && typeof action === 'string' && VERIFY_MODERATION_ACTIONS.includes(action)) return 'publishers:verify';
+  return 'plugins:moderate';
 }
 
-/** Whether deciding a request of this kind needs a step-up (§5a). */
+/** Whether deciding a request of this kind needs a step-up. */
 export function decisionNeedsStepUp(kind: string): boolean {
   return STEP_UP_REQUEST_KINDS.includes(kind);
 }
 
 /**
- * Two-person approval (§3.0.1): every Official request (listings, versions not
+ * Two-person approval: every Official request (listings, versions not
  * covered by the Official auto-approval rule, listing updates), Verified
  * applications (a tier change to Verified), the system-created moderation
  * actions (unyank, lifting a suspension, a tier change to Verified), and every
- * anonymous submission (§4: nobody vouches for the submitter).
+ * anonymous submission (nobody vouches for the submitter).
  */
 export function needsTwoPerson(kind: string, publisherTier: PublisherTier): boolean {
   if (kind === 'verify' || kind === 'moderation' || kind === 'submission') return true;
@@ -232,7 +244,7 @@ export function needsTwoPerson(kind: string, publisherTier: PublisherTier): bool
 }
 
 // -----------------------------------------------------------------------------
-// Metadata (§3.1a)
+// Metadata
 // -----------------------------------------------------------------------------
 
 /** Descriptive fields that can change without touching links or the icon (auto-approvable "text-only"). */
@@ -245,7 +257,7 @@ export function isTextOnly(fields: readonly string[]): boolean {
   return fields.every((f) => (TEXT_ONLY_FIELDS as readonly string[]).includes(f));
 }
 
-/** Whether a field is a link (a user-edited link is highlighted in review, G36). */
+/** Whether a field is a link (a user-edited link is highlighted in review). */
 export function isLinkField(field: string): boolean {
   return (PLUGIN_CATALOG_LINK_FIELDS as readonly string[]).includes(field);
 }
@@ -261,7 +273,7 @@ export function sameValue(a: unknown, b: unknown): boolean {
 }
 
 // -----------------------------------------------------------------------------
-// Auto-approval rules (§3.0.3, D5)
+// Auto-approval rules
 // -----------------------------------------------------------------------------
 
 export interface AutoRuleConditions {
@@ -280,7 +292,7 @@ export interface AutoRuleConditions {
 export interface AutoApprovalContext {
   kind: string;
   publisherTier: PublisherTier;
-  /** `service_account:<name>` for a service account, `user` for a person. */
+  /** The submitting service account's name when a system-org service account submitted it; null otherwise (a person, or any tenant principal). */
   submitterServiceAccount: string | null;
   /** new_version only. */
   bump?: VersionBump;
@@ -355,7 +367,7 @@ export function evaluateAutoRule(conditions: AutoRuleConditions, ctx: AutoApprov
 
 /**
  * Whether `next` widens `previous` (enabling or broadening a rule needs a
- * second approver; §3.0.1). Anything other than a pure narrowing counts: more
+ * second approver). Anything other than a pure narrowing counts: more
  * kinds, tiers or bumps; a dropped submitter pin, text-only restriction or
  * instance flag; a higher (or removed) cap.
  */

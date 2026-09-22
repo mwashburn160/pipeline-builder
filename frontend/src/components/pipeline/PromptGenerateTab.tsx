@@ -1,22 +1,19 @@
-import { useState, useImperativeHandle, forwardRef, useCallback, useId } from 'react';
-import { Sparkles, ChevronDown, Plug } from 'lucide-react';
-import { BuilderProps, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
+import { useState, useImperativeHandle, forwardRef, useId } from 'react';
+import { Sparkles } from 'lucide-react';
+import type { BuilderProps } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
-import { FormField } from '@/components/ui/FormField';
-import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
-import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
-import { applyPluginPick, pickName, type PluginPick } from '@/lib/plugin-installs';
 import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatJSON } from '@/lib/constants';
-import { useUnmountedRef } from '../../hooks/useUnmountedRef';
+import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { GeneratedConfigReview, GenerationProgress, stageProgress, useGeneratedProps } from '@/components/pipeline/GeneratedConfigReview';
 
 /**
  * Methods exposed to the parent modal via ref. Intentionally identical to
@@ -39,76 +36,11 @@ interface PromptGenerateTabProps {
   disabled?: boolean;
 }
 
-/** Props for the inline plugin review section. */
-interface PluginReviewSectionProps {
-  props: BuilderProps;
-  onPluginChange: (path: string, pluginName: string, pick: PluginPick | null) => void;
-  disabled?: boolean;
-}
-
-/** Displays AI-selected plugins with combobox dropdowns for swapping. */
-function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSectionProps) {
-  const [expanded, setExpanded] = useState(true);
-  const synth = asGeneratedSynth(props.synth);
-  const stages = asGeneratedStages(props.stages);
-
-  return (
-    <div className="rounded-xl bg-surface-muted border border-default">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-fg-muted hover:bg-surface-muted rounded-xl transition-colors"
-      >
-        <span className="flex items-center gap-2">
-          <Plug className="w-4 h-4 text-fg-muted" />
-          Review Plugins
-        </span>
-        <ChevronDown className={`w-5 h-5 text-fg-subtle transition-transform ${expanded ? 'rotate-180' : ''}`} />
-      </button>
-      {expanded && (
-        <div className="px-4 pb-4 border-t border-default space-y-4">
-          <div className="pt-3">
-            <PluginNameCombobox
-              value={synth?.plugin?.name ?? ''}
-              publisher={synth?.plugin?.publisher}
-              onChange={(name) => onPluginChange('synth', name, null)}
-              onSelectPlugin={(pick) => onPluginChange('synth', pickName(pick), pick)}
-              disabled={disabled}
-              label="Synth plugin"
-            />
-          </div>
-          {stages.map((stage, si) => (
-            <div key={si}>
-              <p className="text-xs font-semibold text-fg-muted mb-2">
-                Stage: {stage.stageName}
-              </p>
-              <div className="space-y-3 pl-3">
-                {(stage.steps ?? []).map((step, stepIdx) => (
-                  <PluginNameCombobox
-                    key={`${si}-${stepIdx}`}
-                    value={step.plugin?.name ?? ''}
-                    publisher={step.plugin?.publisher}
-                    onChange={(name) => onPluginChange(`stages.${si}.steps.${stepIdx}`, name, null)}
-                    onSelectPlugin={(pick) => onPluginChange(`stages.${si}.steps.${stepIdx}`, pickName(pick), pick)}
-                    disabled={disabled}
-                    label={`Step ${stepIdx + 1} Plugin`}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
  * Pipeline-create mode that generates a full pipeline configuration from a
  * free-text prompt via `POST /api/pipelines/generate/stream` (SSE). Mirrors the
- * plugin prompt builder's UX and reuses GitUrlTab's plugin-review + streaming
- * consumption pattern, but drives the prompt endpoint instead of repo analysis.
+ * plugin prompt builder's UX and shares GitUrlTab's review (GeneratedConfigReview),
+ * but drives the prompt endpoint instead of repo analysis.
  */
 const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProps>(
   ({ disabled }, ref) => {
@@ -124,43 +56,15 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
     const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true });
     const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
 
-    /** Update a plugin reference at the given path when the user swaps via combobox. */
-    const handlePluginChange = useCallback((path: string, pluginName: string, pick: PluginPick | null) => {
-      if (!generatedProps) return;
-      const updated = structuredClone(generatedProps);
-
-      let target: GeneratedPluginRef;
-      if (path === 'synth') {
-        if (!updated.synth) return;
-        target = asGeneratedSynth(updated.synth).plugin;
-      } else {
-        const [, stageIdx, , stepIdx] = path.split('.');
-        const stages = asGeneratedStages(updated.stages);
-        const si = Number(stageIdx);
-        const stepI = Number(stepIdx);
-        if (!stages?.[si]?.steps?.[stepI]) return;
-        target = stages[si].steps[stepI].plugin;
-      }
-
-      target.name = pluginName;
-
-      if (pick) applyPluginPick(target, pick);
-
-      setGeneratedProps(updated);
-      setPreviewJson(formatJSON(updated));
-    }, [generatedProps]);
+    const { onPluginChange, withOverrides } = useGeneratedProps({
+      generatedProps, setGeneratedProps, setPreviewJson, projectOverride, organizationOverride,
+    });
 
     useImperativeHandle(ref, () => ({
       getProps: async (): Promise<BuilderProps | null> => {
-        if (!generatedProps) {
-          setError('Generate a configuration first using the button above.');
-          return null;
-        }
-        return {
-          ...generatedProps,
-          project: projectOverride.trim() || generatedProps.project,
-          organization: organizationOverride.trim() || generatedProps.organization,
-        };
+        const props = withOverrides();
+        if (!props) setError('Generate a configuration first using the button above.');
+        return props;
       },
       getDescription: () => generatedDescription,
       getKeywords: () => generatedKeywords,
@@ -258,86 +162,25 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
           </div>
         </div>
 
-        {/* Streaming progress. `role="status"` so a generation that runs for a
-            minute isn't silent to a screen reader; the JSON preview itself stays
-            un-announced (it would read out the whole config as it streams). */}
         {generating && !previewJson && (
-          <div role="status" className="rounded-xl bg-info-bg border border-info-border p-4 flex items-center gap-3">
-            <LoadingSpinner size="sm" label={null} />
-            <div>
-              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                Generating pipeline configuration...
-              </p>
-              <p className="text-xs text-brand mt-1">
-                {stageCount > 0
-                  ? `Building pipeline — ${stageCount} stage${stageCount > 1 ? 's' : ''} generated so far`
-                  : 'AI is building your pipeline — this may take a minute with local models'}
-              </p>
-            </div>
-          </div>
+          <GenerationProgress title="Generating pipeline configuration..." detail={stageProgress(stageCount)} />
         )}
 
         {/* Error */}
         <ErrorAlert message={error || ai.error} />
 
-        {/* Project & Organization Override */}
-        {generatedProps && (
-          <div className="grid grid-cols-2 gap-4">
-            <FormField label="Project">
-              <Input
-                type="text"
-                value={projectOverride}
-                onChange={(e) => setProjectOverride(e.target.value)}
-                placeholder="Project name"
-                className="text-sm"
-                disabled={disabled || generating}
-              />
-            </FormField>
-            <FormField label="Organization">
-              <Input
-                type="text"
-                value={organizationOverride}
-                onChange={(e) => setOrganizationOverride(e.target.value)}
-                placeholder="Organization name"
-                className="text-sm"
-                disabled={disabled || generating}
-              />
-            </FormField>
-          </div>
-        )}
-
-        {/* Plugin Review — lets user swap AI-selected plugins before submitting */}
-        {generatedProps && !generating && (
-          <PluginReviewSection
-            props={generatedProps}
-            onPluginChange={handlePluginChange}
-            disabled={disabled || generating}
-          />
-        )}
-
-        {/* Generated Output */}
-        {previewJson && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="label" id={`${uid}-generated-config`}>Generated configuration</span>
-              {generating ? (
-                <span className="text-xs text-brand font-medium flex items-center gap-1">
-                  <LoadingSpinner size="sm" /> Streaming...
-                </span>
-              ) : (
-                <span role="status" className="text-xs text-green-600 dark:text-green-400 font-medium">
-                  Ready to submit
-                </span>
-              )}
-            </div>
-            <pre aria-labelledby={`${uid}-generated-config`} className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
-              {previewJson}
-            </pre>
-            <p className="mt-2 text-xs text-fg-muted">
-              Review the configuration above. Click &quot;Create&quot; to submit, or refine your prompt and regenerate.
-            </p>
-          </div>
-        )}
+        <GeneratedConfigReview
+          generatedProps={generatedProps}
+          previewJson={previewJson}
+          generating={generating}
+          disabled={disabled}
+          projectOverride={projectOverride}
+          setProjectOverride={setProjectOverride}
+          organizationOverride={organizationOverride}
+          setOrganizationOverride={setOrganizationOverride}
+          onPluginChange={onPluginChange}
+          regenerateHint="or refine your prompt and regenerate."
+        />
       </div>
     );
   },

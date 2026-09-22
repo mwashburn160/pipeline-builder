@@ -71,10 +71,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 
 const {
   ComplianceRuleSubscriptionService,
-  CS_RULE_NOT_FOUND,
-  CS_SUBSCRIPTION_NOT_FOUND,
-  CS_NOT_PUBLISHED,
-  CS_SYSTEM_ORG,
+  SubscriptionRuleNotFoundError,
+  SubscriptionNotFoundError,
+  RuleNotPublishedError,
+  SystemOrgSubscriptionError,
 } = await import('../src/services/subscription-service.js');
 
 describe('ComplianceRuleSubscriptionService', () => {
@@ -135,19 +135,35 @@ describe('ComplianceRuleSubscriptionService', () => {
     });
   });
 
+  // withRoute answers an AppError with its own status/code/message, so these
+  // ARE the HTTP contract the subscription routes serve.
+  describe('error HTTP contract', () => {
+    it.each([
+      [() => new SubscriptionRuleNotFoundError(), 400, 'VALIDATION_ERROR', 'Rule not found'],
+      [() => new SubscriptionNotFoundError(), 400, 'VALIDATION_ERROR', 'Subscription not found'],
+      [() => new RuleNotPublishedError(), 400, 'VALIDATION_ERROR', 'Only published rules can be subscribed to'],
+      [() => new SystemOrgSubscriptionError(), 403, 'INSUFFICIENT_PERMISSIONS', 'System org cannot manage rule subscriptions'],
+    ])('%#: maps to its status, code and client message', (make, status, code, message) => {
+      const err = make();
+      expect(err.statusCode).toBe(status);
+      expect(String(err.code)).toBe(code);
+      expect(err.message).toBe(message);
+    });
+  });
+
   describe('subscribe', () => {
     it('rejects system org', async () => {
-      await expect(svc.subscribe('000000000000000000000001', 'rule-1', 'u1')).rejects.toThrow(CS_SYSTEM_ORG);
+      await expect(svc.subscribe('000000000000000000000001', 'rule-1', 'u1')).rejects.toThrow(SystemOrgSubscriptionError);
     });
 
     it('rejects when rule not found', async () => {
       nextSelectResult = [];
-      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).rejects.toThrow(CS_RULE_NOT_FOUND);
+      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).rejects.toThrow(SubscriptionRuleNotFoundError);
     });
 
     it('rejects when rule is not published', async () => {
       nextSelectResult = [{ id: 'rule-1', scope: 'org' }];
-      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).rejects.toThrow(CS_NOT_PUBLISHED);
+      await expect(svc.subscribe('org-1', 'rule-1', 'u1')).rejects.toThrow(RuleNotPublishedError);
     });
 
     it('inserts subscription as inactive when rule is published', async () => {
@@ -162,12 +178,12 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('setActive', () => {
     it('rejects system org', async () => {
-      await expect(svc.setActive('000000000000000000000001', 'r', true, 'u')).rejects.toThrow(CS_SYSTEM_ORG);
+      await expect(svc.setActive('000000000000000000000001', 'r', true, 'u')).rejects.toThrow(SystemOrgSubscriptionError);
     });
 
     it('rejects when subscription not found', async () => {
       nextSelectResult = [];
-      await expect(svc.setActive('org-1', 'r', true, 'u')).rejects.toThrow(CS_SUBSCRIPTION_NOT_FOUND);
+      await expect(svc.setActive('org-1', 'r', true, 'u')).rejects.toThrow(SubscriptionNotFoundError);
     });
 
     it('updates active flag when subscription exists', async () => {
@@ -182,12 +198,12 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('unsubscribe', () => {
     it('rejects system org', async () => {
-      await expect(svc.unsubscribe('000000000000000000000001', 'r', 'u')).rejects.toThrow(CS_SYSTEM_ORG);
+      await expect(svc.unsubscribe('000000000000000000000001', 'r', 'u')).rejects.toThrow(SystemOrgSubscriptionError);
     });
 
     it('rejects when subscription not found', async () => {
       nextSelectResult = [];
-      await expect(svc.unsubscribe('org-1', 'r', 'u')).rejects.toThrow(CS_SUBSCRIPTION_NOT_FOUND);
+      await expect(svc.unsubscribe('org-1', 'r', 'u')).rejects.toThrow(SubscriptionNotFoundError);
     });
 
     it('soft-deletes subscription when found', async () => {
@@ -225,7 +241,7 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('bulkSetActive', () => {
     it('rejects system org', async () => {
-      await expect(svc.bulkSetActive('000000000000000000000001', ['r1'], true, 'u')).rejects.toThrow(CS_SYSTEM_ORG);
+      await expect(svc.bulkSetActive('000000000000000000000001', ['r1'], true, 'u')).rejects.toThrow(SystemOrgSubscriptionError);
     });
 
     it('returns the ruleIds actually toggled (not the requested set), count derivable from length', async () => {
@@ -241,19 +257,19 @@ describe('ComplianceRuleSubscriptionService', () => {
 
   describe('pinVersion', () => {
     it('rejects system org', async () => {
-      await expect(svc.pinVersion('000000000000000000000001', 'r', 'u')).rejects.toThrow(CS_SYSTEM_ORG);
+      await expect(svc.pinVersion('000000000000000000000001', 'r', 'u')).rejects.toThrow(SystemOrgSubscriptionError);
     });
 
     it('throws when subscription is missing', async () => {
       nextSelectResult = [];
-      await expect(svc.pinVersion('org-1', 'r', 'u')).rejects.toThrow(CS_SUBSCRIPTION_NOT_FOUND);
+      await expect(svc.pinVersion('org-1', 'r', 'u')).rejects.toThrow(SubscriptionNotFoundError);
     });
   });
 
   describe('unpinVersion', () => {
     it('throws when subscription not found', async () => {
       nextReturningResult = [];
-      await expect(svc.unpinVersion('org-1', 'r')).rejects.toThrow(CS_SUBSCRIPTION_NOT_FOUND);
+      await expect(svc.unpinVersion('org-1', 'r')).rejects.toThrow(SubscriptionNotFoundError);
     });
 
     it('returns updated subscription', async () => {

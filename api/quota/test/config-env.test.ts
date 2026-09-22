@@ -17,8 +17,8 @@ process.env.QUOTA_DEFAULT_PLUGINS = 'lots';
 process.env.QUOTA_DEFAULT_API_CALLS = '-1';
 process.env.PORT = '';
 
-const { getTierLimits } = await import('@pipeline-builder/api-core');
-const { config } = await import('../src/config.js');
+const { getTierLimits, VALID_QUOTA_TYPES } = await import('@pipeline-builder/api-core');
+const { config, quotaDefaultEnvName } = await import('../src/config.js');
 
 describe('config env parsing', () => {
   it('falls back to the default reset period instead of NaN', () => {
@@ -38,5 +38,14 @@ describe('config env parsing', () => {
   it('produces no NaN anywhere in the quota config', () => {
     const numbers = [config.port, config.quota.resetDays, config.quota.atRiskCacheTtlMs, ...Object.values(config.quota.defaults)];
     expect(numbers.every(Number.isFinite)).toBe(true);
+  });
+
+  it('has a default for every quota type, keyed by the derived QUOTA_DEFAULT_* name', () => {
+    expect(Object.keys(config.quota.defaults).sort()).toEqual([...VALID_QUOTA_TYPES].sort());
+    expect(quotaDefaultEnvName('plugins')).toBe('QUOTA_DEFAULT_PLUGINS');
+    expect(quotaDefaultEnvName('apiCalls')).toBe('QUOTA_DEFAULT_API_CALLS');
+    expect(quotaDefaultEnvName('storageBytes')).toBe('QUOTA_DEFAULT_STORAGE_BYTES');
+    expect(quotaDefaultEnvName('alertDestinations')).toBe('QUOTA_DEFAULT_ALERT_DESTINATIONS');
+    expect(quotaDefaultEnvName('idpConfigs')).toBe('QUOTA_DEFAULT_IDP_CONFIGS');
   });
 });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * W2 wiring outside the plugins dashboard: the public plugin page shows the
+ * Install wiring outside the plugins dashboard: the public plugin page shows the
  * signed-in org's install state (and stays the guest page signed out), and the
  * pipeline editor's plugin picker offers own plugins AND resolvable catalog
  * listings, writes `publisher` for a listing, and warns about shadowed names.
@@ -14,12 +14,9 @@ import { useState } from 'react';
 import { detail } from './helpers/publicDirectoryFixtures';
 import { catalogEntry, installView, officialEntry } from './helpers/pluginInstallFixtures';
 
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, asPath: '/plugins/pipeline-builder/trivy', pathname: '/plugins', push: jest.fn(), replace: jest.fn() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: {}, asPath: '/plugins/pipeline-builder/trivy', pathname: '/plugins', push: jest.fn(), replace: jest.fn() })));
 let authState: Record<string, unknown> = { user: null, isAuthenticated: false, isInitialized: true };
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => authState }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => authState));
 jest.mock('@/hooks/useDarkMode', () => ({ __esModule: true, useDarkMode: () => ({ isDark: false, toggle: () => undefined }) }));
 jest.mock('@/generated/plugin-icons', () => ({ __esModule: true, PLUGIN_ICONS: {} }));
 
@@ -33,14 +30,14 @@ jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: 
 
 import PluginPage from '../pages/plugins/[publisher]/[name]';
 import PluginOptionsEditor from '../src/components/pipeline/editors/PluginOptionsEditor';
-import { clearPluginCache } from '../src/hooks/usePlugins';
+import { clearQueryCache } from '../src/lib/query-cache';
 import { createEmptyPlugin, type FormPluginOptions } from '../src/types/form-types';
 
 const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, data });
 
 beforeEach(() => {
   jest.clearAllMocks();
-  clearPluginCache();
+  clearQueryCache();
   authState = { user: null, isAuthenticated: false, isInitialized: true };
   Element.prototype.scrollIntoView = function scrollIntoView() {};
 });

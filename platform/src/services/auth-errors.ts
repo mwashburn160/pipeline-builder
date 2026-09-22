@@ -79,7 +79,7 @@ export const TOKEN_SCOPE_ESCALATION = 'TOKEN_SCOPE_ESCALATION';
  *  claims, so its assurance can't be inherited. Fail closed → 401. */
 export const SESSION_AUTH_MISSING = 'SESSION_AUTH_MISSING';
 
-/** The active org requires MFA (#8) and its grace period has passed, but the
+/** The active org requires MFA and its grace period has passed, but the
  *  session being minted is only `aal: 1`. Thrown by `mintTokens`, the single
  *  issuance chokepoint, and mapped to 401 `MFA_REQUIRED` by every controller
  *  that issues or re-issues a session — the client's answer is to enrol a factor

@@ -11,10 +11,10 @@ import {
   ErrorCode,
   createLogger,
   parseQueryString,
-  parseQueryInt,
-  parseQueryIntClamped,
   userHasPermission,
   fetchOrgDescendants,
+  parsePage,
+  parseOptionalDate,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -23,8 +23,7 @@ import { config } from '../config.js';
 import { billingServiceAuth, getBillingTimeout } from '../helpers/billing-helpers.js';
 import { getBillingSummary, listBillingInvoices, getAdminBillingSummary } from '../helpers/billing-ledger.js';
 import { allocateCosts } from '../helpers/cost-allocation.js';
-import { parseOptionalDate } from '../helpers/query-dates.js';
-import { fetchSeatUsage } from '../helpers/quota-client.js';
+import { fetchSeatUsage } from '../helpers/downstream-client.js';
 import { getTeamUsage } from '../helpers/team-usage.js';
 
 const logger = createLogger('billing-summary');
@@ -70,8 +69,7 @@ export function createBillingSummaryRoutes(): Router {
     const from = parseOptionalDate(req.query.from);
     const to = parseOptionalDate(req.query.to);
     if (from === null || to === null) return sendError(res, 400, 'from/to must be ISO dates', ErrorCode.VALIDATION_ERROR);
-    const limit = parseQueryIntClamped(req.query.limit, 50, 200);
-    const offset = parseQueryInt(req.query.offset, 0);
+    const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
     return sendSuccess(res, 200, await listBillingInvoices(orgId, from, to, limit, offset));
   }));
 

@@ -18,8 +18,7 @@
 
 import { useMemo } from 'react';
 // react-grid-layout v2 composable API: grid sizing lives in `gridConfig`, and
-// drag/resize behaviour in `dragConfig`/`resizeConfig` (the old flat props are
-// gone). `Layout` is `readonly LayoutItem[]`; vertical compaction is the default.
+// drag/resize behaviour in `dragConfig`/`resizeConfig`. `Layout` is `readonly LayoutItem[]`; vertical compaction is the default.
 import GridLayout from 'react-grid-layout';
 import type { Layout } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';

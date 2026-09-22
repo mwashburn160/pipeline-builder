@@ -36,27 +36,27 @@ export enum ErrorCode {
   /** A read-only impersonation token (`impersonationReadOnly`) attempted a
    *  state-changing request (anything but GET/HEAD/OPTIONS). */
   IMPERSONATION_READ_ONLY = 'IMPERSONATION_READ_ONLY',
-  /** A plugin-ecosystem governance route (docs/plans/plugin-ecosystem.md §3.0)
+  /** A plugin-ecosystem governance route (docs/runbooks/ecosystem-moderation.md)
    *  was called from an active org other than the system org — a token minted in
    *  a tenant org is refused even for the same user. Switch to the system org. */
   SYSTEM_ORG_REQUIRED = 'SYSTEM_ORG_REQUIRED',
   /** The publisher hasn't accepted the CURRENT publisher terms version, so it
-   *  can't submit new requests (existing listings are unaffected, §3.1). */
+   *  can't submit new requests (existing listings are unaffected). */
   PUBLISHER_TERMS_REQUIRED = 'PUBLISHER_TERMS_REQUIRED',
   /** Publishing is done from the ROOT org; a team org can't own a publisher or
-   *  submit requests (§3.1, G33). */
+   *  submit requests. */
   PUBLISHER_ROOT_ORG_REQUIRED = 'PUBLISHER_ROOT_ORG_REQUIRED',
-  /** The publisher is suspended by the system org (§3.6). */
+  /** The publisher is suspended by the system org. */
   PUBLISHER_SUSPENDED = 'PUBLISHER_SUSPENDED',
-  /** Tenant publishing is switched off on this instance (`PLUGIN_PUBLISHING_ENABLED`, §9). */
+  /** Tenant publishing is switched off on this instance (`PLUGIN_PUBLISHING_ENABLED`). */
   PLUGIN_PUBLISHING_DISABLED = 'PLUGIN_PUBLISHING_DISABLED',
-  /** Review writes are switched off on this instance (`PLUGIN_REVIEWS_ENABLED`,
-   *  §9): reviews stay readable, nothing new is written. */
+  /** Review writes are switched off on this instance (`PLUGIN_REVIEWS_ENABLED`):
+   *  reviews stay readable, nothing new is written. */
   PLUGIN_REVIEWS_DISABLED = 'PLUGIN_REVIEWS_DISABLED',
   /** A member of the publisher's own organization tried to review (or vote on a
-   *  review of) one of its listings (§5 G16, self-promotion). */
+   *  review of) one of its listings (self-promotion). */
   REVIEW_SELF_PROMOTION = 'REVIEW_SELF_PROMOTION',
-  /** Separation of duties (§3.0.1): the caller may not decide this request —
+  /** Separation of duties: the caller may not decide this request —
    *  it came from an org they belong to, they uploaded the version, or they
    *  gave the first of two approvals. */
   SEPARATION_OF_DUTIES = 'SEPARATION_OF_DUTIES',
@@ -68,14 +68,14 @@ export enum ErrorCode {
   ORG_NOT_FOUND = 'ORG_NOT_FOUND',
   /** The anonymous plugin submission API is off on this instance
    *  (`ANONYMOUS_SUBMISSIONS_ENABLED`, or outbound email isn't configured) —
-   *  answered as a plain 404 (docs/plans/plugin-ecosystem.md §4). */
+   *  answered as a plain 404 (docs/plugin-publishing.md). */
   SUBMISSIONS_DISABLED = 'SUBMISSIONS_DISABLED',
 
   // Validation errors (400)
   VALIDATION_ERROR = 'VALIDATION_ERROR',
   MISSING_REQUIRED_FIELD = 'MISSING_REQUIRED_FIELD',
   /** A proof-of-work answer is missing, malformed, expired, too easy, wrong,
-   *  or was already used (anonymous submissions, §4.2). */
+   *  or was already used (anonymous submissions). */
   PROOF_OF_WORK_INVALID = 'PROOF_OF_WORK_INVALID',
   TEMPLATE_UNKNOWN_PATH = 'TEMPLATE_UNKNOWN_PATH',
   TEMPLATE_CYCLE = 'TEMPLATE_CYCLE',
@@ -90,7 +90,7 @@ export enum ErrorCode {
   QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
   /** An anonymous submitter (per verified email, or per client IP) is at the
-   *  rolling 24-hour submission cap (§4.2). */
+   *  rolling 24-hour submission cap. */
   SUBMISSION_LIMIT = 'SUBMISSION_LIMIT',
 
   // Payload errors (413)
@@ -106,7 +106,7 @@ export enum ErrorCode {
   IMAGE_VERIFICATION_FAILED = 'IMAGE_VERIFICATION_FAILED',
   /** The plugin version is immutable — a publish request references it
    *  (`frozen_at` set) or it is published to a listing — so it can be neither
-   *  re-uploaded, edited nor deleted (docs/plans/plugin-ecosystem.md §3.4). */
+   *  re-uploaded, edited nor deleted (docs/plugin-publishing.md). */
   PLUGIN_VERSION_FROZEN = 'PLUGIN_VERSION_FROZEN',
   /** The plugin version is referenced by one of the org's pipelines, or published
    *  to an ecosystem listing; deleting it needs `?force=true` plus a step-up. */
@@ -115,7 +115,7 @@ export enum ErrorCode {
    *  (fail closed: what was requested is not what would be published). */
   PLUGIN_DIGEST_MISMATCH = 'PLUGIN_DIGEST_MISMATCH',
   /** A publish request needs the org's publisher profile, which doesn't exist
-   *  yet (docs/plans/plugin-ecosystem.md §3.1). Claim a handle first. */
+   *  yet (docs/plugin-publishing.md). Claim a handle first. */
   PUBLISHER_REQUIRED = 'PUBLISHER_REQUIRED',
   /** The requested publisher handle is reserved (Official/Verified
    *  reservations, confusables). Submit a `claim` request instead. */
@@ -124,7 +124,7 @@ export enum ErrorCode {
    *  README, signature, scan, vulnerability gate …); `details.gates` lists them. */
   PUBLISH_GATE_FAILED = 'PUBLISH_GATE_FAILED',
   /** A Verified-publisher application (or its decision) from an org whose plan
-   *  lacks the `verified_publisher` feature (Team+, docs/plans/plugin-ecosystem.md §3.7). */
+   *  lacks the `verified_publisher` feature (Team+, docs/plugin-publishing.md). */
   VERIFIED_PLAN_REQUIRED = 'VERIFIED_PLAN_REQUIRED',
   /** A Verified-publisher application from an org with no DNS-verified domain. */
   VERIFIED_DOMAIN_REQUIRED = 'VERIFIED_DOMAIN_REQUIRED',
@@ -133,7 +133,7 @@ export enum ErrorCode {
   VERIFIED_OWNER_MFA_REQUIRED = 'VERIFIED_OWNER_MFA_REQUIRED',
   /** A plugin reference names an ecosystem listing the org hasn't installed (or
    *  whose install is pending, denied, or doesn't cover the version asked for;
-   *  `details.reason`) — docs/plans/plugin-ecosystem.md §3.2, §3.5. */
+   *  `details.reason`) — docs/plugin-publishing.md */
   PLUGIN_NOT_INSTALLED = 'PLUGIN_NOT_INSTALLED',
   /** The org's consumption policy refuses the listing: its tier isn't allowed,
    *  the listing is blocked, or an advisory blocks the version (`details.reason`). */
@@ -142,11 +142,11 @@ export enum ErrorCode {
    *  installs (`details.reason`). */
   PLUGIN_UNAVAILABLE = 'PLUGIN_UNAVAILABLE',
   /** An auto-created placeholder plugin can't take the name of a listed plugin
-   *  (G17) — install the listing instead. */
+   * — install the listing instead. */
   PLUGIN_NAME_LISTED = 'PLUGIN_NAME_LISTED',
   /** An anonymous submission names a community listing another submitter owns,
    *  a reserved name, an Official/Verified listing's name, or one confusable
-   *  with a top listing (§4.2 "Names"); `details.reason` says which. */
+   *  with a top listing; `details.reason` says which. */
   NAME_TAKEN = 'NAME_TAKEN',
 
   // Billing errors

@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndRestore, sendSuccess, normalizeArrayFields, audited, actorId } from '@pipeline-builder/api-core';
+import { loadAndRestore, sendSuccess, normalizeArrayFields, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 /**
@@ -21,7 +20,7 @@ export function createRestorePipelineRoutes(): Router {
   const router: Router = Router();
 
   router.post('/:id/restore', audited('pipeline.restore'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndRestore(req, res, orgId, userId || 'system', pipelineService, 'Pipeline', 'pipelines:publish');
+    const result = await loadAndRestore(req, res, pipelineService, { orgId, userId, label: 'Pipeline', publishPermission: 'pipelines:publish' });
     if (!result) return;
     const { existing, restored } = result;
 
@@ -29,7 +28,7 @@ export function createRestorePipelineRoutes(): Router {
 
     // Best-effort attributed audit — `affectedOrgId` records the target's org so
     // a no-org sysadmin restore is attributed to the org whose row changed.
-    emitPipelineAudit({
+    recordAudit({
       action: 'pipeline.restore',
       actorId: actorId({ userId }),
       orgId,

@@ -13,12 +13,13 @@
  *      from the VERIFIED token. Loki enforces it, so even a malformed query
  *      cannot cross orgs. Never read the org from a request header: nginx
  *      injects `x-org-id` on every proxied request, and trusting a proxy header
- *      as authority is a bug class this repo has already shipped a P0 from.
+ *      as authority lets any caller pick its tenant.
  *   2. **Query** — {@link buildLogQL} only ever emits label matchers over a
  *      fixed key set and line filters over quoted literals.
  */
 
 import { looksSensitive } from '@pipeline-builder/api-core';
+import { config } from '../config/index.js';
 
 /** The tenant holding lines with no org: startup, workers, nginx/postgres. Sysadmin-only. */
 export const INFRA_TENANT = '_infra';
@@ -103,16 +104,9 @@ export function resolveTenants(
   return [...new Set(wanted)].join('|');
 }
 
-/**
- * The always-present anchor matcher. A LogQL selector needs at least one
- * non-empty matcher, and which labels exist varies by deploy target (the
- * Kubernetes targets set `pod`/`container` from the file path, the Docker target
- * sets `container`/`service` from compose metadata). `service_name` is set by the
- * shared JSON stage on every target, so it is the portable default; override for
- * a deploy that ships non-JSON producers people need to browse.
- */
+/** The always-present anchor matcher (see `config.observability.lokiBaseSelector`). */
 function baseSelector(): string {
-  return process.env.LOKI_BASE_SELECTOR || 'service_name=~".+"';
+  return config.observability.lokiBaseSelector;
 }
 
 /** Parse the search box into a {@link LogFilter}. Throws {@link LogQueryError} on bad input. */

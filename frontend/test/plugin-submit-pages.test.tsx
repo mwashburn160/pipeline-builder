@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The anonymous submission pages (plan §4, W5):
+ * The anonymous submission pages:
  *  - `/plugins/submit`: upload → proof-of-work → inspect → accept-or-edit →
  *    email + terms → proof-of-work → submit → "check your email"; every call
  *    credential-free; a disabled instance, the daily limit, a taken name and
@@ -16,11 +16,8 @@ import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 let routerQuery: Record<string, string> = {};
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: routerQuery, asPath: '/plugins/submit', pathname: '/plugins/submit', push: jest.fn(), replace: jest.fn() }),
-}));
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ user: null, isAuthenticated: false, isInitialized: true }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: routerQuery, asPath: '/plugins/submit', pathname: '/plugins/submit', push: jest.fn(), replace: jest.fn() })));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ user: null, isAuthenticated: false, isInitialized: true })));
 jest.mock('@/hooks/useDarkMode', () => ({ __esModule: true, useDarkMode: () => ({ isDark: false, toggle: () => undefined }) }));
 jest.mock('@/generated/plugin-icons', () => ({ __esModule: true, PLUGIN_ICONS: {} }));
 const solveInWorker = jest.fn<AnyFn>();

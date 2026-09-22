@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -26,9 +27,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown, message?: string) => res.status(status).json({ success: true, statusCode: status, data, message }),
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { email: { enabled: false } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ email: { enabled: false } }));
 
-jest.unstable_mockModule('../src/controllers/oauth.js', () => ({
+jest.unstable_mockModule('../src/services/oauth-providers.js', () => ({
   verifyOAuthCode: jest.fn(), OAUTH_ERROR_MAP: {},
 }));
 

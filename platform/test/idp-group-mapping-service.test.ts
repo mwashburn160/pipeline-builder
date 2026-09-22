@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * IdP group → Role mapping (3a): RESOLUTION and the authoring GUARDRAILS.
+ * IdP group → Role mapping: RESOLUTION and the authoring GUARDRAILS.
  *
  * Models are mocked, so what is under test is the policy, not Mongo:
  *   - resolution is case-insensitive, unions the matched rules, and drops Roles
@@ -170,7 +170,7 @@ describe('create (guardrails)', () => {
     mappingExists.mockResolvedValue({ _id: 'm1' });
     await expect(idpGroupMappingService.create(ORG, 'u1', { group: 'ENG', roleIds: ['r1'] }, ADMIN))
       .rejects.toThrow(IGM_GROUP_TAKEN);
-    expect(mappingExists).toHaveBeenCalledWith({ orgId: ORG, groupKey: 'eng' });
+    expect(mappingExists).toHaveBeenCalledWith({ organizationId: ORG, groupKey: 'eng' });
   });
 
   it('normalizes the group into a lowercase match key', async () => {
@@ -186,7 +186,7 @@ describe('create (guardrails)', () => {
 describe('update / delete (guardrails)', () => {
   const stored = (roleIds: string[]) => ({
     _id: 'm1',
-    orgId: ORG,
+    organizationId: ORG,
     group: 'eng',
     groupKey: 'eng',
     roleIds,

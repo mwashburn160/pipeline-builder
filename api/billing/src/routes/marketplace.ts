@@ -13,11 +13,13 @@ import {
   createLogger,
   errorMessage,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { config } from '../config.js';
-import { createBillingEvent, syncEntitlements } from '../helpers/billing-helpers.js';
+import { createBillingEvent } from '../helpers/billing-helpers.js';
+import { syncEntitlements } from '../helpers/entitlement-sync.js';
 import {
   verifySNSSignature,
   confirmSNSSubscription,
@@ -35,7 +37,6 @@ import { MarketplacePendingRegistration, PENDING_REGISTRATION_TTL_MS } from '../
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent, webhookEventStatus } from '../models/webhook-dedupe.js';
-import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('billing-marketplace');
 
@@ -281,13 +282,13 @@ export function createMarketplaceRoutes(): Router {
       // this is where an AWS Marketplace purchase becomes THIS org's paid
       // subscription. Fire-and-forget; plan/tier ids only: the AWS customer
       // identifier (and any AWS account id) is deliberately NOT recorded.
-      getAuditClient().record({
+      recordAudit({
         action: 'billing.subscription.create',
         actorId: actorId({ userId }),
         orgId,
         targetId: subscription._id.toString(),
         details: { planId: pending.planId, interval: pending.interval, tier: plan.tier, provider: 'aws-marketplace' },
-      }, 'billing');
+      });
 
       ctx.log('COMPLETED', 'Marketplace subscription claimed', { orgId, planId: pending.planId });
       return sendSuccess(res, 201, {

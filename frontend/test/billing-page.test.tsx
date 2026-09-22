@@ -27,8 +27,8 @@ const mockRouter = {
   replace: jest.fn<AnyFn>((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
   push: jest.fn<AnyFn>(),
 };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ organizations: [{ id: 'org-1', name: 'Acme' }] }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ organizations: [{ id: 'org-1', name: 'Acme' }] })));
 jest.mock('@/hooks/useBillingEnabled', () => ({
   __esModule: true,
   useBillingEnabledState: () => true,

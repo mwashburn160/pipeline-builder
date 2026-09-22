@@ -11,7 +11,7 @@
  * It holds a real session — the access token AND its refresh token — because
  * that is what the device flow hands back and what lets the CLI keep working for
  * days without another browser round trip. Nothing else about the account is
- * stored: no password (the CLI no longer has one to store) and no identifier.
+ * stored: no password (the CLI never holds one) and no identifier.
  *
  * Resolution order everywhere else in the CLI is unchanged in spirit: an
  * explicit `PLATFORM_TOKEN` in the environment always wins, so CI keeps using an

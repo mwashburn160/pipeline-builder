@@ -31,7 +31,7 @@ describe('pluginArtifactAlias', () => {
   });
 });
 
-describe('publisher references (plugin ecosystem §3.5)', () => {
+describe('publisher references', () => {
   it('puts the publisher in the key and the construct id of a qualified reference', () => {
     expect(pluginArtifactAlias({ name: 'lint', publisher: 'acme' })).toBe('acme-lint-alias');
     expect(pluginStepIdAlias({ name: 'lint', publisher: 'acme' })).toBe('acme-lint');

@@ -29,8 +29,8 @@ export interface UseListPageOptions<T> {
    *
    * `signal` aborts as soon as this fetch is superseded — the next debounced
    * keystroke, a page/sort change, or unmount. Forward it to the API client so
-   * the abandoned request stops on the wire; a fetcher that ignores it just
-   * keeps the old "discard the late answer" behaviour.
+   * the abandoned request stops on the wire; a fetcher that ignores it only has
+   * its late answer discarded.
    */
   fetcher: (params: Record<string, string>, signal: AbortSignal) => Promise<{
     items: T[];

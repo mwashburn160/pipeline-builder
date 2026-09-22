@@ -12,8 +12,8 @@
  *     and timeout enforced), save nothing, audit it.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -43,7 +43,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controller
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   requireOwnOrgSso: (...a: unknown[]) => mockRequireOwnOrgSso(...a),
 }));
-jest.unstable_mockModule('../src/controllers/org-idp-ops.js', () => ({
+jest.unstable_mockModule('../src/helpers/org-idp-ops.js', () => ({
   ORG_IDP_ERROR_MAP: {}, deleteOrgIdp: jest.fn(), patchOrgIdp: jest.fn(), readOrgIdp: jest.fn(), upsertOrgIdp: jest.fn(),
 }));
 jest.unstable_mockModule('../src/services/oidc-service.js', () => ({

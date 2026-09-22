@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SCIM wire responses (3b).
+ * SCIM wire responses.
  *
  * The rest of the platform answers in its own `{ success, data, message }`
  * envelope (api-core's `sendSuccess`/`sendError`). SCIM cannot: RFC 7644 fixes

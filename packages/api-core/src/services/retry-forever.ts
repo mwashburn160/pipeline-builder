@@ -15,15 +15,8 @@
  * max)` loop had drifted apart; this is the one implementation.
  */
 
-/**
- * `unref`'d on purpose: these loops run for the life of the process, and a
- * pending backoff timer must never be the thing that keeps a draining Node
- * process from exiting. (`unref` is absent on the browser/timer shim some test
- * environments install, hence the optional call.)
- */
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => {
-  setTimeout(resolve, ms).unref?.();
-});
+import { sleep } from '../utils/concurrency.js';
+
 
 /**
  * The next delay in a capped doubling sequence.
@@ -75,7 +68,9 @@ export async function retryForever<T>(
       return await fn();
     } catch (error) {
       onAttemptFailed(error, delayMs);
-      await sleep(delayMs);
+      // `unref`'d: these loops run for the life of the process, and a pending
+      // backoff timer must never keep a draining process from exiting.
+      await sleep(delayMs, { unref: true });
       delayMs = nextBackoffMs(delayMs, maxMs);
     }
   }

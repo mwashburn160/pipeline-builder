@@ -4,7 +4,7 @@
 /**
  * Tests for the per-Alertmanager-instance binding config parser. The parser
  * tolerates missing/malformed input — service must NOT crash on bad
- * ALERT_WEBHOOK_INSTANCES; it should fall back to legacy single-token mode.
+ * ALERT_WEBHOOK_INSTANCES; it should fall back to single-token mode.
  */
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
@@ -38,7 +38,7 @@ afterAll(() => {
 });
 
 describe('parseAlertWebhookInstances', () => {
-  it('returns [] when env is unset (legacy single-token mode)', async () => {
+  it('returns [] when env is unset (single-token mode)', async () => {
     expect((await loadConfig()).instances).toEqual([]);
   });
 
@@ -94,7 +94,7 @@ describe('parseAlertWebhookInstances', () => {
     ]);
   });
 
-  it('returns [] when env contains malformed JSON (falls back to legacy)', async () => {
+  it('returns [] when env contains malformed JSON (falls back to single-token mode)', async () => {
     process.env.ALERT_WEBHOOK_INSTANCES = 'this-is-not-json';
     expect((await loadConfig()).instances).toEqual([]);
   });

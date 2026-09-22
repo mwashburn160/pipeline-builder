@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, ErrorCode, errorMessage, runConcurrent } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, envInt, ErrorCode, errorMessage, runConcurrent } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { findExistingPluginNames, findListedNames } from './plugin-lookup-service.js';
 
@@ -21,8 +21,7 @@ const SAFE_PLUGIN_NAME_RE = /^[a-z0-9-]+$/;
  * 30s by default — these calls are sometimes slow because plugin upload
  * responses include build queue results. Override via
  * `PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS`. */
-const parsedTimeout = parseInt(process.env.PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS || '30000', 10);
-const PLUGIN_SERVICE_TIMEOUT_MS = Number.isFinite(parsedTimeout) ? parsedTimeout : 30000;
+const PLUGIN_SERVICE_TIMEOUT_MS = envInt('PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS', 30000, { min: 1 });
 
 let _pluginClient: ReturnType<typeof createSafeClient> | undefined;
 /** Lazily construct the plugin service client — defers Config.get() until first
@@ -130,7 +129,7 @@ export async function autoCreateMissingPlugins(
     return;
   }
 
-  // A placeholder can't take the name of a LISTED plugin (G17): the listing IS
+  // A placeholder can't take the name of a LISTED plugin: the listing IS
   // that plugin — the org installs it (or references it with its publisher)
   // instead of getting a failing stand-in that would shadow it.
   const listed = await findListedNames(missing);

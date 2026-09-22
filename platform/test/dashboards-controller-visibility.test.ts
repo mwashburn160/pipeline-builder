@@ -15,7 +15,9 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
+import { featureQuotaMock } from './helpers/feature-quota-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockIsSystemAdmin = jest.fn<(req: unknown) => boolean>();
@@ -34,13 +36,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { observability: { dashboardMaxName: 150, dashboardMaxDescription: 1000, dashboardMaxPanelTitle: 200, dashboardMaxPanels: 50 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: { dashboardMaxName: 150, dashboardMaxDescription: 1000, dashboardMaxPanelTitle: 200, dashboardMaxPanels: 50 } }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
-jest.unstable_mockModule('../src/middleware/quota.js', () => ({
+jest.unstable_mockModule('../src/middleware/quota.js', () => featureQuotaMock({
   reserveFeatureQuota: jest.fn(async () => ({ exceeded: false })),
   releaseFeatureQuota: jest.fn(),
 }));
@@ -69,8 +69,8 @@ function makeRes() {
  * `controller-helper` runs FOR REAL (see helpers/controller-helper-mock.ts), so
  * `requireAuthContext` + `getAdminContext` are driven by this fixture: `sub` and
  * `organizationId` satisfy the auth/org gates, and ORG-ADMIN authority is the
- * `role` claim that the real `isOrgAdmin` reads — it used to be a spy on
- * `isOrgAdmin` itself, which meant the predicate was never exercised. Only
+ * `role` claim that the real `isOrgAdmin` reads (not a spy on it, so the
+ * predicate itself is exercised). Only
  * api-core's `isSystemAdmin` stays mocked: platform-admin authority is a JWT
  * claim the controller cannot derive locally.
  */

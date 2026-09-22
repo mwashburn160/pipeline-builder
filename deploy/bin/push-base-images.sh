@@ -15,7 +15,7 @@
 #
 # Auth: the in-cluster registry uses token auth (REGISTRY_AUTH=token).
 # We sign a short-lived ES256 JWT with the deploy's OWN `deploy-bootstrap`
-# service key (#14) and feed it to crane as `_token:<jwt>`. The image-registry
+# service key and feed it to crane as `_token:<jwt>`. The image-registry
 # service resolves the key by `kid`, checks that the token's subject names it,
 # and mints a registry-scoped bearer token.
 #

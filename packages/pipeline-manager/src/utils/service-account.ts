@@ -2,15 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Provisioning the org's MACHINE identity for stored credentials (#12 / #N2).
+ * Provisioning the org's MACHINE identity for stored credentials.
  *
- * Every credential the CLI parks in AWS Secrets Manager used to be a machine
- * SESSION belonging to whoever ran the command: a person's JWT, renewed daily by
- * re-minting it under that person's session. It outlived their employment, it
- * carried their authority, and the audit trail read as if they had personally
- * pushed every image.
+ * A credential the CLI parks in AWS Secrets Manager must not be a machine
+ * SESSION belonging to whoever ran the command: a person's JWT would outlive
+ * their employment, carry their authority, and make the audit trail read as if
+ * they had personally pushed every image.
  *
- * What it writes instead is a `pb_sa_…` key on an org SERVICE ACCOUNT:
+ * What it writes is a `pb_sa_…` key on an org SERVICE ACCOUNT:
  *   - the account is the principal, so audit rows name it, not the operator;
  *   - its Roles are the narrowest that work — for a SCOPED credential that is no
  *     Roles at all, just the one capability (`reporting:ingest`, `registry:push`);
@@ -21,8 +20,8 @@
  * Creating an account and issuing a key are BOTH step-up gated on the platform —
  * they mint durable bearer credentials, the same class of action a personal key
  * is gated for. So this module needs the operator's password (`--password` or
- * `PLATFORM_PASSWORD`), which is also the only reason `store-token` still has a
- * password path at all. A step-up token is single-use and lives about a minute,
+ * `PLATFORM_PASSWORD`), which is the only reason `store-token` has a password
+ * path at all. A step-up token is single-use and lives about a minute,
  * so one is minted immediately before each gated call.
  */
 

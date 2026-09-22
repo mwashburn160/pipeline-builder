@@ -167,3 +167,10 @@ export {
 export * from './retry-strategy.js';
 export * from './tenancy.js';
 export * from './public-reader.js';
+export {
+  PG_UNIQUE_VIOLATION,
+  isUniqueViolation,
+  resultRows,
+  executeRows,
+  type SqlExecutor,
+} from './pg-result.js';

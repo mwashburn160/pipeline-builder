@@ -15,6 +15,7 @@ import {
   validateBody,
   parseQueryString,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -24,7 +25,6 @@ import type { PromotionContext } from '../helpers/promotion-engine.js';
 import { Plan } from '../models/plan.js';
 import { Promotion } from '../models/promotion.js';
 import type { PromotionDocument } from '../models/promotion.js';
-import { getAuditClient } from '../services/audit.js';
 import { PromotionMintSchema, PromotionUpdateSchema, PromotionGrantSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-promotions');
@@ -99,13 +99,13 @@ export function createPromotionRoutes(): Router {
       isActive: true,
     });
 
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.promotion.create',
       actorId: actorId({ userId }),
       orgId,
       targetId: _id,
       details: { promotionId: _id, unit: body.unit, value: body.value, event: body.trigger.event, budgetCents: body.budgetCents },
-    }, 'billing');
+    });
 
     logger.info('Promotion minted', { promotionId: _id, event: body.trigger.event });
     return sendSuccess(res, 201, { promotion: toPromotionResponse(promo) });
@@ -149,13 +149,13 @@ export function createPromotionRoutes(): Router {
     const promo = await Promotion.findByIdAndUpdate(id, { $set: update }, { new: true });
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
 
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.promotion.update',
       actorId: actorId({ userId }),
       orgId,
       targetId: id,
       details: { promotionId: id, ...update },
-    }, 'billing');
+    });
     return sendSuccess(res, 200, { promotion: toPromotionResponse(promo) });
   }));
 
@@ -165,13 +165,13 @@ export function createPromotionRoutes(): Router {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.promotion.revoke',
       actorId: actorId({ userId }),
       orgId,
       targetId: id,
       details: { promotionId: id },
-    }, 'billing');
+    });
     return sendSuccess(res, 200, { promotion: toPromotionResponse(promo) });
   }));
 
@@ -197,13 +197,13 @@ export function createPromotionRoutes(): Router {
     const ctx: PromotionContext = { tier: plan.tier, interval, planPriceCents: plan.prices[interval], actorId: req.user?.sub };
     const result = await grantPromotionToOrg(promo, subscription, targetOrgId, ctx);
 
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.promotion.grant',
       actorId: actorId({ userId }),
       orgId: targetOrgId,
       targetId: id,
       details: { promotionId: id, targetOrgId, granted: result.granted, cents: result.cents, reason: result.reason },
-    }, 'billing');
+    });
     logger.info('Promotion manual grant', { targetOrgId, ...result });
     return sendSuccess(res, 200, { result });
   }));
@@ -218,14 +218,14 @@ export function createPromotionRoutes(): Router {
     if (!promo.isActive) return sendError(res, 409, 'Promotion is not active', ErrorCode.CONFLICT);
 
     const result = await batchEvaluatePromotion(promo);
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.promotion.activate',
       actorId: actorId({ userId }),
       // Fleet-wide batch action — not scoped to one org; use the system sentinel.
       orgId: 'system',
       targetId: id,
       details: { promotionId: id, granted: result.granted, spentCents: result.spentCents, skippedBudget: result.skippedBudget },
-    }, 'billing');
+    });
     logger.info('Promotion batch activation', { promotionId: id, ...result });
     return sendSuccess(res, 200, { result });
   }));

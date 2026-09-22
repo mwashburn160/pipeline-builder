@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, QUOTA_TIERS, type QuotaTier, VALID_TIERS } from '@pipeline-builder/api-core';
+import { envInt, QUOTA_TIERS, type QuotaTier, VALID_TIERS, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
 import { assertWebAuthnConfig, resolveWebAuthnConfig } from './webauthn-validate.js';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
@@ -19,15 +19,11 @@ const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
  * for developer/pro, `30days` for team/enterprise.
  * @internal
  */
-function tierResetPeriod(tier: QuotaTier, fallback: string): { plugins: string; pipelines: string; apiCalls: string; aiCalls: string } {
-  const p = process.env[`QUOTA_TIER_${tier.toUpperCase()}_RESET_PERIOD`] || fallback;
-  return { plugins: p, pipelines: p, apiCalls: p, aiCalls: p };
-}
 
 /**
  * Validate that `SECRET_ENCRYPTION_KEY` is set. AI provider keys and IdP
- * client secrets are encrypted at rest; the read paths no longer have a
- * clear-text fallback. Refuse to boot in production when this env is
+ * client secrets are encrypted at rest and the read paths have no clear-text
+ * fallback. Refuse to boot in production when this env is
  * missing so a misconfig surfaces immediately instead of crashing on the
  * first decrypt. In dev, fall back to a deterministic placeholder so
  * single-machine runs don't require any setup.
@@ -66,7 +62,7 @@ export interface AlertWebhookInstance {
    *  string (the deploy manifests' default) means "not rotating". */
   previousToken?: string;
   /** When set, every alert in the payload must have its `labels.org_id`
-   *  within this list. Missing → no org-scope restriction (legacy mode). */
+   *  within this list. Missing → no org-scope restriction. */
   allowedOrgIds?: string[];
 }
 
@@ -94,7 +90,7 @@ function parseAlertWebhookInstances(raw: string | undefined): AlertWebhookInstan
       return [inst];
     });
   } catch {
-    // Bad JSON; fall back to legacy mode. Service stays up; misconfig is
+    // Bad JSON: no instances. Service stays up; misconfig is
     // surfaced via the eventual 401/403 on incoming webhook calls.
     return [];
   }
@@ -175,12 +171,11 @@ export const config = {
      *
      * This endpoint is machine-to-machine and unauthenticated at middleware
      * time (it authenticates itself inside the handler with a per-instance
-     * bearer + `X-Alertmanager-Instance` allowlist), so it used to fall into
-     * the ANONYMOUS bucket of the general limiter — 100 requests per 15
-     * minutes, fleet-wide, shared with every other unauthenticated caller. A
-     * multi-group alert storm exhausted that and got 429s, which Alertmanager
-     * treats as a failed notification: alerts were silently delayed to the
-     * next `group_interval`.
+     * bearer + `X-Alertmanager-Instance` allowlist), so the general limiter
+     * would put it in the ANONYMOUS bucket — fleet-wide, shared with every
+     * other unauthenticated caller. A multi-group alert storm would exhaust
+     * that and get 429s, which Alertmanager treats as a failed notification:
+     * alerts silently delayed to the next `group_interval`.
      *
      * Sized for a fleet of Alertmanagers fanning out many groups at once,
      * which is exactly when throttling is most harmful.
@@ -478,8 +473,8 @@ export const config = {
   },
 
   organization: {
-    // Org SOFT-DELETE retention window. `DELETE /organization/:id` no longer
-    // hard-deletes: it soft-deletes (sets `deletedAt`/`purgeAfter`), snapshots
+    // Org SOFT-DELETE retention window. `DELETE /organization/:id` does not
+    // hard-delete: it soft-deletes (sets `deletedAt`/`purgeAfter`), snapshots
     // the org durably, and cuts access at the token chokepoint. The purge sweep
     // then runs the destructive cascade for any org whose `purgeAfter` has
     // lapsed. Default 7-day grace so an accidental delete can be restored.
@@ -593,6 +588,19 @@ export const config = {
     /** How often each replica samples the org/user count gauges. Anything under
      *  30s isn't useful since Prometheus polls every 15s. */
     scraperIntervalMs: envInt('PLATFORM_SCRAPER_INTERVAL_MS', 60_000),
+    /** Backend base URLs, read on access (not at load) so a test can point one
+     *  backend at a stub per case. Defaults are the in-cluster service names. */
+    get prometheusUrl(): string { return process.env.PROMETHEUS_URL || 'http://prometheus:9090'; },
+    get lokiUrl(): string { return process.env.LOKI_URL || 'http://loki:3100'; },
+    get alertmanagerUrl(): string { return process.env.ALERTMANAGER_URL || 'http://alertmanager:9093'; },
+    /**
+     * The always-present anchor matcher for every LogQL selector. A selector
+     * needs at least one non-empty matcher, and which labels exist varies by
+     * deploy target; `service_name` is set by the shared JSON stage on every
+     * target, so it is the portable default. Override for a deploy that ships
+     * non-JSON producers people need to browse.
+     */
+    get lokiBaseSelector(): string { return process.env.LOKI_BASE_SELECTOR || 'service_name=~".+"'; },
     /** Default timeout for any single Alertmanager call. */
     alertmanagerTimeoutMs: envInt('ALERTMANAGER_TIMEOUT_MS', 5000),
     /** Per-destination delivery timeout for the alert relay and test sends — a
@@ -613,8 +621,7 @@ export const config = {
   },
 
   audit: {
-    // How many days to retain audit events. Read by the AuditEvent TTL
-    // index; was previously parsed inline in models/audit-event.ts.
+    // How many days to retain audit events. Read by the AuditEvent TTL index.
     retentionDays: envInt('AUDIT_RETENTION_DAYS', 90),
     // Platform-local audit() writes that fail are spooled (Redis) and
     // re-appended on this interval instead of being dropped.
@@ -644,37 +651,20 @@ export const config = {
     serviceHost: process.env.QUOTA_SERVICE_HOST || 'quota',
     servicePort: envInt('QUOTA_SERVICE_PORT', 3000),
     serviceTimeout: envInt('QUOTA_SERVICE_TIMEOUT', 5000), // 5s
-    // Usage-counter period, shared with the quota service (same env var). A
-    // service account's OWN token-exchange budget rolls over on this period, so
-    // its quota window matches every other quota in the deployment. `envInt`
-    // already falls back on a malformed value, so the old NaN re-guard is gone.
-    resetDays: envInt('QUOTA_RESET_DAYS', 3),
-    // Quota tier presets (each tier defines its own limits and reset periods).
-    // Consumed by Organization model schema defaults.
+    // The usage-counter period, shared with the quota service (api-core's single
+    // definition). A service account's OWN token-exchange budget rolls over on it
+    // too, so its window matches every other quota in the deployment.
+    resetDays: QUOTA_RESET_DAYS,
+    // Quota tier presets (each tier's limits). Consumed by Organization model
+    // schema defaults.
     tier: {
-      developer: {
-        ...QUOTA_TIERS.developer.limits,
-        resetPeriod: tierResetPeriod('developer', '3days'),
-      },
-      pro: {
-        ...QUOTA_TIERS.pro.limits,
-        resetPeriod: tierResetPeriod('pro', '3days'),
-      },
-      team: {
-        ...QUOTA_TIERS.team.limits,
-        resetPeriod: tierResetPeriod('team', '30days'),
-      },
-      enterprise: {
-        ...QUOTA_TIERS.enterprise.limits,
-        resetPeriod: tierResetPeriod('enterprise', '30days'),
-      },
-      // Billing-disabled default tier — everything uncapped. Reset period is moot
-      // (all limits -1), but the key must exist so `config.quota.tier[tier]` stays
-      // indexable by every QuotaTier.
-      unlimited: {
-        ...QUOTA_TIERS.unlimited.limits,
-        resetPeriod: tierResetPeriod('unlimited', '30days'),
-      },
+      developer: { ...QUOTA_TIERS.developer.limits },
+      pro: { ...QUOTA_TIERS.pro.limits },
+      team: { ...QUOTA_TIERS.team.limits },
+      enterprise: { ...QUOTA_TIERS.enterprise.limits },
+      // Billing-disabled default tier — everything uncapped. The key must exist
+      // so `config.quota.tier[tier]` stays indexable by every QuotaTier.
+      unlimited: { ...QUOTA_TIERS.unlimited.limits },
     },
   },
 
@@ -706,8 +696,8 @@ export const config = {
     serviceTimeout: envInt('COMPLIANCE_SERVICE_TIMEOUT', 5000), // 5s
   },
 
-  // Message service — used for service-to-service in-app notifications (P2b
-  // domain-join). Disabled → in-app notifications are silently skipped (email
+  // Message service — used for service-to-service in-app notifications
+  // (domain-join requests). Disabled → in-app notifications are silently skipped (email
   // still sent). Mirrors the other downstream-service blocks.
   message: {
     enabled: (process.env.MESSAGE_ENABLED || 'true').toLowerCase() !== 'false',

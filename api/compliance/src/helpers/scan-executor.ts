@@ -37,8 +37,8 @@ interface EntityRecord {
  * goes through api-core's `toComplianceAttributes` — byte-for-byte what the
  * plugin/pipeline services emit on the live entity-event path — so a scan
  * evaluates the same field names (`name`, `pipelineName`, `env` keys, …) with the
- * same secret-value redaction. Selecting only `{id, name}` (the old shape) left
- * every field-based rule evaluating against nothing.
+ * same secret-value redaction; a bare `{id, name}` would leave every field-based
+ * rule evaluating against nothing.
  */
 function toEntityRecord(row: Record<string, unknown>, name: unknown): EntityRecord {
   return {
@@ -64,10 +64,10 @@ const STALE_SCAN_TIMEOUT_MS = envInt('COMPLIANCE_SCAN_STALE_TIMEOUT_MS', 2 * 60 
  * Fail scans stuck in `running` past {@link STALE_SCAN_TIMEOUT_MS}.
  *
  * The executor only leaves `running` through its own terminal UPDATEs, so a
- * process crash mid-scan stranded the row in `running` forever — it never
- * completed, showed as in-progress in the UI, and (because rule-change scans
- * coalesce on an existing pending/running scan for the org+target) silently
- * suppressed every later rule-change re-scan for that org. Called at the start
+ * process crash mid-scan would strand the row in `running` forever — shown as
+ * in-progress in the UI and (because rule-change scans coalesce on an existing
+ * pending/running scan for the org+target) silently suppressing every later
+ * rule-change re-scan for that org. Called at the start
  * of each scheduler sweep. The UPDATE is conditional on `status='running'`, so it
  * can't clobber a scan that finished or was cancelled concurrently; a live scan
  * that genuinely outruns the timeout sees its next progress write match zero
@@ -112,9 +112,8 @@ export async function executeScan(scanId: string): Promise<void> {
 async function executeScanInternal(scanId: string): Promise<void> {
   // Atomic claim: transition pending → running in a single UPDATE … RETURNING.
   // If another scheduler tick (e.g. a peer replica) already grabbed this scan,
-  // the RETURNING clause is empty and we bail without touching it. This
-  // replaces the read-then-update pattern, which had a race window between
-  // SELECT and UPDATE where two workers could claim the same scan.
+  // the RETURNING clause is empty and we bail without touching it — no
+  // read-then-update window in which two workers could claim the same scan.
   const [scan] = await withTenantTx(async (tx) => tx
     .update(schema.complianceScan)
     .set({ status: 'running', startedAt: new Date() })
@@ -184,91 +183,26 @@ async function executeScanInternal(scanId: string): Promise<void> {
       const entityIds = entities.map(e => e.id).filter(Boolean);
       const exemptionMap = await fetchExemptions(scan.orgId, entityIds);
 
-      // Iterate in concurrency-bounded batches. Per-batch we:
-      //   1. Check cancellation
-      //   2. Run rule evaluation in parallel (CPU-bound but fast; the wins are
-      //      in concurrent audit-log writes for large orgs)
-      //   3. Aggregate counts + emit one progress update
-      //
-      // Worker is pure aside from fire-and-forget audit/notification writes;
-      // the `for-let-i` outer loop preserves serialized progress updates.
+      // Evaluate in concurrency-bounded batches, writing progress once at least
+      // PROGRESS_BATCH_SIZE entities have been processed since the last write
+      // (and after the target's final batch). The progress write is guarded on
+      // status='running', so it doubles as the cancellation check: zero rows
+      // updated means the scan was cancelled (or otherwise left running).
       const concurrency = Math.max(1, SCAN_CONCURRENCY);
+      let sinceLastProgress = 0;
       for (let i = 0; i < entities.length; i += concurrency) {
-        // Cancellation check before each batch (was every PROGRESS_BATCH_SIZE
-        // entities — close enough for batches of ~10).
-        const [current] = await withTenantTx(async (tx) => tx
-          .select({ status: schema.complianceScan.status })
-          .from(schema.complianceScan)
-          .where(eq(schema.complianceScan.id, scanId)));
-        if (current?.status === 'cancelled') {
-          logger.info('Scan cancelled', { scanId });
-          // Terminal outcome — without it `started` never balances against the
-          // sum of terminal outcomes, so a cancellation looks like a scan that
-          // silently vanished.
-          incCounter('compliance_scans_total', { outcome: 'cancelled' });
-          return;
-        }
-
         const slice = entities.slice(i, i + concurrency);
-        const settled = await Promise.allSettled(slice.map(async (entity) => {
-          const exemptions = exemptionMap.get(entity.id) ?? [];
-          const result = evaluateRules(rules, entity.attributes, exemptions, entity.deferredFields);
+        const counts = await evaluateBatch(slice, rules, exemptionMap, { scanId, scan, target, isDryRun });
+        passCount += counts.pass;
+        warnCount += counts.warn;
+        blockCount += counts.block;
+        processedEntities += slice.length;
+        sinceLastProgress += slice.length;
 
-          if (!isDryRun) {
-            logComplianceCheck(
-              scan.orgId,
-              scan.userId ?? 'system',
-              target,
-              'scan',
-              entity.id,
-              entity.name,
-              result,
-              scanId,
-            ).catch((err) => logger.warn('Audit write failed', { error: errorMessage(err) }));
-
-            if (result.blocked) {
-              notifyComplianceBlock(scan.orgId, target, entity.name ?? entity.id, result.violations)
-                .catch((err) => logger.warn('Notification failed', { error: errorMessage(err) }));
-            } else if (result.warnings.length > 0) {
-              notifyComplianceWarnings(scan.orgId, target, entity.name ?? entity.id, result.warnings)
-                .catch((err) => logger.warn('Warning notification failed', { error: errorMessage(err) }));
-            }
-          }
-          return result;
-        }));
-
-        // Aggregate batch results. An entity whose rules could not be evaluated
-        // is NOT a pass — fail closed and count it as blocked so it surfaces,
-        // rather than a soft warning that reads as "mostly fine".
-        for (const s of settled) {
-          if (s.status === 'fulfilled') {
-            const r = s.value;
-            if (r.blocked) blockCount++;
-            else if (r.warnings.length > 0) warnCount++;
-            else passCount++;
-          } else {
-            blockCount++;
-            logger.error('Rule evaluation failed for entity — counting as blocked', { error: errorMessage(s.reason) });
-          }
-          processedEntities++;
-        }
-
-        // One progress update per batch (every PROGRESS_BATCH_SIZE entities of work,
-        // not per-entity — fewer DB writes for the same UX).
-        //
-        // Gate the UPDATE on status='running' so a concurrent cancellation that
-        // flipped the row to 'cancelled' isn't silently overwritten. Zero rows
-        // updated = the scan was cancelled (or otherwise transitioned out of
-        // running) — bail out of the loop.
-        if (processedEntities % PROGRESS_BATCH_SIZE === 0 || i + concurrency >= entities.length) {
-          const progressRows = await withTenantTx(async (tx) => tx.update(schema.complianceScan)
-            .set({ processedEntities, passCount, warnCount, blockCount })
-            .where(and(
-              eq(schema.complianceScan.id, scanId),
-              eq(schema.complianceScan.status, 'running'),
-            ))
-            .returning({ id: schema.complianceScan.id }));
-          if (progressRows.length === 0) {
+        const isLastBatch = i + concurrency >= entities.length;
+        if (sinceLastProgress >= PROGRESS_BATCH_SIZE || isLastBatch) {
+          sinceLastProgress = 0;
+          if (!(await updateRunningScan(scanId, { processedEntities, passCount, warnCount, blockCount }))) {
             logger.info('Scan no longer running, aborting executor', { scanId });
             incCounter('compliance_scans_total', { outcome: 'cancelled' });
             return;
@@ -278,23 +212,17 @@ async function executeScanInternal(scanId: string): Promise<void> {
     }
 
     // Mark completed — only if still running (don't clobber a concurrent cancel).
-    const completedRows = await withTenantTx(async (tx) => tx.update(schema.complianceScan)
-      .set({
-        status: 'completed',
-        completedAt: new Date(),
-        totalEntities,
-        processedEntities,
-        passCount,
-        warnCount,
-        blockCount,
-      })
-      .where(and(
-        eq(schema.complianceScan.id, scanId),
-        eq(schema.complianceScan.status, 'running'),
-      ))
-      .returning({ id: schema.complianceScan.id }));
+    const completed = await updateRunningScan(scanId, {
+      status: 'completed',
+      completedAt: new Date(),
+      totalEntities,
+      processedEntities,
+      passCount,
+      warnCount,
+      blockCount,
+    });
 
-    if (completedRows.length === 0) {
+    if (!completed) {
       logger.info('Scan no longer running at completion (likely cancelled)', { scanId });
       incCounter('compliance_scans_total', { outcome: 'cancelled' });
       return;
@@ -302,8 +230,7 @@ async function executeScanInternal(scanId: string): Promise<void> {
 
     // Domain metric — scan reached a terminal completed state. `passed` means
     // the scan found NO blocking violations; a completed scan with blocks is a
-    // materially different outcome and used to be counted as `passed` too,
-    // which made the metric useless for "are we blocking anything?".
+    // materially different outcome, so it gets its own `blocked` outcome.
     incCounter('compliance_scans_total', { outcome: blockCount > 0 ? 'blocked' : 'passed' });
 
     logger.info('Scan completed', {
@@ -320,13 +247,89 @@ async function executeScanInternal(scanId: string): Promise<void> {
     logger.error('Scan failed', { scanId, error: errorMessage(err) });
     // Only flip to 'failed' if the scan is still running — preserve a
     // concurrent cancellation rather than overwriting it.
-    await withTenantTx(async (tx) => tx.update(schema.complianceScan)
-      .set({ status: 'failed', completedAt: new Date() })
-      .where(and(
-        eq(schema.complianceScan.id, scanId),
-        eq(schema.complianceScan.status, 'running'),
-      )));
+    await updateRunningScan(scanId, { status: 'failed', completedAt: new Date() });
   }
+}
+
+type ScanRow = typeof schema.complianceScan.$inferSelect;
+
+/**
+ * Apply `set` to the scan only while it is still `running`. Returns false when
+ * no row matched — the scan was cancelled (or otherwise left `running`)
+ * concurrently, and the caller must not treat its write as having landed.
+ */
+async function updateRunningScan(scanId: string, set: Partial<ScanRow>): Promise<boolean> {
+  const rows = await withTenantTx(async (tx) => tx.update(schema.complianceScan)
+    .set(set)
+    .where(and(
+      eq(schema.complianceScan.id, scanId),
+      eq(schema.complianceScan.status, 'running'),
+    ))
+    .returning({ id: schema.complianceScan.id }));
+  return rows.length > 0;
+}
+
+/** Per-batch outcome tallies. */
+interface BatchCounts {
+  pass: number;
+  warn: number;
+  block: number;
+}
+
+/**
+ * Evaluate one batch of entities in parallel and tally the outcomes. Outside a
+ * dry run each entity's check is logged and blocks/warnings notified —
+ * fire-and-forget, so a slow audit or notification write never stalls the scan.
+ *
+ * An entity whose rules could not be evaluated is NOT a pass: it counts as
+ * blocked so it surfaces, rather than a soft warning that reads as "mostly fine".
+ */
+async function evaluateBatch(
+  slice: EntityRecord[],
+  rules: Awaited<ReturnType<typeof complianceRuleService.findActiveByOrgAndTarget>>,
+  exemptionMap: Map<string, ActiveExemption[]>,
+  ctx: { scanId: string; scan: ScanRow; target: RuleTarget; isDryRun: boolean },
+): Promise<BatchCounts> {
+  const { scanId, scan, target, isDryRun } = ctx;
+  const settled = await Promise.allSettled(slice.map(async (entity) => {
+    const exemptions = exemptionMap.get(entity.id) ?? [];
+    const result = evaluateRules(rules, entity.attributes, exemptions, entity.deferredFields);
+
+    if (!isDryRun) {
+      logComplianceCheck(
+        scan.orgId,
+        scan.userId ?? 'system',
+        target,
+        'scan',
+        entity.id,
+        entity.name,
+        result,
+        scanId,
+      ).catch((err) => logger.warn('Audit write failed', { error: errorMessage(err) }));
+
+      if (result.blocked) {
+        notifyComplianceBlock(scan.orgId, target, entity.name ?? entity.id, result.violations)
+          .catch((err) => logger.warn('Notification failed', { error: errorMessage(err) }));
+      } else if (result.warnings.length > 0) {
+        notifyComplianceWarnings(scan.orgId, target, entity.name ?? entity.id, result.warnings)
+          .catch((err) => logger.warn('Warning notification failed', { error: errorMessage(err) }));
+      }
+    }
+    return result;
+  }));
+
+  const counts: BatchCounts = { pass: 0, warn: 0, block: 0 };
+  for (const s of settled) {
+    if (s.status === 'fulfilled') {
+      if (s.value.blocked) counts.block++;
+      else if (s.value.warnings.length > 0) counts.warn++;
+      else counts.pass++;
+    } else {
+      counts.block++;
+      logger.error('Rule evaluation failed for entity — counting as blocked', { error: errorMessage(s.reason) });
+    }
+  }
+  return counts;
 }
 
 /** Page size for entity pagination. Entities are fetched in keyset-paginated
@@ -342,15 +345,11 @@ const ENTITY_PAGE_SIZE = envInt('COMPLIANCE_SCAN_ENTITY_PAGE_SIZE', 1000, { min:
 const ENTITY_MAX_TOTAL = envInt('COMPLIANCE_SCAN_ENTITY_MAX_TOTAL', 100_000, { min: 1 });
 
 /**
- * Fetch ALL active entities for a target via keyset (id-ordered) pagination.
- *
- * Previously this issued a single `.limit(1000)` query and silently truncated
- * larger orgs to the first 1000 rows — the scan then reported `status:'completed'`
- * with a `totalEntities` that only counted the truncated slice, i.e. an
- * authoritative green "all pass" that never evaluated the rest. This loops until
- * a short page signals the end, so every entity is evaluated. `ENTITY_MAX_TOTAL`
- * is a pathological-memory guard: if an org exceeds it we throw so the caller
- * marks the scan `failed` — never a green scan that skipped entities.
+ * Fetch ALL active entities for a target via keyset (id-ordered) pagination,
+ * looping until a short page signals the end — a truncated fetch would report a
+ * green "all pass" that never evaluated the rest. `ENTITY_MAX_TOTAL` is a
+ * pathological-memory guard: if an org exceeds it we throw so the caller marks
+ * the scan `failed` — never a green scan that skipped entities.
  */
 async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityRecord[]> {
   const pageSize = Math.max(1, ENTITY_PAGE_SIZE);
@@ -404,7 +403,7 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
       cursor = lastId;
 
       // Pathological-memory guard. Failing here is deliberate: a truncated green
-      // scan (the old behavior) is a false pass; an honest failure is not.
+      // scan is a false pass; an honest failure is not.
       if (all.length > ENTITY_MAX_TOTAL) {
         throw new Error(
           `entity count for ${target} exceeded safety bound ${ENTITY_MAX_TOTAL}`,
@@ -413,9 +412,9 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
     }
     return all;
   } catch (err) {
-    // Do NOT swallow to `[]` — that made a failed entity load look like "0
-    // entities, all clear" and the scan completed green (false-positive pass).
-    // Rethrow so the caller marks the scan `failed` (honest gating).
+    // Do NOT swallow to `[]` — a failed entity load would look like "0
+    // entities, all clear" and the scan would complete green (false-positive
+    // pass). Rethrow so the caller marks the scan `failed` (honest gating).
     logger.error(`Failed to fetch ${target} entities`, { orgId, error: errorMessage(err) });
     throw err;
   }

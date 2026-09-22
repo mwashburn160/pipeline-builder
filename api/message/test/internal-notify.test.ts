@@ -76,4 +76,15 @@ describe('POST /messages/internal/notify', () => {
     const ssePayload = (mockSse.send as jest.Mock<AnyFn>).mock.calls[0][3] as any;
     expect(ssePayload.subject).toBeUndefined();
   });
+
+  it('carries a valid priority and rejects an unknown one', async () => {
+    mockCreate.mockResolvedValue({ id: 'm3' });
+    const res = makeRes();
+    await handler()({ body: { recipientOrgId: 'org-1', subject: 's', content: 'c', priority: 'high' } }, res);
+    expect((mockCreate.mock.calls[0][0] as any).priority).toBe('high');
+
+    const bad = makeRes();
+    await handler()({ body: { recipientOrgId: 'org-1', subject: 's', content: 'c', priority: 'meh' } }, bad);
+    expect(bad.status).toHaveBeenCalledWith(400);
+  });
 });

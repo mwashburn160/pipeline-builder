@@ -3,12 +3,12 @@
 
 /**
  * Tests for helpers/quota-refund — a deleted version's `plugins` slot is
- * refunded CONDITIONALLY on the quota period it was charged to (W0.5): quota
+ * refunded CONDITIONALLY on the quota period it was charged to: quota
  * is a per-period flow, so a refund must never land in a later period.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockDecrementQuota = jest.fn<AnyFn>();

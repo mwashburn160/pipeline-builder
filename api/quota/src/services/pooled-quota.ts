@@ -21,29 +21,26 @@
  * `storageBytes` is HALF carved out. Its usage is measured live by the
  * image-registry rather than tracked in `org.usage`, so the pooled `used` for it
  * is structurally 0 and the push gate measures the org's own namespace instead.
- * Its LIMIT is pooled like everything else, though: it used to be excluded
- * entirely, which dropped a team through to its own row, and a team's own limits
- * are -1. The registry gate reads that as genuinely unlimited and skips
- * enforcement, so every team could push without bound past the root's cap —
- * the silent "unlimited" this module exists to prevent, reached through the one
- * dimension that opted out of it.
+ * Its LIMIT is pooled like everything else, though: excluding it would drop a
+ * team through to its own row, and a team's own limits are -1. The registry
+ * gate reads that as genuinely unlimited and skips enforcement, so every team
+ * could push without bound past the root's cap — the silent "unlimited" this
+ * module exists to prevent.
  *
  * Split out of `quota-service.ts`, whose remaining job is the per-org Mongo
  * read/write surface.
  */
 
-import { AppError, createLogger, emitCounter, ErrorCode } from '@pipeline-builder/api-core';
-import type { QuotaType, QuotaReserveResult } from '@pipeline-builder/api-core';
+import { AppError, createLogger, emitCounter, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaReserveResult, QuotaTier } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { expandOrgScope, findOrgWithHierarchy, getParentOrgId, resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import type { OrgHierarchyLookup } from '../helpers/org-hierarchy.js';
+import { toOrgId } from '../helpers/org-id.js';
 import {
   buildReserveResult,
-  getNextResetDate,
-  toOrgId,
-  VALID_QUOTA_TYPES,
 } from '../helpers/quota-helpers.js';
-import type { QuotaTier, OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
+import type { OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
 import { Organization } from '../models/organization.js';
 
 const logger = createLogger('pooled-quota');
@@ -86,7 +83,7 @@ export function pooledStatusFromRows(rows: PoolRow[], rootOrgId: string, quotaTy
     const resetAtMs = u.resetAt ? new Date(u.resetAt).getTime() : 0;
     return sum + (resetAtMs > now ? (u.used ?? 0) : 0);
   }, 0);
-  const resetAt = root?.usage?.[quotaType]?.resetAt ?? getNextResetDate(config.quota.resetDays);
+  const resetAt = root?.usage?.[quotaType]?.resetAt ?? nextQuotaResetDate(config.quota.resetDays);
   return {
     limit,
     used,
@@ -229,13 +226,11 @@ async function pooledStatus(
   // org.usage, so the pooled `used` below is structurally 0 for it — the push
   // gate measures the org's namespace itself and ignores `used`.
   //
-  // The LIMIT still has to be pooled, though. This used to `return null` for
-  // storageBytes, which drops the caller through to the org's OWN row — and a
-  // team's own limits are -1. The registry gate reads `status.limit`, treats a
-  // negative as genuinely unlimited and skips enforcement entirely, so every
-  // team could push without bound past the root's storage cap: exactly the
-  // "silent unlimited" this module exists to prevent, arrived at through the
-  // one type that opted out of it.
+  // The LIMIT still has to be pooled, though. Returning null here would drop the
+  // caller through to the org's OWN row — and a team's own limits are -1. The
+  // registry gate reads `status.limit`, treats a negative as genuinely unlimited
+  // and skips enforcement entirely, so every team could push without bound past
+  // the root's storage cap.
   const pool = await resolvePool(orgId, lookup);
   if (!pool) return null;
   const rows = await loadPoolRows(pool, `quotas.${quotaType} usage.${quotaType}`);

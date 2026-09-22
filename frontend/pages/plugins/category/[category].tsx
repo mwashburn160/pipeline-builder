@@ -17,7 +17,7 @@ import { CategoryTile } from '@/components/public-directory/PluginIcon';
 import { Callout } from '@/components/ui/Callout';
 import { resolveSiteUrl, type WithSiteUrl } from '@/lib/site-url';
 import {
-  CATEGORY_DESCRIPTIONS, CATEGORY_DISPLAY_NAMES, CATEGORY_STAGES, isPluginCategory, type PluginCategory,
+  CATEGORY_DESCRIPTIONS, CATEGORY_DISPLAY_NAMES, CATEGORY_STAGES, isPluginCategory, type PluginCatalogCategory,
 } from '@/lib/plugin-categories';
 import { searchListings } from '@/lib/public-directory/api';
 import { directorySeo, parseDirectoryQuery, toSearchString, withParam, type DirectoryQuery } from '@/lib/public-directory/query';
@@ -28,7 +28,7 @@ import type { SearchResult } from '@/lib/public-directory/types';
 const PAGE_SIZE = 48;
 
 export type CategoryPageProps = WithSiteUrl & {
-  category: PluginCategory;
+  category: PluginCatalogCategory;
   query: DirectoryQuery;
   results: SearchResult | null;
 };

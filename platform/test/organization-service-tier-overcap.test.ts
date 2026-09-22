@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Unit tests for organizationService.checkTierOvercap (docs/org-team-hierarchy
- * §8 / billing-bundles §8): whether a sysadmin/billing tier DOWNGRADE would drop
+ * Unit tests for organizationService.checkTierOvercap: whether a sysadmin/billing tier DOWNGRADE would drop
  * a pooled COUNT quota below current usage. Guards seats (pooled, via
  * pooledSeatUsage) and plugins/pipelines (summed across the org subtree). An
  * `-1` (unlimited) target cap is never an overage. org-hierarchy + seats helpers
  * are mocked so usage is driven directly.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const limits = (seats: number, plugins: number, pipelines: number, dashboards = -1) => ({
@@ -62,9 +62,7 @@ jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   QuotaType: {},
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { quota: { tier: {} } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ quota: { tier: {} } }));
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 

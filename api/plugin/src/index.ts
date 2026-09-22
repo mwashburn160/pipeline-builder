@@ -10,7 +10,6 @@ import { getHealthRedisConnection } from './queue/connections.js';
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue.js';
 import { shutdownSubmissionQueue, startSubmissionWorker } from './queue/submission-build-queue.js';
 import { createVulnRescanScheduler } from './queue/vuln-rescan.js';
-import { getAuditClient } from './services/audit.js';
 import { createEcosystemMaintenanceScheduler } from './services/ecosystem/maintenance.js';
 import { createEcosystemMetricsScheduler } from './services/ecosystem/metrics.js';
 import { ensureOfficialPublisher } from './services/ecosystem/publishers.js';
@@ -40,7 +39,7 @@ const { app, sseManager } = createApp({
 // actually needs differently — a revocation store on the pooled ioredis
 // connection the BullMQ build queue and the readiness probe already share,
 // rather than a second env-Redis connection — is now an override.
-wireServiceSecurity('plugin', getAuditClient, {
+wireServiceSecurity('plugin', {
   tokenRevocationStore: createRedisTokenRevocationStore(getHealthRedisConnection()),
 });
 
@@ -51,7 +50,7 @@ mountRoutes(app, { quotaService, sseManager });
 
 // -- Start BullMQ worker for async Docker builds ----------------------------
 startWorker(sseManager, quotaService);
-// Anonymous-submission gate runs (§4): their own queue + single worker, never
+// Anonymous-submission gate runs: their own queue + single worker, never
 // the tenant build processor. Idle unless ANONYMOUS_SUBMISSIONS_ENABLED.
 startSubmissionWorker();
 
@@ -74,28 +73,28 @@ const purgeScheduler = createSoftDeletePurgeScheduler({
   ],
 });
 
-// Nightly vulnerability rescan (W0.6): re-scans every image plugin's signed
+// Nightly vulnerability rescan: re-scans every image plugin's signed
 // SBOM against a freshly refreshed grype DB, since new CVEs land against
 // packages that were clean at build. Leader-locked on the shared Redis (one pod
 // per tick) and interval-gated on the last completed pass, so N replicas still
 // rescan once per interval. Opt out with PLUGIN_RESCAN_ENABLED=false.
 const rescanScheduler = createVulnRescanScheduler();
 
-// Plugin-ecosystem notification digests (plan §5b): flushes
+// Plugin-ecosystem notification digests: flushes
 // ecosystem_notification_queue once a minute, leader-locked on the shared Redis.
 const ecosystemNotificationScheduler = createEcosystemNotificationScheduler(getHealthRedisConnection);
 
-// Plugin-ecosystem upkeep (plan §3.3, §3.7): Verified grace periods and
+// Plugin-ecosystem upkeep: Verified grace periods and
 // listings-limit notices after a plan change, and the re-sign job queue.
 // Leader-locked on the shared Redis.
 const ecosystemMaintenanceScheduler = createEcosystemMaintenanceScheduler(getHealthRedisConnection);
 
-// Plugin-ecosystem gauges (plan §9a: queue depth, oldest pending, SLA breaches,
+// Plugin-ecosystem gauges (queue depth, oldest pending, SLA breaches,
 // re-sign jobs, approvers). Every replica samples (no lock), so the scraped pod
 // is never a stale former leader.
 const ecosystemMetricsScheduler = createEcosystemMetricsScheduler();
 
-// Plugin-ecosystem directory stats (plan §5, W4): ratings, install counts and
+// Plugin-ecosystem directory stats: ratings, install counts and
 // k-anonymous adoption in plugin_stats, which the public directory sorts by.
 // Leader-locked on the shared Redis; review writes also refresh their listing.
 const ecosystemStatsScheduler = createEcosystemStatsScheduler(getHealthRedisConnection);

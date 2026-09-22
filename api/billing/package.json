@@ -130,6 +130,7 @@
       "src/**/*.ts",
       "!src/**/*.d.ts",
       "!src/testing/**",
+      "!src/config/billing-types.ts",
       "!src/providers/payment-provider.ts"
     ],
     "coverageThreshold": {

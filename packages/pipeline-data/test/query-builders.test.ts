@@ -89,7 +89,7 @@ describe('buildPipelineConditions', () => {
 });
 
 describe('buildPluginConditions', () => {
-  // Plugin ecosystem (plan §3.1, G26): a system-org plugin row never reaches
+  // Plugin ecosystem: a system-org plugin row never reaches
   // OTHER orgs — the Official catalog resolves as listings through installs.
   // Pipelines keep the plain system-public rule.
   it('never widens a plugin read to the system org (Official plugins are listings)', () => {

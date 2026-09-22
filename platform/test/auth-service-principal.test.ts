@@ -10,8 +10,8 @@
  * silently breaking all inter-service hierarchy/name lookups.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Loading the auth middleware pulls in platform's config module, which refuses
@@ -41,7 +41,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: { findOne: jest.fn() },
 }));
 
-jest.unstable_mockModule('../src/utils/index.js', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyAccessToken: (...a: unknown[]) => mockVerifyAccessToken(...a),
   verifyRefreshToken: jest.fn(),
 }));

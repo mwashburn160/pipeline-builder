@@ -115,6 +115,7 @@ import { drizzleMock } from '@pipeline-builder/api-core/testing';
 | `tier-mock.ts` | Complete `QUOTA_TIERS` / tier lists sourced from the real `VALID_TIERS`. |
 | `stub-module.ts` → `stubModule(specifier, overrides)` | Every other `@pipeline-builder/*` mock (see above). |
 | `any-fn.ts` → `type AnyFn` | `jest.fn<AnyFn>()` for a collaborator stub whose signature the suite does not care about. |
+| `audit-binding.ts` → `bindTestAuditService(serviceName?, spy?)` / `unbindTestAuditService()` | Bind a service identity for api-core's `recordAudit` in a suite that runs the REAL api-core (the real `recordAudit` throws "audit not initialised" until `wireServiceSecurity` binds a service at boot). Returns a spy called with each recorded event. A suite that mocks api-core instead passes `apiCoreMock({ recordAudit: spy })` — the shared default is an inert `jest.fn()`. |
 
 A project's `test/helpers/mock-api-core.ts` is a thin wrapper holding only its own
 defaults:
@@ -205,6 +206,18 @@ Suites named `*.integration.test.ts` need a real MongoDB
   than skip if `CI` is set without it. A gated suite that quietly degrades to
   "green and empty" is worse than no suite at all — that is the failure mode this
   guard exists to prevent.
+
+## Deploy contracts
+
+Tests that read the `deploy/` tree — manifests, docker-compose, the generated
+`.env.example` files, shell tooling, observability configs, CI workflows — live
+in their own project, [`test/deploy-contracts`](https://github.com/mwashburn160/pipeline-builder/tree/main/test/deploy-contracts),
+not in a service. Its Nx inputs include `deploy/**`, so a manifest-only change
+runs them; the `deploy contracts` CI job also renders every k8s target, checks
+the generated files and validates the observability configs. A test that needs
+service code (e.g. platform's per-org namespace renderer against the templates)
+stays in that service and lists the deploy files it reads in
+`REPO_FIXTURE_INPUTS` (`.projenrc.ts`).
 
 ## The permission contract
 

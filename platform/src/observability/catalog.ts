@@ -16,13 +16,6 @@
  * filters (`allowedVars`) as Mongo equality values, never as query text.
  */
 
-/**
- * Where a catalog entry's data lives. `audit-store` is platform's MongoDB audit
- * trail — the tamper-evident, per-org record every service reports into — read
- * through `audit-store-client.ts` rather than Prometheus.
- */
-export type QuerySource = 'prometheus-instant' | 'prometheus-range' | 'audit-store';
-
 /** Canonical range keys understood by the observability controller. */
 export type RangeKey = '1h' | '6h' | '24h';
 
@@ -53,7 +46,9 @@ export interface PrometheusQueryEntry extends QueryEntryBase {
   query: string;
 }
 
-/** An entry served from the MongoDB audit trail by a named aggregation. */
+/** An entry served from platform's MongoDB audit trail — the tamper-evident,
+ *  per-org record every service reports into — by a named aggregation (see
+ *  `audit-store-client.ts`), rather than from Prometheus. */
 export interface AuditStoreQueryEntry extends QueryEntryBase {
   source: 'audit-store';
   query: AuditStoreQuery;

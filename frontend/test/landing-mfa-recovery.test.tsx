@@ -25,14 +25,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 const login = jest.fn<AnyFn>();
 const completeMfaLogin = jest.fn<AnyFn>();
 const loginWithPasskey = jest.fn<AnyFn>();
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ login, completeMfaLogin, loginWithPasskey, isSubmitting: false }),
-}));
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ query: {}, push: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ login, completeMfaLogin, loginWithPasskey, isSubmitting: false })));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ query: {}, push: jest.fn<AnyFn>() })));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {

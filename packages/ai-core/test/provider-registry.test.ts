@@ -541,6 +541,65 @@ describe('ai-core provider-registry', () => {
   });
 
   // Module exports
+  describe('resolveModelSelection', () => {
+    const onlyKeys = (keys: Record<string, string>) => {
+      for (const k of ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'XAI_API_KEY', 'AWS_ACCESS_KEY_ID']) delete process.env[k];
+      Object.assign(process.env, keys);
+    };
+
+    it('uses the requested provider + model', async () => {
+      onlyKeys({ ANTHROPIC_API_KEY: 'k' });
+      const { resolveModelSelection } = await freshImport();
+      const r = resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5' });
+      expect(r).toMatchObject({ provider: 'anthropic', modelId: 'claude-sonnet-5', model: { modelId: 'claude-sonnet-5' } });
+      expect(r.fallbackFrom).toBeUndefined();
+    });
+
+    it('defaults to the provider\'s first catalog model when only a provider is named', async () => {
+      onlyKeys({ ANTHROPIC_API_KEY: 'k' });
+      const { resolveModelSelection, getProviderModels } = await freshImport();
+      expect(resolveModelSelection({ provider: 'anthropic' }).modelId).toBe(getProviderModels('anthropic')[0].id);
+    });
+
+    it('refuses a model without a provider', async () => {
+      onlyKeys({ ANTHROPIC_API_KEY: 'k' });
+      const { resolveModelSelection } = await freshImport();
+      expect(() => resolveModelSelection({ model: 'claude-sonnet-5' })).toThrow(/without a `provider`/);
+    });
+
+    it('picks the first configured provider when nothing is named, and errors when none is', async () => {
+      onlyKeys({ OPENAI_API_KEY: 'k' });
+      let mod = await freshImport();
+      expect(mod.resolveModelSelection({}).provider).toBe('openai');
+
+      onlyKeys({});
+      mod = await freshImport();
+      expect(() => mod.resolveModelSelection({})).toThrow(/AI is not configured/);
+    });
+
+    it('falls back to a platform provider when the requested one fails', async () => {
+      onlyKeys({ OPENAI_API_KEY: 'k' });
+      const { resolveModelSelection, getProviderModels } = await freshImport();
+      const r = resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5', fallbacks: ['google', 'openai'] });
+      expect(r).toMatchObject({ provider: 'openai', modelId: getProviderModels('openai')[0].id, fallbackFrom: 'anthropic' });
+    });
+
+    it('never falls back for a BYO-key request, even when a fallback would resolve', async () => {
+      onlyKeys({ OPENAI_API_KEY: 'k' });
+      const { resolveModelSelection } = await freshImport();
+      expect(() => resolveModelSelection({
+        provider: 'anthropic', model: 'nonexistent-model', apiKey: 'byo', fallbacks: ['openai'],
+      })).toThrow(/not available for provider/);
+    });
+
+    it('rethrows the original error when every fallback is unavailable', async () => {
+      onlyKeys({});
+      const { resolveModelSelection } = await freshImport();
+      expect(() => resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5', fallbacks: ['openai'] }))
+        .toThrow('AI provider "anthropic" is not configured');
+    });
+  });
+
   describe('module exports', () => {
     it('should export all expected functions', async () => {
       const mod = await freshImport();

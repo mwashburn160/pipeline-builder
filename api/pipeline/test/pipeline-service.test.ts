@@ -83,11 +83,11 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-const { PipelineService, toComplianceAttributes } = await import('../src/services/pipeline-service.js');
+const { PipelineService } = await import('../src/services/pipeline-service.js');
 const pipelineDataMock = await import('@pipeline-builder/pipeline-data');
 // api-core is NOT mocked — use the real in-process event emitter to capture the
 // event the service emits to the compliance subscriber.
-const { entityEvents } = await import('@pipeline-builder/api-core');
+const { entityEvents, toComplianceAttributes } = await import('@pipeline-builder/api-core');
 
 // Tests
 
@@ -197,11 +197,11 @@ describe('PipelineService', () => {
     });
   });
 
-  // F1 (Wave-1 follow-up): the buildConditions override must FORWARD parentOrgId
+  // The buildConditions override must FORWARD parentOrgId
   // to buildPipelineConditions so a team org's reads widen to its parent's public
   // pipelines (org → team hierarchy). Previously the override dropped the third
   // arg, so the widening the base CrudService requested was silently lost.
-  describe('buildConditions parentOrgId threading (F1)', () => {
+  describe('buildConditions parentOrgId threading', () => {
     it('forwards parentOrgId to buildPipelineConditions', () => {
       const { buildPipelineConditions } = pipelineDataMock as unknown as { buildPipelineConditions: jest.Mock };
       (service as any).buildConditions({ pipelineName: 'p' }, 'team-org', 'parent-org');
@@ -310,7 +310,7 @@ describe('PipelineService', () => {
 
 });
 
-describe('PipelineService purge teardown (S18)', () => {
+describe('PipelineService purge teardown', () => {
   it('deletes the purged pipelines\u2019 step manifests inside the purge transaction', async () => {
     const where = jest.fn(async (..._args: unknown[]) => undefined);
     const del = jest.fn((..._args: unknown[]) => ({ where }));

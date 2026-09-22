@@ -6,6 +6,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
@@ -22,7 +23,7 @@ const headCfg = {
   retentionDays: 400,
   intervalMs: 300_000,
 };
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { audit: { retentionDays: 90, headExport: headCfg } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ audit: { retentionDays: 90, headExport: headCfg } }));
 
 let heads: Array<{ _id: string; seq: number; hash: string; headCreatedAt: Date; exportedSeq?: number }> = [];
 const mockHeadUpdateOne = jest.fn(async (filter: { _id: string }, update: { $set: { exportedSeq: number } }) => {

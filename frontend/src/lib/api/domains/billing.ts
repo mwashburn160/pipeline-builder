@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plan, Subscription, Bundle, ComboDiscount, AddonResult, BillingEvent, BillingInterval, UsageRollup, Discount } from '@/types';
+import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, BillingEvent, BillingInterval, UsageRollup, Discount } from '@/types';
 
 /** Itemized, display-only price breakdown returned by a discount preview/apply.
  *  Concrete mirror of the billing service's `DiscountBreakdown`
@@ -429,7 +429,7 @@ export function billingApi(core: ApiCore) {
 /** Admin override body for PUT /billing/admin/subscriptions/:id (AdminSubscriptionUpdateSchema). */
 export interface AdminSubscriptionUpdate {
   planId?: string;
-  status?: 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete';
+  status?: SubscriptionStatus;
   interval?: BillingInterval;
   cancelAtPeriodEnd?: boolean;
 }

@@ -1,34 +1,31 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { stepCountIs, streamText } from '@pipeline-builder/ai-core';
+import { resolveModelSelection, stepCountIs, streamText } from '@pipeline-builder/ai-core';
 import {
   audited,
   createLogger,
-  decrementQuota,
   errorMessage,
-  getServiceAuthHeader,
   handleAIError,
   initSSEStream,
   requireFeature,
   reserveQuota,
   sendBadRequest,
-  sendQuotaReserveDenied,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute, incCounter, observe, withSpan } from '@pipeline-builder/api-server';
+import { withQuotaReservation, withRoute, incCounter, withSpan } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
-import { clientAbortSignal } from '../client-abort.js';
 import { AskBodySchema } from '../request-schema.js';
 import { buildAgentTools } from '../services/agent-tools.js';
-import { getAuditClient } from '../services/audit.js';
+import { recordAi } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { pipelineClient, pluginClient } from '../services/internal-http.js';
-import { ASK_MAX_OUTPUT_TOKENS, resolveAskModel } from '../services/model.js';
+import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
 
 const logger = createLogger('ask-agent');
 
@@ -55,7 +52,7 @@ const AGENT_SYSTEM = [
 ].join('\n');
 
 /**
- * The tool-calling "Ask" agent (Phase 2). Streams the model's reasoning and any tool
+ * The tool-calling "Ask" agent. Streams the model's reasoning and any tool
  * proposals over SSE. Every tool acts as the calling user via their forwarded bearer
  * token, and `propose_pipeline` only DRAFTS — the create is a separate confirmed
  * action in the UI. Reuses `ai_generation` gating.
@@ -94,18 +91,12 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
 
     // Service-minted header for the quota reserve/refund (the quota /increment
     // endpoint rejects user principals) — distinct from the user token above.
-    const quotaAuth = getServiceAuthHeader({ serviceName: 'ask', orgId, role: 'member' });
-    const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', quotaAuth);
-    if (reservation.exceeded) {
-      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-    }
-    let reserved = true;
-    // True once the provider actually RESPONDED — i.e. the SDK emitted a
-    // 'start-step' part. The ai SDK emits 'start' synchronously before any
-    // provider call, and emits 'start-step' only on the first chunk of the
-    // provider's response stream; a provider failure before that (bad key,
-    // 5xx, network) surfaces as a bare 'error' part with no 'start-step'.
-    // Keep the slot once contacted (its $ cost was incurred); refund otherwise.
+    // The provider actually RESPONDED once the SDK emits a 'start-step' part.
+    // The ai SDK emits 'start' synchronously before any provider call, and
+    // 'start-step' only on the first chunk of the provider's response stream; a
+    // provider failure before that (bad key, 5xx, network) surfaces as a bare
+    // 'error' part with no 'start-step'. Keep the slot once contacted (its $ cost
+    // was incurred); refund otherwise.
     let providerContacted = false;
 
     // Audit trail (safe metadata only — never the raw query text): what tools the
@@ -113,26 +104,25 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     // catch/abort paths can audit a failed turn too.
     const toolsCalled: string[] = [];
     const proposalKinds: string[] = [];
-    // AI observability: the ask paths previously emitted NO metrics, leaving
-    // on-call blind during a provider brownout or a token-spend runaway. Label
-    // `provider` with the requested one (or 'default' when the server picks) —
-    // kept low-cardinality (no per-model label).
+    // AI observability, so on-call can see a provider brownout or a token-spend
+    // runaway. Label `provider` with the requested one (or 'default' when the
+    // server picks) — kept low-cardinality (no per-model label).
     const providerLabel = provider ?? 'default';
     const startedAt = Date.now();
     const auditTurn = (outcome: 'success' | 'failure') =>
-      getAuditClient().record({
+      recordAudit({
         action: 'ask.agent.turn',
         actorId: actorId({ userId }),
         orgId,
         targetType: 'ask',
         outcome,
         details: { queryLength: query.length, toolsCalled: Array.from(new Set(toolsCalled)), proposals: proposalKinds },
-      }, 'ask');
+      });
 
-    try {
+    await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
       ctx.log('INFO', 'Ask agent turn requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      const aiModel = resolveAskModel(provider, model, apiKey);
+      const aiModel = resolveModelSelection({ provider, model, apiKey }).model;
       const tools = buildAgentTools({
         index,
         pipeline: pipelineClient(userAuth),
@@ -145,16 +135,16 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         // An in-process generating tool pays its OWN aiCalls slot (the turn's slot
         // covers the agent's reasoning only).
         chargeAiCall: async () => {
-          const extra = await reserveQuota(quotaService, orgId, 'aiCalls', quotaAuth);
+          const extra = await reserveQuota(quotaService, orgId, 'aiCalls', slot.serviceAuth);
           if (!extra.exceeded) incCounter('ai_tool_generation_charged_total', { tool: 'propose_template' });
           return !extra.exceeded;
         },
         maxOutputTokens: ASK_MAX_OUTPUT_TOKENS,
       });
 
-      initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
+      const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
       // Abort the model loop when the client disconnects (avoids wasted spend).
-      const abortSignal = clientAbortSignal(res);
+      const abortSignal = sse.signal;
       // Custom span around the model's tool-calling loop — the AI path is the
       // thing an operator actually debugs (slow/hung generation, provider stalls),
       // and auto-instrumentation gives it no detail. `span` records tool usage.
@@ -172,16 +162,16 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         });
 
         for await (const part of stream.fullStream) {
-          if (part.type === 'start-step') providerContacted = true;
+          if (part.type === 'start-step') { providerContacted = true; slot.markConsumed(); }
           if (abortSignal.aborted) break;
           switch (part.type) {
             case 'text-delta':
-              res.write(`data: ${JSON.stringify({ type: 'token', data: part.text })}\n\n`);
+              sse.send({ type: 'token', data: part.text });
               break;
             case 'tool-call':
               toolsCalled.push(part.toolName);
               span.addEvent('tool-call', { toolName: part.toolName });
-              res.write(`data: ${JSON.stringify({ type: 'tool-call', data: { toolName: part.toolName } })}\n\n`);
+              sse.send({ type: 'tool-call', data: { toolName: part.toolName } });
               break;
             case 'tool-result':
               if (part.toolName.startsWith('propose_')) {
@@ -191,10 +181,10 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
               // the UI; list_pipelines feeds the model but needs no client event.
               if (part.toolName === 'answer_how_to') {
                 const sources = (part.output as { sources?: unknown })?.sources;
-                if (sources) res.write(`data: ${JSON.stringify({ type: 'sources', data: sources })}\n\n`);
+                if (sources) sse.send({ type: 'sources', data: sources });
               } else if (part.toolName.startsWith('propose_')) {
                 // Every propose_* tool returns a reviewable draft (pipeline/plugin/template).
-                res.write(`data: ${JSON.stringify({ type: 'proposal', data: part.output })}\n\n`);
+                sse.send({ type: 'proposal', data: part.output });
               }
               break;
             case 'error':
@@ -207,10 +197,8 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       }, { 'pb.provider': providerLabel });
 
       if (!abortSignal.aborted) {
-        res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-        res.write('data: [DONE]\n\n');
-        observe('ai_generation_duration_seconds', { route: 'agent', provider: providerLabel }, (Date.now() - startedAt) / 1000);
-        incCounter('ai_requests_total', { route: 'agent', provider: providerLabel, outcome: 'success' });
+        sse.done({ type: 'done' });
+        recordAi('agent', provider, 'success', startedAt);
         // Token accounting (best-effort): usage resolves after the stream; field
         // names vary across ai-sdk versions, so read both. Never blocks the turn.
         // result.usage is a PromiseLike (no .catch), so adopt it into a real Promise.
@@ -225,24 +213,18 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       } else {
         // Refund ONLY if the provider never responded; an abort after its
         // first response chunk still cost us the call.
-        if (!providerContacted) {
-          decrementQuota(quotaService, orgId, 'aiCalls', quotaAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
-        }
-        incCounter('ai_requests_total', { route: 'agent', provider: providerLabel, outcome: 'aborted' });
+        if (!providerContacted) slot.refund();
+        recordAi('agent', provider, 'aborted', startedAt);
         auditTurn('failure'); // client aborted mid-turn
       }
       res.end();
-    } catch (error) {
+    }, (error) => {
       const message = errorMessage(error);
       logger.error('Ask agent turn failed', { requestId: ctx.requestId, error: message });
-      incCounter('ai_requests_total', { route: 'agent', provider: providerLabel, outcome: 'error' });
+      recordAi('agent', provider, 'error', startedAt);
       auditTurn('failure');
-      if (reserved && !providerContacted) {
-        decrementQuota(quotaService, orgId, 'aiCalls', quotaAuth, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-      }
       handleAIError(res, message, 'The assistant failed to respond');
-    }
+    });
   }));
 
   return router;

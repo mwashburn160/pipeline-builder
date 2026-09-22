@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Search-miss retention (E17): normalized at write; the sweep prunes past the
+ * Search-miss retention: normalized at write; the sweep prunes past the
  * window and folds repeats into one counted row, in SQL.
  */
 

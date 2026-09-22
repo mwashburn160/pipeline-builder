@@ -6,13 +6,11 @@ import { jest, describe, it, expect, beforeAll, beforeEach, afterAll, afterEach 
 
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import {
-  requireAuth, isSystemAdmin,
-  signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal,
-  requirePermission, requireSystemAdmin, setAuthzDenialAuditor,
-  requireAllPermissions, setTokenRevocationStore, requireFeature, isAccessTokenRevoked,
-} from '../src/middleware/auth.js';
-import type { AuthzDenialInfo } from '../src/middleware/auth.js';
+import { requireAuth } from '../src/middleware/auth.js';
+import { isSystemAdmin, requirePermission, requireSystemAdmin, setAuthzDenialAuditor, requireAllPermissions, requireFeature } from '../src/middleware/permission-gates.js';
+import { signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal } from '../src/middleware/service-tokens.js';
+import { setTokenRevocationStore, isAccessTokenRevoked } from '../src/middleware/revocation.js';
+import type { AuthzDenialInfo } from '../src/middleware/permission-gates.js';
 import { verifyServiceJwt } from '../src/services/service-keys.js';
 import { installTestServiceKeys, type TestServiceKeysHandle } from '../src/testing/service-tokens.js';
 import {
@@ -25,7 +23,7 @@ const TEST_SECRET = 'test-jwt-secret-for-unit-tests';
 
 // Two independent ES256 chains: USER tokens against the JWKS installed below
 // (in-memory, no HTTP), INTERNAL SERVICE tokens against the per-service key
-// bundle (#14). `TEST_SECRET` survives only to mint the HMAC tokens that must
+// bundle. `TEST_SECRET` survives only to mint the HMAC tokens that must
 // now be refused on BOTH chains.
 let jwks: TestJwksHandle;
 let serviceKeys: TestServiceKeysHandle;

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for the per-org retention window (Phase 8 + D4). The window carries BOTH:
+ * Tests for the per-org retention window. The window carries BOTH:
  *  - `maxRangeMs` — the [from,to] WIDTH cap (narrows the absolute 730-day ceiling
  *    to the org's effective retention entitlement; `-1` unlimited → the ceiling).
  *  - `minFromMs`  — the `from` FLOOR (`now − effectiveRetentionDays·day`; `-1`
@@ -32,7 +32,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  reportingService: { getIncidentSettings: mockGetIncidentSettings },
+  reportingService: { getReportingSettings: mockGetIncidentSettings },
 }));
 
 const { orgRetentionWindowFromSettings, resolveOrgRetentionWindow, floorFrom, parseOrgReportRange, retentionOrgIdFor } =

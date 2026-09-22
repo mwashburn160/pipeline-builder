@@ -33,10 +33,7 @@ jest.mock('@/hooks/useFeatures', () => ({
 
 const toastSuccess = jest.fn<AnyFn>();
 const toastError = jest.fn<AnyFn>();
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 
 // useUrlTab reads/writes the query string; a replace() updates it in place.
 const mockRouter = {
@@ -45,7 +42,7 @@ const mockRouter = {
   isReady: true,
   replace: jest.fn<AnyFn>((url: { query: Record<string, string> }) => { mockRouter.query = url.query; return Promise.resolve(true); }),
 };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 // next/link → plain anchor so we can assert the href.
 jest.mock('next/link', () => ({

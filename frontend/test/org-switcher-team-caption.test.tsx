@@ -13,13 +13,9 @@ import type { UserOrgMembership } from '@/types';
 import { OrgSwitcher } from '../src/components/ui/OrgSwitcher';
 
 let mockAuth: { user: { organizationId: string } | null; organizations: UserOrgMembership[]; switchOrganization: jest.Mock<AnyFn> };
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => mockAuth }));
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ asPath: '/dashboard', replace: jest.fn<AnyFn>() }) }));
-jest.mock('@/hooks/usePlugins', () => ({ __esModule: true, clearPluginCache: jest.fn<AnyFn>() }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => mockAuth));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ asPath: '/dashboard', replace: jest.fn<AnyFn>() })));
 
 const org = (over: Partial<UserOrgMembership>): UserOrgMembership => ({
   id: 'own', name: 'Own Org', role: 'owner', childOrgCount: 0, ...over,

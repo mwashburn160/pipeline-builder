@@ -102,8 +102,8 @@ describe('TeamSettingsDrawer', () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: () => true });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
-    // The wizard makes you CHOOSE a protocol — the drawer used to stack both
-    // editors at once — and carries the steps the old shape had no room for.
+    // The wizard makes you CHOOSE a protocol (never both editors at once) and
+    // carries every setup step.
     expect(await screen.findByText('Set up single sign-on')).toBeInTheDocument();
     for (const step of [/1\s*Protocol & provider/, /2\s*Service-provider values/, /4\s*Domains/, /5\s*Test connection/, /6\s*Enable/]) {
       expect(screen.getByRole('button', { name: step })).toBeInTheDocument();

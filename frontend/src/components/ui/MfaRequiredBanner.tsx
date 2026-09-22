@@ -18,7 +18,7 @@ function daysUntil(iso: string): number {
 
 /**
  * Tells a member that their organization requires two-factor authentication
- * (#8) — and, crucially, tells them BEFORE the deadline rather than by failing
+ * — and, crucially, tells them BEFORE the deadline rather than by failing
  * their next sign-in.
  *
  * Four states, all driven by `user.mfaPolicy`, which the profile endpoint sends
@@ -63,8 +63,8 @@ export function MfaRequiredBanner() {
 
   const enforced = !resetDeadline && (policy.enforced || !deadline);
   const container = enforced
-    ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800 text-red-800 dark:text-red-200'
-    : 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200';
+    ? 'bg-danger-bg border-danger-border text-danger-strong'
+    : 'bg-warning-bg border-warning-border text-warning-strong';
   const Icon = enforced ? ShieldAlert : ShieldCheck;
 
   return (

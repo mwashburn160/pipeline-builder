@@ -153,7 +153,7 @@ Org-local: each route acts only on the caller's org and decides only what its pi
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/plugins/catalog` | The in-app catalog: every listing with the org's install state, resolved version, `requiresApproval`, `blocked`, the pipeline `reference` and `shadowedBy`; `?q=&category=&installed=` (`plugins:read`) |
+| `GET` | `/plugins/catalog` | The in-app catalog: every listing with the org's install state, resolved version, `needsApproval`, `blocked`, the pipeline `reference` and `shadowedBy`; `?q=&category=&installed=` (`plugins:read`) |
 | `GET` | `/plugins/listings/:publisher/:name/install-state` | One listing's catalog entry plus its versions (breaking, yanked, paused, deprecated, vulnerability counts) and the caller's `canInstall` / `canManage` (`plugins:read`) |
 | `GET` | `/plugins/installs` | The org's installs (a team's include the root's, marked `inherited`); `?status=active\|pending_approval\|denied\|all&implicit=true` adds the implicit Official installs (`id: null`) (`plugins:read`) |
 | `POST` | `/plugins/installs` | `{ publisher, name, versionPolicy?, version? }` → 201 with status `active`, or `pending_approval` when the policy requires approval for the tier and the caller lacks `plugin_installs:manage`. `versionPolicy`: `pinned` \| `patch` \| `minor` (default) \| `latest`. Paused listing → 409 `PLUGIN_UNAVAILABLE`; disallowed tier or blocked listing → 403 `PLUGIN_BLOCKED_BY_POLICY` (`plugins:install`) |

@@ -34,7 +34,7 @@ const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record
 /** Reporting-specific defaults layered over the shared base. */
 const reportingDefaults = (): Record<string, unknown> => ({
   ...serviceAuditDefaults(),
-  // Billing toggle — reporting-retention's D8 gate reads it; default ON so the
+  // Billing toggle — reporting-retention's billing gate reads it; default ON so the
   // sweep-scheduling suites behave as before. Suites override per-case.
   isBillingEnabled: () => true,
   // Faithful parseDateRange (mirrors api-core/utils/params): retention-cap.ts

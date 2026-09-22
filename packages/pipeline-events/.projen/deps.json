@@ -16,6 +16,11 @@
       "type": "build"
     },
     {
+      "name": "@pipeline-builder/pipeline-core",
+      "version": "workspace:*",
+      "type": "build"
+    },
+    {
       "name": "@stylistic/eslint-plugin",
       "version": "^2",
       "type": "build"
@@ -43,6 +48,11 @@
     {
       "name": "@typescript/native",
       "version": "npm:typescript@^7.0.2",
+      "type": "build"
+    },
+    {
+      "name": "esbuild",
+      "version": "0.28.0",
       "type": "build"
     },
     {

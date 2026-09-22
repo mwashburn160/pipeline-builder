@@ -9,7 +9,7 @@
 
 import { jest, describe, it, expect, beforeAll } from '@jest/globals';
 import type { Request, Response } from 'express';
-import { loadAndRestore, type RestorableService } from '../src/helpers/restore-helpers.js';
+import { loadAndPurge, loadAndRestore, type RestorableService } from '../src/helpers/restore-helpers.js';
 
 beforeAll(() => { process.env.JWT_SECRET = 'test'; });
 
@@ -39,7 +39,7 @@ describe('loadAndRestore', () => {
   it('400 + null when the id is missing', async () => {
     const res = mockRes();
     const svc = stubService(null, null);
-    const out = await loadAndRestore(mockReq({}), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
+    const out = await loadAndRestore(mockReq({}), res, svc, { orgId: 'org1', userId: 'u1', label: 'Pipeline', publishPermission: 'pipelines:publish' });
     expect(out).toBeNull();
     expect(res._status).toBe(400);
     expect(svc.findDeletedById).not.toHaveBeenCalled();
@@ -48,7 +48,7 @@ describe('loadAndRestore', () => {
   it('404 + null when the tombstone does not exist', async () => {
     const res = mockRes();
     const svc = stubService(null, null);
-    const out = await loadAndRestore(mockReq({ id: 'x' }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
+    const out = await loadAndRestore(mockReq({ id: 'x' }), res, svc, { orgId: 'org1', userId: 'u1', label: 'Pipeline', publishPermission: 'pipelines:publish' });
     expect(out).toBeNull();
     expect(res._status).toBe(404);
     expect(svc.restore).not.toHaveBeenCalled();
@@ -59,7 +59,7 @@ describe('loadAndRestore', () => {
     const restored = { orgId: 'org1', visibility: 'private', createdBy: 'u1', name: 'p' };
     const res = mockRes();
     const svc = stubService(existing, restored);
-    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1' }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1' }), res, svc, { orgId: 'org1', userId: 'u1', label: 'Pipeline', publishPermission: 'pipelines:publish' });
     expect(out).toEqual({ existing, restored });
     expect(svc.restore).toHaveBeenCalledWith('p1', 'org1', 'u1');
     expect(res._status).toBe(0);
@@ -69,7 +69,7 @@ describe('loadAndRestore', () => {
     const res = mockRes();
     // user: not sysadmin, no pipelines:publish permission.
     const svc = stubService({ orgId: 'org1', visibility: 'public', name: 'p' }, null);
-    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1', permissions: [] }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1', permissions: [] }), res, svc, { orgId: 'org1', userId: 'u1', label: 'Pipeline', publishPermission: 'pipelines:publish' });
     expect(out).toBeNull();
     expect(res._status).toBe(403);
     expect(svc.restore).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('loadAndRestore', () => {
     // stopping any org member from resurrecting another user's personal draft.
     const res = mockRes();
     const svc = stubService({ orgId: 'org1', visibility: 'private', createdBy: 'author', name: 'p' }, null);
-    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u2', permissions: [] }), res, 'org1', 'u2', svc, 'Pipeline', 'pipelines:publish');
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u2', permissions: [] }), res, svc, { orgId: 'org1', userId: 'u2', label: 'Pipeline', publishPermission: 'pipelines:publish' });
     expect(out).toBeNull();
     expect(res._status).toBe(403);
     expect(svc.restore).not.toHaveBeenCalled();
@@ -92,7 +92,7 @@ describe('loadAndRestore', () => {
     // never match an empty author and hand the row over.
     const res = mockRes();
     const svc = stubService({ orgId: 'org1', visibility: 'private', name: 'p' }, null);
-    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1', permissions: [] }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1', permissions: [] }), res, svc, { orgId: 'org1', userId: 'u1', label: 'Pipeline', publishPermission: 'pipelines:publish' });
     expect(out).toBeNull();
     expect(res._status).toBe(403);
   });
@@ -101,7 +101,7 @@ describe('loadAndRestore', () => {
     const existing = { orgId: 'org1', visibility: 'org', createdBy: 'author', name: 'p' };
     const res = mockRes();
     const svc = stubService(existing, existing);
-    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u2', permissions: [] }), res, 'org1', 'u2', svc, 'Pipeline', 'pipelines:publish');
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u2', permissions: [] }), res, svc, { orgId: 'org1', userId: 'u2', label: 'Pipeline', publishPermission: 'pipelines:publish' });
     expect(out).toEqual({ existing, restored: existing });
     expect(res._status).toBe(0);
   });
@@ -109,9 +109,42 @@ describe('loadAndRestore', () => {
   it('404 + null when restore matches no row', async () => {
     const res = mockRes();
     const svc = stubService({ orgId: 'org1', visibility: 'private', createdBy: 'u1' }, null);
-    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1' }), res, 'org1', 'u1', svc, 'Pipeline', 'pipelines:publish');
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1' }), res, svc, { orgId: 'org1', userId: 'u1', label: 'Pipeline', publishPermission: 'pipelines:publish' });
     expect(out).toBeNull();
     expect(res._status).toBe(404);
     expect(svc.restore).toHaveBeenCalled();
+  });
+});
+
+describe('loadAndRestore / loadAndPurge — custom authorization + scope', () => {
+  it('a custom authorizer replaces the visibility ladder and can refuse', async () => {
+    const svc = stubService({ orgId: 'org1', visibility: 'private', createdBy: 'someone-else' }, { orgId: 'org1' });
+    const res = mockRes();
+    const authorize = jest.fn(() => true);
+    const out = await loadAndRestore(mockReq({ id: 'p1' }, { sub: 'u1', permissions: [] }), res, svc, { orgId: 'org1', userId: 'u1', label: 'Message', authorize });
+    expect(out).not.toBeNull();
+    expect(authorize).toHaveBeenCalledTimes(1);
+
+    const refused = await loadAndRestore(mockReq({ id: 'p1' }), mockRes(), svc, { orgId: 'org1', userId: 'u1', label: 'Message', authorize: () => false });
+    expect(refused).toBeNull();
+    expect(svc.restore).toHaveBeenCalledTimes(1);
+  });
+
+  it('an undefined scopeOrgId spans orgs (load unpinned, mutation with an empty org)', async () => {
+    const svc = stubService({ orgId: 'other' }, { orgId: 'other' });
+    await loadAndRestore(mockReq({ id: 'p1' }), mockRes(), svc, { orgId: 'org1', userId: 'u1', label: 'Message', scopeOrgId: undefined, authorize: () => true });
+    expect(svc.findDeletedById).toHaveBeenCalledWith('p1', undefined);
+    expect(svc.restore).toHaveBeenCalledWith('p1', '', 'u1');
+  });
+
+  it('purge hard-deletes an authorized tombstone and 404s on a race', async () => {
+    const findDeletedById = jest.fn<(id: string, orgId?: string) => Promise<Row | null>>().mockResolvedValue({ orgId: 'org1' });
+    const purgeById = jest.fn<(id: string, orgId?: string) => Promise<string | null>>().mockResolvedValueOnce('p1').mockResolvedValueOnce(null);
+    const opts = { orgId: 'org1', userId: 'u1', label: 'Rule', authorize: () => true };
+    expect(await loadAndPurge(mockReq({ id: 'p1' }), mockRes(), { findDeletedById, purgeById }, opts)).toEqual({ existing: { orgId: 'org1' }, purgedId: 'p1' });
+    expect(purgeById).toHaveBeenCalledWith('p1', 'org1');
+    const res = mockRes();
+    expect(await loadAndPurge(mockReq({ id: 'p1' }), res, { findDeletedById, purgeById }, opts)).toBeNull();
+    expect(res._status).toBe(404);
   });
 });

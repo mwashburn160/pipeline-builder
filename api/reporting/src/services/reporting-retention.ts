@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Reporting retention sweep wiring (Phase 7).
+ * Reporting retention sweep wiring.
  *
  * `pipeline_events`, `deployment_outcomes`, and `incidents` grow unbounded — no
  * TTL. This module runs a leader-locked, batched, split, per-org retention
@@ -30,28 +30,21 @@ import {
   createLogger,
   createScheduler,
   envInt,
-  createEnvRedisLock,
-  closeLeaderLock,
+  envBool,
   fetchParentOrgId,
   isBillingEnabled,
+  resolveRootOrgIdStrict,
   type Scheduler,
   errorMessage,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 
 const logger = createLogger('reporting-retention');
 
-/** Deepest org → team chain the root walk follows before giving up (cycle guard). */
-const MAX_HIERARCHY_DEPTH = 16;
-
 /** Platform's `GET /organization/:id/parent`, fail-CLOSED (a non-2xx throws). */
 async function fetchParentFromPlatform(orgId: string): Promise<string | undefined> {
-  const { services } = Config.get('server');
   return fetchParentOrgId(orgId, {
-    service: { host: services.platformHost, port: services.platformPort },
-    serviceName: 'reporting',
     authOrgId: SYSTEM_ORG_ID,
     throwOnHttpError: true,
     timeout: 3000,
@@ -74,15 +67,10 @@ export function createRetentionRootResolver(
   return async (orgId) => {
     const cached = memo.get(orgId);
     if (cached !== undefined) return cached;
-    let current = orgId;
     let root: string | null = null;
     try {
-      for (let depth = 0; depth < MAX_HIERARCHY_DEPTH; depth++) {
-        const parent = await fetchParent(current);
-        if (!parent || parent === current) { root = current; break; }
-        current = parent;
-      }
-      if (root === null) logger.warn('Retention root walk exceeded max depth; skipping org', { orgId });
+      root = await resolveRootOrgIdStrict(orgId, fetchParent);
+      if (root === null) logger.warn('Retention root walk hit a cycle or exceeded max depth; skipping org', { orgId });
     } catch (err) {
       logger.warn('Retention root resolution failed; org skipped this tick', { orgId, error: errorMessage(err) });
     }
@@ -94,7 +82,7 @@ export function createRetentionRootResolver(
 /** Kill-switch: `REPORTING_RETENTION_ENABLED=false` disables the sweep (rows
  *  accumulate; nothing is purged). */
 export function isReportingRetentionEnabled(): boolean {
-  return (process.env.REPORTING_RETENTION_ENABLED ?? 'true').toLowerCase() !== 'false';
+  return envBool('REPORTING_RETENTION_ENABLED', true);
 }
 
 let scheduler: Scheduler | null = null;
@@ -109,7 +97,7 @@ export function createReportingRetentionScheduler(): Scheduler | null {
     logger.info('Reporting retention scheduler disabled (REPORTING_RETENTION_ENABLED=false)');
     return null;
   }
-  // D8: billing OFF ⇒ every org defaults to the `unlimited` tier ⇒ unlimited
+  // Billing OFF ⇒ every org defaults to the `unlimited` tier ⇒ unlimited
   // retention. Purging would silently discard history a billing-disabled
   // deployment is entitled to keep, so skip scheduling entirely (log once at boot).
   if (!isBillingEnabled()) {
@@ -122,14 +110,12 @@ export function createReportingRetentionScheduler(): Scheduler | null {
   const lockTtlMs = envInt('REPORTING_RETENTION_LOCK_TTL_MS', 1_800_000, { min: 1000 });
   const batchSize = envInt('REPORTING_RETENTION_BATCH_SIZE', 1000, { min: 1 });
   const maxBatchesPerTable = envInt('REPORTING_RETENTION_MAX_BATCHES', 50, { min: 1 });
-  const lock = createEnvRedisLock();
 
   logger.info('Reporting retention scheduler starting', {
     intervalHours: intervalMs / 3_600_000,
-    locked: !!lock,
   });
 
-  const inner = createScheduler({
+  return createScheduler({
     name: 'reporting-retention',
     intervalMs,
     startupDelayMs,
@@ -146,16 +132,8 @@ export function createReportingRetentionScheduler(): Scheduler | null {
         });
       }
     },
-    ...(lock ? { lock: { redis: () => lock, key: 'reporting-retention:leader', ttlMs: lockTtlMs } } : {}),
+    lock: { key: 'reporting-retention:leader', ttlMs: lockTtlMs },
   });
-  if (!lock) return inner;
-
-  // Own the leader-lock Redis client's lifecycle: stop() also closes the
-  // connection so it can't keep the process from exiting cleanly.
-  return {
-    start: () => inner.start(),
-    stop: () => { inner.stop(); void closeLeaderLock(lock); },
-  };
 }
 
 /** Start the reporting retention sweep (idempotent). No-op when disabled. */

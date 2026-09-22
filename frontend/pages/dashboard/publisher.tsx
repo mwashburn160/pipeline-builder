@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org's plugin-ecosystem PUBLISHER page (plan §3.0, §3.1, §3.1a, §3.4).
+ * The org's plugin-ecosystem PUBLISHER page.
  *
  * Tenants never decide anything in the ecosystem: everything here is the org's
  * public identity, its listings (which it may PAUSE — that only narrows its own
@@ -63,10 +63,9 @@ function PublishTab({ orgId, initialPluginId, onSubmitted }: {
   initialPluginId: string | null;
   onSubmitted: () => void;
 }) {
-  // Filtered ON THE SERVER to this org's public versions, by name. It used to
-  // take the first 200 plugins the caller could see (the system catalog and
-  // other orgs' public ones included) and filter here — so an org whose own
-  // public versions sat past that page could not pick them at all.
+  // Filtered ON THE SERVER to this org's public versions, by name — filtering
+  // one client-side page (the system catalog and other orgs' public ones
+  // included) would hide own versions past that page.
   const [search, setSearch] = useState('');
   const query = useDebounce(search.trim(), 250);
   const pluginsQ = useFetch(async (signal) => {

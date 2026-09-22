@@ -50,11 +50,6 @@ export type Pipeline = typeof schema.pipeline.$inferSelect;
 export type PipelineInsert = typeof schema.pipeline.$inferInsert;
 export type PipelineUpdate = Partial<Omit<Pipeline, 'id' | 'createdAt' | 'createdBy'>>;
 
-// `toComplianceAttributes` (secret redaction for compliance events) is shared
-// in api-core — it was a byte-identical copy here + in plugin-service, and a
-// security-critical function must not drift. Re-exported for existing importers.
-export { toComplianceAttributes };
-
 /** Pipeline CRUD service with multi-tenant access control. */
 export class PipelineService extends CrudService<
   Pipeline,
@@ -159,10 +154,10 @@ export class PipelineService extends CrudService<
    * mutation only ever runs under the owner's tenant — so clearing just
    * `${ownerOrg}:*` leaves stale copies in every other org's cache.
    *
-   * UNCONDITIONAL, because the condition it used to carry (`visibility ===
-   * 'public'`) read the row's state AFTER the mutation. A DEMOTION is exactly
-   * the case that matters — public → org/private ends with a non-public row, so
-   * the sweep was skipped and every other org kept serving the copy it had
+   * UNCONDITIONAL, because a `visibility === 'public'` condition would read
+   * the row's state AFTER the mutation. A DEMOTION is exactly the case that
+   * matters — public → org/private ends with a non-public row, so the sweep
+   * would be skipped and every other org would keep serving the copy it had
    * cached while the pipeline was still shared, for the rest of the TTL. A
    * promotion has the mirror problem in reverse. Tracking the previous
    * visibility would work; not needing to know is simpler and cannot be got

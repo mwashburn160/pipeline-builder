@@ -2,19 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  sendError,
-  sendBadRequest,
   sendSuccess,
-  ErrorCode,
   isSystemAdmin,
   audited,
-  getParam,
-  sendEntityNotFound,
+  loadAndPurge,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { getAuditClient } from '../services/audit.js';
+import { authorizeOwnRootMessage } from '../helpers/message-authz.js';
 import { messageService } from '../services/message-service.js';
 
 /**
@@ -39,40 +36,23 @@ export function createPurgeMessageRoutes(): Router {
   const router = Router();
 
   router.post('/:id/purge', audited('message.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const id = getParam(req.params, 'id');
-    if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+    // Only a tombstone loads, so purge can only ever finalize an already
+    // soft-deleted row. Sysadmins moderate cross-org (no org pin, matching
+    // deleteAsSysadmin); non-admins stay pinned to their org.
+    const result = await loadAndPurge(req, res, messageService, {
+      orgId,
+      userId,
+      label: 'Message',
+      scopeOrgId: isSystemAdmin(req) ? undefined : orgId,
+      authorize: (tombstone, rq, rs) => authorizeOwnRootMessage(rq, rs, tombstone, userId, 'purge'),
+    });
+    if (!result) return;
+    const { existing } = result;
 
-    const sysadmin = isSystemAdmin(req);
-
-    // Load the TOMBSTONE (soft-deleted only). Sysadmins span orgs (no org pin);
-    // non-admins stay org-scoped. A live (non-deleted) message never matches, so
-    // purge can only ever finalize an already-soft-deleted row.
-    const existing = sysadmin
-      ? await messageService.findDeletedById(id)
-      : await messageService.findDeletedById(id, orgId);
-    if (!existing) return sendEntityNotFound(res, 'Message');
-
-    if (!sysadmin) {
-      if (existing.createdBy !== userId) {
-        return sendError(res, 403, 'Only admins or the message sender can purge messages', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
-      if (existing.threadId) {
-        return sendError(res, 403, 'Only root messages can be purged by non-admins', ErrorCode.INSUFFICIENT_PERMISSIONS);
-      }
-    }
-
-    ctx.log('INFO', 'Purging message', { id });
-
-    // Sysadmin purge drops the org pin (cross-org moderation, matching
-    // deleteAsSysadmin); non-admins stay pinned to their org. Reuses the
-    // retention sweep's hard-delete machinery for a single id.
-    const purged = await messageService.purgeById(id, sysadmin ? '' : orgId);
-    if (!purged) return sendEntityNotFound(res, 'Message');
-
-    ctx.log('COMPLETED', 'Message purged', { id });
+    ctx.log('COMPLETED', 'Message purged', { id: existing.id });
 
     // Audit — SAFE METADATA ONLY (never the body). Fire-and-forget.
-    getAuditClient().record({
+    recordAudit({
       action: 'message.purge',
       actorId: actorId({ userId }),
       orgId,
@@ -80,7 +60,7 @@ export function createPurgeMessageRoutes(): Router {
       targetType: 'message',
       targetId: existing.id,
       details: { isAnnouncement: existing.messageType === 'announcement' },
-    }, 'message');
+    });
 
     return sendSuccess(res, 200, {}, 'Message permanently deleted.');
   }));

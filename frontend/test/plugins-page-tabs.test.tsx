@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugins dashboard (W2): My plugins / Catalog / Installs / Approvals / Policy
+ * Plugins dashboard: My plugins / Catalog / Installs / Approvals / Policy
  * tabs, Approvals only for `plugin_installs:manage`, and the shadowing flag on
  * an own plugin whose name shadows an Official listing.
  */
@@ -22,7 +22,7 @@ jest.mock('@/hooks/useFeatureGate', () => ({
 jest.mock('@/lib/favorites', () => ({ useFavorites: () => ({ favorites: new Set<string>(), toggle: jest.fn<AnyFn>() }) }));
 
 const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/plugins', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, data });
 const api = {

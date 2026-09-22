@@ -9,13 +9,15 @@ const mockPost = jest.fn<AnyFn>();
 const mockFindSubscribers = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  getServiceAuthHeader: () => 'Bearer test-service-token',
-}));
-
-jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
-  messageClient: {
-    post: (...args: unknown[]) => mockPost(...args),
+  // In-app delivery = api-core's system notification; routed through this
+  // file's post spy (undefined ⇒ accepted, a 4xx/5xx or a throw ⇒ refused).
+  sendSystemNotification: async (n: unknown) => {
+    try {
+      const r = await mockPost('/messages/internal/notify', n) as { statusCode?: number } | undefined;
+      return r === undefined || (r.statusCode ?? 200) < 300;
+    } catch { return false; }
   },
+  getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
 // rule-change is in-app only, but notification-channels imports email-client at
@@ -50,7 +52,7 @@ describe('notifyPublishedRuleChange', () => {
     expect(mockFindSubscribers).toHaveBeenCalledWith('rule-1');
     expect(mockPost).toHaveBeenCalledTimes(2);
     const [path, body] = mockPost.mock.calls[0];
-    expect(path).toBe('/messages');
+    expect(path).toBe('/messages/internal/notify');
     expect(body.recipientOrgId).toBe('org-1');
     expect(body.subject).toContain('updated');
     expect(body.subject).toContain('my-rule');
@@ -72,18 +74,6 @@ describe('notifyPublishedRuleChange', () => {
     await notifyPublishedRuleChange('rule-1', 'lonely', 'updated');
 
     expect(mockPost).not.toHaveBeenCalled();
-  });
-
-  it('passes the system-org header on the service-authed call', async () => {
-    mockFindSubscribers.mockResolvedValue([{ orgId: 'org-x' }]);
-
-    await notifyPublishedRuleChange('rule-1', 'rn', 'updated');
-
-    const [, , opts] = mockPost.mock.calls[0];
-    // The spoofable `x-internal-service` header was dropped — routes authenticate
-    // via the service JWT, not this header, so nothing trusted it.
-    expect(opts.headers['x-internal-service']).toBeUndefined();
-    expect(opts.headers['x-org-id']).toBe('000000000000000000000001');
   });
 
   it('swallows individual notification errors and continues', async () => {

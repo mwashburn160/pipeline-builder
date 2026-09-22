@@ -251,7 +251,7 @@ describe('org:settings split → org:impersonation', () => {
   });
 });
 
-describe('plugin ecosystem permissions (docs/plans/plugin-ecosystem.md §5a)', () => {
+describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
   const ORG_ASSIGNABLE = ['plugins:install', 'plugin_installs:manage', 'publishers:manage'] as const;
 
   it('adds every ecosystem permission to the catalog', () => {

@@ -39,10 +39,10 @@ export function resolvePluginTemplates(
   // Structural fields we care about are plain JSON; structuredClone is safe.
   const clone = structuredClone(plugin) as Plugin & Record<string, unknown>;
 
-  // The `env` scope root IS the clone's env map, not the original. It used to be
-  // `plugin.env` — the UNRESOLVED values — so `B: '{{ env.A }}'` substituted A's
-  // raw template text, and the literal `{{ … }}` was baked into the CodeBuild
-  // environment and shell commands with no error. A cycle (A↔B) did the same.
+  // The `env` scope root IS the clone's env map, not the original: with
+  // `plugin.env` — the UNRESOLVED values — `B: '{{ env.A }}'` would substitute
+  // A's raw template text, baking the literal `{{ … }}` into the CodeBuild
+  // environment and shell commands with no error. A cycle (A↔B) likewise.
   const env = (clone.env ?? {}) as Record<string, string>;
   const scope = {
     ...pipelineScope,

@@ -182,7 +182,7 @@ export interface PluginSpec {
 
   /**
    * The catalog card's one-line summary (≤ 160). When absent it is derived from
-   * the first sentence of the description (plugin-ecosystem §3.1a).
+   * the first sentence of the description.
    */
   readonly summary?: string;
 

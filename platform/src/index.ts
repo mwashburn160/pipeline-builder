@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal, errorMessage, retryForever, type Scheduler } from '@pipeline-builder/api-core';
+import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -105,7 +105,7 @@ function isDevicePoll(req: Request): boolean {
 }
 
 /**
- * The SCIM surface (3b). An identity provider's initial import is a burst of
+ * The SCIM surface. An identity provider's initial import is a burst of
  * hundreds of requests, all from one org — against a general bucket sized for a
  * person's interactive use. It has its own per-org bucket (`scimLimiter`), so a
  * directory sync can neither be throttled by, nor starve, the org's people.
@@ -171,7 +171,7 @@ const observabilityLimiter = createLimiter({
 });
 
 /**
- * Per-ORG limiter for SCIM (3b). Keyed by the VERIFIED token's org — never the
+ * Per-ORG limiter for SCIM. Keyed by the VERIFIED token's org — never the
  * service account — because the plan's requirement is a per-ORG ceiling: a tenant
  * that issues five SCIM keys still gets one directory-sync budget. Falls back to
  * the credential hash / client IP for a request whose token doesn't verify (which
@@ -186,14 +186,11 @@ const scimLimiter = createLimiter({
 });
 
 /**
- * Sweeps started INLINE below (rather than in a service module with its own
- * `stopX()`), collected so the unified `shutdown()` can stop them alongside the
- * others. Each is a {@link Scheduler} from `createLockedSweep` (same-pod
- * re-entrancy guard + cross-pod leader lock).
- *
- * Their intervals are unref'd, so they never keep the process alive — but that
- * does not stop them FIRING during a graceful teardown, and a pass that begins
- * after `mongoose.connection.close()` just throws against a closed connection.
+ * The background sweeps (services/background-sweeps.ts), kept so `shutdown()`
+ * can stop them. Their intervals are unref'd, so they never keep the process
+ * alive — but that does not stop them FIRING during a graceful teardown, and a
+ * pass that begins after `mongoose.connection.close()` just throws against a
+ * closed connection.
  */
 const backgroundSweeps: Scheduler[] = [];
 
@@ -331,7 +328,6 @@ mountApiRoutes(app, { auth: authLimiter, alertWebhook: alertWebhookLimiter, obse
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const MONGO_RETRY_BASE_MS = 1000;
 const MONGO_RETRY_MAX_MS = 10000;
@@ -376,7 +372,7 @@ async function initDependencies(): Promise<void> {
   // fire-and-forget with its own catch). Registered after Mongo connects so the
   // AuditEvent write has a live connection; requests are 503'd until ready.
   const { setAuthzDenialAuditor } = await import('@pipeline-builder/api-core');
-  const { recordAuditEvent, drainLocalAuditSpool } = await import('./helpers/audit.js');
+  const { recordAuditEvent } = await import('./helpers/audit.js');
   setAuthzDenialAuditor((info) => {
     // Durable fire-and-forget: a failed write is spooled, never dropped.
     recordAuditEvent({
@@ -389,42 +385,6 @@ async function initDependencies(): Promise<void> {
       details: { method: info.method, path: info.path, required: info.required },
     });
   });
-
-  // Re-append platform-local audit events whose write failed (spooled to Redis
-  // by `recordAuditEvent`). Every replica drains — the spool's atomic LMOVE
-  // hands each entry to exactly one drainer — so no leader lock; the scheduler's
-  // re-entrancy guard keeps one pod's drains from overlapping. Each tick also
-  // heartbeats this pod's spool ownership and reclaims stale owners' in-flight
-  // entries (runOnStart makes the first tick the boot-time recovery).
-  {
-    const { createScheduler } = await import('@pipeline-builder/api-core');
-    const drain = createScheduler({
-      name: 'audit-local-spool-drain',
-      intervalMs: config.audit.spoolDrainIntervalMs,
-      run: async () => { await drainLocalAuditSpool(); },
-    });
-    drain.start();
-    backgroundSweeps.push(drain);
-  }
-
-  // Publish each audit chain's signed head to write-once object storage (see
-  // services/audit-head-export.ts). Leader-locked: one exporter per window.
-  {
-    const { exportAuditChainHeads, headExportTarget } = await import('./services/audit-head-export.js');
-    if (headExportTarget()) {
-      const { createLockedSweep } = await import('./utils/leader-lock.js');
-      const exporter = createLockedSweep({
-        name: 'audit-head-export',
-        lockKey: 'platform:leader:audit-head-export',
-        intervalMs: config.audit.headExport.intervalMs,
-        run: async () => { await exportAuditChainHeads(); },
-      });
-      exporter.start();
-      backgroundSweeps.push(exporter);
-    } else {
-      logger.warn('Audit chain-head export DISABLED (AUDIT_HEAD_EXPORT_S3_* unset) — /audit/verify cannot detect tail truncation');
-    }
-  }
 
   // Bootstrap super-admins from BOOTSTRAP_SUPERADMIN_EMAILS (idempotent,
   // non-fatal — warns rather than fails on missing accounts).
@@ -453,59 +413,16 @@ async function initDependencies(): Promise<void> {
 
   // Reconcile paid-signup billing bootstraps that failed fail-open: orgs that
   // selected a paid plan at signup while billing was unavailable carry a durable
-  // `pendingBillingPlanId` marker. Drain once at boot (fire-and-forget so a
-  // billing outage never delays readiness) + on a guarded interval, so the
-  // provisioning eventually happens instead of the org silently staying
-  // developer-tier with no bill. No-ops when billing is disabled. Idempotent.
+  // `pendingBillingPlanId` marker. Drained once here (fire-and-forget so a
+  // billing outage never delays readiness); the periodic pass is the
+  // `billing-reconcile` background sweep. No-ops when billing is disabled.
   if (config.billing.enabled) {
     const { reconcilePendingBillingSubscriptions } = await import('./services/billing-provision.js');
-    const { createLockedSweep } = await import('./utils/leader-lock.js');
     void reconcilePendingBillingSubscriptions().catch((err) => {
       logger.error('Billing reconcile (boot drain) failed (service will still come ready)', {
         error: errorMessage(err),
       });
     });
-    const intervalMs = config.billing.reconcileIntervalMs;
-    if (intervalMs > 0) {
-      // Cross-pod leader lock so only ONE replica runs the reconcile pass per
-      // window (otherwise every replica scans + provisions the same pending
-      // orgs in parallel); the scheduler keeps a slow pass from overlapping
-      // itself. The boot drain above already ran, so no run-on-start.
-      const reconcile = createLockedSweep({
-        name: 'billing-reconcile',
-        lockKey: 'platform:leader:billing-reconcile',
-        intervalMs,
-        runOnStart: false,
-        run: async () => { await reconcilePendingBillingSubscriptions(); },
-      });
-      reconcile.start();
-      backgroundSweeps.push(reconcile);
-    }
-  }
-
-  // Periodic re-verification of domain-based-join domains (P2b): re-checks the
-  // DNS TXT proof for domains not verified recently and un-verifies any whose
-  // record is definitively gone (owner removed it / domain transferred), so a
-  // stale domain can't keep admitting signups forever. Leader-locked (one
-  // replica per window); intervals env-tunable, defaults 24h sweep / 7d staleness.
-  {
-    const { domainReverifyIntervalMs: reverifyIntervalMs, domainReverifyStaleMs: reverifyStaleMs } = config.organization;
-    if (reverifyIntervalMs > 0) {
-      const { createLockedSweep } = await import('./utils/leader-lock.js');
-      const reverify = createLockedSweep({
-        name: 'domain-reverify',
-        lockKey: 'platform:leader:domain-reverify',
-        intervalMs: reverifyIntervalMs,
-        runOnStart: false,
-        run: async () => {
-          const { orgDomainService } = await import('./services/org-domain-service.js');
-          const res = await orgDomainService.reverifyStaleDomains(reverifyStaleMs);
-          if (res.checked > 0) logger.info('Domain re-verification sweep', res);
-        },
-      });
-      reverify.start();
-      backgroundSweeps.push(reverify);
-    }
   }
 
   // Install the per-org KMS provider if SECRET_ENCRYPTION_PER_ORG_KMS=true.
@@ -527,33 +444,11 @@ async function initDependencies(): Promise<void> {
   const { seedDefaultDashboards } = await import('./services/dashboard-seeder.js');
   void seedDefaultDashboards();
 
-  // Start the invitation reaper: periodically flips stale `pending` invites
-  // (past their `expiresAt`) to `expired` so the data self-heals. Runs an
-  // immediate sweep now that Mongo is connected. Non-fatal — the sweep swallows
-  // its own errors, and the capacity/roster queries already exclude stale rows
-  // regardless. Started here (after connect) rather than at module top so the
-  // first sweep isn't a guaranteed miss against a cold datastore.
-  const { startInvitationReaper } = await import('./services/invitation-reaper.js');
-  startInvitationReaper();
-
-  // Same for impersonation requests: flip ones whose window lapsed unused to
-  // `expired`, so their status stays truthful (see impersonation-reaper.ts).
-  const { startImpersonationReaper } = await import('./services/impersonation-reaper.js');
-  startImpersonationReaper();
-
-  // Start the org purge sweep: periodically hard-deletes (via the existing
-  // fail-closed cascade) any org whose SOFT-DELETE retention window has lapsed
-  // (`purgeAfter <= now`). Immediate first sweep now that Mongo is connected;
-  // unref'd interval. Non-fatal — the sweep swallows its own errors per org and
-  // is idempotent, so a deferred/failed org retries next tick. Coexists with the
-  // invitation reaper + billing reconcile wirings above.
-  const { startOrgPurgeSweep } = await import('./services/org-purge.js');
-  startOrgPurgeSweep();
-
-  // Retention purge for platform-owned soft-deleted tables (dashboards + alerts).
-  // Leader-locked + sysadmin-scoped inside the sweep. Opt out via SOFT_DELETE_PURGE_ENABLED=false.
-  const { startSoftDeletePurge } = await import('./services/soft-delete-purge.js');
-  startSoftDeletePurge();
+  // Every periodic sweep (audit spool drain + chain-head export, billing
+  // reconcile, domain re-verify, the invitation / impersonation reapers, the org
+  // purge and the soft-delete retention purge) — see services/background-sweeps.ts.
+  const { registerBackgroundSweeps } = await import('./services/background-sweeps.js');
+  backgroundSweeps.push(...await registerBackgroundSweeps());
 
   setReady(true);
   logger.info('Platform ready — dependencies connected');
@@ -576,7 +471,7 @@ async function initDependencies(): Promise<void> {
 /**
  * Start the HTTP server, then establish dependencies in the background.
  * Listens FIRST so /health, /ready and the readiness guard respond
- * immediately; a cold Mongo no longer crash-loops the process.
+ * immediately, and a cold Mongo does not crash-loop the process.
  */
 async function startServer(): Promise<void> {
   logger.info('Starting platform microservice...');
@@ -608,7 +503,7 @@ async function startServer(): Promise<void> {
   const { requireAuditChainHmacKey } = await import('./config/audit-chain-key.js');
   requireAuditChainHmacKey();
 
-  // Same rule for the INTERNAL chain (#14): platform signs its own peer calls
+  // Same rule for the INTERNAL chain: platform signs its own peer calls
   // with its own key and verifies its peers against the public bundle. Without
   // them it would mint tokens on an EPHEMERAL in-process key that no peer
   // accepts, and reject every peer's token — silently losing all
@@ -631,20 +526,8 @@ async function startServer(): Promise<void> {
     server.close(async () => {
       logger.info('HTTP server closed');
 
-      // Stop the invitation reaper + org purge sweep intervals before tearing
-      // down Mongo.
-      const { stopInvitationReaper } = await import('./services/invitation-reaper.js');
-      stopInvitationReaper();
-      const { stopImpersonationReaper } = await import('./services/impersonation-reaper.js');
-      stopImpersonationReaper();
-      const { stopOrgPurgeSweep } = await import('./services/org-purge.js');
-      stopOrgPurgeSweep();
-      const { stopSoftDeletePurge } = await import('./services/soft-delete-purge.js');
-      stopSoftDeletePurge();
+      // Every background sweep stops BEFORE Mongo closes.
       stopPlatformMetricsScraper();
-      // The sweeps started inline in this file (billing reconcile, domain
-      // re-verify, audit spool drain + head export) — see `backgroundSweeps`.
-      // Stopped BEFORE Mongo closes.
       for (const sweep of backgroundSweeps) sweep.stop();
 
       try {

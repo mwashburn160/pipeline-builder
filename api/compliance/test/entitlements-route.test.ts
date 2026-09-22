@@ -4,7 +4,7 @@
 /**
  * Tests for the machine `PUT /entitlements/:orgId` route.
  *
- * It is an INTERNAL route (#14) — only `billing`'s own signed token passes.
+ * It is an INTERNAL route — only `billing`'s own signed token passes.
  * Verifies:
  *  - a plain org user, a SYSTEM ADMIN and any other service are all 403'd and
  *    the reconcile never runs (identical to reporting's retention-sync)
@@ -21,13 +21,14 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const syncEntitledSetsMock = jest.fn<(...a: unknown[]) => Promise<{ skipped: boolean; activated: string[]; deactivated: string[] }>>(
   async () => ({ skipped: false, activated: [], deactivated: [] }),
 );
-const emitComplianceAuditMock = jest.fn();
+const recordAuditMock = jest.fn();
 
 // Auth flags carried by the current fake request; mutated per-test.
 let isSvc = false;
 let isAdmin = false;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: Record<string, string>, k: string) => p[k],
   validateBody: (req: { body: unknown }, schema: { parse: (b: unknown) => unknown }) => {
     try {
@@ -53,14 +54,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
-}));
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: { syncEntitledSets: (...a: unknown[]) => syncEntitledSetsMock(...a) },
-  KNOWN_CONTENT_SETS: ['standard', 'advanced'],
 }));
 
 const { createEntitlementSyncRoutes } = await import('../src/routes/entitlements.js');
@@ -120,18 +116,18 @@ describe('PUT /entitlements/:orgId — service-principal gated', () => {
       data: expect.objectContaining({ ok: true, activated: 2, deactivated: 1 }),
     }));
     // One toggle audit per activated + deactivated id.
-    expect(emitComplianceAuditMock).toHaveBeenCalledTimes(3);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledTimes(3);
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.rule.toggle', targetId: 'r1', details: { isActive: true, source: 'entitlement-sync' },
     }));
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.rule.toggle', targetId: 'r3', details: { isActive: false, source: 'entitlement-sync' },
     }));
   });
 
   it('403s a SYSTEM ADMIN too — an internal route admits no user token', async () => {
-    // This leg used to accept `isSystemAdmin`. #14 closed that: billing owns
-    // entitlement, and "a sufficiently privileged human" is not billing.
+    // No `isSystemAdmin` escape hatch: billing owns entitlement, and "a
+    // sufficiently privileged human" is not billing.
     isAdmin = true;
     const handler = putRoute();
     const { res, status } = makeRes();

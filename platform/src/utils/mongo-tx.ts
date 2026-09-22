@@ -4,10 +4,8 @@
 import mongoose, { type ClientSession } from 'mongoose';
 
 /**
- * Wrap a MongoDB transaction body. Centralises the 7-copy
- * `startSession / withTransaction / endSession` boilerplate previously
- * scattered across `auth-service`, `organization-service`,
- * `invitation-service`, and `org-members-service`.
+ * Wrap a MongoDB transaction body: the one place the
+ * `startSession / withTransaction / endSession` sequence is written.
  *
  * The session is automatically committed / aborted by `withTransaction`
  * (Mongoose retries transient errors per the driver contract) and is

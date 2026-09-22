@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Single source of truth for encrypted-secret-blob storage. The
+ * Single source of truth for encrypted-secret-blob storage, shared by the
  * secret-handling services (`organization-service`, `org-idp-service`,
- * `secret-reencrypt`) previously each re-implemented the same
- * JSON-wrap-around-EncryptedBlob pattern, with subtly different
- * error message text — drift between them would have broken the
- * round-trip silently.
+ * `secret-reencrypt`) so the JSON-wrap-around-EncryptedBlob format cannot
+ * drift between writer and reader and silently break the round-trip.
  *
  * `SECRET_ENCRYPTION_KEY` is a hard requirement at platform boot (see
  * `config/index.ts`); reaching `wrapEncrypted` without it set is a

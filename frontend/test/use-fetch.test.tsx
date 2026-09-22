@@ -65,7 +65,7 @@ describe('useFetch', () => {
 
     await waitFor(() => expect(result.current.data).toEqual({ v: 1 }));
 
-    act(() => result.current.refetch());
+    act(() => { void result.current.refetch(); });
 
     await waitFor(() => expect(result.current.data).toEqual({ v: 2 }));
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -119,5 +119,37 @@ describe('useFetch', () => {
 
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+});
+
+describe('useFetch options and awaitable refetch', () => {
+  it('calls onSuccess with the value and onError with a failure, keeping prior data', async () => {
+    const onSuccess = jest.fn<AnyFn>();
+    const onError = jest.fn<AnyFn>();
+    const fetcher = jest.fn<AnyFn>().mockResolvedValueOnce({ v: 1 }).mockRejectedValueOnce(new Error('down'));
+    const { result } = renderHook(() => useFetch(fetcher, [], { onSuccess, onError }));
+    await waitFor(() => expect(result.current.data).toEqual({ v: 1 }));
+    expect(onSuccess).toHaveBeenCalledWith({ v: 1 });
+
+    let pending!: Promise<boolean>;
+    act(() => { pending = result.current.refetch(); });
+    let ok: boolean | undefined;
+    await act(async () => { ok = await pending; });
+    expect(ok).toBe(false);
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'down' }));
+    expect(result.current.data).toEqual({ v: 1 });
+    expect(result.current.error?.message).toBe('down');
+  });
+
+  it('resolves refetch with true once the triggered run succeeds', async () => {
+    const fetcher = jest.fn<AnyFn>().mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    const { result } = renderHook(() => useFetch(fetcher, []));
+    await waitFor(() => expect(result.current.data).toBe(1));
+    let pending!: Promise<boolean>;
+    act(() => { pending = result.current.refetch(); });
+    let ok: boolean | undefined;
+    await act(async () => { ok = await pending; });
+    expect(ok).toBe(true);
+    expect(result.current.data).toBe(2);
   });
 });

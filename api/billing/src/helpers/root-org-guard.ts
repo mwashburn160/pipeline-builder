@@ -10,7 +10,6 @@ import {
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import type { NextFunction, Request, Response } from 'express';
-import { config } from '../config.js';
 
 const logger = createLogger('billing-root-org-guard');
 
@@ -39,8 +38,6 @@ export async function refuseTeamBilling(req: Request, res: Response, next: NextF
   if (user.isSuperAdmin === true) {
     try {
       parent = await fetchParentOrgId(orgId, {
-        service: config.platformService,
-        serviceName: 'billing',
         authOrgId: SYSTEM_ORG_ID,
         throwOnHttpError: true,
       });

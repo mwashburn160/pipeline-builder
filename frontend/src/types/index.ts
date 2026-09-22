@@ -4,7 +4,15 @@
 // Quota + tier identifiers come from the api-core source of truth (see below).
 // `import type` is fully erased at build time, so this pulls no server-only
 // runtime code into the Next bundle.
-import type { QuotaType, QuotaTier, Visibility, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput } from '@pipeline-builder/api-core';
+import type {
+  QuotaType, QuotaTier, Visibility, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput,
+  BillingInterval, IdpProtocol, IdpProvider, MessagePriority, MessageType, RoleGrant, SamlAttributeMapping, SubscriptionStatus,
+} from '@pipeline-builder/api-core';
+
+/** Wire vocabularies shared with the services (api-core `types/wire-vocabulary.ts`). */
+export type {
+  BillingInterval, IdpProtocol, IdpProvider, MessagePriority, MessageType, RoleGrant, SamlAttributeMapping, SubscriptionStatus,
+};
 
 /**
  * User model.
@@ -45,7 +53,7 @@ export interface User {
   featureOverrides?: Record<string, boolean>;
   /** Which step-up factors this account has — drives what StepUpModal offers. */
   authFactors?: AuthFactors;
-  /** The active org's two-factor requirement (#8). Present ONLY when the org
+  /** The active org's two-factor requirement. Present ONLY when the org
    *  actually requires MFA — absence is the common case, and is what keeps the
    *  banner quiet for everyone else. */
   mfaPolicy?: SessionMfaPolicy;
@@ -94,8 +102,8 @@ export interface MfaNudgeState {
 }
 
 /**
- * What `GET /user/profile` says about the ACTIVE org's two-factor requirement
- * (#8), alongside the current session's own assurance level. Everything the
+ * What `GET /user/profile` says about the ACTIVE org's two-factor requirement,
+ * alongside the current session's own assurance level. Everything the
  * member-facing banner needs, in one place: whether the requirement is already
  * biting, when it starts to, and whether this session already satisfies it.
  */
@@ -192,7 +200,7 @@ export interface MfaResetRequest {
 
 /** The account's authenticator-app state, from GET /auth/totp/status. */
 export interface TotpStatus {
-  /** Confirmed and in force — sign-in now asks for a code. */
+  /** Confirmed and in force — sign-in asks for a code. */
   enabled: boolean;
   /** Started but never confirmed; not a factor, and replaced by the next enrol. */
   pending: boolean;
@@ -303,7 +311,7 @@ export interface UserPreferences {
   notifications: {
     /** Hide the quota banner while usage is only nearing a limit. */
     muteQuotaWarnings: boolean;
-    /** Plugin-ecosystem EMAIL opt-outs (plan §5b). In-app messages are always
+    /** Plugin-ecosystem EMAIL opt-outs. In-app messages are always
      *  delivered, and transactional / security notices ignore these. */
     ecosystem: EcosystemNotificationPrefs;
   };
@@ -373,8 +381,6 @@ export interface MemberTeam {
   isActive?: boolean;
 }
 
-/** Coarse role a permission Role grants its members (mirrors backend ROLE_GRANTS). */
-export type RoleGrant = 'superadmin' | 'admin' | 'member';
 
 /**
  * A permission Role within an org, with its current members. Role membership
@@ -409,8 +415,7 @@ export interface QuotaSummary {
 
 /**
  * Quota + tier identifiers — re-exported from api-core so the frontend union
- * can't drift from the backend's. The local copy previously listed only 4 of
- * the 10 quota types, silently under-typing quota responses.
+ * can't drift from the backend's.
  */
 export type { QuotaType, QuotaTier, Visibility, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput };
 
@@ -499,25 +504,6 @@ export interface OrgAIConfig {
 }
 
 /**
- * Per-org IdP config DTO. Mirrors the platform service's OrgIdpConfigDto —
- * the client secret never crosses the wire; UI shows `hasClientSecret`.
- */
-export type IdpProvider = 'generic-oidc' | 'cognito' | 'google' | 'github';
-
-/** Which federation protocol the org's IdP speaks. One config per org, so this
- *  is a selector, not a list: an org signs in over OIDC or over SAML. */
-export type IdpProtocol = 'oidc' | 'saml';
-
-/** Per-org attribute names carrying identity fields in a SAML assertion. Empty
- *  means "use the common spellings" (`email`, `displayName`, `groups`, plus the
- *  Entra/Shibboleth URI forms). */
-export interface SamlAttributeMapping {
-  email?: string;
-  name?: string;
-  groups?: string;
-}
-
-/**
  * Everything an administrator registers AT their identity provider, computed by
  * the server from its own public URL and SP keys (`GET /organization/:id/idp/sp-info`)
  * — the UI never derives these from the browser's origin. Available before any
@@ -565,6 +551,7 @@ export interface SsoTestReport {
   recorded?: boolean;
 }
 
+/** Per-org IdP config. The client secret never crosses the wire; the UI shows `hasClientSecret`. */
 export interface OrgIdpConfigDto {
   orgId: string;
   protocol: IdpProtocol;
@@ -671,18 +658,14 @@ export interface QueueStatus extends QueueCounts {
 
 /**
  * The descriptive (editable) catalog fields of a plugin version, in display
- * order — mirrors `PLUGIN_CATALOG_FIELDS` in api-core's
- * `validation/plugin-catalog-metadata.ts`. Everything else on a plugin is its
- * execution contract and changes only with a new upload.
+ * order, and where each value came from — api-core's plugin-catalog vocabulary.
+ * Everything else on a plugin is its execution contract and changes only with a
+ * new upload.
  */
-export const PLUGIN_CATALOG_FIELDS = [
-  'displayName', 'summary', 'description', 'category', 'keywords', 'license',
-  'homepageUrl', 'sourceUrl', 'documentationUrl', 'icon', 'changelog', 'readme',
-] as const;
-export type PluginCatalogField = typeof PLUGIN_CATALOG_FIELDS[number];
+import type { MetadataSource, PluginCatalogField } from '@pipeline-builder/api-core/plugin-catalog';
 
-/** Where a catalog field's value came from (`user` = edited by a person). */
-export type PluginMetadataSource = 'spec' | 'readme' | 'dockerfile' | 'derived' | 'user';
+export { PLUGIN_CATALOG_FIELDS } from '@pipeline-builder/api-core/plugin-catalog';
+export type { MetadataSource, PluginCatalogField };
 
 /** Curated icon / badge key, as stored. */
 export interface PluginIcon { key: string; badge?: string }
@@ -711,7 +694,7 @@ export interface PluginInspectField {
   field: PluginCatalogField;
   /** string | string[] (keywords) | {key, badge?} (icon) | null. */
   value: unknown;
-  source: Exclude<PluginMetadataSource, 'user'> | null;
+  source: Exclude<MetadataSource, 'user'> | null;
   /** Why the detected value was refused (then `value` is null). */
   error: string | null;
 }
@@ -789,7 +772,7 @@ export interface Plugin {
   labels?: Record<string, string>;
   links?: EntityLink[];
 
-  // Catalog metadata (plugin-ecosystem §3.1a): detected from the package, then
+  // Catalog metadata: detected from the package, then
   // accepted or edited. `metadataSources` records where each field came from.
   displayName?: string | null;
   summary?: string | null;
@@ -801,7 +784,7 @@ export interface Plugin {
   changelog?: string | null;
   readmeMd?: string | null;
   readmeHtml?: string | null;
-  metadataSources?: Partial<Record<PluginCatalogField, PluginMetadataSource>>;
+  metadataSources?: Partial<Record<PluginCatalogField, MetadataSource>>;
   deprecatedAt?: string | null;
   deprecationMessage?: string | null;
   yankedAt?: string | null;
@@ -1085,16 +1068,6 @@ export interface Invitation {
 }
 
 /**
- * Billing interval for subscriptions
- */
-export type BillingInterval = 'monthly' | 'annual';
-
-/**
- * Subscription lifecycle status
- */
-export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'unpaid' | 'trialing' | 'incomplete';
-
-/**
  * Plan definition from the billing API
  */
 export interface Plan {
@@ -1275,16 +1248,6 @@ export interface UsageRollup {
 }
 
 /**
- * Message type identifiers
- */
-export type MessageType = 'announcement' | 'conversation';
-
-/**
- * Message priority levels
- */
-export type MessagePriority = 'normal' | 'high' | 'urgent';
-
-/**
  * Internal message model
  */
 /** Attachment metadata (the blob is fetched separately, auth-gated). */
@@ -1386,7 +1349,7 @@ export type ApiResponse<T = unknown> =
   };
 
 // ============================================================================
-// Image Registry (sysadmin-only registry browser; replaces the joxit UI)
+// Image Registry (sysadmin-only registry browser)
 // ============================================================================
 
 /** One repository entry from /v2/_catalog. */

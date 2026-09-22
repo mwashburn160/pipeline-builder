@@ -13,12 +13,13 @@
  * The sysadmin gate is the ONLY thing this surface adds: it is operator-driven
  * setup performed on behalf of a customer. The customer-facing counterpart is
  * `controllers/org-idp-self.ts`, and both delegate their bodies to
- * `controllers/org-idp-ops.ts` so the two surfaces cannot drift apart again.
+ * `helpers/org-idp-ops.ts` so the two surfaces cannot drift apart.
  */
 
 import { sendSuccess } from '@pipeline-builder/api-core';
-import { ORG_IDP_ERROR_MAP, deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from './org-idp-ops.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { deleteOrgIdp, patchOrgIdp, readOrgIdp, upsertOrgIdp } from '../helpers/org-idp-ops.js';
+import { ORG_IDP_ERROR_MAP } from '../services/idp-mapping-errors.js';
 import { orgIdpService } from '../services/org-idp-service.js';
 
 /** GET /api/admin/org-idp  list every configured IdP. */

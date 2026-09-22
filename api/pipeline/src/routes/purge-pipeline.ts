@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndPurge, sendSuccess, audited, actorId } from '@pipeline-builder/api-core';
+import { loadAndPurge, sendSuccess, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 /**
@@ -17,7 +16,7 @@ import { pipelineService } from '../services/pipeline-service.js';
  * parent (mirrors the restore authority — delete's write-gate plus a step-up
  * re-verify, since purge is a permanent destructive action). This router shares
  * the restore router's single step-up-gated mount so the single-use step-up jti
- * is consumed exactly once per request (see src/index.ts). The load →
+ * is consumed exactly once per request (see src/app-routes.ts). The load →
  * publish-gate → hard-delete → 404 skeleton is shared via `loadAndPurge`, which
  * loads only a genuine tombstone (a live row 404s and is never hard-deleted).
  */
@@ -25,7 +24,7 @@ export function createPurgePipelineRoutes(): Router {
   const router: Router = Router();
 
   router.post('/:id/purge', audited('pipeline.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndPurge(req, res, orgId, pipelineService, 'Pipeline', 'pipelines:publish', userId);
+    const result = await loadAndPurge(req, res, pipelineService, { orgId, userId, label: 'Pipeline', publishPermission: 'pipelines:publish' });
     if (!result) return;
     const { existing, purgedId } = result;
 
@@ -33,7 +32,7 @@ export function createPurgePipelineRoutes(): Router {
 
     // Best-effort attributed audit — `affectedOrgId` records the target's org so
     // a no-org sysadmin purge is attributed to the org whose row was removed.
-    emitPipelineAudit({
+    recordAudit({
       action: 'pipeline.purge',
       actorId: actorId({ userId }),
       orgId,

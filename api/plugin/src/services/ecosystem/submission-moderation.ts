@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Anonymous submissions in the moderation queue (docs/plans/plugin-ecosystem.md
- * §4.2 steps 5–7, E1, E10). A submission that passed every automated gate
+ * Anonymous submissions in the moderation queue (docs/plugin-publishing.md
+ * steps 5–7). A submission that passed every automated gate
  * becomes a `submission` publish request on the `community` publisher —
  * created ONLY here, by the gate pipeline, never by a route — and goes through
  * the same queue, SLA, two-person approval and separation-of-duties machinery
@@ -12,13 +12,13 @@
  *  - APPROVE (second approval) publishes the quarantined digest
  *    `quarantine/<id>` → `public/community/<name>` with a fresh `unverified`
  *    signature, creates or extends the community listing, and tells the
- *    submitter (N4);
+ * submitter (N4);
  *  - REJECT marks the submission rejected and tells the submitter why (N4);
  *  - a `claim` of a community listing, when approved and the claimer's
  *    verified email matches the one that submitted it, links those
  *    submissions to the claiming account (N5).
  *
- * The request pins the quarantined DIGEST (G25): approval publishes exactly it
+ * The request pins the quarantined DIGEST: approval publishes exactly it
  * or fails closed.
  */
 
@@ -43,25 +43,24 @@ import {
   type Publisher,
 } from '@pipeline-builder/pipeline-data';
 
+import { ecosystemAudit } from './audit.js';
 import { EcosystemError, type Caller } from './context.js';
-import { previousVersion } from './decisions.js';
 import { announceNewVersion } from './install-notify.js';
-import { LISTING_FIELDS, listingColumns, listingFieldValue } from './metadata.js';
+import { LISTING_FIELDS, listingColumns, listingFieldValue, metadataRow } from './metadata.js';
 import { recordSubmission } from './metrics.js';
 import { notifySubmissionClaimed, notifySubmissionDecision, notifySubmissionQueued } from './notify.js';
-import { contractDiff, isLinkField, latestVersion, sameValue, type Gate } from './policy.js';
+import { contractDiff, type Gate } from './policy.js';
 import { publishImage } from './registry.js';
 import { trustFor } from './resign.js';
-import { atomically, listings, OPEN_STATUSES, requests, versions } from './store.js';
-import { submissions } from './submissions-store.js';
-import {
-  EMAIL_RETENTION_DAYS, dropQuarantineArtifacts, hashEmail, listingUrl, statusTokenFor, statusUrl, submissionConfig, submitterEmail,
-} from './submissions.js';
-import { emitPluginAudit } from '../audit.js';
+import { atomically, listings, OPEN_STATUSES, previousVersion, recomputeLatest, requests, versions } from './store.js';
+import { listingUrl, statusUrl, submissionConfig } from './submission-config.js';
+import { hashEmail, statusTokenFor, submitterEmail } from './submission-guards.js';
+import { listingOwnerHash, submissions } from './submissions-store.js';
+import { dropQuarantineArtifacts, submissionNameGate } from './submissions.js';
+import { emailPurgeAt, isActiveListing } from './util.js';
 
 const logger = createLogger('ecosystem-submission-moderation');
 
-const DAY_MS = 24 * 3_600_000;
 
 /** What the gate pipeline recorded about the quarantined build (`gate_report.facts`). */
 export interface SubmissionFacts {
@@ -85,10 +84,6 @@ export interface SubmissionGateReport {
 export function gateReportOf(s: Pick<PluginSubmission, 'gateReport'>): SubmissionGateReport | null {
   const r = s.gateReport as SubmissionGateReport | null;
   return r && Array.isArray(r.gates) ? r : null;
-}
-
-function audit(action: Parameters<typeof emitPluginAudit>[0]['action'], actor: string, targetType: string, targetId: string, details: Record<string, unknown>): void {
-  emitPluginAudit({ action, actorId: actor, orgId: SYSTEM_ORG_ID, targetType, targetId, details });
 }
 
 const payloadOf = (r: PluginPublishRequest) => (r.payload ?? {}) as { submissionId?: string; name?: string; version?: string; newListing?: boolean };
@@ -121,11 +116,11 @@ export async function insertSubmissionRequest(s: PluginSubmission, publisher: Pu
 
 /** Announce a queued submission request (after the transaction that created it committed). */
 export async function announceSubmissionRequest(s: PluginSubmission, r: PluginPublishRequest, listing: PluginListing | null, digest: string): Promise<void> {
-  audit('plugin.request.submit', ANONYMOUS_ACTOR_ID, 'plugin-publish-request', r.id, { kind: 'submission', submissionId: s.id, version: s.version, digest });
+  ecosystemAudit({ action: 'plugin.request.submit', actor: ANONYMOUS_ACTOR_ID, targetType: 'plugin-publish-request', targetId: r.id, details: { kind: 'submission', submissionId: s.id, version: s.version, digest } });
   await notifySubmissionQueued({ name: s.name, version: s.version, newListing: !listing });
 }
 
-/** Whether a submission already has its OPEN moderation request (the gate run's idempotency key, E6). */
+/** Whether a submission already has its OPEN moderation request (the gate run's idempotency key). */
 export async function hasOpenSubmissionRequest(submissionId: string): Promise<boolean> {
   return (await requests.list({ kinds: ['submission'], statuses: OPEN_STATUSES, submissionId, limit: 1 })).length > 0;
 }
@@ -181,22 +176,15 @@ export async function submissionSnapshot(s: PluginSubmission, facts: SubmissionF
   };
 }
 
-/** The email hash of the first approved submission behind a community listing. */
-async function ownerHash(listingId: string): Promise<string | null> {
-  const approved = (await submissions.list({ listingId, statuses: ['approved', 'claimed'] }))
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  return approved[0]?.emailHash ?? null;
-}
-
 /**
  * Execute an approved `submission` request (decisions.execute): publish the
  * pinned quarantined digest into `public/community/<name>`, record the listing
  * version, mark the submission approved (N4). Fails closed on any mismatch.
  *
- * Order: every check (the name gate re-run NOW, E18), then CLAIM the
- * submission `pending_review → publishing` (E10 — an expiry can no longer take
+ * Order: every check (the name gate re-run NOW), then CLAIM the
+ * submission `pending_review → publishing` (an expiry can no longer take
  * it or delete its artifacts), then the image copy (idempotent), then every
- * database write in ONE transaction (E5: listing, version, latest pointer,
+ * database write in ONE transaction (listing, version, latest pointer,
  * request link, `publishing → approved`). Any failure hands the claim back.
  */
 export async function publishSubmission(r: PluginPublishRequest, publisher: Publisher, actor: string): Promise<void> {
@@ -210,20 +198,19 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
     throw new ConflictError('The quarantined build no longer matches the digest the request pinned.', ErrorCode.PLUGIN_DIGEST_MISMATCH);
   }
 
-  // E18: the name is judged again at approval — a reservation, an Official or
+  // the name is judged again at approval — a reservation, an Official or
   // Verified listing, or a confusable top listing may have appeared since the
   // gates ran.
-  const { submissionNameGate } = await import('./submissions.js');
   const gate = await submissionNameGate(s.name, s.emailHash);
   if (!gate.ok) throw new ConflictError(`The name no longer passes: ${gate.message}`, ErrorCode.NAME_TAKEN);
 
   let listing = r.listingId ? await listings.byId(r.listingId) : await listings.byName(publisher.id, s.name);
   if (listing) {
-    if (!['listed', 'unmaintained'].includes(listing.state) || listing.publisherId !== publisher.id) {
+    if (!isActiveListing(listing) || listing.publisherId !== publisher.id) {
       throw new ConflictError(`community/${s.name} is not live under the community publisher.`);
     }
     // No recorded owner (purged, or never approved) is NOT "anyone may extend it".
-    const owner = await ownerHash(listing.id);
+    const owner = await listingOwnerHash(listing.id);
     const empty = (await versions.countForListing(listing.id)) === 0;
     if (!empty && (!owner || owner !== s.emailHash)) throw new ConflictError(`community/${s.name} belongs to another submitter.`);
     if (await versions.get(listing.id, s.version)) throw new ConflictError(`${s.version} is already published to community/${s.name}.`);
@@ -266,8 +253,7 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
         scannedAt: facts.scannedAt ? new Date(facts.scannedAt) : null,
         publishedBy: actor,
       });
-      const live = (await versions.forListings([into.id])).filter((v) => !v.yankedAt).map((v) => v.version);
-      const latest = await listings.update(into.id, { latestVersion: latestVersion(live) });
+      const latest = await recomputeLatest(into.id);
       if (!r.listingId) await requests.transition(r.id, 'approved', { listingId: into.id });
       const approved = await submissions.transition(s.id, 'publishing', {
         status: 'approved',
@@ -275,7 +261,7 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
         decidedBy: actor,
         decidedAt: now,
         reason: null,
-        emailPurgeAfter: new Date(now.getTime() + EMAIL_RETENTION_DAYS * DAY_MS),
+        emailPurgeAfter: emailPurgeAt(now),
       });
       if (!approved) throw new ConflictError('The submission changed state meanwhile; nothing was published.');
       return { target: into, version: inserted, updated: latest };
@@ -286,11 +272,20 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
     throw err;
   }
 
-  audit('plugin.listing.publish', actor, 'plugin-listing-version', version.id, {
-    listing: `${publisher.handle}/${s.name}`, version: s.version, digest: facts.digest, tier: publisher.tier, kind: 'submission', submissionId: s.id,
+  ecosystemAudit({
+    action: 'plugin.listing.publish',
+    actor,
+    targetType: 'plugin-listing-version',
+    targetId: version.id,
+    details: {
+      listing: `${publisher.handle}/${s.name}`, version: s.version, digest: facts.digest, tier: publisher.tier, kind: 'submission', submissionId: s.id,
+    },
   });
-  audit('plugin.submission.approve', actor, 'plugin-submission', s.id, { submissionId: s.id, listing: `${publisher.handle}/${s.name}`, version: s.version, digest: facts.digest });
+  ecosystemAudit({ action: 'plugin.submission.approve', actor, targetType: 'plugin-submission', targetId: s.id, details: { submissionId: s.id, listing: `${publisher.handle}/${s.name}`, version: s.version, digest: facts.digest } });
   recordSubmission('approved');
+  // Published: the public copy is the image now; the quarantined package and build are spent.
+  await dropQuarantineArtifacts(s).catch((err) =>
+    logger.warn('Dropping a published submission\'s quarantine artifacts failed', { submissionId: s.id, error: errorMessage(err) }));
 
   const email = await submitterEmail(s);
   if (email) {
@@ -308,13 +303,13 @@ export async function rejectSubmission(r: PluginPublishRequest, reason: string, 
     reason,
     decidedBy: actor,
     decidedAt: now,
-    emailPurgeAfter: new Date(now.getTime() + EMAIL_RETENTION_DAYS * DAY_MS),
+    emailPurgeAfter: emailPurgeAt(now),
   });
   if (!done) {
     logger.warn('Rejected a submission request whose submission was no longer pending', { submissionId: s.id, status: s.status });
     return;
   }
-  audit('plugin.submission.reject', actor, 'plugin-submission', s.id, { submissionId: s.id, name: s.name, version: s.version, reason: reason.slice(0, 200) });
+  ecosystemAudit({ action: 'plugin.submission.reject', actor, targetType: 'plugin-submission', targetId: s.id, details: { submissionId: s.id, name: s.name, version: s.version, reason: reason.slice(0, 200) } });
   recordSubmission('rejected');
   await dropQuarantineArtifacts(s);
   const email = await submitterEmail(s);
@@ -322,12 +317,17 @@ export async function rejectSubmission(r: PluginPublishRequest, reason: string, 
 }
 
 // -----------------------------------------------------------------------------
-// The review view (§3.0.2): gate report, heuristics, the diff vs the previous
+// The review view: gate report, heuristics, the diff vs the previous
 // approved version of the same community listing.
 // -----------------------------------------------------------------------------
 
 /** GET /ecosystem/requests/:id → `submission` (moderators only; never the email). */
 export async function submissionReview(r: PluginPublishRequest) {
+  return (await submissionReviewContext(r)).review;
+}
+
+/** The submission review with the rows it was built from (so the console's diff reads nothing twice). */
+export async function submissionReviewContext(r: PluginPublishRequest) {
   const s = await submissionForRequest(r);
   const report = gateReportOf(s);
   const listing = r.listingId ? await listings.byId(r.listingId) : null;
@@ -336,7 +336,7 @@ export async function submissionReview(r: PluginPublishRequest) {
   const values = (s.catalog?.values ?? {}) as Record<string, unknown>;
   const sources = (s.catalog?.sources ?? {}) as Record<string, string>;
   const fields = Object.keys(values);
-  return {
+  const review = {
     id: s.id,
     status: s.status,
     name: s.name,
@@ -350,13 +350,13 @@ export async function submissionReview(r: PluginPublishRequest) {
     sbomUrl: report?.facts ? `/api/plugins/ecosystem/requests/${r.id}/submission-sbom` : null,
     scanUrl: report?.facts ? `/api/plugins/ecosystem/requests/${r.id}/submission-scan` : null,
     previousVersion: prev?.version ?? null,
-    metadata: fields.map((field) => {
-      const value = values[field] ?? null;
-      const previous = listing && (LISTING_FIELDS as readonly string[]).includes(field) ? listingFieldValue(listing, field as never) : null;
-      const source = sources[field] ?? null;
-      const changed = listing ? !sameValue(value, previous) : value !== null;
-      return { field, value, previous, source, changed, userEdited: source === 'user', isLink: isLinkField(field), highlight: source === 'user' && isLinkField(field) && changed };
-    }),
+    metadata: fields.map((field) => metadataRow(
+      field,
+      values[field] ?? null,
+      listing && (LISTING_FIELDS as readonly string[]).includes(field) ? listingFieldValue(listing, field as never) : null,
+      sources[field] ?? null,
+      listing !== null,
+    )),
     contract: current ? contractDiff(prev?.specSnapshot ?? null, current) : null,
     dockerfile: {
       previous: (prev?.specSnapshot?.dockerfile as string | null | undefined) ?? null,
@@ -368,10 +368,11 @@ export async function submissionReview(r: PluginPublishRequest) {
       current: { critical: report.facts.vulnCritical, high: report.facts.vulnHigh, scannedAt: report.facts.scannedAt },
     } : null,
   };
+  return { review, submission: s, listing, previous: prev, facts: report?.facts ?? null };
 }
 
 // -----------------------------------------------------------------------------
-// Claims (E10)
+// Claims
 // -----------------------------------------------------------------------------
 
 /** The claiming caller's email hash — only for a VERIFIED account email and a configured secret. */
@@ -392,7 +393,7 @@ export async function claimEmailMatch(r: PluginPublishRequest): Promise<boolean 
   const payload = (r.payload ?? {}) as { target?: { listingId?: string }; claimantEmailHash?: string };
   const listingId = payload.target?.listingId;
   if (!listingId || !payload.claimantEmailHash) return null;
-  const owner = await ownerHash(listingId);
+  const owner = await listingOwnerHash(listingId);
   return owner ? owner === payload.claimantEmailHash : null;
 }
 
@@ -412,8 +413,14 @@ export async function linkClaimedSubmissions(input: {
     for (const s of rows) {
       const done = await submissions.transition(s.id, 'approved', { status: 'claimed' });
       if (!done) continue;
-      audit('plugin.submission.claim', input.actor, 'plugin-submission', s.id, {
-        submissionId: s.id, listing: `${input.publisherHandle}/${input.listing.name}`, claimedBy: input.userId,
+      ecosystemAudit({
+        action: 'plugin.submission.claim',
+        actor: input.actor,
+        targetType: 'plugin-submission',
+        targetId: s.id,
+        details: {
+          submissionId: s.id, listing: `${input.publisherHandle}/${input.listing.name}`, claimedBy: input.userId,
+        },
       });
       recordSubmission('claimed');
     }

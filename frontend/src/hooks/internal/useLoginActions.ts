@@ -22,7 +22,7 @@ export type LoginResult =
    *  and calls `completeRequiredPasswordChange`. */
   | { status: 'password_change_required'; challengeId: string; expiresAt: number; minLength: number }
   /** The install's bootstrap administrator signed in before enrolling any factor
-   *  (#8). A real session was opened, but it reaches only enrolment, sign-out
+   *. A real session was opened, but it reaches only enrolment, sign-out
    *  and the setup routes, so the caller lands them on enrolment rather than on
    *  a dashboard whose every panel would answer 403. */
   | { status: 'mfa_enrollment_pending' };
@@ -98,7 +98,7 @@ export function useLoginActions({ refreshUser, setIsSubmitting, router }: UseLog
 
       await refreshUser();
 
-      // Bootstrap-admin enrolment session (#8): send them to the security
+      // Bootstrap-admin enrolment session: send them to the security
       // settings, which is the only place this session can usefully go. The
       // exception closes the moment they enrol, after which an ordinary sign-in
       // behaves normally.

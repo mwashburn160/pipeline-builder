@@ -212,7 +212,7 @@ describe('findRouteCoverageViolations', () => {
   });
 });
 
-describe('internal-route coverage (#14)', () => {
+describe('internal-route coverage', () => {
   const buildApp = () => {
     const app = express();
     app.post('/messages/internal/notify', requireAuth, requireInternalService({ callers: ['platform'] }), audited('message.notify'), noop);

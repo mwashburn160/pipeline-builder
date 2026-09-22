@@ -56,7 +56,7 @@ export function ManageRolesModal({
       {rolesListError ? (
         // Distinguish a FAILED catalog load from a genuinely empty one, so the
         // list isn't silently blank (which would read like "no roles exist").
-        <div className="text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
+        <div className="text-sm text-danger flex items-center gap-2">
           <span>Couldn&apos;t load roles — {rolesListError}.</span>
           <button type="button" onClick={() => void onRetry()} className="action-link">Retry</button>
         </div>
@@ -73,14 +73,14 @@ export function ManageRolesModal({
                 className="mt-0.5"
               />
               <span className="min-w-0">
-                <span className="font-medium text-gray-800 dark:text-gray-200">{r.name}</span>
+                <span className="font-medium text-fg">{r.name}</span>
                 {r.description && <span className="block text-xs text-fg-subtle">{r.description}</span>}
               </span>
             </label>
           ))}
         </div>
       )}
-      {error && <p className="text-sm text-red-600 dark:text-red-400 mt-3 whitespace-pre-line">{error}</p>}
+      {error && <p className="text-sm text-danger mt-3 whitespace-pre-line">{error}</p>}
     </Modal>
   );
 }

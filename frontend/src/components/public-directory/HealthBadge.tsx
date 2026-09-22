@@ -13,7 +13,7 @@ const BAND_CLS: Record<HealthBand, string> = {
 };
 
 /**
- * The listing's health score (W7) as a small pill: "Health 86". Nothing at all
+ * The listing's health score as a small pill: "Health 86". Nothing at all
  * when there is no score (a new listing isn't penalised visually). The band is
  * spelled out for screen readers, so colour is never the only signal.
  */

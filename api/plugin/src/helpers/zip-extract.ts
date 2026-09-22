@@ -22,9 +22,9 @@ import yauzl from 'yauzl';
  * upload; a few-KB ZIP can still expand to GB / millions of inodes. We cap
  * cumulative extracted bytes and entry count.
  *
- *   PLUGIN_MAX_UPLOAD_MB      compressed upload ceiling (mirrors CoreConstants; default 4096)
- *   PLUGIN_MAX_EXTRACT_RATIO  max expansion factor over the upload ceiling (default 50×)
- *   PLUGIN_MAX_EXTRACT_BYTES  absolute extracted-byte ceiling (overrides the ratio calc when set)
+ *   PLUGIN_MAX_UPLOAD_MB compressed upload ceiling (mirrors CoreConstants; default 4096)
+ *   PLUGIN_MAX_EXTRACT_RATIO max expansion factor over the upload ceiling (default 50×)
+ *   PLUGIN_MAX_EXTRACT_BYTES absolute extracted-byte ceiling (overrides the ratio calc when set)
  *   PLUGIN_MAX_EXTRACT_ENTRIES max number of ZIP entries (default 10000)
  *
  * Read from env at call time (not module load) so operators — and tests — can
@@ -80,18 +80,16 @@ export async function readAndExtractZip(
     // autoClose:false — we own the fd lifecycle explicitly. yauzl's default
     // autoClose only fires on the natural `end` (or a yauzl-emitted error); it
     // does NOT close on our own validation rejects (entry-count cap, path
-    // traversal, byte cap), which is exactly how the fd used to leak. Owning it
-    // here guarantees a single close on EVERY terminal path.
+    // traversal, byte cap). Owning it here guarantees a single close on EVERY
+    // terminal path.
     yauzl.open(zipPath, { lazyEntries: true, autoClose: false }, (err, zipfile) => {
       if (err) return reject(err);
 
       // Close the underlying fd on EVERY terminal path — success AND every
       // reject (entry-count cap, path traversal, byte cap, stream/mkdir
-      // errors). Previously `close()` ran only on the success `end` path, so a
-      // rejected extraction (zip bomb / traversal spam) leaked an fd per
-      // upload and could exhaust the process's descriptor table. `settled`
-      // guards against a double-close if a later event fires after the promise
-      // has already resolved/rejected.
+      // errors) — or each rejected extraction (zip bomb / traversal spam)
+      // would leak a descriptor. `settled` guards against a double-close if a
+      // later event fires after the promise has already resolved/rejected.
       let settled = false;
       const finish = (fn: () => void): void => {
         if (settled) return;
@@ -113,7 +111,7 @@ export async function readAndExtractZip(
           ));
         }
 
-        // -- Entry type (E11) -------------------------------------------------
+        // -- Entry type -------------------------------------------------
         // Only regular files and directories. The high 16 bits of the external
         // attributes carry the Unix st_mode for zips made on Unix; a symlink,
         // hard-link/device/FIFO/socket type is refused outright rather than

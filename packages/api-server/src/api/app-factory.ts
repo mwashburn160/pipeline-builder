@@ -62,15 +62,13 @@ export interface CreateAppOptions {
   logStream?: boolean;
   /** Health check dependency checker — if provided, /health reports dependency status */
   checkDependencies?: () => Promise<Record<string, 'connected' | 'disconnected' | 'unknown'>>;
-  /** Enable OpenAPI spec at /docs/openapi.json and Swagger UI at /docs (default: true) */
   /**
    * Serve the OpenAPI spec at `/docs/openapi.json` and Swagger UI at `/docs`.
    *
    * Defaults to OFF under `NODE_ENV=production`: the routes are registered above
-   * the rate limiter and were never auth-gated, so in production they published
+   * the rate limiter and are not auth-gated, so in production they would publish
    * the full route + schema inventory of every service to anyone who could reach
-   * the port. Only the CSP was tightened for production before, not the route.
-   * Pass `true` explicitly to serve them in production anyway.
+   * the port. Pass `true` explicitly to serve them in production anyway.
    */
   enableOpenApi?: boolean;
   /** OpenAPI spec customization options */
@@ -105,101 +103,15 @@ export interface CreateAppResult {
   sseManager: SSEManager;
 }
 
-/**
- * Create and configure an Express application with common middleware
- *
- * Sets up:
- * - CORS with configured origins
- * - Helmet security headers
- * - Rate limiting
- * - JSON and URL-encoded body parsing
- * - Trust proxy settings
- * - Health check endpoint (/health)
- * - Metrics endpoint (/metrics)
- * - SSE logs endpoint (/logs/:requestId) — only with `logStream: true`
- *
- * @param options - Configuration options
- * @returns Configured Express app and SSE manager
- *
- * @example
- * ```typescript
- * const { app, sseManager } = createApp();
- *
- * app.post('/api/resource', requireAuth, async (req, res) => {
- *   // Your route handler
- * });
- *
- * startServer(app, { name: 'My Service' });
- * ```
- */
-export function createApp(options: CreateAppOptions = {}): CreateAppResult {
-  const {
-    enableCors = true,
-    enableHelmet = true,
-    enableRateLimit = true,
-    enableJsonBody = true,
-    jsonLimit = '1mb',
-    enableUrlEncoded = true,
-    urlEncodedLimit = '1mb',
-    logStream = false,
-    checkDependencies,
-    enableOpenApi = process.env.NODE_ENV !== 'production',
-    openApiOptions,
-    enableCompression = true,
-    warmupHooks = [],
-    idempotencyStore,
-  } = options;
-
-  const serviceName = process.env.SERVICE_NAME || 'api';
-
-  // Default SSE manager. The relay (this service's own Redis channel) is built
-  // only when something streams: the log stream turns it on here, and an
-  // org-keyed channel turns it on when registered (registerSseTicketChannel).
-  // The log ticket store exists only with the log stream. A caller-supplied
-  // `sseManager` skips this entirely.
-  const sseManager = options.sseManager ?? new SSEManager({
-    logStream,
-    relayFactory: () => createEnvRedisSSERelay(serviceName),
-    ...(logStream && {
-      ticketStore: createEnvSseTicketStore({
-        ttlMs: SSE_TICKET_TTL_MS,
-        maxTotal: parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10),
-        maxPerOrg: parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10),
-        keyPrefix: `logs:${serviceName}`,
-      }),
-    }),
-  });
-  if (logStream) sseManager.enableRelay();
-
-  // Wire the idempotency replay-cache backend used by the post-auth route
-  // factories (createProtectedRoute / createAuthenticatedWithOrgRoute). Prefer
-  // an explicitly injected store; otherwise auto-construct from the shared env
-  // Redis so keyed mutation retries dedupe across replicas. Falls back to the
-  // in-memory default when no Redis is configured (single-replica correctness).
-  const resolvedIdempotencyStore = idempotencyStore ?? createEnvRedisIdempotencyStore();
-  if (resolvedIdempotencyStore) {
-    setIdempotencyStore(resolvedIdempotencyStore);
-  }
-
-  // OpenTelemetry is NOT initialized here: by the time createApp runs, express
-  // and http have already been required, so the auto-instrumentation hooks
-  // would have nothing to patch (no inbound span → no trace id). Tracing is
-  // started by the `otel-bootstrap.js` preload instead (node -r … — see each
-  // service's Dockerfile CMD / start script), which runs before any
-  // instrumented module loads. `currentTraceId()` then reads the active span.
-
-  const serverConfig = Config.get('server');
-  const app = express();
-
-  // Security middleware.
-  //
+/** Helmet (strict CSP), CORS, compression and ETags. */
+function applySecurityHeaders(app: Express, options: CreateAppOptions, enableOpenApi: boolean): void {
+  const { enableCors = true, enableHelmet = true, enableCompression = true } = options;
   // Swagger UI needs unsafe-inline + unsafe-eval for its bundled scripts —
-  // but we only relax CSP that far when (a) OpenAPI is enabled AND (b) we're
+  // but CSP is only relaxed that far when (a) OpenAPI is enabled AND (b) we're
   // not in production. In prod, Swagger should be served behind a separate
   // host or auth-gated route; the main app keeps the strict CSP so a Stored
   // XSS in any handler can't `eval()` arbitrary script.
-  const isProduction = process.env.NODE_ENV === 'production';
-  const allowSwaggerCsp = enableOpenApi && !isProduction;
+  const allowSwaggerCsp = enableOpenApi && process.env.NODE_ENV !== 'production';
   if (enableHelmet) {
     app.use(helmet({
       contentSecurityPolicy: {
@@ -222,7 +134,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   }
 
   if (enableCors) {
-    app.use(cors(serverConfig.cors));
+    app.use(cors(Config.get('server').cors));
   }
 
   // Response compression (gzip/deflate) — skip SSE streams
@@ -230,8 +142,8 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     app.use(compression({
       filter: (req: Request, res: Response) => {
         // Don't compress SSE streams. Match by inclusion: the Accept header is
-        // often a list (e.g. "text/event-stream, */*"), so exact equality missed
-        // those and compressed/buffered the stream.
+        // often a list (e.g. "text/event-stream, */*"), which exact equality
+        // would miss, compressing/buffering the stream.
         if ((req.headers.accept || '').includes('text/event-stream')) return false;
         return compression.filter(req, res);
       },
@@ -241,8 +153,11 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // ETag support for conditional GET requests (304 Not Modified)
   app.use(etagMiddleware());
+}
 
-  // Body parsing
+/** JSON + URL-encoded body parsers. */
+function applyBodyParsing(app: Express, options: CreateAppOptions): void {
+  const { enableJsonBody = true, jsonLimit = '1mb', enableUrlEncoded = true, urlEncodedLimit = '1mb' } = options;
   if (enableJsonBody) {
     const jsonParser = express.json({ limit: jsonLimit });
     const exclude = options.jsonBodyExclude ?? [];
@@ -258,20 +173,15 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   if (enableUrlEncoded) {
     app.use(express.urlencoded({ extended: true, limit: urlEncodedLimit }));
   }
+}
 
-  // Trust proxy (must be set before rate limiter so req.ip resolves correctly)
-  app.set('trust proxy', serverConfig.trustProxy);
+/**
+ * Health, readiness guard, `/warmup`, `/metrics` and the OpenAPI docs — all
+ * registered before the rate limiter so they are never throttled.
+ */
+function mountInfraEndpoints(app: Express, options: CreateAppOptions, serviceName: string, enableOpenApi: boolean): void {
+  const { checkDependencies, openApiOptions, warmupHooks = [] } = options;
 
-  // Request ID — prefer existing header from nginx, otherwise generate one
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    const hdr = req.headers['x-request-id'];
-    const requestId = (Array.isArray(hdr) ? hdr[0] : hdr) || uuid();
-    req.requestId = requestId;
-    res.setHeader('X-Request-Id', requestId);
-    next();
-  });
-
-  // Health check registered before rate limiter so it is never throttled
   app.use(createHealthRouter({
     serviceName,
     checkDependencies,
@@ -290,9 +200,9 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Mongo / Redis / SQS pass `warmupHooks` so those are warmed in parallel.
   //
   // GATED to verified service principals. Every hit runs a Postgres round-trip
-  // plus all `warmupHooks` (Mongo/Redis/SQS), so while it was open an anonymous
-  // loop amplified into datastore load on every service in the fleet — and
-  // because it is registered above the rate limiter, nothing throttled it.
+  // plus all `warmupHooks` (Mongo/Redis/SQS), so an open endpoint would let an
+  // anonymous loop amplify into datastore load on every service in the fleet —
+  // and it is registered above the rate limiter, so nothing would throttle it.
   // `verifyServicePrincipal` checks the bearer token cryptographically, so it is
   // safe here, above `requireAuth`.
   app.get('/warmup', async (req: Request, res: Response) => {
@@ -316,9 +226,9 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Optionally gated: when `METRICS_SCRAPE_TOKEN` is set, the scraper must send
   // it as a bearer token (Prometheus `bearer_token` / `bearer_token_file` in the
   // scrape config). Left ungated when unset so enabling it is a deliberate,
-  // coordinated change rather than a silent monitoring outage — the tenant
-  // disclosure that made gating urgent is closed independently by defaulting the
-  // per-org label OFF (see HTTP_METRICS_ORG_SAMPLE_RATE in metrics.ts).
+  // coordinated change rather than a silent monitoring outage — tenant ids stay
+  // out of the output regardless, because the per-org label defaults OFF (see
+  // HTTP_METRICS_ORG_SAMPLE_RATE in metrics.ts).
   const metricsToken = process.env.METRICS_SCRAPE_TOKEN;
   app.get('/metrics', (req: Request, res: Response, next: NextFunction) => {
     if (!metricsToken) {
@@ -336,7 +246,6 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
     next();
   }, metricsHandler());
 
-  // OpenAPI spec and Swagger UI (registered before rate limiter)
   if (enableOpenApi) {
     const spec = generateOpenApiSpec(openApiOptions);
     app.get('/docs/openapi.json', (_req: Request, res: Response) => {
@@ -346,47 +255,48 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
       customSiteTitle: openApiOptions?.title ?? 'Pipeline Builder API Docs',
     }));
   }
+}
 
-  // Rate limiting — shared across replicas via the env Redis when configured
-  if (enableRateLimit) {
-    const rateLimitConfig = Config.get('rateLimit');
+/** Global rate limiter — shared across replicas via the env Redis when configured. */
+function mountRateLimiter(app: Express, serviceName: string): void {
+  const rateLimitConfig = Config.get('rateLimit');
 
-    const rateLimitOptions: Parameters<typeof rateLimit>[0] = {
-      max: rateLimitConfig.max,
-      windowMs: rateLimitConfig.windowMs,
-      standardHeaders: true,
-      legacyHeaders: false,
-      // Skip rate limiting only for CRYPTOGRAPHICALLY-VERIFIED internal service
-      // callers. The limiter runs before requireAuth, so the previously-trusted
-      // plaintext `x-internal-service` header was spoofable by any external
-      // client → total bypass. verifyServicePrincipal verifies the signed
-      // service JWT instead; inter-service callers all send one
-      // (getServiceAuthHeader).
-      skip: (req: Request) => verifyServicePrincipal(req),
-      // Key on client IP only. The limiter runs pre-auth, so `req.user` is unset
-      // and any org id would come from the caller-supplied `x-org-id` header —
-      // spoofable, letting an attacker rotate values to evade the bucket or
-      // flood a victim org's bucket. ipKeyGenerator normalizes IPv6 to a /64
-      // prefix (also required by express-rate-limit 8.x's validator).
-      keyGenerator: (req: Request) => ipKeyGenerator(req.ip || 'anon', 64),
-      // A store failure (Redis down / failing over) must degrade to "not rate
-      // limited", never to a 500 on every request of every service.
-      passOnStoreError: true,
-      handler: (_req: Request, res: Response) => {
-        sendError(res, 429, 'Too many requests, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
-      },
-    };
-
+  const rateLimitOptions: Parameters<typeof rateLimit>[0] = {
+    max: rateLimitConfig.max,
+    windowMs: rateLimitConfig.windowMs,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Skip rate limiting only for CRYPTOGRAPHICALLY-VERIFIED internal service
+    // callers. The limiter runs before requireAuth, so a plaintext header
+    // would be spoofable by any external client → total bypass.
+    // verifyServicePrincipal verifies the signed service JWT instead;
+    // inter-service callers all send one (getServiceAuthHeader).
+    skip: (req: Request) => verifyServicePrincipal(req),
+    // Key on client IP only. The limiter runs pre-auth, so `req.user` is unset
+    // and any org id would come from the caller-supplied `x-org-id` header —
+    // spoofable, letting an attacker rotate values to evade the bucket or
+    // flood a victim org's bucket. ipKeyGenerator normalizes IPv6 to a /64
+    // prefix (also required by express-rate-limit 8.x's validator).
+    keyGenerator: (req: Request) => ipKeyGenerator(req.ip || 'anon', 64),
+    // A store failure (Redis down / failing over) must degrade to "not rate
+    // limited", never to a 500 on every request of every service.
+    passOnStoreError: true,
+    handler: (_req: Request, res: Response) => {
+      sendError(res, 429, 'Too many requests, please try again later.', ErrorCode.RATE_LIMIT_EXCEEDED);
+    },
     // Shared state across replicas (the process-wide rate-limit Redis connection;
     // undefined without Redis → per-process memory store, right for one replica).
-    // Namespaced per SERVICE: every service shares one Redis, and the old
-    // unprefixed `rl:<ip>` key let one client's traffic to ANY service drain its
+    // Namespaced per SERVICE: every service shares one Redis, and an unprefixed
+    // `rl:<ip>` key would let one client's traffic to ANY service drain its
     // budget on EVERY service.
-    rateLimitOptions.store = createSharedRateLimitStore(`${serviceName}:global`);
+    store: createSharedRateLimitStore(`${serviceName}:global`),
+  };
 
-    app.use(rateLimit(rateLimitOptions));
-  }
+  app.use(rateLimit(rateLimitOptions));
+}
 
+/** Request timeout, duration logging and HTTP metrics. */
+function applyRequestTelemetry(app: Express): void {
   // Express request timeout — uses CoreConstants to share the same default as Lambda handlers
   const timeoutMs = CoreConstants.HANDLER_TIMEOUT_MS;
   app.use((_req: Request, res: Response, next: NextFunction) => {
@@ -419,6 +329,154 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
 
   // Prometheus metrics middleware — records request duration and count
   app.use(metricsMiddleware());
+}
+
+/**
+ * The default SSE manager. The relay (this service's own Redis channel) is
+ * built only when something streams: the log stream turns it on here, and an
+ * org-keyed channel turns it on when registered (registerSseTicketChannel).
+ * The log ticket store exists only with the log stream.
+ */
+function createDefaultSseManager(serviceName: string, logStream: boolean): SSEManager {
+  const sseManager = new SSEManager({
+    logStream,
+    relayFactory: () => createEnvRedisSSERelay(serviceName),
+    ...(logStream && {
+      ticketStore: createEnvSseTicketStore({
+        ttlMs: SSE_TICKET_TTL_MS,
+        keyPrefix: `logs:${serviceName}`,
+      }),
+    }),
+  });
+  if (logStream) sseManager.enableRelay();
+  return sseManager;
+}
+
+/**
+ * The per-request build-log stream: `POST /logs/ticket` + `GET /logs/:requestId`.
+ *
+ * Ticket-gated — the stream carries per-org build logs, so it must not be
+ * world-readable. Clients first POST /logs/ticket (JWT-authenticated) to mint a
+ * short-lived, single-use ticket bound to their org AND to the specific
+ * `requestId` stream they intend to open, then open the EventSource with
+ * ?ticket=<t>. This keeps the JWT out of query strings / access logs while
+ * enforcing org ownership, per-subject authorization, and the per-org
+ * connection cap on the stream. Mirrors the message-service notifications SSE
+ * ticket exchange.
+ */
+function wireSse(app: Express, sseManager: SSEManager): void {
+  app.post('/logs/ticket', requireAuth, async (req: Request, res: Response) => {
+    const orgId = req.user?.organizationId?.toLowerCase();
+    if (!orgId) {
+      sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
+      return;
+    }
+    // The caller must name the stream subject up front so the ticket is bound to
+    // it. Without this, a ticket could be replayed against ANY requestId the
+    // org could guess, letting it attach to another org's log stream. Strictly
+    // format-validated so it can't carry an injection payload into the subject.
+    const requestId = (req.body as { requestId?: unknown } | undefined)?.requestId;
+    if (typeof requestId !== 'string' || !SSE_REQUEST_ID_RE.test(requestId)) {
+      sendError(res, 400, 'Missing or invalid requestId', ErrorCode.VALIDATION_ERROR);
+      return;
+    }
+    const result = await sseManager.createTicket(orgId, requestId);
+    if (!result.ok) {
+      if (result.reason === 'forbidden') {
+        // The subject is owned by another org — do not confirm it exists; a plain
+        // 403 is enough and leaks nothing about which requestIds are live.
+        sendError(res, 403, 'Not authorized for this log stream', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      } else if (result.reason === 'org-limit') {
+        sendError(res, 429, 'Too many log stream tickets issued', ErrorCode.QUOTA_EXCEEDED);
+      } else {
+        sendError(res, 503, 'Log streaming subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);
+      }
+      return;
+    }
+    sendSuccess(res, 200, { ticket: result.ticket });
+  });
+
+  // The stream itself resolves + consumes the ticket inside middleware() and
+  // rejects any anonymous / invalid / expired / already-used ticket with 401.
+  app.get('/logs/:requestId', sseManager.middleware());
+}
+
+/**
+ * Create and configure an Express application with common middleware
+ *
+ * Sets up:
+ * - CORS with configured origins
+ * - Helmet security headers
+ * - Rate limiting
+ * - JSON and URL-encoded body parsing
+ * - Trust proxy settings
+ * - Health check endpoint (/health)
+ * - Metrics endpoint (/metrics)
+ * - SSE logs endpoint (/logs/:requestId) — only with `logStream: true`
+ *
+ * @param options - Configuration options
+ * @returns Configured Express app and SSE manager
+ *
+ * @example
+ * ```typescript
+ * const { app, sseManager } = createApp();
+ *
+ * app.post('/api/resource', requireAuth, async (req, res) => {
+ *   // Your route handler
+ * });
+ *
+ * startServer(app, { name: 'My Service' });
+ * ```
+ */
+export function createApp(options: CreateAppOptions = {}): CreateAppResult {
+  const {
+    enableRateLimit = true,
+    logStream = false,
+    enableOpenApi = process.env.NODE_ENV !== 'production',
+  } = options;
+
+  const serviceName = process.env.SERVICE_NAME || 'api';
+
+  // A caller-supplied `sseManager` skips the default construction entirely.
+  const sseManager = options.sseManager ?? createDefaultSseManager(serviceName, logStream);
+
+  // Wire the idempotency replay-cache backend used by the post-auth route
+  // factories (createProtectedRoute / createAuthenticatedWithOrgRoute). Prefer
+  // an explicitly injected store; otherwise auto-construct from the shared env
+  // Redis so keyed mutation retries dedupe across replicas. Falls back to the
+  // in-memory default when no Redis is configured (single-replica correctness).
+  const resolvedIdempotencyStore = options.idempotencyStore ?? createEnvRedisIdempotencyStore();
+  if (resolvedIdempotencyStore) {
+    setIdempotencyStore(resolvedIdempotencyStore);
+  }
+
+  // OpenTelemetry is NOT initialized here: by the time createApp runs, express
+  // and http have already been required, so the auto-instrumentation hooks
+  // would have nothing to patch (no inbound span → no trace id). Tracing is
+  // started by the `otel-bootstrap.js` preload instead (node -r … — see each
+  // service's Dockerfile CMD / start script), which runs before any
+  // instrumented module loads. `currentTraceId()` then reads the active span.
+
+  const app = express();
+
+  applySecurityHeaders(app, options, enableOpenApi);
+  applyBodyParsing(app, options);
+
+  // Trust proxy (must be set before rate limiter so req.ip resolves correctly)
+  app.set('trust proxy', Config.get('server').trustProxy);
+
+  // Request ID — prefer existing header from nginx, otherwise generate one
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const hdr = req.headers['x-request-id'];
+    const requestId = (Array.isArray(hdr) ? hdr[0] : hdr) || uuid();
+    req.requestId = requestId;
+    res.setHeader('X-Request-Id', requestId);
+    next();
+  });
+
+  mountInfraEndpoints(app, options, serviceName, enableOpenApi);
+  if (enableRateLimit) mountRateLimiter(app, serviceName);
+  applyRequestTelemetry(app);
 
   // NOTE: idempotency is intentionally NOT mounted here. It needs the VERIFIED
   // org id to namespace its replay cache, but this pre-auth position runs before
@@ -427,50 +485,7 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // into the post-auth route chains — see `createProtectedRoute` /
   // `createAuthenticatedWithOrgRoute` in middleware-factory.ts.
 
-  if (logStream) {
-    // SSE logs endpoint — ticket-gated (Wave 2b).
-    // The stream carries per-org build logs, so it must not be world-readable.
-    // Clients first POST /logs/ticket (JWT-authenticated) to mint a short-lived,
-    // single-use ticket bound to their org AND to the specific `requestId` stream
-    // they intend to open, then open the EventSource with ?ticket=<t>. This keeps
-    // the JWT out of query strings / access logs while enforcing org ownership,
-    // per-subject authorization, and the per-org connection cap on the stream.
-    // Mirrors the message-service notifications SSE ticket exchange.
-    app.post('/logs/ticket', requireAuth, async (req: Request, res: Response) => {
-      const orgId = req.user?.organizationId?.toLowerCase();
-      if (!orgId) {
-        sendError(res, 400, 'Token missing organization', ErrorCode.VALIDATION_ERROR);
-        return;
-      }
-      // The caller must name the stream subject up front so the ticket is bound to
-      // it. Without this, a ticket could be replayed against ANY requestId the
-      // org could guess, letting it attach to another org's log stream. Strictly
-      // format-validated so it can't carry an injection payload into the subject.
-      const requestId = (req.body as { requestId?: unknown } | undefined)?.requestId;
-      if (typeof requestId !== 'string' || !SSE_REQUEST_ID_RE.test(requestId)) {
-        sendError(res, 400, 'Missing or invalid requestId', ErrorCode.VALIDATION_ERROR);
-        return;
-      }
-      const result = await sseManager.createTicket(orgId, requestId);
-      if (!result.ok) {
-        if (result.reason === 'forbidden') {
-          // The subject is owned by another org — do not confirm it exists; a plain
-          // 403 is enough and leaks nothing about which requestIds are live.
-          sendError(res, 403, 'Not authorized for this log stream', ErrorCode.INSUFFICIENT_PERMISSIONS);
-        } else if (result.reason === 'org-limit') {
-          sendError(res, 429, 'Too many log stream tickets issued', ErrorCode.QUOTA_EXCEEDED);
-        } else {
-          sendError(res, 503, 'Log streaming subsystem at capacity', ErrorCode.QUOTA_EXCEEDED);
-        }
-        return;
-      }
-      sendSuccess(res, 200, { ticket: result.ticket });
-    });
-
-    // The stream itself resolves + consumes the ticket inside middleware() and
-    // rejects any anonymous / invalid / expired / already-used ticket with 401.
-    app.get('/logs/:requestId', sseManager.middleware());
-  }
+  if (logStream) wireSse(app, sseManager);
 
   return { app, sseManager };
 }

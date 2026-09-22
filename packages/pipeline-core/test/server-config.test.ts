@@ -164,6 +164,12 @@ describe('validateServerConfig', () => {
     platformPort: 3000,
     imageRegistryHost: 'image-registry',
     imageRegistryPort: 3000,
+    quotaHost: 'quota',
+    quotaPort: 3000,
+    reportingHost: 'reporting',
+    reportingPort: 3000,
+    askHost: 'ask',
+    askPort: 3000,
   };
 
   it('does not throw for valid config', () => {

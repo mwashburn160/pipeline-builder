@@ -6,12 +6,11 @@
  *
  * Background: postgres-init.sql installs RLS policies on every user-data
  * table that consult two session GUCs — `app.org_id` and `app.is_sysadmin`.
- * Most user-data tables have been flipped to `FORCE ROW LEVEL SECURITY`, so
- * the policies DO enforce even for the (owning) connection user — a query
- * against a FORCE'd table must run inside a transaction that has SET LOCAL'd
- * both GUCs or it returns zero rows for non-sysadmins (and may fail to write
- * for any caller). A few tables remain `ENABLE`-only (owner-bypass) pending
- * their soak; the same context plumbing covers both.
+ * Every tenant table is `FORCE ROW LEVEL SECURITY`, so the policies enforce
+ * even for the (owning) connection user — a query against one must run inside a
+ * transaction that has SET LOCAL'd both GUCs or it returns zero rows for
+ * non-sysadmins (and may fail to write for any caller). The cross-org plugin
+ * ecosystem catalog tables carry a permissive app-role policy instead.
  *
  * This module is the seam.
  *
@@ -27,7 +26,7 @@
  *   3. `runWithTenantContext(ctx, fn)` is the Express-middleware-side
  *      bookend that establishes the AsyncLocalStorage scope for the request.
  *
- * Migration order (see docs/plans/f-1-0-rls-enforcement.md):
+ * Migration order:
  *   - First adopters: newly-written services (dashboard, alert-destination)
  *     where the change is mechanical.
  *   - Then high-write services (plugin, pipeline). Soak each one before
@@ -37,7 +36,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, envInt } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { db } from './postgres-connection.js';
 
@@ -73,8 +72,8 @@ function getContextMode(): ContextMode {
  * (default 30s); set to `0` to disable the timeout.
  */
 function getStatementTimeoutMs(): number {
-  const raw = parseInt(process.env.DB_STATEMENT_TIMEOUT_MS ?? '', 10);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 30000;
+  const ms = envInt('DB_STATEMENT_TIMEOUT_MS', 30_000);
+  return ms >= 0 ? ms : 30_000;
 }
 
 export interface TenantContext {
@@ -179,9 +178,9 @@ export async function withTenantTx<T>(
 
   return db.transaction(async (tx) => {
     // Set every transaction-scoped GUC in a SINGLE round-trip. `set_config()`
-    // returns its value, so multiple calls compose in one SELECT — previously
-    // these were 2–3 separate `tx.execute()` round-trips PER read, each a
-    // network hop that taxes the shared PgBouncer pool on the hot path. `true`
+    // returns its value, so multiple calls compose in one SELECT rather than a
+    // round-trip per GUC — each a network hop that taxes the shared PgBouncer
+    // pool on the hot path. `true`
     // = is_local (SET LOCAL semantics: auto-released on COMMIT/ROLLBACK). The
     // driver binds the values as parameters, so a hostile org_id can't break out
     // of the GUC syntax.

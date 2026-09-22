@@ -5,8 +5,8 @@
  * `findDiscoverableOrgsForUser` — discovery annotated with where the CALLER
  * already stands.
  *
- * `GET /auth/onboarding/domain-orgs` used to return a bare eligibility list,
- * which made the join flow write-only: a user who filed a request had nowhere
+ * `GET /auth/onboarding/domain-orgs` annotates each org with the caller's own
+ * standing; a bare eligibility list would make the join flow write-only: a user who filed a request had nowhere
  * to learn its outcome, and one whose request was approved was still offered
  * "Request access" for an org they had already joined. These cover the
  * annotation, the id-spelling normalization across the three stores involved,
@@ -17,6 +17,8 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Types } from 'mongoose';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { selectLean } from './helpers/query-chain.js';
+import { seatsMock } from './helpers/seats-mock.js';
 
 const mockDomainFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockOrgFind = jest.fn<(...a: unknown[]) => unknown>();
@@ -43,7 +45,7 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, resolveOrgLineage: (...a: unknown[]) => mockResolveLineage(...a) }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ emailDomain: (e: string) => (e.includes('@') ? e.split('@')[1].toLowerCase() : null) }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({
+jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
   seatCapacityAvailable: jest.fn(), seatCapacityStillWithinCap: jest.fn(), userHasSeatInAccount: jest.fn(),
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
@@ -56,12 +58,11 @@ const USER = { _id: new Types.ObjectId('0123456789abcdef01234567'), email: 'jane
 /** Two verified, joinable domains → two candidate orgs. */
 const twoDomains = () => ({
   lean: () => Promise.resolve([
-    { orgId: 'org-1', domain: 'acme.com', autoJoin: 'request' },
-    { orgId: 'org-2', domain: 'acme.com', autoJoin: 'auto' },
+    { organizationId: 'org-1', domain: 'acme.com', autoJoin: 'request' },
+    { organizationId: 'org-2', domain: 'acme.com', autoJoin: 'auto' },
   ]),
 });
 
-const selectLean = (rows: unknown) => ({ select: () => ({ lean: () => Promise.resolve(rows) }) });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -86,7 +87,7 @@ describe('findDiscoverableOrgsForUser', () => {
   });
 
   it('marks a pending request and an active membership on the right orgs', async () => {
-    mockJoinFind.mockReturnValue(selectLean([{ orgId: 'org-1', status: 'pending' }]));
+    mockJoinFind.mockReturnValue(selectLean([{ organizationId: 'org-1', status: 'pending' }]));
     mockUserOrgFind.mockReturnValue(selectLean([{ organizationId: 'org-2' }]));
 
     const orgs = await orgDomainService.findDiscoverableOrgsForUser(USER);
@@ -97,13 +98,13 @@ describe('findDiscoverableOrgsForUser', () => {
   });
 
   it('carries a refused request through, since the backend will not re-open it', async () => {
-    mockJoinFind.mockReturnValue(selectLean([{ orgId: 'org-1', status: 'denied' }]));
+    mockJoinFind.mockReturnValue(selectLean([{ organizationId: 'org-1', status: 'denied' }]));
     const orgs = await orgDomainService.findDiscoverableOrgsForUser(USER);
     expect(orgs[0].requestStatus).toBe('denied');
   });
 
   it('matches ids across the three stores regardless of hex case', async () => {
-    mockJoinFind.mockReturnValue(selectLean([{ orgId: 'ORG-1', status: 'pending' }]));
+    mockJoinFind.mockReturnValue(selectLean([{ organizationId: 'ORG-1', status: 'pending' }]));
     mockUserOrgFind.mockReturnValue(selectLean([{ organizationId: 'ORG-2' }]));
     const orgs = await orgDomainService.findDiscoverableOrgsForUser(USER);
     expect(orgs[0].requestStatus).toBe('pending');
@@ -118,7 +119,7 @@ describe('findDiscoverableOrgsForUser', () => {
   });
 
   it('keeps the plain eligibility read unannotated', async () => {
-    mockJoinFind.mockReturnValue(selectLean([{ orgId: 'org-1', status: 'pending' }]));
+    mockJoinFind.mockReturnValue(selectLean([{ organizationId: 'org-1', status: 'pending' }]));
     const orgs = await orgDomainService.findDiscoverableOrgsByEmail(USER.email);
     expect(orgs[0]).toEqual({ orgId: 'org-1', orgName: 'Acme', autoJoin: 'request' });
     expect(mockJoinFind).not.toHaveBeenCalled();

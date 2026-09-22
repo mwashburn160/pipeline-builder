@@ -91,8 +91,8 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
   // failure lands in `mutationError` and renders inline above the list.
   const del = useDelete<ComplianceRule>((rule) => deleteRule(rule.id));
 
-  // useCrudResource no longer auto-fetches on mount; trigger the initial
-  // load and refetch when the server-forwarded filters change.
+  // useCrudResource doesn't auto-fetch on mount; trigger the initial load and
+  // refetch when the server-forwarded filters change.
   useEffect(() => {
     void fetchRules();
   }, [fetchRules]);
@@ -164,7 +164,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       id: 'status',
       header: 'Status',
       render: (rule) => (
-        <StatusPill className={rule.isActive ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-surface-muted text-fg-muted'}>
+        <StatusPill className={rule.isActive ? 'bg-success-bg text-success' : 'bg-surface-muted text-fg-muted'}>
           {rule.isActive ? 'Active' : 'Inactive'}
         </StatusPill>
       ),

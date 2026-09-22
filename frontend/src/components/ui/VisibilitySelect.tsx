@@ -28,7 +28,7 @@ export function VisibilitySelect({ value, onChange, canPublish, disabled, id }: 
       id={id}
       value={value}
       onChange={(e) => onChange(e.target.value as Visibility)}
-      className="disabled:bg-gray-100 disabled:text-fg-muted dark:disabled:bg-gray-800 dark:disabled:text-gray-500"
+      className="disabled:bg-surface-muted disabled:text-fg-muted dark:disabled:text-gray-500"
       disabled={disabled}
     >
       {VISIBILITY_RUNGS.filter((r) => r.value !== 'public' || canPublish || value === 'public').map((r) => (

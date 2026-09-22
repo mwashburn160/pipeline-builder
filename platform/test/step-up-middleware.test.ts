@@ -13,13 +13,14 @@
  * Deep imports: the real api-core modules, not the mocked barrel.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
 
 const SECRET = 'a-shared-secret-nothing-signs-with-any-more';
 const jwtConfig: Record<string, unknown> = {};
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { jwt: jwtConfig } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { jwt: jwtConfig } }));
 // token.ts pulls the models barrel; nothing here touches the database.
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {}, Organization: {}, UserOrganization: {}, Role: {}, RoleAssignment: {},
@@ -29,7 +30,7 @@ const ENV = ['JWT_ISSUER', 'JWT_AUDIENCE', 'REDIS_URL', 'REDIS_SENTINELS'] as co
 const saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
 for (const k of ENV) delete process.env[k];
 const { requireStepUp } = await import('@pipeline-builder/api-core/lib/middleware/step-up.js');
-const { issueStepUpToken } = await import('../src/utils/token.js');
+const { issueStepUpToken } = await import('../src/services/session/access-tokens.js');
 const { installTestSigningKeys } = await import('./helpers/signing.js');
 installTestSigningKeys();
 
@@ -129,7 +130,7 @@ describe('platform step-up tokens under api-core requireStepUp', () => {
   });
 
   it('rejects an HS256 step-up token forged with the shared service secret', async () => {
-    // Every service used to hold one shared secret; before #5 that was enough to clear a
+    // Every service used to hold one shared secret; that alone was enough to clear a
     // step-up gate on any of them.
     const forged = jwt.sign({ type: 'step-up', sub: 'u1', jti: 'forged' }, SECRET, { algorithm: 'HS256', expiresIn: 60 });
     const { next, code } = await run(mockReq({ sub: 'u1', token: forged }));

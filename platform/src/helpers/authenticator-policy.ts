@@ -28,7 +28,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { readOrgPolicyLineage } from './org-policy-lineage.js';
 import { incCounter } from '../observability/metrics.js';
-import type { SessionAuth } from '../utils/token.js';
+import type { SessionAuth } from '../services/session/access-tokens.js';
 
 const logger = createLogger('authenticator-policy');
 

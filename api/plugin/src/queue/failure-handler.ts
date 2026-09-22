@@ -9,7 +9,7 @@
  */
 
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { createLogger, errorMessage, extractDbError } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, extractDbError, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
@@ -21,7 +21,6 @@ import { cleanupBuildArtifacts } from './build-workspace.js';
 import { dlqJobId, getBuildCfg, getDeadLetterQueue, totalAttemptBudget } from './connections.js';
 import { emitTerminalBuildFailure, enforceDlqMaxSize } from './plugin-build-dlq.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
-import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -31,8 +30,8 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
 
     // The 'failed' event fires OUTSIDE the processor's runWithTenantContext, so
     // recordBuildEvent's withTenantTx insert would run with an empty
-    // `app.org_id` and RLS silently drops the failed BUILD row (the insert's
-    // .catch just logs a warn). Re-establish the job's tenant scope for the
+    // `app.org_id` and RLS silently drops the failed BUILD row (the insert's.
+    // catch just logs a warn). Re-establish the job's tenant scope for the
     // whole handler so the failure is recorded (and any other tenant-scoped
     // read/write here is attributable).
     return runWithTenantContext({ orgId: job.data.orgId, isSuperAdmin: false }, async () => {
@@ -126,7 +125,7 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
         // the DLQ, and a retryable one that has burned the whole main+DLQ
         // budget is done. This is the single terminal audit event for these
         // jobs (DLQ-bound jobs get theirs from the DLQ on its own exhaustion).
-        getAuditClient().record({
+        recordAudit({
           action,
           actorId: job.data.userId ?? 'system',
           orgId,
@@ -138,7 +137,7 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
             errorMessage: error.message,
             isTimeout,
           },
-        }, 'plugin');
+        });
 
         logger.warn('Permanent failure, cleaned up', {
           jobId: job.id,

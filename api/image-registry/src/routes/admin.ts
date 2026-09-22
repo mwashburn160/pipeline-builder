@@ -45,8 +45,8 @@ const GcSchema = z.object({
  * src/index.ts) so `req.user` is always populated here.
  *
  * Routes:
- *  - GET  /api/admin/storage/:prefix   — rollup bytes for one namespace
- *  - POST /api/admin/gc                — prune old manifests under a namespace
+ *  - GET /api/admin/storage/:prefix — rollup bytes for one namespace
+ *  - POST /api/admin/gc — prune old manifests under a namespace
  */
 export function createAdminRoutes(): Router {
   const router = Router();

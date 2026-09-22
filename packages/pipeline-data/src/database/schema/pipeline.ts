@@ -227,13 +227,13 @@ export const pipelineEvent = pgTable('pipeline_events', {
   commitSha: varchar('commit_sha', { length: 255 }),
   commitRef: varchar('commit_ref', { length: 255 }),
   environment: varchar('environment', { length: 255 }),
-  // DORA true-lead-time attribution (Phase 4). The forwarder resolves the source
+  // DORA true-lead-time attribution. The forwarder resolves the source
   // commit range in-account and reports the OLDEST unshipped commit's timestamp
   // + how many commits shipped. Both nullable — events whose source type/token
   // can't be resolved leave them NULL and lead time reports `unknown`.
   commitTimestamp: timestamp('commit_timestamp', { withTimezone: true }),
   commitCount: integer('commit_count'),
-  // Per-plugin runtime telemetry (W0.1): the plugin an ACTION/BUILD event ran,
+  // Per-plugin runtime telemetry: the plugin an ACTION/BUILD event ran,
   // joined at ingest from `pipeline_step_manifests` on (pipeline_id,
   // stage_name, action_name). `pluginPublisher` is NULL for an own-org plugin;
   // all three are NULL for non-plugin actions and unrecorded synths.
@@ -260,7 +260,7 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // Partial (execution_id IS NOT NULL) because that's the natural per-event
   // key; events without an executionId (rare) aren't deduped, which is safe.
   // Includes pipeline_id so a (theoretical) execution-id reuse across pipelines
-  // can't collide now that the ARN is no longer part of the row.
+  // can't collide (the ARN is not part of the row).
   //
   // COALESCE the nullable parts to sentinels (expression index): PIPELINE/STAGE/
   // BUILD events leave stage_name/action_name NULL (plugin-build also pipeline_id
@@ -297,7 +297,7 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // join-driven scan by pipeline_id. Created by postgres-init.sql.
   pipelineTypeStartedIdx: index('event_pipeline_type_started_idx')
     .on(table.pipelineId, table.eventType, table.startedAt),
-  // DORA deploy-basis scan (Phase 1): deployment frequency / deploy-time CFR /
+  // DORA deploy-basis scan: deployment frequency / deploy-time CFR /
   // lead time all group deploy-stage events by environment over a completed_at
   // window. This composite serves that grouped org-scoped scan directly.
   // Created by postgres-init.sql.
@@ -315,7 +315,7 @@ export const pipelineEvent = pgTable('pipeline_events', {
 }));
 
 /**
- * Manual post-deploy outcome markers (Phase 2). A user marks a deployment
+ * Manual post-deploy outcome markers. A user marks a deployment
  * `failed` (production incident linked to a deploy) or `restored` (recovered).
  * These feed the DORA post-deploy Change Failure Rate component and the real
  * MTTR (restored − deployed). Correlated to a deploy execution by `executionId`.
@@ -341,7 +341,7 @@ export const deploymentOutcome = pgTable('deployment_outcomes', {
 }));
 
 /**
- * Per-org ingestion health (Phase 3). The AWS events Lambda periodically posts
+ * Per-org ingestion health. The AWS events Lambda periodically posts
  * forwarded/dropped counters + the last event timestamp so the Reports UI can
  * show whether events are flowing / stale / dropping. One row per org.
  *
@@ -356,7 +356,7 @@ export const ingestHealth = pgTable('ingest_health', {
 });
 
 /**
- * Production incidents ingested from the org's incident tooling (Phase 5). The
+ * Production incidents ingested from the org's incident tooling. The
  * user points their Alertmanager / PagerDuty / Datadog webhook at
  * `POST /api/reports/incidents` (machine `reporting:ingest` scope). Each incident
  * carries its external id, the affected `environment`, when it opened, and when
@@ -393,9 +393,9 @@ export const incident = pgTable('incidents', {
 
 /**
  * Per-org DORA computation + retention overrides. One row per org (org_id PK).
- * `incidentWindowHours` (Phase 5b) overrides the global `DORA_INCIDENT_WINDOW_HOURS`
+ * `incidentWindowHours` overrides the global `DORA_INCIDENT_WINDOW_HOURS`
  * used to correlate an ingested incident to the most recent successful deploy.
- * `eventRetentionDays` / `doraRetentionDays` (Phase 7) override the global reporting
+ * `eventRetentionDays` / `doraRetentionDays` override the global reporting
  * retention windows for the split sweep — standard events (`environment IS NULL`)
  * vs DORA source (deploy stages + `deployment_outcomes` + `incidents`). Any NULL /
  * absent value falls back to its env default. Set self-serve by an org admin via
@@ -406,7 +406,7 @@ export const incident = pgTable('incidents', {
 export const doraSettings = pgTable('dora_settings', {
   orgId: varchar('org_id', { length: 255 }).primaryKey(),
   incidentWindowHours: integer('incident_window_hours'),
-  // Phase 7 retention overrides (days). NULL ⇒ use the global env default
+  // Retention overrides (days). NULL ⇒ use the global env default
   // (REPORTING_EVENT_RETENTION_DAYS / REPORTING_DORA_RETENTION_DAYS).
   eventRetentionDays: integer('event_retention_days'),
   doraRetentionDays: integer('dora_retention_days'),

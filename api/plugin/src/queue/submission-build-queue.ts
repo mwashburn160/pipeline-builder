@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The anonymous-submission gate queue (docs/plans/plugin-ecosystem.md §4.2,
- * E5): one BullMQ queue, SEPARATE from the per-tier tenant build queues, whose
+ * The anonymous-submission gate queue (docs/plugin-publishing.md,
+ * ): one BullMQ queue, SEPARATE from the per-tier tenant build queues, whose
  * jobs carry nothing but a submission id. The worker runs the quarantine gate
  * pipeline (services/ecosystem/submission-pipeline.ts) — build on the isolated
  * quarantine buildkitd, scan, smoke test — never the tenant build processor,
@@ -62,7 +62,7 @@ export function startSubmissionWorker(): void {
     return { outcome };
   }, {
     connection: getConnectionForDb(0) as ConnectionOptions,
-    // One quarantine build at a time: the isolated pool is small by design (G20).
+    // One quarantine build at a time: the isolated pool is small by design.
     concurrency: 1,
   });
   worker.on('failed', (job, err) => {

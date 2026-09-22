@@ -24,7 +24,7 @@ const DEFAULT_ENV_LABEL = 'environment';
 const MAX_ALERTMANAGER_ALERTS = 1000;
 
 /**
- * Production incident webhook + org-admin config surface (Phase 5 / 5b).
+ * Production incident webhook + org-admin config surface.
  *
  * MACHINE writes (org from the token identity, gated by the `reporting:ingest`
  * scope — the same credential the event forwarder holds):

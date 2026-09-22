@@ -37,8 +37,6 @@
 
 import crypto from 'crypto';
 import { createLogger, sendSuccess, errorMessage } from '@pipeline-builder/api-core';
-import { z } from 'zod';
-import { OAUTH_ERROR_MAP, buildOAuthReauthUrl, verifyOAuthReauthCode } from './oauth.js';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { findReauthOption, loadFactorUser, resolveAuthFactors } from '../helpers/auth-factors.js';
@@ -52,14 +50,15 @@ import {
   STEP_UP_REAUTH_NOT_RECENT,
   STEP_UP_REAUTH_UNAVAILABLE,
 } from '../services/auth-errors.js';
+import { OAUTH_ERROR_MAP, buildOAuthReauthUrl, verifyOAuthReauthCode } from '../services/oauth-providers.js';
 import {
   OIDC_ERROR_MAP,
   buildAuthorizeUrl,
   exchangeAndValidate,
   ssoReauthRequiresAuthTime,
 } from '../services/oidc-service.js';
-import { issueStepUpToken } from '../utils/token.js';
-import { oauthCallbackSchema, validateBody } from '../utils/validation.js';
+import { issueStepUpToken } from '../services/session/access-tokens.js';
+import { oauthCallbackSchema, stepUpReauthStartSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('step-up-reauth');
 
@@ -98,7 +97,7 @@ const pendingReauth = createPendingStateStore<PendingReauth>({
 export const STEP_UP_REAUTH_ERROR_MAP = {
   ...OAUTH_ERROR_MAP,
   ...OIDC_ERROR_MAP,
-  // A SAML org can't drive this ceremony (#4): re-auth reads its result out of
+  // A SAML org can't drive this ceremony: re-auth reads its result out of
   // the popup the provider redirects back to, and a SAML assertion lands on a
   // server-side ACS instead. `resolveAuthFactors` already stops offering the
   // option; this is what a client that asks anyway is told. A SAML-only account
@@ -110,10 +109,6 @@ export const STEP_UP_REAUTH_ERROR_MAP = {
   [STEP_UP_REAUTH_NOT_RECENT]: { status: 401, message: 'Your identity provider did not confirm a fresh sign-in. Please try again.' },
 } as const;
 
-const reauthStartSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('oauth'), provider: z.string().min(1).max(40) }),
-  z.object({ type: z.literal('sso'), orgId: z.string().min(1).max(64) }),
-]);
 
 /** Fail-closed audit + metric for a refused re-auth, then rethrow for the map. */
 function recordFailure(req: Parameters<typeof audit>[0], userId: string, err: unknown, provider?: string): never {
@@ -135,7 +130,7 @@ function recordFailure(req: Parameters<typeof audit>[0], userId: string, err: un
 /** POST /api/auth/step-up/reauth — start a provider re-auth for the caller. */
 export const startStepUpReauth = withController('Step-up re-auth start', async (req, res) => {
   const userId = req.user!.sub;
-  const body = validateBody(reauthStartSchema, req.body, res);
+  const body = validateBody(stepUpReauthStartSchema, req.body, res);
   if (!body) return;
 
   const user = await loadFactorUser(userId);

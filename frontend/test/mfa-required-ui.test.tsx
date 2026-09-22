@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The member-facing half of required MFA (#8): the banner that warns BEFORE the
+ * The member-facing half of required MFA: the banner that warns BEFORE the
  * deadline, and the dialog that explains a `401 MFA_REQUIRED` instead of letting
  * it land as a bare "Unauthorized".
  *
@@ -27,12 +27,9 @@ jest.mock('@/lib/api', () => ({
 }));
 
 let mockUser: Record<string, unknown> | null = null;
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ user: mockUser, logout }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ user: mockUser, logout })));
 
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push })));
 
 import { MfaRequiredBanner } from '@/components/ui/MfaRequiredBanner';
 import { MfaRequiredDialog } from '@/components/ui/MfaRequiredDialog';

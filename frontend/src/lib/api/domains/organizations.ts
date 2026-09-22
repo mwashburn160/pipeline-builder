@@ -3,7 +3,7 @@
 
 import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
-import { buildQuery, API_URL } from '../util';
+import { buildQuery } from '../util';
 import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, QuotaTier, SsoSpInfo, SsoTestReport } from '@/types';
 
 /**
@@ -118,17 +118,13 @@ export function organizationsApi(core: ApiCore) {
     /** GET /organization/:id/export — GDPR portability dump. Unlike the other
      *  endpoints this streams a RAW JSON body (application/json + a
      *  Content-Disposition attachment header), NOT the usual `ApiResponse`
-     *  envelope, so it bypasses `core.request` and returns the body text for the
-     *  caller to save as a file. Sysadmin or an org admin/owner (org:settings +
-     *  `canAdministerOrg`). */
+     *  envelope, so it returns the body text for the caller to save as a file.
+     *  Sysadmin or an org admin/owner (org:settings + `canAdministerOrg`). */
     exportOrganization: async (id: string): Promise<string> => {
-      await core.ensureFreshToken();
-      const res = await fetch(`${API_URL}/api/organization/${id}/export`, {
-        headers: core.authHeaders() as Record<string, string>,
-        credentials: 'same-origin',
+      return core.requestText(`/api/organization/${id}/export`, {
+        timeoutMs: null,
+        errorMessage: 'Failed to export organization',
       });
-      if (!res.ok) throw new Error(`Failed to export organization: ${res.status} ${res.statusText}`);
-      return res.text();
     },
 
     /** Change an org's pricing tier (sysadmin only). Reseeds quota limits
@@ -377,7 +373,7 @@ export function organizationsApi(core: ApiCore) {
     },
 
     // ============================================
-    // Service accounts (#2): org-owned non-human principals. They hold the org's
+    // Service accounts: org-owned non-human principals. They hold the org's
     // roles, authenticate with `pb_sa_…` keys, take NO seat, and carry their own
     // token-exchange budget. Every write is step-up gated, like PAT creation.
     // ============================================
@@ -722,7 +718,7 @@ export function organizationsApi(core: ApiCore) {
       });
     },
 
-    /** The org's two-factor requirement (#8): its OWN setting and what actually
+    /** The org's two-factor requirement: its OWN setting and what actually
      *  governs, since a parent org's requirement also applies to its teams. */
     getMfaPolicy: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<OrgMfaPolicy>>(`/api/organization/${orgId}/mfa-policy`, { signal: opts?.signal });

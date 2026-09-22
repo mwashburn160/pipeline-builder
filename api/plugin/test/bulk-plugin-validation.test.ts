@@ -8,8 +8,8 @@
  * every plugin in their org with one call.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -43,12 +43,9 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 const mockValidatePlugin = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue({ blocked: false, violations: [] });
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPluginAudit: mockEmitPluginAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPluginAudit,
   decrementQuota: mockDecrementQuota,
   createComplianceClient: () => ({ validatePlugin: mockValidatePlugin }),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
@@ -209,7 +206,7 @@ describe('POST /plugins/bulk/delete — visibility ladder parity', () => {
   });
 });
 
-describe('POST /plugins/bulk/delete — delete safety (W0.5)', () => {
+describe('POST /plugins/bulk/delete — delete safety', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFindByIds.mockResolvedValue([]);

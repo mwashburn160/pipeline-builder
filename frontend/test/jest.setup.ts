@@ -12,6 +12,7 @@
 // no `@types/jest` global namespace in this repo), so the matchers must extend
 // THAT expect — and its types — rather than the global one.
 import '@testing-library/jest-dom/jest-globals';
+import { TextEncoder as NodeTextEncoder } from 'node:util';
 import { configure } from '@testing-library/react';
 import { clearQueryCache } from '../src/lib/query-cache';
 
@@ -46,4 +47,10 @@ if (typeof url.createObjectURL !== 'function') {
   let seq = 0;
   url.createObjectURL = () => `blob:jest/${++seq}`;
   url.revokeObjectURL = () => {};
+}
+
+// jsdom's window has no TextEncoder, which every browser ships; the shared
+// template tokenizer uses it to measure fields in UTF-8 bytes.
+if (typeof globalThis.TextEncoder === 'undefined') {
+  globalThis.TextEncoder = NodeTextEncoder as unknown as typeof globalThis.TextEncoder;
 }

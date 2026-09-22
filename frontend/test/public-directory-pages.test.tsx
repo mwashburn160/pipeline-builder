@@ -20,13 +20,10 @@ import { card, detail, fakeRes, jsonResponse, searchResult } from './helpers/pub
 const replace = jest.fn<AnyFn>();
 const push = jest.fn<AnyFn>();
 let asPath = '/plugins';
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, asPath, pathname: '/plugins', push, replace }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: {}, asPath, pathname: '/plugins', push, replace })));
 
 let authState: Record<string, unknown> = { user: null, isAuthenticated: false, isInitialized: true };
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => authState }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => authState));
 jest.mock('@/hooks/useDarkMode', () => ({ __esModule: true, useDarkMode: () => ({ isDark: false, toggle: () => undefined }) }));
 jest.mock('@/generated/plugin-icons', () => ({
   __esModule: true,
@@ -297,7 +294,7 @@ describe('/plugins/[publisher]/[name]', () => {
     expect(container.querySelector('b')).toBeNull();
   });
 
-  it('shows the health badge and a breakdown with reweighted signals (W7)', () => {
+  it('shows the health badge and a breakdown with reweighted signals', () => {
     const listing = detail({
       healthScore: 64,
       successRate30d: 0.9,

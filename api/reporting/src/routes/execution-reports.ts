@@ -4,20 +4,20 @@
 import {
   sendSuccess,
   sendBadRequest,
-  sendError,
   ErrorCode,
   parseReportInterval,
   parseDateRange,
   parseQueryIntClamped,
-  isSystemAdmin,
   requireFeature,
+  requireSystemAdmin,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import type { Request } from 'express';
 import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField, rollupIds } from '../helpers/report-helpers.js';
-import { parseOrgReportRange, orgRetentionWindowFromSettings, floorFrom, retentionOrgIdFor } from '../helpers/retention-cap.js';
+import { resolveReportScope } from '../helpers/report-scope.js';
+import { orgRetentionWindowFromSettings, floorFrom, retentionOrgIdFor } from '../helpers/retention-cap.js';
 
 export function createExecutionReportRoutes(): Router {
   const router = Router();
@@ -36,9 +36,9 @@ export function createExecutionReportRoutes(): Router {
   router.get('/count', withRoute(async ({ req, res, orgId }) => {
     // Optional [from,to] window (same parsing/cap as the sibling reports) so the
     // count honors the dashboard date-range picker; omitted range = all-time.
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     const hasRange = typeof req.query.from === 'string' && typeof req.query.to === 'string';
     sendSuccess(res, 200, {
       pipelines: await reportingService.getExecutionCount(orgId, orgIds, hasRange ? range : undefined),
@@ -51,10 +51,10 @@ export function createExecutionReportRoutes(): Router {
   router.get('/list', withRoute(async ({ req, res, orgId }) => {
     const pipelineId = typeof req.query.pipelineId === 'string' ? req.query.pipelineId : '';
     if (!pipelineId) return sendBadRequest(res, 'pipelineId is required', ErrorCode.VALIDATION_ERROR);
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 50, MAX_REPORT_LIMIT);
-    const orgIds = await rollupIds(req, orgId);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, {
       executions: await reportingService.listPipelineExecutions(orgId, pipelineId, orgIds, range, limit),
     });
@@ -63,37 +63,37 @@ export function createExecutionReportRoutes(): Router {
   router.get('/success-rate', withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, { timeline: await reportingService.getSuccessRate(orgId, interval, range.from, range.to, orgIds) });
   }));
 
   router.get('/duration', withRoute(async ({ req, res, orgId }) => {
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, { pipelines: await reportingService.getAverageDuration(orgId, range.from, range.to, orgIds) });
   }));
 
   router.get('/stage-failures', withRoute(async ({ req, res, orgId }) => {
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, { stages: await reportingService.getStageFailures(orgId, range.from, range.to, orgIds) });
   }));
 
   router.get('/stage-bottlenecks', withRoute(async ({ req, res, orgId }) => {
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, { stages: await reportingService.getStageBottlenecks(orgId, range.from, range.to, orgIds) });
   }));
 
   router.get('/action-failures', withRoute(async ({ req, res, orgId }) => {
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, { actions: await reportingService.getActionFailures(orgId, range.from, range.to, orgIds) });
   }));
 
@@ -109,18 +109,20 @@ export function createExecutionReportRoutes(): Router {
   //   ?pipelineId=<id>     — per-pipeline DORA
   //   ?environment=<name>  — restrict to a single deploy environment
   router.get('/dora', requireFeature('advanced_reporting'), withRoute(async ({ req, res, orgId }) => {
-    // Phase 5b: an org can override the global incident→deploy correlation window.
-    // Phase 8: the same settings row also carries the per-org DORA retention cap.
-    // One fetch feeds both the query-range cap and the incident window (null =
-    // env default) — do NOT double-fetch getIncidentSettings.
-    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
+    // The org's settings row carries both its incident→deploy correlation window
+    // override and its DORA retention cap, so one fetch feeds the range cap and
+    // the incident window (null = env default) — don't double-fetch it via
+    // resolveReportScope. The rollup lookup is independent, so it runs alongside.
+    const [settings, orgIds] = await Promise.all([
+      reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId)),
+      rollupIds(req, orgId),
+    ]);
     const win = orgRetentionWindowFromSettings(settings, 'dora');
     const parsed = parseDateRange(req.query, { maxRangeMs: win.maxRangeMs });
     if ('error' in parsed) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
     // Floor `from` at the retention horizon so the returned dora.window reflects
     // the clamp (frontend truncation banner); unlimited (`minFromMs=0`) = no floor.
     const range = floorFrom(parsed, win.minFromMs);
-    const orgIds = await rollupIds(req, orgId);
     const { incidentWindowHours } = settings;
     sendSuccess(res, 200, {
       dora: await reportingService.getDoraMetrics(orgId, range.from, range.to, orgIds, {
@@ -135,9 +137,9 @@ export function createExecutionReportRoutes(): Router {
   router.get('/dora/trend', requireFeature('advanced_reporting'), withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
-    const range = await parseOrgReportRange(req.query, orgId, 'dora', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'dora');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, {
       trend: await reportingService.getDoraTrend(orgId, interval, range.from, range.to, orgIds, doraOptions(req)),
     });
@@ -146,15 +148,15 @@ export function createExecutionReportRoutes(): Router {
   // Distinct deploy environments observed in the window — powers the DORA
   // environment-scope datalist. Same gates + rollup as /dora.
   router.get('/environments', requireFeature('advanced_reporting'), withRoute(async ({ req, res, orgId }) => {
-    const range = await parseOrgReportRange(req.query, orgId, 'dora', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'dora');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, {
       environments: await reportingService.getReportEnvironments(orgId, range.from, range.to, orgIds),
     });
   }));
 
-  // Per-pipeline BUILD HEALTH (Phase 6). Standard reporting — gated only by the
+  // Per-pipeline BUILD HEALTH. Standard reporting — gated only by the
   // mount's `reports:read` (NOT `advanced_reporting`; build health ships on every
   // tier). `pipelineId` is required; org-scoping is enforced in
   // reportingService.getBuildHealth via the `p.org_id ${pred}` join (a pipelineId
@@ -163,18 +165,16 @@ export function createExecutionReportRoutes(): Router {
   router.get('/build-health', withRoute(async ({ req, res, orgId }) => {
     const pipelineId = typeof req.query.pipelineId === 'string' ? req.query.pipelineId : '';
     if (!pipelineId) return sendBadRequest(res, 'pipelineId is required', ErrorCode.VALIDATION_ERROR);
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, {
       buildHealth: await reportingService.getBuildHealth(orgId, pipelineId, range.from, range.to, orgIds),
     });
   }));
 
-  router.get('/errors', withRoute(async ({ req, res, orgId }) => {
-    if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Admin access required', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
+  // System-admin only: cross-org error text, so the retention floor doesn't apply.
+  router.get('/errors', requireSystemAdmin, withRoute(async ({ req, res, orgId }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);

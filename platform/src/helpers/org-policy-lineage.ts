@@ -13,6 +13,8 @@
  * drag the whole model graph in to read a number.
  */
 
+import type { OrganizationData } from '../models/index.js';
+
 /** Depth cap for the ancestor walk. */
 const MAX_ANCESTOR_DEPTH = 32;
 
@@ -42,10 +44,10 @@ export async function readOrgPolicyLineage<T extends object>(
   for (let depth = 0; current && depth <= MAX_ANCESTOR_DEPTH; depth += 1) {
     if (seen.has(current)) break;
     seen.add(current);
-    const doc = await Organization.findById(toOrgId(current))
-      .select(`${fields} parentOrgId`).lean() as (T & { _id: unknown; parentOrgId?: string | null }) | null;
+    const doc: (Partial<OrganizationData> & { _id: unknown }) | null = await Organization.findById(toOrgId(current))
+      .select(`${fields} parentOrgId`).lean();
     if (!doc) break;
-    const { parentOrgId, ...rest } = doc;
+    const { parentOrgId, ...rest }: { parentOrgId?: string | null } & Record<string, unknown> = doc;
     out.push({ ...(rest as unknown as T), _id: String(doc._id) });
     current = parentOrgId ? String(parentOrgId) : undefined;
   }

@@ -10,10 +10,12 @@
  * environment, not by these unit tests.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { queryChain } from './helpers/query-chain.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
     delete: mockHttpDelete,
@@ -117,7 +119,7 @@ jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   __esModule: true,
   default: { deleteMany: mockIdpDeleteMany, find: mongoFinds.orgIdpConfig },
 }));
-// IdP group → Role mappings (3a) — cleaned up with the IdP config they belong to.
+// IdP group → Role mappings — cleaned up with the IdP config they belong to.
 const mockIdpGroupMappingDeleteMany = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({
   __esModule: true,
@@ -141,10 +143,7 @@ const mockSamlSessionDeleteMany = jest.fn<AnyFn>();
  * Mongoose query stub covering every chain the cascade + export use
  * (`.select().lean()`, `.sort().limit().lean()`, plain `.lean()`).
  */
-const findChain = (rows: unknown[] = []) => {
-  const c: any = { lean: async () => rows, select: () => c, sort: () => c, limit: () => c };
-  return c;
-};
+const findChain = (rows: unknown[] = []) => queryChain(rows);
 
 /**
  * Every collection the export reads, so a new cascade target shows up as a
@@ -178,7 +177,7 @@ jest.unstable_mockModule('../src/models/saml-session.js', () => ({
   __esModule: true,
   default: { deleteMany: mockSamlSessionDeleteMany, find: mongoFinds.samlSession },
 }));
-// Service accounts (#2): org property, so the purge deletes them along with
+// Service accounts: org property, so the purge deletes them along with
 // every key and Role assignment they hold.
 jest.unstable_mockModule('../src/models/service-account.js', () => ({
   __esModule: true,
@@ -213,13 +212,11 @@ jest.unstable_mockModule('../src/models/user-organization.js', () => ({
   default: { find: mongoFinds.userOrganization },
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    quota: { serviceHost: 'quota', servicePort: 3000 },
-    billing: { serviceHost: 'billing', servicePort: 3000 },
-    message: { serviceHost: 'message', servicePort: 3000 },
-    organization: { cascadeHttpTimeoutMs: 5000 },
-  },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  quota: { serviceHost: 'quota', servicePort: 3000 },
+  billing: { serviceHost: 'billing', servicePort: 3000 },
+  message: { serviceHost: 'message', servicePort: 3000 },
+  organization: { cascadeHttpTimeoutMs: 5000 },
 }));
 
 const { cascadeDeleteOrg, exportOrg, CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES } = await import('../src/services/org-cascade-service.js');
@@ -359,7 +356,7 @@ describe('cascadeDeleteOrg', () => {
     // Personal keys only (userId set) — never another org's, never SA keys.
     expect(mockPersonalPatDeleteMany).toHaveBeenCalledWith({ userId: { $ne: null }, organizationId: 'org-acme' });
     expect(mockMfaResetDeleteMany).toHaveBeenCalledWith({ organizationId: 'org-acme' });
-    expect(mockImpersonationDeleteMany).toHaveBeenCalledWith({ orgId: 'org-acme' });
+    expect(mockImpersonationDeleteMany).toHaveBeenCalledWith({ organizationId: 'org-acme' });
     expect(report.mongo).toMatchObject({ personalAccessTokens: 3, mfaResetRequests: 1, impersonationRequests: 2 });
   });
 
@@ -397,7 +394,7 @@ describe('cascadeDeleteOrg', () => {
       serviceAccountKeys: 2,
     });
     expect(report.mongoFailures).toEqual([]);
-    expect(mockSamlSessionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-acme' });
+    expect(mockSamlSessionDeleteMany).toHaveBeenCalledWith({ organizationId: 'org-acme' });
     // The live delete is exactly this org's own hash chain (chain key =
     // affectedOrgId). An event this org's members performed on ANOTHER org
     // (orgId = org-acme, affectedOrgId = other) is a link in THAT org's chain;
@@ -408,7 +405,7 @@ describe('cascadeDeleteOrg', () => {
 
     // IdP cleanup scoped to the deleted org's id — orphaned configs were
     // the bug this guards against.
-    expect(mockIdpDeleteMany).toHaveBeenCalledWith({ orgId: 'org-acme' });
+    expect(mockIdpDeleteMany).toHaveBeenCalledWith({ organizationId: 'org-acme' });
   });
 
   it('ARCHIVES the audit trail to archived_audit_events BEFORE deleting the live rows', async () => {
@@ -530,8 +527,8 @@ describe('cascadeDeleteOrg', () => {
       .mockResolvedValue({ rowCount: 1 });
 
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // The first table reports { ok: false, error } (the new structured
-    // failure marker, replacing the old -1 sentinel); others report ok=true.
+    // The first table reports { ok: false, error } (a structured failure
+    // marker, distinct from "deleted 0 rows"); others report ok=true.
     const entries = Object.values(report.postgres);
     expect(entries.some((e) => e.ok === false)).toBe(true);
     expect(entries.filter((e) => e.ok === true).length).toBe(entries.length - 1);
@@ -584,19 +581,19 @@ describe('exportOrg', () => {
   });
 
   /**
-   * The Mongo twin of the CASCADE_TABLE_NAMES drift guard. The export used to
-   * carry ONLY invitations + audit events while the teardown removed the IdP
-   * config, group mappings, domains, join requests, SAML sessions, service
-   * accounts + keys, memberships, Role assignments and Roles — so the
-   * soft-delete "recovery snapshot" could not actually restore an org, and the
-   * portability artifact under-reported what the platform held.
+   * The Mongo twin of the CASCADE_TABLE_NAMES drift guard. An export carrying
+   * less than the teardown removes (IdP config, group mappings, domains, join
+   * requests, SAML sessions, service accounts + keys, memberships, Role
+   * assignments, Roles) makes the soft-delete "recovery snapshot" unable to
+   * restore an org, and the portability artifact under-report what the
+   * platform holds.
    */
   it('DRIFT GUARD: every collection the teardown removes appears in the artifact', async () => {
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
     const missing = [...CASCADE_MONGO_COLLECTION_NAMES].filter((name) => !(name in dump.mongo));
     expect(missing).toEqual([]);
-    // And the set actually names the collections that were previously omitted.
+    // And the set names the collections beyond invitations + audit events.
     for (const name of [
       'idpConfigs', 'idpGroupMappings', 'orgDomains', 'joinRequests', 'samlSessions',
       'serviceAccounts', 'serviceAccountKeys', 'memberships', 'roleAssignments', 'roles',
@@ -740,7 +737,7 @@ describe('org cascade drift guard (schema reflection)', () => {
     expect(uncovered).toEqual([]);
   });
 
-  it('covers the two tables that were previously omitted', () => {
+  it('covers org_alert_rules and pipeline_templates', () => {
     expect(CASCADE_TABLE_NAMES.has('org_alert_rules')).toBe(true);
     expect(CASCADE_TABLE_NAMES.has('pipeline_templates')).toBe(true);
   });

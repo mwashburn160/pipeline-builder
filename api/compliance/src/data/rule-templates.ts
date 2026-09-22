@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Feature #9: Starter rule templates for new orgs.
+ * Starter rule templates for new orgs.
  * These are org-scoped rule suggestions (not published rules) that orgs can
  * opt into during onboarding. Each template creates an org-scoped rule.
  */
@@ -17,9 +17,9 @@ export interface RuleTemplate {
   /**
    * The stored rule's severity/operator types, NOT widened copies. A template
    * is inserted verbatim as a rule, so anything the schema won't accept is a
-   * template that silently fails to apply at runtime — the widened `string`
-   * these used to be (plus an `as unknown as` at the apply site) hid exactly
-   * that, and would have hidden any later rename of an operator.
+   * template that silently fails to apply at runtime — a widened `string` (plus
+   * an `as unknown as` at the apply site) would hide exactly that, including any
+   * later rename of an operator.
    */
   severity: RuleSeverity;
   field: string;

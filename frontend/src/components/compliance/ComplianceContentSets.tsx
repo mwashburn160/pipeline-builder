@@ -63,12 +63,12 @@ function HeldCard({ set }: { set: ContentSet }) {
     <Card className="flex flex-col">
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-300">
+          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-success-bg text-success">
             <ShieldCheck className="w-4 h-4" aria-hidden="true" />
           </span>
           <h4 className="text-base font-semibold text-fg">{meta.label}</h4>
         </div>
-        <span className="text-xs font-medium rounded-full bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 whitespace-nowrap">
+        <span className="text-xs font-medium rounded-full bg-success-bg text-success px-2 py-0.5 whitespace-nowrap">
           Included
         </span>
       </div>

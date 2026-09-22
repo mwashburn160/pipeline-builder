@@ -2,27 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Notices to INSTALLING ORGS (docs/plans/plugin-ecosystem.md §5b): N8
+ * Notices to INSTALLING ORGS (docs/plugin-publishing.md): N8
  * (moderation action), N13 (a new version outside the install's range), N14
  * (deprecated / unmaintained), N26 (paused by the publisher) and N27 (an
  * installed listing auto-updated within its range).
  *
  * "Installing orgs" = every org with an ACTIVE explicit install of the listing,
  * plus — for an Official listing — every org that uses it through the implicit
- * install (D16: its pipelines reference it, and its policy doesn't opt out or
+ * install (its pipelines reference it, and its policy doesn't opt out or
  * block it). Recipients are per-org RULES (`plugin_installs:manage`, falling
  * back to the root org's holders and then the owners), resolved and mailed
  * individually by platform, so a publisher never learns who installed and no
- * org sees another's name (§5b "Privacy").
+ * org sees another's name ( "Privacy").
  */
 
 import {
   createLogger,
-  emitCounter,
   errorMessage,
   type EcosystemNotificationEventId,
   type EcosystemRecipientSpec,
 } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import {
   compareSemver,
   implicitInstallRange,
@@ -103,7 +103,7 @@ export async function sendToOrgs(
     }
     return unique.length;
   } catch (err) {
-    emitCounter('ecosystem_notification_failed_total', { event });
+    incCounter('ecosystem_notification_failed_total', { event });
     logger.warn('Installer notice not sent', { event, error: errorMessage(err) });
     return 0;
   }
@@ -122,7 +122,7 @@ export async function notifyInstallers(
     const orgs = await installingOrgs(publisher, listing, version);
     return await sendToOrgs(event, orgs.map((o) => o.orgId), content, enqueue);
   } catch (err) {
-    emitCounter('ecosystem_notification_failed_total', { event });
+    incCounter('ecosystem_notification_failed_total', { event });
     logger.warn('Could not resolve installing orgs', { event, listingId: listing.id, error: errorMessage(err) });
     return 0;
   }

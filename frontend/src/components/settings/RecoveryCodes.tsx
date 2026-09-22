@@ -11,7 +11,7 @@ import { SecretActions } from '@/components/ui/SecretActions';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { useAuth } from '@/hooks/useAuth';
-import { useLoadable } from '@/hooks/useLoadable';
+import { useFetch } from '@/hooks/useFetch';
 import { useQuery } from '@/hooks/useQuery';
 import api from '@/lib/api';
 import { invalidate, queries } from '@/lib/api-cache';
@@ -87,7 +87,11 @@ export function AccountRecoveryCodes({ readOnly }: { readOnly: boolean }) {
     if (!codes.success || !codes.data) throw new Error('Failed to load recovery codes');
     return codes.data.recoveryCodes;
   }, []);
-  const { data: status, loading, error, reload } = useLoadable<RecoveryCodeStatus>(load, EMPTY, 'Failed to load recovery codes');
+  const { data: statusLoaded, loading, error: errorFailure, refetch: reload } = useFetch<RecoveryCodeStatus>(() => load(), [load], {
+    onError: (err) => toast.error(formatError(err, 'Failed to load recovery codes')),
+  });
+  const status = statusLoaded ?? EMPTY;
+  const error = errorFailure ? formatError(errorFailure, 'Failed to load recovery codes') : null;
   // Until the count is really known, don't state one: the EMPTY placeholder
   // read "0 of 0" while loading and after a failed read — a false "you have
   // no codes" on the one panel meant to prevent a lock-out.

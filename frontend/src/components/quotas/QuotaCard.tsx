@@ -169,8 +169,8 @@ function UsageForecast({
 
   return (
     <div className={`mt-2 px-2 py-1.5 rounded-md text-xs ${willBreach
-      ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
-      : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300'}`}
+      ? 'bg-danger-bg text-danger'
+      : 'bg-warning-bg text-warning'}`}
     >
       At current pace, {verb} <strong className="tabular-nums">{fmtNum(projected)}</strong> by reset
       {' '}<span className="opacity-75">(limit {fmtNum(limit)})</span>.

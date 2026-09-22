@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin contract enforcement (plugin-ecosystem W0.2). A plugin spec declares
+ * Plugin contract enforcement. A plugin spec declares
  * the `{{ pipeline.metadata.X }}` / `{{ pipeline.vars.X }}` keys a pipeline
  * must supply (`requiredMetadata` / `requiredVars`) and the coercion type of
  * each (`metadataTypes` / `varsTypes`). The upload validates the spec against
@@ -188,7 +188,7 @@ export interface PluginStepRef {
   /** Human label: `synth` or `<stageName>/<alias ?? name>`. */
   readonly label: string;
   readonly name: string;
-  /** Publisher handle of an installed listing (plugin ecosystem §3.5). */
+  /** Publisher handle of an installed listing. */
   readonly publisher?: string;
   readonly alias?: string;
   readonly filter?: Readonly<Record<string, unknown>>;
@@ -238,7 +238,7 @@ export function collectPluginSteps(props: unknown): PluginStepRef[] {
  * The lookup filter synth sends for a reference (pipeline-manager
  * `resolvePluginsForProps`, the deploy-time custom resource, the pipeline
  * service's contract check): the ref's name — and its `publisher`, which
- * routes the lookup to that publisher's installed listing (§3.5) — overlaid by
+ * routes the lookup to that publisher's installed listing — overlaid by
  * an explicit `filter` (whose `name` wins), else the default active+default
  * version.
  */
@@ -257,23 +257,21 @@ export function pluginLookupFilter(ref: Pick<PluginStepRef, 'name' | 'filter' | 
 /**
  * The plugin-alias SEGMENT of an artifact key — and the resolver's cache key:
  * the explicit alias, or `${name}-alias` when there is none
- * (`${publisher}-${name}-alias` for a qualified reference, plan §3.5). THE rule — the frontend's artifact picker
+ * (`${publisher}-${name}-alias` for a qualified reference). THE rule — the frontend's artifact picker
  * (`frontend/src/lib/artifact-keys.ts`), the CLI's pre-resolver and
  * `PluginLookup.normalize` all build keys this way.
  *
- * The two places that REGISTER keys used to disagree with it, in opposite
- * directions: stage steps registered the bare name (`nodejs-build`, no suffix)
- * and the synth step suffixed an explicit alias (`my-synth-alias`). Any step
- * whose input artifact was picked in the UI then failed synth with "No artifact
- * registered", because the key it asked for was never the key that had been
- * stored.
+ * The places that REGISTER keys must use it too: a stage step registering the
+ * bare name (`nodejs-build`) or a synth step suffixing an explicit alias
+ * (`my-synth-alias`) would fail any UI-picked input artifact with "No artifact
+ * registered", because the key it asks for is never the key that was stored.
  */
 export function pluginArtifactAlias(plugin: PluginRefIdentity): string {
   if (plugin.alias) return plugin.alias;
   return plugin.publisher ? `${sanitizePublisher(plugin.publisher)}-${plugin.name}-alias` : `${plugin.name}-alias`;
 }
 
-/** The fields of a plugin REFERENCE that identify it (plugin ecosystem §3.5). */
+/** The fields of a plugin REFERENCE that identify it. */
 export interface PluginRefIdentity {
   readonly name: string;
   readonly alias?: string;

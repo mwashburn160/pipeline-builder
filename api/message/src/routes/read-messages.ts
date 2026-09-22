@@ -14,7 +14,7 @@ import {
   sendEntityNotFound,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute, incrementQuotaFromCtx, createProtectedRoute } from '@pipeline-builder/api-server';
+import { withRoute, meterQuotaOnSuccess, createProtectedRoute } from '@pipeline-builder/api-server';
 import type { MessageFilter } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { enrichOneWithOrgNames, enrichWithOrgNames } from '../helpers/org-names.js';
@@ -46,10 +46,12 @@ function inboxFiltersOf(v: { search?: string; isRead?: boolean; priority?: Inbox
  */
 export function createReadMessageRoutes(quotaService: QuotaService): Router {
   const router = Router();
+  // apiCalls metering: once per 2xx, never for service principals.
+  const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
   const protect = createProtectedRoute(quotaService, 'apiCalls');
 
   // GET /messages — List inbox (root messages)
-  router.get('/', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.get('/', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
 
     // Validate query params with Zod schema
@@ -85,7 +87,6 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     );
 
     ctx.log('COMPLETED', 'Messages fetched', { count: result.data.length, total: result.total });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     // Label each row with the counterparty org's NAME (the UI renders names, not
     // ids). Best-effort: a resolution failure leaves the id for the client to show.
@@ -104,7 +105,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   // tab is filtered SERVER-side over the whole corpus (with its own
   // `total`/`hasMore`) instead of client-side over whichever inbox pages
   // happened to be loaded.
-  router.get('/announcements', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/announcements', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
     const validation = validateQuery(req, MessageFilterSchema);
     if (!validation.ok) {
@@ -117,7 +118,6 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     }, filters);
 
     ctx.log('COMPLETED', 'Announcements fetched', { count: result.data.length });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     const messages = await enrichWithOrgNames(result.data);
     return sendPaginatedNested(res, 'messages', messages, {
@@ -128,7 +128,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   // GET /messages/conversations — List conversations (paginated + hard-capped).
   // Drives the UI's "Conversations" tab; same server-side filters as
   // /announcements above.
-  router.get('/conversations', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/conversations', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset, sortBy, sortOrder } = parsePaginationParams(req.query);
     const validation = validateQuery(req, MessageFilterSchema);
     if (!validation.ok) {
@@ -141,7 +141,6 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     }, filters);
 
     ctx.log('COMPLETED', 'Conversations fetched', { count: result.data.length });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     const messages = await enrichWithOrgNames(result.data);
     return sendPaginatedNested(res, 'messages', messages, {
@@ -150,14 +149,13 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/unread/count — Get unread count
-  router.get('/unread/count', ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/unread/count', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
     ctx.log('INFO', 'Fetching unread count', { orgId });
 
     const count = await messageService.getUnreadCount(orgId);
 
     // Parity with every other read handler — the frontend polls this frequently,
     // so omitting the increment systematically under-counts apiCalls.
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     ctx.log('COMPLETED', 'Unread count fetched', { count });
 
@@ -167,12 +165,11 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   // GET /messages/deleted — org's soft-deleted message tombstones (most recent
   // first), powering the "recently deleted" restore UI. Registered BEFORE `/:id`
   // so the literal path isn't swallowed by the id matcher.
-  router.get('/deleted', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/deleted', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query);
     const deleted = await messageService.findDeleted(orgId, { limit, offset });
 
     ctx.log('COMPLETED', 'Listed deleted messages', { count: deleted.length });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     const messages = await enrichWithOrgNames(deleted);
     return sendSuccess(res, 200, { messages });
@@ -184,15 +181,14 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   // as the create route's cross-tenant send gate, so it never lists an org that
   // gate would refuse. Gated on `messages:write` — the authority sending needs;
   // a read-only member has nothing to compose. Registered before `/:id`.
-  router.get('/recipients/orgs', ...protect, requirePermission('messages:write'), withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/recipients/orgs', meter, ...protect, requirePermission('messages:write'), withRoute(async ({ res, ctx, orgId }) => {
     const orgs = await listReachableOrgs(orgId);
     ctx.log('COMPLETED', 'Listed reachable recipient orgs', { count: orgs.length });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     return sendSuccess(res, 200, { orgs });
   }));
 
   // GET /messages/:id — Get single message
-  router.get('/:id', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -204,13 +200,12 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       return sendEntityNotFound(res, 'Message');
     }
 
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { message: await enrichOneWithOrgNames(message) });
   }));
 
   // GET /messages/:id/thread — Get thread messages
-  router.get('/:id/thread', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id/thread', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -248,7 +243,6 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
     const messages = await enrichWithOrgNames(withAttachments);
 
     ctx.log('COMPLETED', 'Thread fetched', { count: thread.length });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { messages });
   }));
@@ -256,7 +250,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   // GET /messages/:id/attachments — list a message's attachment metadata. Gated
   // on the SAME viewer-scoped visibility as the message itself: a per-user
   // targeted message's attachment list is only visible to its target.
-  router.get('/:id/attachments', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id/attachments', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -271,7 +265,6 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
       sizeBytes: a.sizeBytes,
     }));
 
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     return sendSuccess(res, 200, { attachments });
   }));
 

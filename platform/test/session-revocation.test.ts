@@ -15,8 +15,9 @@
  * redis (capturing `set` calls), and `getRedisClient` is mocked to return it.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /** Fake ioredis-shaped client capturing SETs. */
@@ -46,12 +47,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // TTL ceiling 3600, base 900, one tier override 1800 → effective max = 3600.
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      jwt: { expiresIn: 900, tierExpiresIn: { developer: undefined, enterprise: 1800 } },
-      sessionRevocationTtlSeconds: 3600,
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    jwt: { expiresIn: 900, tierExpiresIn: { developer: undefined, enterprise: 1800 } },
+    sessionRevocationTtlSeconds: 3600,
   },
 }));
 

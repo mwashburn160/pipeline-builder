@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Render tests for the Build Health sub-panel (Phase 6) shown next to DORA: the
+ * Render tests for the Build Health sub-panel shown next to DORA: the
  * per-stage table (runs / success rate / p50-p90-p99), the totals line, the
  * "pick a pipeline" hint when none is scoped, and the empty state.
  */

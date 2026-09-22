@@ -158,7 +158,7 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
           volumeMounts:
-            # This pod's OWN internal-token signing key (#14) and the PUBLIC
+            # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
             # is what stops a compromised service signing as another — while the
             # bundle is public and identical everywhere. Both from

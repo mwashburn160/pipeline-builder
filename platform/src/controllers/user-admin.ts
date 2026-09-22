@@ -1,15 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, parsePaginationParams, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, MAX_PAGE_LIMIT, parsePage, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
-import { formatUserResponse, toOverridesRecord, toUserResponseInput } from './user-profile.js';
-import type { OrgSummary, OrgMembership } from './user-profile.js';
-import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { paginationMeta } from '../helpers/pagination.js';
+import { formatUserResponse, toOverridesRecord, type OrgMembership, type OrgSummary } from '../helpers/user-response.js';
 import { Organization } from '../models/index.js';
 import { userAdminService } from '../services/index.js';
 import { RL_ASSIGN_EXCEEDS_CEILING, RL_LAST_PRIVILEGED_MEMBER, RL_ROLE_NOT_FOUND } from '../services/roles-errors.js';
@@ -100,7 +99,7 @@ export const listAllUsers = withController('List users', async (req, res) => {
     }
   }
 
-  const { offset, limit: limitNum } = parsePaginationParams(req.query);
+  const { offset, limit: limitNum } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
   const { users, total, membershipsByUser, orgNameMap } = await userAdminService.list(
     scopedUserIds,
     { search: search as string | undefined },
@@ -109,13 +108,13 @@ export const listAllUsers = withController('List users', async (req, res) => {
   );
 
   const usersWithOrg = users.map(user => {
-    const userMemberships = membershipsByUser.get((user._id as { toString(): string }).toString()) || [];
-    const activeOrgId = (user.lastActiveOrgId as { toString(): string } | undefined)?.toString();
+    const userMemberships = membershipsByUser.get(user._id.toString()) || [];
+    const activeOrgId = user.lastActiveOrgId?.toString();
     const activeMembership = activeOrgId
       ? userMemberships.find(m => m.organizationId.toString() === activeOrgId)
       : undefined;
 
-    return formatUserResponse(toUserResponseInput(user), {
+    return formatUserResponse(user, {
       activeOrgRole: activeMembership?.role,
       activeOrgName: activeOrgId ? orgNameMap.get(activeOrgId) || null : null,
     });
@@ -123,7 +122,7 @@ export const listAllUsers = withController('List users', async (req, res) => {
 
   sendSuccess(res, 200, {
     users: usersWithOrg,
-    pagination: { total, offset, limit: limitNum, hasMore: offset + limitNum < total },
+    pagination: paginationMeta(total, offset, limitNum),
   });
 });
 
@@ -181,7 +180,7 @@ export const getUserById = withController('Get user', async (req, res) => {
   const features = resolveUserFeatures(tier, { overrides, isSuperAdmin: (user as { isSuperAdmin?: boolean }).isSuperAdmin === true, accountFeatures });
 
   sendSuccess(res, 200, {
-    user: formatUserResponse(toUserResponseInput(user), {
+    user: formatUserResponse(user, {
       activeOrgRole, activeOrgName: organizationName, organization, organizations, tier, features,
     }),
   });
@@ -239,6 +238,14 @@ export const updateUserById = withController('Update user', async (req, res) => 
     return sendError(res, 403, 'Forbidden: Only platform administrators can change a user\'s sign-in details', 'SIGN_IN_DETAILS_PLATFORM_ADMIN_ONLY');
   }
 
+  // Ownership only moves through the organization transfer, which atomically
+  // demotes the current owner — for every caller, a platform admin included.
+  // Otherwise an org admin could self-escalate to owner, and a platform admin's
+  // `role: 'owner'` would be recorded as a change that did nothing.
+  if (body.role === 'owner') {
+    return sendError(res, 403, 'Forbidden: Ownership can only be changed via organization transfer', 'OWNERSHIP_TRANSFER_REQUIRED');
+  }
+
   // Org-admin authz pre-check (separate from the update so we can 403 early
   // without touching the DB record). System-admin can change org assignment;
   // org-admin can't.
@@ -248,21 +255,14 @@ export const updateUserById = withController('Update user', async (req, res) => 
     if (body.organizationId !== undefined) {
       return sendError(res, 403, 'Forbidden: Only system admins can change user organization');
     }
-    // Org-admin can't grant org ownership — that must go through transferOwnership
-    // (which atomically demotes the current owner). Otherwise an org-admin could
-    // self-escalate to owner via PUT /users/:id { role: 'owner' }.
-    if (body.role === 'owner') {
-      return sendError(res, 403, 'Forbidden: Ownership can only be changed via organization transfer');
-    }
   }
 
   const { user, changes, organizationName, activeOrgRole } = await userAdminService.updateUserById(
     id,
-    body,
+    { ...body, role: body.role },
     {
       scopeOrgId: admin.orgId,
       actor: { isSuperAdmin: admin.isSuperAdmin, isOrgAdmin: isOrgAdmin(req), permissions: req.user!.permissions ?? [] },
-      passwordMinLength: config.auth.passwordMinLength,
     },
   );
 
@@ -281,7 +281,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
 
   sendSuccess(
     res, 200,
-    { user: formatUserResponse(toUserResponseInput(user), { activeOrgRole, activeOrgName: organizationName }), changes },
+    { user: formatUserResponse(user, { activeOrgRole, activeOrgName: organizationName }), changes },
     'User updated successfully',
   );
 }, adminErrorMap);
@@ -458,7 +458,7 @@ export const updateUserFeatures = withController('Update user features', async (
 
   sendSuccess(
     res, 200,
-    { user: formatUserResponse(toUserResponseInput(user), { activeOrgRole, activeOrgName: organizationName, tier: (orgTier as QuotaTier) || 'developer', features }) },
+    { user: formatUserResponse(user, { activeOrgRole, activeOrgName: organizationName, tier: (orgTier as QuotaTier) || 'developer', features }) },
     'Feature overrides updated successfully',
   );
 }, adminErrorMap);

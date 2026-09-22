@@ -127,7 +127,7 @@ async function creatorPermissions(req: Request, userId: string): Promise<Set<str
   // graph in just to read two claims.
   const [{ User }, { membershipForOrg }] = await Promise.all([
     import('../models/index.js'),
-    import('../utils/token.js'),
+    import('../services/session/membership-context.js'),
   ]);
   const user = await User.findById(userId).select('+isSuperAdmin lastActiveOrgId').lean();
   const orgId = user?.lastActiveOrgId ? String(user.lastActiveOrgId) : undefined;

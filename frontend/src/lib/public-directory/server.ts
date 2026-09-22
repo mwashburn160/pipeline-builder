@@ -5,7 +5,7 @@
  * `getServerSideProps` plumbing shared by the public directory pages.
  *
  * Successful renders are CDN-cacheable for a minute and served stale for ten
- * while revalidating (§6a). The HTML never depends on the viewer — the API is
+ * while revalidating. The HTML never depends on the viewer — the API is
  * called without credentials and the header renders its guest variant on the
  * server — so a shared cache is safe. Failures are `no-store`: an outage page
  * must not be cached for everyone.

@@ -4,17 +4,16 @@
 /**
  * Build strategies — one per plugin `buildType`, behind a runtime factory.
  *
- * Consolidates the two concerns that used to be scattered across plugin-spec.ts,
- * plugin-build-queue.ts and upload-plugin.ts as inline `buildType ===` branches:
- *   - validate + resolve   (what the extracted ZIP must contain)
- *   - produce the image     (how to build/push it — or not, for metadata_only)
+ * Each strategy owns the two concerns that differ by build type:
+ *   - validate + resolve (what the extracted ZIP must contain)
+ *   - produce the image (how to build/push it — or not, for metadata_only)
  *
  * A `metadata_only` plugin produces no image, modelled with a discriminated union so
  * `if (strat.producesImage)` narrows to `ImageBuildStrategy` — no throwing stub.
  *
  * NOTE: `isApprovalStep` (pluginType `ManualApprovalStep`) is a SECOND, orthogonal
  * "skip build" axis handled by the callers, not by the strategy — but it's passed in
- * so build_image skips Dockerfile resolution for approval steps (as it did before).
+ * so build_image skips Dockerfile resolution for approval steps.
  */
 
 import { existsSync } from 'fs';

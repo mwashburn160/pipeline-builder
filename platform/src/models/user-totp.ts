@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, Types, type HydratedDocument } from 'mongoose';
 
 /**
  * One account's authenticator-app enrolment (TOTP). The account's recovery
@@ -28,8 +28,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
  *
  * Removed with the user in `services/user-cascade.ts`.
  */
-export interface UserTotpDocument extends Document {
-  _id: Types.ObjectId;
+export interface UserTotpData {
   /** Owning user. One enrolment per account — a second authenticator app is
    *  scanned from the same secret, which is how every provider does it. */
   userId: Types.ObjectId;
@@ -57,7 +56,9 @@ export interface UserTotpDocument extends Document {
   lastUsedAt?: Date | null;
 }
 
-const userTotpSchema = new Schema<UserTotpDocument>(
+export type UserTotpDocument = HydratedDocument<UserTotpData>;
+
+const userTotpSchema = new Schema<UserTotpData>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true, index: true },
     // Hidden from default queries — only totp-service ever reads it, and it
@@ -75,4 +76,4 @@ const userTotpSchema = new Schema<UserTotpDocument>(
   { timestamps: false },
 );
 
-export default mongoose.model<UserTotpDocument>('UserTotp', userTotpSchema);
+export default mongoose.model<UserTotpData>('UserTotp', userTotpSchema);

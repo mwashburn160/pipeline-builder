@@ -119,7 +119,7 @@ bash "$BIN_DIR/token-signing-keys.sh" "$CERT_DIR"
 PLUGIN_SIGNING_MODE="$(grep -E '^PLUGIN_SIGNING_MODE=' "$DEPLOY_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)" \
 PLUGIN_SIGNING_KMS_KEY_ID="$(grep -E '^PLUGIN_SIGNING_KMS_KEY_ID=' "$DEPLOY_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)" \
   bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
-# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14) →
+# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens →
 # certs/service-keys/<service>.key plus the public certs/service-keys/bundle.json.
 # Each container bind-mounts ONLY its own key (plus the shared public bundle), so
 # no service can sign as another. Same must-exist-before-`up` rule as the keys

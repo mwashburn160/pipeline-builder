@@ -1,8 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { MAX_PAGE_LIMIT as SHARED_MAX_PAGE_LIMIT, DEFAULT_PAGE_LIMIT as SHARED_DEFAULT_PAGE_LIMIT } from '@pipeline-builder/api-core';
-import { loadBillingConfig } from './billing-config.js';
+import { envInt, envStr, MAX_PAGE_LIMIT as SHARED_MAX_PAGE_LIMIT, DEFAULT_PAGE_LIMIT as SHARED_DEFAULT_PAGE_LIMIT } from '@pipeline-builder/api-core';
 import type { AppConfig } from './config-types.js';
 import * as HandlerConstants from './handler-constants.js';
 import {
@@ -43,33 +42,32 @@ export class CoreConstants {
   // NOTE: maxAttempts / backoffDelayMs / workerTimeoutMs are NOT duplicated here —
   // `loadPluginBuildConfig` (infrastructure-config.ts) is their single source of
   // truth, read via `Config.get('pluginBuild')`.
-  static readonly PLUGIN_BUILD_QUEUE_NAME = process.env.PLUGIN_BUILD_QUEUE_NAME || 'plugin-build';
-  static readonly PLUGIN_BUILD_COMPLETED_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_COMPLETED_RETENTION_SECS || '3600', 10); // 1 hr
-  static readonly PLUGIN_BUILD_FAILED_RETENTION_SECS = parseInt(process.env.PLUGIN_BUILD_FAILED_RETENTION_SECS || '86400', 10); // 24 hr
+  static readonly PLUGIN_BUILD_QUEUE_NAME = envStr('PLUGIN_BUILD_QUEUE_NAME', 'plugin-build');
+  static readonly PLUGIN_BUILD_COMPLETED_RETENTION_SECS = envInt('PLUGIN_BUILD_COMPLETED_RETENTION_SECS', 3_600); // 1 hr
+  static readonly PLUGIN_BUILD_FAILED_RETENTION_SECS = envInt('PLUGIN_BUILD_FAILED_RETENTION_SECS', 86_400); // 24 hr
 
   // Pagination and limits — single source in api-core (validation/common-schemas)
   // so the validation layer, this config, and pipeline-data's CrudService never drift.
   static readonly MAX_PAGE_LIMIT = SHARED_MAX_PAGE_LIMIT;
   static readonly DEFAULT_PAGE_LIMIT = SHARED_DEFAULT_PAGE_LIMIT;
-  static readonly MAX_PROMPT_LENGTH = parseInt(process.env.MAX_PROMPT_LENGTH || '5000', 10);
-  static readonly PLUGIN_MAX_UPLOAD_MB = parseInt(process.env.PLUGIN_MAX_UPLOAD_MB || '4096', 10);
-  static readonly PIPELINE_NAME_MAX_LENGTH = parseInt(process.env.PIPELINE_NAME_MAX_LENGTH || '100', 10);
-  static readonly DEFAULT_PLUGIN_VERSION = process.env.DEFAULT_PLUGIN_VERSION || '1.0.0';
+  static readonly MAX_PROMPT_LENGTH = envInt('MAX_PROMPT_LENGTH', 5_000);
+  static readonly PLUGIN_MAX_UPLOAD_MB = envInt('PLUGIN_MAX_UPLOAD_MB', 4_096);
+  static readonly PIPELINE_NAME_MAX_LENGTH = envInt('PIPELINE_NAME_MAX_LENGTH', 100);
+  static readonly DEFAULT_PLUGIN_VERSION = envStr('DEFAULT_PLUGIN_VERSION', '1.0.0');
 
   // SSE stream timeout for AI generation endpoints
-  static readonly SSE_STREAM_TIMEOUT_MS = parseInt(process.env.SSE_STREAM_TIMEOUT_MS || '300000', 10); // 5 min
+  static readonly SSE_STREAM_TIMEOUT_MS = envInt('SSE_STREAM_TIMEOUT_MS', 300_000); // 5 min
 
   // Git provider API base URLs (configurable for enterprise instances)
-  static readonly GITHUB_API_BASE_URL = process.env.GITHUB_API_BASE_URL || 'https://api.github.com';
-  static readonly BITBUCKET_API_BASE_URL = process.env.BITBUCKET_API_BASE_URL || 'https://api.bitbucket.org/2.0';
+  static readonly GITHUB_API_BASE_URL = envStr('GITHUB_API_BASE_URL', 'https://api.github.com');
+  static readonly BITBUCKET_API_BASE_URL = envStr('BITBUCKET_API_BASE_URL', 'https://api.bitbucket.org/2.0');
 
   // Bulk operations and event ingestion
-  static readonly MAX_BULK_ITEMS = parseInt(process.env.MAX_BULK_ITEMS || '100', 10);
-  static readonly MAX_EVENTS_PER_BATCH = parseInt(process.env.MAX_EVENTS_PER_BATCH || '100', 10);
-  static readonly DEFAULT_REPORT_RANGE_DAYS = parseInt(process.env.DEFAULT_REPORT_RANGE_DAYS || '30', 10);
+  static readonly MAX_BULK_ITEMS = envInt('MAX_BULK_ITEMS', 100);
+  static readonly MAX_EVENTS_PER_BATCH = envInt('MAX_EVENTS_PER_BATCH', 100);
 
   // Secrets Manager path prefix for org-scoped secrets
-  static readonly SECRETS_PATH_PREFIX = process.env.SECRETS_PATH_PREFIX || 'pipeline-builder';
+  static readonly SECRETS_PATH_PREFIX = envStr('SECRETS_PATH_PREFIX', 'pipeline-builder');
 
   /** Build a Secrets Manager path: {prefix}/{orgId}/{name} */
   static secretPath(orgId: string, name: string): string {
@@ -77,41 +75,37 @@ export class CoreConstants {
   }
 
   // Database connection
-  static readonly DB_MAX_RETRIES = parseInt(process.env.DB_MAX_RETRIES || '3', 10);
-  static readonly DB_RETRY_DELAY_MS = parseInt(process.env.DB_RETRY_DELAY_MS || '1000', 10); // 1s
-  static readonly DB_TRANSACTION_TIMEOUT_MS = parseInt(process.env.DB_TRANSACTION_TIMEOUT_MS || '30000', 10); // 30s
-  static readonly DB_CLOSE_TIMEOUT_MS = parseInt(process.env.DB_CLOSE_TIMEOUT_MS || '5000', 10); // 5s
+  static readonly DB_MAX_RETRIES = envInt('DB_MAX_RETRIES', 3);
+  static readonly DB_RETRY_DELAY_MS = envInt('DB_RETRY_DELAY_MS', 1_000); // 1s
 
   // Response compression
-  static readonly COMPRESSION_THRESHOLD_BYTES = parseInt(process.env.COMPRESSION_THRESHOLD_BYTES || '1024', 10);
+  static readonly COMPRESSION_THRESHOLD_BYTES = envInt('COMPRESSION_THRESHOLD_BYTES', 1_024);
 
   // Idempotency
-  static readonly IDEMPOTENCY_TTL_MS = parseInt(process.env.IDEMPOTENCY_TTL_MS || '300000', 10); // 5 min
+  static readonly IDEMPOTENCY_TTL_MS = envInt('IDEMPOTENCY_TTL_MS', 300_000); // 5 min
   // Lifetime of an IN-FLIGHT reservation (no response yet). Bounds how long a
   // key stays locked (409) when the process dies mid-handler; must exceed the
   // longest legitimate handler run, since an expired reservation lets a
   // duplicate through.
-  static readonly IDEMPOTENCY_PENDING_TTL_MS = parseInt(process.env.IDEMPOTENCY_PENDING_TTL_MS || '120000', 10); // 2 min
-  static readonly IDEMPOTENCY_MAX_STORE_SIZE = parseInt(process.env.IDEMPOTENCY_MAX_STORE_SIZE || '10000', 10);
-  static readonly IDEMPOTENCY_CLEANUP_INTERVAL_MS = parseInt(process.env.IDEMPOTENCY_CLEANUP_INTERVAL_MS || '60000', 10); // 1 min
+  static readonly IDEMPOTENCY_PENDING_TTL_MS = envInt('IDEMPOTENCY_PENDING_TTL_MS', 120_000); // 2 min
+  static readonly IDEMPOTENCY_MAX_STORE_SIZE = envInt('IDEMPOTENCY_MAX_STORE_SIZE', 10_000);
+  static readonly IDEMPOTENCY_CLEANUP_INTERVAL_MS = envInt('IDEMPOTENCY_CLEANUP_INTERVAL_MS', 60_000); // 1 min
 
-  // Cache
-  static readonly CACHE_CLEANUP_INTERVAL_MS = parseInt(process.env.CACHE_CLEANUP_INTERVAL_MS || '30000', 10); // 30s
 
   // Server-side cache TTLs (seconds)
-  static readonly CACHE_TTL_ENTITY = parseInt(process.env.CACHE_TTL_ENTITY || '60', 10); // plugin/pipeline findById
-  static readonly CACHE_TTL_MESSAGE = parseInt(process.env.CACHE_TTL_MESSAGE || '300', 10); // announcements/conversations (5 min)
-  static readonly CACHE_TTL_REPORT_INVENTORY = parseInt(process.env.CACHE_TTL_REPORT_INVENTORY || '300', 10); // plugin summary/distribution (5 min)
-  static readonly CACHE_TTL_REPORT_TIMESERIES = parseInt(process.env.CACHE_TTL_REPORT_TIMESERIES || '120', 10); // execution/build metrics (2 min)
-  static readonly CACHE_TTL_COMPLIANCE_RULES = parseInt(process.env.CACHE_TTL_COMPLIANCE_RULES || '60', 10); // active compliance rules
-  static readonly CACHE_TTL_BILLING_PLANS = parseInt(process.env.CACHE_TTL_BILLING_PLANS || '14400', 10); // billing plans (4 hours)
+  static readonly CACHE_TTL_ENTITY = envInt('CACHE_TTL_ENTITY', 60); // plugin/pipeline findById
+  static readonly CACHE_TTL_MESSAGE = envInt('CACHE_TTL_MESSAGE', 300); // announcements/conversations (5 min)
+  static readonly CACHE_TTL_REPORT_INVENTORY = envInt('CACHE_TTL_REPORT_INVENTORY', 300); // plugin summary/distribution (5 min)
+  static readonly CACHE_TTL_REPORT_TIMESERIES = envInt('CACHE_TTL_REPORT_TIMESERIES', 120); // execution/build metrics (2 min)
+  static readonly CACHE_TTL_COMPLIANCE_RULES = envInt('CACHE_TTL_COMPLIANCE_RULES', 60); // active compliance rules
+  static readonly CACHE_TTL_BILLING_PLANS = envInt('CACHE_TTL_BILLING_PLANS', 14_400); // billing plans (4 hours)
 
   // SSE backpressure
-  static readonly SSE_BACKPRESSURE_THRESHOLD = parseInt(process.env.SSE_BACKPRESSURE_THRESHOLD || '10', 10);
+  static readonly SSE_BACKPRESSURE_THRESHOLD = envInt('SSE_BACKPRESSURE_THRESHOLD', 10);
 
   // HTTP Cache-Control headers
-  static readonly CACHE_CONTROL_LIST = process.env.CACHE_CONTROL_LIST || 'private, max-age=30, stale-while-revalidate=60';
-  static readonly CACHE_CONTROL_DETAIL = process.env.CACHE_CONTROL_DETAIL || 'private, max-age=60, stale-while-revalidate=120';
+  static readonly CACHE_CONTROL_LIST = envStr('CACHE_CONTROL_LIST', 'private, max-age=30, stale-while-revalidate=60');
+  static readonly CACHE_CONTROL_DETAIL = envStr('CACHE_CONTROL_DETAIL', 'private, max-age=60, stale-while-revalidate=120');
 }
 
 /**
@@ -130,7 +124,6 @@ const sectionLoaders: { [K in keyof AppConfig]: () => AppConfig[K] } = {
   compliance: loadComplianceConfig,
   aws: loadAWSConfig,
   rateLimit: loadRateLimitConfig,
-  billing: loadBillingConfig,
 };
 
 /** Per-section validators — only run for sections that have validation logic. */
@@ -143,7 +136,7 @@ const sectionValidators: Partial<{ [K in keyof AppConfig]: (config: AppConfig[K]
  *
  * Each section is loaded and validated independently on first access,
  * so requesting `Config.get('aws')` does not trigger loading of
- * server, auth, or billing config (and their env var requirements).
+ * server or auth config (and their env var requirements).
  *
  * Usage: `Config.get('server')`, `Config.get('auth')`, etc.
  */

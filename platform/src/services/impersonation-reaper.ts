@@ -17,9 +17,9 @@
  * what came of it.
  */
 
-import { createLogger, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { ImpersonationRequest } from '../models/index.js';
-import { createLockedSweep } from '../utils/leader-lock.js';
 
 const logger = createLogger('impersonation-reaper');
 
@@ -29,8 +29,6 @@ const LOCK_KEY = 'platform:leader:impersonation-reaper';
 
 /** Requests live an hour, so a five-minute sweep keeps status at most minutes stale. */
 export const IMPERSONATION_REAPER_INTERVAL_MS = 5 * 60 * 1000;
-
-let scheduler: Scheduler | null = null;
 
 /**
  * Flip every `pending` or `approved` request whose window has passed to
@@ -53,23 +51,12 @@ export async function sweepExpiredImpersonationRequests(now: Date = new Date()):
   }
 }
 
-/** Start the periodic reaper. Idempotent; returns the stop function for SIGTERM. */
-export function startImpersonationReaper(intervalMs: number = IMPERSONATION_REAPER_INTERVAL_MS): () => void {
-  if (scheduler) return stopImpersonationReaper;
-  scheduler = createLockedSweep({
+/** The reaper as a background sweep (see services/background-sweeps.ts). */
+export function impersonationReaperSweep(intervalMs: number = IMPERSONATION_REAPER_INTERVAL_MS): IntervalSweepDefinition {
+  return {
     name: 'impersonation-reaper',
     lockKey: LOCK_KEY,
     intervalMs,
     run: async () => { await sweepExpiredImpersonationRequests(); },
-  });
-  scheduler.start();
-  return stopImpersonationReaper;
-}
-
-/** Stop the periodic reaper. Idempotent. */
-export function stopImpersonationReaper(): void {
-  if (scheduler) {
-    scheduler.stop();
-    scheduler = null;
-  }
+  };
 }

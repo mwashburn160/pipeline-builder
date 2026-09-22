@@ -22,8 +22,8 @@
  * work, and deliberately not what this file claims. Read it as a cheap ratchet
  * over the declaration↔source link, not as emission coverage.
  *
- * Emission shapes differ per service (`getAuditClient().record({ action })`,
- * `audit(req, 'x', …)`, `emitImageRegistryAudit(…)`, and conditionals like
+ * Emission shapes differ per service (`recordAudit({ action })`,
+ * platform's `audit(req, 'x', …)`, `ecosystemAudit({ action })`, and conditionals like
  * `action: inserted ? 'pipeline.create' : 'pipeline.update'`), so rather than
  * enumerate call shapes this scans for the action literal anywhere outside the
  * `audited(...)` call. Broad on purpose: a narrower scan produced false

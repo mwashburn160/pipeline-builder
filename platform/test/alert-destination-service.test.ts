@@ -12,6 +12,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrderBy = jest.fn().mockReturnValue(Promise.resolve([]));
 const mockWhere = jest.fn(() => ({ orderBy: mockOrderBy }));
@@ -21,7 +22,7 @@ const mockWithTenantTx = jest.fn(async (fn: (tx: unknown) => unknown) => fn({ se
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertDeliveryTimeoutMs: 5000 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: { alertDeliveryTimeoutMs: 5000 } }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   softDeleteRetentionMs: () => 0,
   schema: {

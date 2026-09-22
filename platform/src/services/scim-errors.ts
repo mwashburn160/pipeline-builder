@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SCIM 2.0 error type (3b).
+ * SCIM 2.0 error type.
  *
  * Unlike the rest of the platform — where a service throws a string code and the
  * controller maps it through an `ErrorMap` — a SCIM failure has to carry THREE

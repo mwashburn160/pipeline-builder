@@ -29,7 +29,7 @@ const mockSendQuotaReserveDenied = jest.fn((res: any, _t: string, r: any) => {
   res.status(429).json({ success: false, statusCode: 429, quota: r.quota });
 });
 
-// Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here
+// Plugin-contract check — resolves plugins through the DB; stubbed here
 // and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
 const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
@@ -47,14 +47,11 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
 }));
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPipelineAudit: mockEmitPipelineAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 const mockValidatePipeline = jest.fn<(...args: any[]) => any>().mockResolvedValue({ blocked: false, violations: [] });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPipelineAudit,
   ValidationError: class ValidationError extends Error {},
   extractDbError: jest.fn(() => ({})),
   resolveVisibility: jest.fn((_req: any, am?: string) => am || 'private'),
@@ -99,7 +96,10 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
+// The REAL reservation helper (its api-core calls hit this file's api-core mock).
+let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
@@ -124,7 +124,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  incrementQuotaFromCtx: jest.fn<AnyFn>(),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -141,6 +141,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 }));
 
 const { sendBadRequest, validateBody, ConflictError, ForbiddenError } = await import('@pipeline-builder/api-core') as any;
+({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createCreatePipelineRoutes } = await import('../src/routes/create-pipeline.js');
 
 // Helpers
@@ -252,8 +253,9 @@ describe('POST /pipelines (create)', () => {
 
   it('passes a team caller\'s parent org to the contract resolution', async () => {
     mockCreateAsDefault.mockResolvedValue({ id: 'uuid-1', visibility: 'org' });
-    await handler(mockReq({ user: { parentOrganizationId: 'parent-org' } }), mockRes());
-    expect(mockFindContractViolations).toHaveBeenCalledWith(undefined, expect.any(String), 'parent-org');
+    const props = { synth: { plugin: { name: 'cdk-synth' } } };
+    await handler(mockReq({ user: { parentOrganizationId: 'parent-org' }, body: { project: 'p', organization: 'o', props } }), mockRes());
+    expect(mockFindContractViolations).toHaveBeenCalledWith(props, expect.any(String), 'parent-org');
   });
 
   it('emits an attributed pipeline.create audit event after a successful create', async () => {
@@ -503,5 +505,20 @@ describe('POST /pipelines (create)', () => {
       expect.any(String),
       expect.any(Object),
     );
+  });
+
+  // The success message is derived from the rung the pipeline actually landed
+  // on — the default `org` rung is visible to the whole org, not "Private".
+  it.each([
+    ['org', /accessible to organization org-1/],
+    ['private', /Private pipeline created successfully \(accessible to its author only\)/],
+    ['public', /Public pipeline created successfully/],
+  ])('describes a %s pipeline accurately in the success message', async (visibility, expected) => {
+    mockCreateAsDefault.mockResolvedValue({ id: 'uuid-v', project: 'p', organization: 'o', pipelineName: 'n', visibility });
+    const res = mockRes();
+    await handler(mockReq(), res);
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.message).toMatch(expected);
+    if (visibility === 'org') expect(payload.message).not.toMatch(/Private/);
   });
 });

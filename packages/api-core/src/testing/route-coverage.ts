@@ -12,14 +12,14 @@
  *     its audit action via `audited()`;
  *   - a READ route must carry one of those gates;
  *   - a route with a permission gate must also run `requireAuth`;
- *   - an `/internal/…` path must be gated by `requireInternalService` (#14),
+ *   - an `/internal/…` path must be gated by `requireInternalService`,
  *     with no exception list — a peer-service API a browser can reach is the
  *     failure this rule exists to prevent. {@link findInternalRouteViolations}
  *     then checks each service's internal routes against the caller list it
  *     declares (the same list the Istio policies name);
  *   - a route gated on a SYSTEM-ORG-ONLY ecosystem permission must also run
  *     `requireSystemOrg` and require an MFA-grade session
- *     ({@link findSystemOrgGuardViolations}, plugin-ecosystem §3.0).
+ *     ({@link findSystemOrgGuardViolations}).
  *
  * Anything that legitimately can't satisfy a rule — health/metrics probes, signed
  * webhooks, public auth endpoints, internal service-principal hooks, handler-level
@@ -78,10 +78,10 @@ function matches(e: RouteCoverageException, entry: RouteTableEntry): boolean {
 }
 
 function isGated(entry: RouteTableEntry): boolean {
-  // An INTERNAL route (#14) counts as gated: `requireInternalService` refuses
+  // An INTERNAL route counts as gated: `requireInternalService` refuses
   // every user token and admits only the named peer services, which is a
-  // STRONGER requirement than any user permission — so these routes no longer
-  // need a "service principal, no user permission applies" exception.
+  // STRONGER requirement than any user permission — so these routes need no
+  // "service principal, no user permission applies" exception.
   return entry.permissions.length > 0 || entry.systemAdmin || entry.internalCallers.length > 0;
 }
 
@@ -111,7 +111,7 @@ export function findRouteCoverageViolations(
     if (entry.method === 'OPTIONS') continue;
     const where = `${entry.method} ${entry.path}`;
     // An `/internal/…` path is internal by name, so it must be internal by gate
-    // too (#14). Checked for EVERY service, with no exception list: a new
+    // too. Checked for EVERY service, with no exception list: a new
     // internal route that forgets `requireInternalService` is a browser-reachable
     // peer-service API, which is the failure mode this rule exists to prevent.
     if (/(^|\/)internal(\/|$)/.test(entry.path) && entry.internalCallers.length === 0) {
@@ -144,7 +144,7 @@ export interface InternalRouteDeclaration {
 }
 
 /**
- * Check a service's INTERNAL routes (#14) against what it declares.
+ * Check a service's INTERNAL routes against what it declares.
  *
  * The declaration is the single list a service maintains, and it is checked in
  * BOTH directions, so neither side can drift:
@@ -188,7 +188,7 @@ export function findInternalRouteViolations(
 }
 
 /**
- * The plugin-ecosystem GOVERNANCE check (docs/plans/plugin-ecosystem.md §3.0):
+ * The plugin-ecosystem GOVERNANCE check (docs/runbooks/ecosystem-moderation.md):
  * only the system org manages or approves the ecosystem, so every route whose
  * permission gate names a system-org-only permission (`plugins:moderate`,
  * `publishers:verify` — api-core `SYSTEM_ORG_ONLY_PERMISSIONS`) must ALSO run

@@ -1,12 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createEnvRedisLock, createLogger, createSafeClient, createScheduler, type Scheduler, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, type Scheduler, errorMessage, sendSystemNotification } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
-import { billingServiceAuth, clampRetentionDays, createBillingEvent, currentSubscriptionEntitlement, deriveComplianceSets, effectiveEntitlements, effectiveFeatureSet, getBundleCatalog, pushComplianceSetsToCompliance, syncEntitlements, syncProviderAddons } from './billing-helpers.js';
-import { complianceSetsDiffer, computeEntitlementDrift, readActualEntitlements, readEnforcedComplianceSets, readEnforcedRetention, retentionDiffers } from './entitlement-drift.js';
+import { syncProviderAddons } from './addon-prune.js';
+import { billingServiceAuth, createBillingEvent } from './billing-helpers.js';
+import { reconcileEntitlementDrift } from './entitlement-drift.js';
+import { syncEntitlements } from './entitlement-sync.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
@@ -36,13 +38,12 @@ const logger = createLogger('subscription-lifecycle');
 // replicas from redundantly walking the same rows. TTL comfortably exceeds one
 // pass and stays under the default hourly cadence so the next tick re-acquires.
 const LOCK_TTL_MS = 10 * 60 * 1000;
-const lockClient = createEnvRedisLock();
 
 const scheduler: Scheduler = createScheduler({
   name: 'subscription-lifecycle',
   intervalMs: config.lifecycleCheckIntervalMs,
   run: () => runWithTenantContext({ isSuperAdmin: true }, runLifecycleCheck),
-  ...(lockClient ? { lock: { redis: () => lockClient, key: 'subscription-lifecycle', ttlMs: LOCK_TTL_MS } } : {}),
+  lock: { key: 'subscription-lifecycle', ttlMs: LOCK_TTL_MS },
 });
 
 /** Start the periodic subscription lifecycle checker. Safe to call multiple times. */
@@ -56,10 +57,9 @@ async function runLifecycleCheck(): Promise<void> {
   await checkGracePeriodExpiry();
   await checkExpiredSubscriptions();
   await sendRenewalReminders();
-  // NOTE: failed entitlement-sync retry is no longer a polling pass — a failed
-  // sync now publishes to the durable event bus and the billing-side consumer
-  // (startEntitlementSyncConsumer) re-drives it at-least-once. Only the SILENT-
-  // drift pass (out-of-band edits, which have no triggering event) remains below.
+  // A failed entitlement sync is retried by the durable-bus consumer
+  // (startEntitlementSyncConsumer), not here; only the SILENT-drift pass
+  // (out-of-band edits, which have no triggering event) runs below.
   await reconcileFailedProviderAddonSyncs();
   // Runs LAST: the low-frequency, bounded silent-drift pass. Kept at the end so
   // it doesn't disturb the earlier legs' sequential-mock ordering in tests.
@@ -394,11 +394,6 @@ async function sendRenewalReminders(): Promise<void> {
 
   if (upcoming.length === 0) return;
 
-  const messageClient = createSafeClient({
-    host: config.messageService.host,
-    port: config.messageService.port,
-  });
-
   for (const subscription of upcoming) {
     try {
       const periodKey = formatDate(subscription.currentPeriodEnd);
@@ -419,34 +414,20 @@ async function sendRenewalReminders(): Promise<void> {
         year: 'numeric', month: 'long', day: 'numeric',
       });
 
-      // Caller's org identity is taken from the JWT — don't pass orgId/
-      // senderOrgId, the message service rejects them. recipientOrgId
-      // is the target tenant. Use 'conversation' (not 'announcement',
-      // which message-service only allows for recipientOrgId='*').
-      const resp = await messageClient.post('/messages', {
+      // A SYSTEM-authored notice into the org's inbox.
+      const delivered = await sendSystemNotification({
         recipientOrgId: subscription.orgId,
-        messageType: 'conversation',
         subject: `Subscription renewal in ${reminderDays} days`,
         content: `Your ${planName} subscription (${subscription.interval}) will renew on ${renewDate}. `
         + 'If you need to make changes, visit your billing settings.',
         priority: 'normal',
-      }, {
-        headers: {
-          'x-internal-service': 'true',
-          'x-org-id': SYSTEM_ORG_ID,
-          'authorization': billingServiceAuth(SYSTEM_ORG_ID, 'member'),
-        },
-      });
+      }, { service: config.messageService });
 
-      // The safe client never throws — a transport failure is `null` and a
-      // rejection is a 4xx/5xx. Only stamp the per-period dedupe marker once the
-      // message service ACCEPTED the reminder; otherwise leave it unmarked so the
-      // next tick retries instead of silently recording an undelivered reminder.
-      if (!resp || resp.statusCode >= 400) {
-        logger.warn('Renewal reminder not delivered — will retry next tick', {
-          orgId: subscription.orgId,
-          statusCode: resp?.statusCode,
-        });
+      // Only keep the per-period dedupe claim once the message service ACCEPTED
+      // the reminder; otherwise release it so the next tick retries instead of
+      // silently recording an undelivered reminder.
+      if (!delivered) {
+        logger.warn('Renewal reminder not delivered — will retry next tick', { orgId: subscription.orgId });
         await releaseRenewalReminderClaim(subscription._id, periodKey, previousKey);
         continue;
       }
@@ -473,7 +454,7 @@ async function sendRenewalReminders(): Promise<void> {
  * user add/remove drops a bundle, `syncProviderAddons` deletes the Stripe line
  * item best-effort — a failure there is only local (the customer keeps being
  * billed for the pruned bundle) and, unlike the entitlement leg, had no durable
- * retry. `syncProviderAddons` now stamps `metadata.providerAddonSyncPending` on
+ * retry. `syncProviderAddons` stamps `metadata.providerAddonSyncPending` on
  * failure (and clears it on the next success), so this pass finds every ACTIVE
  * marked sub and re-calls `syncProviderAddons` with the sub's CURRENT (already
  * reduced) add-ons — idempotent: it rebuilds the provider's bundle line items
@@ -517,232 +498,6 @@ async function reconcileFailedProviderAddonSyncs(): Promise<void> {
       });
     }
   }
-}
-
-// ── 5. Cross-Store Entitlement-Drift Reconciliation ───────
-
-/**
- * Low-frequency, BOUNDED pass that catches SILENT entitlement drift — the case
- * the durable-bus retry can't see. A KNOWN sync failure now publishes a retry to
- * the event bus, which redelivers until it succeeds; this pass instead finds subs
- * whose sync returned success but whose ENFORCED state has
- * since diverged from what the Subscription (tier + add-ons) says it should be:
- * an out-of-band edit in the quota/platform store, a sync that didn't take
- * effect, a manual override, etc.
- *
- * Billing's Subscription is the source of truth. For each candidate we compute
- * the EXPECTED entitlements (`effectiveEntitlements`), read the ACTUAL enforced
- * state (quota limits from the quota service + the seat limit from platform),
- * and compare. On any mismatch we re-drive the SAME idempotent `syncEntitlements`
- * path (which also clears the pending marker) + emit
- * `billing_entitlement_drift_total`. On a clean match we stamp
- * `metadata.lastReconciledAt` and do nothing else.
- *
- * BOUNDED two ways so a large customer base is amortized, not scanned every tick:
- *   1. a per-tick cap (`config.entitlementDriftMaxPerTick`), and
- *   2. a per-sub `metadata.lastReconciledAt` gate — a sub reconciled within the
- *      last `config.entitlementDriftIntervalMs` (~daily) is skipped by the query.
- * `lastReconciledAt` is stamped after every completed check (match OR drift), so
- * each sub rotates back into the window at most ~once per interval. A read
- * failure leaves it UN-stamped, so it's retried next tick (never falsely re-synced).
- *
- * FAIL-SOFT: a store read failure for one sub logs + skips that sub — an
- * unreachable store is NOT "drift". The pass never throws.
- *
- * COVERAGE: the 9 tracked quota limits + seats + the account FEATURE entitlements
- * (`featureEntitlements`, read from platform's feature-entitlements endpoint) +
- * the COMPLIANCE content sets (standard/advanced, read from the compliance
- * service) are all compared; a drift on any surfaces on its own metric dimension
- * (`quota` | `seats` | `features` | `compliance`). The compliance leg also drives
- * the Enterprise/Unlimited cutover, whose entitled sets have no billing event.
- */
-async function reconcileEntitlementDrift(): Promise<void> {
-  const now = Date.now();
-  const nowIso = new Date(now).toISOString();
-  // Gate: only subs never reconciled, or last reconciled before the interval
-  // cutoff, and not inside a read-failure backoff. Oldest-reconciled first so a
-  // capped tick always makes progress through the whole base (an unsorted scan
-  // could keep returning the same never-matching rows).
-  const cutoff = new Date(now - config.entitlementDriftIntervalMs).toISOString();
-  const candidates = await Subscription.find(
-    {
-      $and: [
-        // Every status that can hold enforced entitlements: manageable rows
-        // (their plan tier, or developer once grace-downgraded) AND terminal rows
-        // (canceled/incomplete — must sit at the developer baseline; a missed
-        // downgrade leaves an unpaying org over-entitled). A terminal row is
-        // checked until it once confirms the baseline (`terminalReconciledAt`).
-        {
-          $or: [
-            { status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } },
-            { 'metadata.terminalReconciledAt': { $exists: false } },
-          ],
-        },
-        {
-          $or: [
-            { 'metadata.lastReconciledAt': { $exists: false } },
-            { 'metadata.lastReconciledAt': { $lte: cutoff } },
-          ],
-        },
-        {
-          $or: [
-            { 'metadata.driftRetryAfter': { $exists: false } },
-            { 'metadata.driftRetryAfter': { $lte: nowIso } },
-          ],
-        },
-      ],
-    },
-    null,
-    // Bound the scan at the DB level — never pull the whole base.
-    { sort: { 'metadata.lastReconciledAt': 1 }, limit: config.entitlementDriftMaxPerTick },
-  );
-
-  if (candidates.length === 0) return;
-
-  for (const subscription of candidates) {
-    const subscriptionId = subscription._id.toString();
-    const terminal = !(MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(subscription.status);
-    try {
-      // A terminal row is superseded when the org has a live subscription — that
-      // row owns the org's expected state. Settle this one without touching anything.
-      if (terminal && await Subscription.exists({
-        orgId: subscription.orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
-      })) {
-        await stampDriftChecked(subscriptionId, true);
-        continue;
-      }
-
-      // EXPECTED from the row's CURRENT state (plan tier + add-ons, or the
-      // developer baseline for a lapsed/terminal row) — the same derivation the
-      // entitlement-retry consumer uses.
-      const entitlement = await currentSubscriptionEntitlement(subscription);
-      if (!entitlement) {
-        logger.error('Cannot drift-check entitlements — plan not found', {
-          orgId: subscription.orgId, subscriptionId, planId: subscription.planId,
-        });
-        await backOffDriftCheck(subscription, 'plan_missing');
-        continue;
-      }
-      const { tier, addons } = entitlement;
-      const serviceAuth = billingServiceAuth(subscription.orgId);
-
-      // EXPECTED (from the sub) vs ACTUAL (enforced) — the compare is pure; the
-      // reads are fail-soft (null ⇒ a store was unreachable).
-      const { limits: expected, features: expectedFeatures } = effectiveEntitlements(tier, addons, getBundleCatalog());
-      const actual = await readActualEntitlements(subscription.orgId, serviceAuth);
-      // COMPLIANCE dimension: the content sets live in the compliance service; this
-      // also drives the Enterprise/Unlimited cutover (tier-baseline flags with no
-      // billing event to push them).
-      const effectiveFeatures = effectiveFeatureSet(tier, addons);
-      const expectedSets = deriveComplianceSets(effectiveFeatures);
-      const actualSets = actual ? await readEnforcedComplianceSets(subscription.orgId, serviceAuth) : null;
-      // RETENTION dimension: reporting's enforced override vs the clamped value the
-      // retention leg pushes.
-      const actualRetention = actualSets ? await readEnforcedRetention(subscription.orgId, serviceAuth) : null;
-      if (!actual || actualSets === null || !actualRetention) {
-        // A store read failed — an outage is NOT drift. Skip WITHOUT stamping
-        // lastReconciledAt (never re-sync on an unreachable store), but back off so
-        // a persistently failing store doesn't pin this sub to the head of every tick.
-        logger.warn('Entitlement drift check skipped — enforced-state read failed', {
-          orgId: subscription.orgId, subscriptionId,
-        });
-        await backOffDriftCheck(subscription, 'read_failed');
-        continue;
-      }
-
-      const drift = computeEntitlementDrift(expected, expectedFeatures, actual);
-      const retentionDrift = retentionDiffers(
-        {
-          eventRetentionDays: clampRetentionDays(expected.eventRetentionDays),
-          doraRetentionDays: clampRetentionDays(expected.doraRetentionDays),
-        },
-        actualRetention,
-      );
-
-      if (drift.status === 'drift' || retentionDrift) {
-        logger.warn('Entitlement drift detected — re-syncing enforced state', {
-          orgId: subscription.orgId, subscriptionId, tier, drifted: drift.drifted, retentionDrift,
-        });
-        // Re-drive the SAME idempotent fan-out. syncEntitlements runs it inline and,
-        // if a leg fails, publishes a durable-bus retry that redelivers until it lands.
-        await syncEntitlements(subscription.orgId, tier, serviceAuth, subscriptionId, addons);
-        for (const dimension of drift.dimensions) {
-          incCounter('billing_entitlement_drift_total', { dimension });
-        }
-        if (retentionDrift) incCounter('billing_entitlement_drift_total', { dimension: 'retention' });
-      }
-
-      // Compliance-set drift is re-driven SURGICALLY: re-push ONLY the entitled
-      // sets (not the full four-target sync) so a compliance-only divergence — or a
-      // never-pushed Enterprise cutover — is corrected without touching quota/seats.
-      if (complianceSetsDiffer(expectedSets, actualSets)) {
-        logger.warn('Compliance-set drift detected — re-syncing entitled sets', {
-          orgId: subscription.orgId,
-          subscriptionId,
-          tier,
-          expected: expectedSets,
-          actual: actualSets,
-        });
-        await pushComplianceSetsToCompliance(subscription.orgId, effectiveFeatures, serviceAuth, subscriptionId);
-        incCounter('billing_entitlement_drift_total', { dimension: 'compliance' });
-      }
-
-      // Stamp on a completed check (match OR post-resync) so this sub drops out
-      // of the query for the next interval, and clear any read-failure backoff.
-      await stampDriftChecked(subscriptionId, terminal);
-    } catch (err) {
-      // Never let one sub's failure abort the pass.
-      logger.error('Error reconciling entitlement drift', {
-        orgId: subscription.orgId, subscriptionId, error: errorMessage(err),
-      });
-      await backOffDriftCheck(subscription, 'error').catch(() => undefined);
-    }
-  }
-}
-
-/** Base delay before re-trying a drift check whose reads failed; doubles per failure. */
-const DRIFT_RETRY_BASE_MS = 15 * 60 * 1000;
-
-/**
- * Record a failed drift attempt: stamp `lastDriftAttemptAt` and push
- * `driftRetryAfter` out exponentially (capped at the reconcile interval), so an
- * unreachable store is retried with backoff instead of every tick. Surgical
- * dot-path writes so concurrent metadata markers aren't clobbered.
- */
-async function backOffDriftCheck(
-  subscription: Pick<SubscriptionDocument, '_id' | 'metadata'>,
-  reason: string,
-): Promise<void> {
-  const failures = Number(subscription.metadata?.driftFailures ?? 0);
-  const delay = Math.min(DRIFT_RETRY_BASE_MS * 2 ** Math.min(failures, 16), config.entitlementDriftIntervalMs);
-  const now = Date.now();
-  await Subscription.updateOne(
-    { _id: subscription._id },
-    {
-      $set: {
-        'metadata.lastDriftAttemptAt': new Date(now).toISOString(),
-        'metadata.driftRetryAfter': new Date(now + delay).toISOString(),
-      },
-      $inc: { 'metadata.driftFailures': 1 },
-    },
-  );
-  incCounter('billing_entitlement_drift_skipped_total', { reason });
-}
-
-/** Stamp a completed drift check and clear any backoff state. */
-async function stampDriftChecked(subscriptionId: string, terminal: boolean): Promise<void> {
-  const at = new Date().toISOString();
-  await Subscription.updateOne(
-    { _id: subscriptionId },
-    {
-      $set: {
-        'metadata.lastReconciledAt': at,
-        'metadata.lastDriftAttemptAt': at,
-        ...(terminal ? { 'metadata.terminalReconciledAt': at } : {}),
-      },
-      $unset: { 'metadata.driftRetryAfter': '', 'metadata.driftFailures': '' },
-    },
-  );
 }
 
 /**

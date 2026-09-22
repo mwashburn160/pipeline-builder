@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5a8c14ffa0f247e89e98f2d5243220574dffcad592c088264ec2b85a3a0dbe89
+// SOURCE-SHA256: f8a00c7b14744d4ddc469d8f2027074c2efb1ea1c2916f0a0b8c67088783dc31
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -195,7 +195,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "Plugin ecosystem",
               "plugins:install, plugin_installs:manage, publishers:manage",
-              "Plugin ecosystem. plugins:install (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only requests an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or breaking version also needs plugin_installs:manage. plugin_installs:manage (admin/owner): the org's consumption policy (PUT /plugins/install-policy, step-up; org.plugin-install-policy.update), approving and denying install requests within the org (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices (Plugin Installing). publishers:manage (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and submitting publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org (Plugin Publishing). plugins:publish also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only plugins:read. Installing is free on every plan and no consumption control is plan-gated."
+              "Plugin Installing. plugins:install (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only requests an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or breaking version also needs plugin_installs:manage. plugin_installs:manage (admin/owner): the org's consumption policy (PUT /plugins/install-policy, step-up; org.plugin-install-policy.update), approving and denying install requests within the org (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices (Plugin Installing). publishers:manage (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and submitting publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org (Plugin Publishing). plugins:publish also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only plugins:read. Installing is free on every plan and no consumption control is plan-gated."
             ],
             [
               "Plugin ecosystem (system org only)",
@@ -269,7 +269,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "System-org-only carve-out. plugins:moderate / publishers:verify are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the registry pair. They govern the plugin ecosystem, which only the system org may manage or approve (plan §3.0). They're in no member/admin/owner bundle and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every org — the system org and a Super Admin author included. The only holders are Super Admins (implicit-all) and members of the system org's built-in Ecosystem Manager Role."
+          "content": "System-org-only carve-out. plugins:moderate / publishers:verify are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the registry pair. They govern the plugin ecosystem, which only the system org may manage or approve (governance). They're in no member/admin/owner bundle and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every org — the system org and a Super Admin author included. The only holders are Super Admins (implicit-all) and members of the system org's built-in Ecosystem Manager Role."
         },
         {
           "type": "text",
@@ -356,7 +356,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The built-in Role for the people who run the plugin ecosystem (plan §5a.1): deciding publish requests, publisher tiers and profile changes, transfers, yanks and advisories, and moderating anonymous submissions and reviews. They are the only non-superadmins anywhere who hold the system-org-only permissions, and they get no platform superadmin powers."
+          "content": "The built-in Role for the people who run the plugin ecosystem (moderation runbook): deciding publish requests, publisher tiers and profile changes, transfers, yanks and advisories, and moderating anonymous submissions and reviews. They are the only non-superadmins anywhere who hold the system-org-only permissions, and they get no platform superadmin powers."
         },
         {
           "type": "table",
@@ -391,7 +391,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Notifications",
-              "Every Super Admin and the affected user get N23 (in-app + email, can't be turned off) when someone is added or removed. Holders are the Moderators recipients of the other ecosystem notices (plan §5b); with nobody in the role, Super Admins receive them."
+              "Every Super Admin and the affected user get N23 (in-app + email, can't be turned off) when someone is added or removed. Holders are the Moderators recipients of the other ecosystem notices (notifications); with nobody in the role, Super Admins receive them."
             ],
             [
               "Console",
@@ -408,6 +408,10 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Routes gate writes with permission middleware; a denied state-changing request also emits an authz.denied audit event."
+        },
+        {
+          "type": "text",
+          "content": "Authority is the union of the caller's Roles' permissions, not the coarse Owner/Admin label. The label governs ownership and seats only: a route gated on org:settings (or org:impersonation, members:manage, …) admits a custom Role that holds that permission exactly as it admits an admin, and the controller behind it adds only the tenancy check — the target must be the caller's active org or a team under it. So delegating org:settings to a custom Role lets its holders edit the org's identity, security policies (MFA, password, authenticator), verified domains and join requests, export it, and delete or restore its teams; a member without the permission is refused by the route."
         },
         {
           "type": "note",
@@ -551,7 +555,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The plugin and image-registry tests also run findSystemOrgGuardViolations (the governance check, plan §3.0): any route whose permission gate names a system-org-only permission must also run requireSystemOrg and require aal: 2 — again with no exception list. It passes on a table with no governance route, so it is wired in before the first one exists and bites the day one lands without requireEcosystemPermission."
+          "content": "The plugin and image-registry tests also run findSystemOrgGuardViolations (the governance check, governance): any route whose permission gate names a system-org-only permission must also run requireSystemOrg and require aal: 2 — again with no exception list. It passes on a table with no governance route, so it is wired in before the first one exists and bites the day one lands without requireEcosystemPermission."
         },
         {
           "type": "text",

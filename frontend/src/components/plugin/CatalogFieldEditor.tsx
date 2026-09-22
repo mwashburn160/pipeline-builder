@@ -14,14 +14,14 @@ import {
   CATALOG_FIELD_EDITOR, CATALOG_FIELD_HINTS, CATALOG_FIELD_LABELS, CATALOG_SOURCE_LABELS,
   catalogValueToText, parseCatalogText,
 } from '@/lib/plugin-catalog';
-import type { PluginCatalogEdits, PluginCatalogField, PluginIcon, PluginMetadataSource } from '@/types';
+import type { PluginCatalogEdits, PluginCatalogField, PluginIcon, MetadataSource } from '@/types';
 
 /** One detected catalog field: its value, where it came from, and why it was refused. */
 export interface CatalogEditorField {
   field: PluginCatalogField;
   /** string | string[] (keywords) | {key, badge?} (icon) | null. */
   value: unknown;
-  source: PluginMetadataSource | null;
+  source: MetadataSource | null;
   /** Why the detected value was refused (then `value` is null). */
   error?: string | null;
 }
@@ -58,7 +58,7 @@ interface CatalogFieldEditorProps {
 }
 
 /**
- * The accept-or-edit field list (plugin-ecosystem §3.1a, D19): every descriptive
+ * The accept-or-edit field list: every descriptive
  * catalog field with its detected value and a source badge (Spec / README /
  * Dockerfile / Generated / Edited), and **Accept** or **Edit** per field plus
  * **Accept all**. Only EDITED fields are reported through `onEditsChange` —

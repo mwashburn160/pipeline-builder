@@ -5,7 +5,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import { attachmentDisposition, safeFileName } from '../src/helpers/content-disposition.js';
 
-describe('attachment file names (E23)', () => {
+describe('attachment file names', () => {
   it('keeps a plain plugin file name as is', () => {
     expect(attachmentDisposition('lint-1.2.0.spdx.json')).toBe('attachment; filename="lint-1.2.0.spdx.json"');
   });

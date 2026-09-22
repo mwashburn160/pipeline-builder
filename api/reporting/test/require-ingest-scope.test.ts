@@ -38,7 +38,7 @@ describe('requireIngestScope', () => {
     expect(mockSendError).not.toHaveBeenCalled();
   });
 
-  it('calls next() for a SERVICE-ACCOUNT key token carrying the scope (#12/#N2)', () => {
+  it('calls next() for a SERVICE-ACCOUNT key token carrying the scope', () => {
     // What the AWS events Lambda actually presents after trading its `pb_sa_…`
     // key: a service-account principal, `token_use: 'api_key'`, no permissions at
     // all, and the one scope. The gate keys on the scope, not the principal kind.

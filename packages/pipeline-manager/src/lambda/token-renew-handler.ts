@@ -2,13 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Scheduled KEY ROTATOR for the service-account credential in Secrets Manager
- * (#N2). Deployed + scheduled (once a day) by `pipeline-manager infra store-token
+ * Scheduled KEY ROTATOR for the service-account credential in Secrets Manager.
+ * Deployed + scheduled (once a day) by `pipeline-manager infra store-token
  * --schedule`.
  *
- * It used to re-mint a person's machine-session JWT by npm-installing the CLI at
- * runtime and shelling out to `store-token`. There is nothing left to re-mint:
- * the stored credential is an opaque `pb_sa_…` key, and platform rotates it
+ * The stored credential is an opaque `pb_sa_…` key, and platform rotates it
  * through two small pre-auth endpoints where the KEY ITSELF is the authorization
  * (an unattended machine has no password and cannot step up). So this handler is
  * three HTTP calls and a secret write, with no npm install, no CLI, no `/tmp`.
@@ -33,14 +31,12 @@
  *      PLATFORM_VERIFY_SSL ("false" to disable TLS verification — refused in
  *      production).
  */
-import { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { errorMessage } from '@pipeline-builder/api-core';
+import { SecretsManagerClient, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { assertAccessKey, readCredentialSecret } from '@pipeline-builder/pipeline-core/lib/handlers/platform-credential.js';
 
 /** Per-request timeout for the platform calls. */
 const HTTP_TIMEOUT_MS = 10_000;
 
-/** Access-key prefixes platform issues. A stored JWT is not one of them. */
-const ACCESS_KEY_PREFIXES = ['pb_sa_', 'pb_pat_'];
 
 function required(name: string): string {
   const v = process.env[name];
@@ -123,18 +119,11 @@ export const handler = async (): Promise<void> => {
   applyTlsPolicy();
 
   const sm = new SecretsManagerClient({ region });
-  const current = await sm.send(new GetSecretValueCommand({ SecretId: secretName }));
-  if (!current.SecretString) throw new Error(`Secret "${secretName}" is empty`);
-  const stored = JSON.parse(current.SecretString) as StoredCredential;
+  const stored = await readCredentialSecret<StoredCredential>(secretName, sm);
 
   const oldKey = stored.password;
   if (!oldKey) throw new Error(`Secret "${secretName}" missing password (service-account key)`);
-  if (!ACCESS_KEY_PREFIXES.some((p) => oldKey.startsWith(p))) {
-    throw new Error(
-      `Secret "${secretName}" does not hold an opaque service-account key. `
-      + 'Re-run "pipeline-manager infra store-token" to reissue it as a key (see docs/runbooks/access-key-cutover.md).',
-    );
-  }
+  assertAccessKey(oldKey, `secret "${secretName}"`);
   // The platform this credential belongs to is recorded IN the secret by
   // `store-token` — the single source of truth.
   if (!stored.platformUrl) throw new Error(`Secret "${secretName}" missing platformUrl`);
@@ -183,7 +172,7 @@ export const handler = async (): Promise<void> => {
     return;
   }
   const revoke = await post(platformUrl, '/api/auth/key/revoke', { key: newKey, keyId: oldKeyId })
-    .catch((err) => ({ status: 0, body: { message: errorMessage(err) } }));
+    .catch((err: unknown) => ({ status: 0, body: { message: err instanceof Error ? err.message : String(err) } }));
   if (revoke.status < 200 || revoke.status >= 300) {
     log('ERROR', 'Rotated and stored the new key, but could NOT revoke its predecessor — it stays valid until it expires', {
       secretName, staleKeyId: oldKeyId, status: revoke.status, reason: revoke.body.message,

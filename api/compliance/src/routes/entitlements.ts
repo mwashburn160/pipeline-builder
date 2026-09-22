@@ -9,12 +9,13 @@ import {
   getParam,
   requireInternalService,
   validateBody,
+  COMPLIANCE_CONTENT_SETS,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
-import { subscriptionService, KNOWN_CONTENT_SETS } from '../services/subscription-service.js';
+import { subscriptionService } from '../services/subscription-service.js';
 
 /**
  * Body of the entitlement-sync push: the compliance content sets the org is
@@ -33,13 +34,13 @@ const EntitlementsSchema = z.object({
  * Machine-only auth for the entitlement-sync legs: the SPECIFIC billing service
  * identity that owns entitlement, and nothing else.
  *
- * Since #14 the name is cryptographically bound to the signing key, so this is
- * an identity check rather than a claim check: no other service — compromised or
+ * The service name is cryptographically bound to its signing key, so this is an
+ * identity check rather than a claim check: no other service — compromised or
  * mis-scoped — can rewrite an org's enforced compliance sets, and no user token
- * can qualify by shaping its own subject. The system-admin escape hatch that
- * used to sit alongside it is GONE: an internal route refuses every user token,
- * however privileged. Manual reconcile is billing's drift reconciler, which
- * re-drives the push on its own schedule.
+ * can qualify by shaping its own subject. There is no system-admin escape hatch:
+ * an internal route refuses every user token, however privileged. Manual
+ * reconcile is billing's drift reconciler, which re-drives the push on its own
+ * schedule.
  */
 const requireBillingService = requireInternalService({ callers: ['billing'] });
 
@@ -53,7 +54,7 @@ const requireBillingService = requireInternalService({ callers: ['billing'] });
  * reconcile — safe on every purchase/cancel/renew AND via billing's drift
  * reconciler.
  *
- * AUTH: an INTERNAL route (#14), identical to the reporting
+ * AUTH: an INTERNAL route, identical to the reporting
  * `PUT /reports/retention-sync/:orgId` leg — only `billing`'s own signed token
  * passes. It carries NO org-user permission and NO feature scope, so the guard
  * must require neither. The `:orgId` path param is the target ROOT org (billing
@@ -72,7 +73,7 @@ export function createEntitlementSyncRoutes(): Router {
 
     // Clamp to the sets the compliance side actually curates — an unknown/removed
     // set name is ignored rather than 400'ing the whole sync.
-    const known = new Set<string>(KNOWN_CONTENT_SETS);
+    const known = new Set<string>(COMPLIANCE_CONTENT_SETS);
     const sets = validation.value.sets.filter((s) => known.has(s));
 
     // Sync-race guard: pushes can arrive out of order (concurrent purchase + the
@@ -94,7 +95,7 @@ export function createEntitlementSyncRoutes(): Router {
     // deactivate routes emit — tagged with the entitlement-sync source so a
     // reviewer can tell an automated reconcile from a manual toggle.
     for (const ruleId of activated) {
-      emitComplianceAudit({
+      recordAudit({
         action: 'compliance.rule.toggle',
         actorId: actor,
         orgId,
@@ -104,7 +105,7 @@ export function createEntitlementSyncRoutes(): Router {
       });
     }
     for (const ruleId of deactivated) {
-      emitComplianceAudit({
+      recordAudit({
         action: 'compliance.rule.toggle',
         actorId: actor,
         orgId,

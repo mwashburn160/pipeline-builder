@@ -2,7 +2,7 @@
 # =============================================================================
 # Quarantine builder — the ISOLATED buildkitd for anonymous plugin submissions
 # =============================================================================
-# docs/plans/plugin-ecosystem.md §4.2 "Isolated build pool" (W5). The plugin
+# See docs/plugin-publishing.md#submitting-without-an-account. The plugin
 # service builds a not-logged-in submitter's zip here — and ONLY here: it is
 # addressed through PLUGIN_QUARANTINE_BUILDKIT_ADDR
 # (tcp://plugin-quarantine-builder:1234) and there is no fallback to the tenant
@@ -25,7 +25,7 @@
 #   443/80 with link-local/RFC1918/CGNAT carved out. The FQDN allow-list (the
 #   plugin-shared-egress-allow list) is the opt-in Cilium layer in
 #   cilium-network-policies.yaml.
-# platform/test/deploy-quarantine-builder-contract.test.ts pins every property
+# test/deploy-contracts/test/quarantine-builder-contract.test.ts pins every property
 # above in all three k8s targets and in docker-compose.
 # =============================================================================
 apiVersion: v1

@@ -262,7 +262,7 @@ groups:
           description: "{{ $value }} jobs waiting for 15+ minutes — check worker health."
 
       - alert: PluginVulnRescanStale
-        # The nightly vulnerability rescan (W0.6) exports the epoch of its last
+        # The nightly vulnerability rescan exports the epoch of its last
         # COMPLETED pass from every plugin pod. Stale for 36h ⇒ passes are failing
         # (usually the grype DB refresh) or the leader-locked scheduler stopped,
         # and scan facts compliance evaluates are going out of date. Absent when
@@ -302,7 +302,7 @@ groups:
           summary: "Dead-letter queue has more than 10 jobs"
           description: "{{ $value }} jobs in the DLQ — these failed all retries and need triage."
 
-      # ---- Plugin ecosystem (docs/plans/plugin-ecosystem.md §9a) ----
+      # ---- Plugin ecosystem ----
       # The gauges are sampled by EVERY plugin replica (a plain scheduler, no
       # leader lock), so `max()` reads the current value whichever pod was
       # scraped. N22 emails the Ecosystem Managers once per breached request;
@@ -383,7 +383,7 @@ groups:
           summary: "Plugin-ecosystem notices are being dropped"
           description: "{{ $value | humanize }} queued ecosystem notice(s) dropped in the last hour after repeated relay failures. Check platform's /internal/notify-email and SMTP."
 
-      # ---- Anonymous plugin submissions (plan §4.2 / §9a, W5) ----
+      # ---- Anonymous plugin submissions ----
       # Metrics from api/plugin: plugin_submission_backlog (gauge: submissions in
       # pending_review), plugin_submission_gate_failures_total{gate}. The 2-business-
       # day moderation SLA for the `submission` request kind is already paged by
@@ -414,7 +414,7 @@ groups:
           description: "{{ $value | humanize }} submissions failed the {{ $labels.gate }} gate in the last hour. Heuristics/secrets spikes suggest abuse (consider disabling the flag); vuln-scan or smoke-test spikes suggest a broken gate (grype DB, quarantine builder)."
 
       - alert: PluginLookupRefusalSpike
-        # §3.3 / §9a: synth lookups refused because a signature (or its tier
+        # synth lookups refused because a signature (or its tier
         # annotation) doesn't verify, or a listing's tier is outside an org's
         # policy. A burst is a tampered/re-pushed image or a stale re-sign job.
         expr: sum by (reason) (increase(plugin_lookup_refusals_total{reason=~"signature|tier"}[1h])) > 5
@@ -428,7 +428,7 @@ groups:
           description: "{{ $value | humanize }} plugin lookups were refused for {{ $labels.reason }} in the last hour. signature: an image no longer matches its platform signature (tampered, re-pushed, or a failed re-sign); tier: signed tier annotations out of step with listings (runbook: docs/runbooks/ecosystem-moderation.md)."
 
       - alert: OfficialAutoApprovalAnomaly
-        # §3.0.3 / §9a: the seeded "Official catalog" rule (label = the rule's
+        # the seeded "Official catalog" rule (label = the rule's
         # NAME — keep in step if it is renamed) hitting its 50/day cap, or
         # approving at >4x its 7-day hourly average. Either is possible rule abuse
         # (a compromised catalog-loader credential) or a runaway loader.
@@ -509,7 +509,7 @@ groups:
 
       # ---- Audit durability (security log) ----
       # The audit trail is compliance-relevant, so losing it must PAGE. Two loss
-      # points, both already instrumented but previously unalerted:
+      # points, both instrumented:
       #   * audit_dropped_total — the remote-audit client exhausted all retries
       #     for an event and dropped it.
       #   * audit_spool_dropped_total — the durable Redis spool overflowed and
@@ -895,7 +895,7 @@ groups:
       # `internal_route_refused_total{service,route,reason,caller}` increments in
       # api-core's `requireInternalService` when a call to an INTERNAL route
       # (/internal/*, the quota usage counters, the entity-event and audit
-      # ingests, the entitlement sync legs) is turned away (#14).
+      # ingests, the entitlement sync legs) is turned away.
       #
       # Two very different meanings, split by `reason`:
       #   user_token  — something holding a PERSON's credential tried a
@@ -919,7 +919,7 @@ groups:
 
       # ---- Service tokens failing to verify ----
       # `service_token_verify_total{result,service}` counts every internal token
-      # verification (#14). `unknown_kid` means a signer's public key is not in
+      # verification. `unknown_kid` means a signer's public key is not in
       # this pod's bundle — the classic half-finished key rotation, where the
       # private key was rolled out before the bundle. `subject_mismatch` is the
       # one that matters most: a VALID signature from a service claiming to be a

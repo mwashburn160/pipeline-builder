@@ -3,7 +3,7 @@
 
 /**
  * Tests for utils/proof-of-work — the self-hosted hashcash the anonymous
- * plugin submission API requires (plugin-ecosystem §4.2, E3).
+ * plugin submission API requires.
  */
 
 import { createHash } from 'crypto';

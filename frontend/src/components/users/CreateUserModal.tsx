@@ -140,7 +140,7 @@ export function CreateUserModal({
                     onChange={() => onToggleRole(g.id)}
                     disabled={form.loading}
                   />
-                  <span className="font-medium text-gray-800 dark:text-gray-200">{g.name}</span>
+                  <span className="font-medium text-fg">{g.name}</span>
                   {g.grantsRole !== 'member' && (
                     <Badge color={g.grantsRole === 'superadmin' ? 'red' : 'purple'}>{g.grantsRole}</Badge>
                   )}

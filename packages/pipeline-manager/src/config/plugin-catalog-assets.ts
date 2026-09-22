@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The curated icon keys `plugin new --icon` accepts (deploy/plugins/_icons,
- * plugin-ecosystem §6a.1). The CLI ships without the repo, so they are listed
+ * The curated icon keys `plugin new --icon` accepts (deploy/plugins/_icons).
+ * The CLI ships without the repo, so they are listed
  * here; a test fails when the list drifts from the tree. The base images live
  * in api-core (`PLUGIN_BASE_IMAGES`), shared with AI plugin generation.
  */
 
 /**
  * Curated icon keys (`deploy/plugins/_icons/<key>.svg`). Reserved for Official
- * listings and Verified publishers who own the mark (§6a.1, G51): a Community
+ * listings and Verified publishers who own the mark: a Community
  * listing uses an uploaded raster icon or its monogram.
  */
 export const CURATED_ICON_KEYS: readonly string[] = [

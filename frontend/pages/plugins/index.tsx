@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `/plugins` — the public plugin directory (docs/plans/plugin-ecosystem.md §6a).
+ * `/plugins` — the public plugin directory.
  *
  * With no filters it is the directory home (search, category grid, featured
  * Official, recently updated); with any filter the same page renders results.
@@ -69,7 +69,7 @@ function NoResults({ query }: { query: DirectoryQuery }) {
       </ul>
       <p className="text-sm text-fg-muted">
         Can’t find what you need?{' '}
-        {/* No account needed (W5). The submit page itself explains when this instance has submissions turned off. */}
+        {/* No account needed. The submit page itself explains when this instance has submissions turned off. */}
         <Link href="/plugins/submit" className="action-link">Submit a plugin</Link>
         {' '}or{' '}
         <Link href={loginHref(router.asPath)} className="action-link">sign in</Link> to publish from your organization.

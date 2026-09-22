@@ -97,7 +97,7 @@ export interface PaymentProvider {
 
   /**
    * Reconcile the external subscription's add-on line items to match `addons`
-   * (docs/billing-bundles.md §6). Optional — providers without line-item add-ons
+   * (docs/billing-bundles.md). Optional — providers without line-item add-ons
    * (marketplace, stub) may no-op. Best-effort: callers apply local entitlements
    * regardless.
    */

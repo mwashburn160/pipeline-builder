@@ -37,7 +37,7 @@ function parseCertificates(text: string): string[] {
 }
 
 /**
- * SAML 2.0 connection editor (#4). Used in two places:
+ * SAML 2.0 connection editor. Used in two places:
  *
  *   - as a CARD (the team settings drawer), where it also owns the PROTOCOL
  *     SELECTOR: an org federates over OIDC or over SAML, never both. The OIDC

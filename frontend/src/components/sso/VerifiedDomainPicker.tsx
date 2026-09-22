@@ -35,11 +35,10 @@ export function useVerifiedDomains(orgId: string): { domains: string[] | null; l
 }
 
 /**
- * Pick which of the org's VERIFIED domains the SSO connection serves — replaces
- * the old free-text "allowed domains" field. Nothing unverified can be picked
- * (and the server refuses one anyway): an unverified domain proves nothing, so
- * listing one only ever made the settings claim a restriction that admitted
- * nobody. Selecting none means "every verified domain".
+ * Pick which of the org's VERIFIED domains the SSO connection serves. Nothing
+ * unverified can be picked (and the server refuses one anyway): an unverified
+ * domain proves nothing, so listing one would only make the settings claim a
+ * restriction that admits nobody. Selecting none means "every verified domain".
  *
  * The empty state states the GOOGLE CARVE-OUT, because otherwise it reads as a
  * flat "nothing works until you verify" and a Google Workspace admin who signs
@@ -105,7 +104,7 @@ export function VerifiedDomainPicker({
         </label>
       ))}
       {stale.map((domain) => (
-        <label key={domain} className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+        <label key={domain} className="flex items-center gap-2 text-sm text-warning">
           <Checkbox checked onChange={() => toggle(domain)} aria-label={`${domain} (not verified here)`} />
           <span className="font-mono">{domain}</span> — not among this organization&apos;s verified domains. It saves
           only while the account&apos;s root organization has it verified; otherwise untick it.

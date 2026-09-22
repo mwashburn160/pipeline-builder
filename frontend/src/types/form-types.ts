@@ -51,7 +51,7 @@ export interface FormPluginOptions {
   /**
    * Publisher handle of an installed listing (`acme`), or '' for an unqualified
    * reference (own org, then parent, then the Official catalog). An explicit
-   * publisher resolves ONLY that publisher's listing, through an install (§3.5).
+   * publisher resolves ONLY that publisher's listing, through an install.
    */
   publisher: string;
   name: string;

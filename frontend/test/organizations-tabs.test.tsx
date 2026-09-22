@@ -24,10 +24,7 @@ jest.mock('@/components/RecentlyDeletedPanel', () => ({
 
 const replace = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/organizations', replace, push: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query, pathname: '/dashboard/organizations', replace, push: jest.fn<AnyFn>() })));
 
 jest.mock('@/hooks/useListPage', () => ({
   __esModule: true,

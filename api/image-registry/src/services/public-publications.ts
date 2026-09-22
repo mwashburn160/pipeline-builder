@@ -3,7 +3,7 @@
 
 /**
  * Publication records: which org is billed for each `public/<handle>/<name>`
- * repository (plugin ecosystem §3.3, G40 — public bytes count toward the
+ * repository (public bytes count toward the
  * PUBLISHER org's `storageBytes` rollup).
  *
  * The authoritative handle → org mapping is the plugin service's
@@ -13,7 +13,7 @@
  * re-sign after an ownership transfer), and this service persists it IN THE
  * REGISTRY ITSELF — durable wherever the images are, no extra datastore:
  *
- *   registry-meta/publications/<handle>/<name>:owner
+ * registry-meta/publications/<handle>/<name>:owner
  *     → an OCI artifact manifest (empty config + one empty layer) whose
  *       annotations carry the publisher org id.
  *
@@ -26,7 +26,8 @@
  */
 
 import { createHash } from 'crypto';
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { inPublicNamespace } from './namespaces.js';
 import {
   getManifest,
   isNotFound,
@@ -53,12 +54,12 @@ const EMPTY_DESCRIPTOR = {
 };
 
 /** Override via `REGISTRY_PUBLICATION_CACHE_TTL_MS` (default 60s, like the storage rollup). */
-const CACHE_TTL_MS = parseInt(process.env.REGISTRY_PUBLICATION_CACHE_TTL_MS || '60000', 10);
+const CACHE_TTL_MS = envInt('REGISTRY_PUBLICATION_CACHE_TTL_MS', 60_000, { min: 1 });
 let cache: { map: Map<string, string | null>; computedAt: number } | null = null;
 
 /** `public/<handle>/<name>` → its record repository. */
 export function recordRepository(publicRepository: string): string {
-  if (!publicRepository.startsWith('public/')) throw new Error(`Not a public repository: ${publicRepository}`);
+  if (!inPublicNamespace(publicRepository)) throw new Error(`Not a public repository: ${publicRepository}`);
   return `${PUBLICATION_RECORD_PREFIX}${publicRepository.slice('public/'.length)}`;
 }
 

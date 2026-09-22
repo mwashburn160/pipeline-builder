@@ -136,7 +136,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       res.status(500).json({ message: err?.message ?? String(err) });
     }
   },
-  incrementQuotaFromCtx: jest.fn(),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -163,10 +163,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 }));
 
 // -- Service / helper stubs (routers must import; reads return empty) ---------
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPipelineAudit: jest.fn(),
-  getAuditClient: () => ({ record: jest.fn() }),
-}));
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     findPaginated: jest.fn(async () => ({ data: [], total: 0, limit: 25, offset: 0, hasMore: false })),
@@ -179,8 +175,6 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
     update: jest.fn(),
     setDefault: jest.fn(),
   },
-  // Scorecard route imports this projection helper alongside the service.
-  toComplianceAttributes: (x: unknown) => x,
 }));
 jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => ({
   pipelineRegistryService: { findByPipelineId: jest.fn(), upsert: jest.fn(), findPaginated: jest.fn() },
@@ -198,10 +192,11 @@ jest.unstable_mockModule('../src/services/pipeline-execution-service.js', () => 
 }));
 jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   AIEmptyOutputError: class AIEmptyOutputError extends Error {},
-  getAvailableProviders: jest.fn(() => []),
-  getFilteredPlugins: jest.fn(async () => []),
   generatePipelineConfig: jest.fn(),
   streamPipelineConfig: jest.fn(),
+}));
+jest.unstable_mockModule('../src/services/plugin-catalog.js', () => ({
+  getFilteredPlugins: jest.fn(async () => []),
 }));
 jest.unstable_mockModule('../src/services/git-analysis-service.js', () => ({
   parseGitUrl: jest.fn(() => null),
@@ -212,7 +207,7 @@ jest.unstable_mockModule('../src/services/plugin-lookup-service.js', () => ({
   findExistingPluginNames: jest.fn(async () => new Set()),
   findListedNames: jest.fn(async () => new Map()),
 }));
-// Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here.
+// Plugin-contract check — resolves plugins through the DB; stubbed here.
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
   findPluginContractViolations: jest.fn(async () => []),
   formatContractViolations: jest.fn(() => 'contract'),

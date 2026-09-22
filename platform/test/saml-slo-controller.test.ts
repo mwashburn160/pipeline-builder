@@ -16,8 +16,9 @@
  *   - the sign-in records the IdP handle against the session's `sid`.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -42,9 +43,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => { res.status(status).json(data); return res; },
   getParam: (params: Record<string, unknown>, key: string) => params?.[key],
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { oauth: { callbackBaseUrl: 'https://pb.test' }, auth: { refreshToken: { expiresIn: 3600 } } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ oauth: { callbackBaseUrl: 'https://pb.test' }, auth: { refreshToken: { expiresIn: 3600 } } }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
@@ -83,7 +82,8 @@ jest.unstable_mockModule('../src/models/saml-session.js', () => ({
   },
 }));
 
-const { startSsoLogout, handleSamlSlo, recordSamlSession } = await import('../src/controllers/saml-slo.js');
+const { startSsoLogout, handleSamlSlo } = await import('../src/controllers/saml-slo.js');
+const { recordSamlSession } = await import('../src/services/saml-sessions.js');
 
 const ORG = 'org-1';
 const CFG = { orgId: ORG, entityId: 'https://idp.test', sloUrl: 'https://idp.test/slo' };
@@ -112,7 +112,7 @@ describe('SP-initiated (POST /auth/sso/logout)', () => {
   const req = { user: { sub: 'u1', sid: 'sess-1' } };
 
   it('returns a signed LogoutRequest for a SAML session and forgets the record', async () => {
-    mockFindOneAndDelete.mockResolvedValue({ orgId: ORG, issuer: 'https://idp.test', nameID: 'ada@acme.test', sessionIndex: '_s1' });
+    mockFindOneAndDelete.mockResolvedValue({ organizationId: ORG, issuer: 'https://idp.test', nameID: 'ada@acme.test', sessionIndex: '_s1' });
     const res = makeRes();
     await (startSsoLogout as any)(req, res);
     expect(mockFindOneAndDelete).toHaveBeenCalledWith({ userId: 'u1', sessionId: 'sess-1' });
@@ -130,7 +130,7 @@ describe('SP-initiated (POST /auth/sso/logout)', () => {
   });
 
   it('answers null when the IdP has no SLO URL, or the connection now points at another IdP', async () => {
-    mockFindOneAndDelete.mockResolvedValue({ orgId: ORG, issuer: 'https://idp.test', nameID: 'n' });
+    mockFindOneAndDelete.mockResolvedValue({ organizationId: ORG, issuer: 'https://idp.test', nameID: 'n' });
     mockGetCfg.mockResolvedValue({ ...CFG, sloUrl: undefined });
     const noSlo = makeRes();
     await (startSsoLogout as any)(req, noSlo);
@@ -161,7 +161,7 @@ describe('IdP-initiated (GET|POST /auth/sso/:orgId/saml/slo)', () => {
       query: { SAMLRequest: 'abc', RelayState: 'rs', SigAlg: 'a', Signature: 's' },
       rawQuery: 'SAMLRequest=abc&RelayState=rs&SigAlg=a&Signature=s',
     });
-    expect(mockFind).toHaveBeenCalledWith({ orgId: ORG, issuer: 'https://idp.test', nameID: 'ada@acme.test', sessionIndex: '_s1' });
+    expect(mockFind).toHaveBeenCalledWith({ organizationId: ORG, issuer: 'https://idp.test', nameID: 'ada@acme.test', sessionIndex: '_s1' });
     expect(mockRevoke).toHaveBeenCalledWith('u1', 'sess-1');
     expect(mockDeleteMany).toHaveBeenCalledWith({ _id: { $in: ['r1'] } });
     expect(mockBuildResponseUrl).toHaveBeenCalledWith(CFG, '_lr1', true, 'rs');
@@ -179,7 +179,7 @@ describe('IdP-initiated (GET|POST /auth/sso/:orgId/saml/slo)', () => {
     await (handleSamlSlo as any)({ method: 'POST', params: { orgId: ORG }, body: { SAMLRequest: 'xml' }, originalUrl: '/x' }, res);
     expect(mockValidate).toHaveBeenCalledWith(expect.anything(), { binding: 'post', body: { SAMLRequest: 'xml' } });
     // No SessionIndex named → every session of that NameID in this org.
-    expect(mockFind).toHaveBeenCalledWith({ orgId: ORG, issuer: 'https://idp.test', nameID: 'ada@acme.test' });
+    expect(mockFind).toHaveBeenCalledWith({ organizationId: ORG, issuer: 'https://idp.test', nameID: 'ada@acme.test' });
     expect(mockRevoke).not.toHaveBeenCalled();
     expect(redirectOf(res)).toBe('https://pb.test/');
   });
@@ -211,7 +211,7 @@ describe('recordSamlSession', () => {
     await recordSamlSession({ userId: 'u1', orgId: ORG, accessToken: token, issuer: 'https://idp.test', session: { nameID: 'n', sessionIndex: '_s' } });
     expect(mockUpdateOne).toHaveBeenCalledWith(
       { userId: 'u1', sessionId: 'sess-9' },
-      { $set: expect.objectContaining({ orgId: ORG, issuer: 'https://idp.test', nameID: 'n', sessionIndex: '_s', expiresAt: expect.any(Date) }) },
+      { $set: expect.objectContaining({ organizationId: ORG, issuer: 'https://idp.test', nameID: 'n', sessionIndex: '_s', expiresAt: expect.any(Date) }) },
       { upsert: true },
     );
   });
@@ -226,9 +226,9 @@ describe('recordSamlSession', () => {
 /**
  * The SLO endpoint is UNAUTHENTICATED (signature-gated only) and IdP-driven,
  * and a LogoutRequest naming only a NameID matches EVERY session that person
- * has in the org. It used to read the whole match set with an unbounded
- * `find()` and revoke serially — one message could pull an arbitrary number of
- * rows into memory and hold the request open for that many sequential writes.
+ * has in the org. An unbounded `find()` with serial revokes would let one
+ * message pull an arbitrary number of rows into memory and hold the request
+ * open for that many sequential writes.
  */
 describe('IdP-initiated fan-out is bounded', () => {
   const getReq = () => ({

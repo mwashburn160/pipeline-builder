@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shared vocabulary for security advisories (plan W8): severity order and
+ * Shared vocabulary for security advisories: severity order and
  * colours, state / source labels, and the CVE-id parser the advisory forms use.
  */
 

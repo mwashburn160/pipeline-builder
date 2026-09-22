@@ -13,7 +13,7 @@ const enc = encodeURIComponent;
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
 
 /**
- * Plugin reviews (plugin service, docs/plans/plugin-ecosystem.md §5, W4).
+ * Plugin reviews (plugin service).
  *
  * Reading published reviews is anonymous (`@/lib/public-directory/api`). The
  * writes here need `plugins:read` AND a human session (a machine credential

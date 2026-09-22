@@ -47,11 +47,12 @@ import {
   TOTP_ALREADY_ENROLLED,
   TOTP_INVALID_CODE,
   TOTP_LAST_SIGN_IN_METHOD,
-  TOTP_LOCKED_OUT,
   TOTP_NOT_ENROLLED,
   TOTP_SSO_ENFORCED,
 } from './totp-errors.js';
 import { config } from '../config/index.js';
+import { assertNotLocked, recordFailure as recordAttemptFailure } from '../helpers/attempt-lockout.js';
+import { ACTIVE_TOTP, hasActiveTotp } from '../helpers/auth-factors.js';
 import { removeUnlessLastSignInMethod } from '../helpers/sign-in-methods.js';
 import { findSsoEnforcementForEmail } from '../helpers/sso-enforcement.js';
 import { User, UserTotp } from '../models/index.js';
@@ -104,20 +105,9 @@ export interface TotpVerification {
   recoveryCodesRemaining: number;
 }
 
-/** Whether the account has a CONFIRMED enrolment (what `authFactors.hasTotp`
- *  reports, and what the sign-in path branches on). */
-export async function hasActiveTotp(userId: string): Promise<boolean> {
-  return !!(await UserTotp.exists({ userId, activatedAt: { $ne: null } }));
-}
-
 /** The settings-page view. Absent enrolment reads as a clean "off". */
 export async function getStatus(userId: string): Promise<TotpStatus> {
-  const doc = await UserTotp.findOne({ userId }).lean() as
-    {
-      activatedAt?: Date | null;
-      lastUsedAt?: Date | null;
-      lockedUntil?: Date | null;
-    } | null;
+  const doc = await UserTotp.findOne({ userId }).lean();
   if (!doc) {
     return {
       enabled: false,
@@ -158,7 +148,7 @@ export async function getStatus(userId: string): Promise<TotpStatus> {
  * first (which takes a step-up).
  */
 export async function beginEnrolment(userId: string): Promise<TotpEnrolment> {
-  const user = await User.findById(userId).select('email').lean() as { email: string } | null;
+  const user = await User.findById(userId).select('email').lean();
   if (!user) throw new Error(TOTP_NOT_ENROLLED);
 
   // The org's IdP owns the factors for an SSO-governed address.
@@ -203,18 +193,10 @@ export async function beginEnrolment(userId: string): Promise<TotpEnrolment> {
  * authenticator before the account starts depending on it to sign in.
  */
 export async function activate(userId: string, code: string): Promise<{ recoveryCodes: string[] }> {
-  const doc = await UserTotp.findOne({ userId }).select('+secret').lean() as
-    {
-      _id: unknown;
-      secret: string;
-      activatedAt?: Date | null;
-      lastUsedStep: number;
-      lockedUntil?: Date | null;
-      failedAttempts: number;
-    } | null;
+  const doc = await UserTotp.findOne({ userId }).select('+secret').lean();
   if (!doc) throw new Error(TOTP_NOT_ENROLLED);
   if (doc.activatedAt) throw new Error(TOTP_ALREADY_ENROLLED);
-  assertNotLockedOut(doc.lockedUntil);
+  assertNotLocked(doc);
 
   const secret = await unwrapEncrypted(doc.secret, secretContext(userId), 'totp.secret');
   const step = verifyTotp(secret, code, { minStep: doc.lastUsedStep });
@@ -252,14 +234,9 @@ export async function activate(userId: string, code: string): Promise<{ recovery
  */
 export async function verifyCode(userId: string, code: string): Promise<TotpVerification> {
   const doc = await UserTotp.findOne({ userId, activatedAt: { $ne: null } })
-    .select('+secret').lean() as
-    {
-      secret: string;
-      lastUsedStep: number;
-      lockedUntil?: Date | null;
-    } | null;
+    .select('+secret').lean();
   if (!doc) throw new Error(TOTP_NOT_ENROLLED);
-  assertNotLockedOut(doc.lockedUntil);
+  assertNotLocked(doc);
 
   const secret = await unwrapEncrypted(doc.secret, secretContext(userId), 'totp.secret');
   const step = verifyTotp(secret, code, { minStep: doc.lastUsedStep });
@@ -302,7 +279,7 @@ export async function verifyCode(userId: string, code: string): Promise<TotpVeri
  * being removed, asked through the same helper so the two can't disagree.
  */
 export async function disable(userId: string): Promise<void> {
-  const existing = await UserTotp.exists({ userId, activatedAt: { $ne: null } });
+  const existing = await UserTotp.exists({ userId, ...ACTIVE_TOTP });
   if (!existing) throw new Error(TOTP_NOT_ENROLLED);
   // The last-method check and the delete are ONE atomic decision (see
   // `removeUnlessLastSignInMethod`), so a concurrent credential removal can't
@@ -324,36 +301,13 @@ function notLockedOut(): { $or: Array<Record<string, unknown>> } {
  * counted as a failure (`TOTP_INVALID_CODE`). Always throws.
  */
 async function refuseLostClaim(userId: string): Promise<never> {
-  const now = await UserTotp.findOne({ userId }).select('lockedUntil').lean() as { lockedUntil?: Date | null } | null;
-  assertNotLockedOut(now?.lockedUntil);
+  const now = await UserTotp.findOne({ userId }).select('lockedUntil').lean();
+  assertNotLocked(now);
   await recordFailure(userId);
   throw new Error(TOTP_INVALID_CODE);
 }
 
-/** Refuse every verification while a lockout is live. */
-function assertNotLockedOut(lockedUntil: Date | null | undefined): void {
-  if (lockedUntil && lockedUntil.getTime() > Date.now()) throw new Error(TOTP_LOCKED_OUT);
-}
-
-/**
- * Count a failed code and lock the account's TOTP out once the run reaches the
- * threshold.
- *
- * Counted in ONE atomic update so parallel guesses can't each read "4" and none
- * of them trip the limit. The lockout is computed by a second write only when
- * the increment crossed it — the common path is a single round trip.
- */
-async function recordFailure(userId: string): Promise<void> {
-  const { maxFailures, lockoutMs } = config.auth.totp;
-  const updated = await UserTotp.findOneAndUpdate(
-    { userId },
-    { $inc: { failedAttempts: 1 } },
-    { new: true, projection: { failedAttempts: 1 } },
-  ).lean() as { failedAttempts?: number } | null;
-  if (!updated || (updated.failedAttempts ?? 0) < maxFailures) return;
-  await UserTotp.updateOne(
-    { userId },
-    { $set: { lockedUntil: new Date(Date.now() + lockoutMs), failedAttempts: 0 } },
-  );
-  logger.warn('TOTP locked out after repeated failures', { userId, lockoutMs });
+/** Count a failed code toward the TOTP lockout. */
+function recordFailure(userId: string): Promise<void> {
+  return recordAttemptFailure(UserTotp, userId, 'TOTP', config.auth.totp);
 }

@@ -42,15 +42,19 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: () => ({ select: () => ({ lean: async () => ({ _id: 'u1', lastActiveOrgId: 'org-1' }) }) }) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: async () => ({ organizationId: 'org-1', role: 'member', rolePermissions }),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
   findRefreshSession: (...a: unknown[]) => mockFindRefreshSession(...a),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: (...a: unknown[]) => mockRenewSessionTokens(...a),
-  membershipForOrg: async () => ({ organizationId: 'org-1', role: 'member', rolePermissions }),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (_schema: unknown, body: unknown) => body,

@@ -41,7 +41,7 @@ export function AuthErrorBanner() {
 
   return (
     <div
-      className="flex items-center gap-3 border-b border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-2 text-sm text-amber-800 dark:text-amber-200"
+      className="flex items-center gap-3 border-b border-warning-border bg-warning-bg px-4 py-2 text-sm text-warning-strong"
       role="alert"
     >
       <AlertTriangle className="h-4 w-4 flex-shrink-0" aria-hidden="true" />

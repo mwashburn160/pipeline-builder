@@ -49,27 +49,6 @@ const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
   unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 },
 };
 
-/**
- * Tailwind classes for a tier "pill" badge (background + text, incl. dark
- * variants). Shared verbatim by the read-only and admin quota headers so the
- * rendered pill is identical in both. Distinct from `TIER_META.pillClass`,
- * which uses a different palette (no dark variants; developer→amber).
- */
-export function pillClassFor(tier: QuotaTier): string {
-  // `unlimited` is the DEFAULT tier on a billing-disabled install, so it is not
-  // an edge case there — without its own branch it fell through to developer's
-  // green pill and every org read as "Developer"-coloured.
-  return tier === 'unlimited'
-    ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200'
-    : tier === 'enterprise'
-      ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300'
-      : tier === 'pro'
-        ? 'bg-info-bg text-blue-800 dark:text-blue-300'
-        : tier === 'team'
-          ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300'
-          : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300';
-}
-
 export type TierPreset = { label: string; description: string; color: string; limits: Record<DisplayedQuotaType, number> };
 
 /**

@@ -8,10 +8,9 @@ import type { User } from '@/types';
  * Check if user is a Pipeline Builder super-admin.
  *
  * Reads the `isSuperAdmin` flag from the JWT — the canonical signal for
- * operator authority. The legacy "user is admin/owner in the well-known
- * 'system' org" branch was removed alongside the backend cutover; flipping
- * a user to sysadmin now requires setting `User.isSuperAdmin=true`
- * (BOOTSTRAP_SUPERADMIN_EMAILS env or a future admin endpoint).
+ * operator authority — being an admin/owner of the 'system' org is not.
+ * A user becomes a sysadmin through `User.isSuperAdmin=true`
+ * (BOOTSTRAP_SUPERADMIN_EMAILS).
  */
 // SECURITY: `user.isSuperAdmin` comes from the client-decoded (UNVERIFIED) JWT.
 // Trust it ONLY for cosmetic UI gating (show/hide nav, redirect before render).

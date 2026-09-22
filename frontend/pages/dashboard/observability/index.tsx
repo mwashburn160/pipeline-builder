@@ -33,7 +33,7 @@ export default function ObservabilityIndexPage() {
   const canCreateDashboard = can('dashboards:write');
   const ready = isReady && isAuthenticated;
   const { data, loading, error, refetch } = useFetch(
-    async (signal) => (ready ? (await api.listDashboards(signal)).data?.dashboards ?? [] : []),
+    async (signal) => (ready ? (await api.listDashboards({ signal })).data?.dashboards ?? [] : []),
     [ready],
   );
   const dashboards: Dashboard[] = data ?? [];

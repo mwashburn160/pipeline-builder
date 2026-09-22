@@ -3,7 +3,7 @@
 
 /**
  * The `/token` storage push-gate (services/token-service `authorizeAndIssue`).
- * Plugin ecosystem G40: the usage compared against an org's `storageBytes` cap is
+ * Plugin ecosystem the usage compared against an org's `storageBytes` cap is
  * the COMBINED rollup (its own `org-<id>/*` namespace plus the `public/*`
  * repositories it publishes), so a publisher cannot dodge its cap by publishing.
  * The gate fails CLOSED: an unreachable quota service or an incomplete rollup

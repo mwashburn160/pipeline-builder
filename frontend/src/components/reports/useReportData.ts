@@ -75,7 +75,7 @@ export function useIngestHealth(): IngestHealthState {
   // Optional-chain so a test that doesn't mock the method yields undefined
   // rather than throwing.
   const { data, loading, error, refetch } = useFetch(
-    async (signal) => (await api.getIngestHealth?.(signal)) ?? null,
+    async (signal) => (await api.getIngestHealth?.({ signal })) ?? null,
     [],
   );
   return {

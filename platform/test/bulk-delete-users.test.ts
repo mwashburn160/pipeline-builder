@@ -11,8 +11,9 @@
  * failures must surface item-by-item.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockDeleteUserById = jest.fn<AnyFn>();
@@ -71,16 +72,20 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn<AnyFn>(),
   signServiceAccountToken: jest.fn<AnyFn>(),
-  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
   issueTokens: jest.fn<AnyFn>(),
   renewSessionTokens: jest.fn<AnyFn>(),
 }));
@@ -105,7 +110,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   apiKeyService: {},
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({}));
 
 // A user's SAML SLO sessions go with the user (user-cascade imports the model directly).
 jest.unstable_mockModule('../src/models/saml-session.js', () => ({ default: { deleteMany: async () => ({ deletedCount: 0 }) } }));

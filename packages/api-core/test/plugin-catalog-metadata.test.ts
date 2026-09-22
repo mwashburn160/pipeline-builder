@@ -3,13 +3,14 @@
 
 /**
  * Tests for validation/plugin-catalog-metadata — the ONE validator a detected
- * catalog value and a user-typed one both pass (plugin-ecosystem §3.1a, D19),
- * and the execution-contract refusal (G56).
+ * catalog value and a user-typed one both pass,
+ * and the execution-contract refusal.
  */
 
 import { describe, it, expect } from '@jest/globals';
+import { PLUGIN_CATALOG_FIELDS } from '../src/types/plugin-catalog.js';
 import {
-  ICON_KEY_PATTERN, PLUGIN_CATALOG_FIELDS, PLUGIN_CONTRACT_FIELDS, PluginCatalogEditsSchema,
+  ICON_KEY_PATTERN, PLUGIN_CONTRACT_FIELDS, PluginCatalogEditsSchema,
   contractKeysMessage, findContractKeys, isAllowedSpdxId, projectUrlProblem, validateCatalogField,
 } from '../src/validation/plugin-catalog-metadata.js';
 
@@ -100,7 +101,7 @@ describe('PluginCatalogEditsSchema', () => {
   });
 });
 
-describe('findContractKeys / contractKeysMessage (G56)', () => {
+describe('findContractKeys / contractKeysMessage', () => {
   it('names every execution-contract key present, in contract order', () => {
     expect(findContractKeys({ summary: 'x', env: {}, commands: [], timeout: 5 })).toEqual(['commands', 'env', 'timeout']);
     expect(findContractKeys({ summary: 'x' })).toEqual([]);

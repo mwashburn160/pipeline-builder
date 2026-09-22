@@ -11,8 +11,8 @@
  * prompt never appeared), and a refused password lost its error message.
  *
  * Also pinned: a bootstrap administrator's sign-in lands on passkey enrolment.
- * The landing page's "authenticated visitor → return path" redirect used to fire
- * the moment the profile refresh landed and override that destination.
+ * The landing page's "authenticated visitor → return path" redirect must not
+ * fire the moment the profile refresh lands and override that destination.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -23,9 +23,8 @@ import { useState } from 'react';
 // A navigation that is "in progress" for the rest of the test — in the real app
 // the resolved push has already unmounted `/`.
 const mockPush = jest.fn<AnyFn>(() => new Promise(() => undefined));
-jest.mock('next/router', () => ({ useRouter: () => ({ push: mockPush, asPath: '/', query: {} }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push: mockPush, asPath: '/', query: {} })));
 jest.mock('next/head', () => ({ __esModule: true, default: () => null }));
-jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn<AnyFn>() }));
 
 const mockApi = {
   isAuthenticated: jest.fn<AnyFn>(() => false),

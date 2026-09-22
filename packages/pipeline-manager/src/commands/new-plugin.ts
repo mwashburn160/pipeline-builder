@@ -232,7 +232,7 @@ function specText(input: ScaffoldInput): string {
   }
   lines.push(
     '',
-    '# ─── Catalog metadata (plugin-ecosystem §3.1a) ───',
+    '# ─── Catalog metadata ───',
     `license: ${input.license}`,
     input.icon
       ? `icon: ${input.icon}  # curated keys are for Official and Verified listings; Community listings upload an icon`

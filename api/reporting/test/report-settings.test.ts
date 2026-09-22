@@ -4,7 +4,7 @@
 /**
  * Tests for the per-org reporting-settings surface (report-settings.ts).
  *
- * D3 — retention is BILLING-OWNED: the admin `PUT /incidents` body accepts ONLY
+ * retention is BILLING-OWNED: the admin `PUT /incidents` body accepts ONLY
  * `incidentWindowHours`; `eventRetentionDays`/`doraRetentionDays` are rejected
  * (`.strict()`) so an org admin can't bypass their billing entitlement. `GET`
  * still returns retention for read-only display.
@@ -40,7 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
-    getIncidentSettings: (...a: unknown[]) => mockGetSettings(...a),
+    getReportingSettings: (...a: unknown[]) => mockGetSettings(...a),
     setReportingSettings: (...a: unknown[]) => mockSetSettings(...a),
   },
 }));

@@ -15,6 +15,8 @@ import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { Plugin, Visibility } from '@/types';
+import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
 /** Props for the WizardPluginTab component. */
 interface WizardPluginTabProps {
@@ -123,11 +125,8 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
   const isBuilding = requestId !== null && buildStatus === 'building';
   const isWorking = saving || isBuilding || prefilling;
 
-  const mountedRef = useRef<boolean>(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const unmountedRef = useUnmountedRef();
+  const autoClose = useAutoCloseTimer();
   // Monotonic token so a slower earlier selectPlugin() response can't prefill
   // the form after a newer selection (or a mode switch) has moved on.
   const selectGenRef = useRef(0);
@@ -167,7 +166,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
     if (buildStatus === 'completed') {
       setSuccess(`Plugin "${name}" created successfully!`);
       onCreated();
-      setTimeout(() => { if (mountedRef.current) onClose(); }, 2000);
+      autoClose.schedule(onClose, 2000);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when buildStatus changes.
   }, [buildStatus]);
@@ -182,7 +181,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
     setPrefilling(true);
     try {
       const res = await api.getPluginById(id);
-      if (!mountedRef.current || selectGenRef.current !== gen) return; // superseded / unmounted
+      if (unmountedRef.current || selectGenRef.current !== gen) return; // superseded / unmounted
       const p = res.success ? res.data?.plugin : undefined;
       if (!p) { setError('Could not load the selected plugin.'); return; }
       setName(p.name);
@@ -203,9 +202,9 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
       setIsActive(p.isActive);
       setIsDefault(p.isDefault);
     } catch (err) {
-      if (mountedRef.current && selectGenRef.current === gen) setError(formatError(err, 'Failed to load the selected plugin'));
+      if (!unmountedRef.current && selectGenRef.current === gen) setError(formatError(err, 'Failed to load the selected plugin'));
     } finally {
-      if (mountedRef.current && selectGenRef.current === gen) setPrefilling(false);
+      if (!unmountedRef.current && selectGenRef.current === gen) setPrefilling(false);
     }
   };
 
@@ -244,7 +243,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
       } else if (response.success) {
         setSuccess(`Plugin "${name}" created successfully!`);
         onCreated();
-        setTimeout(() => { if (mountedRef.current) onClose(); }, 2000);
+        autoClose.schedule(onClose, 2000);
       }
     } catch (err: unknown) {
       setError(formatError(err, 'Failed to create plugin'));
@@ -270,7 +269,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
       if (response.success) {
         setSuccess(`Plugin "${name}" updated successfully!`);
         onCreated();
-        setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
+        autoClose.schedule(onClose, 1500);
       } else {
         setError(response.message || 'Failed to update plugin.');
       }
@@ -297,8 +296,8 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
           <div className="alert-success"><p className="flex items-center gap-2"><CheckCircle className="w-4 h-4" />{success}</p></div>
         )}
         {buildStatus === 'failed' && lastEvent && (
-          <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-            <p className="text-sm text-red-800 dark:text-red-300 flex items-center gap-2"><XCircle className="w-4 h-4" />{lastEvent.message}</p>
+          <div className="rounded-xl bg-danger-bg border border-danger-border p-3">
+            <p className="text-sm text-danger-strong flex items-center gap-2"><XCircle className="w-4 h-4" />{lastEvent.message}</p>
           </div>
         )}
         {events.length > 0 && (
@@ -306,8 +305,8 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
             <p className="text-xs font-medium text-fg-muted mb-2">Build log</p>
             {events.map((event, i) => (
               <div key={i} className={`text-xs font-mono py-0.5 ${
-                event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
-                event.type === 'COMPLETED' ? 'text-green-600 dark:text-green-400' :
+                event.type === 'ERROR' ? 'text-danger' :
+                event.type === 'COMPLETED' ? 'text-success' :
                 'text-fg-muted'
               }`}>{event.message}</div>
             ))}

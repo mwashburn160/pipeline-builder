@@ -14,8 +14,7 @@ import type { ReactNode } from 'react';
 
 const mockPush = jest.fn<AnyFn>(async () => true);
 const mockRouter = { push: mockPush, asPath: '/dashboard/executions?status=failed' };
-jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
-jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn<AnyFn>() }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 jest.mock('@/lib/passkeys', () => ({ signInWithPasskey: jest.fn<AnyFn>(async () => undefined) }));
 
 let expire: (() => void) | null = null;

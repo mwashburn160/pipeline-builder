@@ -3,8 +3,7 @@
 
 /**
  * Tests for validation/plugin-spec-schema — the plugin PACKAGE schemas
- * (`plugin-spec.yaml`, `config.yaml`) the upload API and the CLI share
- * (plugin-ecosystem W0.2, W6).
+ * (`plugin-spec.yaml`, `config.yaml`) the upload API and the CLI share.
  */
 
 import { describe, it, expect } from '@jest/globals';

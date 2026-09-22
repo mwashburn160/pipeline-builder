@@ -12,17 +12,16 @@
  * and pays no extra DB read.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600, tierExpiresIn: {} },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600, tierExpiresIn: {} },
+    refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
   },
 }));
 
@@ -68,7 +67,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: emptyRoleChain },
 }));
 
-const { issueTokens, signInAuth } = await import('../src/utils/token.js');
+const { signInAuth } = await import('../src/services/session/access-tokens.js');
+const { issueTokens } = await import('../src/services/session/refresh-sessions.js');
 const { installTestSigningKeys } = await import('./helpers/signing.js');
 installTestSigningKeys();
 
@@ -161,7 +161,7 @@ describe('resolveMembership — featureEntitlements resolve from the account ROO
 
     expect(decoded.features).toEqual(['ai_generation']);
     // Flat org: the active doc IS the root — no LINEAGE WALK. Two org reads:
-    // the membership context, and the MFA policy (#8), which is resolved at the
+    // the membership context, and the MFA policy, which is resolved at the
     // same chokepoint and likewise costs no walk for a flat org.
     expect(mockResolveOrgLineage).not.toHaveBeenCalled();
     expect(mockOrgFindById).toHaveBeenCalledTimes(2);

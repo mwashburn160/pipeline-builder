@@ -185,18 +185,18 @@ export function CopyTagModal({
 
         {/* Inline validation hints — render only when relevant. */}
         {targetRepo.trim().length > 0 && !isShapeValid && (
-          <div className="text-xs text-orange-600 dark:text-orange-400">
+          <div className="text-xs text-warning">
             Target must match <code>{'<repo>:<ref>'}</code> (lowercase repo path; ref is alphanumeric + <code>._-</code>).
           </div>
         )}
         {isSameAsSource && (
-          <div className="text-xs text-orange-600 dark:text-orange-400">
+          <div className="text-xs text-warning">
             Target is identical to source — change the repo or ref.
           </div>
         )}
 
         {isPromotion && (
-          <div className="p-3 text-sm border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200 rounded space-y-2">
+          <div className="p-3 text-sm border border-warning-border bg-warning-bg text-warning-strong rounded space-y-2">
             <div>
               Promoting to <code>system/*</code> makes this image visible to every authenticated user. This action is audit-logged.
             </div>
@@ -211,14 +211,14 @@ export function CopyTagModal({
                 onChange={(e) => setConfirmPhrase(e.target.value)}
                 placeholder={PROMOTE_CONFIRM_PHRASE}
                 aria-label={`Type ${PROMOTE_CONFIRM_PHRASE} to confirm promotion`}
-                className="w-full px-3 py-1.5 text-sm font-mono border border-yellow-400 dark:border-yellow-600 rounded-md bg-surface text-fg"
+                className="w-full px-3 py-1.5 text-sm font-mono border border-warning-border rounded-md bg-surface text-fg"
               />
             </div>
           </div>
         )}
 
         {conflict && (
-          <div className="p-3 text-sm border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-200 rounded">
+          <div className="p-3 text-sm border border-warning-border bg-warning-bg text-warning-strong rounded">
             <div className="font-medium mb-2">Target tag already exists with a different digest.</div>
             <div className="text-xs font-mono break-all">existing: {conflict.existing}</div>
             <div className="text-xs font-mono break-all">requested: {conflict.requested}</div>

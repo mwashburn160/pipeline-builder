@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `useComplianceAudit` holds the check-log state that used to live in
- * `ComplianceDashboard` and reach the Overview through 14 props. The behaviour
- * that had to survive the move:
+ * `useComplianceAudit` holds the check-log state the Overview reads. What it
+ * guarantees:
  *   - changing a filter refetches from page 1 EXPLICITLY (offset 0), not from
  *     the offset the previous page left behind
  *   - a slow response for a superseded filter never overwrites the current rows

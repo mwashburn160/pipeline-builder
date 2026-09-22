@@ -178,7 +178,7 @@ spec:
             # as the registry container's htpasswd; startup.sh keeps them
             # in sync.
           volumeMounts:
-            # This pod's OWN internal-token signing key (#14) and the PUBLIC
+            # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
             # is what stops a compromised service signing as another — while the
             # bundle is public and identical everywhere. Both from
@@ -299,16 +299,10 @@ spec:
         target:
           type: Utilization
           averageUtilization: 50
-    # Memory metric — added alongside CPU so the HPA scales on whichever
-    # signal demands more replicas. 85% chosen to leave headroom for spikes
-    # (memory usually climbs slower than CPU; premature scale-up wastes
-    # resources). Matches the plugin ScaledObject's memory trigger.
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 85
+    # CPU-only autoscaling, as on ec2/minikube. These services carry a large
+    # BASELINE heap, so idle memory sits near any memory-utilization target and
+    # adding replicas does not lower per-pod memory — a memory metric pins the
+    # HPA to maxReplicas forever. CPU is load-proportional.
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 60

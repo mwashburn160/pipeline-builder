@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Confusable plugin names (docs/plans/plugin-ecosystem.md §4.2 "Names", E9):
+ * Confusable plugin names (docs/plugin-publishing.md):
  * a new community listing — an anonymous submission or a `new_listing`
  * request — may not look like one of the directory's most-installed plugins
  * (`terraf0rm`, `kube-ctl`, `docker_build`, `tfsec` → `tfsed`).

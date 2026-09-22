@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Catalog metadata → plugin columns (docs/plans/plugin-ecosystem.md §3.1a).
+ * Catalog metadata → plugin columns (docs/plugin-publishing.md).
  *
  * Detection, accept-or-edit and edit-payload parsing are pure and shared with
  * the CLI from api-core (`detectCatalogMetadata`, `resolveCatalogMetadata`,
@@ -25,7 +25,7 @@ export interface CatalogColumns extends PluginCatalogDocFields {
 
 /**
  * Map resolved catalog values onto plugin columns. The README is rendered here,
- * ONCE, to sanitized HTML (the only form any read path serves, G6).
+ * ONCE, to sanitized HTML (the only form any read path serves).
  */
 export function catalogColumns(resolved: ResolvedCatalog): CatalogColumns {
   const v = resolved.values;

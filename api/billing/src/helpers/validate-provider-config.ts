@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { Config } from '@pipeline-builder/pipeline-core';
+import { getBillingConfig } from '../config/billing-config.js';
 import { config } from '../config.js';
 
 const logger = createLogger('billing-config-validate');
@@ -33,7 +33,7 @@ function validateStripe(): void {
   }
 
   const priceMap = config.stripe.priceToPlanMap ?? {};
-  const billing = Config.get('billing');
+  const billing = getBillingConfig();
   const missing: string[] = [];
 
   // Every chargeable plan × interval needs a Stripe Price, or subscribe fails fast.

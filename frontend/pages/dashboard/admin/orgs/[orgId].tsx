@@ -210,7 +210,7 @@ export default function OrgDetailPage() {
                     <div>
                       <dt className="text-fg-muted">Provider</dt>
                       {/* A SAML config has no named provider — it is identified by
-                          its protocol and the IdP's entity ID (#4). */}
+                          its protocol and the IdP's entity ID. */}
                       <dd><code className="text-xs">{idp.protocol === 'saml' ? 'saml' : idp.provider}</code> {idp.enabled ? <Badge color="green">enabled</Badge> : <Badge color="yellow">disabled</Badge>}</dd>
                     </div>
                     {idp.protocol === 'saml' ? (
@@ -310,11 +310,11 @@ export default function OrgDetailPage() {
       )}
 
       {showKms && org && (
-        <OrgKmsConfigModal org={org} onClose={() => { setShowKms(false); kmsQ.refetch(); }} onSaved={kmsQ.refetch} />
+        <OrgKmsConfigModal org={org} onClose={() => { setShowKms(false); void kmsQ.refetch(); }} onSaved={kmsQ.refetch} />
       )}
 
       {showIdp && org && (
-        <OrgIdpConfigModal org={org} onClose={() => { setShowIdp(false); idpQ.refetch(); }} onSaved={idpQ.refetch} />
+        <OrgIdpConfigModal org={org} onClose={() => { setShowIdp(false); void idpQ.refetch(); }} onSaved={idpQ.refetch} />
       )}
     </DashboardLayout>
   );

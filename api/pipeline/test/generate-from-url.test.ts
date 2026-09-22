@@ -39,7 +39,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.flushHeaders?.();
     let _aborted = false;
     req.on('close', () => { _aborted = true; });
-    return { aborted: () => _aborted };
+    const send = (event: unknown) => { if (!_aborted) res.write(`data: ${JSON.stringify(event)}\n\n`); };
+    return {
+      signal: new AbortController().signal,
+      aborted: () => _aborted,
+      send,
+      done: (event?: unknown) => { if (_aborted) return; if (event !== undefined) send(event); res.write('data: [DONE]\n\n'); },
+    };
   }),
   handleAIError: jest.fn((res: any, message: string, fallbackMessage: string) => {
     if (!res.headersSent) {
@@ -85,12 +91,22 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 // gitUrl carrying embedded credentials is never logged. Cleared per test.
 const mockCtxLog = jest.fn<AnyFn>();
 
+// Each call builds a distinct limiter (its own bucket without a Redis store),
+// so the routes must share ONE instance to share the burst cap.
+const mockRateLimitByOrg = jest.fn((..._args: unknown[]) => {
+  const limiter = (_req: unknown, _res: unknown, next: () => void) => next();
+  return limiter;
+});
+
+// The REAL reservation helper (its api-core calls hit this file's api-core mock).
+let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   createAuthenticatedWithOrgRoute: () => [],
-  rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
-  incrementQuotaFromCtx: jest.fn<AnyFn>(),
+  rateLimitByOrg: (...args: unknown[]) => mockRateLimitByOrg(...args),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.context?.identity?.orgId || 'test-org' },
@@ -172,7 +188,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     },
   },
   // Visibility-ladder predicate pieces plugin-lookup-service links against.
-  // Listing resolution (plugin ecosystem W2): no listings unless a test sets some.
+  // Listing resolution: no listings unless a test sets some.
   OFFICIAL_PUBLISHER_HANDLE: 'pipeline-builder',
   drizzleListingSource: () => mockGenListingSource,
   getTenantContext: () => undefined,
@@ -200,9 +216,13 @@ class AIEmptyOutputError extends Error {
   }
 }
 
-jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
+jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   getAvailableProviders: mockGetAvailableProviders,
+}));
+jest.unstable_mockModule('../src/services/plugin-catalog.js', () => ({
   getFilteredPlugins: jest.fn<(...args: any[]) => any>().mockResolvedValue([]),
+}));
+jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   streamPipelineConfig: mockStreamPipelineConfig,
   generatePipelineConfig: mockGeneratePipelineConfig,
   AIEmptyOutputError,
@@ -210,12 +230,15 @@ jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
 
 // Imports  after mocks
 
+({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createGeneratePipelineRoutes } = await import('../src/routes/generate-pipeline.js');
 
 // Helpers
 
 const stubQuotaService = { increment: jest.fn<AnyFn>().mockResolvedValue(undefined) } as any;
 const router = createGeneratePipelineRoutes(stubQuotaService);
+// Snapshot before any beforeEach clears the mock's call log.
+const limiterCalls = mockRateLimitByOrg.mock.calls.map((args, i) => ({ opts: args[0] as { name: string }, limiter: mockRateLimitByOrg.mock.results[i].value }));
 
 /**
  * Extract a route handler from the Express router by method and path.
@@ -722,7 +745,7 @@ describe('POST /generate/from-url/stream', () => {
 
   // Auto-plugin creation  mixed existing and missing
 
-  it('never creates a placeholder for a LISTED name, and counts an implicitly installed Official plugin as existing (G17)', async () => {
+  it('never creates a placeholder for a LISTED name, and counts an implicitly installed Official plugin as existing', async () => {
     const out = {
       project: 'app',
       organization: 'test',
@@ -1326,7 +1349,7 @@ describe('POST /generate/from-url/stream', () => {
   });
 });
 
-// F2 — unify the aiCalls refund policy on keep-on-provider-contact for the
+// The aiCalls refund policy is keep-on-provider-contact for the
 // NON-streaming /generate route (the streaming path already keeps the slot once
 // the provider was contacted). An empty/unparseable output AFTER a completed
 // provider round-trip (AIEmptyOutputError) must NOT refund; a pre-provider
@@ -1438,5 +1461,18 @@ describe('POST /generate/from-url (JSON)', () => {
     await handler(mockReq({ body: {} }), mockSseRes());
     expect(mockSendBadRequest).toHaveBeenCalled();
     expect(mockReserveQuota).not.toHaveBeenCalled();
+  });
+});
+
+describe('pipeline-generate burst limiter', () => {
+  it('is ONE limiter instance shared by every /generate* route', () => {
+    const generateCalls = limiterCalls.filter((c) => c.opts.name === 'pipeline-generate');
+    expect(generateCalls).toHaveLength(1);
+
+    const limiter = generateCalls[0].limiter;
+    for (const path of ['/generate', '/generate/stream', '/generate/from-url', '/generate/from-url/stream']) {
+      const layer = (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.post);
+      expect(layer.route.stack.map((l: any) => l.handle)).toContain(limiter);
+    }
   });
 });

@@ -45,9 +45,8 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
   // the action removes only the platform's record (not the AWS stack), and
   // that distinction is the whole point of the confirm.
   const [confirmTarget, setConfirmTarget] = useState<RegistryRow | null>(null);
-  // The server's total: the list used to stop silently at its first 50 rows
-  // (and the badge counted only those), so an org with more deployments could
-  // neither see nor reconcile the rest.
+  // The server's total, so the badge and the list cover every deployment,
+  // not just the first page.
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
 
@@ -182,7 +181,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
                     <button
                       onClick={() => setConfirmTarget(row)}
                       disabled={removing === row.id}
-                      className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-fg-subtle hover:text-danger disabled:opacity-40 disabled:cursor-wait shrink-0"
+                      className="p-1 rounded hover:bg-danger-bg text-fg-subtle hover:text-danger disabled:opacity-40 disabled:cursor-wait shrink-0"
                       title="Remove from registry (does not delete the AWS stack)"
                       aria-label={`Remove ${row.pipelineName} from registry`}
                     >
@@ -218,7 +217,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
             <p className="text-fg-muted">
               Remove <strong className="font-mono">{confirmTarget.pipelineName}</strong> from the deployed-pipelines registry?
             </p>
-            <div className="p-3 rounded border border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-900 dark:text-yellow-200 text-xs">
+            <div className="p-3 rounded border border-warning-border bg-warning-bg text-warning-strong text-xs">
               This only removes the platform&apos;s record. It does NOT delete the CloudFormation stack or pipeline. Use this to reconcile drift when the AWS stack was already deleted out-of-band.
             </div>
             <div className="flex justify-end gap-2 pt-2">

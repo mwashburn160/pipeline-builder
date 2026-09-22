@@ -18,9 +18,6 @@ CERT_DIR="$DEPLOY_DIR/certs"
 BIN_DIR="$(cd "$SCRIPT_DIR/../../../bin" && pwd)"   # deploy/bin (shared cert/key helpers)
 NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
-# Istio ambient mesh version (ambient-GA >= 1.24). istioctl must be installed on
-# the instance and on the minikube user's PATH (it runs via the `mk` wrapper).
-ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # LEAN=1 drops the optional observability + admin services (prometheus, thanos,
 # loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali)
 # from the apply and
@@ -59,66 +56,26 @@ fi
 
 log() { echo ""; echo "=== $1 ==="; }
 
-# lean_filter — with LEAN=1, drop the optional observability/admin workloads from
-# the kustomize stream (their Deployment/StatefulSet/DaemonSet/Service/PV/PVC/HPA/
-# PDB/ServiceAccount/ConfigMap docs) so no pods schedule for them. Kept: everything
-# else, incl. AuthZ/NetworkPolicy docs that merely reference them (harmless, no pod).
-# With LEAN=0 it's a pass-through (cat). Pure awk/sed — runs on the host side of the
-# apply pipe (the apply itself still goes through `mk kubectl`).
-#
-# ask-model is in this list because it is BY FAR the heaviest optional workload:
-# measured against the rendered kustomize stream, LEAN steady state is 3.60 cpu /
-# 11.56Gi WITH it and 3.35 cpu / 5.56Gi without — it alone is 52% of the LEAN
-# memory footprint (a 7B model asks for 6Gi). LEAN targets a t3.xlarge (4 vCPU /
-# 16Gi), where 11.56Gi of requests plus istiod/ztunnel/KEDA in their own
-# namespaces does not fit, so keeping it would leave pods Pending and defeat the
-# flag. Dropping it degrades cleanly: `ask` falls back to whatever cloud provider
-# key is in .env, and with none the assistant reports "AI is not configured".
-# Run LEAN=0 (t3.2xlarge+) to get the self-hosted model.
-#
-# This filters the APPLY, and the apply does not prune — so flipping an
-# already-provisioned cluster from LEAN=0 to LEAN=1 leaves a running ask-model
-# behind. Remove it by hand when downsizing in place:
+# LEAN also drops ask-model (pb_lean_filter's extra name, see "Applying
+# Kubernetes manifests"): it is BY FAR the heaviest optional workload. Measured
+# against the rendered kustomize stream, LEAN steady state is 3.60 cpu / 11.56Gi
+# WITH it and 3.35 cpu / 5.56Gi without — it alone is 52% of the LEAN memory
+# footprint (a 7B model asks for 6Gi). LEAN targets a t3.xlarge (4 vCPU / 16Gi),
+# where 11.56Gi of requests plus istiod/ztunnel/KEDA does not fit. Dropping it
+# degrades cleanly: `ask` falls back to whatever cloud provider key is in .env,
+# and with none the assistant reports "AI is not configured". Run LEAN=0
+# (t3.2xlarge+) for the self-hosted model. Downsizing in place leaves it running
+# (the apply does not prune):
 #   kubectl delete -n pipeline-builder deploy/ask-model pvc/ask-model-models
-lean_filter() {
-  if [ "$LEAN" != "1" ]; then cat; return; fi
-  awk '
-    function emit(  o,d) {
-      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|thanos-compact|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali|ask-model)(-.*)?$/)
-      d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
-      if (buf != "" && !(o && d)) printf "---\n%s", buf
-      buf=""; kd=""; nm=""
-    }
-    /^---$/ { emit(); next }
-    { buf = buf $0 "\n"; if ($1=="kind:") kd=$2; if ($0 ~ /^  name: / && nm=="") nm=$2 }
-    END { emit() }
-  ' | sed -E 's/^(  replicas:) [0-9]+/\1 1/; s/^(  (min|max)Replicas:) [0-9]+/\1 1/; s/^(  (min|max)ReplicaCount:) [0-9]+/\1 1/' \
-    | awk '
-    # Having dropped ask-model above, also drop the two env vars in ask.yaml that
-    # POINT at it. Leaving them would be worse than useless: the provider registry
-    # treats a set OPENAI_COMPATIBLE_BASE_URL as an available provider, so every
-    # Ask turn would dial a Service that no longer exists and fail with
-    # "AI_APICallError: Cannot connect to API: other side closed" instead of
-    # cleanly falling back to a cloud key (or saying "AI is not configured").
-    # Unambiguous at this point in the pipe — ask-model.yaml, the only other file
-    # mentioning these names, has already been filtered out.
-    /- name: OPENAI_COMPATIBLE_(BASE_URL|MODELS)/ { skip=1; next }
-    skip && /^[[:space:]]*value:/               { skip=0; next }
-    { skip=0; print }
-  '
-  # ^ the sed also collapses every workload/HPA/ScaledObject to a single replica: on
-  #   a lean (smaller) instance the core stack + mesh already fills the node, so 2nd
-  #   replicas just sit Pending. (spec-level fields are 2-space; the ScaledObject
-  #   `fallback` replicas is deeper-indented and intentionally left alone.)
-}
 
 # Shared helpers (preflight, ensure_istioctl). Sourcing common.sh cd's to /tmp —
 # every path here is absolute, so that's safe.
 # shellcheck source=../../../bin/common.sh
 . "$BIN_DIR/common.sh"
 
-# Shared Secret/ConfigMap creators (deploy/bin/k8s-resources.sh). PB_KUBECTL runs kubectl as
-# the minikube user via the `mk` function above, so applies happen as the cluster owner.
+# Shared k8s bring-up (deploy/bin/k8s-resources.sh): Secret/ConfigMap creators, add-on
+# installs and the apply phase. PB_KUBECTL runs kubectl as the minikube user via the `mk`
+# function above, so applies happen as the cluster owner.
 # PB_KUBECTL/PB_NAMESPACE are consumed by the sourced k8s-resources.sh (shellcheck
 # can't see the cross-file use).
 # shellcheck disable=SC2034
@@ -187,8 +144,8 @@ if [ "$(id -u)" = "0" ]; then
   chown minikube:minikube "$DEPLOY_DIR/.env" 2>/dev/null || true
   chmod 644 "$DEPLOY_DIR/.env" 2>/dev/null || true
 fi
-# Generate the MongoDB replica-set keyfile per-deploy (idempotent; a fresh
-# checkout no longer ships one). pb_create_config_maps below reads it directly.
+# Generate the MongoDB replica-set keyfile per-deploy (idempotent; the keyfile is
+# never committed). pb_create_config_maps below reads it directly.
 # shellcheck source=/dev/null
 . "$BIN_DIR/mongo-keyfile.sh"
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
@@ -238,8 +195,8 @@ MK_CPUS=$((TOTAL_CPU > 2 ? TOTAL_CPU - 1 : 2))
 # recommended minimum with the mesh enabled; t3.large is tight.
 #   t3.large   (8G)   → max(6G,    8-4=4G)  = 6G   minikube,  2G  host
 #   t3.xlarge  (16G)  → max(12G,   16-4=12G) = 12G minikube,  4G  host
-#   t3.2xlarge (32G)  → max(24G,   32-4=28G) = 28G minikube,  4G  host  ← was 24G
-#   m5.4xlarge (64G)  → max(48G,   64-4=60G) = 60G minikube,  4G  host  ← was 48G
+#   t3.2xlarge (32G)  → max(24G,   32-4=28G) = 28G minikube,  4G  host
+#   m5.4xlarge (64G)  → max(48G,   64-4=60G) = 60G minikube,  4G  host
 MK_MEM_BY_RATIO=$((TOTAL_MEM * 75 / 100))
 MK_MEM_BY_RESERVE=$((TOTAL_MEM - 4096))
 MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RESERVE ))
@@ -319,38 +276,15 @@ mk kubectl -n kube-system patch deploy metrics-server --type=json \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
   2>/dev/null || echo "  metrics-server patch skipped (already patched or not yet rolled out)"
 
-mk kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.20.2/keda-2.20.2.yaml
-mk kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
+pb_install_keda
 echo "  Addons + KEDA installed"
 
 # -- Istio ambient service mesh ----------------------------------------------
-# Installed BEFORE the app manifests so istio-cni + ztunnel are ready when pods
-# start. Single-node minikube (same substrate as local) — ambient installs
-# trivially. STRICT mTLS + AuthorizationPolicies live in k8s/istio.yaml; the
-# namespace is enrolled via the ambient label on namespace.yaml. Run as the
-# minikube user (mk) like the rest of the cluster. See docs/service-mesh.md.
+# Single-node minikube (same substrate as local) — ambient installs trivially.
+# Runs as the minikube user (pb_as_owner → mk). ensure_istioctl above already
+# guaranteed the binary. See pb_install_istio_ambient and docs/service-mesh.md.
 log "Installing Istio ambient mesh ($ISTIO_VERSION)"
-# istioctl presence + version (>= 1.24) is already guaranteed by ensure_istioctl
-# above (shared with the eks/minikube targets) — go straight to the install.
-mk istioctl install --skip-confirmation \
-  --set profile=ambient \
-  --set "meshConfig.extensionProviders[0].name=jaeger" \
-  --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local" \
-  --set "meshConfig.extensionProviders[0].opentelemetry.port=4317"
-mk kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
-mk kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s 2>/dev/null || echo "  ztunnel not ready yet"
-mk kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=120s 2>/dev/null || echo "  istio-cni not ready yet"
-
-# The `pb-waypoint` Gateway (k8s/istio-internal-routes.yaml) is a Kubernetes
-# Gateway API resource, and `istioctl install` does NOT ship those CRDs — without
-# them the manifest apply below dies on an unknown kind. Install the standard
-# channel once; idempotent, so a cluster that already has them is untouched.
-# Pinned rather than `latest` so a provision is reproducible.
-GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"
-if ! mk kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
-  echo "  installing Gateway API CRDs ($GATEWAY_API_VERSION) for the ambient waypoint"
-  mk kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
-fi
+pb_install_istio_ambient
 echo "  Istio ambient installed (istiod + ztunnel + istio-cni). Recommend t3.xlarge+ with the mesh."
 
 # -- Namespace + ConfigMap + Secrets ------------------------------------------
@@ -380,7 +314,7 @@ pb_create_app_secrets
 pb_create_ghcr_secret
 
 # -- Registry token-signing keypair ------------------------------------------
-# The gateway no longer terminates TLS — the ALB does, with an ACM cert — so
+# The gateway does not terminate TLS — the ALB does, with an ACM cert — so
 # there is NO nginx-tls-secret and no gateway cert on the box. nginx serves
 # plain HTTP on the NodePort; the ALB forwards to it. Only the image-registry
 # token-signing keypair (unrelated to gateway TLS) is created here.
@@ -429,7 +363,7 @@ bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
 pb_create_plugin_signing_secrets "$CERT_DIR/plugin-signing"
 echo "  plugin-image signing key done"
 
-# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14): one
+# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens: one
 # `service-key-<name>` Secret per service — mounted by that service ALONE, which
 # is what stops a compromised pod signing as another — plus the public
 # `service-key-bundle` every service verifies against. Idempotent: re-running
@@ -463,51 +397,14 @@ log "Applying Kubernetes manifests"
 # Supply-chain gate (ENFORCED): refuse to deploy an unsigned/look-alike ghcr image —
 # every referenced image must carry a valid cosign signature from this repo's
 # release workflow. Break-glass: SKIP_IMAGE_SIGNATURE_VERIFY=1.
-bash "$(dirname "${BASH_SOURCE[0]}")/../../../bin/verify-image-signatures.sh"
-[ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali)"
-# Restricted envsubst: ONLY ${BUILDKIT_MEMORY_LIMIT} is expanded, so runtime
-# shell tokens in inline configmaps (nginx ${NS}/$s, etc.) are left intact.
-# lean_filter drops optional workloads when LEAN=1 (pass-through otherwise).
-# HARD GATE on istiod before the apply. The stream carries AuthorizationPolicy
-# docs (istio.yaml, and ask-model.yaml when not LEAN); CREATING one calls
-# istiod's validating webhook, so with istiod still starting the apply dies on
-#   failed calling webhook "validation.istio.io" ... connection refused
-# — and under `set -e` takes the rest of the provision with it, after having
-# applied an arbitrary PREFIX of the manifests. The waits above are advisory
-# (`|| echo`) by design, so this is the second, longer chance: a slow-but-healthy
-# istiod still succeeds, and a genuinely broken mesh fails HERE with a message
-# that names the cause instead of surfacing as a webhook error 200 lines later.
-if ! mk kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=300s >/dev/null 2>&1; then
-  echo "ERROR: istiod is not Available — the manifests include Istio AuthorizationPolicy" >&2
-  echo "       resources whose admission webhook it serves, so this apply cannot succeed." >&2
-  echo "       Check: kubectl -n istio-system get pods,deploy" >&2
-  exit 1
-fi
-mk kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | lean_filter | mk kubectl apply -f -
-
-# istio-cni enrolls a pod's netns into the ambient mesh only at pod CREATE time.
-# `kubectl apply` above does NOT recreate pods whose spec didn't change, so any
-# workload created in a PRIOR run (or in a run where the istiod/ztunnel/istio-cni
-# waits above timed out but the script continued anyway) can be left running
-# un-enrolled: it can still resolve/dial peers, but its traffic never gets
-# HBONE-wrapped, so a STRICT-mTLS peer (postgres, redis-sentinel, ...) silently
-# drops it — surfacing in the app as a plain connection TIMEOUT, not a clean
-# refusal. Force every workload to restart now that the mesh waits above have
-# passed, so istio-cni enrolls them on recreate. Cheap and idempotent.
-log "Restarting workloads to (re)enroll in the ambient mesh"
-# A `while read` loop (not `xargs`) so `mk` — a shell function, not a PATH
-# binary — stays callable: the loop runs in a forked subshell of THIS bash
-# process, which inherits shell functions; a process xargs execs would not.
-mk kubectl get deploy,statefulset -n "$NAMESPACE" -o name | while IFS= read -r wl; do
-  mk kubectl rollout restart -n "$NAMESPACE" "$wl"
-done
+bash "$BIN_DIR/verify-image-signatures.sh"
+# Only ${BUILDKIT_MEMORY_LIMIT} is expanded. istiod gate + apply + mesh
+# re-enrollment restart: pb_apply_manifests (shared with minikube/eks).
+pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" "$LEAN" ask-model
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/minio-data"
-REGISTRY_IP=$(mk kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-[ -n "$REGISTRY_IP" ] && mk minikube ssh --profile="$PROFILE" -- \
-  "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$REGISTRY_IP registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
-echo "  registry -> ${REGISTRY_IP:-unknown}"
+pb_registry_hosts_fixup "$PROFILE"
 
 # -- Wait for pods ------------------------------------------------------------
 

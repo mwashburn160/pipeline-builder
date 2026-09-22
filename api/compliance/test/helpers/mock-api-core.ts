@@ -46,9 +46,8 @@ const complianceDefaults = (): Record<string, unknown> => ({
   // the stub is a function producing the pass-through guard.
   requirePermission: () => passThroughMiddleware,
   requireFeature: () => passThroughMiddleware,
-  // Service audit accessor — src/services/audit.ts links against this.
+  // Boot wiring (the inert `recordAudit` comes from the shared base).
   // Suites asserting `authz.denied` wire api-core's real sink instead.
-  createRemoteAuditAccessor: () => ({ getAuditClient: () => ({ record: jest.fn() }), emit: jest.fn() }),
   wireServiceSecurity: () => {},
   // boot-time token-revocation reader registration (session-invalidation
   // option b) — stubbed so suites that transitively load the boot module link.

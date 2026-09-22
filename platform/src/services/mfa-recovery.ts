@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Factor reset for an account that has lost EVERY multi-factor credential (#8).
+ * Factor reset for an account that has lost EVERY multi-factor credential.
  *
  * THREE ways in, ONE reset ({@link resetFactors}):
  *   1. the TWO-PERSON HTTP flow — an org admin/owner requests a reset for a
@@ -34,6 +34,17 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { auditService } from './audit-service.js';
+import {
+  MFA_RESET_ALREADY_PENDING,
+  MFA_RESET_EXPIRED,
+  MFA_RESET_NOT_FOUND,
+  MFA_RESET_NOT_MEMBER,
+  MFA_RESET_NOT_PENDING,
+  MFA_RESET_PLATFORM_ADMIN,
+  MFA_RESET_SECOND_PERSON_REQUIRED,
+  MFA_RESET_SELF,
+} from './mfa-recovery-errors.js';
+import { MFA_RESET_GRACE_MAX_HOURS } from '../helpers/mfa-policy.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import {
   MfaRecoveryCodes,
@@ -42,28 +53,16 @@ import {
   UserOrganization,
   UserTotp,
   WebAuthnCredential,
-  type MfaResetRequestDocument,
+  type MfaResetRequestData,
 } from '../models/index.js';
 
 const logger = createLogger('mfa-recovery');
 
 /** Default enrolment grace after a reset. */
 export const MFA_RESET_GRACE_DEFAULT_HOURS = 72;
-/** The longest grace an approver may grant — beyond a week an MFA-required org
- *  would have a member quietly exempt from it. */
-export const MFA_RESET_GRACE_MAX_HOURS = 168;
 /** How long a request waits for a second admin before it can't be approved. */
 export const MFA_RESET_REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 
-// Error sentinels (mapped to HTTP by controllers/mfa-reset.ts).
-export const MFA_RESET_NOT_FOUND = 'MFA_RESET_NOT_FOUND';
-export const MFA_RESET_NOT_MEMBER = 'MFA_RESET_NOT_MEMBER';
-export const MFA_RESET_SELF = 'MFA_RESET_SELF';
-export const MFA_RESET_PLATFORM_ADMIN = 'MFA_RESET_PLATFORM_ADMIN';
-export const MFA_RESET_ALREADY_PENDING = 'MFA_RESET_ALREADY_PENDING';
-export const MFA_RESET_NOT_PENDING = 'MFA_RESET_NOT_PENDING';
-export const MFA_RESET_EXPIRED = 'MFA_RESET_EXPIRED';
-export const MFA_RESET_SECOND_PERSON_REQUIRED = 'MFA_RESET_SECOND_PERSON_REQUIRED';
 
 /** What a reset removed and granted. */
 export interface FactorResetResult {
@@ -99,7 +98,7 @@ function clampGraceHours(hours: number | undefined): number {
  * per-person replacement.
  */
 export async function resetFactors(userId: string, graceHours?: number): Promise<FactorResetResult | null> {
-  const user = await User.findById(userId).select('email').lean() as { email: string } | null;
+  const user = await User.findById(userId).select('email').lean();
   if (!user) return null;
 
   const [passkeys, totp, codes] = await Promise.all([
@@ -149,7 +148,7 @@ export interface MfaRecoveryOptions {
  * command fails rather than quietly resetting a factor with no record of it.
  */
 export async function recoverMfa(opts: MfaRecoveryOptions): Promise<FactorResetResult | null> {
-  const user = await User.findOne({ email: opts.email.trim().toLowerCase() }).select('_id').lean() as { _id: unknown } | null;
+  const user = await User.findOne({ email: opts.email.trim().toLowerCase() }).select('_id').lean();
   if (!user) return null;
   const result = await resetFactors(String(user._id), opts.graceHours);
   if (!result) return null;
@@ -185,7 +184,7 @@ export interface MfaResetRequestView {
   requestedBy: string;
   requestedByEmail: string;
   reason: string;
-  status: MfaResetRequestDocument['status'];
+  status: MfaResetRequestData['status'];
   createdAt: string;
   expiresAt: string;
   decidedBy?: string;
@@ -195,7 +194,7 @@ export interface MfaResetRequestView {
   result?: { passkeysRemoved: number; totpRemoved: boolean; recoveryCodesRemoved: boolean; graceUntil: string };
 }
 
-type StoredRequest = Pick<MfaResetRequestDocument,
+type StoredRequest = Pick<MfaResetRequestData,
   'organizationId' | 'targetEmail' | 'requestedByEmail' | 'reason' | 'status' | 'createdAt' | 'expiresAt'
   | 'decidedByEmail' | 'decidedAt' | 'decisionNote' | 'result'>
   & { _id: unknown; targetUserId: unknown; requestedBy: unknown; decidedBy?: unknown };
@@ -203,7 +202,7 @@ type StoredRequest = Pick<MfaResetRequestDocument,
 export function toRequestView(doc: StoredRequest): MfaResetRequestView {
   return {
     id: String(doc._id),
-    organizationId: doc.organizationId,
+    organizationId: String(doc.organizationId),
     targetUserId: String(doc.targetUserId),
     targetEmail: doc.targetEmail,
     requestedBy: String(doc.requestedBy),
@@ -258,7 +257,7 @@ export async function requestMfaReset(input: {
 
   const membership = await UserOrganization.exists({ userId: targetUserId, organizationId, isActive: true });
   if (!membership) throw new Error(MFA_RESET_NOT_MEMBER);
-  const target = await User.findById(targetUserId).select('email +isSuperAdmin').lean() as { email: string; isSuperAdmin?: boolean } | null;
+  const target = await User.findById(targetUserId).select('email +isSuperAdmin').lean();
   if (!target) throw new Error(MFA_RESET_NOT_MEMBER);
   if (target.isSuperAdmin === true) throw new Error(MFA_RESET_PLATFORM_ADMIN);
 
@@ -276,7 +275,7 @@ export async function requestMfaReset(input: {
       createdAt: now,
       expiresAt: new Date(now.getTime() + MFA_RESET_REQUEST_TTL_MS),
     });
-    return toRequestView(created.toObject() as StoredRequest);
+    return toRequestView(created.toObject());
   } catch (err) {
     // The partial unique index: one pending request per member per org.
     if ((err as { code?: number }).code === 11000) throw new Error(MFA_RESET_ALREADY_PENDING);
@@ -288,7 +287,7 @@ export async function requestMfaReset(input: {
 export async function listMfaResets(orgIds: readonly string[]): Promise<MfaResetRequestView[]> {
   await expireLapsed(orgIds);
   const docs = await MfaResetRequest.find({ organizationId: { $in: [...orgIds] } })
-    .sort({ createdAt: -1 }).limit(50).lean() as unknown as StoredRequest[];
+    .sort({ createdAt: -1 }).limit(50).lean();
   const views = docs.map(toRequestView);
   return [...views.filter((v) => v.status === 'pending'), ...views.filter((v) => v.status !== 'pending')];
 }
@@ -296,7 +295,7 @@ export async function listMfaResets(orgIds: readonly string[]): Promise<MfaReset
 /** One request, or throws `MFA_RESET_NOT_FOUND`. */
 export async function getMfaReset(requestId: string): Promise<MfaResetRequestView> {
   if (!Types.ObjectId.isValid(requestId)) throw new Error(MFA_RESET_NOT_FOUND);
-  const doc = await MfaResetRequest.findById(requestId).lean() as unknown as StoredRequest | null;
+  const doc = await MfaResetRequest.findById(requestId).lean();
   if (!doc) throw new Error(MFA_RESET_NOT_FOUND);
   return toRequestView(doc);
 }
@@ -306,7 +305,7 @@ export async function getMfaReset(requestId: string): Promise<MfaResetRequestVie
  * decided, or lapsed (which it marks).
  */
 async function refusalFor(requestId: string, now: Date): Promise<string> {
-  const doc = await MfaResetRequest.findById(requestId).select('status expiresAt').lean() as { status: string; expiresAt: Date } | null;
+  const doc = await MfaResetRequest.findById(requestId).select('status expiresAt').lean();
   if (!doc) return MFA_RESET_NOT_FOUND;
   if (doc.status === 'pending' && new Date(doc.expiresAt).getTime() <= now.getTime()) {
     await MfaResetRequest.updateOne({ _id: requestId, status: 'pending' }, { $set: { status: 'expired' } });
@@ -334,7 +333,7 @@ export async function approveMfaReset(input: {
   const now = new Date();
   const approverId = new Types.ObjectId(approver.id);
 
-  const current = await MfaResetRequest.findById(requestId).select('requestedBy targetUserId').lean() as { requestedBy: unknown; targetUserId: unknown } | null;
+  const current = await MfaResetRequest.findById(requestId).select('requestedBy targetUserId').lean();
   if (!current) throw new Error(MFA_RESET_NOT_FOUND);
   if (String(current.requestedBy) === approver.id || String(current.targetUserId) === approver.id) {
     throw new Error(MFA_RESET_SECOND_PERSON_REQUIRED);
@@ -350,7 +349,7 @@ export async function approveMfaReset(input: {
     },
     { $set: { status: 'approved', decidedBy: approverId, decidedByEmail: approver.email ?? '', decidedAt: now } },
     { new: true },
-  ).lean() as unknown as StoredRequest | null;
+  ).lean();
   if (!claimed) throw new Error(await refusalFor(requestId, now));
 
   let result: FactorResetResult | null;
@@ -382,7 +381,7 @@ export async function approveMfaReset(input: {
       },
     },
     { new: true },
-  ).lean() as unknown as StoredRequest | null;
+  ).lean();
   return { request: toRequestView(stored ?? claimed), result };
 }
 
@@ -406,7 +405,7 @@ export async function denyMfaReset(input: { requestId: string; actor: ResetActor
       },
     },
     { new: true },
-  ).lean() as unknown as StoredRequest | null;
+  ).lean();
   if (!updated) throw new Error(await refusalFor(requestId, now));
   return toRequestView(updated);
 }

@@ -1,14 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type QuotaService } from '@pipeline-builder/api-core';
+import { audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
-import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 /**
@@ -73,7 +72,7 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
 
     ctx.log('INFO', 'Bulk delete plugins', { count: ids.length });
 
-    // Delete safety (W0.5), per row: a version under a pending publish request,
+    // Delete safety, per row: a version under a pending publish request,
     // published to a listing, or used by the org's pipelines is SKIPPED (bulk
     // has no `force`; delete it on its own with force + step-up) rather than
     // failing the batch.
@@ -90,9 +89,7 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // Same visibility rule as single-row delete, applied per row inside the
     // query: author-only for `private`, any member for `org`, and
     // `plugins:publish` for `public`. Rows the caller may not delete are
-    // skipped rather than failing the batch. This previously narrowed to
-    // `private` ONLY, which skipped the DEFAULT rung (`org`) that single-row
-    // delete allows — so bulk delete silently did nothing for normal plugins.
+    // skipped rather than failing the batch.
     const deleted = toDelete.length === 0 ? [] : await pluginService.bulkDelete(toDelete, orgId, userId, {
       isSystemAdmin: isSystemAdmin(req),
       canPublish: userHasPermission(req, 'plugins:publish'),
@@ -113,7 +110,7 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // record; plugin ids carry no secrets / AWS account ids.
     if (deleted.length > 0) {
       const deletedIds = deleted.map(d => d.id);
-      emitPluginAudit({
+      recordAudit({
         action: 'plugin.bulk.delete',
         actorId: actorId({ userId }),
         orgId,
@@ -167,7 +164,7 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // Loaded once for both per-row gates below (visibility for non-admins, and
     // the compliance re-check for everyone).
     const recheck = needsComplianceRecheck(updateData);
-    // Catalog fields and visibility are frozen on a frozen/listed version (E19).
+    // Catalog fields and visibility are frozen on a frozen/listed version.
     const catalogEdited = PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(updateData, f))
       || updateData.visibility !== undefined;
     const matched = (!isSystemAdmin(req) || recheck || catalogEdited) ? await pluginService.findByIds(ids, orgId) : [];
@@ -206,7 +203,7 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
       }
     }
 
-    // Same rule as single-row update (§3.1a, §3.4): a version referenced by a
+    // Same rule as single-row update: a version referenced by a
     // publish request, or published to a listing, has its catalog metadata
     // frozen with it. Per row, such a version is SKIPPED with its 409 rather
     // than failing the batch (mirrors bulk delete's skip list).
@@ -241,7 +238,7 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // to record; plugin ids carry no secrets / AWS account ids.
     if (updated.length > 0) {
       const updatedIds = updated.map(u => u.id);
-      emitPluginAudit({
+      recordAudit({
         action: 'plugin.bulk.update',
         actorId: actorId({ userId }),
         orgId,

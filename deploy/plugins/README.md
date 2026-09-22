@@ -125,7 +125,9 @@ rules below and passes `test-plugins.sh` as generated (check it with
 
 ## Dockerfile rules (enforced)
 
-`deploy/bin/test-plugins.sh` checks every plugin Dockerfile statically, and the
+`deploy/bin/test-plugins.sh` checks every plugin Dockerfile statically (through
+`pipeline-manager plugin validate --lint` — the same rules a publisher's upload
+gets), and the
 [`plugin-catalog`](../../.github/workflows/plugin-catalog.yml) workflow runs it on
 every PR that touches `deploy/plugins/**` (see [CI](#ci)).
 
@@ -175,10 +177,13 @@ every PR that touches `deploy/plugins/**` (see [CI](#ci)).
 
 [`.github/workflows/plugin-catalog.yml`](../../.github/workflows/plugin-catalog.yml)
 runs on pull requests touching `deploy/plugins/**`, `deploy/bin/test-plugins.sh`,
-`deploy/bin/common.sh` or `deploy/codebuild/bootstrap/**`:
+`deploy/bin/common.sh`, `deploy/codebuild/bootstrap/**`, or the validation code in
+`packages/api-core/src/validation/` / `packages/pipeline-manager/src/`:
 
-1. **static** — `test-plugins.sh` over the whole catalog: spec schema + enums
-   (mirroring `packages/api-core/src/validation/plugin-spec-schema.ts`), catalog metadata (SPDX
+1. **static** — `test-plugins.sh` over the whole catalog: the repo layout (name =
+   directory, category = parent directory) plus `pipeline-manager plugin validate
+   --lint` — the upload API's own spec schema and enums
+   (`packages/api-core/src/validation/plugin-spec-schema.ts`), catalog metadata (SPDX
    `license`, https non-shortener `homepageUrl`/`sourceUrl`, `network.egress`
    hostnames, `changelog` ≤ 32 KB, `README.md` ≤ 64 KB, `icon` key format), and the
    Dockerfile rules above.

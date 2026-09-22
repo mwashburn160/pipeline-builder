@@ -5,7 +5,7 @@
 //
 // `answerHowTo` / `streamHowTo` retrieve the most relevant documentation chunks from
 // a GroundingIndex and ask the model to answer using ONLY that context, citing the
-// sections it used. This is the Phase 1 (read-only) core — no write tools, nothing
+// sections it used. This is the read-only core — no write tools, nothing
 // mutated. The HTTP service wires a model (via the provider registry) + a docs index
 // to these functions and streams the result over SSE.
 

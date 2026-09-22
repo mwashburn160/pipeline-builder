@@ -21,11 +21,11 @@
  * re-reads the winner's document.
  */
 
-import { Schema, model, Document } from 'mongoose';
+import { Schema, model, type HydratedDocument } from 'mongoose';
 
 export type SamlSpKeyPurpose = 'signing' | 'encryption' | 'test-marker';
 
-export interface SamlSpKeyDocument extends Omit<Document, '_id'> {
+export interface SamlSpKeyData {
   _id: SamlSpKeyPurpose;
   /** JSON EncryptedBlob of the PEM private key (or the HMAC secret). */
   privateKeyEncrypted: string;
@@ -35,7 +35,9 @@ export interface SamlSpKeyDocument extends Omit<Document, '_id'> {
   updatedAt: Date;
 }
 
-const samlSpKeySchema = new Schema<SamlSpKeyDocument>(
+export type SamlSpKeyDocument = HydratedDocument<SamlSpKeyData>;
+
+const samlSpKeySchema = new Schema<SamlSpKeyData>(
   {
     _id: { type: String, required: true },
     privateKeyEncrypted: { type: String, required: true },
@@ -44,4 +46,4 @@ const samlSpKeySchema = new Schema<SamlSpKeyDocument>(
   { timestamps: true, collection: 'saml_sp_keys' },
 );
 
-export default model<SamlSpKeyDocument>('SamlSpKey', samlSpKeySchema);
+export default model<SamlSpKeyData>('SamlSpKey', samlSpKeySchema);

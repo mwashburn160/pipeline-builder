@@ -2,25 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Thin Prometheus HTTP client. Uses Node 24's native `fetch` — no axios
- * dependency. Reads `PROMETHEUS_URL` at call time so tests can stub the
- * env per-test without import-order pain.
+ * Thin Prometheus HTTP client over {@link callUpstream}. The base URL is read
+ * per call from `config.observability.prometheusUrl`.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { callUpstream, upstreamRejected } from './upstream.js';
+import { config } from '../config/index.js';
 
-const logger = createLogger('prometheus-client');
-
-/** Default Prometheus URL when env is unset — matches the in-cluster service name. */
-const DEFAULT_URL = 'http://prometheus:9090';
-
-/**
- * Categorized failure. Lets the route layer map 4xx (catalog bug) vs.
- * connectivity / 5xx (502) without inspecting the exception type.
- */
-export type PromError =
-  | { kind: 'upstream-4xx'; status: number; message: string }
-  | { kind: 'unreachable'; message: string };
+/** Per-query timeout. */
+const QUERY_TIMEOUT_MS = 15_000;
 
 export interface PromInstantSample {
   /** Unix seconds (Prometheus convention). */
@@ -58,43 +48,18 @@ interface RawRangeResult {
   values: Array<[number, string]>;
 }
 
-function promUrl(): string {
-  return process.env.PROMETHEUS_URL || DEFAULT_URL;
-}
-
 async function callProm<T>(path: string, params: Record<string, string>): Promise<T> {
-  const url = new URL(path, promUrl().endsWith('/') ? promUrl() : promUrl() + '/');
+  const base = config.observability.prometheusUrl;
+  const url = new URL(path, base.endsWith('/') ? base : `${base}/`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), { signal: AbortSignal.timeout(15_000) });
-  } catch (err) {
-    const e: PromError = { kind: 'unreachable', message: errorMessage(err) };
-    logger.warn('Prometheus unreachable', { url: url.toString(), error: e.message });
-    throw e;
-  }
-
-  if (!res.ok) {
-    // Prometheus returns 4xx with a JSON body containing `error`.
-    const body = await res.json().catch(() => ({})) as PromResponseEnvelope<unknown>;
-    const e: PromError = {
-      kind: 'upstream-4xx',
-      status: res.status,
-      message: body.error || `Prometheus returned ${res.status}`,
-    };
-    logger.warn('Prometheus rejected query', { status: res.status, message: e.message });
-    throw e;
-  }
-
-  const env = (await res.json()) as PromResponseEnvelope<T>;
+  const env = await callUpstream<PromResponseEnvelope<T>>(url.toString(), {
+    backend: 'Prometheus',
+    timeoutMs: QUERY_TIMEOUT_MS,
+    logContext: { url: url.toString() },
+  });
   if (env.status !== 'success' || env.data === undefined) {
-    const e: PromError = {
-      kind: 'upstream-4xx',
-      status: res.status,
-      message: env.error || 'Prometheus returned non-success envelope',
-    };
-    throw e;
+    throw upstreamRejected(200, env.error || 'Prometheus returned non-success envelope');
   }
   return env.data.result;
 }

@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -26,10 +27,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, _data: unknown, message?: string) => res.status(status).json({ success: true, message }),
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({}));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({ validateBody: jest.fn(), sendInvitationSchema: {} }));
 
-jest.unstable_mockModule('../src/controllers/oauth.js', () => ({
+jest.unstable_mockModule('../src/services/oauth-providers.js', () => ({
   verifyOAuthCode: (...a: unknown[]) => mockVerifyOAuthCode(...a),
   OAUTH_ERROR_MAP: {
     OAUTH_UNSUPPORTED_PROVIDER: { status: 400, message: 'Unsupported OAuth provider' },

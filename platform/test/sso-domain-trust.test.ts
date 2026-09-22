@@ -65,10 +65,10 @@ function candidate(orgId: string, over: Record<string, unknown> = {}) {
   return { orgId, protocol: 'oidc', provider: 'generic-oidc', ssoRequired: true, allowedEmailDomains: [], ...over };
 }
 
-/** OrgDomain.exists honouring the `{ domain, verified, orgId: { $in } }` filter. */
-function verifiedDomains(rows: Array<{ orgId: string; domain: string }>) {
+/** OrgDomain.exists honouring the `{ domain, verified, organizationId: { $in } }` filter. */
+function verifiedDomains(rows: Array<{ organizationId: string; domain: string }>) {
   mockDomainExists.mockImplementation(async (filter: any) =>
-    rows.some((r) => r.domain === filter.domain && filter.verified === true && filter.orgId.$in.includes(r.orgId))
+    rows.some((r) => r.domain === filter.domain && filter.verified === true && filter.organizationId.$in.includes(r.organizationId))
       ? { _id: 'd' } : null);
 }
 
@@ -85,27 +85,27 @@ beforeEach(() => {
 
 describe('assertSsoIdentityTrusted', () => {
   it('REFUSES an admin-run IdP vouching for a domain the org has not verified', async () => {
-    verifiedDomains([{ orgId: 'victim-org', domain: 'victim.com' }]);
+    verifiedDomains([{ organizationId: 'victim-org', domain: 'victim.com' }]);
     await expect(assertSsoIdentityTrusted('attacker-org', { issuer: 'https://idp.attacker.test', email: 'ceo@victim.com' }, OIDC))
       .rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
   });
 
   it('accepts an identity on a domain the org verified', async () => {
-    verifiedDomains([{ orgId: 'org-1', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'org-1', domain: 'acme.com' }]);
     await expect(assertSsoIdentityTrusted('org-1', { issuer: 'https://idp.acme.com', email: 'u@ACME.com' }, OIDC))
       .resolves.toBeUndefined();
   });
 
   it("accepts a team's identity on a domain its account root verified", async () => {
     mockResolveLineage.mockResolvedValue({ parentOrgId: 'root', rootOrgId: 'root' });
-    verifiedDomains([{ orgId: 'root', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'root', domain: 'acme.com' }]);
     await expect(assertSsoIdentityTrusted('team', { issuer: 'https://idp.acme.com', email: 'u@acme.com' }, OIDC))
       .resolves.toBeUndefined();
   });
 
   it('fails closed to the org\'s own domains when the lineage cannot be read', async () => {
     mockResolveLineage.mockRejectedValue(new Error('mongo down'));
-    verifiedDomains([{ orgId: 'root', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'root', domain: 'acme.com' }]);
     await expect(assertSsoIdentityTrusted('team', { issuer: 'https://idp.acme.com', email: 'u@acme.com' }, OIDC))
       .rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
   });
@@ -117,7 +117,7 @@ describe('assertSsoIdentityTrusted', () => {
   });
 
   it('REFUSES a SAML IdP whose entityId is Google\'s issuer asserting a foreign-domain email', async () => {
-    verifiedDomains([{ orgId: 'victim-org', domain: 'victim.com' }]);
+    verifiedDomains([{ organizationId: 'victim-org', domain: 'victim.com' }]);
     await expect(assertSsoIdentityTrusted('attacker-org', { issuer: 'https://accounts.google.com', email: 'ceo@victim.com' }, { protocol: 'saml' }))
       .rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
   });
@@ -140,27 +140,27 @@ describe('findSsoEnforcementForEmail — the "SSO required" policy', () => {
   });
 
   it('forces SSO for a verified domain when the org REQUIRES it', async () => {
-    mockDomainOwner.mockResolvedValue({ orgId: 'org-1' });
+    mockDomainOwner.mockResolvedValue({ organizationId: 'org-1' });
     mockFindCandidates.mockResolvedValue([candidate('squatter-org'), candidate('org-1')]);
-    verifiedDomains([{ orgId: 'org-1', domain: 'acme.com' }]);
-    // `protocol` rides along so a caller knows which sign-in flow to start (#4).
+    verifiedDomains([{ organizationId: 'org-1', domain: 'acme.com' }]);
+    // `protocol` rides along so a caller knows which sign-in flow to start.
     await expect(findSsoEnforcementForEmail('u@acme.com')).resolves.toEqual({ orgId: 'org-1', protocol: 'oidc', provider: 'generic-oidc' });
     // The verified-domain owner is what the candidate lookup is keyed on.
     expect(mockFindCandidates).toHaveBeenCalledWith('acme.com', ['org-1']);
   });
 
   it('only OFFERS SSO (no enforcement) when the policy is off', async () => {
-    mockDomainOwner.mockResolvedValue({ orgId: 'org-1' });
+    mockDomainOwner.mockResolvedValue({ organizationId: 'org-1' });
     mockFindCandidates.mockResolvedValue([candidate('org-1', { ssoRequired: false })]);
-    verifiedDomains([{ orgId: 'org-1', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'org-1', domain: 'acme.com' }]);
     await expect(findSsoEnforcementForEmail('u@acme.com')).resolves.toBeNull();
     await expect(findSsoCoverageForEmail('u@acme.com')).resolves.toMatchObject({ orgId: 'org-1', required: false });
   });
 
   it('exempts the org OWNER (break-glass) — but not other members', async () => {
-    mockDomainOwner.mockResolvedValue({ orgId: 'org-1' });
+    mockDomainOwner.mockResolvedValue({ organizationId: 'org-1' });
     mockFindCandidates.mockResolvedValue([candidate('org-1')]);
-    verifiedDomains([{ orgId: 'org-1', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'org-1', domain: 'acme.com' }]);
     mockUserFindOne.mockResolvedValue({ _id: 'u-owner' });
     mockOwnerExists.mockImplementation(async (filter: any) =>
       (filter.userId === 'u-owner' && filter.role === 'owner' && filter.organizationId.$in.includes('org-1') ? { _id: 'm' } : null));
@@ -172,33 +172,33 @@ describe('findSsoEnforcementForEmail — the "SSO required" policy', () => {
 
   it('exempts an owner of the account ROOT of a team whose IdP requires SSO', async () => {
     mockResolveLineage.mockImplementation(async (orgId: unknown) => (orgId === 'team' ? { parentOrgId: 'root', rootOrgId: 'root' } : { rootOrgId: orgId }));
-    mockDomainOwner.mockResolvedValue({ orgId: 'root' });
+    mockDomainOwner.mockResolvedValue({ organizationId: 'root' });
     mockFindCandidates.mockResolvedValue([candidate('team', { allowedEmailDomains: ['acme.com'] })]);
-    verifiedDomains([{ orgId: 'root', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'root', domain: 'acme.com' }]);
     mockUserFindOne.mockResolvedValue({ _id: 'u-root-owner' });
     mockOwnerExists.mockImplementation(async (filter: any) => (filter.organizationId.$in.includes('root') ? { _id: 'm' } : null));
     await expect(findSsoEnforcementForEmail('boss@acme.com')).resolves.toBeNull();
   });
 
   it('skips a candidate whose pinned allowed-domain list excludes the domain', async () => {
-    mockDomainOwner.mockResolvedValue({ orgId: 'org-1' });
+    mockDomainOwner.mockResolvedValue({ organizationId: 'org-1' });
     mockFindCandidates.mockResolvedValue([candidate('org-1', { allowedEmailDomains: ['other.com'] })]);
-    verifiedDomains([{ orgId: 'org-1', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'org-1', domain: 'acme.com' }]);
     await expect(findSsoCoverageForEmail('u@acme.com')).resolves.toBeNull();
   });
 
   it('prefers a config that REQUIRES SSO over one that merely offers it', async () => {
-    mockDomainOwner.mockResolvedValue({ orgId: 'root' });
+    mockDomainOwner.mockResolvedValue({ organizationId: 'root' });
     mockResolveLineage.mockImplementation(async (orgId: unknown) => (orgId === 'root' ? { rootOrgId: 'root' } : { parentOrgId: 'root', rootOrgId: 'root' }));
     mockFindCandidates.mockResolvedValue([candidate('root', { ssoRequired: false }), candidate('team', { allowedEmailDomains: ['acme.com'] })]);
-    verifiedDomains([{ orgId: 'root', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'root', domain: 'acme.com' }]);
     await expect(findSsoCoverageForEmail('u@acme.com')).resolves.toMatchObject({ orgId: 'team', required: true });
   });
 });
 
 describe('unverifiedDomains', () => {
   it('names the domains the org cannot vouch for', async () => {
-    verifiedDomains([{ orgId: 'org-1', domain: 'acme.com' }]);
+    verifiedDomains([{ organizationId: 'org-1', domain: 'acme.com' }]);
     await expect(unverifiedDomains('org-1', ['acme.com', 'gmail.com'])).resolves.toEqual(['gmail.com']);
   });
 });

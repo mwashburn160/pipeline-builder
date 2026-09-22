@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
 import type { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
 import axios, { type AxiosInstance, AxiosError } from 'axios';
@@ -14,6 +13,8 @@ import {
   HANDLER_RETRY_DELAY_MS,
   HANDLER_DEFAULT_BASE_URL,
 } from '../config/handler-constants.js';
+import { unwrapLookup } from '../core/plugin-lookup-envelope.js';
+import { createPlatformCredential, isCredentialRefusal } from './platform-credential.js';
 
 /**
  * Structured logger for Lambda (outputs JSON to CloudWatch).
@@ -49,84 +50,36 @@ if (!PLATFORM_SECRET_NAME) {
   throw new Error('PLATFORM_SECRET_NAME environment variable is required');
 }
 
-/** Cached token to avoid repeated Secrets Manager calls within a single invocation. */
-let cachedToken: string | null = null;
-
-/** @internal Reset cached token (for testing only). */
-export function _resetCredentialsCache(): void { cachedToken = null; }
-
 /**
- * Fetch JWT token from AWS Secrets Manager.
- * Caches the result for the lifetime of the Lambda execution context.
- *
- * The secret name is set via PLATFORM_SECRET_NAME env var (e.g. `{prefix}/{orgId}/platform`)
- * Create it with: `pipeline-manager infra store-token`
+ * The service-account key (`pb_sa_…`) from Secrets Manager, cached for the warm
+ * container. The plugin API trades it for a short-lived JWT itself, so the key
+ * goes out as the Bearer credential. Create the secret with
+ * `pipeline-manager infra store-token`.
  */
-async function getToken(): Promise<string> {
-  if (cachedToken) return cachedToken;
+const credential = createPlatformCredential({ secretName: PLATFORM_SECRET_NAME });
 
-  lambdaLog.info('AUTH', `Fetching token from Secrets Manager: ${PLATFORM_SECRET_NAME}`);
+/** @internal Reset cached credential (for testing only). */
+export function _resetCredentialsCache(): void { credential.reset(); }
 
-  const client = new SecretsManagerClient({});
-  const response = await client.send(new GetSecretValueCommand({ SecretId: PLATFORM_SECRET_NAME }));
-
-  if (!response.SecretString) {
-    throw new Error(`Secret "${PLATFORM_SECRET_NAME}" is empty`);
-  }
-
-  const parsed = JSON.parse(response.SecretString) as Record<string, string>;
-  // Schema is `{ username, password, ... }` — the `password` field is the
-  // platform JWT. Same secret is read by CodeBuild's `secretsManagerCredentials`
-  // for registry pulls (Basic auth: username:password = orgId:JWT). The
-  // pipeline-image-registry token endpoint validates the password as a JWT
-  // and issues a registry token scoped to the JWT's org.
-  if (!parsed.password) {
-    throw new Error(`Secret "${PLATFORM_SECRET_NAME}" missing password — run "pipeline-manager infra store-token" to generate`);
-  }
-
-  cachedToken = parsed.password;
-  lambdaLog.info('AUTH', 'Token retrieved from Secrets Manager');
-  return cachedToken;
-}
+/** The API refused the credential (401/403) — the caller may refresh it and retry once. */
+class CredentialRefusedError extends Error {}
 
 /**
  * Creates a pre-configured Axios instance for API requests.
  *
  * @param baseURL - Base URL of the target API
- * @param token - JWT token for authorization
+ * @param key - service-account key sent as the Bearer credential
  * @returns Configured Axios instance
  */
-function create(baseURL: string, token: string): AxiosInstance {
+function create(baseURL: string, key: string): AxiosInstance {
   return axios.create({
     baseURL,
     timeout: HANDLER_TIMEOUT_MS,
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+      'Authorization': `Bearer ${key}`,
     },
   });
-}
-
-/**
- * Unwrap a `/plugins/lookup` answer. The platform's success envelope is
- * `{ success, statusCode, data: { plugin, warnings } }`; a bare Plugin (or
- * `{ plugin }`) is tolerated too. Returns the plugin (null when absent) and the
- * lifecycle warning messages.
- */
-export function unwrapLookup(body: unknown): { plugin: Plugin | null; warnings: string[] } {
-  if (!body || typeof body !== 'object') return { plugin: null, warnings: [] };
-  const inner = (body as { data?: unknown }).data;
-  const container = (inner && typeof inner === 'object' ? inner : body) as { plugin?: unknown; warnings?: unknown };
-  const candidate = container.plugin ?? container;
-  const plugin = candidate && typeof candidate === 'object' && typeof (candidate as { name?: unknown }).name === 'string'
-    ? candidate as Plugin
-    : null;
-  const warnings = Array.isArray(container.warnings)
-    ? container.warnings
-      .map((w) => (w && typeof w === 'object' ? (w as { message?: unknown }).message : undefined))
-      .filter((m): m is string => typeof m === 'string' && m.length > 0)
-    : [];
-  return { plugin, warnings };
 }
 
 /**
@@ -187,6 +140,11 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
           ? `API error ${error.response.status}: ${error.response.statusText}`
           : error.code || error.message;
 
+        if (isCredentialRefusal(error.response?.status)) {
+          lambdaLog.warn('AUTH', `Credential refused: ${msg}`);
+          throw new CredentialRefusedError(`Failed to fetch plugin: ${msg}`);
+        }
+
         if (retryable && attempt < HANDLER_MAX_RETRIES) {
           lambdaLog.info('RETRY', `Retryable error: ${msg}`, { attempt: attempt + 1 });
           lastError = new Error(`Failed to fetch plugin: ${msg}`);
@@ -208,6 +166,22 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
   }
 
   throw lastError ?? new Error('Failed to fetch plugin after retries');
+}
+
+/**
+ * Look the plugin up with the cached credential. On a 401/403 the key was most
+ * likely rotated underneath this warm container (token-renew stores the new key
+ * and revokes the old one), so drop the cache, re-read the secret and retry once.
+ */
+async function lookupWithCredentialRefresh(baseURL: string, pluginFilter: PluginFilter): Promise<Plugin> {
+  try {
+    return await fetch(create(baseURL, await credential.getKey()), pluginFilter);
+  } catch (err) {
+    if (!(err instanceof CredentialRefusedError)) throw err;
+    credential.invalidate();
+    lambdaLog.info('AUTH', 'Re-reading the service-account key from Secrets Manager and retrying once');
+    return fetch(create(baseURL, await credential.getKey()), pluginFilter);
+  }
 }
 
 /**
@@ -233,7 +207,7 @@ function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilt
 /**
  * Lambda handler for CloudFormation Custom Resource that performs plugin lookup.
  *
- * Authenticates using JWT token from AWS Secrets Manager (PLATFORM_SECRET_NAME env var).
+ * Authenticates with the service-account key from AWS Secrets Manager (PLATFORM_SECRET_NAME env var).
  * Create the secret with: `pipeline-manager infra store-token`
  *
  * Request Types:
@@ -303,13 +277,8 @@ export const handler = async (
 
     validatePluginFilter(pluginFilter);
 
-    // Get token from Secrets Manager and create API client
-    const token = await getToken();
-    const api = create(baseURL, token);
-
-    // Fetch plugin
     lambdaLog.info('FETCH', 'Initiating plugin lookup...');
-    const plugin = await fetch(api, pluginFilter);
+    const plugin = await lookupWithCredentialRefresh(baseURL, pluginFilter);
     lambdaLog.info('FETCH', 'Plugin retrieved successfully', {
       name: plugin.name,
       version: plugin.version,

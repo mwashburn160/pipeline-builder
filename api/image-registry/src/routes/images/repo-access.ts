@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { inLibraryNamespace, inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, inSystemNamespace, repoTenant } from '../../services/namespaces.js';
 
 /**
  * Per-repo, org-ownership authorization for the `/api/images` management
@@ -22,12 +23,12 @@ import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
  *   - `system/*` and `library/*` are pull-open to any authenticated caller;
  *     writing them is superadmin-only, except the system org may write
  *     `system/*` (it owns that namespace, as in the token authorizer);
- *   - `public/*` (listed plugin versions, plugin ecosystem §3.3) is pull-open
+ *   - `public/*` (listed plugin versions) is pull-open
  *     and APPEND-ONLY: nobody writes it through this API, superadmins included —
  *     only the internal publish/yank/gc routes do, as the management identity;
  *   - `registry-meta/*` (this service's bookkeeping) is closed to everyone;
  *   - `quarantine/*` (anonymous plugin submissions awaiting moderation, plugin
- *     ecosystem §4.2) is closed to everyone here — never listed, read or written
+ *     ecosystem) is closed to everyone here — never listed, read or written
  *     through this API, superadmins included. Only the plugin service principal
  *     touches it, over the registry token flow and the internal routes;
  *   - any other/unrecognized namespace is superadmin-only.
@@ -40,51 +41,25 @@ export interface RepoAccessUser {
   isSuperAdmin?: boolean;
 }
 
-const ORG_REPO_PREFIX = /^org-([a-z0-9][a-z0-9-]*)\//;
-
-/** The owning org id of an `org-<id>/...` repo, or null for shared namespaces. */
-export function repoTenant(repo: string): string | null {
-  const m = repo.match(ORG_REPO_PREFIX);
-  return m ? m[1] : null;
-}
-
-/** True for an anonymous-submission `quarantine/<submissionId>` repository (or the bare prefix). */
-export function isQuarantineRepo(repo: string): boolean {
-  return repo.startsWith('quarantine/');
-}
-
-/**
- * The org that OWNS `repo` — the org id of an `org-<id>/...` repo, the system org
- * for `system/...` and for `quarantine/...` (moderation is the system org's
- * decision, so only a system-org service token may sign or publish from it) —
- * or undefined for org-less shared namespaces (`library/...`, anything
- * unrecognized). Used as the audit `affectedOrgId`.
- */
-export function repoOwnerOrgId(repo: string): string | undefined {
-  const tenant = repoTenant(repo);
-  if (tenant !== null) return tenant;
-  return repo.startsWith('system/') || isQuarantineRepo(repo) ? SYSTEM_ORG_ID : undefined;
-}
-
 function ownsTenant(user: RepoAccessUser | undefined, tenant: string): boolean {
   return !!user?.organizationId && user.organizationId.toLowerCase() === tenant;
 }
 
 /** Namespaces no user may write through the images API — superadmins included. */
 function isAppendOnlyOrClosed(repo: string): boolean {
-  return repo.startsWith('public/') || repo.startsWith('registry-meta/') || isQuarantineRepo(repo);
+  return inPublicNamespace(repo) || inRegistryMetaNamespace(repo) || inQuarantineNamespace(repo);
 }
 
 /** True when `user` may READ (list/pull/inspect) `repo`. */
 export function canReadRepo(user: RepoAccessUser | undefined, repo: string): boolean {
-  if (repo.startsWith('registry-meta/') || isQuarantineRepo(repo)) return false;
-  if (repo.startsWith('public/')) return !!user;
+  if (inRegistryMetaNamespace(repo) || inQuarantineNamespace(repo)) return false;
+  if (inPublicNamespace(repo)) return !!user;
   if (user?.isSuperAdmin) return true;
   const tenant = repoTenant(repo);
   if (tenant !== null) return ownsTenant(user, tenant);
   // system/* and library/* base images are pull-open to any authenticated caller
   // (mirrors the token authorizer's "anyone can pull system/library" rule).
-  if (repo.startsWith('system/') || repo.startsWith('library/')) return true;
+  if (inSystemNamespace(repo) || inLibraryNamespace(repo)) return true;
   // Unrecognized namespace → superadmin-only (deny by default).
   return false;
 }
@@ -97,6 +72,6 @@ export function canWriteRepo(user: RepoAccessUser | undefined, repo: string): bo
   if (tenant !== null) return ownsTenant(user, tenant);
   // The system org owns system/* and may write there; everything else in the
   // shared/unrecognized space is superadmin-only.
-  if (repo.startsWith('system/')) return user?.organizationId === SYSTEM_ORG_ID;
+  if (inSystemNamespace(repo)) return user?.organizationId === SYSTEM_ORG_ID;
   return false;
 }

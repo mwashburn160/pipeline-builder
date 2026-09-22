@@ -29,8 +29,8 @@ metadata:
 spec:
   # Stateless — blobs live in MinIO (S3 driver) and every replica shares one
   # REGISTRY_HTTP_SECRET (upload-session signing, below) — so it runs two
-  # replicas and rolls without downtime; a push or CodeBuild pull no longer
-  # fails for the length of every registry restart.
+  # replicas and rolls without downtime; a push or CodeBuild pull does not
+  # fail for the length of a registry restart.
   replicas: 2
   revisionHistoryLimit: 3
   strategy:

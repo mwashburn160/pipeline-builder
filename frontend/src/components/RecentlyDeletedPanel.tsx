@@ -10,8 +10,9 @@ import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
+import { RetryError } from '@/components/ui/RetryError';
 import { StepUpModal } from '@/components/admin/StepUpModal';
-import { useLoadable } from '@/hooks/useLoadable';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { Pipeline, Plugin, Message, PipelineTemplate } from '@/types';
@@ -52,7 +53,7 @@ type Resource =
 
 /**
  * Per-resource registry: labels + a list-deleted loader (throws on failure so
- * `useLoadable` surfaces it) + a step-up-gated restore call. Adding a resource
+ * `useFetch` surfaces it) + a step-up-gated restore call. Adding a resource
  * (once its backend grows a list-deleted route) is a single entry here plus a
  * widening of the `Resource` union — no branching in the component body.
  */
@@ -231,9 +232,13 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   const [purging, setPurging] = useState<string | null>(null);
 
   // Registry-driven loader — each resource's `load` narrows its own response
-  // shape and throws on failure so useLoadable surfaces it.
+  // shape and throws on failure so useFetch surfaces it.
   const loader = useCallback(() => config.load(), [config]);
-  const { data: rows, loading, error: loadError, reload: load } = useLoadable<DeletedRow[]>(loader, [], `Failed to load deleted ${labels.plural}`);
+  const { data: rowsLoaded, loading, error: loadErrorFailure, refetch: load } = useFetch<DeletedRow[]>(() => loader(), [loader], {
+    onError: (err) => toast.error(formatError(err, `Failed to load deleted ${labels.plural}`)),
+  });
+  const rows = rowsLoaded ?? [];
+  const loadError = loadErrorFailure ? formatError(loadErrorFailure, `Failed to load deleted ${labels.plural}`) : null;
 
   const executeRestore = async (stepUpToken: string) => {
     if (!pendingRestore) return;
@@ -360,10 +365,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
       {loading && rows.length === 0 ? (
         <p className="text-sm text-fg-subtle" role="status">Loading…</p>
       ) : loadError && rows.length === 0 ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
-          <span>{loadError}</span>
-          <button type="button" onClick={() => void load()} className="underline hover:no-underline shrink-0">Retry</button>
-        </div>
+        <RetryError message={loadError} onRetry={() => void load()} />
       ) : rows.length === 0 ? (
         <p className="text-sm text-fg-subtle" role="status">No recently deleted {labels.plural}.</p>
       ) : (

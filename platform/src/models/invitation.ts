@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, model, Types, type HydratedDocument, type Model } from 'mongoose';
 import { MEMBER_ROLES, type OrgMemberRole } from './user-organization.js';
 import { config } from '../config/index.js';
 import { type OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
@@ -27,8 +27,7 @@ export type InvitationType = 'email' | 'oauth' | 'any';
 /**
  * Invitation document interface
  */
-export interface InvitationDocument extends Document {
-  _id: Types.ObjectId;
+export interface InvitationData {
   email: string;
   organizationId: Types.ObjectId;
   invitedBy: Types.ObjectId;
@@ -47,13 +46,20 @@ export interface InvitationDocument extends Document {
   createdAt: Date;
   updatedAt: Date;
 
+}
+
+/** Instance methods of a Invitation document. */
+export interface InvitationMethods {
   isExpired(): boolean;
   isValid(): boolean;
   canAcceptViaOAuth(provider: InvitationOAuthProvider): boolean;
   canAcceptViaEmail(): boolean;
 }
 
-const invitationSchema = new Schema<InvitationDocument>(
+export type InvitationDocument = HydratedDocument<InvitationData, InvitationMethods>;
+type InvitationModel = Model<InvitationData, object, InvitationMethods>;
+
+const invitationSchema = new Schema<InvitationData, InvitationModel, InvitationMethods>(
   {
     email: {
       type: String,
@@ -75,7 +81,7 @@ const invitationSchema = new Schema<InvitationDocument>(
     },
     role: {
       type: String,
-      enum: MEMBER_ROLES as unknown as string[],
+      enum: [...MEMBER_ROLES],
       default: 'member',
     },
     token: {
@@ -111,7 +117,7 @@ const invitationSchema = new Schema<InvitationDocument>(
     },
     allowedOAuthProviders: {
       type: [String],
-      enum: OAUTH_PROVIDER_NAMES as unknown as string[],
+      enum: [...OAUTH_PROVIDER_NAMES],
       default: undefined,
     },
     acceptedVia: {
@@ -186,4 +192,4 @@ invitationSchema.methods.canAcceptViaEmail = function (): boolean {
  */
 invitationSchema.index({ organizationId: 1, email: 1, status: 1 });
 
-export default model<InvitationDocument>('Invitation', invitationSchema);
+export default model<InvitationData, InvitationModel>('Invitation', invitationSchema);

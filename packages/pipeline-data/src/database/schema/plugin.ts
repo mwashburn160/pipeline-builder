@@ -42,7 +42,7 @@ export type PluginContractValueType = 'string' | 'number' | 'bool' | 'json';
  */
 export type PluginSmokeTest = string | Record<string, unknown>;
 
-/** A curated icon (§6a.1): a key into the curated set, plus an optional badge. */
+/** A curated icon: a key into the curated set, plus an optional badge. */
 export interface PluginIcon {
   key: string;
   badge?: string;
@@ -189,9 +189,9 @@ export const plugin = pgTable('plugins', {
   icon: jsonb('icon').$type<PluginIcon>(),
   uploadedIcon: jsonb('uploaded_icon').$type<PluginUploadedIcon>(),
 
-  // Catalog metadata (§3.1a, D19): detected from the package (spec, README,
+  // Catalog metadata: detected from the package (spec, README,
   // the plugin's own Dockerfile OCI labels), then accepted or edited by the
-  // user. `summary` is the card one-liner (G53); `displayName` falls back to
+  // user. `summary` is the card one-liner; `displayName` falls back to
   // `name` when unset. `metadataSources` records, per descriptive field, where
   // its value came from (`spec | readme | dockerfile | derived | user`) so a
   // reviewer can see what was typed rather than shipped in the package.
@@ -230,7 +230,7 @@ export const plugin = pgTable('plugins', {
   // Version lifecycle. `breaking`: a publisher-marked major that `latest`
   // installs never cross without re-approval. `frozenAt`: set the moment a
   // publish request references this version — re-uploading it is then refused
-  // (409, §3.4). Yank / deprecation carry their reason alongside the timestamp.
+  // (409). Yank / deprecation carry their reason alongside the timestamp.
   breaking: boolean('breaking')
     .default(false)
     .notNull(),

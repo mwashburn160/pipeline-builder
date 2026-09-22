@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Document, Schema, model, Types } from 'mongoose';
+import { Schema, model, Types, type HydratedDocument, type Model } from 'mongoose';
 
 /**
  * One request to open an impersonation ("view as user") session.
@@ -62,7 +62,7 @@ export const IMPERSONATION_APPROVAL_REASONS: readonly ImpersonationApprovalReaso
 export type ImpersonationApproverMode = 'user' | 'org_admin';
 export const IMPERSONATION_APPROVER_MODES: readonly ImpersonationApproverMode[] = ['user', 'org_admin'];
 
-export interface ImpersonationRequestDocument extends Document {
+export interface ImpersonationRequestData {
   /**
    * The string form of `_id` — Mongoose's default `id` virtual, present on every
    * hydrated document. Declared because this Mongoose version's `Document` type
@@ -79,7 +79,7 @@ export interface ImpersonationRequestDocument extends Document {
    * membership; the token is then issued with no org context rather than landing
    * on some other org they belong to (see `issueImpersonationToken`).
    */
-  orgId?: string;
+  organizationId?: Types.ObjectId;
   /** Operator-stated justification. Read by the target org, so treat as untrusted display text. */
   reason?: string;
   /**
@@ -117,24 +117,32 @@ export interface ImpersonationRequestDocument extends Document {
   updatedAt: Date;
 }
 
+/** Instance methods of a ImpersonationRequest document. */
+export interface ImpersonationRequestMethods {
+  isExpired(): boolean;
+}
+
+export type ImpersonationRequestDocument = HydratedDocument<ImpersonationRequestData, ImpersonationRequestMethods>;
+type ImpersonationRequestModel = Model<ImpersonationRequestData, object, ImpersonationRequestMethods>;
+
 /** Cap on the operator's stated reason — it is rendered to the target org. */
 export const IMPERSONATION_REASON_MAX = 500;
 
-const impersonationRequestSchema = new Schema<ImpersonationRequestDocument>(
+const impersonationRequestSchema = new Schema<ImpersonationRequestData, ImpersonationRequestModel, ImpersonationRequestMethods>(
   {
     requesterId: { type: Schema.Types.ObjectId, required: true, index: true },
     targetUserId: { type: Schema.Types.ObjectId, required: true, index: true },
-    orgId: { type: String },
+    organizationId: { type: Schema.Types.ObjectId },
     reason: { type: String, maxlength: IMPERSONATION_REASON_MAX },
     breakglass: { type: Boolean },
     status: {
       type: String,
-      enum: IMPERSONATION_REQUEST_STATUSES as unknown as string[],
+      enum: [...IMPERSONATION_REQUEST_STATUSES],
       default: 'pending',
       required: true,
     },
-    approvalReason: { type: String, enum: IMPERSONATION_APPROVAL_REASONS as unknown as string[] },
-    approverMode: { type: String, enum: IMPERSONATION_APPROVER_MODES as unknown as string[] },
+    approvalReason: { type: String, enum: [...IMPERSONATION_APPROVAL_REASONS] },
+    approverMode: { type: String, enum: [...IMPERSONATION_APPROVER_MODES] },
     approverUserId: { type: Schema.Types.ObjectId },
     jti: { type: String },
     decidedBy: { type: Schema.Types.ObjectId },
@@ -162,7 +170,7 @@ impersonationRequestSchema.index(
 impersonationRequestSchema.index({ requesterId: 1, breakglass: 1, createdAt: -1 });
 
 // The target org's admins reviewing who asked to view their members.
-impersonationRequestSchema.index({ orgId: 1, createdAt: -1 });
+impersonationRequestSchema.index({ organizationId: 1, createdAt: -1 });
 
 // Auth-time lookup: every request made under an impersonation token resolves its
 // session by `jti`, so this index is on the hot path. Sparse — only redeemed
@@ -178,7 +186,7 @@ impersonationRequestSchema.methods.isExpired = function (): boolean {
   return new Date() > this.expiresAt;
 };
 
-export default model<ImpersonationRequestDocument>(
+export default model<ImpersonationRequestData, ImpersonationRequestModel>(
   'ImpersonationRequest',
   impersonationRequestSchema,
 );

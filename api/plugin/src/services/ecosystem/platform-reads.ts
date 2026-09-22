@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The platform reads ecosystem governance needs (docs/plans/plugin-ecosystem.md
- * §3.0.1, §3.7), over platform's `/internal/ecosystem/*` routes (callers:
+ * The platform reads ecosystem governance needs (docs/plugin-publishing.md
+ * ), over platform's `/internal/ecosystem/*` routes (callers:
  * `plugin` only):
  *
  *  - the Verified application's platform-held facts: the org's DNS-verified
@@ -25,6 +25,8 @@ import {
 } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
+import type { DecisionPermission } from './policy.js';
+
 const logger = createLogger('ecosystem-platform-reads');
 
 /** The Verified application's platform-held facts about an org. */
@@ -40,8 +42,6 @@ export interface ApproverCount {
   eligible: number;
   superadmins: number;
 }
-
-export type DecisionPermission = 'plugins:moderate' | 'publishers:verify';
 
 export interface ApproverExclusions {
   /** Members of these orgs have a conflict of interest. */

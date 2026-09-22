@@ -4,7 +4,7 @@
 /**
  * Data access for the plugin ecosystem's governance tables (publishers,
  * listings, listing versions, the publish-request queue, auto-approval rules,
- * reserved names, settings) — docs/plans/plugin-ecosystem.md §3.
+ * reserved names, settings) — docs/plugin-publishing.md
  *
  * Every function runs ELEVATED (superadmin tenant context): the ecosystem
  * tables are instance-wide (no `org_id`, app-role-only RLS), and a moderator's
@@ -46,6 +46,8 @@ import {
   type PublishRequestStatus,
 } from '@pipeline-builder/pipeline-data';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { latestVersion } from './policy.js';
+import { ACTIVE_LISTING_STATES, first } from './util.js';
 
 type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 export type PluginRow = typeof schema.plugin.$inferSelect;
@@ -78,7 +80,6 @@ export function inTransaction(): boolean {
   return ambientTx.getStore() !== undefined;
 }
 
-const first = <T>(rows: T[]): T | null => rows[0] ?? null;
 const P = () => schema.publisher;
 const L = () => schema.pluginListing;
 const V = () => schema.pluginListingVersion;
@@ -115,9 +116,6 @@ export const publishers = {
 // Listings + versions
 // -----------------------------------------------------------------------------
 
-/** A listing counts toward the `listings` quota while it is public (§3.7). */
-export const ACTIVE_LISTING_STATES = ['listed', 'unmaintained'] as const;
-
 export const listings = {
   byId: (id: string): Promise<PluginListing | null> =>
     elevated(async (tx) => first(await tx.select().from(L()).where(eq(L().id, id)))),
@@ -132,6 +130,10 @@ export const listings = {
       if (filter.state) where.push(eq(L().state, filter.state as PluginListing['state']));
       return tx.select().from(L()).where(and(...where)).orderBy(desc(L().updatedAt));
     }),
+  /** The publisher of every listing of these publishers (one column; for per-publisher counts). */
+  publisherIdsOf: (publisherIds: string[]): Promise<string[]> =>
+    publisherIds.length === 0 ? Promise.resolve([]) : elevated(async (tx) =>
+      (await tx.select({ publisherId: L().publisherId }).from(L()).where(inArray(L().publisherId, publisherIds))).map((r) => r.publisherId)),
   /** Listings the publisher has live in the directory (the `listings` quota count). */
   countActive: (publisherId: string): Promise<number> =>
     elevated(async (tx) => Number((await tx.select({ n: count() }).from(L())
@@ -144,6 +146,13 @@ export const listings = {
   update: (id: string, patch: Partial<PluginListingInsert>): Promise<PluginListing | null> =>
     elevated(async (tx) => first(await tx.update(L()).set({ ...patch, updatedAt: new Date() }).where(eq(L().id, id)).returning())),
 };
+
+/** Listings by id, each with its publisher (null when missing) — two queries, however many ids. */
+export async function listingsWithPublishers(ids: readonly string[]): Promise<Map<string, { listing: PluginListing; publisher: Publisher | null }>> {
+  const rows = await listings.byIds([...new Set(ids)]);
+  const pubs = new Map((await publishers.byIds([...new Set(rows.map((l) => l.publisherId))])).map((p) => [p.id, p]));
+  return new Map(rows.map((l) => [l.id, { listing: l, publisher: pubs.get(l.publisherId) ?? null }]));
+}
 
 export const versions = {
   /** How many versions a listing has (any state) — a listing with none is an empty shell a publish may reuse. */
@@ -164,11 +173,42 @@ export const versions = {
     elevated(async (tx) => first(await tx.update(V()).set(patch).where(eq(V().id, id)).returning())),
 };
 
+/**
+ * Point a listing's `latestVersion` at its newest live (non-yanked) version.
+ * `exceptId` is treated as yanked and `includeId` as live — for a yank or
+ * unyank written in the same transaction.
+ */
+export async function recomputeLatest(listingId: string, opts: { exceptId?: string; includeId?: string } = {}): Promise<PluginListing | null> {
+  const live = (await versions.forListings([listingId]))
+    .filter((v) => v.id !== opts.exceptId && (!v.yankedAt || v.id === opts.includeId))
+    .map((v) => v.version);
+  return listings.update(listingId, { latestVersion: latestVersion(live) });
+}
+
+/** The previous APPROVED (listed, not yanked) version of a listing, excluding `except`. */
+export async function previousVersion(listingId: string | null, except: string | null): Promise<PluginListingVersion | null> {
+  if (!listingId) return null;
+  const rows = (await versions.forListings([listingId])).filter((v) => v.version !== except && !v.yankedAt);
+  const latest = latestVersion(rows.map((v) => v.version));
+  return rows.find((v) => v.version === latest) ?? null;
+}
+
 // -----------------------------------------------------------------------------
 // Publish requests
 // -----------------------------------------------------------------------------
 
 export const OPEN_STATUSES: PublishRequestStatus[] = ['pending', 'pending_second_approval'];
+
+/** The `?status=` filters of a request list. */
+export const REQUEST_STATUS_FILTERS: Readonly<Record<string, PublishRequestStatus[]>> = {
+  open: OPEN_STATUSES,
+  pending: ['pending'],
+  pending_second_approval: ['pending_second_approval'],
+  approved: ['approved'],
+  rejected: ['rejected'],
+  withdrawn: ['withdrawn'],
+  decided: ['approved', 'rejected', 'withdrawn'],
+};
 
 /**
  * `column #>> '{path}' = value` for a jsonb column, as SQL. The predicate also
@@ -211,6 +251,14 @@ export interface RequestFilter {
   transferTargetPublisherId?: string;
   /** An anonymous submission's request (`payload.submissionId`). */
   submissionId?: string;
+  /** An advisory request's advisory (`payload.advisoryId`). */
+  advisoryId?: string;
+  /** The review a security report came from (`payload.reviewId`). */
+  reviewId?: string;
+  /** Only these requests. */
+  ids?: string[];
+  /** Created strictly before this instant. */
+  createdBefore?: Date;
   limit?: number;
   /** `desc` (newest first, the default) or `asc` (oldest first — the open queue's SLA order). */
   order?: 'asc' | 'desc';
@@ -229,6 +277,10 @@ function requestWhere(filter: RequestFilter, withCursor: boolean): SQL | undefin
   if (filter.autoOnly) where.push(or(isNotNull(R().autoRuleId), jsonPathEq(R().payload, ['bootstrap'], 'true'))!);
   if (filter.transferTargetPublisherId) where.push(jsonPathEq(R().payload, ['transfer', 'targetPublisherId'], filter.transferTargetPublisherId));
   if (filter.submissionId) where.push(jsonPathEq(R().payload, ['submissionId'], filter.submissionId));
+  if (filter.advisoryId) where.push(jsonPathEq(R().payload, ['advisoryId'], filter.advisoryId));
+  if (filter.reviewId) where.push(jsonPathEq(R().payload, ['reviewId'], filter.reviewId));
+  if (filter.ids) where.push(inArray(R().id, filter.ids));
+  if (filter.createdBefore) where.push(lt(R().createdAt, filter.createdBefore));
   const c = withCursor ? filter.cursor : null;
   if (c) {
     const past = filter.order === 'asc' ? gt : lt;
@@ -259,7 +311,7 @@ export const requests = {
    */
   transition: (id: string, fromStatus: PublishRequestStatus, patch: Partial<PluginPublishRequestInsert>): Promise<PluginPublishRequest | null> =>
     elevated(async (tx) => first(await tx.update(R()).set(patch).where(and(eq(R().id, id), eq(R().status, fromStatus))).returning())),
-  /** Rows auto-approved by a rule since `since` (the §3.0.3 rate caps). */
+  /** Rows auto-approved by a rule since `since` (the rate caps). */
   autoApprovedSince: (ruleId: string, since: Date): Promise<PluginPublishRequest[]> =>
     elevated(async (tx) => tx.select().from(R()).where(and(eq(R().autoRuleId, ruleId), gte(R().decidedAt, since)))),
 };
@@ -343,7 +395,7 @@ export const plugins = {
     )))),
   /**
    * The distinct names of an org's LIVE `public` plugins — the only repositories
-   * of its namespace a team of it may pull (image-registry, E22).
+   * of its namespace a team of it may pull (image-registry).
    */
   publicNames: (orgId: string): Promise<string[]> =>
     elevated(async (tx) => [...new Set((await tx.select({ name: PL().name }).from(PL()).where(and(

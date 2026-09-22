@@ -18,9 +18,10 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
-import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { DeliveryResult } from '@pipeline-builder/api-core';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
+import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { AlertNotification } from '../src/services/notification-channels.js';
 
 // findById(id, orgId) → select().from().where().limit(1) → resolves rows[]
@@ -37,7 +38,7 @@ const mockGetChannel = jest.fn<(channel: string) => { channel: string; deliver: 
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertDeliveryTimeoutMs: 5000 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: { alertDeliveryTimeoutMs: 5000 } }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   softDeleteRetentionMs: () => 0,
   schema: {
@@ -64,7 +65,7 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 
 // `unstable_mockModule` swaps the WHOLE namespace, so every export
 // alert-destination-service imports has to be listed here — including the three
-// shared alert renderers it now uses to build the test notification. They are
+// shared alert renderers it uses to build the test notification. They are
 // pure formatters and this suite asserts the alert FIELDS (title/summary/
 // severity/payload), not their rendered text, so stand-ins are enough.
 jest.unstable_mockModule('../src/services/notification-channels.js', () => ({

@@ -17,15 +17,15 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useToast } from '@/components/ui/Toast';
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import { useFetch } from '@/hooks/useFetch';
-import { clearPluginCache } from '@/hooks/usePlugins';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { pluginPagePath } from '@/lib/public-directory/links';
 import { VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
 import type { InstallChangeRequestView, InstallView } from '@/types/plugin-installs';
+import { invalidate } from '@/lib/api-cache';
 
 /**
- * Pending install requests (§3.2): members holding `plugins:install` request
+ * Pending install requests: members holding `plugins:install` request
  * an install when the org's policy wants approval for the publisher's tier;
  * holders of `plugin_installs:manage` approve or deny here, and the requester
  * is notified either way. Rendered only for `plugin_installs:manage`.
@@ -48,8 +48,8 @@ export function ApprovalsTab({ onDecided }: { onDecided?: () => void }) {
     try {
       await fn();
       toast.success(done);
-      clearPluginCache();
-      list.refetch();
+      invalidate.plugins();
+      void list.refetch();
       onDecided?.();
     } catch (e) {
       setError(formatError(e, 'Could not decide the request'));
@@ -139,8 +139,8 @@ function ChangeRequests({ onDecided }: { onDecided?: () => void }) {
     try {
       await fn();
       toast.success(done);
-      clearPluginCache();
-      list.refetch();
+      invalidate.plugins();
+      void list.refetch();
       onDecided?.();
     } catch (e) {
       setError(formatError(e, 'Could not decide the change'));

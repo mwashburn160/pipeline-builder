@@ -47,6 +47,13 @@ describe('buildAgentTools', () => {
     expect((out.sources as Array<{ id: string }>)[0].id).toBe('deployment.md#x');
   });
 
+  it('list_pipelines reads GET /pipelines (user token)', async () => {
+    pipeline.get.mockResolvedValue({ data: [{ id: 'p1' }] });
+    const out = await call('list_pipelines', {});
+    expect(pipeline.get).toHaveBeenCalledWith('/pipelines');
+    expect(out.pipelines).toEqual([{ id: 'p1' }]);
+  });
+
   it('inspect_pipeline reads GET /pipelines/:id (user token)', async () => {
     pipeline.get.mockResolvedValue({ data: { id: 'p1', name: 'x' } });
     const out = await call('inspect_pipeline', { id: 'p1' });

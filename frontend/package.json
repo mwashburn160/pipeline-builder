@@ -56,6 +56,7 @@
   },
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
+    "@pipeline-builder/pipeline-core": "workspace:*",
     "@simplewebauthn/browser": "14.0.0",
     "framer-motion": "12.43.0",
     "lucide-react": "1.28.0",
@@ -141,7 +142,10 @@
       "^uuid$": "<rootDir>/../jest-uuid-stub.js",
       "^@/(.*)$": "<rootDir>/src/$1",
       "^@pipeline-builder/api-core/permissions$": "<rootDir>/../packages/api-core/src/types/permissions.ts",
-      "^@pipeline-builder/api-core/metadata-keys$": "<rootDir>/../packages/api-core/src/types/metadata-keys.ts"
+      "^@pipeline-builder/api-core/metadata-keys$": "<rootDir>/../packages/api-core/src/types/metadata-keys.ts",
+      "^@pipeline-builder/api-core/feature-flags$": "<rootDir>/../packages/api-core/src/types/feature-flags.ts",
+      "^@pipeline-builder/api-core/plugin-catalog$": "<rootDir>/../packages/api-core/src/types/plugin-catalog.ts",
+      "^@pipeline-builder/pipeline-core/template$": "<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts"
     },
     "modulePathIgnorePatterns": [
       "<rootDir>/.next/"
@@ -154,6 +158,7 @@
       "!src/components/build-queue/types.ts",
       "!src/components/reports/types.ts",
       "!src/components/users/types.ts",
+      "!src/lib/feature-flags.ts",
       "!src/lib/help/types.ts",
       "!src/types/audit.ts",
       "!src/types/compliance-notifications.ts",
@@ -170,6 +175,32 @@
         "branches": 78,
         "functions": 63,
         "lines": 84
+      }
+    }
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "inputs": [
+          "default",
+          "^default",
+          "sharedGlobals",
+          "{workspaceRoot}/docs/**/*",
+          "{workspaceRoot}/deploy/plugins/_icons/*",
+          "!{projectRoot}/lib/**/*",
+          "!{projectRoot}/dist/**/*"
+        ]
+      },
+      "test": {
+        "inputs": [
+          "default",
+          "^default",
+          "sharedGlobals",
+          "{workspaceRoot}/docs/**/*",
+          "{workspaceRoot}/deploy/plugins/_icons/*",
+          "!{projectRoot}/lib/**/*",
+          "!{projectRoot}/dist/**/*"
+        ]
       }
     }
   },

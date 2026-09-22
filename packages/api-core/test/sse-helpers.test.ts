@@ -9,7 +9,7 @@
  */
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { describe, it, expect, afterEach } from '@jest/globals';
+import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import express from 'express';
 import { initSSEStream } from '../src/helpers/sse-helpers.js';
 
@@ -74,5 +74,38 @@ describe('initSSEStream abort detection', () => {
     await resp.text();
     await waitFor(() => closed);
     expect(sse!.aborted()).toBe(false);
+  });
+});
+
+describe('initSSEStream writer', () => {
+  it('send writes JSON frames and done writes the final event then [DONE]', async () => {
+    const port = await start((req, res) => {
+      const sse = initSSEStream(req, res, 60_000);
+      sse.send({ type: 'token', data: 'a' });
+      sse.done({ type: 'done' });
+      res.end();
+    });
+    const resp = await fetch(`http://127.0.0.1:${port}/stream`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    expect(resp.headers.get('content-type')).toContain('text/event-stream');
+    expect(await resp.text()).toBe('data: {"type":"token","data":"a"}\n\ndata: {"type":"done"}\n\ndata: [DONE]\n\n');
+  });
+
+  it('writes nothing after the client disconnects', () => {
+    let onClose: () => void = () => undefined;
+    const write = jest.fn();
+    const res = {
+      setHeader: jest.fn(),
+      setTimeout: jest.fn(),
+      flushHeaders: jest.fn(),
+      write,
+      writableFinished: false,
+      on: (_e: string, cb: () => void) => { onClose = cb; },
+    };
+    const sse = initSSEStream({} as never, res as never, 1000);
+    onClose();
+    expect(sse.signal.aborted).toBe(true);
+    sse.send({ type: 'x' });
+    sse.done();
+    expect(write).not.toHaveBeenCalled();
   });
 });

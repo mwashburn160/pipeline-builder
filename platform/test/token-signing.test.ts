@@ -19,15 +19,19 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { jest, describe, it, expect, beforeEach, afterEach, afterAll } from '@jest/globals';
 import type { Request, Response } from 'express';
+import { mockConfig } from './helpers/config-mock.js';
 
 const signingConfig: Record<string, unknown> = { mode: 'local' };
 const jwtConfig: Record<string, unknown> = { secret: 'service-secret', algorithm: 'HS256', signing: signingConfig };
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { jwt: jwtConfig } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { jwt: jwtConfig } }));
 
 const {
-  initTokenSigning, publishedJwks, signUserJwt, verifyUserJwtSync, currentSigningKid,
+  initTokenSigning, publishedJwks, signUserJwt, verifyUserJwtSync,
   isRetiringKeyPublished, _resetTokenSigningForTests,
 } = await import('../src/services/token-signing/index.js');
+
+/** The `kid` new tokens are signed with: the first key the JWKS publishes. */
+const currentSigningKid = async (): Promise<string> => (await publishedJwks()).keys[0].kid;
 const { _setKmsClientForTests } = await import('../src/services/token-signing/kms-signer.js');
 const { jwksHandler } = await import('../src/routes/jwks.js');
 const { USER_TOKEN_ALGORITHM, publicJwkFrom } = await import('@pipeline-builder/api-core');

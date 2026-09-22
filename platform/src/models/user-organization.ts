@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, model, Types, type HydratedDocument } from 'mongoose';
 
 /**
  * Membership role within an organization, in canonical order
@@ -20,8 +20,8 @@ export const MEMBER_ROLES = ['owner', 'admin', 'member'] as const;
 export type OrgMemberRole = typeof MEMBER_ROLES[number];
 
 /**
- * Directory-owned state for ONE membership, written only by the SCIM endpoints
- * (3b). It lives on the membership rather than on `User` on purpose: a person can
+ * Directory-owned state for ONE membership, written only by the SCIM endpoints.
+ * It lives on the membership rather than on `User` on purpose: a person can
  * belong to several orgs, each with its own identity provider, and a tenant's
  * directory must never be able to rewrite the platform ACCOUNT (its email,
  * username or sign-in) of someone who also belongs elsewhere. Everything here is
@@ -55,19 +55,21 @@ export interface ScimMembershipState {
  * UserOrganization document interface.
  * Junction collection linking users to organizations with per-org roles.
  */
-export interface UserOrganizationDocument extends Document {
+export interface UserOrganizationData {
   userId: Types.ObjectId;
   organizationId: Types.ObjectId;
   role: OrgMemberRole;
   isActive: boolean;
   joinedAt: Date;
-  /** Present only on memberships an IdP's SCIM client has touched (3b). */
+  /** Present only on memberships an IdP's SCIM client has touched. */
   scim?: ScimMembershipState;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const userOrganizationSchema = new Schema<UserOrganizationDocument>(
+export type UserOrganizationDocument = HydratedDocument<UserOrganizationData>;
+
+const userOrganizationSchema = new Schema<UserOrganizationData>(
   {
     userId: {
       type: Schema.Types.ObjectId,
@@ -81,7 +83,7 @@ const userOrganizationSchema = new Schema<UserOrganizationDocument>(
     },
     role: {
       type: String,
-      enum: MEMBER_ROLES as unknown as string[],
+      enum: [...MEMBER_ROLES],
       default: 'member',
     },
     isActive: {
@@ -92,7 +94,7 @@ const userOrganizationSchema = new Schema<UserOrganizationDocument>(
       type: Date,
       default: Date.now,
     },
-    // SCIM (3b). Absent until an IdP's SCIM client writes the membership; no
+    // SCIM. Absent until an IdP's SCIM client writes the membership; no
     // sub-document default, so a membership created by any other path stays
     // exactly as it was.
     scim: {
@@ -135,9 +137,9 @@ userOrganizationSchema.index(
   { unique: true, partialFilterExpression: { role: 'owner' } },
 );
 
-// SCIM lookups (3b): `externalId eq` correlation and the member list of one
+// SCIM lookups: `externalId eq` correlation and the member list of one
 // directory group. Sparse — only SCIM-touched memberships carry the sub-document.
 userOrganizationSchema.index({ 'organizationId': 1, 'scim.externalId': 1 }, { sparse: true });
 userOrganizationSchema.index({ 'organizationId': 1, 'scim.groups': 1 }, { sparse: true });
 
-export default model<UserOrganizationDocument>('UserOrganization', userOrganizationSchema);
+export default model<UserOrganizationData>('UserOrganization', userOrganizationSchema);

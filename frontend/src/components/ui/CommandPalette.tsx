@@ -55,10 +55,8 @@ export function CommandPalette({
   const router = useRouter();
 
   // Every command action funnels through `runAndClose` so the palette
-  // always dismisses on activation — previously each non-nav action had
-  // to remember to call `setOpen(false)` itself (and the dark-mode toggle
-  // was the only one that did). Now navigation and side-effect actions
-  // share the same teardown path.
+  // always dismisses on activation — navigation and side-effect actions
+  // share one teardown path instead of each remembering `setOpen(false)`.
   const runAndClose = useCallback((fn: () => void) => {
     setOpen(false);
     fn();

@@ -110,6 +110,12 @@
       ],
       "metadata-keys": [
         "lib/types/metadata-keys.d.ts"
+      ],
+      "feature-flags": [
+        "lib/types/feature-flags.d.ts"
+      ],
+      "plugin-catalog": [
+        "lib/types/plugin-catalog.d.ts"
       ]
     }
   },
@@ -228,6 +234,14 @@
       "types": "./lib/types/metadata-keys.d.ts",
       "default": "./lib/types/metadata-keys.js"
     },
+    "./feature-flags": {
+      "types": "./lib/types/feature-flags.d.ts",
+      "default": "./lib/types/feature-flags.js"
+    },
+    "./plugin-catalog": {
+      "types": "./lib/types/plugin-catalog.d.ts",
+      "default": "./lib/types/plugin-catalog.js"
+    },
     "./testing": {
       "types": "./lib/testing/index.d.ts",
       "default": "./lib/testing/index.js"
@@ -242,8 +256,7 @@
           "default",
           "^default",
           "sharedGlobals",
-          "{workspaceRoot}/docs/**/*",
-          "{workspaceRoot}/deploy/**/*",
+          "{workspaceRoot}/docs/environment-variables.md",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]
@@ -253,8 +266,7 @@
           "default",
           "^default",
           "sharedGlobals",
-          "{workspaceRoot}/docs/**/*",
-          "{workspaceRoot}/deploy/**/*",
+          "{workspaceRoot}/docs/environment-variables.md",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]

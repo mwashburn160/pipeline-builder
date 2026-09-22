@@ -8,19 +8,18 @@ import mongoose from 'mongoose';
 
 import { mountRoutes } from './app-routes.js';
 import { config } from './config.js';
-import { setEntitlementSyncBus, startEntitlementSyncConsumer } from './helpers/billing-helpers.js';
+import { setEntitlementSyncBus, startEntitlementSyncConsumer } from './helpers/entitlement-sync.js';
 import { startMarketplaceMetering, stopMarketplaceMetering } from './helpers/marketplace-metering.js';
-import { startPromotionBackfill } from './helpers/promotion-backfill.js';
+import { startPromotionBackfill, stopPromotionBackfill } from './helpers/promotion-backfill.js';
 import { seedPlans } from './helpers/seed-plans.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
 import { validateProviderConfig } from './helpers/validate-provider-config.js';
-import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('billing');
 
 // Forward denied (non-GET) requests to the shared authz.denied audit sink.
 // Registered unconditionally — harmless in disabled mode (no gated routes fire).
-wireServiceSecurity('billing', getAuditClient);
+wireServiceSecurity('billing');
 
 // -- Express app ---------------------------------------------------------------
 
@@ -63,8 +62,7 @@ if (config.enabled) {
       await connectMongo(mongoose, config.mongodb.uri);
       await seedPlans();
       // Durable entitlement-sync backbone: a failed sync publishes a retry event
-      // that this consumer re-drives at-least-once (replaces the old polling
-      // reconcileFailedEntitlementSyncs). Null when Redis isn't configured — the
+      // that this consumer re-drives at-least-once. Null when Redis isn't configured — the
       // sync then still runs inline, just without durable retry.
       const entitlementBus = createEnvRedisDurableEventBus();
       setEntitlementSyncBus(entitlementBus);
@@ -77,6 +75,7 @@ if (config.enabled) {
     closeDatabase: async () => {
       stopSubscriptionLifecycleChecker();
       stopMarketplaceMetering();
+      stopPromotionBackfill();
       await entitlementSyncSub?.stop();
       setEntitlementSyncBus(null);
       await mongoose.connection.close(false);

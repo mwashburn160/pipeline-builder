@@ -20,7 +20,7 @@ import { ECOSYSTEM_MANAGER_ROLE_NAME } from '@/lib/ecosystem-access';
 import type { OrganizationRole } from '@/types';
 
 interface Props {
-  /** Only superadmins may assign or unassign the role (plan §5a.1); the
+  /** Only superadmins may assign or unassign the role; the
    *  backend refuses everyone else with RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN. */
   isSuperAdmin: boolean;
   /** False during a read-only impersonation — writes would 403. */
@@ -66,7 +66,7 @@ export function EcosystemManagersPanel({ isSuperAdmin, canWrite }: Props) {
       if (!res.success) throw new Error(res.message || 'Failed to add to role');
       toast.success(`Added ${who?.username ?? who?.email ?? 'member'} to ${ECOSYSTEM_MANAGER_ROLE_NAME}`);
       setSelectedUserId('');
-      rolesQ.refetch();
+      void rolesQ.refetch();
     } catch (err) {
       toast.error(formatError(err, 'Failed to add to role'));
     } finally {
@@ -81,7 +81,7 @@ export function EcosystemManagersPanel({ isSuperAdmin, canWrite }: Props) {
       const res = await api.removeRoleMember(SYSTEM_ORG_ID, role.id, member.id);
       if (!res.success) throw new Error(res.message || 'Failed to remove from role');
       toast.success(`Removed ${member.username} from ${ECOSYSTEM_MANAGER_ROLE_NAME}`);
-      rolesQ.refetch();
+      void rolesQ.refetch();
     } catch (err) {
       toast.error(formatError(err, 'Failed to remove from role'));
     } finally {

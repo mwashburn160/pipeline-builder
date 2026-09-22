@@ -19,6 +19,7 @@ packages:
   - api/ask
   - api/compliance
   - api/image-registry
+  - test/deploy-contracts
 verifyDepsBeforeRun: false
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:

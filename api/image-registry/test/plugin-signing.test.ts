@@ -44,8 +44,9 @@ const config = {
 jest.unstable_mockModule('../src/config/index.js', () => ({ config }));
 
 const {
-  signPluginImage, isPluginRepository, isSha256Digest, PluginSigningError, _resetPluginSigningState,
+  signPluginImage, PluginSigningError, _resetPluginSigningState,
 } = await import('../src/services/plugin-signing.js');
+const { isPluginRepository, isSha256Digest } = await import('../src/services/namespaces.js');
 
 const DIGEST = `sha256:${'f'.repeat(64)}`;
 const SBOM = { spdxVersion: 'SPDX-2.3', name: 'foo' };

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The attributes the plugin service sends to the compliance service
- * (W0.6), so the curated SOC2/PCI/CIS plugin rules evaluate REAL data:
+ * The attributes the plugin service sends to the compliance service,
+ * so the curated SOC2/PCI/CIS plugin rules evaluate REAL data:
  * `signed`, `scanned`, `vuln*`, `runAsRoot`, `packages` and `tags`.
  *
  * - At UPLOAD the image does not exist yet: for an image plugin the image

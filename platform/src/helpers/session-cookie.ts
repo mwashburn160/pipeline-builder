@@ -9,11 +9,11 @@
  *  - `X-Pb-Client: web` (the browser app, and only it) — the refresh token is
  *    returned as an `HttpOnly; Secure; SameSite=Strict` cookie scoped to the
  *    refresh path, and is NEVER present in the response body. No script in the
- *    page can read it, so an XSS can no longer walk off with a 30-day
+ *    page can read it, so an XSS cannot walk off with a 30-day
  *    credential; the access token it could still steal lives in memory for 15
  *    minutes.
  *  - any other value (the CLI, CI, scripts) — the refresh token is returned in
- *    the body exactly as before and presented back in the request body. A
+ *    the body and presented back in the request body. A
  *    non-browser caller has no cookie jar to protect.
  *
  * The signal is the header rather than "did a cookie arrive", because the
@@ -28,40 +28,11 @@
  */
 
 import type { Request, Response } from 'express';
-import type { IssuedTokens } from '../utils/token.js';
+import { envLite } from '../config/env-lite.js';
+import type { IssuedTokens } from '../services/session/refresh-sessions.js';
 
 /** Cookie carrying the browser's refresh token. */
 const REFRESH_COOKIE_NAME = 'pb_refresh';
-
-/**
- * Cookie policy, read straight from the environment rather than through
- * `config/index.ts`.
- *
- * This module is imported by the auth MIDDLEWARE, which every route chain
- * loads; routing that through the config module would pull platform's whole
- * boot-time secret validation into modules (and test suites) that have no
- * business booting it. The three variables below are documented in
- * docs/environment-variables.md alongside the config-owned ones.
- */
-const COOKIE_POLICY = {
-  /**
-   * Path the cookie is scoped to, as the BROWSER sees it. nginx strips the
-   * `/api` prefix before proxying, so this is the public path
-   * (`/api/auth/refresh`), not the Express route (`/auth/refresh`).
-   */
-  path: process.env.AUTH_REFRESH_COOKIE_PATH || '/api/auth/refresh',
-  /**
-   * `Secure`. Every shipped target terminates TLS in front of the gateway
-   * (docker/minikube on :8443, ec2/eks at the load balancer) and browsers treat
-   * `http://localhost` as a secure context, so this stays on by default.
-   * `AUTH_COOKIE_SECURE=false` is for a plain-http deployment on a
-   * non-localhost hostname, where the browser would drop the cookie and no
-   * session could ever refresh.
-   */
-  secure: process.env.AUTH_COOKIE_SECURE !== 'false',
-  /** Paired with the refresh token's own TTL — same variable, same default. */
-  maxAgeMs: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000', 10) * 1000,
-};
 
 /** Header naming the kind of client making the request (lowercased by Node). */
 export const CLIENT_TYPE_HEADER = 'x-pb-client';
@@ -114,9 +85,9 @@ export function readRefreshCookie(req: RequestLike): string | undefined {
 function cookieAttributes() {
   return {
     httpOnly: true,
-    secure: COOKIE_POLICY.secure,
+    secure: envLite.authCookieSecure,
     sameSite: 'strict' as const,
-    path: COOKIE_POLICY.path,
+    path: envLite.refreshCookiePath,
   };
 }
 
@@ -124,7 +95,8 @@ function cookieAttributes() {
 function setRefreshCookie(res: Response, token: string): void {
   res.cookie(REFRESH_COOKIE_NAME, token, {
     ...cookieAttributes(),
-    maxAge: COOKIE_POLICY.maxAgeMs,
+    // Paired with the refresh token's own TTL — same variable, same parser.
+    maxAge: envLite.refreshTokenExpiresInSeconds * 1000,
   });
 }
 

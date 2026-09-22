@@ -49,7 +49,7 @@ export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string;
       {expanded && (
         <div className="mt-2">
           {loading && <LoadingSpinner size="sm" />}
-          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          {error && <p className="text-xs text-danger">{error}</p>}
           {!loading && events.length === 0 && (
             <p className="text-xs text-fg-muted">No grant events on file.</p>
           )}

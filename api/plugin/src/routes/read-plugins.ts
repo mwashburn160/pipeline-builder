@@ -3,18 +3,19 @@
 
 import { getParam, ErrorCode, isSystemOrgId, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { incCounter, withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
+import { incCounter, withRoute, meterQuotaOnSuccess } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
 import { Config, CoreConstants, pluginImageRepository } from '@pipeline-builder/pipeline-core';
-import { isVersionRange, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { executeRows, isVersionRange, withTenantTx } from '@pipeline-builder/pipeline-data';
 import type { PluginFilter } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { attachmentDisposition } from '../helpers/content-disposition.js';
+import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
 import { pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
 import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';
-import { resolveListedLookup, shadowedListing, verifyListedImage } from '../services/ecosystem/installs.js';
+import { resolveListedLookup, shadowedListing, verifyListedImage } from '../services/ecosystem/lookup.js';
 import { pluginService } from '../services/plugin-service.js';
 
 /** The caller's parent-org id (org→team hierarchy), carried in the JWT; absent
@@ -23,7 +24,7 @@ function parentOrgIdOf(req: Request): string | undefined {
   return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
 }
 
-/** A warning attached to a lookup answer (W0.4 lifecycle; W2 listings; W8 advisories). */
+/** A warning attached to a lookup answer (lifecycle, listings, advisories). */
 export interface LookupWarning {
   code: 'PLUGIN_DEPRECATED' | 'PLUGIN_YANKED' | 'PLUGIN_SHADOWS_LISTING' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED' | 'PLUGIN_ADVISORY';
   message: string;
@@ -71,7 +72,7 @@ export function resolutionFilter(filter: PluginFilter): PluginFilter {
   };
 }
 
-/** Lookup refusal reasons, as `plugin_lookup_refusals_total{reason}` reports them (§9a). */
+/** Lookup refusal reasons, as `plugin_lookup_refusals_total{reason}` reports them. */
 const LOOKUP_REFUSAL_REASONS: Record<string, string> = { yanked: 'yank', blocked_listing: 'policy' };
 
 /**
@@ -95,9 +96,11 @@ export function createReadPluginRoutes(
   quotaService: QuotaService,
 ): Router {
   const router: Router = Router();
+  // apiCalls metering: once per 2xx, never for service principals.
+  const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
 
   // GET /plugins/plugin-usage — counts pipelines (in caller's org) that
-  // reference each plugin, keyed by the REFERENCE (plugin ecosystem G17): the
+  // reference each plugin, keyed by the REFERENCE: the
   // bare `name` for an unqualified reference (the org's own plugin, or the
   // Official listing it falls back to) and `publisher/name` for a qualified
   // one. Used by the "Used by N pipelines" badges on the org's plugins and on
@@ -111,18 +114,12 @@ export function createReadPluginRoutes(
     // Explicit per-org scoping (defense-in-depth) on top of `withTenantTx`'s
     // `app.org_id`, mirroring how the lookup and ai-generation services scope.
     // The route-context `orgId` is already lowercased to match stored org ids.
-    const rows = await withTenantTx(async (tx) => tx.execute<{ ref_key: string; cnt: string | number }>(sql`
+    const rows = await withTenantTx(async (tx) => executeRows<{ ref_key: string; cnt: string | number }>(tx, sql`
       SELECT CASE WHEN COALESCE(ref->>'publisher', '') = '' THEN ref->>'name'
                   ELSE (ref->>'publisher') || '/' || (ref->>'name') END AS ref_key,
              COUNT(DISTINCT p.id) AS cnt
         FROM pipelines p,
-             LATERAL (
-               SELECT step->'plugin' AS ref
-                 FROM jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
-                      jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
-               UNION ALL
-               SELECT p.props->'synth'->'plugin'
-             ) AS refs
+             ${pipelinePluginRefs()}
        WHERE p.is_active = true
          AND p.deleted_at IS NULL
          AND p.org_id = ${orgId}
@@ -130,7 +127,7 @@ export function createReadPluginRoutes(
        GROUP BY 1
     `));
     const counts: Record<string, number> = {};
-    for (const row of rows.rows ?? rows as unknown as Array<{ ref_key: string; cnt: string | number }>) {
+    for (const row of rows) {
       const n = typeof row.cnt === 'number' ? row.cnt : parseInt(String(row.cnt), 10);
       if (row.ref_key && Number.isFinite(n)) counts[row.ref_key] = n;
     }
@@ -140,7 +137,7 @@ export function createReadPluginRoutes(
   }));
 
   // GET /plugins — paginated list
-  router.get('/', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/', meter, requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const filter = validateQuery(req, PluginFilterSchema);
     if (!filter.ok) return sendBadRequest(res, filter.error);
 
@@ -165,7 +162,6 @@ export function createReadPluginRoutes(
     );
 
     ctx.log('COMPLETED', 'Listed plugins', { count: result.data.length, ...(result.total !== undefined && { total: result.total }) });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
 
@@ -179,14 +175,14 @@ export function createReadPluginRoutes(
   // whitelist as the listing endpoint so callers can't smuggle internal
   // fields (`deletedAt`, `orgId`) to peek at soft-deleted rows.
   //
-  // Resolution order (plugin ecosystem §3.5):
+  // Resolution order:
   //   - no `publisher`: the org's own plugin row, then (a team) its parent's
   //     shared row, then the Official listing through the org's install
-  //     (explicit, or the implicit one, D16). An own row that shadows an
+  //     (explicit, or the implicit one). An own row that shadows an
   //     Official listing answers with a PLUGIN_SHADOWS_LISTING warning;
   //   - `publisher`: ONLY that publisher's listing, through an install.
   // A listed version answers with its `public/*` imageRepository, verified
-  // with its signed tier annotation (G30, §3.3).
+  // with its signed tier annotation.
   const respondWithSinglePlugin = async (
     filter: PluginFilter,
     req: Request, res: Response, orgId: string,
@@ -200,7 +196,6 @@ export function createReadPluginRoutes(
     const { publisher, ...rowFilter } = filter;
     const done = (plugin: Record<string, unknown>, warnings: LookupWarning[], id: unknown, name: unknown) => {
       ctx.log('COMPLETED', 'Plugin lookup', { id, name, ...(publisher ? { publisher } : {}), ...(warnings.length ? { warnings: warnings.map((w) => w.code) } : {}) });
-      incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
       if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
       return sendSuccess(res, 200, { plugin, warnings });
     };
@@ -268,7 +263,7 @@ export function createReadPluginRoutes(
     return done(record, listed.resolution.warnings, record.id, record.name);
   };
 
-  router.post('/lookup', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/lookup', meter, requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { filter } = req.body ?? {};
     if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
     const parsed = PluginFilterSchema.safeParse(filter);
@@ -277,7 +272,7 @@ export function createReadPluginRoutes(
   }));
 
   // GET /plugins/find — single plugin by filter
-  router.get('/find', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/find', meter, requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const validated = validateQuery(req, PluginFilterSchema);
     if (!validated.ok) return sendBadRequest(res, validated.error);
     return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, { setCacheHeader: true });
@@ -286,12 +281,11 @@ export function createReadPluginRoutes(
   // GET /plugins/deleted — org's soft-deleted tombstones (most recent first),
   // powering the "recently deleted" restore UI. Registered BEFORE `/:id` so the
   // literal path isn't swallowed by the id matcher.
-  router.get('/deleted', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/deleted', meter, requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const deleted = await pluginService.findDeleted(orgId, { limit, offset });
 
     ctx.log('COMPLETED', 'Listed deleted plugins', { count: deleted.length });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     return sendSuccess(res, 200, { plugins: deleted.map(shapePlugin) });
   }));
@@ -299,7 +293,7 @@ export function createReadPluginRoutes(
   // GET /plugins/:id/sbom — the plugin image's SPDX JSON SBOM, read from its
   // SIGNED attestation (so it is exactly what the platform generated and signed
   // at build time). Registered before `/:id`.
-  router.get('/:id/sbom', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id/sbom', meter, requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -319,13 +313,12 @@ export function createReadPluginRoutes(
     }
 
     ctx.log('COMPLETED', 'Retrieved plugin SBOM', { id: result.id, name: result.name });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     res.setHeader('Content-Disposition', attachmentDisposition(`${result.name}-${result.version}.spdx.json`));
     res.status(200).type('application/spdx+json').send(JSON.stringify(sbom));
   }));
 
   // GET /plugins/:id — single plugin by UUID
-  router.get('/:id', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id', meter, requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -338,7 +331,6 @@ export function createReadPluginRoutes(
     if (!result) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Retrieved plugin', { id: result.id, name: result.name });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_DETAIL);
 

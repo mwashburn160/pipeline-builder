@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, envStr } from '../utils/env.js';
+import { envBool, envInt, envStr } from '../utils/env.js';
 
 /** Available quota tier identifiers.
  *
@@ -32,7 +32,7 @@ export interface QuotaTierLimits {
   idpConfigs: number;
   /**
    * Active, non-suspended plugin-ecosystem listings the org publishes
-   * (docs/plans/plugin-ecosystem.md §3.7). A COUNT quota — installs never
+   * (docs/plugin-installing.md). A COUNT quota — installs never
    * count. -1 = unlimited. Extendable via the `listing_pack` add-on bundle.
    */
   listings: number;
@@ -258,7 +258,7 @@ export function tierAllowsTeams(tier: string | undefined | null): boolean {
  *  opt-out default-on — mirrors the billing/platform configs). With billing OFF
  *  there's no metering/enforcement surface, so the default tier is `unlimited`. */
 export function isBillingEnabled(): boolean {
-  return (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false';
+  return envBool('BILLING_ENABLED', true);
 }
 
 /**
@@ -284,4 +284,20 @@ export function isValidTier(value: string): value is QuotaTier {
 /** Get the default limits for a given tier (falls back to developer). */
 export function getTierLimits(tier: string): QuotaTierLimits {
   return isValidTier(tier) ? QUOTA_TIERS[tier].limits: QUOTA_TIERS.developer.limits;
+}
+
+/**
+ * The period (days) every usage counter rolls over on. All quotas are per-period
+ * FLOW counters on one shared period: the quota service resets a counter this
+ * many days after it expires, and platform seeds a new org's counters with the
+ * same window (`QUOTA_RESET_DAYS`, default 3).
+ */
+export const QUOTA_RESET_DAYS = envInt('QUOTA_RESET_DAYS', 3, { min: 1 });
+
+/** The next quota reset: local midnight `days` from `now`. */
+export function nextQuotaResetDate(days: number = QUOTA_RESET_DAYS, now: Date = new Date()): Date {
+  const date = new Date(now);
+  date.setDate(date.getDate() + days);
+  date.setHours(0, 0, 0, 0);
+  return date;
 }

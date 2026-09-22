@@ -31,10 +31,7 @@ jest.mock('@/hooks/useFeatures', () => ({
   }),
 }));
 
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: {}, pathname: '/dashboard/reports', replace: jest.fn<AnyFn>() })));
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/hooks/useOrgHierarchy', () => require('./helpers/pageMocks').orgHierarchyModule());

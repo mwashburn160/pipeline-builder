@@ -33,7 +33,7 @@ import {
  */
 export const ALERT_WEBHOOK_PATH = '/observability/alert-webhook';
 
-/** Where an identity provider's SCIM client connects (3b). Declared next to the
+/** Where an identity provider's SCIM client connects. Declared next to the
  *  mount that uses it, like the alert webhook, because `index.ts` also needs it
  *  to keep the general limiter off this surface. */
 export const SCIM_PATH = '/scim/v2';

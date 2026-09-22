@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Security advisories and CVE response (plugin ecosystem W8, G9, §3.0, §3.2,
- * §5b N20/N21, §5c) against the in-memory database: publisher drafts through
+ * Security advisories and CVE response (
+ * N20/N21) against the in-memory database: publisher drafts through
  * the `advisory` request kind, system-org publish (approve) / discard (reject)
  * / withdraw, the N21 fan-out with its idempotent delivery ledger and retry,
  * moderator drafts and edits, the CVE-rescan draft (deduplicated per listing
- * version and CVE set), the review-report seam (W4), the install view's
+ * version and CVE set), the review-report seam, the install view's
  * warnings — and listed-version deprecation (publisher, system org, and
  * carried over from the source plugin row) with N14.
  */
@@ -25,7 +25,6 @@ const decisions = await import('../src/services/ecosystem/decisions.js');
 const installs = await import('../src/services/ecosystem/installs.js');
 const consoleSvc = await import('../src/services/ecosystem/console.js');
 const maintenance = await import('../src/services/ecosystem/maintenance.js');
-const reviewHooks = await import('../src/services/ecosystem/review-hooks.js');
 await wireEcosystemHarness(h);
 
 const { db } = h;
@@ -328,7 +327,7 @@ describe('the CVE rescan opens private drafts', () => {
   });
 });
 
-describe('security-flagged review reports (the W4 seam)', () => {
+describe('security-flagged review reports (the seam)', () => {
   const report = (listingId: string, over: Record<string, unknown> = {}) => ({
     reviewId: 'rev-1',
     reportId: 'rep-1',
@@ -344,25 +343,23 @@ describe('security-flagged review reports (the W4 seam)', () => {
     ...over,
   });
 
-  it('opens one private draft per review through the registered handler, never naming the reporter', async () => {
+  it('opens one private draft per review, never naming the reporter', async () => {
     const { listing } = seedLint();
-    advisories.registerAdvisoryHooks();
-    expect(await reviewHooks.dispatchReviewSecurityReport(report(listing.id))).toBe('handled');
-    expect(await reviewHooks.dispatchReviewSecurityReport(report(listing.id, { reportId: 'rep-2' }))).toBe('handled');
+    const first = await advisories.openReviewAdvisoryDraft(report(listing.id) as any);
+    expect((await advisories.openReviewAdvisoryDraft(report(listing.id, { reportId: 'rep-2' }) as any)).id).toBe(first.id);
     expect(db.tables.plugin_advisories).toHaveLength(1);
     const [a] = db.tables.plugin_advisories!;
     expect(a).toMatchObject({ source: 'review', affectedRange: '1.0.0', severity: 'high', createdBy: 'system', detailsMd: null });
     const req = db.tables.plugin_publish_requests!.find((r) => r.kind === 'advisory')!;
     expect(req.payload).toMatchObject({ reviewId: 'rev-1', reportId: 'rep-1', reportDetails: 'exploit steps' });
     expect(JSON.stringify(h.audit.mock.calls)).not.toContain('u-reporter');
-    // W4 sends N19; the seam sends nothing itself.
+    // sends N19; the seam sends nothing itself.
     expect(h.notify.mock.calls.filter((c) => c[0] === 'N20' || c[0] === 'N24')).toHaveLength(0);
     // Without a version, the listing's latest.
     const b = await advisories.openReviewAdvisoryDraft(report(listing.id, { reviewId: 'rev-2', version: null }) as any);
     expect(b.affectedRange).toBe('1.1.0');
     listing.latestVersion = null;
     await rejects(advisories.openReviewAdvisoryDraft(report(listing.id, { reviewId: 'rev-3', version: null }) as any), 'CONFLICT');
-    reviewHooks.setReviewSecurityReportHandler(null);
   });
 });
 
@@ -376,13 +373,13 @@ describe('advisory lists', () => {
     expect(list.map((a) => [a.source, a.createdBy]).sort()).toEqual([['cve_rescan', 'system'], ['moderator', 'system'], ['publisher', 'u-acme']]);
     expect(list.every((a) => a.requestId !== null)).toBe(true);
     expect(await advisories.publisherAdvisories(tenant({ orgId: 'org-nobody' }) as any)).toEqual([]);
-    // A plain member (plugins:read) reads its own publisher's advisories — never the embargoed drafts (E24).
+    // A plain member (plugins:read) reads its own publisher's advisories — never the embargoed drafts.
     expect(await advisories.publisherAdvisories(tenant({ permissions: ['plugins:read'] }) as any)).toEqual([]);
     await rejects(advisories.publisherAdvisories(tenant({ permissions: [] }) as any), 'INSUFFICIENT_PERMISSIONS');
   });
 });
 
-describe('listed-version deprecation (W2 handoff)', () => {
+describe('listed-version deprecation', () => {
   it('the publisher deprecates its own listed version at once: lookup warns, installers get N14, audited', async () => {
     const { listing } = seedLint();
     const out = await advisories.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: ' Use 2.x ' });

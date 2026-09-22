@@ -15,11 +15,11 @@ import {
   audited,
   requirePermission,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
 import {
   complianceExemptionService,
   CE_NOT_FOUND,
@@ -51,8 +51,8 @@ const BulkExemptionsSchema = z.object({
  * Requesting an exemption is member self-service: it files a PENDING row that
  * changes no enforcement posture until an admin reviews it (PUT /:id/review,
  * `compliance:write`). So the request routes gate on `compliance:read` — a
- * principal with no compliance capability at all can no longer file requests —
- * while the governance decisions keep the write gate.
+ * principal with no compliance capability at all cannot file requests — while
+ * the governance decisions keep the write gate.
  */
 const requireComplianceRead = requirePermission('compliance:read');
 
@@ -148,7 +148,7 @@ export function createExemptionRoutes(): Router {
       // Best-effort attributed audit — only the APPROVE direction is a
       // posture-weakening governance decision worth recording as an approval.
       if (validation.value.status === 'approved') {
-        emitComplianceAudit({
+        recordAudit({
           action: 'compliance.exemption.approve',
           actorId: actorId({ userId }),
           orgId,
@@ -188,7 +188,7 @@ export function createExemptionRoutes(): Router {
     // and can block a previously-compliant entity, so it's a posture change
     // worth recording. Safe scalar metadata only (the re-imposed rule + the
     // entity it covered), never the exemption reason text.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.exemption.revoke',
       actorId: actorId({ userId }),
       orgId,

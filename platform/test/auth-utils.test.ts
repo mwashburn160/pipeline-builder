@@ -1,16 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600 },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
-      passwordMinLength: 8,
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    jwt: { secret: 'test-secret', algorithm: 'HS256', expiresIn: 3600 },
+    refreshToken: { secret: 'test-refresh-secret', expiresIn: 86400 },
+    passwordMinLength: 8,
   },
 }));
 
@@ -40,7 +39,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) }) },
 }));
 
-const { hashRefreshToken } = await import('../src/utils/token.js');
+const { hashRefreshToken } = await import('../src/services/session/refresh-sessions.js');
 const { validateBody, registerSchema, loginSchema } = await import('../src/utils/validation.js');
 const { sendError: mockSendErrorFn } = await import('@pipeline-builder/api-core');
 const mockSendError = mockSendErrorFn as jest.MockedFunction<typeof mockSendErrorFn>;

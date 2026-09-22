@@ -28,11 +28,11 @@ import type { OrgDomainDto, OrgJoinRequestDto } from '@/lib/api/domains/organiza
  * pending join requests. Rendered on the org settings page for owners/admins;
  * the backend enforces `org:settings` + tenancy independently.
  *
- * TWO consumers, not one. It used to be titled "Domain-based join", but SSO
- * setup sends admins here as well — a non-Google IdP's identities are refused
+ * TWO consumers, not one: domain-based join, and SSO setup, which sends admins
+ * here as well — a non-Google IdP's identities are refused
  * unless the email's domain is DNS-verified by the org (`assertSsoIdentityTrusted`)
  * and "require single sign-on" is a hard 409 without one. So the card is named
- * (and now anchored, {@link DOMAIN_SETTINGS_ANCHOR}) for verification AND join,
+ * (and anchored, {@link DOMAIN_SETTINGS_ANCHOR}) for verification AND join,
  * and the unentitled upsell names both.
  *
  * The "holds `sso` but can't register a domain" branch below is NARROW now that
@@ -88,7 +88,7 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
     try {
       await fn();
       if (successMsg) toast.success(successMsg);
-      read.refetch();
+      void read.refetch();
     } catch (e) {
       setError(formatError(e));
     } finally {

@@ -181,12 +181,46 @@ export function createRedisClient<T = unknown>(
  * configured but `ioredis` can't be loaded — both are deployment errors that
  * must not quietly turn Redis-backed guarantees off.
  */
-export function createEnvRedisClient<T = unknown>(label: string): T | null {
+export function createEnvRedisClient<T = unknown>(
+  label: string,
+  opts: { readyGate?: boolean; readyTimeoutMs?: number } = {},
+): T | null {
   const conn = resolveRedisConnection();
   if (!conn) return null;
   const inst = createRedisClient<T>(conn, label, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
   logger.info(`Redis ${label} client created`, describeRedisConnection(conn));
-  return inst;
+  return opts.readyGate === false
+    ? inst
+    : withReadyGate(inst as T & ReadyAwareRedis, createRedisReadyGate(inst as ReadyAwareRedis, opts.readyTimeoutMs));
+}
+
+/** Client methods that are synchronous, manage the connection itself, or build
+ *  a batch — never deferred behind the readiness gate. */
+const UNGATED_METHODS: ReadonlySet<string> = new Set([
+  'on', 'once', 'off', 'addListener', 'removeListener', 'removeAllListeners', 'emit',
+  'listeners', 'listenerCount', 'setMaxListeners', 'getMaxListeners', 'prependListener',
+  'connect', 'disconnect', 'quit', 'duplicate', 'pipeline', 'multi', 'defineCommand',
+]);
+
+/**
+ * Wrap a no-offline-queue client so every command first waits (bounded, never
+ * rejecting — see {@link createRedisReadyGate}) for the connection. Without it
+ * the first command a caller issues right after a lazy construction is rejected
+ * outright, e.g. a startup consumer-group create or the first idempotency check.
+ */
+function withReadyGate<T extends object>(client: T, ready: () => Promise<void>): T {
+  return new Proxy(client, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== 'function' || typeof prop !== 'string' || UNGATED_METHODS.has(prop)) {
+        return typeof value === 'function' ? value.bind(target) : value;
+      }
+      return async (...args: unknown[]) => {
+        await ready();
+        return (value as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
 }
 
 /** The subset of ioredis needed to wait for a connection. */

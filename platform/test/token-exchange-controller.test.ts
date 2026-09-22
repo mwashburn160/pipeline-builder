@@ -10,8 +10,9 @@
  * and a success row attributed to the key's OWNER naming the key that was used.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockExchange = jest.fn<AnyFn>();
@@ -33,6 +34,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     revokeSiblingKey: (...a: unknown[]) => mockRevokeSibling(...a),
   },
 }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig());
 
 const { exchangeToken, rotateKey, revokeKey } = await import('../src/controllers/token-exchange.js');
 

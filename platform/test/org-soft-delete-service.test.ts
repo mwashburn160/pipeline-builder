@@ -13,9 +13,10 @@
  *     member's `tokenVersion` — it runs NO destructive cascade.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -35,12 +36,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   softDeleteRetentionMs: () => 30 * 24 * 60 * 60 * 1000,
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    quota: { serviceHost: 'quota', servicePort: 3000 },
-    billing: { serviceHost: 'billing', servicePort: 3000 },
-    organization: { deletionRetentionDays: 7 },
-  },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  quota: { serviceHost: 'quota', servicePort: 3000 },
+  billing: { serviceHost: 'billing', servicePort: 3000 },
+  organization: { deletionRetentionDays: 7 },
 }));
 
 const mockOrgFindById = jest.fn<AnyFn>();
@@ -90,7 +89,7 @@ jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({
   __esModule: true,
   default: { updateMany: (...a: unknown[]) => mockPatUpdateMany(...a), find: emptyFind },
 }));
-// Service accounts (#2): the tombstone also revokes their keys — they hold no
+// Service accounts: the tombstone also revokes their keys — they hold no
 // session, so the members' tokenVersion bump cannot reach them.
 jest.unstable_mockModule('../src/models/service-account.js', () => ({
   __esModule: true,
@@ -132,7 +131,7 @@ describe('softDeleteOrg', () => {
     const result = await softDeleteOrg('org-acme', SYSTEM_ORG_ID, 'admin-1');
 
     // Snapshot persisted (name denormalized, deletedBy captured).
-    expect(mockSnapshotCreate).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-acme', name: 'Acme', deletedBy: 'admin-1' }));
+    expect(mockSnapshotCreate).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 'org-acme', name: 'Acme', deletedBy: 'admin-1' }));
 
     // Tombstone set: deletedAt + purgeAfter. The deadline is the GREATER of the
     // org window (7d here) and the shared row-level soft-delete window (30d) —

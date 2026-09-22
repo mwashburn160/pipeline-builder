@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * "Your SCIM provisioning is degraded" notice (3b).
+ * "Your SCIM provisioning is degraded" notice.
  *
  * The plan's post-downgrade rule has a quiet failure mode: an unentitled org's
  * SCIM endpoint keeps accepting deactivate and delete, so removals still land and

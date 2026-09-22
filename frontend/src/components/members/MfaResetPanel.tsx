@@ -89,7 +89,7 @@ export function MfaResetPanel({
       }
     } finally {
       setBusy(false);
-      read.refetch();
+      void read.refetch();
     }
   };
 
@@ -109,7 +109,7 @@ export function MfaResetPanel({
       // settles — closing on the click left Deny looking like it did nothing.
       setDenying(null);
       setBusy(false);
-      read.refetch();
+      void read.refetch();
     }
   };
 

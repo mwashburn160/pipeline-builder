@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin reviews API (plan §5, W4): every authenticated method hits the
+ * Plugin reviews API: every authenticated method hits the
  * contract's path with the right verb and body, and the anonymous review list
  * goes through the credential-free public client with its query string.
  */

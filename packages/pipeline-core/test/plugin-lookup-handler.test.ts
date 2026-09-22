@@ -8,23 +8,24 @@ import type { CloudFormationCustomResourceEvent } from 'aws-lambda';
 // Set PLATFORM_SECRET_NAME before import — module-level check throws if missing
 process.env.PLATFORM_SECRET_NAME = 'pipeline-builder/test-org/platform';
 
-// Mock CoreConstants BEFORE importing handler — these are module-level constants
-// that freeze at import time, so process.env overrides in beforeEach have no effect.
-jest.unstable_mockModule('../src/config/app-config.js', () => ({
-  CoreConstants: {
-    HANDLER_TIMEOUT_MS: 25000,
-    HANDLER_DEFAULT_BASE_URL: 'https://default.example.com',
-    HANDLER_MAX_RETRIES: 2,
-    HANDLER_RETRY_DELAY_MS: 1, // 1ms instead of 1000ms to keep tests fast
-    SECRETS_PATH_PREFIX: 'pipeline-builder',
-  },
+// Keep the retry backoff fast: the handler reads its constants from the
+// dependency-free leaf module.
+jest.unstable_mockModule('../src/config/handler-constants.js', () => ({
+  DEFAULT_PLATFORM_URL: 'https://localhost:8443',
+  HANDLER_TIMEOUT_MS: 25000,
+  HANDLER_DEFAULT_BASE_URL: 'https://default.example.com',
+  HANDLER_MAX_RETRIES: 2,
+  HANDLER_RETRY_DELAY_MS: 1,
 }));
 
+const STORED_KEY = 'pb_sa_1111111111111111111111111111aaaa';
+const ROTATED_KEY = 'pb_sa_2222222222222222222222222222bbbb';
+
 // Mock Secrets Manager — schema is { username, password, ... } where
-// `password` carries the platform JWT (same field CodeBuild's
+// `password` carries the service-account key (same field CodeBuild's
 // secretsManagerCredentials reads as Basic auth).
 const mockSend = jest.fn<AnyFn>().mockResolvedValue({
-  SecretString: JSON.stringify({ username: 'test-org', password: 'stored-jwt-token' }),
+  SecretString: JSON.stringify({ username: 'test-org', password: STORED_KEY }),
 });
 jest.unstable_mockModule('@aws-sdk/client-secrets-manager', () => ({
   SecretsManagerClient: jest.fn(() => ({ send: mockSend })),
@@ -52,7 +53,8 @@ jest.unstable_mockModule('axios', () => ({
   AxiosError,
 }));
 
-const { handler, _resetCredentialsCache, unwrapLookup } = await import('../src/handlers/plugin-lookup-handler.js');
+const { handler, _resetCredentialsCache } = await import('../src/handlers/plugin-lookup-handler.js');
+const { unwrapLookup } = await import('../src/core/plugin-lookup-envelope.js');
 
 
 const MOCK_PLUGIN = {
@@ -96,7 +98,7 @@ describe('plugin-lookup-handler', () => {
     jest.spyOn(console, 'debug').mockImplementation(() => {});
     process.env = { ...originalEnv };
     mockSend.mockResolvedValue({
-      SecretString: JSON.stringify({ username: 'test-org', password: 'stored-jwt-token' }),
+      SecretString: JSON.stringify({ username: 'test-org', password: STORED_KEY }),
     });
   });
 
@@ -151,7 +153,7 @@ describe('plugin-lookup-handler', () => {
       expect(mockAxiosCreate).toHaveBeenCalledWith(
         expect.objectContaining({
           headers: expect.objectContaining({
-            Authorization: 'Bearer stored-jwt-token',
+            Authorization: `Bearer ${STORED_KEY}`,
           }),
         }),
       );
@@ -284,6 +286,60 @@ describe('plugin-lookup-handler', () => {
       expect(result.Status).toBe('FAILED');
       expect(result.Reason).toContain('missing password');
     });
+
+    it('refuses a stored JWT instead of presenting it', async () => {
+      mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ password: 'aaa.bbb.ccc' }) });
+
+      const result = await handler(createEvent());
+
+      expect(result.Status).toBe('FAILED');
+      expect(result.Reason).toContain('holds a JWT');
+      expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('caches the key across warm invocations', async () => {
+      mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 }).mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
+      await handler(createEvent());
+      await handler(createEvent());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([401, 403])('on %i re-reads the rotated key from the secret and retries once', async (status) => {
+      // Warm container: the cached key was rotated + revoked by token-renew.
+      mockPost.mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
+      await handler(createEvent());
+      mockSend.mockResolvedValue({ SecretString: JSON.stringify({ password: ROTATED_KEY }) });
+      mockPost
+        .mockRejectedValueOnce(new AxiosError('refused', String(status), undefined, undefined, { status, statusText: 'Unauthorized' }))
+        .mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
+
+      const result = await handler(createEvent());
+
+      expect(result.Status).toBe('SUCCESS');
+      expect(mockSend).toHaveBeenCalledTimes(2);
+      const lastCreate = mockAxiosCreate.mock.calls.at(-1)?.[0] as { headers: Record<string, string> };
+      expect(lastCreate.headers.Authorization).toBe(`Bearer ${ROTATED_KEY}`);
+    });
+
+    it('fails when the lookup answers with no plugin', async () => {
+      mockPost.mockResolvedValueOnce({ data: {}, status: 200 });
+
+      const result = await handler(createEvent());
+
+      expect(result.Status).toBe('FAILED');
+      expect(result.Reason).toContain('Empty response data');
+    });
+
+    it('fails after a second refusal without looping', async () => {
+      const refused = () => new AxiosError('refused', '401', undefined, undefined, { status: 401, statusText: 'Unauthorized' });
+      mockPost.mockRejectedValueOnce(refused()).mockRejectedValueOnce(refused());
+
+      const result = await handler(createEvent());
+
+      expect(result.Status).toBe('FAILED');
+      expect(result.Reason).toContain('401');
+      expect(mockPost).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('error handling', () => {
@@ -342,7 +398,7 @@ describe('plugin-lookup-handler', () => {
   });
 });
 
-describe('unwrapLookup — the /plugins/lookup envelope (plugin-ecosystem W0.4)', () => {
+describe('unwrapLookup — the /plugins/lookup envelope', () => {
   it('unwraps { data: { plugin, warnings } } and keeps the warning messages', () => {
     expect(unwrapLookup({ success: true, data: { plugin: MOCK_PLUGIN, warnings: [{ code: 'PLUGIN_DEPRECATED', message: 'deprecated' }, { code: 'X' }] } }))
       .toEqual({ plugin: MOCK_PLUGIN, warnings: ['deprecated'] });
@@ -356,6 +412,10 @@ describe('unwrapLookup — the /plugins/lookup envelope (plugin-ecosystem W0.4)'
   it('yields no plugin for an empty or nameless answer', () => {
     expect(unwrapLookup(null)).toEqual({ plugin: null, warnings: [] });
     expect(unwrapLookup({ data: { plugin: null } }).plugin).toBeNull();
+  });
+
+  it('drops warnings that are not { message } objects', () => {
+    expect(unwrapLookup({ data: { plugin: MOCK_PLUGIN, warnings: ['bare', null, { message: '' }] } }).warnings).toEqual([]);
   });
 
   it('logs lifecycle warnings at deploy time and still succeeds', async () => {

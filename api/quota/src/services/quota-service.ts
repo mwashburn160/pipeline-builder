@@ -1,24 +1,21 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isValidTier, ValidationError } from '@pipeline-builder/api-core';
-import type { QuotaType, QuotaReserveResult } from '@pipeline-builder/api-core';
+import { createLogger, isValidTier, QUOTA_TIERS, ValidationError, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaReserveResult, QuotaTier } from '@pipeline-builder/api-core';
 import { applyPooledQuotas, checkSharedRootCap, pooledStatusFromRows, pooledStatusOrFallback } from './pooled-quota.js';
 import type { PoolRow } from './pooled-quota.js';
 import { config } from '../config.js';
 import { findOrgWithHierarchy } from '../helpers/org-hierarchy.js';
+import { toOrgId } from '../helpers/org-id.js';
 import {
   applyQuotaLimits,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
   buildReserveResult,
   computeQuotaStatus,
-  getNextResetDate,
-  toOrgId,
-  VALID_QUOTA_TYPES,
-  QUOTA_TIERS,
 } from '../helpers/quota-helpers.js';
-import type { QuotaTier, OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
+import type { OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
 import { Organization } from '../models/organization.js';
 
 const logger = createLogger('quota-service');
@@ -229,18 +226,19 @@ export class QuotaService {
     return computed;
   }
 
-  async findAll(options: ListOrgsOptions = {}): Promise<OrgQuotaResponse[]> {
+  /** One page of every org's quotas, plus the total org count for paging. */
+  async findAll(options: ListOrgsOptions = {}): Promise<{ organizations: OrgQuotaResponse[]; total: number }> {
     const query = Organization.find()
       .select('name slug tier quotas usage')
       .sort({ name: 1 });
 
     if (options.offset !== undefined) query.skip(options.offset);
-    // Always bound the page. A caller that omits `limit` previously got an
+    // Always bound the page — a caller that omits `limit` must never get an
     // unbounded scan of the whole collection; clamp to FIND_ALL_MAX_LIMIT.
     query.limit(Math.min(options.limit ?? FIND_ALL_MAX_LIMIT, FIND_ALL_MAX_LIMIT));
 
-    const orgs = await query.lean();
-    return orgs.map((org) => buildOrgQuotaResponse(org));
+    const [orgs, total] = await Promise.all([query.lean(), Organization.countDocuments()]);
+    return { organizations: orgs.map((org) => buildOrgQuotaResponse(org)), total };
   }
 
   /**
@@ -285,8 +283,8 @@ export class QuotaService {
     const limit = org?.quotas?.[quotaType] ?? config.quota.defaults[quotaType];
     const stored = org?.usage?.[quotaType];
     const usage = stored
-      ? { used: stored.used ?? 0, resetAt: stored.resetAt ?? getNextResetDate(config.quota.resetDays) }
-      : { used: 0, resetAt: getNextResetDate(config.quota.resetDays) };
+      ? { used: stored.used ?? 0, resetAt: stored.resetAt ?? nextQuotaResetDate(config.quota.resetDays) }
+      : { used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) };
 
     return computeQuotaStatus(limit, usage);
   }
@@ -338,7 +336,7 @@ export class QuotaService {
     const org = await Organization.findById(toOrgId(orgId));
     if (!org) throw new OrgNotFoundError(orgId);
 
-    const resetDate = getNextResetDate(config.quota.resetDays);
+    const resetDate = nextQuotaResetDate(config.quota.resetDays);
 
     if (quotaType) {
       org.usage[quotaType as QuotaType] = { used: 0, resetAt: new Date(resetDate) };
@@ -402,7 +400,7 @@ export class QuotaService {
     const limit = org.quotas[quotaType] ?? config.quota.defaults[quotaType];
     const usage = org.usage[quotaType] ?? {
       used: amount,
-      resetAt: getNextResetDate(config.quota.resetDays),
+      resetAt: nextQuotaResetDate(config.quota.resetDays),
     };
     return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, 'allowed');
   }
@@ -500,7 +498,7 @@ export class QuotaService {
       const limit = existing.quotas[quotaType] ?? config.quota.defaults[quotaType];
       const currentUsage = existing.usage[quotaType] ?? {
         used: 0,
-        resetAt: getNextResetDate(config.quota.resetDays),
+        resetAt: nextQuotaResetDate(config.quota.resetDays),
       };
       return buildReserveResult(quotaType, limit, currentUsage.used, currentUsage.resetAt, 'exceeded');
     }
@@ -573,7 +571,7 @@ export class QuotaService {
         const limit = existing.quotas[quotaType] ?? config.quota.defaults[quotaType];
         const usage = existing.usage[quotaType] ?? {
           used: 0,
-          resetAt: getNextResetDate(config.quota.resetDays),
+          resetAt: nextQuotaResetDate(config.quota.resetDays),
         };
         logger.info('Decrement skipped: period rolled over', {
           orgId,

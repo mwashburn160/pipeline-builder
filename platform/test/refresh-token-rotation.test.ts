@@ -5,7 +5,7 @@
  * Rotation drill for the refresh-token signing key (docs/runbooks/secret-rotation.md).
  *
  * Refresh tokens live for 30 days, so a rotation without an overlap window would
- * sign every signed-in device out. Since #5 they are ES256 like every other user
+ * sign every signed-in device out. They are ES256 like every other user
  * token and have no secret of their own: the overlap is the RETIRING `kid` still
  * published in the JWKS, and the rotation ends when the operator drops it.
  * Verified against the same helper `utils/token.ts#verifyRefreshToken` calls.
@@ -13,10 +13,9 @@
 
 import { jest, describe, it, expect } from '@jest/globals';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { auth: { jwt: { algorithm: 'HS256', secret: 'service-secret' }, refreshToken: { expiresIn: 2592000 } } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { jwt: { algorithm: 'HS256', secret: 'service-secret' }, refreshToken: { expiresIn: 2592000 } } }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {}, Organization: {}, UserOrganization: {}, Role: {}, RoleAssignment: {},
 }));

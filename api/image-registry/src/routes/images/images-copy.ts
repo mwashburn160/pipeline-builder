@@ -7,19 +7,20 @@ import {
   sendError,
   sendEntityNotFound,
   ErrorCode,
-  emitAudit,
+  logAuditEvent,
   audited,
   requireAllPermissions,
   validateBody,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { z } from 'zod';
-import { copyManifestTree, InvalidManifestError, SourceIncompleteError } from './manifest-copy.js';
-import { canReadRepo, canWriteRepo, repoOwnerOrgId, repoTenant } from './repo-access.js';
+import { canReadRepo, canWriteRepo } from './repo-access.js';
 import { logger, RegistryMetrics } from './shared.js';
-import { emitImageRegistryAudit } from '../../services/audit.js';
+import { copyManifestTree, InvalidManifestError, SourceIncompleteError } from '../../services/manifest-copy.js';
+import { inSystemNamespace, repoOwnerOrgId, repoTenant } from '../../services/namespaces.js';
 import {
   getManifest,
   headManifest,
@@ -181,19 +182,19 @@ export function registerCopyRoutes(router: Router): void {
     });
 
     // Intentional dual-emit (NOT an accidental duplication): the Loki line
-    // (`emitAudit` → winston) feeds the short-retention operator dashboard; the
-    // `emitImageRegistryAudit` call feeds the tamper-evident Mongo hash-chain
+    // (`logAuditEvent` → winston) feeds the short-retention operator dashboard; the
+    // `recordAudit` call feeds the tamper-evident Mongo hash-chain
     // durable compliance record. A cross-tenant copy moves data across customer
     // boundaries, so it MUST land in the durable trail too (the sibling deletes
     // already dual-emit).
-    emitAudit(logger, {
+    logAuditEvent(logger, {
       event: 'registry.tag.copy',
       actor: req.user?.sub ?? 'unknown',
       source,
       target,
       sourceDigest: sourceManifest.digest,
       targetDigest: sourceManifest.digest,
-      isPromotionToSystem: targetRepo.startsWith('system/'),
+      isPromotionToSystem: inSystemNamespace(targetRepo),
       mounted: { manifests: mountedManifests, blobs: mountedBlobs },
     });
     // Durable audit trail for the copy, emitted only AFTER the manifest(s) land.
@@ -201,7 +202,7 @@ export function registerCopyRoutes(router: Router): void {
     // (crossTenant) so cross-org promotions are auditable long after request logs
     // lapse. Details carry no secrets / AWS account ids.
     const targetOwnerOrgId = repoOwnerOrgId(targetRepo);
-    emitImageRegistryAudit({
+    recordAudit({
       action: 'registry.image.copy',
       actorId: actorId({ userId }),
       ...(req.user?.email && { actorEmail: req.user.email }),
@@ -217,7 +218,7 @@ export function registerCopyRoutes(router: Router): void {
         target,
         sourceDigest: sourceManifest.digest,
         crossTenant: sourceTenant !== null && targetTenant !== null && sourceTenant !== targetTenant,
-        isPromotionToSystem: targetRepo.startsWith('system/'),
+        isPromotionToSystem: inSystemNamespace(targetRepo),
         mountedManifests,
         mountedBlobs,
       },
@@ -225,7 +226,7 @@ export function registerCopyRoutes(router: Router): void {
     // Two counters: total copies + a separate counter for system-promotions
     // so the dashboard can show promotion velocity without dividing series.
     incCounter(RegistryMetrics.TAG_COPY);
-    if (targetRepo.startsWith('system/')) {
+    if (inSystemNamespace(targetRepo)) {
       incCounter(RegistryMetrics.TAG_PROMOTE);
     }
 

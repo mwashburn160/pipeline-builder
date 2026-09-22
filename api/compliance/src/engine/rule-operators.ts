@@ -223,7 +223,7 @@ export function evaluateOperator(
  * Author-time validation for a regex pattern. Defence in depth ONLY — the
  * actual ReDoS bound is the deadline in {@link safeRegexTest}, which holds for
  * patterns this check misses and for rules that PROPAGATED from a parent org
- * before this check existed.
+ * without passing through it.
  *
  * Checks for:
  * - Maximum length (`MAX_REGEX_LENGTH`, default 100; override via `COMPLIANCE_MAX_REGEX_LENGTH`)

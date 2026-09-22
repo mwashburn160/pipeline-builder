@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Pure parts of the public plugin directory queries (plugin-ecosystem §6a):
+ * Pure parts of the public plugin directory queries:
  * the icon trust rules, card mapping, highlighting, cursors and query
  * normalization. The SQL itself reads only the public_* views; it is exercised
  * against a real Postgres + pgbouncer in the deploy verification, not here.
@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 import {
-  decodeCursor, encodeCursor, highlightText, normalizeQuery, resolveListingIcon, toListingCard,
+  decodeOffsetCursor, encodeOffsetCursor, highlightText, normalizeQuery, resolveListingIcon, toListingCard,
   DIRECTORY_MAX_QUERY_LENGTH, type PublicListingRow,
 } from '../src/api/public-directory.js';
 
@@ -43,7 +43,7 @@ function row(overrides: Partial<PublicListingRow> = {}): PublicListingRow {
   };
 }
 
-describe('resolveListingIcon — who may show which icon (§6a.1, G51)', () => {
+describe('resolveListingIcon — who may show which icon', () => {
   it('gives Official and Verified publishers their curated vendor mark (with badge)', () => {
     expect(resolveListingIcon(row({ icon: { key: 'snyk', badge: 'python' } })))
       .toMatchObject({ iconKind: 'vendor', iconKey: 'snyk', iconBadge: 'python', iconUrl: null });
@@ -88,7 +88,7 @@ describe('toListingCard', () => {
     });
   });
 
-  it('carries the health score (W7), rounded, null when not computed', () => {
+  it('carries the health score, rounded, null when not computed', () => {
     expect(toListingCard(row({ health_score: '86.4' })).healthScore).toBe(86);
     expect(toListingCard(row({ health_score: null })).healthScore).toBeNull();
   });
@@ -132,13 +132,13 @@ describe('highlightText', () => {
 
 describe('cursors', () => {
   it('round-trips an offset', () => {
-    expect(decodeCursor(encodeCursor(48))).toBe(48);
+    expect(decodeOffsetCursor(encodeOffsetCursor(48))).toBe(48);
   });
 
   it.each([undefined, '', 'not-base64!', Buffer.from('{"o":-1}').toString('base64url'),
     Buffer.from('{"o":1.5}').toString('base64url'), Buffer.from('{"o":99999}').toString('base64url')])(
     'treats a missing/forged cursor %p as the first page', (cursor) => {
-      expect(decodeCursor(cursor as string | undefined)).toBe(0);
+      expect(decodeOffsetCursor(cursor as string | undefined)).toBe(0);
     });
 });
 

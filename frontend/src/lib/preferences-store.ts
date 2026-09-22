@@ -28,7 +28,7 @@ import type { UserPreferences } from '@/types';
 
 export type NotificationPrefs = UserPreferences['notifications'];
 
-/** Ecosystem emails default ON — each key is an opt-OUT (plan §5b). */
+/** Ecosystem emails default ON — each key is an opt-OUT. */
 export const DEFAULT_ECOSYSTEM_NOTIFICATION_PREFS: NotificationPrefs['ecosystem'] = {
   reviewsEmail: true,
   upgradesEmail: true,

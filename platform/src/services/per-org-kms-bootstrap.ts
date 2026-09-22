@@ -32,6 +32,7 @@ import {
   type PerOrgKmsConfig,
   type PerOrgKmsResolver,
 } from '@pipeline-builder/api-core';
+import { envLite } from '../config/env-lite.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Organization } from '../models/index.js';
 
@@ -66,9 +67,7 @@ export const perOrgKmsResolver: PerOrgKmsResolver = async (orgId) => {
  * exactly once at startup; tests can reset via `resetDefaultKeyProvider()`.
  */
 export function bootstrapPerOrgKmsProvider(): boolean {
-  if ((process.env.SECRET_ENCRYPTION_PER_ORG_KMS || '').toLowerCase() !== 'true') {
-    return false;
-  }
+  if (!envLite.perOrgKmsEnabled) return false;
 
   // Fallback for orgs without per-org KMS config: the existing env-keyed
   // HKDF provider. Reads `SECRET_ENCRYPTION_KEY` — if that's not set this

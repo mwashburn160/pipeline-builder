@@ -158,7 +158,7 @@ export function DashboardLayout({
     setStepUpFallback((cur) => (cur === request ? null : cur));
   };
 
-  // Global catch-all for an MFA refusal (#8). A route answered 401 MFA_REQUIRED
+  // Global catch-all for an MFA refusal. A route answered 401 MFA_REQUIRED
   // (the session is single-factor) or REAUTH_REQUIRED (it is strong but stale).
   // Neither is an expired session, so the api client neither refreshes nor signs
   // the person out — it dispatches `mfa-required` and we explain what happened
@@ -321,7 +321,7 @@ export function DashboardLayout({
                     </span>
                   )}
                 </Link>
-                {/* Ask — the platform assistant. Replaces the old Help icon; the
+                {/* Ask — the platform assistant; the
                     full help reference is one click away inside the panel. The one
                     colored (brand-blue) call-to-action in the otherwise-neutral
                     topbar. Gated on the ai_generation entitlement (the ask service
@@ -420,7 +420,7 @@ export function DashboardLayout({
           />
         )}
 
-        {/* Global MFA refusal (#8) — explains the 401 and routes to enrolment
+        {/* Global MFA refusal — explains the 401 and routes to enrolment
             instead of leaving a bare "Unauthorized" toast on a live session. */}
         {mfaPrompt && (
           <MfaRequiredDialog

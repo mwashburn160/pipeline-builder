@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Per-plugin RUNTIME telemetry (plugin-ecosystem W0.1): how plugins behave when
+ * Per-plugin RUNTIME telemetry: how plugins behave when
  * pipelines run them, as opposed to the plugin BUILD reports. Reads the
  * `plugin_publisher/plugin_name/plugin_version` that event ingest stamps on
  * ACTION events from the pipeline's step manifest.
@@ -29,7 +29,7 @@ import { drizzleRows } from '../crud-service.js';
 
 /** Window for the ecosystem aggregate (`plugin_stats.success_rate_30d`). */
 export const PLUGIN_RUNTIME_AGGREGATE_DAYS = 30;
-/** Window for review "verified use" (§5): a successful run in the last 90 days. */
+/** Window for review "verified use": a successful run in the last 90 days. */
 export const PLUGIN_VERIFIED_USE_DAYS = 90;
 
 /** The terminal-ACTION, plugin-attributed predicate every runtime read shares (alias `e`). */
@@ -86,7 +86,7 @@ export async function getPluginRuntime(
  * Ecosystem aggregate for one listing over the last 30 days, across EVERY org:
  * runs, success rate (0–1; null with no runs) and how many distinct orgs ran it.
  * Runs under system context — the caller is the plugin service computing
- * `plugin_stats`, and `activeOrgCount30d` is only ever shown at ≥ 5 (§5a view).
+ * `plugin_stats`, and `activeOrgCount30d` is only ever shown at ≥ 5.
  */
 export async function getPluginRuntimeAggregate(publisher: string, name: string): Promise<PluginRuntimeAggregate> {
   const rows = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) => tx.execute(sql`
@@ -103,7 +103,7 @@ export async function getPluginRuntimeAggregate(publisher: string, name: string)
 }
 
 /**
- * Review "verified use" (§5): did `orgId` run `(publisher, name)` successfully
+ * Review "verified use": did `orgId` run `(publisher, name)` successfully
  * in the last 90 days? Bounded by the org's event retention — a run older than
  * the retention horizon has been swept and no longer counts.
  */

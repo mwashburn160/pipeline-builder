@@ -40,9 +40,8 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   //      factories embed `idempotencyMiddleware`, which reserves the request's
   //      Idempotency-Key and 409s on seeing its own pending reservation — so a
   //      keyed POST/PUT/DELETE that fell through two stacked
-  //      `createAuthenticatedWithOrgRoute()` / `createProtectedRoute()` mounts was
-  //      rejected by its own second pass (PUT /:id, DELETE /:id, POST /:id/purge,
-  //      POST /:id/restore, and /bulk/* behind the old registry chain). The
+  //      `createAuthenticatedWithOrgRoute()` / `createProtectedRoute()` mounts
+  //      would be rejected by its own second pass. The
   //      remaining gates (apiCalls quota, pipelines:write, step-up) are layered
   //      as plain middleware on the later mounts, each still running once.
 

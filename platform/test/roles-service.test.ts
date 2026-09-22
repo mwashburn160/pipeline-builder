@@ -8,13 +8,13 @@
  *   - recomputeUserOrgRole: derive the cached UserOrganization.role from Role
  *     assignment (preserving `owner`; superadmin grants AND revokes isSuperAdmin
  *     within an org that defines a Superadmins Role); bump tokenVersion on a
- *     genuine privilege change so it takes effect immediately (G1).
+ *     genuine privilege change so it takes effect immediately.
  *   - add/removeUserFromRole: management entrypoints, error paths, and the
- *     lockout guards (G2 self-removal, G3 last privileged member).
+ *     lockout guards (self-removal, last privileged member).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockGroupCreate = jest.fn<AnyFn>();
 const mockGroupFind = jest.fn<AnyFn>();
@@ -81,7 +81,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const { seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
-const { listRolesWithMembers, getUserRolePermissions, addUserToRole, removeUserFromRole, updateRole } = await import('../src/services/role-crud.js');
+const { listRolesWithMembers, addUserToRole, removeUserFromRole, updateRole } = await import('../src/services/role-crud.js');
+const { rolePermissionsFor } = await import('../src/services/role-permissions.js');
 const { grantPlatformAdmin, revokePlatformAdmin } = await import('../src/services/platform-admin-roles.js');
 const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } = await import('../src/services/roles-errors.js');
 const { ECOSYSTEM_MANAGER_PERMISSIONS } = await import('@pipeline-builder/api-core') as unknown as { ECOSYSTEM_MANAGER_PERMISSIONS: readonly string[] };
@@ -277,7 +278,7 @@ describe('Ecosystem Manager assignment (system-org-only permissions)', () => {
 });
 
 describe('recomputeUserOrgRole', () => {
-  it('sets role=admin when the user holds an admin-granting Role, and bumps tokenVersion (G1)', async () => {
+  it('sets role=admin when the user holds an admin-granting Role, and bumps tokenVersion', async () => {
     findReturns(mockGmFind, [{ roleId: 'gA' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'admin' }]);
     const uo = { role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) };
@@ -287,7 +288,7 @@ describe('recomputeUserOrgRole', () => {
 
     expect(uo.role).toBe('admin');
     expect(uo.save).toHaveBeenCalled();
-    // G1: the role flip must invalidate existing tokens.
+    // The role flip must invalidate existing tokens.
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
   });
 
@@ -408,7 +409,7 @@ describe('ensureBaselineRole', () => {
 });
 
 describe('single-source permission resolution (behavior change)', () => {
-  // getUserRolePermissions: RoleAssignment.find(...).session().select().lean()
+  // rolePermissionsFor: RoleAssignment.find(...).session().select().lean()
   // then Role.find(...).session().select().lean() with the Roles' permissions.
   const userInRolesWithPerms = (roleIds: string[], perms: string[][]) => {
     findReturns(mockGmFind, roleIds.map((roleId) => ({ roleId })));
@@ -422,7 +423,7 @@ describe('single-source permission resolution (behavior change)', () => {
       'billing:read', 'quotas:read', 'registry:read',
     ]]);
 
-    const perms = await getUserRolePermissions('u1', 'org-1');
+    const perms = await rolePermissionsFor('u1', ['org-1']);
     const effective = resolveUserPermissions(perms, false);
 
     expect(effective).toContain('pipelines:write');
@@ -443,7 +444,7 @@ describe('single-source permission resolution (behavior change)', () => {
       'quotas:read', 'registry:read', 'registry:write', 'org:settings',
     ]]);
 
-    const effective = resolveUserPermissions(await getUserRolePermissions('u1', 'org-1'), false);
+    const effective = resolveUserPermissions(await rolePermissionsFor('u1', ['org-1']), false);
 
     expect(effective).toContain('roles:manage');
     expect(effective).toContain('org:settings');
@@ -456,13 +457,27 @@ describe('single-source permission resolution (behavior change)', () => {
     // whose only Role grants `pipelines:read` gets that and nothing else.
     userInRolesWithPerms(['g-custom'], [['pipelines:read']]);
 
-    const effective = resolveUserPermissions(await getUserRolePermissions('u1', 'org-1'), false);
+    const effective = resolveUserPermissions(await rolePermissionsFor('u1', ['org-1']), false);
 
     expect(effective).toEqual(['pipelines:read']);
     // Would-be member-baseline grants must NOT leak in.
     expect(effective).not.toContain('pipelines:write');
     expect(effective).not.toContain('plugins:read');
     expect(effective).not.toContain('messages:read');
+  });
+
+  it('resolves several orgs with ONE assignment query and ONE role query (no per-org N+1), deduped', async () => {
+    userInRolesWithPerms(['g-a', 'g-b'], [['pipelines:read', 'not-a-permission'], ['pipelines:read', 'org:settings']]);
+    const perms = await rolePermissionsFor('u1', ['org-1', 'team-1', 'team-2']);
+    expect(mockGmFind).toHaveBeenCalledTimes(1);
+    expect(mockGroupFind).toHaveBeenCalledTimes(1);
+    expect((mockGmFind.mock.calls[0][0] as any).organizationId.$in).toHaveLength(3);
+    expect(perms.sort()).toEqual(['org:settings', 'pipelines:read']);
+  });
+
+  it('short-circuits with no org ids', async () => {
+    expect(await rolePermissionsFor('u1', [])).toEqual([]);
+    expect(mockGmFind).not.toHaveBeenCalled();
   });
 });
 
@@ -500,7 +515,7 @@ describe('addUserToRole error paths', () => {
     expect(res).toEqual({ userId: 'u1' });
     expect(mockGmUpdateOne).toHaveBeenCalledWith(
       { userId: 'u1', roleId: 'gA' },
-      // `source: 'manual'` is $set, not $setOnInsert (3a): an explicit admin
+      // `source: 'manual'` is $set, not $setOnInsert: an explicit admin
       // grant takes over a row an IdP group sync may have created, so the sync
       // can no longer remove it.
       {
@@ -625,7 +640,7 @@ describe('removeUserFromRole', () => {
     expect(mockGmExists).not.toHaveBeenCalled(); // member-only → guards skipped
   });
 
-  it('G2: blocks removing yourself from a privilege-granting Role', async () => {
+  it('blocks removing yourself from a privilege-granting Role', async () => {
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin' }) });
     mockGmExists.mockReturnValue(anyOrderQuery({ _id: 'm1' })); // the actor IS a member
 
@@ -634,7 +649,7 @@ describe('removeUserFromRole', () => {
     expect(mockGmDeleteOne).not.toHaveBeenCalled();
   });
 
-  it('G3: blocks removing the last member of a privilege-granting Role', async () => {
+  it('blocks removing the last member of a privilege-granting Role', async () => {
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gA', grantsRole: 'admin', name: 'Admin' }) });
     guardSees('gA', 1); // this user is the only one
 

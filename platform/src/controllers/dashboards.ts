@@ -21,27 +21,16 @@
  * boundary even when dashboards are user-editable.
  */
 
-import { createLogger, getParam, sendError, sendQuotaReserveDenied, sendSuccess, userHasPermission, isSystemAdmin } from '@pipeline-builder/api-core';
-import { config } from '../config/index.js';
+import { createLogger, getParam, sendError, sendSuccess, userHasPermission, isSystemAdmin } from '@pipeline-builder/api-core';
+import type { Response } from 'express';
 import { audit } from '../helpers/audit.js';
 import { getAdminContext, requireAuthContext, withController } from '../helpers/controller-helper.js';
-import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
+import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { canQueryCatalogKey, type CatalogCaller, QUERIES } from '../observability/catalog.js';
 import { dashboardService, type PanelInput } from '../services/dashboard-service.js';
-import { isReasonableString } from '../utils/string-guards.js';
+import { createDashboardSchema, updateDashboardSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('dashboards-controller');
-
-/** Bound the size of free-text fields and the panel set to defend against
- *  pathological client payloads. Numbers picked to be generous for a
- *  realistic dashboard while still bounded enough to keep the JSONB column
- *  + payload size sane. */
-const {
-  dashboardMaxName: MAX_NAME,
-  dashboardMaxDescription: MAX_DESCRIPTION,
-  dashboardMaxPanelTitle: MAX_TITLE,
-  dashboardMaxPanels: MAX_PANELS,
-} = config.observability;
 
 
 /**
@@ -57,59 +46,29 @@ function hasRenderablePanel(queryKeys: string[], caller: CatalogCaller): boolean
   return queryKeys.length === 0 || queryKeys.some(k => canQueryCatalogKey(k, caller));
 }
 
-/** Validate + normalize a panel array from a JSON body. Returns null + sends
- *  a 400 response if anything is malformed; the catalog query-key check is
- *  the security-critical bit (rejects keys that don't exist in QUERIES, and
- *  keys the caller couldn't render). */
-function validatePanels(body: unknown, caller: CatalogCaller, sendErr: (msg: string) => void): PanelInput[] | null {
-  const arr = (body as { panels?: unknown }).panels;
-  if (arr === undefined) return [];
-  if (!Array.isArray(arr)) {
-    sendErr('panels must be an array');
-    return null;
+/**
+ * The catalog check on validated panels — the security-critical bit: every
+ * `queryKey` must exist in QUERIES and be one the caller could render. Sends a
+ * 400 and returns null on the first refusal; otherwise the panels, positioned.
+ */
+function checkPanelKeys(panels: PanelInput[], caller: CatalogCaller, res: Response): PanelInput[] | null {
+  for (let i = 0; i < panels.length; i++) {
+    const key = panels[i].queryKey;
+    if (!(key in QUERIES)) {
+      sendError(res, 400, `panels[${i}].queryKey is not a known catalog entry`);
+      return null;
+    }
+    if (!canQueryCatalogKey(key, caller)) {
+      sendError(res, 400, `panels[${i}].queryKey is not available to you`);
+      return null;
+    }
   }
-  if (arr.length > MAX_PANELS) {
-    sendErr(`panels[] exceeds the ${MAX_PANELS}-panel cap`);
-    return null;
-  }
-  const cleaned: PanelInput[] = [];
-  for (let i = 0; i < arr.length; i++) {
-    const p = arr[i] as Record<string, unknown>;
-    if (!p || typeof p !== 'object') {
-      sendErr(`panels[${i}] must be an object`);
-      return null;
-    }
-    if (!isReasonableString(p.queryKey, 100) || !(p.queryKey in QUERIES)) {
-      sendErr(`panels[${i}].queryKey is not a known catalog entry`);
-      return null;
-    }
-    if (!canQueryCatalogKey(p.queryKey, caller)) {
-      sendErr(`panels[${i}].queryKey is not available to you`);
-      return null;
-    }
-    if (!isReasonableString(p.title, MAX_TITLE)) {
-      sendErr(`panels[${i}].title must be a non-empty string <= ${MAX_TITLE} chars`);
-      return null;
-    }
-    if (p.vizKind !== undefined && !isReasonableString(p.vizKind, 30)) {
-      sendErr(`panels[${i}].vizKind must be a string <= 30 chars`);
-      return null;
-    }
-    if (p.span !== undefined && (typeof p.span !== 'number' || p.span < 1 || p.span > 12)) {
-      sendErr(`panels[${i}].span must be a number 1..12`);
-      return null;
-    }
-    cleaned.push({
-      queryKey: p.queryKey as string,
-      vizKind: (p.vizKind as string) ?? 'line',
-      title: p.title as string,
-      span: (p.span as number) ?? 6,
-      groupBy: typeof p.groupBy === 'string' ? p.groupBy : null,
-      format: typeof p.format === 'string' ? p.format : null,
-      position: typeof p.position === 'number' ? p.position : i,
-    });
-  }
-  return cleaned;
+  return panels.map((p, i) => ({
+    ...p,
+    vizKind: p.vizKind ?? 'line',
+    span: p.span ?? 6,
+    position: p.position ?? i,
+  }));
 }
 
 /** GET /api/dashboards — list dashboards visible to the caller. */
@@ -159,44 +118,25 @@ export const createDashboard = withController('Create dashboard', async (req, re
   // (`requirePermission('dashboards:write')`), so it's visible in the route
   // table. The `public`-visibility check below is a separate, finer gate.
 
-  const body = req.body as { name?: unknown; description?: unknown; visibility?: unknown; layoutJson?: unknown };
-  if (!isReasonableString(body.name, MAX_NAME)) {
-    return sendError(res, 400, `name is required (max ${MAX_NAME} chars)`);
+  const body = validateBody(createDashboardSchema, req.body, res);
+  if (!body) return;
+  const visibility = body.visibility ?? 'private';
+  // Only sysadmins can create `public` dashboards (they ride the system-org
+  // visibility rule for every org).
+  if (visibility === 'public' && !isSystemAdmin(req)) {
+    return sendError(res, 403, 'Only system admins can create public dashboards');
   }
-  if (body.description !== undefined && body.description !== null && !isReasonableString(body.description, MAX_DESCRIPTION)) {
-    return sendError(res, 400, `description must be a string <= ${MAX_DESCRIPTION} chars`);
-  }
-
-  let visibility: 'private' | 'org' | 'public' = 'private';
-  if (body.visibility !== undefined) {
-    if (body.visibility !== 'private' && body.visibility !== 'org' && body.visibility !== 'public') {
-      return sendError(res, 400, 'visibility must be one of: private, org, public');
-    }
-    visibility = body.visibility;
-    // Only sysadmins can create `public` dashboards (they ride the
-    // system-org visibility rule for every org).
-    if (visibility === 'public' && !isSystemAdmin(req)) {
-      return sendError(res, 403, 'Only system admins can create public dashboards');
-    }
-  }
-
-  let bad = false;
-  const panels = validatePanels(req.body, getAdminContext(req), (msg) => { sendError(res, 400, msg); bad = true; });
-  if (bad || panels === null) return;
+  const panels = checkPanelKeys(body.panels ?? [], getAdminContext(req), res);
+  if (!panels) return;
 
   // Per-org cap on dashboards; reserve atomically before insert.
-  const reservation = await reserveFeatureQuota(orgId, 'dashboards');
-  if (reservation.exceeded) {
-    return sendQuotaReserveDenied(res, 'dashboards', reservation);
-  }
-
-  try {
+  await withFeatureQuota(res, orgId, 'dashboards', async () => {
     const created = await dashboardService.create(
       {
         name: body.name,
-        description: typeof body.description === 'string' ? body.description : undefined,
+        description: body.description ?? undefined,
         visibility,
-        layoutJson: (body.layoutJson && typeof body.layoutJson === 'object') ? (body.layoutJson as Record<string, { x: number; y: number; w: number; h: number }>) : {},
+        layoutJson: body.layoutJson ?? {},
         panels,
       },
       { orgId, userId },
@@ -204,10 +144,7 @@ export const createDashboard = withController('Create dashboard', async (req, re
 
     audit(req, 'dashboard.create', { targetType: 'dashboard', targetId: created.id, details: { name: created.name, visibility } });
     sendSuccess(res, 201, { dashboard: created });
-  } catch (err) {
-    releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger), reservation);
-    throw err;
-  }
+  });
 });
 
 /** PUT /api/dashboards/:id — partial update (with optional full-set panel replace). */
@@ -230,41 +167,26 @@ export const updateDashboard = withController('Update dashboard', async (req, re
   });
   if (!canWrite) return sendError(res, 403, 'You cannot modify this dashboard');
 
-  const body = req.body as { name?: unknown; description?: unknown; visibility?: unknown; layoutJson?: unknown; panels?: unknown };
-
-  if (body.name !== undefined && !isReasonableString(body.name, MAX_NAME)) {
-    return sendError(res, 400, `name must be a non-empty string <= ${MAX_NAME} chars`);
+  const body = validateBody(updateDashboardSchema, req.body, res);
+  if (!body) return;
+  if (body.visibility === 'public' && !isSystemAdmin(req)) {
+    return sendError(res, 403, 'Only system admins can promote a dashboard to public');
   }
-  if (body.description !== undefined && body.description !== null && !isReasonableString(body.description, MAX_DESCRIPTION)) {
-    return sendError(res, 400, `description must be a string <= ${MAX_DESCRIPTION} chars`);
-  }
-
-  let visibility: 'private' | 'org' | 'public' | undefined;
-  if (body.visibility !== undefined) {
-    if (body.visibility !== 'private' && body.visibility !== 'org' && body.visibility !== 'public') {
-      return sendError(res, 400, 'visibility must be one of: private, org, public');
-    }
-    visibility = body.visibility;
-    if (visibility === 'public' && !isSystemAdmin(req)) {
-      return sendError(res, 403, 'Only system admins can promote a dashboard to public');
-    }
-  }
-
-  let panels: PanelInput[] | null = null;
+  let panels: PanelInput[] | undefined;
   if (body.panels !== undefined) {
-    let bad = false;
-    panels = validatePanels(req.body, getAdminContext(req), (msg) => { sendError(res, 400, msg); bad = true; });
-    if (bad || panels === null) return;
+    const checked = checkPanelKeys(body.panels, getAdminContext(req), res);
+    if (!checked) return;
+    panels = checked;
   }
 
   const updated = await dashboardService.update(
     getParam(req.params, 'id')!,
     {
-      name: typeof body.name === 'string' ? body.name : undefined,
-      description: body.description === null ? null : (typeof body.description === 'string' ? body.description : undefined),
-      visibility,
-      layoutJson: (body.layoutJson && typeof body.layoutJson === 'object') ? (body.layoutJson as Record<string, { x: number; y: number; w: number; h: number }>) : undefined,
-      panels: panels ?? undefined,
+      name: body.name,
+      description: body.description,
+      visibility: body.visibility,
+      layoutJson: body.layoutJson,
+      panels,
     },
     { userId },
   );
@@ -405,16 +327,22 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
   // Restore re-adds a LIVE row, so re-reserve the feature slot delete released —
   // else an org could delete→restore→create to drift past its `dashboards` cap.
   // Reserve against the dashboard's own org (matching delete/create).
-  const reservation = await reserveFeatureQuota(existing.orgId, 'dashboards');
-  if (reservation.exceeded) {
-    return sendQuotaReserveDenied(res, 'dashboards', reservation);
-  }
-
-  try {
-    const ok = await dashboardService.restore(id, { userId });
-    if (!ok) {
-      releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger), reservation);
-      return sendError(res, 404, 'Dashboard not found');
+  await withFeatureQuota(res, existing.orgId, 'dashboards', async () => {
+    try {
+      const ok = await dashboardService.restore(id, { userId });
+      if (!ok) {
+        sendError(res, 404, 'Dashboard not found');
+        return false;
+      }
+    } catch (err) {
+      // The (org_id, name) unique index is partial (WHERE deleted_at IS NULL), so a
+      // live namesake can coexist with this tombstone; restoring then collides.
+      // Surface as 409, not a raw 500.
+      if ((err as { code?: string }).code === '23505') {
+        sendError(res, 409, 'A dashboard with this name already exists — rename it and try again.');
+        return false;
+      }
+      throw err;
     }
     audit(req, 'dashboard.restore', {
       targetType: 'dashboard',
@@ -423,16 +351,8 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
       details: { name: existing.name },
     });
     sendSuccess(res, 200, undefined, 'Dashboard restored');
-  } catch (err) {
-    releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger), reservation);
-    // The (org_id, name) unique index is partial (WHERE deleted_at IS NULL), so a
-    // live namesake can coexist with this tombstone; restoring then collides.
-    // Surface as 409, not a raw 500.
-    if ((err as { code?: string }).code === '23505') {
-      return sendError(res, 409, 'A dashboard with this name already exists — rename it and try again.');
-    }
-    throw err;
-  }
+    return true;
+  });
 });
 
 /** POST /api/dashboards/:id/clone — fork into the caller's org as private. */
@@ -464,17 +384,9 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
   // Clone lands a NEW dashboard in the caller's org and counts against
   // that org's quota — mirror the create-path reserve/release pattern so
   // a flurry of clones can't bypass the cap.
-  const reservation = await reserveFeatureQuota(orgId, 'dashboards');
-  if (reservation.exceeded) {
-    return sendQuotaReserveDenied(res, 'dashboards', reservation);
-  }
-
-  try {
+  await withFeatureQuota(res, orgId, 'dashboards', async () => {
     const cloned = await dashboardService.clone(visibleSource, { orgId, userId });
     audit(req, 'dashboard.clone', { targetType: 'dashboard', targetId: cloned.id, details: { sourceId, name: cloned.name } });
     sendSuccess(res, 201, { dashboard: cloned });
-  } catch (err) {
-    releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger), reservation);
-    throw err;
-  }
+  });
 });

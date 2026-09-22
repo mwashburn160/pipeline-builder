@@ -93,7 +93,7 @@ listing exactly the caller identities real traffic needs.
 > on its own port (postgres 9187, pgbouncer 9127, mongodb 9216, redis/sentinel
 > 9121, grafana 3000, thanos 10902, jaeger 14269); every app API lists `nginx`
 > (the single ingress principal); `registry`/`minio` list `default` (bootstrap
-> Jobs). `platform/test/deploy-network-contract.test.ts` asserts, for every
+> Jobs). `test/deploy-contracts/test/network-contract.test.ts` asserts, for every
 > target, that each scrape-annotated pod is admitted on its port by BOTH its mesh
 > policy and a NetworkPolicy — an exporter a policy forgot is otherwise a healthy
 > datastore that ServiceDown pages for.

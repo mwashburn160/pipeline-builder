@@ -1,0 +1,404 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * The audit actions only PLATFORM emits (its own controllers and services).
+ *
+ * The full action set is this list plus api-core's `REMOTE_AUDIT_ACTIONS` — the
+ * actions other services forward through `POST /audit/events` — combined in
+ * `models/audit-event.ts`. An action lives in exactly one of the two lists: the
+ * ingest validator accepts only the remote list, so an action here can never be
+ * forged by another service.
+ *
+ * Add a value here AND wire the corresponding `audit(req, '<name>', ...)` call —
+ * declaring the value alone produces a dead surface that misleads dashboard
+ * filters.
+ */
+export const PLATFORM_AUDIT_ACTIONS = [
+  // User lifecycle (controllers/auth.ts, controllers/user-profile.ts)
+  'user.register',
+  'user.login',
+  'user.login.failed',
+  'user.logout',
+  'user.delete',
+  'user.profile.update',
+  'user.password.change',
+  // Admin/superadmin self-verified their email directly (bypassing the emailed
+  // verification link). Recorded because it skips proof-of-ownership.
+  'user.email.verified',
+  'user.onboarding.complete',
+  'user.token.create',
+  'user.tokens.revoke-all',
+  // One session slot revoked from the sessions-and-devices page: a signed-in
+  // device, or a stored machine credential that stops renewing. `details`
+  // carries the slot id + kind.
+  'user.session.revoke',
+  // A successful step-up re-verification (controllers/step-up*.ts,
+  // controllers/webauthn.ts). `details.method` is 'password', 'webauthn' or
+  // 'reauth' (+ `provider`/`kind`/`recencyVerified` for re-auth).
+  // Failures are recorded as `user.login.failed` with `targetType: 'step-up'`.
+  'user.step-up',
+  // Passkeys (WebAuthn, controllers/webauthn.ts). A passkey is a persistent
+  // sign-in credential, so both ends of its life are recorded; `details.name` is
+  // the label the person gave it and `details.backedUp` says whether it is a
+  // synced credential. `.rename` is included because the label is what a person
+  // recognises a credential by when deciding which to revoke.
+  'user.passkey.register',
+  'user.passkey.rename',
+  'user.passkey.remove',
+  // The authenticator's signature counter went BACKWARDS on a credential that
+  // had counted before — two authenticators answering for one credential, i.e. a
+  // clone. The assertion is refused; this is the only trace it happened.
+  'user.passkey.clone_suspected',
+  // Authenticator app (TOTP, controllers/totp.ts). `.enrol` is emitted twice —
+  // `details.stage: 'started'` when the secret is minted and `'activated'` when a
+  // code confirms it — because a secret that was displayed and then abandoned is
+  // still a secret that left the building. `.disable` is the other end of the
+  // factor's life. Failed codes are `user.login.failed` with `details.method:
+  // 'totp'`, so brute-force shows up on the same trail as password guessing.
+  'user.totp.enrol',
+  'user.totp.disable',
+  // The account's recovery-code set (one per account, shared by passkeys and the
+  // authenticator app — controllers/recovery-codes.ts) was replaced: every
+  // previously issued code stops working, so a regeneration nobody remembers
+  // doing is worth seeing.
+  'user.mfa.recovery_regenerate',
+  // A recovery code was SPENT (sign-in or step-up). Its own action rather than a
+  // detail on the login, because burning one usually means a lost device — and
+  // an attacker who obtained the sheet leaves exactly this trace.
+  'user.mfa.recovery_used',
+  // The PASSWORD-ONLY PROMPT (controllers/mfa-nudge.ts): the account was offered
+  // a second factor and said no. `prompt_declined` is a durable decision to stay
+  // on one factor — the org's admins see the COUNT of people who made it, and
+  // this is the only trail that says WHO — and `prompt_restored` is the same
+  // person withdrawing it, without which "declined" would read as permanent.
+  // The 7-day "not now" is deliberately NOT audited: at a row a week per
+  // password-only account it would bury both of these.
+  'user.mfa.prompt_declined',
+  'user.mfa.prompt_restored',
+  // Assurance levels and required MFA (helpers/bootstrap-admin.ts +
+  // controllers/org-mfa-policy.ts).
+  //
+  // `bootstrap_session` is emitted on EVERY sign-in that uses the bootstrap-admin
+  // exception — the narrow, self-closing window in which the install's only
+  // admin may hold an `aal: 1` session before enrolling a factor. `details.late`
+  // is true when it happened more than 24h after the install, which is the
+  // alertable case: a fresh install finishes in minutes, so a late one is either
+  // a stalled setup or someone using the exception as a way in.
+  'auth.mfa.bootstrap_session',
+  // The exception closed, permanently, because a factor was enrolled.
+  'auth.mfa.bootstrap_closed',
+  // An operator reset every factor on an account from the database
+  // (`scripts/mfa-recover.ts`) — for when nobody can sign in to do it over HTTP.
+  // The operator name is self-asserted (`details.operatorAsserted`). Ends every
+  // session and grants the per-user enrolment grace (`details.graceUntil`).
+  'auth.mfa.operator_reset',
+  // The TWO-PERSON MFA reset (controllers/mfa-reset.ts). `reset_requested`: an
+  // org admin asked for a member's factors to be reset (`details.reason`,
+  // `details.requestId`). `reset_approved`: a DIFFERENT admin (or a sysadmin)
+  // approved it and the reset ran — every factor and the recovery codes
+  // removed, every session ended, a per-user enrolment grace granted
+  // (`details.graceUntil`); the actor is the approver, `details.requestedBy` the
+  // requester. `reset_denied`: denied, or withdrawn by its requester
+  // (`details.withdrawn`).
+  'auth.mfa.reset_requested',
+  'auth.mfa.reset_approved',
+  'auth.mfa.reset_denied',
+  // A sysadmin reset a member's factors DIRECTLY — the single-person path for an
+  // org with no second admin to approve (`details.direct: true`,
+  // `details.reason`). Same effect as an approved reset.
+  'auth.mfa.direct_reset',
+  // An org turned "require MFA" on or off, or changed its grace period / its
+  // statement that its IdP enforces MFA / its "administrative actions require
+  // MFA" policy (`details.sessionsRefreshed`: members whose sessions were ended
+  // so turning it ON applies at once; turning it off ends none). `details`
+  // carries both sides — the transition is what a reviewer needs, not the end
+  // state.
+  'org.mfa_policy.update',
+  // An org changed its password policy (minimum length) or its authenticator
+  // (passkey model / AAGUID) allowlist. `details` carries both sides.
+  'org.password_policy.update',
+  'org.authenticator_policy.update',
+  // A password sign-in whose password no longer meets the person's org policy
+  // opened NO session: a forced password change was required instead
+  // (`details.minLength`), and completed by `user.password.change`.
+  'user.password.change_required',
+  // Opaque access keys (`pb_pat_…`) — create / revoke, and the exchange that
+  // turns one into a 5-minute JWT. `user.key.exchange` is the ONLY record that a
+  // key was used at all (services never see the key itself), so it is what
+  // "which automation is still using key X" is answered from; the failure twin
+  // carries the refusal reason the caller is deliberately not told.
+  'user.key.create',
+  'user.key.revoke',
+  'user.key.exchange',
+  'user.key.exchange.failed',
+  // Device authorization grant (controllers/device-auth.ts) — how the CLI signs
+  // in without ever holding a password. `.start` is PRE-AUTH (actor 'anonymous';
+  // `details.client` is the requesting device), the rest carry the approver.
+  // `targetId` is the flow's correlation handle, so start → approve/deny join up;
+  // `.expire` is emitted by whichever side first observes a lapsed code, so a
+  // code nobody ever comes back to leaves only its `.start`.
+  'device.authorize.start',
+  'device.authorize.approve',
+  'device.authorize.deny',
+  'device.authorize.expire',
+  // Organization (controllers/organization.ts)
+  'org.create',
+  // Owner/admin self-serve org identity edit (name/slug). `affectedOrgId` is
+  // the org changed; `details` carries the fields that were updated.
+  'org.update',
+  // Domain-based org join: domain register/verify/mode/delete + join
+  // request lifecycle. `affectedOrgId` is the org; `details` carries the domain
+  // or the requesting/decided user.
+  'org.domain.add',
+  'org.domain.verify',
+  'org.domain.mode',
+  'org.domain.delete',
+  'org.join.request',
+  'org.join.auto',
+  'org.join.approve',
+  'org.join.deny',
+  // Org SOFT-DELETE / restore lifecycle (controllers/organization.ts).
+  // `org.soft_delete` is emitted when a sysadmin runs DELETE — the org enters
+  // its retention window (snapshot taken, sessions cut) instead of being
+  // hard-deleted; `details` carries the `purgeAfter` deadline. `org.restore`
+  // reverses it within the window. The eventual hard delete is still the
+  // `admin.org.delete` event emitted by the purge sweep.
+  'org.soft_delete',
+  'org.restore',
+  // A parent-org admin soft-deleted one of its own teams (DELETE
+  // /organization/:id/teams/:teamId) — same retention window as
+  // `org.soft_delete`; `details.parentOrgId` names the parent it was deleted from.
+  'org.team.delete',
+  // Organization membership mutations (controllers/organization-members.ts).
+  // `affectedOrgId` carries the org being mutated; `targetId` is the user
+  // being added/removed/modified. Privilege changes are surfaced separately
+  // from the per-org operations so reviewers can filter on "who became owner
+  // of what, when".
+  'org.member.add',
+  'org.member.remove',
+  'org.member.deactivate',
+  'org.member.activate',
+  'org.ownership.transfer',
+  // Invitation lifecycle (controllers/invitation.ts). `accept` creates a
+  // membership — a self-serve privilege grant / the primary org-join path — so
+  // the whole lifecycle is audited alongside the other membership mutations.
+  // `affectedOrgId` is the invitation's org; `details` carries the invited email/role.
+  'invitation.send',
+  'invitation.accept',
+  'invitation.revoke',
+  'invitation.resend',
+  // Active-org context switch (controllers/auth.ts switchOrg) — records which org
+  // the actor pivoted their session into.
+  'org.switch',
+  // Permission-role assignment mutations (controllers/organization-roles.ts).
+  // `affectedOrgId` is the org; `targetId` is the user added/removed; `details`
+  // carries the role name + the coarse role it grants. Adding to Admin or
+  // Super Admin is a privilege escalation, so these are surfaced distinctly.
+  'org.role.member.add',
+  'org.role.member.remove',
+  'org.role.create',
+  'org.role.update',
+  'org.role.delete',
+  // Org service accounts (controllers/service-accounts.ts) — non-human
+  // principals and their `pb_sa_…` keys. `affectedOrgId` is the owning org and
+  // `targetId` the account; `details` carries the name, the Role set and (for a
+  // key) its lifetime + whether an IP allowlist was set. Minting a machine
+  // credential is a durable privilege grant, so create/update/delete and every
+  // key issue/revoke are audited distinctly from the roster events above. The
+  // account itself is the ACTOR of everything the key then does (see
+  // `user.key.exchange`, whose `details.principalType` says which kind of
+  // principal exchanged).
+  'org.service-account.create',
+  'org.service-account.update',
+  'org.service-account.delete',
+  'org.service-account.key.create',
+  'org.service-account.key.revoke',
+  // Self-rotation: a live `pb_sa_` key mints its own replacement, and
+  // then retires its predecessor. Attributed to the ACCOUNT, not to a person —
+  // no human is present when an unattended rotator runs.
+  'org.service-account.key.rotate',
+  'org.service-account.key.rotate.failed',
+  // Admin actions (controllers/user-admin.ts)
+  'admin.user.create',
+  // Admin edit of ANOTHER user via PUT /users/:id — role/email/password/org
+  // changes. `details.changes` carries the field NAMES that changed (never the
+  // password value or any secret); `affectedOrgId` is the target's org. A
+  // privileged account-takeover (admin resets a victim's password / elevates
+  // their role) must leave this trail.
+  'admin.user.update',
+  'admin.user.delete',
+  'admin.org.delete',
+  // Sysadmin reparent (POST /organization/:id/move): `details` carries
+  // `fromParentOrgId` / `toParentOrgId` (null = standalone root), the resulting
+  // tier and how many sessions scoped to the org were invalidated.
+  'admin.org.move',
+  // GDPR portability export. Emitted from controllers/organization.ts
+  // when a sysadmin downloads an org's full data dump (before deletion or
+  // on customer request).
+  'admin.org.export',
+  // Dashboards (controllers/dashboards.ts)
+  'dashboard.create',
+  'dashboard.update',
+  'dashboard.delete',
+  'dashboard.restore',
+  // Permanent hard-delete of a dashboard tombstone ahead of the retention sweep
+  // (the delete it finalizes is already recorded; this records who made it
+  // irreversible, and when).
+  'dashboard.purge',
+  'dashboard.clone',
+  // Alert destinations (controllers/alert-destinations.ts)
+  'alert.destination.create',
+  'alert.destination.update',
+  'alert.destination.delete',
+  'alert.destination.restore',
+  'alert.destination.purge',
+  'alert.destination.test',
+  // per-org operator-authored alert rules (controllers/alert-rules.ts).
+  'alert.rule.create',
+  'alert.rule.update',
+  'alert.rule.delete',
+  'alert.rule.restore',
+  'alert.rule.purge',
+  // per-org IdP config (controllers/org-idp.ts). Sysadmin-only setup.
+  'admin.org-idp.upsert',
+  'admin.org-idp.delete',
+  // IdP group → Role mapping (controllers/org-idp-mappings.ts). Authoring a
+  // rule is a standing privilege grant — everyone the IdP puts in that group
+  // receives the Roles from their next sign-in — so create/update and delete are
+  // audited like a Role assignment. `affectedOrgId` is the org; `details` carries
+  // the group and the Role ids.
+  'org.idp.mapping.upsert',
+  'org.idp.mapping.delete',
+  // SCIM 2.0 provisioning (controllers/scim.ts). EVERY SCIM change is
+  // recorded: the actor is the service account behind the `scim`-scoped key, and
+  // `details.changed` names the attributes that moved (never their values — a
+  // directory sync carries personal data and the audit log must not become a
+  // second copy of it). `.refused` is the failure side: a create turned away for
+  // seats, a write refused after an entitlement downgrade, an unsupported filter —
+  // `details.reason` is the stable label, and it is what makes a directory sync
+  // that has quietly stopped working visible here rather than only in the IdP's
+  // own console. `targetId` is the user (Users) or the group mapping (Groups).
+  'org.scim.user.create',
+  'org.scim.user.update',
+  'org.scim.user.activate',
+  'org.scim.user.deactivate',
+  'org.scim.user.delete',
+  'org.scim.group.create',
+  'org.scim.group.update',
+  'org.scim.group.members',
+  'org.scim.group.delete',
+  'org.scim.refused',
+  // Just-in-time provisioning at SSO sign-in (controllers/sso.ts).
+  // `.provision` is emitted when the sign-in CREATES the org membership,
+  // `.role.change` when a later sign-in adds/removes mapped Roles, and
+  // `.refused` when provisioning was turned away (today: the pooled seat cap —
+  // `details.reason`). `targetId` is the user, `affectedOrgId` the SSO org.
+  'sso.jit.provision',
+  'sso.jit.role.change',
+  'sso.jit.refused',
+  // SAML 2.0 sign-in (controllers/saml.ts). A successful SAML sign-in is a
+  // plain `user.login` with `details.method = 'saml'` — it is the same kind of
+  // session, and splitting it would fracture every "who signed in" query. What
+  // gets its OWN action is the REFUSAL, because SAML has failure modes that are
+  // security events in their own right rather than someone mistyping a password:
+  // `details.reason` is `idp_initiated` (an unsolicited assertion — login CSRF),
+  // `replay` (an assertion presented twice), `invalid_assertion` (signature,
+  // audience, issuer or time), `domain_not_verified`, `platform_admin`,
+  // `seat_limit`, and the configuration states. `affectedOrgId` is the SSO org.
+  'sso.saml.refused',
+  // The org's trusted IdP signing certificates changed. Recorded separately from
+  // the surrounding config write because a certificate swap is the one IdP edit
+  // that silently decides whose assertions this org will accept — `details`
+  // carries how many certificates were trusted before and after, and their
+  // fingerprints, never the certificates themselves.
+  'sso.saml.certificate.rotate',
+  // SAML Single Logout (controllers/saml-slo.ts). `details.direction` is `sp`
+  // (we sent the LogoutRequest — `stage: 'request'`, then `'complete'` when the
+  // IdP's signed LogoutResponse comes back) or `idp` (the IdP sent a signed
+  // LogoutRequest; `sessionsRevoked` counts the platform sessions ended). A
+  // refused message is `outcome: 'failure'` with `details.reason`.
+  'sso.saml.logout',
+  // Test connection (controllers/sso-test.ts) — a DRY RUN of the org's IdP that
+  // never creates a session, user or membership. Emitted at `stage: 'start'` and
+  // `stage: 'complete'`; the latter carries `ok`, the failure `reason`, the
+  // asserted email and whether it was `recorded` as the config's last test.
+  'sso.test',
+  // The org's "SSO required" policy was switched on or off (`details.from/to`).
+  'org.sso.required.update',
+  // An IdP metadata document was imported into the SAML form (parsed, not
+  // saved — the save is a separate `admin.org-idp.upsert`). `details.source` is
+  // `url` (with the host fetched) or `xml`.
+  'org.idp.metadata.import',
+  // Sysadmin authority grants/revokes. The bootstrap path
+  // (BOOTSTRAP_SUPERADMIN_EMAILS) emits `grant`; the admin endpoint emits
+  // both. `actorId='bootstrap-env'` for env-driven promotions — operators
+  // reading the audit log can tell at a glance whether sysadmin authority
+  // was granted by an interactive flow (actorId is a user) or by deploy-
+  // time configuration.
+  'admin.superadmin.grant',
+  'admin.superadmin.revoke',
+  // Per-org KMS config admin endpoint. `upsert` covers both first set and
+  // rotation; `delete` clears the config and reverts the org to the shared
+  // master fallback. Both emit `affectedOrgId` for cross-org filtering.
+  'admin.org.kms-config.upsert',
+  'admin.org.kms-config.delete',
+  // Emitted by the org-delete cascade when the deleted org had a per-org KMS
+  // CMK (`kmsConfig`). Auto-deleting a CMK is IRREVERSIBLE, so the cascade
+  // does NOT schedule the key for deletion — it records this operator-
+  // actionable event (with the org id + key identifier in `details`) so an
+  // operator can manually schedule the external AWS key's deletion. Without
+  // it the key (and anything wrapped under it) silently orphans.
+  'org.kms.orphaned',
+  // Org tier change. Emitted when a sysadmin moves an org between
+  // pricing tiers (developer/pro/team/enterprise); reseeds quota limits as a
+  // side-effect. `details` carries the previousTier so the transition
+  // is reconstructable from the audit log alone.
+  'admin.org.tier.update',
+  // Account seat-limit / entitlement sync on the org root (from billing or a
+  // sysadmin). `details` carries the new seat cap (+ any feature bundles).
+  'admin.org.seatLimit.update',
+  // Sysadmin impersonation. `admin.impersonate.start` is emitted when
+  // a read-only impersonation token is issued; the `impersonatorId` in
+  // details + `targetId` (the impersonated user) tell reviewers who
+  // viewed-as-whom. Read-only — no destructive actions can land under
+  // the impersonation token, so a single "start" event covers the
+  // session (no stop event needed; the token TTL bounds the window).
+  // Kept although the lifecycle actions below supersede it: audit history is
+  // immutable and hash-chained, so events already written with this action must
+  // stay readable and chain-verifiable by `/audit/verify`.
+  'admin.impersonate.start',
+  // Impersonation request lifecycle. `request` is emitted when a session is
+  // asked for, `approve`/`deny` when someone decides one, `revoke` when a live
+  // session is ended early, and `breakglass` when emergency access is taken over
+  // a consent requirement. Each carries the requestId in `details` so the event
+  // and the record that holds the full decision can be tied together.
+  'admin.impersonate.request',
+  'admin.impersonate.approve',
+  'admin.impersonate.deny',
+  'admin.impersonate.revoke',
+  'admin.impersonate.breakglass',
+  // Per-org k8s namespace manifest render. Operator-driven provisioning
+  // for enterprise-tier customers — emitted whenever a sysadmin downloads
+  // the namespace YAML to apply with kubectl. Tracks "this org got its
+  // own namespace at <time> by <sysadmin>".
+  'admin.org.namespace.render',
+  // Alertmanager silences — creating one SUPPRESSES the org's alerts, so both
+  // ends are recorded (controllers in observability/controller.ts).
+  'observability.silence.create',
+  'observability.silence.delete',
+  // Log-surface data egress. `observability.logs.export` records a download of
+  // log content (range, filter, format, line count, truncation) — cheap request,
+  // large egress, and it leaves the building, so it is audited like
+  // `admin.org.export`. `observability.logs.cross-org-read` records a system
+  // admin reading a tenant OTHER than `_infra`, the same accountability the
+  // impersonation work applies to viewing another org's data.
+  'observability.logs.export',
+  'observability.logs.cross-org-read',
+  // Platform admin mutations (controllers).
+  // `admin.org.ai-config.update` — org AI-provider config (holds provider API
+  //   keys; details carry field NAMES only, never a key value).
+  // `admin.user.features.update` — a sysadmin editing a user's feature overrides.
+  'admin.org.ai-config.update',
+  'admin.user.features.update',
+] as const;

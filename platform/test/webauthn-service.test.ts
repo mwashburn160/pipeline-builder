@@ -119,6 +119,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
 }));
 
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 const svc = await import('../src/services/webauthn-service.js');
 const E = await import('../src/services/webauthn-errors.js');
 
@@ -159,7 +160,7 @@ const authInfo = (newCounter: number) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  svc._resetCeremoniesForTests();
+  _resetAllPendingStoresForTests();
   creds = [];
   users = {
     [ownerId]: { email: 'owner@example.com', username: 'owner', oauth: {} },

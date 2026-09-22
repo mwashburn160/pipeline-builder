@@ -16,9 +16,8 @@
  *   - {@link isAncestorOrgWith}      — UP: is A an ancestor of B?
  *   - {@link expandOrgScopeWith}     — DOWN: self + all descendant org ids.
  *
- * Every org is flat today (`parentOrgId` null on all rows), so lineage resolves
- * to `{ rootOrgId: self }` and scope to `[self]` — i.e. these are no-ops until
- * orgs get parents.
+ * A root org (`parentOrgId` null) resolves to `{ rootOrgId: self }` and scope
+ * `[self]`.
  */
 
 /** Hard ceiling on ancestry/descendant traversal — cycle + abuse guard. */
@@ -69,6 +68,43 @@ export function createOrgIdCaster<T>(
   };
 }
 
+/**
+ * The slice of a Mongoose `Organization` model the hierarchy callbacks read.
+ * Structural (api-core has no mongoose dependency); `select().lean()` chains as
+ * mongoose queries do.
+ */
+export interface OrgHierarchyModel {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  findById(id: any): { select(fields: string): { lean(): PromiseLike<unknown> } };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  find(filter: any): { select(fields: string): { lean(): PromiseLike<unknown[]> } };
+}
+
+/**
+ * The parent/children lookups over a service's own `organizations` model, for
+ * the `*With` traversals below. `getChildOrgIds` returns LIVE children only (a
+ * soft-deleted team leaves every downward scope); `getParentOrgId` does not
+ * filter, so a deleted team still resolves through its parent.
+ */
+export function createMongoOrgHierarchy(
+  Model: OrgHierarchyModel,
+  toOrgId: (id: string) => unknown,
+): { getParentOrgId: GetParentOrgId; getChildOrgIds: GetChildOrgIds } {
+  return {
+    async getParentOrgId(orgId) {
+      const org = await Model.findById(toOrgId(orgId)).select('parentOrgId').lean();
+      return toOrgIdString((org as { parentOrgId?: unknown } | null)?.parentOrgId);
+    },
+    async getChildOrgIds(frontier) {
+      // `deletedAt: null` matches both an explicit null and an absent field.
+      const children = await Model.find({ parentOrgId: { $in: frontier }, deletedAt: null }).select('_id').lean();
+      return children
+        .map((c) => toOrgIdString((c as { _id?: unknown })._id))
+        .filter((id): id is string => !!id);
+    },
+  };
+}
+
 export interface OrgLineage {
   /** The org's direct parent id, or `undefined` when it's a root org. */
   parentOrgId?: string;
@@ -104,6 +140,26 @@ export async function resolveOrgLineageWith(orgId: string, getParent: GetParentO
 /** Walk `parentOrgId` up to the root and return just the root id. */
 export async function resolveRootOrgIdWith(orgId: string, getParent: GetParentOrgId): Promise<string> {
   return (await resolveOrgLineageWith(orgId, getParent)).rootOrgId;
+}
+
+/**
+ * Fail-CLOSED variant of {@link resolveRootOrgIdWith}: returns `null` when the
+ * root can't be proven — a cycle or a chain deeper than {@link MAX_ORG_DEPTH} —
+ * instead of treating the last reached id as the root. Lookup errors propagate.
+ * For callers where a wrong root is worse than no answer (e.g. a retention purge
+ * that would otherwise apply a team's shorter default window).
+ */
+export async function resolveRootOrgIdStrict(orgId: string, getParent: GetParentOrgId): Promise<string | null> {
+  const seen = new Set<string>([orgId]);
+  let currentId = orgId;
+  for (let depth = 0; depth < MAX_ORG_DEPTH; depth++) {
+    const parent = toOrgIdString(await getParent(currentId));
+    if (!parent || parent === currentId) return currentId;
+    if (seen.has(parent)) return null;
+    seen.add(parent);
+    currentId = parent;
+  }
+  return null;
 }
 
 /**

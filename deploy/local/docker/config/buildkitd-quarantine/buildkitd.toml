@@ -1,5 +1,5 @@
-# buildkitd config for the QUARANTINE builder (anonymous plugin submissions,
-# docs/plans/plugin-ecosystem.md §4.2 / W5). Deliberately separate from
+# buildkitd config for the QUARANTINE builder (anonymous plugin submissions).
+# Deliberately separate from
 # ../buildkitd/buildkitd.toml: it carries ONLY what an untrusted build needs to
 # resolve images — the docker.io → in-cluster registry mirror (so bare
 # `FROM pipeline-plugin-base:24.04` resolves) and the registry's plain-HTTP

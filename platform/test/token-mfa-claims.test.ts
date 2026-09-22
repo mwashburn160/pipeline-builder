@@ -13,14 +13,14 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
+import { queryChain } from './helpers/query-chain.js';
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      passwordMinLength: 8,
-      jwt: { secret: 'test-jwt-secret', expiresIn: 7200, algorithm: 'HS256', tierExpiresIn: {} },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: 2592000 },
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    passwordMinLength: 8,
+    jwt: { secret: 'test-jwt-secret', expiresIn: 7200, algorithm: 'HS256', tierExpiresIn: {} },
+    refreshToken: { secret: 'test-refresh-secret', expiresIn: 2592000 },
   },
 }));
 
@@ -28,24 +28,21 @@ let policy: Record<string, unknown> = {};
 jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({ resolveEffectiveMfaPolicy: async () => policy }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
-const chain = <T>(value: T) => {
-  const c: any = { lean: async () => value, select: () => c, session: () => c, sort: () => c };
-  return c;
-};
 jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: {},
   UserPreferences: {},
   User: { updateOne: jest.fn(async () => ({})) },
-  Organization: { findById: () => chain({ _id: 'org', name: 'Org', tier: 'team', parentOrgId: null }) },
+  Organization: { findById: () => queryChain({ _id: 'org', name: 'Org', tier: 'team', parentOrgId: null }) },
   UserOrganization: {
-    findOne: () => chain({ userId: 'u1', organizationId: 'org', role: 'admin', isActive: true }),
-    find: () => chain([]),
+    findOne: () => queryChain({ userId: 'u1', organizationId: 'org', role: 'admin', isActive: true }),
+    find: () => queryChain([]),
   },
-  RoleAssignment: { find: () => chain([]) },
-  Role: { find: () => chain([]) },
+  RoleAssignment: { find: () => queryChain([]) },
+  Role: { find: () => queryChain([]) },
 }));
 
-const { issueTokens, signApiKeyToken, signInAuth } = await import('../src/utils/token.js');
+const { signApiKeyToken, signInAuth } = await import('../src/services/session/access-tokens.js');
+const { issueTokens } = await import('../src/services/session/refresh-sessions.js');
 const { installTestSigningKeys } = await import('./helpers/signing.js');
 installTestSigningKeys();
 

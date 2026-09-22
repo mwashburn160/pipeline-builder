@@ -12,7 +12,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import { triggerBlobDownload } from '@/lib/csv-export';
+import { triggerBlobDownload } from '@/lib/download';
 import { normalizeSubmissionModeration } from '@/lib/plugin-submissions/moderation';
 import { SUBMISSION_STATUS_COLORS, SUBMISSION_STATUS_LABELS } from '@/lib/plugin-submissions/status';
 import type { EcosystemRequestDetail } from '@/types/ecosystem';
@@ -50,7 +50,7 @@ function DownloadButton({ path, label, fallbackName }: { path: string; label: st
 }
 
 /**
- * The extra review material for a `submission` request (plan §4.2 item 5): an
+ * The extra review material for a `submission` request: an
  * anonymous submitter has no history, so moderators get the full gate report,
  * EVERY heuristics finding (including the medium ones the submitter never
  * sees), the quarantine image, and its SBOM and scan report. The diff against
@@ -130,7 +130,7 @@ export function SubmissionReviewSection({ submission: raw }: { submission: Ecosy
   );
 }
 
-/** A `claim` on a community listing: does the claimer own the submitting email (E10)? */
+/** A `claim` on a community listing: does the claimer own the submitting email? */
 export function ClaimEmailMatchNotice({ match }: { match: boolean | null | undefined }) {
   if (match == null) return null;
   return match ? (

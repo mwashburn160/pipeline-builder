@@ -8,8 +8,8 @@
  * returns queue metrics for admin users and rejects non-admins.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -36,16 +36,13 @@ jest.unstable_mockModule('../src/queue/requeue.js', () => ({
 }));
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPluginAudit: mockEmitPluginAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
-// Quota service stub  required by createQueueStatusRoutes since
+// Quota service stub required by createQueueStatusRoutes since
 // (replay path needs it to look up the org's tier).
 const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('developer') } as any;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPluginAudit,
   isSystemAdmin: jest.fn<AnyFn>(),
   // Functional gate (the default apiCoreMock stub is a pass-through): grants a
   // superadmin implicitly, else requires one of the named permissions in
@@ -169,7 +166,7 @@ describe('queue-status route', () => {
     }));
   });
 
-  // Tenant filtering on /failed and /dlq  system admin sees all orgs'
+  // Tenant filtering on /failed and /dlq system admin sees all orgs'
   // jobs, org admin/owner sees only their own. Without this filter, an org
   // admin could see another tenant's plugin names + error messages.
 
@@ -197,7 +194,7 @@ describe('queue-status route', () => {
     } as any;
   }
 
-  describe('GET /failed  tenant filter', () => {
+  describe('GET /failed tenant filter', () => {
     it('non-system admin sees only their own org\'s failed jobs', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([
@@ -270,7 +267,7 @@ describe('queue-status route', () => {
     });
   });
 
-  describe('GET /failed + /dlq  server-side paging', () => {
+  describe('GET /failed + /dlq server-side paging', () => {
     const job = (id: string, finishedOn: number, orgId = 'org-1') => ({
       id, name: id, data: { orgId, pluginRecord: { name: id } }, opts: {}, attemptsMade: 1, finishedOn, timestamp: finishedOn,
     });
@@ -332,7 +329,7 @@ describe('queue-status route', () => {
     });
   });
 
-  describe('GET /dlq  tenant filter', () => {
+  describe('GET /dlq tenant filter', () => {
     it('non-system admin sees only their own org\'s DLQ jobs', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
       mockDlqGetJobs.mockResolvedValue([
@@ -351,7 +348,7 @@ describe('queue-status route', () => {
     });
   });
 
-  describe('DELETE /dlq  purge + audit', () => {
+  describe('DELETE /dlq purge + audit', () => {
     it('sysadmin purge emits plugin.dlq.purge with the purged count', async () => {
       mockPurgeDlq.mockResolvedValue(7);
 

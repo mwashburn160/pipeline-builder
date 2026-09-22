@@ -4,11 +4,11 @@
 /**
  * The claims a step-up token and an MFA sign-in actually carry.
  *
- * These are the groundwork #8 (assurance levels) will read, so they are pinned
+ * These are what the assurance levels read, so they are pinned
  * now — including the part that DOESN'T change: `aal` stays 1 everywhere. A
  * token claiming aal 2 before any gate understands the claim would be an
  * assertion nothing verifies, and would quietly become load-bearing the moment
- * #8 started trusting it.
+ * the assurance model trusts it.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -21,7 +21,6 @@ jest.unstable_mockModule('../src/services/token-signing/index.js', () => ({
   signUserJwt: async (payload: Record<string, unknown>) => { signed.push(payload); return 'jwt'; },
   // `utils/jwt-options` (pulled in by utils/token) links against these too.
   verifyUserJwtSync: jest.fn(),
-  currentSigningKid: jest.fn(async () => 'kid'),
   publishedJwks: jest.fn(async () => ({ keys: [] })),
   isRetiringKeyPublished: () => false,
   initTokenSigning: jest.fn(),
@@ -29,7 +28,7 @@ jest.unstable_mockModule('../src/services/token-signing/index.js', () => ({
   _setTokenSigningKeysForTests: jest.fn(),
 }));
 
-const { issueStepUpToken, signInAuth } = await import('../src/utils/token.js');
+const { issueStepUpToken, signInAuth } = await import('../src/services/session/access-tokens.js');
 
 const USER = '651111111111111111111111';
 
@@ -37,7 +36,7 @@ beforeEach(() => { signed.length = 0; });
 
 describe('issueStepUpToken', () => {
   it.each(['totp', 'webauthn'] as const)('adds `mfa` to amr for a %s step-up', async (method) => {
-    // The two SECOND FACTORS (#8) — the ones `STRONG_STEP_UP_METHODS` admits on
+    // The two SECOND FACTORS — the ones `STRONG_STEP_UP_METHODS` admits on
     // the most dangerous routes. `mfa` in amr is what says so.
     await issueStepUpToken(USER, method);
     expect(signed[0]).toMatchObject({ type: 'step-up', sub: USER, method, amr: ['stepup', 'mfa'] });

@@ -7,13 +7,14 @@
  * SECURITY: this endpoint self-asserts the caller's email as verified with no
  * emailed round-trip, and `isEmailVerified` is the sole proof-of-control the
  * domain-based-join flow trusts. Because every self-registered user is `owner`
- * of their personal org, the old admin/owner gate reduced to "anyone can
- * self-verify" — a cross-tenant auto-join hole. The gate must now accept ONLY a
+ * of their personal org, an admin/owner gate would reduce to "anyone can
+ * self-verify" — a cross-tenant auto-join hole. The gate must accept ONLY a
  * superadmin; every non-superadmin (owner/admin/member) must be 403'd BEFORE the
  * service call.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -27,7 +28,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemOrgId: () => false,
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { billing: { enabled: false }, compliance: { enabled: false } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ billing: { enabled: false }, compliance: { enabled: false } }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ findSsoEnforcementForEmail: async () => null, rejectIfSsoEnforced: async () => false }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
@@ -39,12 +40,14 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   // resolved to via createEvent (no req.user on that route); unused here.
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
   findRefreshSession: jest.fn(async () => undefined),
   issueTokens: jest.fn(),
   renewSessionTokens: jest.fn(),

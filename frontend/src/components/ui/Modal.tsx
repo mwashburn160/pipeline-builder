@@ -29,7 +29,7 @@ interface ModalProps {
   scrollRef?: RefObject<HTMLDivElement | null>;
   /**
    * The form inside has unsaved edits. Escape / backdrop / the X then ask before
-   * discarding instead of closing outright — a misplaced click used to wipe a
+   * discarding instead of closing outright, so a misplaced click can't wipe a
    * 20-field plugin edit or a half-written message with no warning and no undo.
    * Explicit in-form actions (Cancel/Save) call `onClose` directly and bypass
    * this, as they should.

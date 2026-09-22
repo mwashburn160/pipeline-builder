@@ -33,7 +33,7 @@ const apiCoreCatalog = readFileSync(
   resolve(__dirname, '../../packages/api-core/src/types/feature-flags.ts'), 'utf8',
 );
 const bundleCatalog = readFileSync(
-  resolve(__dirname, '../../packages/pipeline-core/src/config/billing-config.ts'), 'utf8',
+  resolve(__dirname, '../../api/billing/src/config/billing-config.ts'), 'utf8',
 );
 
 /** Sellable plans, cheapest first. `unlimited` is the billing-off tier and is

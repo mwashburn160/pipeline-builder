@@ -16,8 +16,7 @@ import mongoose from 'mongoose';
  * keeps those lookups working too.
  *
  * The logic (and the `string | string[]` signature) is api-core's
- * `createOrgIdCaster` — platform and quota previously carried two copies with
- * DIFFERENT signatures. Only the mongoose constructor is supplied here, because
+ * `createOrgIdCaster`, shared with quota. Only the mongoose constructor is supplied here, because
  * mongoose is not an api-core dependency.
  */
 export const toOrgId: (id: string | string[]) => string | mongoose.Types.ObjectId =

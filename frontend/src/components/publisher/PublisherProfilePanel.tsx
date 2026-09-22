@@ -135,7 +135,7 @@ function CreatePublisherForm({ ctx, canManage, onChanged }: Props) {
 type ProfileDialog = 'profile_change' | 'verify' | null;
 
 /**
- * The org's publisher profile (plan §3.1): tier, terms, direct edits of the
+ * The org's publisher profile: tier, terms, direct edits of the
  * description and homepage, and REQUESTS for everything the system org decides
  * — handle and display-name changes, and Verified status (Team+ only).
  */

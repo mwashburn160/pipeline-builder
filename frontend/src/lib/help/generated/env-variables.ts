@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 89b47c8ebb5146362f86b9b5abe76ae9821d20db919a335302b6357aff7a1cdf
+// SOURCE-SHA256: be26597c1c07954f0444e1fc101c00c662c8b8519b7d24aa60e6262ce465e1c6
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -167,6 +167,11 @@ export const envVariablesTopic: HelpTopic = {
               "Required. Path to the PUBLIC per-service key bundle ({\"services\": {\"<name>\": {\"keys\": [<jwk>…]}}}), used to verify peers' tokens. Identical on every service and public — it holds no private material. A token's kid selects the key AND names its owner, and the token's sub must agree, so one service can never speak for another. Re-read on change (mtime) and at least every 5 minutes, so a key rotation needs no restart."
             ],
             [
+              "SERVICE_TOKEN_DENYLIST",
+              "—",
+              "Comma-separated service names (the <name> in sub: service:<name>) whose internal tokens every service rejects. Read at process start: cuts off a compromised service without rotating any key or invalidating other services' tokens"
+            ],
+            [
               "JWT_EXPIRES_IN",
               "900",
               "Access-token TTL in seconds (15 min) at the platform auth issuer — deliberately short so privilege changes take effect quickly (paired with tokenVersion revocation). Per-tier overrides take precedence. (The generic pipeline-core server scaffold falls back to 7200 where it isn't the token issuer.)"
@@ -260,6 +265,11 @@ export const envVariablesTopic: HelpTopic = {
               "BOOTSTRAP_SUPERADMIN_EMAILS",
               "—",
               "Comma-separated user emails auto-promoted to isSuperAdmin=true at platform boot. Required for fresh installs — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. Also names who the bootstrap-admin MFA exception applies to (#8): until one of these accounts enrols a passkey or an authenticator app, its password sign-in yields a limited session that can reach only enrolment, sign-out and the setup routes, and SSO enforcement never applies to it. Read live, so changing it needs no redeploy. See Assurance levels and required MFA."
+            ],
+            [
+              "BOOTSTRAP_SETUP_WINDOW_MS",
+              "86400000",
+              "How long (ms, measured from the system org's creation — the install time) a password-only bootstrap-admin session may still mint the setup service account and its key through the MFA exception. Past it those two routes demand a real second factor; enrolment, sign-out and refresh stay open forever, so a late admin is never locked out. Raise it only for an install that legitimately takes longer than a day to finish; unset / non-positive = the 24h default"
             ],
             [
               "MFA_RECOVER_OPERATOR",
@@ -917,14 +927,54 @@ export const envVariablesTopic: HelpTopic = {
               "Retry delay (ms)"
             ],
             [
-              "DB_TRANSACTION_TIMEOUT_MS",
-              "30000",
-              "Transaction timeout (ms)"
+              "DATABASE",
+              "pipeline_builder",
+              "Database name for services"
             ],
             [
               "DB_CLOSE_TIMEOUT_MS",
               "5000",
-              "Connection close timeout (ms)"
+              "Pool close timeout on shutdown (ms)"
+            ],
+            [
+              "DB_STATEMENT_TIMEOUT_MS",
+              "30000",
+              "Per-transaction statement_timeout set with the RLS context; a runaway query is cancelled instead of pinning a pooled connection"
+            ],
+            [
+              "DB_SSL",
+              "—",
+              "true/1 forces TLS to Postgres on, false/0 off. Unset → Postgres' PGSSLMODE (disable = off), else ON in production and OFF elsewhere"
+            ],
+            [
+              "DB_SSL_REJECT_UNAUTHORIZED",
+              "false",
+              "With TLS on, verify the server certificate. Set true once the RDS CA bundle is mounted; the channel is encrypted either way"
+            ],
+            [
+              "SOFT_DELETE_RETENTION_DAYS",
+              "30",
+              "How long a soft-deleted pipeline/plugin/template stays restorable before the purge sweep hard-deletes it"
+            ],
+            [
+              "SOFT_DELETE_PURGE_ENABLED",
+              "true",
+              "Run the soft-delete purge sweep. false keeps tombstones indefinitely"
+            ],
+            [
+              "SOFT_DELETE_PURGE_INTERVAL_HOURS",
+              "6",
+              "Interval between purge sweeps (min 1)"
+            ],
+            [
+              "SOFT_DELETE_PURGE_STARTUP_DELAY_MS",
+              "120000",
+              "Delay before the first sweep after boot"
+            ],
+            [
+              "SOFT_DELETE_PURGE_LOCK_TTL_MS",
+              "900000",
+              "Purge-sweep leader-lock TTL; only one replica sweeps at a time"
             ],
             [
               "ECOSYSTEM_PUBLIC_READER_PASSWORD",
@@ -1066,6 +1116,21 @@ export const envVariablesTopic: HelpTopic = {
               "Registry password/token"
             ],
             [
+              "IMAGE_REGISTRY_PULL_HOST",
+              "host of PLATFORM_BASE_URL, else IMAGE_REGISTRY_HOST",
+              "Registry host CodeBuild pulls plugin images from (must be publicly resolvable)"
+            ],
+            [
+              "IMAGE_REGISTRY_PULL_PORT",
+              "port of PLATFORM_BASE_URL, else IMAGE_REGISTRY_PORT",
+              "Registry port for those pulls"
+            ],
+            [
+              "DOCKER_NETWORK",
+              "—",
+              "Docker network the plugin build containers join (docker-compose targets)"
+            ],
+            [
               "REGISTRY_TOKEN_RATE_LIMIT_MAX",
               "60",
               "image-registry /token: requests per window per (source IP, username)"
@@ -1081,6 +1146,51 @@ export const envVariablesTopic: HelpTopic = {
               "image-registry /token rate-limit window (ms)"
             ],
             [
+              "REGISTRY_TOKEN_RATE_LIMIT_MAX_BUCKETS",
+              "10000",
+              "Cap on distinct in-memory /token rate-limit buckets — only used on the no-Redis fallback path, so short-lived identities can't grow it unbounded"
+            ],
+            [
+              "REGISTRY_TOKEN_EXPIRES_IN",
+              "300",
+              "Lifetime (seconds) of the registry bearer token /token issues (the expires_in in its response)"
+            ],
+            [
+              "REGISTRY_BLOB_STREAM_TIMEOUT_MS",
+              "30000",
+              "Read timeout (ms) for image-registry's blob streaming from the upstream registry — short so a stuck upstream connection fails fast"
+            ],
+            [
+              "REGISTRY_MAX_BLOB_PROXY_BYTES",
+              "5242880",
+              "Max blob size (bytes, 5 MiB) the registry UI's blob-preview proxy will serve; larger blobs (layers, attestations) get 413 so a multi-GB layer can't be buffered"
+            ],
+            [
+              "REGISTRY_COPY_PARALLEL_CHILDREN",
+              "3",
+              "Cross-repo image copy: child manifests (of a multi-arch index) copied concurrently"
+            ],
+            [
+              "REGISTRY_COPY_PARALLEL_BLOBS",
+              "8",
+              "Cross-repo image copy (and repo delete): blobs mounted/deleted concurrently per manifest — CHILDREN × BLOBS bounds in-flight registry calls (24 by default)"
+            ],
+            [
+              "REGISTRY_STORAGE_CACHE_TTL_MS",
+              "60000",
+              "Per-org registry storage-usage rollup cache (ms) — short enough that a cleanup shows freed bytes promptly, long enough that a dashboard auto-refresh doesn't walk the registry each time"
+            ],
+            [
+              "REGISTRY_PUBLICATION_CACHE_TTL_MS",
+              "60000",
+              "Cache (ms) of the public/* repository → billed-org publication-record rollup used for storage attribution and the push gate"
+            ],
+            [
+              "PUBLIC_VERIFY_CACHE_TTL_MS",
+              "60000",
+              "Per-pod cache (ms) of POSITIVE signature/trust-tier verification results for public plugin images. A resign/yank/GC (or POST …/verify-cache/invalidate) clears the pod it runs on; this TTL bounds how long another replica can serve stale annotations"
+            ],
+            [
               "REGISTRY_HTTP_SECRET",
               "—",
               "k8s targets: the registry replicas' shared upload-session signing secret (a chunked push must survive landing on another replica or a rollout). Generated by gen-env-secrets.sh; lives only in registry-token-secret, never app-secrets."
@@ -1094,6 +1204,44 @@ export const envVariablesTopic: HelpTopic = {
               "IMAGE_REGISTRY_TOKEN_REALM",
               "${PLATFORM_BASE_URL}/image-registry/token",
               "Bearer-token realm the plugin keys its registry credential under. Must match the registry's REGISTRY_AUTH_TOKEN_REALM (e.g. http://image-registry:3000/token in-cluster) — when the registry redirects a push to a different host than the push target, the plugin only sends Basic auth if it has a credential keyed under that realm host. Set on every target's plugin so pushes don't 401 / insufficient_scope."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Registry garbage collection"
+        },
+        {
+          "type": "text",
+          "content": "Image-registry's scheduled GC prunes old manifests from every org namespace. Off by default — an operator opts in."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "REGISTRY_GC_ENABLED",
+              "false",
+              "Run the scheduled, destructive GC sweep. One replica sweeps per window (leader lock — see REGISTRY_GC_LOCK_TTL_MS under Scaling & multi-replica)"
+            ],
+            [
+              "REGISTRY_GC_INTERVAL_HOURS",
+              "24",
+              "Hours between full sweeps"
+            ],
+            [
+              "REGISTRY_GC_MAX_AGE_DAYS",
+              "30",
+              "Manifests older than this many days are pruned"
+            ],
+            [
+              "REGISTRY_GC_STARTUP_DELAY_MS",
+              "300000",
+              "Delay (ms, 5 min) before the first sweep after boot, so the registry settles first (0 = sweep immediately)"
             ]
           ]
         },
@@ -1291,11 +1439,52 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_BUILD_CONCURRENCY",
               "1",
-              "Max concurrent builds per container (per-tier overrides: `PLUGIN_BUILD_CONCURRENCY_<DEVELOPER\\",
-              "PRO\\",
-              "TEAM\\",
-              "ENTERPRISE\\",
-              "UNLIMITED>`)"
+              "Max concurrent builds per container — the default for every tier's worker below"
+            ],
+            [
+              "PLUGIN_BUILD_CONCURRENCY_DEVELOPER",
+              "PLUGIN_BUILD_CONCURRENCY",
+              "Concurrent builds per container on the developer tier's queue"
+            ],
+            [
+              "PLUGIN_BUILD_CONCURRENCY_PRO",
+              "PLUGIN_BUILD_CONCURRENCY",
+              "Concurrent builds per container on the pro tier's queue"
+            ],
+            [
+              "PLUGIN_BUILD_CONCURRENCY_TEAM",
+              "PLUGIN_BUILD_CONCURRENCY",
+              "Concurrent builds per container on the team tier's queue"
+            ],
+            [
+              "PLUGIN_BUILD_CONCURRENCY_ENTERPRISE",
+              "PLUGIN_BUILD_CONCURRENCY",
+              "Concurrent builds per container on the enterprise tier's queue"
+            ],
+            [
+              "PLUGIN_BUILD_CONCURRENCY_UNLIMITED",
+              "PLUGIN_BUILD_CONCURRENCY",
+              "Concurrent builds per container on the unlimited tier's queue"
+            ],
+            [
+              "PLUGIN_MAX_BUILDS_PER_ORG",
+              "3",
+              "Max in-flight builds per org across all workers (Redis semaphore) — an org over the cap has its job re-delayed so another org's build takes the worker slot"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_DELAY_MS",
+              "10000",
+              "How long (ms) a job that couldn't get an org slot waits before retrying"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_TTL_SEC",
+              "900",
+              "Defensive expiry (seconds) of a held org build slot, so a crashed worker can't leak one forever"
+            ],
+            [
+              "PLUGIN_TIER_CACHE_TTL_MS",
+              "300000",
+              "Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry"
             ],
             [
               "PLUGIN_BUILD_QUEUE_NAME",
@@ -1343,6 +1532,31 @@ export const envVariablesTopic: HelpTopic = {
               "Max DLQ jobs before oldest are purged"
             ],
             [
+              "PLUGIN_DLQ_SCAN_INTERVAL_MS",
+              "5000",
+              "Minimum interval (ms) between DLQ max-size enforcement scans"
+            ],
+            [
+              "PLUGIN_QUEUE_METRICS_INTERVAL_MS",
+              "15000",
+              "How often (ms) the build-queue job counts are scraped into Prometheus metrics"
+            ],
+            [
+              "PLUGIN_QUEUE_MAX_PAGE_DEPTH",
+              "5000",
+              "Deepest row a caller may page to on the queue GET /failed and GET /dlq views (each page reads offset + limit entries from every queue, so this bounds the Redis range read)"
+            ],
+            [
+              "PLUGIN_TRIAGE_CACHE_TTL_MS",
+              "5000",
+              "Memo TTL (ms) for the queue GET /triage aggregate, collapsing a dashboard's repeated polls into one scan"
+            ],
+            [
+              "PLUGIN_TRIAGE_CACHE_MAX_ENTRIES",
+              "500",
+              "Cap on distinct /triage memo keys (keyed per org), oldest evicted first"
+            ],
+            [
               "TEMP_DIR_MAX_AGE_MS",
               "14400000",
               "Stale temp dir cleanup threshold (4 hours)"
@@ -1386,7 +1600,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "QUOTA_RESET_DAYS",
               "3",
-              "Reset period (days)"
+              "Reset period (days) for every quota type, shared by the quota and platform services"
+            ],
+            [
+              "QUOTA_RESERVE_FAIL_OPEN",
+              "false",
+              "When a quota reservation can't be CONFIRMED (quota service unreachable, timed out, errored, or a non-quota 429), false denies the request; true lets it through. Both emit quota_fail_closed_total / quota_fail_open_total"
             ],
             [
               "QUOTA_SERVICE_HOST",
@@ -1566,7 +1785,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each tier's quota reset period is overridable via QUOTA_TIER_<TIER>_RESET_PERIOD (a single duration applied to every quota type). Defaults: 3days for developer/pro, 30days for team/enterprise. (The reset period is moot for unlimited, whose limits are all -1 and never reset.)"
+          "content": "Every quota counter rolls over on one shared period, QUOTA_RESET_DAYS (default 3), read by both the quota service (which resets counters) and platform (which seeds a new org's counters)."
         },
         {
           "type": "text",
@@ -1580,7 +1799,7 @@ export const envVariablesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Feature flags and kill switches for the plugin ecosystem (plan §9). Read by the plugin service; set in .env (k8s: the app-env ConfigMap)."
+          "content": "Feature flags and kill switches for the plugin ecosystem (kill switches). Read by the plugin service; set in .env (k8s: the app-env ConfigMap)."
         },
         {
           "type": "table",
@@ -1674,6 +1893,31 @@ export const envVariablesTopic: HelpTopic = {
               "ECOSYSTEM_VULN_GATE_MAX_CRITICAL",
               "0",
               "The vulnerability gate a version must pass to be requested: at most this many CRITICAL findings in its scan"
+            ],
+            [
+              "REVIEW_WRITE_RATE_LIMIT_PER_MIN",
+              "30",
+              "Plugin review writes per minute, per user"
+            ],
+            [
+              "REVIEW_ORG_WRITE_RATE_LIMIT_PER_MIN",
+              "120",
+              "Plugin review writes per minute, per org"
+            ],
+            [
+              "REVIEW_IP_DAILY_LIMIT",
+              "20",
+              "Plugin review writes per day, per source IP"
+            ],
+            [
+              "REVIEW_ORG_DAILY_LIMIT",
+              "20",
+              "Reviews one org may post per day"
+            ],
+            [
+              "REVIEW_AUTO_HOLD_REPORTS",
+              "3",
+              "Distinct abuse reports that automatically hold a review for moderation"
             ]
           ]
         },
@@ -1804,6 +2048,50 @@ export const envVariablesTopic: HelpTopic = {
               "IMAGE_REGISTRY_SERVICE_PORT",
               "3000",
               "image-registry API port"
+            ],
+            [
+              "REPORTING_SERVICE_HOST",
+              "reporting",
+              "Reporting service hostname"
+            ],
+            [
+              "REPORTING_SERVICE_PORT",
+              "3000",
+              "Reporting service port"
+            ],
+            [
+              "ASK_SERVICE_HOST",
+              "ask",
+              "Ask (AI assistant) service hostname"
+            ],
+            [
+              "ASK_SERVICE_PORT",
+              "3000",
+              "Ask service port"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Every <NAME>_SERVICE_HOST / <NAME>_SERVICE_PORT pair follows the same rule: the host defaults to the service name and the port to 3000."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "GITHUB_API_BASE_URL",
+              "https://api.github.com",
+              "GitHub API base for repository analysis (point at a GitHub Enterprise Server /api/v3)"
+            ],
+            [
+              "BITBUCKET_API_BASE_URL",
+              "https://api.bitbucket.org/2.0",
+              "Bitbucket API base for repository analysis"
             ]
           ]
         }
@@ -1864,6 +2152,11 @@ export const envVariablesTopic: HelpTopic = {
               "MESSAGE_ATTACHMENT_MAX_MB",
               "10",
               "Max attachment size (MiB). Uploads over this are rejected 413."
+            ],
+            [
+              "MESSAGE_ATTACHMENT_PENDING_TTL_HOURS",
+              "24",
+              "Age after which a pending attachment (uploaded but never linked to a message) is reaped with its blob by the retention sweep. Minimum 1."
             ]
           ]
         },
@@ -2034,6 +2327,11 @@ export const envVariablesTopic: HelpTopic = {
               "BILLING_LIFECYCLE_CHECK_INTERVAL_MS",
               "3600000",
               "Subscription lifecycle check interval (1 hour)"
+            ],
+            [
+              "BILLING_USAGE_FALLBACK_DAYS",
+              "30",
+              "Usage-rollup period for an org with no active subscription (free / unsubscribed): the window spans this many days either side of now, so usage still shows against the tier caps"
             ],
             [
               "PAYMENT_GRACE_PERIOD_DAYS",
@@ -2286,6 +2584,16 @@ export const envVariablesTopic: HelpTopic = {
               "REPORTING_RETENTION_INTERVAL_HOURS",
               "12",
               "How often the leader-locked retention sweep runs."
+            ],
+            [
+              "ORG_SCORECARD_MAX_PIPELINES",
+              "50",
+              "Pipeline service. Max pipelines graded in the org-wide scorecard roll-up (GET /pipelines/scorecard); the response flags truncated past it. Bounds the per-pipeline compliance + DORA cost of one request"
+            ],
+            [
+              "ORG_SCORECARD_CONCURRENCY",
+              "4",
+              "Pipeline service. Per-pipeline scorecard computations run in parallel within one roll-up (bounds load on the compliance service)"
             ]
           ]
         },
@@ -2352,9 +2660,19 @@ export const envVariablesTopic: HelpTopic = {
               "Plugin-lookup Lambda architecture: ARM_64 or x86_64"
             ],
             [
+              "LAMBDA_RESERVED_CONCURRENCY",
+              "—",
+              "Reserved concurrency for the plugin-lookup Lambda; unset → unreserved"
+            ],
+            [
               "CODEBUILD_COMPUTE_TYPE",
               "SMALL",
               "SMALL, MEDIUM, LARGE, X2_LARGE"
+            ],
+            [
+              "CODEBUILD_DEFAULT_IMAGE",
+              "pipeline-bootstrap:1.0",
+              "Image for the synth (bootstrap) CodeBuild step; must have pipeline-manager on PATH"
             ],
             [
               "LOG_GROUP_NAME",
@@ -2414,6 +2732,21 @@ export const envVariablesTopic: HelpTopic = {
               "HTTP_CLIENT_MAX_RESPONSE_BYTES",
               "10485760",
               "Cap on an internal HTTP response body (10 MiB); a larger body aborts the call instead of being buffered"
+            ],
+            [
+              "IDEMPOTENCY_TTL_MS",
+              "300000",
+              "How long a completed Idempotency-Key response is replayed"
+            ],
+            [
+              "IDEMPOTENCY_MAX_STORE_SIZE",
+              "10000",
+              "Max keys in the per-process (no-Redis) idempotency store"
+            ],
+            [
+              "IDEMPOTENCY_CLEANUP_INTERVAL_MS",
+              "60000",
+              "Sweep interval for expired keys in the per-process idempotency store"
             ],
             [
               "IDEMPOTENCY_PENDING_TTL_MS",
@@ -2485,6 +2818,11 @@ export const envVariablesTopic: HelpTopic = {
               "BILLING_SERVICE_TIMEOUT",
               "5000",
               "Billing service call timeout"
+            ],
+            [
+              "PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS",
+              "30000",
+              "Timeout (ms) for the pipeline service's calls into the plugin service — long because a plugin upload response includes build-queue results"
             ]
           ]
         },
@@ -2553,9 +2891,19 @@ export const envVariablesTopic: HelpTopic = {
               "Billing plans cache TTL (4 hours)"
             ],
             [
-              "CACHE_CLEANUP_INTERVAL_MS",
-              "30000",
-              "Cache cleanup interval (30s)"
+              "CACHE_CONTROL_LIST",
+              "private, max-age=30, stale-while-revalidate=60",
+              "Cache-Control header on list responses"
+            ],
+            [
+              "CACHE_CONTROL_DETAIL",
+              "private, max-age=60, stale-while-revalidate=120",
+              "Cache-Control header on single-entity responses"
+            ],
+            [
+              "COMPRESSION_THRESHOLD_BYTES",
+              "1024",
+              "Responses smaller than this are sent uncompressed"
             ]
           ]
         }
@@ -2601,12 +2949,22 @@ export const envVariablesTopic: HelpTopic = {
             [
               "SSE_MAX_TOTAL_TICKETS",
               "1000",
-              "Message service: cap on notification SSE tickets minted per TTL window across all orgs (Redis-backed when configured; abuse bound)"
+              "Cap on live SSE tickets across all orgs, per ticket channel (message notifications, reporting execution status, build-log streams; Redis-backed when configured; abuse bound)"
             ],
             [
               "SSE_MAX_TICKETS_PER_ORG",
               "10",
-              "Message service: per-org cap on notification SSE tickets minted per TTL window"
+              "Per-org cap on live SSE tickets, per ticket channel"
+            ],
+            [
+              "SSE_MAX_TOTAL_CLIENTS",
+              "1000",
+              "Per-process cap on live SSE connections; new connections beyond it get 429"
+            ],
+            [
+              "SSE_MAX_CLIENTS_PER_ORG",
+              "50",
+              "Per-process, per-org cap on live SSE connections, so one noisy org can't consume the whole pool"
             ]
           ]
         }
@@ -2638,6 +2996,26 @@ export const envVariablesTopic: HelpTopic = {
               "LOKI_BASE_SELECTOR",
               "service_name=~\".+\"",
               "Anchor matcher used when a log query constrains no label. Override on a deployment whose non-JSON producers people need to browse"
+            ],
+            [
+              "METRICS_SCRAPE_TOKEN",
+              "—",
+              "When set, every service's /metrics requires Authorization: Bearer <token> (Prometheus bearer_token_file). Unset → /metrics is ungated"
+            ],
+            [
+              "HTTP_METRICS_ORG_SAMPLE_RATE",
+              "0",
+              "Sample rate (0–1) for the per-org http_requests_by_org_total counter. Off by default: org_id is an unbounded, tenant-identifying label, so enable it deliberately and set METRICS_SCRAPE_TOKEN too"
+            ],
+            [
+              "OTEL_TRACING_ENABLED",
+              "false",
+              "Export OpenTelemetry traces"
+            ],
+            [
+              "OTEL_EXPORTER_OTLP_ENDPOINT",
+              "http://localhost:4318/v1/traces",
+              "OTLP/HTTP trace collector endpoint"
             ]
           ]
         },
@@ -2728,6 +3106,16 @@ export const envVariablesTopic: HelpTopic = {
               "MAX_EVENTS_PER_BATCH",
               "100",
               "Max events per batch ingestion"
+            ],
+            [
+              "PIPELINE_NAME_MAX_LENGTH",
+              "100",
+              "Max pipeline name length"
+            ],
+            [
+              "DEFAULT_PLUGIN_VERSION",
+              "1.0.0",
+              "Version assigned to a plugin uploaded without one"
             ],
             [
               "INVITATION_EXPIRATION_DAYS",
@@ -3274,6 +3662,11 @@ export const envVariablesTopic: HelpTopic = {
               "PLUGIN_MAX_EXTRACT_BYTES",
               "upload cap × ratio",
               "Absolute ceiling on bytes extracted from one archive"
+            ],
+            [
+              "PLUGIN_MAX_YAML_BYTES",
+              "1048576",
+              "Max size (bytes, 1 MiB) of a plugin's config.yaml / plugin-spec.yaml, checked before parsing (oversized-input / billion-laughs guard)"
             ]
           ]
         },

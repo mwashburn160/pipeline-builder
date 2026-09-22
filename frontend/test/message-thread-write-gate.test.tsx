@@ -34,10 +34,7 @@ jest.mock('@/lib/api', () => ({
     uploadAttachment: (...a: unknown[]) => uploadAttachment(...a),
   },
 }));
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ organizations: [{ id: 'org-1', name: 'Acme' }] }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ organizations: [{ id: 'org-1', name: 'Acme' }] })));
 
 // jsdom implements no scrolling; the thread scrolls its tail into view on load.
 if (typeof Element.prototype.scrollIntoView !== 'function') {

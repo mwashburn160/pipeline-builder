@@ -42,12 +42,6 @@ export function codeChallengeFor(verifier: string): string {
   return crypto.createHash('sha256').update(verifier, 'ascii').digest('base64url');
 }
 
-/** A verifier and its challenge in one step — the shape the initiate paths want. */
-export function createPkcePair(): { verifier: string; challenge: string } {
-  const verifier = createCodeVerifier();
-  return { verifier, challenge: codeChallengeFor(verifier) };
-}
-
 /** The authorization-request parameters for a verifier. Spread into the query. */
 export function pkceAuthorizeParams(verifier: string): Record<string, string> {
   return { code_challenge: codeChallengeFor(verifier), code_challenge_method: PKCE_METHOD_S256 };

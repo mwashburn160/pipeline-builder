@@ -239,7 +239,7 @@ spec:
             - name: GRYPE_DB_CACHE_DIR
               value: "/var/cache/grype"
           volumeMounts:
-            # This pod's OWN internal-token signing key (#14) and the PUBLIC
+            # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
             # is what stops a compromised service signing as another — while the
             # bundle is public and identical everywhere. Both from
@@ -428,9 +428,7 @@ spec:
 # instead of Docker Hub. Mounted by the buildkitd sidecar in the plugin
 # pod (see initContainers above).
 #
-# Previously lived in buildkitd-per-tier.yaml; moved here when the stale
-# standalone buildkitd-developer/pro/unlimited Deployments were retired
-# and the in-pod sidecar became the sole buildkitd in the cluster.
+# The in-pod sidecar is the only tenant buildkitd in the cluster.
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/** The plugin page's security-advisory banner and per-version markers (plan W8). */
+/** The plugin page's security-advisory banner and per-version markers. */
 import { ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Callout } from '@/components/ui/Callout';

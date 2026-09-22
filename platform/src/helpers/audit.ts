@@ -107,9 +107,9 @@ export function audit(
 // Durable local delivery
 //
 // Platform writes its own audit events straight to Mongo. A write that fails
-// (Mongo blip, failover, chain-slot contention exhausted) used to be logged and
-// DROPPED — for a security log that is the wrong failure mode. Failed events
-// now go to the same bounded, crash-safe Redis spool the remote-audit client
+// (Mongo blip, failover, chain-slot contention exhausted) must not be DROPPED —
+// for a security log that is the wrong failure mode. Failed events go to the
+// same bounded, crash-safe Redis spool the remote-audit client
 // uses (own key), and a background drain re-appends them.
 // ---------------------------------------------------------------------------
 
@@ -177,7 +177,8 @@ export async function drainLocalAuditSpool(max = 200): Promise<LocalSpoolDrainRe
   const spool = getLocalSpool();
   if (!spool) return result;
   await spool.heartbeat();
-  await recoverLocalAuditSpool();
+  // Reclaim entries left in flight by owners whose heartbeat is stale.
+  await spool.recover();
   const batch = await spool.take(max);
   if (batch.length === 0) return result;
   const delivered: typeof batch = [];
@@ -198,11 +199,4 @@ export async function drainLocalAuditSpool(max = 200): Promise<LocalSpoolDrainRe
   result.failed = failed.length;
   if (result.delivered > 0) emitCounter('audit_local_redelivered_total', {}, result.delivered);
   return result;
-}
-
-/** Reclaim entries left in flight by owners whose heartbeat is stale. Runs on
- *  every drain tick. */
-export async function recoverLocalAuditSpool(): Promise<number> {
-  const spool = getLocalSpool();
-  return spool ? spool.recover() : 0;
 }

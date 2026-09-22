@@ -84,11 +84,11 @@ jobs:
         id: changes
         env:
           PUSH_BEFORE: ${{ github.event.before }}
-        run: 'case "$GITHUB_EVENT_NAME" in pull_request) BASE="origin/$GITHUB_BASE_REF" ;; push) BASE="$PUSH_BEFORE" ;; *) BASE="" ;; esac; case "$BASE" in 0000000000000000000000000000000000000000) BASE="" ;; esac; if [ -n "$BASE" ] && ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then BASE=""; fi; echo "diff base: ${BASE:-<none: checking everything>}"; if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- deploy/ platform/test/deploy-*.test.ts .github/workflows/; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi'
+        run: 'case "$GITHUB_EVENT_NAME" in pull_request) BASE="origin/$GITHUB_BASE_REF" ;; push) BASE="$PUSH_BEFORE" ;; *) BASE="" ;; esac; case "$BASE" in 0000000000000000000000000000000000000000) BASE="" ;; esac; if [ -n "$BASE" ] && ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then BASE=""; fi; echo "diff base: ${BASE:-<none: checking everything>}"; if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- deploy/ test/deploy-contracts/ scripts/ .github/workflows/ README.md index.md packages/api-core/src/utils/sensitive-patterns.ts; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi'
       - name: Deploy contract tests
         id: deploy_contract_tests
         if: steps.changes.outputs.deploy == 'true'
-        run: cd platform && NODE_OPTIONS=--experimental-vm-modules npx jest --coverage=false --ci test/deploy-
+        run: cd test/deploy-contracts && NODE_OPTIONS=--experimental-vm-modules npx jest --coverage=false --ci
       - name: Render every k8s target
         id: render_every_k8s_target
         if: steps.changes.outputs.deploy == 'true'
@@ -97,6 +97,14 @@ jobs:
         id: validate_docker-compose
         if: steps.changes.outputs.deploy == 'true'
         run: cp deploy/local/docker/.env.example "$RUNNER_TEMP/pb.env" && docker compose --env-file "$RUNNER_TEMP/pb.env" -f deploy/local/docker/docker-compose.yml config -q
+      - name: Generated files are current
+        id: generated_files_are_current
+        if: steps.changes.outputs.deploy == 'true'
+        run: node scripts/gen-env-examples.mjs --check && node scripts/gen-readme-index.mjs --check && npx nx run @pipeline-builder/api-core:post-compile && node scripts/gen-promtail-masking.mjs --check
+      - name: Validate observability configs
+        id: validate_observability_configs
+        if: steps.changes.outputs.deploy == 'true'
+        run: deploy/bin/validate-configs.sh
       - name: Shellcheck deploy scripts
         id: shellcheck_deploy_scripts
         if: steps.changes.outputs.deploy == 'true'

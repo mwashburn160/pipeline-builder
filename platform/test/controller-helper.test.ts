@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn<AnyFn>(),
@@ -44,7 +44,7 @@ jest.unstable_mockModule('mongoose', () => {
 const { sendError } = await import('@pipeline-builder/api-core');
 const {
   isOrgAdmin,
-  requireAuth,
+  ensureAuthenticated,
   requireAuthUserId,
   requireSystemAdmin,
   requireOrgMembership,
@@ -92,15 +92,15 @@ describe('controller-helper', () => {
     });
   });
 
-  describe('requireAuth', () => {
+  describe('ensureAuthenticated', () => {
     it('should return true when user exists', () => {
-      expect(requireAuth(mockReq({ sub: 'u1' }), mockRes())).toBe(true);
+      expect(ensureAuthenticated(mockReq({ sub: 'u1' }), mockRes())).toBe(true);
     });
 
     it('should return false and send 401 when no user', () => {
       const res = mockRes();
-      expect(requireAuth(mockReq(), res)).toBe(false);
-      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Unauthorized');
+      expect(ensureAuthenticated(mockReq(), res)).toBe(false);
+      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Authentication required');
     });
   });
 
@@ -112,7 +112,7 @@ describe('controller-helper', () => {
     it('should return null and send 401 when no sub', () => {
       const res = mockRes();
       expect(requireAuthUserId(mockReq({}), res)).toBeNull();
-      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Unauthorized');
+      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Authentication required');
     });
 
     it('should return null when no user', () => {
@@ -136,7 +136,7 @@ describe('controller-helper', () => {
     it('should return false and send 401 when no user', () => {
       const res = mockRes();
       expect(requireSystemAdmin(mockReq(), res)).toBe(false);
-      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Unauthorized');
+      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Authentication required');
     });
   });
 
@@ -195,7 +195,7 @@ describe('controller-helper', () => {
     it('should return null and send 401 when no user', () => {
       const res = mockRes();
       expect(requireAdminContext(mockReq(), res)).toBeNull();
-      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Unauthorized');
+      expect(mockSendError).toHaveBeenCalledWith(res, 401, 'Authentication required');
     });
   });
 

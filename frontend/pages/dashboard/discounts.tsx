@@ -315,7 +315,7 @@ export default function DiscountsPage() {
             anyone who has it can redeem it, so share it carefully. It is shown once here.
           </p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 min-w-0 break-all rounded-md bg-surface-muted px-3 py-2 text-xs font-mono text-gray-800 dark:text-gray-200">
+            <code className="flex-1 min-w-0 break-all rounded-md bg-surface-muted px-3 py-2 text-xs font-mono text-fg">
               {issuedToken}
             </code>
             <CopyButton text={issuedToken} />

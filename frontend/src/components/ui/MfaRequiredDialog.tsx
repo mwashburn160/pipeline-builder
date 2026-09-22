@@ -24,7 +24,7 @@ const ENROL_HREF = PASSKEY_ENROLMENT_HREF;
 
 /**
  * What the app shows when a route refuses the SESSION for not being MFA-grade
- * (#8) — the counterpart to `StepUpModal`, for the refusal that a step-up
+ * — the counterpart to `StepUpModal`, for the refusal that a step-up
  * cannot fix.
  *
  * The distinction matters to the person in front of the screen:

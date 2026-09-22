@@ -59,14 +59,17 @@ describe('bootstrapPerOrgKmsProvider', () => {
     expect(mockPerOrgCtor).not.toHaveBeenCalled();
   });
 
-  it('is a no-op when the flag is anything other than literal "true"', () => {
-    process.env.SECRET_ENCRYPTION_PER_ORG_KMS = '1';
-    expect(bootstrapPerOrgKmsProvider()).toBe(false);
-    process.env.SECRET_ENCRYPTION_PER_ORG_KMS = 'yes';
-    expect(bootstrapPerOrgKmsProvider()).toBe(false);
-    process.env.SECRET_ENCRYPTION_PER_ORG_KMS = '';
-    expect(bootstrapPerOrgKmsProvider()).toBe(false);
+  it('is a no-op when the flag is off or unrecognized (shared envBool parsing)', () => {
+    for (const v of ['false', '0', 'no', '', 'maybe']) {
+      process.env.SECRET_ENCRYPTION_PER_ORG_KMS = v;
+      expect(bootstrapPerOrgKmsProvider()).toBe(false);
+    }
     expect(mockSetKeyProvider).not.toHaveBeenCalled();
+  });
+
+  it.each(['1', 'yes'])('installs the provider for the envBool truthy spelling %p', (v) => {
+    process.env.SECRET_ENCRYPTION_PER_ORG_KMS = v;
+    expect(bootstrapPerOrgKmsProvider()).toBe(true);
   });
 
   it('installs PerOrgKmsKeyProvider when the flag is "true" (case-insensitive)', () => {

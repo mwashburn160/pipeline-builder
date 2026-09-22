@@ -1,12 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-// The real `canAdministerOrg` falls through to a lazy `org-hierarchy.js` import
+// The real `canManageOrgScope` falls through to a lazy `org-hierarchy.js` import
 // on the CROSS-ORG branch; stub the walk so the ancestor case is a decision, not
 // a Mongoose round-trip.
 const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
@@ -50,12 +50,13 @@ function makeRes() {
   return res;
 }
 /**
- * `controller-helper` runs FOR REAL, so `canAdministerOrg` is satisfied by the
- * FIXTURE, not by a stub: admin/owner of the exact org named in `params.id`.
+ * `controller-helper` runs FOR REAL, so `canManageOrgScope` is satisfied by the
+ * FIXTURE, not by a stub: a caller whose active org is the one named in
+ * `params.id`. The `org:settings` capability is the route's gate.
  */
 const ORG_ADMIN = { sub: 'u1', organizationId: 'org-1', role: 'admin' };
-/** Same org, no admin role — authenticated but NOT an administrator. */
-const MEMBER = { sub: 'u2', organizationId: 'org-1' };
+/** Same org, no admin role, but a custom Role delegating `org:settings`. */
+const DELEGATE = { sub: 'u2', organizationId: 'org-1', role: 'member', permissions: ['org:settings'] };
 
 const req = (over: any = {}) => ({ user: ORG_ADMIN, params: { id: 'org-1' }, body: {}, ...over });
 
@@ -66,12 +67,11 @@ beforeEach(() => {
 });
 
 describe('org-domain controller', () => {
-  it('addOrgDomain: 403 when the caller does not administer the org', async () => {
-    // A plain member of org-1: authenticated, but `isOrgAdmin` is false.
+  it('addOrgDomain: admits a non-admin whose custom Role delegates org:settings', async () => {
     const res = makeRes();
-    await (addOrgDomain as any)(req({ user: MEMBER, body: { domain: 'acme.com' } }), res);
-    expect(res.status).toHaveBeenCalledWith(403);
-    expect(mockAddDomain).not.toHaveBeenCalled();
+    await (addOrgDomain as any)(req({ user: DELEGATE, body: { domain: 'acme.com' } }), res);
+    expect(res.status).not.toHaveBeenCalledWith(403);
+    expect(mockAddDomain).toHaveBeenCalled();
   });
 
   it('addOrgDomain: 403 for an admin of a DIFFERENT org', async () => {

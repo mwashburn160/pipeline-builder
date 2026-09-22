@@ -16,9 +16,10 @@
  *   - the outcome is audited and recorded as the config's last test.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import crypto from 'crypto';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -46,9 +47,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, message: string, code?: string) => { res.status(status).json({ success: false, message, code }); return res; },
   getParam: (params: Record<string, unknown>, key: string) => params?.[key],
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { oauth: { callbackBaseUrl: 'https://pb.test', stateTtlMs: 600_000, cleanupIntervalMs: 600_000, maxPendingStates: 1000 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ oauth: { callbackBaseUrl: 'https://pb.test', stateTtlMs: 600_000, cleanupIntervalMs: 600_000, maxPendingStates: 1000 } }));
 jest.unstable_mockModule('../src/utils/redis-client.js', () => ({ getRedisClient: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
@@ -95,21 +94,25 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   Role: { find: (...a: unknown[]) => ({ select: () => ({ lean: () => mockRoleFind(...a) }) }) },
 }));
 jest.unstable_mockModule('../src/services/index.js', () => ({ authService: { findOrCreateOAuthUser: mockFindOrCreate } }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
-  issueTokens: mockIssueTokens,
   signInAuth: () => ({ amr: ['sso'], aal: 1, authTime: new Date(0) }),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  issueTokens: mockIssueTokens,
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   oauthCallbackSchema: {},
   ssoDiscoverSchema: {},
+  ssoTestCompleteSchema: {},
   validateBody: (_s: unknown, body: unknown) => body,
 }));
-jest.unstable_mockModule('../src/controllers/saml.js', () => ({ beginSamlLogin: jest.fn() }));
+jest.unstable_mockModule('../src/services/saml-login-state.js', () => ({ beginSamlLogin: jest.fn() }));
 
-const { startSsoTest, completeSsoTest, handleSamlTestAssertion, isTestState, __resetSsoTestStores } =
-  await import('../src/controllers/sso-test.js');
+const { startSsoTest, completeSsoTest } = await import('../src/controllers/sso-test.js');
+const { handleSamlTestAssertion, isTestState } = await import('../src/helpers/sso-test-flow.js');
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 const { handleSsoCallback } = await import('../src/controllers/sso.js');
 
 const ORG = 'org-1';
@@ -133,7 +136,7 @@ async function start(protocol: 'oidc' | 'saml', user = ADMIN): Promise<string> {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  __resetSsoTestStores();
+  _resetAllPendingStoresForTests();
   mockRequireOwnOrgSso.mockResolvedValue(true);
   mockRecord.mockResolvedValue(true);
   mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize?x', codeVerifier: 'verifier-1' });

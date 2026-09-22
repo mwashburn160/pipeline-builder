@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Installs and the org consumption policy (plugin ecosystem §3.2, §3.4, §3.5,
- * §5a–§5c, D11, D13, D16, G33) against the in-memory database: installing and
+ * Installs and the org consumption policy (
+ * ) against the in-memory database: installing and
  * requesting (approval policy by tier), pause and policy refusals, upgrades
  * across majors, uninstall and the implicit Official fallback, approve / deny
  * with N11 / N12 and audit, the policy read/write with team inheritance, the
@@ -12,21 +12,22 @@
  * N26, N27) — publishers never learn who installed.
  */
 
-import type { Row } from './helpers/fake-ecosystem-db.js';
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
 import {
   DIGEST_A, DIGEST_B, SYSTEM_ORG, moderator, seedPublishers, setupEcosystemHarness, tenant, wireEcosystemHarness,
 } from './helpers/ecosystem-harness.js';
+import type { Row } from './helpers/fake-ecosystem-db.js';
 
 const h = setupEcosystemHarness();
 const installs = await import('../src/services/ecosystem/installs.js');
+const lookup = await import('../src/services/ecosystem/lookup.js');
 const installNotify = await import('../src/services/ecosystem/install-notify.js');
 const store = await import('../src/services/ecosystem/installs-store.js');
 const notify = await import('../src/services/ecosystem/notify.js');
 const publishersSvc = await import('../src/services/ecosystem/publishers.js');
 const consoleSvc = await import('../src/services/ecosystem/console.js');
-const decisions = await import('../src/services/ecosystem/decisions.js');
+const executeMod = await import('../src/services/ecosystem/execute.js');
 const registry = await import('../src/services/ecosystem/registry.js');
 await wireEcosystemHarness(h);
 
@@ -107,7 +108,7 @@ describe('createInstall', () => {
     expect(out.install).toMatchObject({ status: 'pending_approval', versionPolicy: 'pinned', resolvedVersion: null });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.request' }));
     expect(h.notify).toHaveBeenCalledWith('N11', [{ kind: 'org_permission', orgId: 'org-b', permission: 'plugin_installs:manage', inheritFromRoot: true }],
-      expect.objectContaining({ subject: 'Install requested: acme/lint' }));
+      expect.objectContaining({ subject: 'Install requested: acme/lint' }), expect.anything());
     await rejects(installs.createInstall(MEMBER(), { publisher: 'acme', name: 'lint' }), 'DUPLICATE_ENTRY');
 
     const admin = await installs.createInstall(ADMIN({ orgId: 'org-c' }), { publisher: 'acme', name: 'lint' }).catch((e) => e);
@@ -194,7 +195,7 @@ describe('updateInstall / removeInstall', () => {
       installId: row.id, listing: 'acme/lint', from: { version: '1.0.0', versionPolicy: 'minor' }, to: { version: '2.0.0', versionPolicy: 'minor' }, requestedBy: 'u-member', note: 'Need the new flags',
     });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.change-request', affectedOrgId: 'org-b' }));
-    expect(h.notify).toHaveBeenCalledWith('N11', [expect.objectContaining({ orgId: 'org-b', permission: 'plugin_installs:manage' })], expect.objectContaining({ subject: 'Install change requested: acme/lint' }));
+    expect(h.notify).toHaveBeenCalledWith('N11', [expect.objectContaining({ orgId: 'org-b', permission: 'plugin_installs:manage' })], expect.objectContaining({ subject: 'Install change requested: acme/lint' }), expect.anything());
     // One pending change per install; the views carry it.
     await rejects(installs.requestInstallChange(MEMBER(), row.id, { version: '2.0.0' }), 'DUPLICATE_ENTRY');
     expect((await installs.listInstalls(MEMBER(), {})).installs[0]!.pendingChange).toMatchObject({ version: '2.0.0' });
@@ -205,7 +206,7 @@ describe('updateInstall / removeInstall', () => {
     expect(out.install).toMatchObject({ pinnedVersion: '2.0.0', pendingChange: null });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.change-approve' }));
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.upgrade', details: expect.objectContaining({ requestedBy: 'u-member' }) }));
-    expect(h.notify).toHaveBeenCalledWith('N12', [{ kind: 'user', userId: 'u-member', orgId: 'org-b' }], expect.objectContaining({ subject: 'Install change approved: acme/lint' }));
+    expect(h.notify).toHaveBeenCalledWith('N12', [{ kind: 'user', userId: 'u-member', orgId: 'org-b' }], expect.objectContaining({ subject: 'Install change approved: acme/lint' }), expect.anything());
     await rejects(installs.approveInstallChange(ADMIN(), row.id), 'CONFLICT');
   });
 
@@ -218,13 +219,13 @@ describe('updateInstall / removeInstall', () => {
     const out = await installs.rejectInstallChange(ADMIN(), row.id, 'Stay on 1.x until the audit');
     expect(out.install).toMatchObject({ versionPolicy: 'minor', pendingChange: null });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.change-reject', details: expect.objectContaining({ reason: 'Stay on 1.x until the audit' }) }));
-    expect(h.notify).toHaveBeenCalledWith('N12', expect.anything(), expect.objectContaining({ text: expect.stringContaining('Stay on 1.x until the audit') }));
+    expect(h.notify).toHaveBeenCalledWith('N12', expect.anything(), expect.objectContaining({ text: expect.stringContaining('Stay on 1.x until the audit') }), expect.anything());
     await rejects(installs.rejectInstallChange(ADMIN(), row.id, null), 'CONFLICT');
   });
 
   it('needs an approver to cross a major (or widen to latest) on an approval-gated tier', async () => {
     const { row } = await installed({}, 'community');
-    // The views say so up front, so the UI can gate its Upgrade / latest controls (E24).
+    // The views say so up front, so the UI can gate its Upgrade / latest controls.
     expect((await installs.listInstalls(MEMBER(), {})).installs[0]).toMatchObject({ needsApproval: true });
     expect((await installs.listInstalls(ADMIN(), {})).installs[0]).toMatchObject({ needsApproval: false });
     await rejects(installs.updateInstall(MEMBER(), row.id, { version: '2.0.0' }), 'INSUFFICIENT_PERMISSIONS');
@@ -275,7 +276,7 @@ describe('approve / deny', () => {
     const out = await installs.approveInstall(ADMIN(), row.id);
     expect(out.install).toMatchObject({ status: 'active', approvedBy: 'u-admin', resolvedVersion: '1.0.0' });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.approve', details: expect.objectContaining({ requestedBy: 'u-member' }) }));
-    expect(h.notify).toHaveBeenCalledWith('N12', [{ kind: 'user', userId: 'u-member', orgId: 'org-b' }], expect.objectContaining({ subject: 'Install approved: acme/lint' }));
+    expect(h.notify).toHaveBeenCalledWith('N12', [{ kind: 'user', userId: 'u-member', orgId: 'org-b' }], expect.objectContaining({ subject: 'Install approved: acme/lint' }), expect.anything());
     await rejects(installs.approveInstall(ADMIN(), row.id), 'CONFLICT');
   });
 
@@ -285,7 +286,7 @@ describe('approve / deny', () => {
     const out = await installs.denyInstall(ADMIN(), row.id, '  not needed  ');
     expect(out.install.status).toBe('denied');
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.deny', details: expect.objectContaining({ reason: 'not needed' }) }));
-    expect(h.notify).toHaveBeenCalledWith('N12', expect.anything(), expect.objectContaining({ text: expect.stringMatching(/denied: not needed/) }));
+    expect(h.notify).toHaveBeenCalledWith('N12', expect.anything(), expect.objectContaining({ text: expect.stringMatching(/denied: not needed/) }), expect.anything());
 
     const again = await pending();
     db.tables.plugin_install_policies = [];
@@ -344,7 +345,7 @@ describe('catalog, install state, installs list and shadowing', () => {
     const { listings } = await installs.catalog(MEMBER(), {});
     expect(listings.map((e) => `${e.listing.publisherHandle}/${e.listing.name}`)).toEqual(['acme/lint', 'pipeline-builder/semgrep', 'pipeline-builder/trivy']);
     const [lint, semgrep, trivy] = listings;
-    expect(lint).toMatchObject({ install: null, installable: true, requiresApproval: false, blocked: null, resolved: null, reference: { publisher: 'acme', name: 'lint' }, shadowedBy: null });
+    expect(lint).toMatchObject({ install: null, installable: true, needsApproval: false, blocked: null, resolved: null, reference: { publisher: 'acme', name: 'lint' }, shadowedBy: null });
     expect(trivy).toMatchObject({
       install: { id: null, implicit: true, resolvedVersion: '1.1.0', upgrade: { version: '2.0.0', breaking: true, changelog: 'changes in 2.0.0' } },
       installable: true,
@@ -359,7 +360,7 @@ describe('catalog, install state, installs list and shadowing', () => {
     expect((await installs.catalog(MEMBER(), { installed: 'false' })).listings.map((e) => e.listing.name)).toEqual(['lint']);
   });
 
-  it('pages the catalog with total + hasMore instead of silently capping it (E24)', async () => {
+  it('pages the catalog with total + hasMore instead of silently capping it', async () => {
     seedAll();
     const first = await installs.catalog(MEMBER(), { limit: '2' });
     expect(first).toMatchObject({ total: 3, limit: 2, offset: 0, hasMore: true });
@@ -403,15 +404,15 @@ describe('catalog, install state, installs list and shadowing', () => {
   });
 });
 
-describe('lookup resolution (§3.5) and the signed tier annotation (§3.3)', () => {
+describe('lookup resolution and the signed tier annotation', () => {
   it('resolves the implicit Official install and refuses what the org can\'t use', async () => {
     const { official, acme } = seedPublishers(db, { tenantTier: 'verified' });
     listing(official, 'trivy', ['1.0.0', '1.1.0']);
     listing(acme, 'lint', ['1.0.0']);
-    const res = await installs.resolveListedLookup({ orgId: 'org-b' }, { name: 'trivy' });
+    const res = await lookup.resolveListedLookup({ orgId: 'org-b' }, { name: 'trivy' });
     expect(res && 'record' in res && res.record).toMatchObject({ name: 'trivy', version: '1.1.0', publisher: 'pipeline-builder', imageRepository: 'public/pipeline-builder/trivy', install: 'implicit' });
-    expect(await installs.resolveListedLookup({ orgId: 'org-b' }, { name: 'missing' })).toBeNull();
-    expect(await installs.resolveListedLookup({ orgId: 'org-b' }, { publisher: 'acme', name: 'lint' })).toEqual({
+    expect(await lookup.resolveListedLookup({ orgId: 'org-b' }, { name: 'missing' })).toBeNull();
+    expect(await lookup.resolveListedLookup({ orgId: 'org-b' }, { publisher: 'acme', name: 'lint' })).toEqual({
       refused: { status: 403, code: 'PLUGIN_NOT_INSTALLED', message: expect.stringMatching(/not installed/), details: { reason: 'not_installed' } },
     });
   });
@@ -420,13 +421,13 @@ describe('lookup resolution (§3.5) and the signed tier annotation (§3.3)', () 
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     const { listing: l } = listing(acme, 'lint', ['1.0.0', '1.2.0']);
     const row = db.seed('plugin_installs', { orgId: 'org-b', listingId: l.id, status: 'active', installedBy: 'u', pinnedVersion: '1.0.0' });
-    await installs.resolveListedLookup({ orgId: 'org-b' }, { publisher: 'acme', name: 'lint', version: '1.0.0' });
+    await lookup.resolveListedLookup({ orgId: 'org-b' }, { publisher: 'acme', name: 'lint', version: '1.0.0' });
     expect(row.resolvedVersion).toBeNull();
-    await installs.resolveListedLookup({ orgId: 'org-b' }, { publisher: 'acme', name: 'lint' });
+    await lookup.resolveListedLookup({ orgId: 'org-b' }, { publisher: 'acme', name: 'lint' });
     expect(row.resolvedVersion).toBe('1.2.0');
     // A team's lookup never rewrites its root's row.
     row.resolvedVersion = null;
-    await installs.resolveListedLookup({ orgId: 'team-b', rootOrgId: 'org-b' }, { publisher: 'acme', name: 'lint' });
+    await lookup.resolveListedLookup({ orgId: 'team-b', rootOrgId: 'org-b' }, { publisher: 'acme', name: 'lint' });
     expect(row.resolvedVersion).toBeNull();
   });
 
@@ -434,30 +435,30 @@ describe('lookup resolution (§3.5) and the signed tier annotation (§3.3)', () 
     const { official } = seedPublishers(db);
     const { listing: l, versions } = listing(official, 'trivy', ['1.0.0']);
     const res = { publisher: db.tables.publishers[0] as any, listing: l as any, version: versions[0] as any };
-    await expect(installs.verifyListedImage(res)).resolves.toBeUndefined();
+    await expect(lookup.verifyListedImage(res)).resolves.toBeUndefined();
     expect(registryGet).toHaveBeenCalledWith(`/internal/plugin-publications/verify?imageRepository=${encodeURIComponent('public/pipeline-builder/trivy')}&digest=${encodeURIComponent(DIGEST_A)}`, expect.anything());
     registryGet.mockResolvedValueOnce({ statusCode: 200, body: { data: { signed: true, tier: 'community', publisher: 'pipeline-builder' } } });
-    await expect(installs.verifyListedImage(res)).rejects.toThrow(/signed as community\/pipeline-builder, not official\/pipeline-builder/);
+    await expect(lookup.verifyListedImage(res)).rejects.toThrow(/signed as community\/pipeline-builder, not official\/pipeline-builder/);
     registryGet.mockResolvedValueOnce({ statusCode: 200, body: { data: { signed: false, tier: null, publisher: null } } });
-    await expect(installs.verifyListedImage(res)).rejects.toThrow(/no valid platform signature/);
+    await expect(lookup.verifyListedImage(res)).rejects.toThrow(/no valid platform signature/);
     registryGet.mockResolvedValueOnce({ statusCode: 400, body: { message: 'bad repo' } });
-    await expect(installs.verifyListedImage(res)).rejects.toThrow(/could not be verified/);
+    await expect(lookup.verifyListedImage(res)).rejects.toThrow(/could not be verified/);
     registryGet.mockResolvedValueOnce({ statusCode: 503, body: {} });
-    await expect(installs.verifyListedImage(res)).rejects.toThrow(/HTTP 503/);
+    await expect(lookup.verifyListedImage(res)).rejects.toThrow(/HTTP 503/);
     registryGet.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-    await expect(installs.verifyListedImage(res)).rejects.toThrow(/unreachable/);
-    await expect(installs.verifyListedImage({ ...res, version: { ...res.version, imageDigest: null } })).rejects.toThrow(/no published image/);
+    await expect(lookup.verifyListedImage(res)).rejects.toThrow(/unreachable/);
+    await expect(lookup.verifyListedImage({ ...res, version: { ...res.version, imageDigest: null } })).rejects.toThrow(/no published image/);
   });
 
   it('shadowedListing names the Official listing an own plugin hides', async () => {
     const { official } = seedPublishers(db);
     listing(official, 'trivy', ['1.0.0']);
-    expect(await installs.shadowedListing({ orgId: 'org-b' }, 'trivy')).toEqual({ publisher: 'pipeline-builder', name: 'trivy' });
-    expect(await installs.shadowedListing({ orgId: 'org-b' }, 'other')).toBeNull();
+    expect(await lookup.shadowedListing({ orgId: 'org-b' }, 'trivy')).toEqual({ publisher: 'pipeline-builder', name: 'trivy' });
+    expect(await lookup.shadowedListing({ orgId: 'org-b' }, 'other')).toBeNull();
   });
 });
 
-describe('installing-org fan-out (§5b: N8, N13, N14, N26, N27)', () => {
+describe('installing-org fan-out (N8, N13, N14, N26, N27)', () => {
   const approvers = (orgId: string) => ({ kind: 'org_permission', orgId, permission: 'plugin_installs:manage', inheritFromRoot: true });
 
   it('finds explicit installers and implicit Official users (minus opt-outs and blocks)', async () => {
@@ -576,13 +577,13 @@ describe('installing-org fan-out (§5b: N8, N13, N14, N26, N27)', () => {
     const { listing: l } = listing(official, 'trivy', ['1.0.0', '1.1.0']);
     db.seed('plugin_installs', { orgId: 'org-p1', listingId: l.id, status: 'active', installedBy: 'u', versionPolicy: 'pinned', pinnedVersion: '1.0.0' });
     db.seed('plugin_installs', { orgId: 'org-p2', listingId: l.id, status: 'active', installedBy: 'u', versionPolicy: 'pinned', pinnedVersion: '1.1.0' });
-    await decisions.yankListedVersion(l as any, official as any, '1.1.0', 'CVE', SYSTEM_ORG);
+    await executeMod.yankListedVersion(l as any, official as any, '1.1.0', 'CVE', SYSTEM_ORG);
     expect(h.notify).toHaveBeenCalledWith('N8', [approvers('org-p2')], expect.anything(), {});
   });
 });
 
 describe('store: implicit Official users and shadowing rows', () => {
-  it('reads ONE manifest query: live pipelines only, the Official publisher by id, the exact version (E8/E12)', async () => {
+  it('reads ONE manifest query: live pipelines only, the Official publisher by id, the exact version', async () => {
     const { PgDialect } = await import('drizzle-orm/pg-core');
     const dialect = new PgDialect();
     db.execute.handler = () => ({ rows: [{ org_id: 'C' }, { org_id: null }, { org_id: 'a' }] });

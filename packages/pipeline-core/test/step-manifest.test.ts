@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Step manifest (W0.1): the (stage, action) → plugin map PipelineBuilder emits
+ * Step manifest: the (stage, action) → plugin map PipelineBuilder emits
  * after building the pipeline. The load-bearing property is that the stage and
  * action names are EXACTLY what the synthesized CodePipeline carries — those
  * are the names CodePipeline state-change events report, and event ingest joins

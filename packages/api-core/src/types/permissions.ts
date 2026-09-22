@@ -27,7 +27,7 @@ export type Permission =
   | 'pipelines:publish'
   // Golden-path pipeline templates. Split out of `pipelines:*` so a platform
   // team can curate the starter catalog WITHOUT write access to every pipeline
-  // (and vice versa) — the two used to share one gate. `:publish` maps to the
+  // (and vice versa). `:publish` maps to the
   // template ladder's `public` rung; `org` and `private` need only `:write`.
   | 'templates:read'
   | 'templates:write'
@@ -36,7 +36,7 @@ export type Permission =
   | 'plugins:read'
   | 'plugins:write'
   | 'plugins:publish'
-  // Plugin ecosystem (docs/plans/plugin-ecosystem.md §5a). Org-assignable:
+  // Plugin ecosystem (docs/plugin-publishing.md). Org-assignable:
   //  - `plugins:install`        — install/upgrade/uninstall listings (or REQUEST
   //                               an install when the org's policy needs approval).
   //  - `plugin_installs:manage` — the org's consumption policy + deciding install
@@ -127,12 +127,12 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
 /**
  * The CLOSED set of functions that take a {@link Permission} and decide access.
  *
- * "Is permission X enforced anywhere?" has to be answerable statically, and it
- * used to not be: four different call shapes consumed a permission id
+ * "Is permission X enforced anywhere?" has to be answerable statically, which
+ * a grep can't do: four different call shapes consume a permission id
  * (`requirePermission('x')` at a route, `userHasPermission(req, 'x')` inside a
  * controller, and `resolveVisibility(req, v, 'x')` /
  * `requireVisibilityWriteAccess(…, 'x')` in the visibility helpers), so a naive
- * grep for a route-level gate reported `templates:publish` as UNENFORCED when it
+ * grep for a route-level gate reports `templates:publish` as UNENFORCED when it
  * is in fact enforced on every template publish.
  *
  * They all bottom out in `userHasPermission`, so the RUNTIME primitive was
@@ -266,7 +266,7 @@ export const SUPERADMIN_ONLY_PERMISSIONS: readonly Permission[] = [
 
 /**
  * Permissions that govern the PLUGIN ECOSYSTEM and may be held only inside the
- * system org (docs/plans/plugin-ecosystem.md §3.0, §5a). Like
+ * system org (docs/plugin-publishing.md). Like
  * {@link SUPERADMIN_ONLY_PERMISSIONS} they are in no member/admin/owner bundle
  * and are never grantable through a custom Role in ANY org (platform
  * `sanitizePermissions` refuses them). The only holders are superadmins
@@ -406,7 +406,7 @@ export const ROLE_PERMISSIONS: Record<OrgRole, readonly Permission[]> = {
 
 /**
  * Seed bundle for the built-in "Ecosystem Manager" Role — seeded ONLY in the
- * system org (docs/plans/plugin-ecosystem.md §5a.1). It carries the
+ * system org (docs/plugin-publishing.md). It carries the
  * {@link SYSTEM_ORG_ONLY_PERMISSIONS} plus the reads a moderator needs (the
  * in-app catalog, in-app notices, the moderation-SLA dashboard) and nothing
  * tenant-facing: no `registry:*`, no `members:manage`. The Role grants the
@@ -431,7 +431,7 @@ export const ECOSYSTEM_MANAGER_PERMISSIONS: readonly Permission[] = [
  * permissions carried by the Roles they hold (a Role = a named permission set;
  * built-in Roles carry their bundle explicitly, seeded from
  * {@link ROLE_PERMISSIONS}). There is no separate role-derived baseline — the
- * coarse `role` label no longer grants anything on its own.
+ * coarse `role` label grants nothing on its own.
  *
  * 1. Platform superadmins (`isSuperAdmin`) always get ALL permissions.
  * 2. Otherwise, union every permission granted by the user's assigned Roles.
@@ -459,7 +459,7 @@ export function resolveUserPermissions(
 /**
  * Confine a resolved permission list to what may be held in the token's ACTIVE
  * org: outside the system org every {@link SYSTEM_ORG_ONLY_PERMISSIONS} entry is
- * dropped (docs/plans/plugin-ecosystem.md §5a, G22). Applied at token issue on
+ * dropped (docs/plugin-publishing.md). Applied at token issue on
  * top of {@link resolveUserPermissions} — including a superadmin's implicit-all —
  * so a token minted in a tenant org never CLAIMS `plugins:moderate` /
  * `publishers:verify`, even if a hand-written Role document somehow carried

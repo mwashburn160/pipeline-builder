@@ -18,9 +18,7 @@ import { useQuery } from '../src/hooks/useQuery';
 import { useListPage } from '../src/hooks/useListPage';
 import { clearQueryCache, invalidateQueries, type Query } from '../src/lib/query-cache';
 
-jest.mock('next/router', () => ({
-  useRouter: () => ({ query: {}, isReady: true, pathname: '/x', replace: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ query: {}, isReady: true, pathname: '/x', replace: jest.fn<AnyFn>() })));
 
 /** A descriptor whose run() is a spy, rebuilt each render like a real call site. */
 function counting(key: string, value = 'v') {
@@ -115,9 +113,9 @@ describe('useQuery', () => {
 
 describe('useQuery — changing the key', () => {
   it('does not keep showing the PREVIOUS key while an uncached key loads', async () => {
-    // A cache miss used to leave the previous key's data on screen — the
-    // executions page kept the old date range's rows (and the stat cards built
-    // from them) while the new range loaded.
+    // A cache miss must not leave the previous key's data on screen — e.g. the
+    // executions page showing the old date range's rows (and the stat cards
+    // built from them) while the new range loads.
     let resolveB!: (v: string) => void;
     const a: Query<string> = { key: 'range-a', run: () => Promise.resolve('rows-a'), staleMs: 10_000 };
     const b: Query<string> = { key: 'range-b', run: () => new Promise<string>((r) => { resolveB = r; }), staleMs: 10_000 };

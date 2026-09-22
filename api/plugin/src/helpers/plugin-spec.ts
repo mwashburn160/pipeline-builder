@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import path from 'path';
 
 import {
-  PLUGIN_NAME_PATTERN, PLUGIN_VERSION_PATTERN, ValidationError, checkPluginConfig, checkPluginSpec, checkPluginTemplates, formatPluginTemplateIssue,
+  envInt, PLUGIN_NAME_PATTERN, PLUGIN_VERSION_PATTERN, ValidationError, checkPluginConfig, checkPluginSpec, checkPluginTemplates, formatPluginTemplateIssue,
   pluginSpecRequiredFieldsProblem, type PluginTemplateEngine, type PluginTemplateIssue,
 } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -54,7 +54,7 @@ export interface ParsedPlugin {
  * Max YAML text length (bytes) accepted for config.yaml / plugin-spec.yaml.
  * Bounds memory before parsing. Default 1 MiB — plugin manifests are small.
  */
-const MAX_YAML_BYTES = parseInt(process.env.PLUGIN_MAX_YAML_BYTES || '1048576', 10);
+const MAX_YAML_BYTES = envInt('PLUGIN_MAX_YAML_BYTES', 1_048_576, { min: 1 });
 
 /**
  * Parse YAML with an input-length cap and a bounded alias count. The `yaml`
@@ -168,9 +168,9 @@ export async function parsePluginZip(zipPath: string, opts: ParseZipOptions = {}
       .validateAndResolve({ extractDir, config, pluginSpec, isApprovalStep });
 
     // --- README (zip root) --------------------------------------------------
-    // A detected catalog value (§3.1a): validated, then rendered to sanitized
+    // A detected catalog value: validated, then rendered to sanitized
     // HTML once accepted or edited (catalog-metadata.ts), so no read path ever
-    // renders untrusted markdown (G6).
+    // renders untrusted markdown.
     const readmeMd = texts.get('README.md') ?? null;
 
     return { pluginSpec, extractDir, dockerfile, dockerfileContent, buildType, readmeMd };
@@ -200,9 +200,9 @@ function normalizeContractTypes(types: Record<string, string> | undefined): Reco
 }
 
 /**
- * The execution-CONTRACT columns for a parsed plugin (W0.2): what the spec
+ * The execution-CONTRACT columns for a parsed plugin: what the spec
  * declares about how the plugin runs, persisted rather than validated and
- * dropped. Spec-only and never editable (G56). The descriptive catalog columns
+ * dropped. Spec-only and never editable. The descriptive catalog columns
  * come from `catalogColumns` (catalog-metadata.ts) after accept-or-edit.
  */
 export function specContractFields(spec: PluginSpec): PluginContractFields {

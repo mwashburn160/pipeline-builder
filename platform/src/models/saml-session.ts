@@ -19,11 +19,11 @@
  * never outgrows the set of sessions that could still be live.
  */
 
-import { Schema, model, Document } from 'mongoose';
+import { Schema, model, type HydratedDocument, Types } from 'mongoose';
 
-export interface SamlSessionDocument extends Document {
+export interface SamlSessionData {
   userId: string;
-  orgId: string;
+  organizationId: Types.ObjectId;
   /** The platform refresh-session slot id (the access token's `sid`). */
   sessionId: string;
   /** The IdP entity id that issued the assertion. */
@@ -35,10 +35,12 @@ export interface SamlSessionDocument extends Document {
   createdAt: Date;
 }
 
-const samlSessionSchema = new Schema<SamlSessionDocument>(
+export type SamlSessionDocument = HydratedDocument<SamlSessionData>;
+
+const samlSessionSchema = new Schema<SamlSessionData>(
   {
     userId: { type: String, required: true },
-    orgId: { type: String, required: true },
+    organizationId: { type: Schema.Types.ObjectId, required: true },
     sessionId: { type: String, required: true },
     issuer: { type: String, required: true },
     nameID: { type: String, required: true },
@@ -50,7 +52,7 @@ const samlSessionSchema = new Schema<SamlSessionDocument>(
 );
 
 samlSessionSchema.index({ userId: 1, sessionId: 1 }, { unique: true });
-samlSessionSchema.index({ orgId: 1, issuer: 1, nameID: 1 });
+samlSessionSchema.index({ organizationId: 1, issuer: 1, nameID: 1 });
 samlSessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-export default model<SamlSessionDocument>('SamlSession', samlSessionSchema);
+export default model<SamlSessionData>('SamlSession', samlSessionSchema);

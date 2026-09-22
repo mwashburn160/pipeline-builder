@@ -124,9 +124,9 @@ export default function RolesPage() {
     // never downgrades 'owner'), so an owner removing themselves from a Role
     // can't actually lose owner access — only the Role's granted access.
     if (r.grantsRole === 'member') return null;
-    // G2: can't remove yourself from a Role granting your own admin/superadmin.
+    // Can't remove yourself from a Role granting your own admin/superadmin.
     if (memberId === user?.id) return 'You cannot remove yourself from this role — it grants your own access. Have another admin do it.';
-    // G3: can't empty a privilege-granting Role.
+    // Can't empty a privilege-granting Role.
     if (r.members.length <= 1) return 'Cannot remove the last member — the organization would have no one in this role. Add another first.';
     return null;
   };
@@ -145,7 +145,7 @@ export default function RolesPage() {
       toast.success(`Added ${email} to ${addToRole.name}`);
       setAddToRole(null);
       setAddEmail('');
-      fetchRoles();
+      void fetchRoles();
     }
   };
 
@@ -158,7 +158,7 @@ export default function RolesPage() {
       if (!res.success) throw new Error(res.message || 'Failed to remove from role');
       toast.success(`Removed ${member.username} from ${role.name}`);
       setRemoveTarget(null);
-      fetchRoles();
+      void fetchRoles();
     } catch (err) {
       toast.error(formatError(err, 'Failed to remove from role'));
     } finally {
@@ -216,7 +216,7 @@ export default function RolesPage() {
     if (result !== null) {
       toast.success(editorRole ? `Updated ${payload.name}` : `Created ${payload.name}`);
       setEditorOpen(false);
-      fetchRoles();
+      void fetchRoles();
     }
   };
 
@@ -226,7 +226,7 @@ export default function RolesPage() {
     if (result !== null) {
       toast.success(`Deleted ${deleteTarget.name}`);
       setDeleteTarget(null);
-      fetchRoles();
+      void fetchRoles();
     }
   };
 
@@ -457,8 +457,8 @@ export default function RolesPage() {
           }
         >
           <div className="flex items-start gap-3">
-            <div className="shrink-0 w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            <div className="shrink-0 w-9 h-9 rounded-full bg-warning-bg flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5 text-warning" />
             </div>
             <div className="text-sm text-fg-muted">
               <p>
@@ -466,12 +466,12 @@ export default function RolesPage() {
                 <strong className="text-fg">{removeTarget.role.name}</strong>?
               </p>
               {removeTarget.role.grantsRole === 'superadmin' && (
-                <p className="mt-2 text-amber-700 dark:text-amber-400">
+                <p className="mt-2 text-warning">
                   This will <strong>revoke their platform-admin access</strong> (unless another role still grants it).
                 </p>
               )}
               {removeTarget.role.grantsRole === 'admin' && (
-                <p className="mt-2 text-amber-700 dark:text-amber-400">
+                <p className="mt-2 text-warning">
                   This will <strong>revoke their organization-admin access</strong> (unless another role still grants it). The
                   organization owner keeps owner access regardless.
                 </p>

@@ -33,8 +33,7 @@ interface InvitePreview {
  * Invitation accept page.
  *
  * Invitation emails link here (`/invite/accept?token=…`, set in the platform
- * invite email template). Previously the loop dead-ended: an invitee had no UI
- * to accept. This page previews the invite (public `GET /invitation/:token`),
+ * invite email template). This page previews the invite (public `GET /invitation/:token`),
  * then:
  *   - logged in  → accepts directly (`POST /invitation/accept`, body `{ token }`)
  *   - logged out → register-and-accept: create the account with the invited
@@ -268,8 +267,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                     <p className="text-xs text-fg-muted">
                       Create your account to accept. Already have one?{' '}
                       {/* Remember THIS page, so signing in brings the invitee back
-                          here to accept. The link used to go to `/` bare, so they
-                          landed on the dashboard and had to dig the email out again. */}
+                          here to accept instead of to the dashboard. */}
                       <Link href="/" onClick={rememberInvite} className="text-brand hover:underline">Sign in</Link> and you&apos;ll come back here.
                     </p>
                     <Input

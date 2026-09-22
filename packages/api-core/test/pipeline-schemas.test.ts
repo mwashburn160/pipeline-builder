@@ -60,7 +60,7 @@ describe('PluginOptionsSchema guard', () => {
     }
   });
 
-  it('accepts a `publisher` on a plugin reference (installed listings, §3.5)', () => {
+  it('accepts a `publisher` on a plugin reference (installed listings)', () => {
     const result = PipelineCreateSchema.safeParse(basePipeline({
       plugin: { publisher: 'acme', name: 'terraform-plan', filter: { version: '^1' } },
     }));

@@ -325,7 +325,7 @@ describe('ai-plugin-generation-service', () => {
     });
   });
 
-  // W6: catalog context in the system prompt
+  // catalog context in the system prompt
 
   describe('similar plugins prompt section', () => {
     const similar = [

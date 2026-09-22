@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Pure ranking for the AI generator's "similar plugins already exist" hint
- * (plugin-ecosystem W6). Given the catalog rows the caller can see and the
+ * Pure ranking for the AI generator's "similar plugins already exist" hint.
+ * Given the catalog rows the caller can see and the
  * user's prompt, pick the few plugins that look most like what the user is
  * asking for, so the model can be told not to duplicate them and the UI can
  * point the user at them instead.
@@ -22,7 +22,7 @@ export interface SimilarPluginCandidate {
   summary: string | null;
   description: string | null;
   keywords: unknown;
-  /** The listed version's health score (W7), when the row is published to a listing: equal matches favour the healthier plugin. */
+  /** The listed version's health score, when the row is published to a listing: equal matches favour the healthier plugin. */
   healthScore?: number | null;
 }
 

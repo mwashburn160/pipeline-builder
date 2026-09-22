@@ -1,7 +1,7 @@
 # Plugin icon sources
 
 Curated vendor/tool marks for **Official** plugin listings
-(docs/plans/plugin-ecosystem.md §6a.1, decision D17). One SVG per key:
+(licensing rules: docs/plugin-publishing.md#why-the-ecosystem-works-this-way). One SVG per key:
 `<key>.svg`, referenced from a plugin spec as `icon: <key>` or
 `icon: { key: <key>, badge: <language-key> }`.
 

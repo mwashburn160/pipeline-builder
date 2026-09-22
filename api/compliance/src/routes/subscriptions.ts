@@ -5,7 +5,6 @@ import {
   sendSuccess,
   sendPaginatedNested,
   sendBadRequest,
-  sendError,
   ErrorCode,
   errorMessage,
   getParam,
@@ -16,46 +15,17 @@ import {
   requirePermission,
   requireInternalService,
   actorId,
+  complianceFeatureForTags,
+  type FeatureFlag,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { withInheritedSource } from '../helpers/inherited-source.js';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
-import {
-  subscriptionService,
-  CS_RULE_NOT_FOUND,
-  CS_SUBSCRIPTION_NOT_FOUND,
-  CS_NOT_PUBLISHED,
-  CS_SYSTEM_ORG,
-} from '../services/subscription-service.js';
-
-/**
- * Maps typed subscription-service error codes (`CS_*`) to HTTP responses.
- * Keyed on the exact thrown code — a reworded message can never silently
- * degrade a 4xx into a 500. The raw `CS_*` code is never surfaced to the
- * client; only the mapped message is. Unmapped errors rethrow (→ 500).
- */
-const SUB_ERROR_MAP: Record<string, { status: number; message: string; code: ErrorCode }> = {
-  [CS_RULE_NOT_FOUND]: { status: 400, message: 'Rule not found', code: ErrorCode.VALIDATION_ERROR },
-  [CS_SUBSCRIPTION_NOT_FOUND]: { status: 400, message: 'Subscription not found', code: ErrorCode.VALIDATION_ERROR },
-  [CS_NOT_PUBLISHED]: { status: 400, message: 'Only published rules can be subscribed to', code: ErrorCode.VALIDATION_ERROR },
-  [CS_SYSTEM_ORG]: { status: 403, message: 'System org cannot manage rule subscriptions', code: ErrorCode.INSUFFICIENT_PERMISSIONS },
-};
-
-/**
- * Translate a caught subscription-service error into an HTTP response.
- * Returns `true` when the error was mapped (response already sent); returns
- * `false` when the caller should rethrow (unmapped → propagates to 500).
- */
-function handleSubError(res: Response, err: unknown): boolean {
-  const mapped = SUB_ERROR_MAP[errorMessage(err)];
-  if (!mapped) return false;
-  sendError(res, mapped.status, mapped.message, mapped.code);
-  return true;
-}
+import { subscriptionService } from '../services/subscription-service.js';
 
 /** Compliance-write gate, built once. */
 const requireComplianceWrite = requirePermission('compliance:write');
@@ -91,20 +61,6 @@ function passesGate(
 }
 
 /**
- * Resolve which entitlement feature a published rule's `set:` tag requires, or
- * `null` for a baseline/un-tagged published rule (which stays open). Advanced is
- * checked first so a rule tagged both resolves to the higher entitlement.
- * Accepts the raw jsonb `tags` value (unknown at the type level) so callers can
- * pass a rule's `tags` column without a per-site cast.
- */
-function requiredFeatureForTags(tags: unknown): 'compliance_standard' | 'compliance_advanced' | null {
-  const t = Array.isArray(tags) ? (tags as string[]) : [];
-  if (t.includes('set:advanced')) return 'compliance_advanced';
-  if (t.includes('set:standard')) return 'compliance_standard';
-  return null;
-}
-
-/**
  * The curated-set entitlement paywall applied identically by every enforcement-
  * path route (subscribe / activate / bulk-activate / clone / impact-preview):
  * when `requiredFeature` is set, run api-core's `requireFeature` gate (sysadmin
@@ -117,7 +73,7 @@ function requiredFeatureForTags(tags: unknown): 'compliance_standard' | 'complia
 function denyIfUnentitled(
   req: Request,
   res: Response,
-  requiredFeature: 'compliance_standard' | 'compliance_advanced' | null,
+  requiredFeature: FeatureFlag | null,
 ): boolean {
   return requiredFeature !== null && !passesGate(requireFeature(requiredFeature), req, res);
 }
@@ -237,29 +193,24 @@ export function createSubscriptionRoutes(): Router {
     // isn't a published set-tagged rule (miss / baseline) falls through ungated.
     if (validation.value.isActive) {
       const rule = await complianceRuleService.findPublishedById(ruleId);
-      if (denyIfUnentitled(req, res, requiredFeatureForTags(rule?.tags))) return;
+      if (denyIfUnentitled(req, res, complianceFeatureForTags(rule?.tags))) return;
     }
 
-    try {
-      const subscription = await subscriptionService.setActive(orgId, ruleId, validation.value.isActive, userId);
-      ctx.log('COMPLETED', `Subscription ${validation.value.isActive ? 'activated' : 'deactivated'}`, { ruleId });
+    const subscription = await subscriptionService.setActive(orgId, ruleId, validation.value.isActive, userId);
+    ctx.log('COMPLETED', `Subscription ${validation.value.isActive ? 'activated' : 'deactivated'}`, { ruleId });
 
-      // Best-effort attributed audit — toggling an enforced rule's active
-      // state changes the org's compliance posture at upload/validate time.
-      emitComplianceAudit({
-        action: 'compliance.rule.toggle',
-        actorId: actorId({ userId }),
-        orgId,
-        targetType: 'rule',
-        targetId: ruleId,
-        details: { isActive: validation.value.isActive },
-      });
+    // Best-effort attributed audit — toggling an enforced rule's active
+    // state changes the org's compliance posture at upload/validate time.
+    recordAudit({
+      action: 'compliance.rule.toggle',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'rule',
+      targetId: ruleId,
+      details: { isActive: validation.value.isActive },
+    });
 
-      return sendSuccess(res, 200, { subscription });
-    } catch (err) {
-      if (handleSubError(res, err)) return;
-      throw err;
-    }
+    return sendSuccess(res, 200, { subscription });
   }));
 
   // POST / — subscribe to a published rule
@@ -275,34 +226,29 @@ export function createSubscriptionRoutes(): Router {
     // caller's JWT. Baseline/un-tagged published rules stay open. Authoring stays
     // free — only the curated libraries are gated. The rule is looked up here
     // (before subscribe) to read its `set:` tag; a miss falls through to
-    // `subscribe`, which returns the canonical CS_RULE_NOT_FOUND response.
+    // `subscribe`, which answers with the canonical rule-not-found error.
     const publishedRule = await complianceRuleService.findPublishedById(ruleId);
-    const requiredFeature = requiredFeatureForTags(publishedRule?.tags);
+    const requiredFeature = complianceFeatureForTags(publishedRule?.tags);
     if (denyIfUnentitled(req, res, requiredFeature)) return;
 
-    try {
-      const subscription = await subscriptionService.subscribe(orgId, ruleId, userId);
-      // No cache invalidation needed — subscriptions start inactive
-      ctx.log('COMPLETED', 'Subscribed to published rule (inactive)', { ruleId });
+    const subscription = await subscriptionService.subscribe(orgId, ruleId, userId);
+    // No cache invalidation needed — subscriptions start inactive
+    ctx.log('COMPLETED', 'Subscribed to published rule (inactive)', { ruleId });
 
-      // Audit curated-set subscribes (the entitlement-relevant ones). Reuse
-      // `compliance.rule.toggle` — the closest existing remote-audit action for a
-      // subscription-posture change — with the set + source in `details`.
-      if (requiredFeature) {
-        emitComplianceAudit({
-          action: 'compliance.rule.toggle',
-          actorId: actorId({ userId }),
-          orgId,
-          targetType: 'rule',
-          targetId: ruleId,
-          details: { subscribed: true, set: requiredFeature === 'compliance_advanced' ? 'advanced' : 'standard' },
-        });
-      }
-      return sendSuccess(res, 201, { subscription });
-    } catch (err) {
-      if (handleSubError(res, err)) return;
-      throw err;
+    // Audit curated-set subscribes (the entitlement-relevant ones). Reuse
+    // `compliance.rule.toggle` — the closest existing remote-audit action for a
+    // subscription-posture change — with the set + source in `details`.
+    if (requiredFeature) {
+      recordAudit({
+        action: 'compliance.rule.toggle',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'rule',
+        targetId: ruleId,
+        details: { subscribed: true, set: requiredFeature === 'compliance_advanced' ? 'advanced' : 'standard' },
+      });
     }
+    return sendSuccess(res, 201, { subscription });
   }));
 
   // POST /bulk — bulk activate/deactivate subscriptions
@@ -326,7 +272,7 @@ export function createSubscriptionRoutes(): Router {
     if (isActive) {
       const rules = await complianceRuleService.findManyByIds(ruleIds);
       for (const rule of rules) {
-        if (denyIfUnentitled(req, res, requiredFeatureForTags(rule.tags))) return;
+        if (denyIfUnentitled(req, res, complianceFeatureForTags(rule.tags))) return;
       }
     }
 
@@ -340,7 +286,7 @@ export function createSubscriptionRoutes(): Router {
     // per-row iteration of the pipeline bulk handlers and keeps targetId = rule
     // id consistent with the single-rule PATCH above.
     for (const ruleId of affectedIds) {
-      emitComplianceAudit({
+      recordAudit({
         action: 'compliance.rule.toggle',
         actorId: actorId({ userId }),
         orgId,
@@ -370,7 +316,7 @@ export function createSubscriptionRoutes(): Router {
     // subscribing. Gate on the SOURCE published rule's `set:` tag (compliance:
     // write above authorizes AUTHORING; it does not grant the curated content).
     const source = await complianceRuleService.findPublishedById(validation.value.ruleId);
-    if (denyIfUnentitled(req, res, requiredFeatureForTags(source?.tags))) return;
+    if (denyIfUnentitled(req, res, complianceFeatureForTags(source?.tags))) return;
 
     try {
       const rule = await complianceRuleService.cloneRule(validation.value.ruleId, orgId, userId);
@@ -380,7 +326,7 @@ export function createSubscriptionRoutes(): Router {
       // same mutation as POST /compliance/rules, so it carries that action.
       // `details` names the source published rule so a reviewer can see the
       // curated rule the org copied.
-      emitComplianceAudit({
+      recordAudit({
         action: 'compliance.rule.create',
         actorId: actorId({ userId }),
         orgId,
@@ -436,7 +382,7 @@ export function createSubscriptionRoutes(): Router {
     // entities is a preview of the paid content — gate it the same as subscribe
     // so a non-entitled org can't dry-run the paywalled ruleset. Baseline/
     // un-tagged published rules stay open.
-    if (denyIfUnentitled(req, res, requiredFeatureForTags(rule.tags))) return;
+    if (denyIfUnentitled(req, res, complianceFeatureForTags(rule.tags))) return;
 
     const target = rule.target as 'plugin' | 'pipeline';
     const SAMPLE_CAP = 10;
@@ -503,29 +449,24 @@ export function createSubscriptionRoutes(): Router {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
 
-    try {
-      const subscription = await subscriptionService.pinVersion(orgId, ruleId, userId);
-      ctx.log('COMPLETED', 'Pinned subscription version', { ruleId });
+    const subscription = await subscriptionService.pinVersion(orgId, ruleId, userId);
+    ctx.log('COMPLETED', 'Pinned subscription version', { ruleId });
 
-      // Best-effort attributed audit — the pin succeeded. Reuses
-      // `compliance.rule.toggle` (as subscribe and the entitlement sync do): it
-      // is the same subscription object whose enforcement changed. `details`
-      // records only the pin FLAG — `pinnedVersion` is a full snapshot of the
-      // rule row, which can carry sensitive match config.
-      emitComplianceAudit({
-        action: 'compliance.rule.toggle',
-        actorId: actorId({ userId }),
-        orgId,
-        targetType: 'rule',
-        targetId: ruleId,
-        details: { pinned: true },
-      });
+    // Best-effort attributed audit — the pin succeeded. Reuses
+    // `compliance.rule.toggle` (as subscribe and the entitlement sync do): it
+    // is the same subscription object whose enforcement changed. `details`
+    // records only the pin FLAG — `pinnedVersion` is a full snapshot of the
+    // rule row, which can carry sensitive match config.
+    recordAudit({
+      action: 'compliance.rule.toggle',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'rule',
+      targetId: ruleId,
+      details: { pinned: true },
+    });
 
-      return sendSuccess(res, 200, { subscription });
-    } catch (err) {
-      if (handleSubError(res, err)) return;
-      throw err;
-    }
+    return sendSuccess(res, 200, { subscription });
   }));
 
   // DELETE /:ruleId/pin — unpin subscription (use latest rule version). Same
@@ -534,24 +475,19 @@ export function createSubscriptionRoutes(): Router {
     const ruleId = getParam(req.params, 'ruleId');
     if (!ruleId) return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
 
-    try {
-      const subscription = await subscriptionService.unpinVersion(orgId, ruleId);
-      ctx.log('COMPLETED', 'Unpinned subscription version', { ruleId });
+    const subscription = await subscriptionService.unpinVersion(orgId, ruleId);
+    ctx.log('COMPLETED', 'Unpinned subscription version', { ruleId });
 
-      emitComplianceAudit({
-        action: 'compliance.rule.toggle',
-        actorId: actorId({ userId }),
-        orgId,
-        targetType: 'rule',
-        targetId: ruleId,
-        details: { pinned: false },
-      });
+    recordAudit({
+      action: 'compliance.rule.toggle',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'rule',
+      targetId: ruleId,
+      details: { pinned: false },
+    });
 
-      return sendSuccess(res, 200, { subscription });
-    } catch (err) {
-      if (handleSubError(res, err)) return;
-      throw err;
-    }
+    return sendSuccess(res, 200, { subscription });
   }));
 
   // DELETE /:ruleId — unsubscribe from a published rule. Requires
@@ -565,27 +501,22 @@ export function createSubscriptionRoutes(): Router {
       return sendBadRequest(res, 'ruleId is required', ErrorCode.VALIDATION_ERROR);
     }
 
-    try {
-      await subscriptionService.unsubscribe(orgId, ruleId, userId);
-      ctx.log('COMPLETED', 'Unsubscribed from published rule', { ruleId });
+    await subscriptionService.unsubscribe(orgId, ruleId, userId);
+    ctx.log('COMPLETED', 'Unsubscribed from published rule', { ruleId });
 
-      // Best-effort attributed audit — dropping a subscription removes the rule
-      // from enforcement exactly like deactivating it, so it emits the same
-      // posture action (with `subscribed: false` to distinguish the two).
-      emitComplianceAudit({
-        action: 'compliance.rule.toggle',
-        actorId: actorId({ userId }),
-        orgId,
-        targetType: 'rule',
-        targetId: ruleId,
-        details: { subscribed: false, isActive: false },
-      });
+    // Best-effort attributed audit — dropping a subscription removes the rule
+    // from enforcement exactly like deactivating it, so it emits the same
+    // posture action (with `subscribed: false` to distinguish the two).
+    recordAudit({
+      action: 'compliance.rule.toggle',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'rule',
+      targetId: ruleId,
+      details: { subscribed: false, isActive: false },
+    });
 
-      return sendSuccess(res, 200, { message: 'Unsubscribed successfully' });
-    } catch (err) {
-      if (handleSubError(res, err)) return;
-      throw err;
-    }
+    return sendSuccess(res, 200, { message: 'Unsubscribed successfully' });
   }));
 
   return router;

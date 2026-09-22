@@ -46,7 +46,7 @@ interface PublisherState {
   publishingEnabled: boolean;
 }
 
-/** The server-side prerequisites a publish request needs (§3.1): checked up front. */
+/** The server-side prerequisites a publish request needs: checked up front. */
 export async function assertCanPublish(client: ApiClient): Promise<string> {
   const state = dataOf<PublisherState>(await client.get(`${client.getConfig().api.pluginUrl}/publisher`));
   if (!state.publishingEnabled) throw new PublishPreflightError('Publishing is turned off on this instance (PLUGIN_PUBLISHING_DISABLED)');
@@ -96,7 +96,7 @@ function printResolved(resolved: ReturnType<typeof resolveCatalogMetadata>): voi
 
 /**
  * The whole publish flow, minus the terminal: pre-flight (server checks, lint,
- * catalog), scan preview, the §3.1a accept-or-edit step, then one upload with
+ * catalog), scan preview, the accept-or-edit step, then one upload with
  * `visibility=public` + `publishRequest=true` (+ the edits as `metadata`).
  * Returns the server's response, or null for a dry run.
  */
@@ -190,7 +190,7 @@ export async function runPublish(
 /**
  * Register `plugin publish` — pre-flight (the server's schemas, the catalog's
  * Dockerfile rules, publish-required metadata), a local scan preview, the
- * §3.1a accept-or-edit step, then the upload that submits a publish request
+ * catalog accept-or-edit step, then the upload that submits a publish request
  * once the version is built.
  *
  * Usage:

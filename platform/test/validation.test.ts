@@ -3,10 +3,9 @@
 
 // Mock config before importing schemas that depend on it
 import { jest, describe, it, expect } from '@jest/globals';
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: { passwordMinLength: 8 },
-  },
+import { mockConfig } from './helpers/config-mock.js';
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: { passwordMinLength: 8 },
 }));
 
 const {
@@ -40,10 +39,9 @@ describe('emailSchema', () => {
   });
 
   it('is the ONE email rule — every surface that takes an address uses it', () => {
-    // `controllers/alert-destinations.ts` used to keep its own stricter regex
-    // that additionally required a TLD, so the platform's OWN shipped default
-    // (`BOOTSTRAP_SUPERADMIN_EMAILS=admin@internal`) could register and be
-    // invited but was rejected as an email alert destination. Anything this
+    // A stricter per-surface regex (e.g. one requiring a TLD) would reject the
+    // platform's OWN shipped default (`BOOTSTRAP_SUPERADMIN_EMAILS=admin@internal`)
+    // as an email alert destination while it can register and be invited. Anything this
     // schema accepts must be accepted everywhere an address is taken.
     expect(emailSchema.safeParse('admin@internal').success).toBe(true);
   });

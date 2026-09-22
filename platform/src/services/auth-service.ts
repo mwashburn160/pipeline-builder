@@ -8,6 +8,7 @@ import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ON
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { accessTokenVersion } from '../helpers/access-version.js';
+import { isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { type OrgAuthority, resolveOrgAuthority } from '../helpers/org-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishSessionSlotRevocation, publishUserRevocation } from '../helpers/session-revocation.js';
@@ -15,22 +16,6 @@ import { User, Organization, UserOrganization, type UserDocument } from '../mode
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('auth-service');
-
-/**
- * Is this email operator-authorized as a platform super-admin (i.e. listed in
- * `BOOTSTRAP_SUPERADMIN_EMAILS`)? Only such emails may create/join the reserved
- * `system` org through the self-serve register / OAuth-create paths — the same
- * env-var allow-list the controlled superadmin bootstrap uses. Env is read live
- * (not cached) so an operator can change it without a code redeploy, and it's
- * unset in customer/SaaS environments (so no self-serve caller is ever
- * authorized there).
- */
-function isBootstrapSuperAdminEmail(email: string | undefined): boolean {
-  if (!email) return false;
-  const raw = process.env.BOOTSTRAP_SUPERADMIN_EMAILS || '';
-  const allow = new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
-  return allow.size > 0 && allow.has(email.trim().toLowerCase());
-}
 
 /** Tier for the platform's own system org: fully `unlimited` when billing is OFF
  *  (never metered), top standard tier (`enterprise`) when ON so it reconciles

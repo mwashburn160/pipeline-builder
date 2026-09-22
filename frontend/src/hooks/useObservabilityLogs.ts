@@ -23,7 +23,7 @@ export function useObservabilityLogs(
 
   const fetcher = useCallback(
     async (signal: AbortSignal): Promise<ObservabilityLogsResponse | undefined> => {
-      const res = await api.observabilityAuditQuery(key, range, opts, signal);
+      const res = await api.observabilityAuditQuery(key, range, opts, { signal });
       return res.data;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- opts tracked via optsKey

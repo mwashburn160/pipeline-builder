@@ -26,9 +26,9 @@ const RAIL: Record<LogLevel | 'unknown', string> = {
 };
 
 const LEVEL_TEXT: Record<LogLevel | 'unknown', string> = {
-  error: 'text-red-600 dark:text-red-400',
-  warn: 'text-amber-600 dark:text-amber-400',
-  info: 'text-emerald-700 dark:text-emerald-400',
+  error: 'text-danger',
+  warn: 'text-warning',
+  info: 'text-success',
   debug: 'text-fg-muted',
   unknown: 'text-fg-muted',
 };
@@ -54,7 +54,7 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
   const traceId = entry.labels.trace_id;
 
   return (
-    <div className="border-b border-gray-100 last:border-0 dark:border-gray-800">
+    <div className="border-b border-default last:border-0">
       <div className="flex items-stretch gap-2 hover:bg-surface-muted">
         <span className={`w-0.5 shrink-0 ${RAIL[level]}`} aria-hidden />
 
@@ -83,12 +83,12 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
           {showOrg && entry.labels.orgId && (
             <span className="mr-2 text-purple-600 dark:text-purple-400">{entry.labels.orgId}</span>
           )}
-          <span className="text-gray-800 dark:text-gray-200">{entry.line}</span>
+          <span className="text-fg">{entry.line}</span>
         </div>
       </div>
 
       {open && (
-        <div className="bg-gray-50 px-8 py-3 dark:bg-gray-900/50">
+        <div className="bg-surface-muted px-8 py-3">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <CopyButton text={entry.line} />
             <Button
@@ -102,7 +102,7 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
               <button
                 type="button"
                 onClick={() => onShowContext(entry)}
-                className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                className="text-xs text-info hover:underline"
               >
                 Show context
               </button>
@@ -112,7 +112,7 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
               // active OTel span), so the jump to the trace is free.
               <Link
                 href={`/dashboard/observability/traces?traceId=${encodeURIComponent(traceId)}`}
-                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400"
+                className="inline-flex items-center gap-1 text-xs text-info hover:underline"
               >
                 <Activity className="h-3 w-3" /> View trace
               </Link>
@@ -121,16 +121,16 @@ export function LogEntryRow({ entry, wrap, showOrg, onShowContext }: LogEntryRow
 
           <dl className="grid grid-cols-[minmax(6rem,auto)_1fr] gap-x-4 gap-y-1 font-mono text-xs">
             <dt className="text-fg-muted">timestamp</dt>
-            <dd className="break-all text-gray-800 dark:text-gray-200">{new Date(entry.time).toISOString()}</dd>
+            <dd className="break-all text-fg">{new Date(entry.time).toISOString()}</dd>
             {Object.entries(entry.labels).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => (
               <div key={k} className="contents">
                 <dt className="text-fg-muted">{k}</dt>
-                <dd className="break-all text-gray-800 dark:text-gray-200">{v}</dd>
+                <dd className="break-all text-fg">{v}</dd>
               </div>
             ))}
           </dl>
 
-          <p className="mt-3 whitespace-pre-wrap break-all rounded bg-white p-2 font-mono text-xs text-gray-800 dark:bg-gray-950 dark:text-gray-200">
+          <p className="mt-3 whitespace-pre-wrap break-all rounded bg-canvas p-2 font-mono text-xs text-fg">
             {entry.line}
           </p>
         </div>

@@ -18,7 +18,8 @@ import PromptGenerateTab, { PromptGenerateTabRef } from './PromptGenerateTab';
 import UploadConfigTab, { UploadConfigTabRef } from './UploadConfigTab';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
-import { formatJSON } from '@/lib/constants';
+import { JsonPreviewPanel } from './JsonPreviewPanel';
+import { useBuilderWizard } from '@/hooks/useBuilderWizard';
 import { useIsDirty } from '@/hooks/useIsDirty';
 
 /** Props for {@link CreatePipelineModal}. */
@@ -61,27 +62,19 @@ export default function CreatePipelineModal({
   // Preselect `org` — the backend's create default for pipelines (a pipeline is
   // a team asset); `private` stays an explicit opt-in personal draft.
   const [visibility, setVisibility] = useState<Visibility>('org');
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewJson, setPreviewJson] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [currentStep, setCurrentStep] = useState(0);
   const [complianceResult, setComplianceResult] = useState<ComplianceCheckResult | null>(null);
   const [complianceLoading, setComplianceLoading] = useState(false);
 
   const uploadRef = useRef<UploadConfigTabRef>(null);
   const formRef = useRef<FormBuilderTabRef>(null);
+  const { currentStep, setCurrentStep, next: handleNext, prev: handlePrevious, reset: resetWizard, scrollRef, preview } = useBuilderWizard(formRef);
   // The builder owns the bulk of the form, so it reports its own edits; the
   // fields this modal owns are compared here. Together they gate the discard prompt.
   const [formDirty, setFormDirty] = useState(false);
   const ownFieldsDirty = useIsDirty({ visibility });
   const aiRef = useRef<GitUrlTabRef>(null);
   const promptRef = useRef<PromptGenerateTabRef>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  // Scroll to top when step changes
-  useEffect(() => {
-    scrollRef.current?.scrollTo(0, 0);
-  }, [currentStep]);
 
   // Reset wizard/preview/compliance state whenever the modal (re)opens. The
   // component is rendered unconditionally and only gated by `if (!isOpen)`, so
@@ -91,13 +84,11 @@ export default function CreatePipelineModal({
     if (isOpen) {
       setActiveTab('ai');
       setVisibility('org');
-      setCurrentStep(0);
-      setShowPreview(false);
-      setPreviewJson(null);
+      resetWizard();
       setPreviewError(null);
       setComplianceResult(null);
     }
-  }, [isOpen]);
+  }, [isOpen, resetWizard]);
 
   if (!isOpen) return null;
 
@@ -131,12 +122,7 @@ export default function CreatePipelineModal({
         props = await promptRef.current?.getProps() ?? null;
         break;
     }
-    if (props) {
-      setPreviewJson(formatJSON(props));
-      setShowPreview(true);
-    } else {
-      setPreviewError('Fix validation errors above before previewing.');
-    }
+    if (!preview.show(props)) setPreviewError('Fix validation errors above before previewing.');
   };
 
   const handleSubmit = async () => {
@@ -161,22 +147,6 @@ export default function CreatePipelineModal({
     }
     const keywordsArray = kw.split(',').map(k => k.trim()).filter(k => k);
     await onSubmit(props, visibility, desc || undefined, keywordsArray.length > 0 ? keywordsArray : undefined);
-  };
-
-  const handleNext = () => {
-    if (formRef.current?.canProceed()) {
-      const next = currentStep + 1;
-      setCurrentStep(next);
-      formRef.current?.goToStep(next);
-    }
-  };
-
-  const handlePrevious = () => {
-    if (currentStep > 0) {
-      const prev = currentStep - 1;
-      setCurrentStep(prev);
-      formRef.current?.goToStep(prev);
-    }
   };
 
   const handleComplianceCheck = async () => {
@@ -250,22 +220,7 @@ export default function CreatePipelineModal({
     </div>
   );
 
-  const jsonPreview = showPreview && previewJson ? (
-    <div className="border-t border-default">
-      <div className="flex items-center justify-between px-6 py-2 bg-surface-muted">
-        <span className="text-sm font-medium text-fg-muted">JSON Preview</span>
-        <button
-          onClick={() => setShowPreview(false)}
-          className="text-fg-subtle hover:text-fg text-sm transition-colors"
-        >
-          Close
-        </button>
-      </div>
-      <pre className="px-6 py-4 text-xs font-mono text-gray-800 dark:text-gray-200 overflow-x-auto max-h-64 overflow-y-auto bg-canvas">
-        {previewJson}
-      </pre>
-    </div>
-  ) : undefined;
+  const jsonPreview = <JsonPreviewPanel preview={preview} />;
 
   const footer = (
     <div className="flex items-center justify-between">
@@ -376,8 +331,8 @@ export default function CreatePipelineModal({
       {!isWizardTab && !aiGated && accessSlot}
 
       {previewError && (
-        <div className="mt-4 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
-          <p className="text-sm text-yellow-800 dark:text-yellow-300">{previewError}</p>
+        <div className="mt-4 rounded-xl bg-warning-bg border border-warning-border p-3">
+          <p className="text-sm text-warning-strong">{previewError}</p>
         </div>
       )}
 
@@ -391,7 +346,7 @@ export default function CreatePipelineModal({
             <button onClick={() => setComplianceResult(null)} className="text-xs text-fg-subtle hover:text-fg">Dismiss</button>
           </div>
           {complianceResult.passed && complianceResult.warnings.length === 0 && (
-            <p className="text-sm text-green-700 dark:text-green-300">All compliance checks passed.</p>
+            <p className="text-sm text-success">All compliance checks passed.</p>
           )}
           {complianceResult.violations.map((v, i) => (
             <div key={`v-${i}`} className="flex items-start gap-2 mt-1">

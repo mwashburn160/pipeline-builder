@@ -124,8 +124,8 @@ function SsoTestReportView({ report }: { report: SsoTestReport }) {
   return (
     <div
       className={`rounded-lg border p-3 text-sm space-y-2 ${report.ok
-        ? 'border-green-200 bg-green-50 dark:border-green-900/50 dark:bg-green-900/20'
-        : 'border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-900/20'}`}
+        ? 'border-green-200 bg-success-bg dark:border-green-900/50'
+        : 'border-red-200 bg-danger-bg dark:border-red-900/50'}`}
       data-testid="sso-test-report"
     >
       <p className="flex items-center gap-2 font-medium">

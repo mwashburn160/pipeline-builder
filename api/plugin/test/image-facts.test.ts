@@ -3,7 +3,7 @@
 
 /**
  * Tests for helpers/image-facts — what the build worker establishes about a
- * pushed, signed image before persisting it (W0.6): scan, USER, and the
+ * pushed, signed image before persisting it: scan, USER, and the
  * post-build compliance check the upload deferred.
  */
 

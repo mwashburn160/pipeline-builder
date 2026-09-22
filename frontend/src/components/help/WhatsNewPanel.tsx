@@ -16,12 +16,12 @@ export function WhatsNewPanel() {
       </h2>
       <ul className="mt-2 space-y-2 text-xs">
         {WHATS_NEW.map((entry) => (
-          <li key={entry.title} className="border-l-2 border-amber-300 dark:border-amber-700 pl-2">
-            <div className="text-2xs uppercase tracking-wider text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+          <li key={entry.title} className="border-l-2 border-warning-border pl-2">
+            <div className="text-2xs uppercase tracking-wider text-warning flex items-center gap-1.5">
               <span>{entry.when}</span>
               <span className="text-fg-subtle font-mono normal-case tracking-normal">· {entry.date}</span>
             </div>
-            <div className="text-gray-800 dark:text-gray-200">
+            <div className="text-fg">
               {entry.href
                 ? <Link href={entry.href} className="action-link">{entry.title}</Link>
                 : entry.title}

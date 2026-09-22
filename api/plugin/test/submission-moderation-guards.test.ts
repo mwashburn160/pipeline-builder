@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { stubModule, type AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ recordAudit: recordAuditMock }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ host: 'registry', port: 5000 }) },
 }));
@@ -31,36 +31,52 @@ const store = {
   versions: { countForListing: jest.fn<AnyFn>(), get: jest.fn<AnyFn>(), insert: jest.fn<AnyFn>(), forListings: jest.fn<AnyFn>() },
   requests: { insert: jest.fn<AnyFn>(), list: jest.fn<AnyFn>(), transition: jest.fn<AnyFn>(), byId: jest.fn<AnyFn>() },
   OPEN_STATUSES: ['pending', 'pending_second_approval'],
+  previousVersion: jest.fn<AnyFn>(async () => null),
+  recomputeLatest: jest.fn<AnyFn>(async () => null),
 };
 jest.unstable_mockModule('../src/services/ecosystem/store.js', () => store);
 
 const subs = { byId: jest.fn<AnyFn>(), list: jest.fn<AnyFn>(), transition: jest.fn<AnyFn>() };
-jest.unstable_mockModule('../src/services/ecosystem/submissions-store.js', () => ({ submissions: subs }));
+// The owner lookup's real rule over the mocked rows: the first approved submission's email hash.
+const listingOwnerHash = async (listingId: string): Promise<string | null> => {
+  const approved = ((await subs.list({ listingId, statuses: ['approved', 'claimed'] })) ?? []) as Array<{ emailHash: string | null; createdAt: string }>;
+  return [...approved].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]?.emailHash ?? null;
+};
+jest.unstable_mockModule('../src/services/ecosystem/submissions-store.js', () => ({ submissions: subs, listingOwnerHash }));
 
 const submissionsMod = {
-  EMAIL_RETENTION_DAYS: 90,
   dropQuarantineArtifacts: jest.fn<AnyFn>(async () => undefined),
-  hashEmail: jest.fn<AnyFn>((email: string, secret: string) => `h(${email},${secret})`),
-  listingUrl: (name: string) => `https://pb/plugins/community/${name}`,
-  statusTokenFor: (id: string) => `tok-${id}`,
-  statusUrl: (t: string) => `https://pb/status?token=${t}`,
-  submissionConfig: jest.fn<AnyFn>(() => ({ emailHashSecret: 'secret' })),
-  submitterEmail: jest.fn<AnyFn>(async () => 'dev@example.com'),
   submissionNameGate: jest.fn<AnyFn>(async () => ({ ok: true })),
 };
 jest.unstable_mockModule('../src/services/ecosystem/submissions.js', () => submissionsMod);
+const configMod = {
+  listingUrl: (name: string) => `https://pb/plugins/community/${name}`,
+  statusUrl: (t: string) => `https://pb/status?token=${t}`,
+  submissionConfig: jest.fn<AnyFn>(() => ({ emailHashSecret: 'secret' })),
+};
+jest.unstable_mockModule('../src/services/ecosystem/submission-config.js', () => configMod);
+const guardsMod = {
+  hashEmail: jest.fn<AnyFn>((email: string, secret: string) => `h(${email},${secret})`),
+  statusTokenFor: (id: string) => `tok-${id}`,
+  submitterEmail: jest.fn<AnyFn>(async () => 'dev@example.com'),
+};
+jest.unstable_mockModule('../src/services/ecosystem/submission-guards.js', () => guardsMod);
 
 const publishImage = jest.fn<AnyFn>(async () => ({ imageRepository: 'public/community/my-linter' }));
 jest.unstable_mockModule('../src/services/ecosystem/registry.js', () => ({ publishImage }));
 jest.unstable_mockModule('../src/services/ecosystem/resign.js', () => ({ trustFor: () => 'unverified' }));
-const previousVersion = jest.fn<AnyFn>(async () => null);
-jest.unstable_mockModule('../src/services/ecosystem/decisions.js', () => ({ previousVersion }));
 const announceNewVersion = jest.fn<AnyFn>(async () => undefined);
 jest.unstable_mockModule('../src/services/ecosystem/install-notify.js', () => ({ announceNewVersion }));
 jest.unstable_mockModule('../src/services/ecosystem/metadata.js', () => ({
   LISTING_FIELDS: ['summary', 'homepageUrl'],
   listingColumns: (v: Record<string, unknown>) => ({ summary: v.summary ?? null }),
   listingFieldValue: (l: Record<string, unknown>, f: string) => l[f] ?? null,
+  // The real row rule over the policy doubles below.
+  metadataRow: (field: string, value: unknown, previous: unknown, source: string | null, hasListing: boolean) => {
+    const changed = hasListing ? JSON.stringify(value) !== JSON.stringify(previous) : value !== null;
+    const isLink = field.endsWith('Url');
+    return { field, value, previous, source, changed, userEdited: source === 'user', isLink, highlight: source === 'user' && isLink && changed };
+  },
 }));
 const recordSubmission = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({ recordSubmission }));
@@ -76,8 +92,7 @@ jest.unstable_mockModule('../src/services/ecosystem/policy.js', () => ({
   latestVersion: (vs: string[]) => [...vs].sort().at(-1) ?? null,
   sameValue: (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b),
 }));
-const emitPluginAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit }));
+const recordAuditMock = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({ specContractFields: () => ({ inputs: [] }) }));
 const fetchImageSbom = jest.fn<AnyFn>(async () => ({ spdxVersion: 'SPDX-2.3' }));
 jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({ fetchImageSbom }));
@@ -141,8 +156,8 @@ beforeEach(() => {
   store.versions.forListings.mockResolvedValue([{ version: '1.0.0', yankedAt: null }]);
   store.requests.transition.mockResolvedValue({ id: 'req-1' });
   submissionsMod.submissionNameGate.mockResolvedValue({ ok: true });
-  submissionsMod.submitterEmail.mockResolvedValue('dev@example.com');
-  submissionsMod.submissionConfig.mockReturnValue({ emailHashSecret: 'secret' });
+  guardsMod.submitterEmail.mockResolvedValue('dev@example.com');
+  configMod.submissionConfig.mockReturnValue({ emailHashSecret: 'secret' });
 });
 
 describe('publishSubmission — fail-closed guards', () => {
@@ -187,7 +202,7 @@ describe('publishSubmission — fail-closed guards', () => {
     expectNothingPublished();
   });
 
-  it('re-runs the name gate at approval and refuses a name that no longer passes (E18)', async () => {
+  it('re-runs the name gate at approval and refuses a name that no longer passes', async () => {
     submissionsMod.submissionNameGate.mockResolvedValue({ ok: false, message: 'reserved' });
     const err = await mod.publishSubmission(request(), community, 'mod-2').catch((e: unknown) => e);
     expect(err).toMatchObject({ code: 'NAME_TAKEN', message: 'The name no longer passes: reserved' });
@@ -258,11 +273,11 @@ describe('publishSubmission — fail-closed guards', () => {
   it('rolls back and hands the claim back when the final publishing → approved transition loses', async () => {
     subs.transition
       .mockResolvedValueOnce({ id: 'sub-1' }) // claim
-      .mockResolvedValueOnce(null) //           publishing → approved (inside the tx)
+      .mockResolvedValueOnce(null) // publishing → approved (inside the tx)
       .mockResolvedValueOnce({ id: 'sub-1' }); // hand-back
     await expect(mod.publishSubmission(request(), community, 'mod-2')).rejects.toThrow('The submission changed state meanwhile; nothing was published.');
     expect(subs.transition).toHaveBeenLastCalledWith('sub-1', 'publishing', { status: 'pending_review' });
-    expect(emitPluginAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -274,7 +289,7 @@ describe('publishSubmission — the approved path', () => {
     expect(store.requests.transition).toHaveBeenCalledWith('req-1', 'approved', { listingId: 'lst-new' });
     expect(store.versions.insert).toHaveBeenCalledWith(expect.objectContaining({ listingId: 'lst-new', breaking: false, changelog: 'first', publishedBy: 'mod-2' }));
     expect(subs.transition).toHaveBeenCalledWith('sub-1', 'publishing', expect.objectContaining({ status: 'approved', listingId: 'lst-new', decidedBy: 'mod-2', reason: null }));
-    expect(emitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.submission.approve' }));
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.submission.approve' }));
     expect(recordSubmission).toHaveBeenCalledWith('approved');
     expect(notify.notifySubmissionDecision).toHaveBeenCalledWith(expect.objectContaining({ email: 'dev@example.com', approved: true }));
     expect(announceNewVersion).not.toHaveBeenCalled();
@@ -285,8 +300,8 @@ describe('publishSubmission — the approved path', () => {
     store.versions.countForListing.mockResolvedValue(1);
     subs.list.mockResolvedValue([{ emailHash: 'hash-owner', createdAt: '2026-08-01T00:00:00Z' }]);
     subs.byId.mockResolvedValue(submission({ version: '2.0.0', catalog: null }));
-    previousVersion.mockResolvedValueOnce({ version: '1.4.0' });
-    submissionsMod.submitterEmail.mockResolvedValue(null);
+    store.previousVersion.mockResolvedValueOnce({ version: '1.4.0' });
+    guardsMod.submitterEmail.mockResolvedValue(null);
     await mod.publishSubmission(request({ listingId: 'lst-1', version: '2.0.0' }), community, 'mod-2');
     expect(store.listings.insert).not.toHaveBeenCalled();
     expect(store.requests.transition).not.toHaveBeenCalled();
@@ -317,11 +332,11 @@ describe('rejectSubmission', () => {
     subs.transition.mockResolvedValueOnce(null);
     await mod.rejectSubmission(request(), 'late', 'mod-1');
     expect(submissionsMod.dropQuarantineArtifacts).not.toHaveBeenCalled();
-    expect(emitPluginAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('skips the email when the submitter\'s address is gone', async () => {
-    submissionsMod.submitterEmail.mockResolvedValue(null);
+    guardsMod.submitterEmail.mockResolvedValue(null);
     await mod.rejectSubmission(request(), 'spam', 'mod-1');
     expect(notify.notifySubmissionDecision).not.toHaveBeenCalled();
   });
@@ -359,7 +374,7 @@ describe('submissionSnapshot + review', () => {
 
   it('diffs a submission against the previous approved version of its listing', async () => {
     store.listings.byId.mockResolvedValue(liveListing({ homepageUrl: 'https://old' }));
-    previousVersion.mockResolvedValueOnce({ version: '0.9.0', vulnCritical: 1, vulnHigh: 2, specSnapshot: { dockerfile: 'FROM debian' } });
+    store.previousVersion.mockResolvedValueOnce({ version: '0.9.0', vulnCritical: 1, vulnHigh: 2, specSnapshot: { dockerfile: 'FROM debian' } });
     subs.byId.mockResolvedValue(submission({ verifiedAt: '2026-09-01T01:00:00Z', catalog: { values: { summary: 'Lints', homepageUrl: 'https://evil' }, sources: { homepageUrl: 'user' } } }));
     const review = await mod.submissionReview(request({ listingId: 'lst-1' }));
     expect(review).toMatchObject({ newListing: false, previousVersion: '0.9.0', dockerfile: { changed: true }, vuln: { previous: { critical: 1, high: 2 } } });
@@ -375,11 +390,11 @@ describe('submissionSnapshot + review', () => {
   });
 });
 
-describe('claims (E10)', () => {
+describe('claims', () => {
   it('hashes only a VERIFIED claimant email, and only with a configured secret', () => {
     expect(mod.claimantEmailHash({ email: undefined, emailVerified: true } as any)).toBeNull();
     expect(mod.claimantEmailHash({ email: 'a@b.c', emailVerified: false } as any)).toBeNull();
-    submissionsMod.submissionConfig.mockReturnValueOnce({ emailHashSecret: '' });
+    configMod.submissionConfig.mockReturnValueOnce({ emailHashSecret: '' });
     expect(mod.claimantEmailHash({ email: 'a@b.c', emailVerified: true } as any)).toBeNull();
     expect(mod.claimantEmailHash({ email: ' A@B.C ', emailVerified: true } as any)).toBe('h(a@b.c,secret)');
   });

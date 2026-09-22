@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin reviews and ratings (docs/plans/plugin-ecosystem.md §5 — workstream
- * W4). Mirrors the plugin service's authenticated review routes and the
+ * Plugin reviews and ratings. Mirrors the plugin service's authenticated review routes and the
  * Ecosystem console's moderation queue. The public (anonymous) shapes live in
  * `@/lib/public-directory/types`.
  *
@@ -13,10 +12,10 @@
 
 import type { ReviewReply } from '@/lib/public-directory/types';
 
-export type ReviewStatus = 'published' | 'held' | 'removed';
+import type { ReviewHoldReason, ReviewReportCategory, ReviewStatus } from '@pipeline-builder/api-core';
+
+export type { ReviewHoldReason, ReviewReportCategory, ReviewStatus };
 export type ReviewBlockedReason = 'own_publisher' | 'reviews_disabled' | 'machine_credential';
-export type ReviewReportCategory = 'spam' | 'abuse' | 'off_topic' | 'security';
-export type ReviewHoldReason = 'reports' | 'burst' | 'filter' | 'security' | 'moderator';
 export type ReviewModerationQueue = 'open' | 'removed';
 
 /** The viewer's own review of a listing, in any status. */

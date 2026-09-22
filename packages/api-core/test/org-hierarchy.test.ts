@@ -1,9 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, jest } from '@jest/globals';
 
 import {
+  createMongoOrgHierarchy,
+  resolveRootOrgIdStrict,
   MAX_ORG_DEPTH,
   toOrgIdString,
   resolveOrgLineageWith,
@@ -151,5 +153,38 @@ describe('expandOrgScopeWith — descendant BFS', () => {
     expect(scope).toContain(`A${MAX_ORG_DEPTH}`);
     expect(scope).not.toContain(`A${MAX_ORG_DEPTH + 1}`);
     expect(scope).toHaveLength(MAX_ORG_DEPTH + 1);
+  });
+});
+
+describe('resolveRootOrgIdStrict', () => {
+  const chain = (m: Record<string, string | undefined>) => async (id: string) => m[id];
+  it('walks to the root', async () => {
+    expect(await resolveRootOrgIdStrict('team', chain({ team: 'mid', mid: 'root' }))).toBe('root');
+    expect(await resolveRootOrgIdStrict('root', chain({}))).toBe('root');
+    expect(await resolveRootOrgIdStrict('self', chain({ self: 'self' }))).toBe('self');
+  });
+  it('returns null on a cycle or an over-deep chain', async () => {
+    expect(await resolveRootOrgIdStrict('a', chain({ a: 'b', b: 'a' }))).toBeNull();
+    expect(await resolveRootOrgIdStrict('o0', async (id) => `o${Number(id.slice(1)) + 1}`)).toBeNull();
+  });
+  it('propagates lookup errors', async () => {
+    await expect(resolveRootOrgIdStrict('a', async () => { throw new Error('down'); })).rejects.toThrow('down');
+  });
+});
+
+describe('createMongoOrgHierarchy', () => {
+  const chain = <T>(value: T) => ({ select: () => ({ lean: async () => value }) });
+  it('reads the parent (cast) and the live children', async () => {
+    const findById = jest.fn((_id: unknown) => chain({ parentOrgId: 'root' }));
+    const find = jest.fn((_f: unknown) => chain([{ _id: 'a' }, { _id: null }, { _id: 'b' }]));
+    const h = createMongoOrgHierarchy({ findById, find }, (id) => `cast:${id}`);
+    expect(await h.getParentOrgId('team')).toBe('root');
+    expect(findById).toHaveBeenCalledWith('cast:team');
+    expect(await h.getChildOrgIds(['root'])).toEqual(['a', 'b']);
+    expect(find).toHaveBeenCalledWith({ parentOrgId: { $in: ['root'] }, deletedAt: null });
+  });
+  it('a missing org has no parent', async () => {
+    const h = createMongoOrgHierarchy({ findById: () => chain(null), find: () => chain([]) }, (id) => id);
+    expect(await h.getParentOrgId('x')).toBeUndefined();
   });
 });

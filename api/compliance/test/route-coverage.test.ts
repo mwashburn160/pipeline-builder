@@ -36,13 +36,13 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/compliance/events/entity',
     waive: 'all',
-    reason: 'INTERNAL entity-event ingest (#14): requireAuth + requireInternalService({ callers: [pipeline, plugin] }), no user token accepted; the rule evaluation it runs writes the compliance check log, not an admin audit event.',
+    reason: 'INTERNAL entity-event ingest: requireAuth + requireInternalService({ callers: [pipeline, plugin] }), no user token accepted; the rule evaluation it runs writes the compliance check log, not an admin audit event.',
   },
   {
     method: 'POST',
     path: '/compliance/subscriptions/auto-subscribe',
     waive: 'all',
-    reason: 'INTERNAL onboarding hook (#14): requireInternalService({ callers: [platform] }); it creates INACTIVE subscriptions, so nothing is enforced until a separately audited activate.',
+    reason: 'INTERNAL onboarding hook: requireInternalService({ callers: [platform] }); it creates INACTIVE subscriptions, so nothing is enforced until a separately audited activate.',
   },
   {
     method: 'POST',
@@ -77,7 +77,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
 ];
 
 /**
- * The INTERNAL routes this service exposes (#14) and the services allowed to
+ * The INTERNAL routes this service exposes and the services allowed to
  * call them — the same list `deploy/*​/k8s/istio-internal-routes.yaml` names, and
  * the ONE place it is written down. `findInternalRouteViolations` checks it
  * against the code in both directions.

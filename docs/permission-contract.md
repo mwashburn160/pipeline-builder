@@ -37,7 +37,7 @@ enforcing the old one.
 
 Every `/plugins/ecosystem/*` row carries `system-org + ... + aal2`: only the
 system org decides anything in the plugin ecosystem, from an MFA-grade session
-(docs/plans/plugin-ecosystem.md §3.0). A row losing `system-org` or `aal2`, or
+(only the system org governs the ecosystem — docs/plugin-publishing.md). A row losing `system-org` or `aal2`, or
 gaining a tenant permission, is a governance weakening. The request-decision
 rows (`/requests/:id/approve`, `/second-approve`, `/reject`) show no
 `step-up(...)` because the step-up is demanded per request KIND inside the chain
@@ -62,7 +62,7 @@ pipelines may run, which is a weakening.
 
 The review writes (`/plugins/listings/*/reviews`, `/plugins/reviews/*`) are
 gated on `plugins:read` on purpose: every member who can browse the catalog may
-rate and review (docs/plans/plugin-ecosystem.md §5a), and `aal1` is what makes
+rate and review (docs/permissions.md), and `aal1` is what makes
 them a PERSON's action — `requireAssurance({ minAssurance: 1 })` refuses service
 accounts and exchanged access keys with `HUMAN_SESSION_REQUIRED`. Dropping the
 `aal1` lets automation write, vote on and report reviews, which is a weakening.
@@ -71,7 +71,7 @@ publisher's own org reviews or votes; only the listing publisher's own managers
 reply) is decided in the service and pinned by
 `api/plugin/test/ecosystem-reviews.test.ts`. The `/plugins/ecosystem/reviews*`
 moderation rows follow the governance rule above; like the reserved names, they
-carry no step-up (§5a asks none for hiding or restoring user content).
+carry no step-up (hiding or restoring user content needs none).
 
 ## Deliberately read-gated writes
 
@@ -246,7 +246,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | message | GET | `/messages/attachments/:id` | `any(messages:read)` |
 | message | GET | `/messages/conversations` | `any(messages:read)` |
 | message | GET | `/messages/deleted` | `any(messages:read)` |
-| message | POST | `/messages/internal/notify` | `service-principal + internal(platform)` |
+| message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,platform)` |
 | message | DELETE | `/messages/internal/org/:orgId/attachments` | `service-principal + internal(platform)` |
 | message | POST | `/messages/notifications/ticket` | `any(messages:read)` |
 | message | GET | `/messages/recipients/orgs` | `any(messages:write)` |
@@ -535,7 +535,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | GET | `/reports/execution/dora/trend` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/execution/duration` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/environments` | `any(reports:read) + feature(advanced_reporting)` |
-| reporting | GET | `/reports/execution/errors` | `any(reports:read)` |
+| reporting | GET | `/reports/execution/errors` | `sysadmin + any(reports:read)` |
 | reporting | GET | `/reports/execution/list` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-bottlenecks` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-failures` | `any(reports:read)` |
@@ -545,7 +545,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | POST | `/reports/incidents/test` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/ingest-health` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-duration` | `any(reports:read)` |
-| reporting | GET | `/reports/plugins/build-failures` | `any(reports:read)` |
+| reporting | GET | `/reports/plugins/build-failures` | `sysadmin + any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-success-rate` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/distribution` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/runtime-duration` | `any(reports:read)` |

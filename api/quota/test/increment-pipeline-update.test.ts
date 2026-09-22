@@ -18,20 +18,18 @@
  *      accepts it with it) — so a future Mongoose change, or a dropped option,
  *      fails loudly here instead of in production.
  */
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import mongoose from 'mongoose';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-// The quota-service module graph (quota-service + quota-helpers) imports these
-// names from api-core; ESM linking needs them present even though the paths we
-// exercise don't call them.
+// The quota-service module graph imports these names from api-core; ESM linking
+// needs them present even though the paths we exercise don't call them.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isValidTier: () => true,
   ValidationError: class ValidationError extends Error {},
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
-  // quota-helpers re-exports these from api-core, so the linker needs them too.
   QUOTA_TIERS: { developer: { limits: { plugins: 100, pipelines: 10, apiCalls: -1 } } },
   VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),

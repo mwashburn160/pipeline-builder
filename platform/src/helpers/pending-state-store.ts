@@ -71,8 +71,6 @@ export interface PendingStateStore<T> {
   peek(state: string): Promise<T | null>;
   /** Drop an entry without reading it (deny/expire paths). */
   remove(state: string): Promise<void>;
-  /** Test-only: clear the in-memory fallback map. */
-  _resetForTests(): void;
   /** Test-only: stop the fallback sweep timer. */
   _stopSweepForTests(): void;
 }
@@ -88,11 +86,20 @@ export interface PendingStateStoreOptions {
   maxEntries: number;
 }
 
+/** Every store's in-memory fallback, so a test can clear them all at once. */
+const fallbackMaps = new Set<Map<string, unknown>>();
+
+/** Test-only: clear the in-memory fallback of every pending-state store. */
+export function _resetAllPendingStoresForTests(): void {
+  for (const map of fallbackMaps) map.clear();
+}
+
 export function createPendingStateStore<T>(opts: PendingStateStoreOptions): PendingStateStore<T> {
   const { prefix, ttlMs, cleanupIntervalMs, maxEntries } = opts;
   // `expiresAt` (not `createdAt`) so a `put` with a shortened TTL — a rewrite of
   // a longer-lived flow's state — expires when the ORIGINAL flow does.
   const mem = new Map<string, { value: T; expiresAt: number }>();
+  fallbackMaps.add(mem);
 
   // `.unref()` so this background sweep never keeps Node alive in tests/workers.
   const sweep = setInterval(() => {
@@ -215,10 +222,6 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
         }
       }
       mem.delete(state);
-    },
-
-    _resetForTests(): void {
-      mem.clear();
     },
 
     _stopSweepForTests(): void {

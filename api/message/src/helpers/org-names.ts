@@ -22,23 +22,9 @@ import { createCacheService, fetchOrgNames, SYSTEM_ORG_ID } from '@pipeline-buil
 /** Per-id name cache — org names change rarely; a short TTL keeps them fresh. */
 const orgNameCache = createCacheService('orgname:', 300);
 
-/**
- * Platform org-lookup options for the message service (system-scoped token).
- *
- * The platform host/port are read straight from the environment (mirroring
- * pipeline-core's `server-config.ts` defaults) rather than via pipeline-core's
- * `Config` barrel ON PURPOSE: this helper runs on the hot message-read path, and
- * importing `Config` would drag pipeline-core's whole config/billing graph into
- * every read route's module graph. The two vars are stable and defaulted, so the
- * direct read is both lighter and behaviourally identical.
- */
+/** Platform org-lookup options for the message service (system-scoped token). */
 function nameLookupOptions() {
   return {
-    service: {
-      host: process.env.PLATFORM_SERVICE_HOST || 'platform',
-      port: Number.parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
-    },
-    serviceName: 'message',
     // System-scoped service token: an internal read of the org registry, not a
     // tenant-scoped operation. Never carries an AWS account id.
     authOrgId: SYSTEM_ORG_ID,

@@ -38,12 +38,11 @@ const calculatePeriodEnd = jest.fn((start: Date) => new Date(start.getTime() + 3
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   createBillingEvent,
-  syncEntitlements,
   recordReactivatePlanMissing,
   calculatePeriodEnd,
-  // The REAL entitled-status set: the dunning guard reads it, and a hand-copied
-  // value here would let the guard silently pass statuses production refuses.
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
+}));
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
+  syncEntitlements,
 }));
 
 const ingestStripeInvoice = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);

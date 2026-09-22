@@ -3,7 +3,7 @@
 
 /**
  * Route tests for the six `/internal/plugin-publications*` routes — the plugin
- * service's handle on the read-only `public/*` namespace (plugin ecosystem §3.3):
+ * service's handle on the read-only `public/*` namespace:
  * publish, resign, yank, gc, verify and verify-cache/invalidate.
  *
  * The publishing service is mocked; the router runs on a real Express app over
@@ -12,10 +12,10 @@
  * mapping, metrics and audit emission are exercised as shipped.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, beforeAll, afterAll, beforeEach, describe, it, expect } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
@@ -28,9 +28,13 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   },
 }));
 
-class PublicationConflictError extends Error {}
-class PublicationNotFoundError extends Error {}
-class SourceVerificationError extends Error {}
+// The publishing errors as the real ones: AppErrors carrying their status + code.
+class PublicationError extends Error {
+  constructor(readonly statusCode: number, readonly code: string, message: string) { super(message); }
+}
+class PublicationConflictError extends PublicationError { constructor(m: string) { super(409, 'CONFLICT', m); } }
+class PublicationNotFoundError extends PublicationError { constructor(m: string) { super(404, 'NOT_FOUND', m); } }
+class SourceVerificationError extends PublicationError { constructor(m: string) { super(409, 'IMAGE_VERIFICATION_FAILED', m); } }
 const publishPublicImage = jest.fn<(p: Record<string, unknown>) => Promise<{ imageRepository: string; digest: string; alreadyPublished: boolean }>>();
 const resignPublicImageOp = jest.fn<(p: Record<string, unknown>) => Promise<void>>();
 const reportResignProgress = jest.fn<AnyFn>();
@@ -65,11 +69,7 @@ jest.unstable_mockModule('../src/services/public-publishing.js', () => ({
 const publicationOwner = jest.fn<(repo: string) => Promise<string | null>>();
 jest.unstable_mockModule('../src/services/public-publications.js', () => ({ publicationOwner }));
 
-const emitImageRegistryAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitImageRegistryAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
+const recordAuditMock = jest.fn<AnyFn>();
 
 const incCounter = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -80,7 +80,11 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       await handler({ req, res, ctx });
     } catch (err) {
       const r = res as { headersSent: boolean; status: (n: number) => { json: (b: unknown) => void } };
-      if (!r.headersSent) r.status(500).json({ success: false, message: (err as Error)?.message });
+      if (r.headersSent) return;
+      // The real wrapper's AppError mapping: status + code; anything else is a 500.
+      const e = err as { statusCode?: unknown; code?: unknown; message?: string };
+      if (typeof e.statusCode === 'number' && typeof e.code === 'string') r.status(e.statusCode).json({ success: false, message: e.message, code: e.code });
+      else r.status(500).json({ success: false, message: e?.message });
     }
   },
 }));
@@ -89,6 +93,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 const auditedActions: string[] = [];
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: recordAuditMock,
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
   sendBadRequest: (res: Res, message: string, code?: string) => res.status(400).json({ success: false, message, code }),
   sendError: (res: Res, status: number, message: string, code?: string) => res.status(status).json({ success: false, message, code }),
@@ -213,7 +218,7 @@ describe('caller gate (requireInternalService, plugin only)', () => {
   it('never reaches the publishing service for a refused caller', async () => {
     for (const [, method, path, body] of routes) await call(method, path, body, { 'x-test-as': 'service:platform' });
     for (const fn of services) expect(fn).not.toHaveBeenCalled();
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('declares the audit action of every mutating route', () => {
@@ -232,7 +237,7 @@ describe('POST /internal/plugin-publications', () => {
     expect(body.data).toEqual({ imageRepository: REPO, digest: DIGEST });
     expect(publishPublicImage).toHaveBeenCalledWith(publishBody());
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.PUBLISH, { outcome: 'success' });
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.publish',
       orgId: SYSTEM_ORG,
       affectedOrgId: ORG,
@@ -249,13 +254,14 @@ describe('POST /internal/plugin-publications', () => {
     publishPublicImage.mockResolvedValue({ imageRepository: REPO, digest: DIGEST, alreadyPublished: true });
     await post('', publishBody());
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.PUBLISH, { outcome: 'republished' });
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({ details: expect.objectContaining({ alreadyPublished: true }) }));
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({ details: expect.objectContaining({ alreadyPublished: true }) }));
   });
 
-  it('lets the SOURCE org\'s own service token publish its image', async () => {
-    const { status } = await post('', publishBody(), { 'x-test-org': ORG.toUpperCase() });
-    expect(status).toBe(200);
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({ orgId: ORG }));
+  it('refuses the SOURCE org\'s own service token: publishing is the system org\'s decision (403 ORG_MISMATCH)', async () => {
+    const { status, body } = await post('', publishBody(), { 'x-test-org': ORG.toUpperCase() });
+    expect(status).toBe(403);
+    expect(body.code).toBe('ORG_MISMATCH');
+    expect(publishPublicImage).not.toHaveBeenCalled();
   });
 
   it('refuses a token minted for a third org (403 ORG_MISMATCH)', async () => {
@@ -270,8 +276,8 @@ describe('POST /internal/plugin-publications', () => {
     expect(status).toBe(403);
   });
 
-  // Anonymous submissions (plugin ecosystem §4.2 / W5): an approved submission is
-  // published from its quarantined build to public/community/<name>.
+  // Anonymous submissions: an approved submission is published from its
+  // quarantined build to public/community/<name>.
   it('publishes an approved submission from quarantine/<id> for the system org', async () => {
     const source = 'quarantine/0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';
     const body = publishBody({ sourceRepository: source, publisherHandle: 'community', tier: 'unverified', publisherOrgId: null });
@@ -302,7 +308,7 @@ describe('POST /internal/plugin-publications', () => {
   it('omits affectedOrgId for an unattributed (platform-absorbed) publication', async () => {
     const { status } = await post('', publishBody({ sourceRepository: 'system/scanner', publisherOrgId: null }));
     expect(status).toBe(200);
-    expect(emitImageRegistryAudit.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
+    expect(recordAuditMock.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
   });
 
   it.each([
@@ -336,14 +342,14 @@ describe('POST /internal/plugin-publications', () => {
     expect(res.status).toBe(status);
     expect(res.body.code).toBe(code);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.PUBLISH, { outcome });
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('lets an unexpected error fall through to the route error handler (500)', async () => {
     publishPublicImage.mockRejectedValue(new Error('kaboom'));
     const { status } = await post('', publishBody());
     expect(status).toBe(500);
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -361,7 +367,7 @@ describe('POST /internal/plugin-publications/resign', () => {
     expect(resignPublicImageOp).toHaveBeenCalledWith(body());
     expect(publicationOwner).toHaveBeenCalledWith(REPO);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.RESIGN, { outcome: 'success' });
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.resign',
       affectedOrgId: ORG,
       targetId: REPO,
@@ -373,14 +379,14 @@ describe('POST /internal/plugin-publications/resign', () => {
   it('audits an ownership transfer against the NEW owner (no record lookup)', async () => {
     await post('/resign', body({ publisherOrgId: 'neworg' }));
     expect(publicationOwner).not.toHaveBeenCalled();
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({ affectedOrgId: 'neworg' }));
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({ affectedOrgId: 'neworg' }));
   });
 
   it('omits affectedOrgId when the owner record is unreadable', async () => {
     publicationOwner.mockRejectedValue(new Error('records down'));
     const res = await post('/resign', body());
     expect(res.status).toBe(200);
-    expect(emitImageRegistryAudit.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
+    expect(recordAuditMock.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
   });
 
   it('reports re-sign job progress on success AND on failure', async () => {
@@ -398,7 +404,7 @@ describe('POST /internal/plugin-publications/resign', () => {
     expect((await post('/resign', body())).status).toBe(502);
     resignPublicImageOp.mockRejectedValueOnce(new Error('kaboom'));
     expect((await post('/resign', body())).status).toBe(500);
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -430,7 +436,7 @@ describe('POST /internal/plugin-publications/retag', () => {
     expect(res.body.data).toEqual({ imageRepository: REPO, version: '1.2.0', digest: DIGEST, tagged: true });
     expect(retagPublicVersion).toHaveBeenCalledWith(REPO, '1.2.0', DIGEST);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.PUBLISH, { outcome: 'retagged' });
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.publish', affectedOrgId: ORG, details: { repo: REPO, version: '1.2.0', digest: DIGEST, retag: true },
     }));
   });
@@ -440,7 +446,7 @@ describe('POST /internal/plugin-publications/retag', () => {
     const res = await post('/retag', body());
     expect(res.status).toBe(200);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.PUBLISH, { outcome: 'republished' });
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('maps an immutable-tag conflict to 409 and a missing digest to 404', async () => {
@@ -470,7 +476,7 @@ describe('POST /internal/plugin-publications/yank', () => {
     expect(res.body.data).toEqual({ imageRepository: REPO, version: '1.2.0', digest: DIGEST, yanked: true });
     expect(yankPublicVersion).toHaveBeenCalledWith(REPO, '1.2.0', DIGEST);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.YANK, { outcome: 'success' });
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.yank',
       affectedOrgId: ORG,
       targetId: REPO,
@@ -483,19 +489,19 @@ describe('POST /internal/plugin-publications/yank', () => {
     const res = await post('/yank', body());
     expect(res.status).toBe(200);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.YANK, { outcome: 'already_yanked' });
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('omits affectedOrgId for an unattributed listing', async () => {
     publicationOwner.mockResolvedValue(null);
     await post('/yank', body());
-    expect(emitImageRegistryAudit.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
+    expect(recordAuditMock.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
   });
 
   it('omits affectedOrgId when the owner record is unreadable', async () => {
     publicationOwner.mockRejectedValue(new Error('records down'));
     expect((await post('/yank', body())).status).toBe(200);
-    expect(emitImageRegistryAudit.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
+    expect(recordAuditMock.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
   });
 
   it('maps a stale-digest conflict to 409', async () => {
@@ -503,7 +509,7 @@ describe('POST /internal/plugin-publications/yank', () => {
     const res = await post('/yank', body());
     expect(res.status).toBe(409);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.YANK, { outcome: 'conflict' });
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('counts an unexpected failure and returns 500', async () => {
@@ -536,7 +542,7 @@ describe('POST /internal/plugin-publications/gc', () => {
     expect(res.body.data).toEqual({ imageRepository: REPO, digest: DIGEST, deleted: true });
     expect(publicationOwner.mock.invocationCallOrder[0]).toBeLessThan(gcPublicImage.mock.invocationCallOrder[0]);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.GC, { outcome: 'success' });
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.gc', affectedOrgId: ORG, targetId: REPO, details: { repo: REPO, digest: DIGEST },
     }));
   });
@@ -547,7 +553,7 @@ describe('POST /internal/plugin-publications/gc', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ deleted: false });
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.GC, { outcome: 'already_deleted' });
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('refuses (409) a digest a tag still references', async () => {
@@ -555,13 +561,13 @@ describe('POST /internal/plugin-publications/gc', () => {
     const res = await post('/gc', body());
     expect(res.status).toBe(409);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.GC, { outcome: 'conflict' });
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('audits without affectedOrgId when the owner record is unreadable, and 500s an unexpected failure', async () => {
     publicationOwner.mockRejectedValue(new Error('records down'));
     expect((await post('/gc', body())).status).toBe(200);
-    expect(emitImageRegistryAudit.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
+    expect(recordAuditMock.mock.calls[0][0]).not.toHaveProperty('affectedOrgId');
     gcPublicImage.mockRejectedValue(new Error('kaboom'));
     expect((await post('/gc', body())).status).toBe(500);
     expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.GC, { outcome: 'failure' });

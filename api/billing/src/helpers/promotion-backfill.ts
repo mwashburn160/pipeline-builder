@@ -13,7 +13,7 @@
  * like the other multi-org billing crons. No-op unless BILLING_PROMOTIONS_ENABLED.
  */
 
-import { createEnvRedisLock, createLogger, createScheduler, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { batchEvaluatePromotion, reconcilePromotionSpend } from './promotion-engine.js';
@@ -21,7 +21,6 @@ import { Promotion } from '../models/promotion.js';
 
 const logger = createLogger('promotion-backfill');
 const LOCK_TTL_MS = 5 * 60 * 1000;
-const lockClient = createEnvRedisLock();
 
 async function runBackfillCycle(): Promise<void> {
   const promos = await Promotion.find({ isActive: true });
@@ -44,7 +43,7 @@ const scheduler: Scheduler = createScheduler({
   name: 'promotion-backfill',
   intervalMs: config.promotions.backfillIntervalMs,
   run: async () => { await runWithTenantContext({ isSuperAdmin: true }, runBackfillCycle); },
-  ...(lockClient ? { lock: { redis: () => lockClient, key: 'promotion-backfill', ttlMs: LOCK_TTL_MS } } : {}),
+  lock: { key: 'promotion-backfill', ttlMs: LOCK_TTL_MS },
 });
 
 /** Start the backfill cron — a no-op unless promotions are enabled. Safe to call twice. */
@@ -56,3 +55,6 @@ export function startPromotionBackfill(): void {
   logger.info('Starting promotion backfill cron', { intervalMs: config.promotions.backfillIntervalMs });
   scheduler.start();
 }
+
+/** Stop the backfill cron (graceful shutdown). Safe to call when never started. */
+export function stopPromotionBackfill(): void { scheduler.stop(); }

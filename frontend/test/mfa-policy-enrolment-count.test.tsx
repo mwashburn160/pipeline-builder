@@ -24,10 +24,7 @@ jest.mock('@/lib/api', () => ({
     updateMfaPolicy: jest.fn<AnyFn>(),
   },
 }));
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 
 let stepUpDetails: React.ReactNode = null;
 jest.mock('@/components/admin/StepUpModal', () => ({

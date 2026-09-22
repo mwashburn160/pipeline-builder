@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SAML 2.0 assertion verification (#4, services/saml-service.ts).
+ * SAML 2.0 assertion verification (services/saml-service.ts).
  *
  * Every case here signs REAL XML with a throwaway key (test/helpers/saml-fixture)
  * and runs it through the production verifier, so a signature, audience, issuer
@@ -31,6 +31,7 @@
 
 import zlib from 'zlib';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import {
   buildEncryptedSamlResponse,
@@ -52,17 +53,15 @@ jest.unstable_mockModule('../src/services/saml-sp-keys.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    oauth: {
-      callbackBaseUrl: 'https://pb.test',
-      cleanupIntervalMs: 600_000,
-      maxPendingStates: 1000,
-      samlClockSkewMs: 60_000,
-      samlRequestTtlMs: 600_000,
-      samlAssertionReplayTtlMs: 600_000,
-      samlHandoffTtlMs: 120_000,
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  oauth: {
+    callbackBaseUrl: 'https://pb.test',
+    cleanupIntervalMs: 600_000,
+    maxPendingStates: 1000,
+    samlClockSkewMs: 60_000,
+    samlRequestTtlMs: 600_000,
+    samlAssertionReplayTtlMs: 600_000,
+    samlHandoffTtlMs: 120_000,
   },
 }));
 
@@ -73,7 +72,6 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
 }));
 
 const {
-  __resetSamlCaches,
   buildSamlAuthorizeUrl,
   buildSamlLogoutRequestUrl,
   buildSamlLogoutResponseUrl,
@@ -86,6 +84,7 @@ const {
   validateSamlLogoutMessage,
   validateSamlResponse,
 } = await import('../src/services/saml-service.js');
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 
 const ORG = 'org-saml-1';
 const IDP_ENTITY = 'https://idp.test/saml/metadata';
@@ -142,7 +141,7 @@ async function solicited(over: Partial<Parameters<typeof buildSamlResponse>[1]> 
 
 beforeEach(() => {
   keys = generateIdpKeyPair();
-  __resetSamlCaches();
+  _resetAllPendingStoresForTests();
 });
 
 describe('service-provider identity', () => {

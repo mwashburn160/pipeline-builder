@@ -18,13 +18,13 @@
  *
  * Config (env) — same names the message service uses, set per-container to this
  * service's bucket + bucket-scoped creds:
- *   S3_ENDPOINT           MinIO/S3 endpoint URL (e.g. http://minio:9000). Empty
+ *   S3_ENDPOINT MinIO/S3 endpoint URL (e.g. http://minio:9000). Empty
  *                         ⇒ default AWS S3 (no custom endpoint).
- *   S3_REGION             region (default 'us-east-1').
- *   S3_ACCESS_KEY_ID      access key.
- *   S3_SECRET_ACCESS_KEY  secret key.
- *   S3_BUCKET             bucket name (default 'plugins').
- *   S3_FORCE_PATH_STYLE   'true' for MinIO (path-style addressing); default true.
+ *   S3_REGION region (default 'us-east-1').
+ *   S3_ACCESS_KEY_ID access key.
+ *   S3_SECRET_ACCESS_KEY secret key.
+ *   S3_BUCKET bucket name (default 'plugins').
+ *   S3_FORCE_PATH_STYLE 'true' for MinIO (path-style addressing); default true.
  */
 
 import { createWriteStream } from 'node:fs';
@@ -47,7 +47,7 @@ export const PLUGIN_ARTIFACT_BUCKET = envStr('S3_BUCKET', 'plugins');
 
 /**
  * The SEPARATE bucket anonymous submissions are staged in (plugin-ecosystem
- * §4.2, E5): `submissions/<id>.zip`, 30-day lifecycle expiry. Same client and
+ * ): `submissions/<id>.zip`, 30-day lifecycle expiry. Same client and
  * credentials as the build-context bucket; never read by the tenant build path.
  */
 export function pluginQuarantineBucket(): string {

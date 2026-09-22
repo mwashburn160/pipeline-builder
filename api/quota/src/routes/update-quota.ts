@@ -1,13 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, requireStepUp, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId } from '@pipeline-builder/api-core';
+import { requireAuth, requireStepUp, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { authorizeOrg, requireInternalCaller } from '../middleware/authorize-org.js';
-import { emitQuotaAudit } from '../services/audit.js';
 import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
 import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas.js';
 
@@ -38,7 +37,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         const newLimits = Object.fromEntries(
           changedQuotaTypes.map((t) => [t, result.quotas[t as QuotaType]?.limit]),
         );
-        emitQuotaAudit({
+        recordAudit({
           action: 'quota.limit.update',
           actorId: actorId({ userId }),
           affectedOrgId: targetOrgId,
@@ -79,7 +78,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
       // actually dropped (the idempotent no-op path mutates nothing). This is a
       // cross-tenant sysadmin op, so `affectedOrgId` records the target org.
       if (deleted) {
-        emitQuotaAudit({
+        recordAudit({
           action: 'quota.delete',
           actorId: actorId({ userId }),
           affectedOrgId: targetOrgId,
@@ -114,7 +113,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         // Best-effort attributed audit — the usage-counter reset succeeded.
         // Reset zeroes the affected counter(s); `newUsed: 0` records the applied
         // value (the pre-reset counter is not read back here).
-        emitQuotaAudit({
+        recordAudit({
           action: 'quota.reset',
           actorId: actorId({ userId }),
           affectedOrgId: targetOrgId,

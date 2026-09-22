@@ -89,7 +89,7 @@ export default function DashboardEditPage() {
   const { data: loaded, loading, error, refetch } = useFetch<{ dashboard: DashboardWithPanels | null; catalog: CatalogEntry[] } | null>(
     async (signal) => {
       if (!ready) return null;
-      const [dRes, cRes] = await Promise.all([api.getDashboard(id, signal), api.observabilityCatalog(signal)]);
+      const [dRes, cRes] = await Promise.all([api.getDashboard(id, { signal }), api.observabilityCatalog({ signal })]);
       return { dashboard: dRes.data?.dashboard ?? null, catalog: cRes.data?.entries ?? [] };
     },
     [ready, id],

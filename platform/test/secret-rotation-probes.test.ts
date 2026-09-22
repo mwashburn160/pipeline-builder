@@ -14,11 +14,10 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 
 const instances: Array<{ id: string; token: string; previousToken?: string }> = [];
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { alertWebhook: { get instances() { return instances; } } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ alertWebhook: { get instances() { return instances; } } }));
 
 const { previousSecretStates } = await import('@pipeline-builder/api-core');
 const { registerPlatformSecretRotationProbes } = await import('../src/observability/secret-rotation.js');

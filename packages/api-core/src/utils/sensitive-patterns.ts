@@ -5,7 +5,7 @@
  * Single source of truth for "what counts as sensitive" across every masking
  * layer.
  *
- * Four layers consume this module (see `docs/plans/frontend-logs.md` §3.4):
+ * Four layers consume this module (see `docs/observability-logs.md`):
  *
  *   L1  key-based, write-time   — winston `redactFormat` (metadata keys)
  *   L2  value-based, write-time — winston `maskFormat` (the message string)
@@ -21,9 +21,8 @@
  *
  * Because L3 runs inside promtail (Go / RE2) and L1/L2/L4 run in Node, each
  * pattern carries BOTH forms and a generator emits the promtail YAML from this
- * list — see `scripts/gen-promtail-masking.mjs`. Keeping one list is the point:
- * `SENSITIVE_KEY_PATTERN` previously existed in two hand-synced copies, and a
- * third would have made drift certain.
+ * list — see `scripts/gen-promtail-masking.mjs`. Keeping ONE list is the point:
+ * hand-synced copies drift.
  */
 
 import { scrubAwsIdentifiersFromString } from './aws-scrub.js';

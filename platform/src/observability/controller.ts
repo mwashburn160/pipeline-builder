@@ -10,7 +10,7 @@
  *
  * Application LOGS (Loki) live in `log-controller.ts`, on /observability/logs.
  *
- * Authenticated + org-scoped (`requireAuth`, then results are scoped to the
+ * Authenticated + org-scoped (`ensureAuthenticated`, then results are scoped to the
  * caller's org — `$ORG` substitution for PromQL, the audit trail's org fields
  * for audit-store; a sysadmin sees every org). The catalog is the security
  * boundary — frontend cannot request raw PromQL; only catalog keys.
@@ -18,13 +18,13 @@
  * Error mapping:
  *   - Unknown catalog key                       → 400
  *   - Upstream Prometheus 4xx (syntax-error)    → 500 (catalog bug, not user input)
- *   - Upstream unreachable / timeout (READS)    → 200 with an empty body + `degraded: true`
+ *   - Upstream unreachable / timeout / 5xx (READS) → 200 with an empty body + `degraded: true`
  *       (a LEAN deploy omits prometheus/alertmanager/thanos, so a dashboard reads a
  *        clean empty state instead of erroring; writes below still surface 502)
  *   - Valid query returning empty result        → 200 with `{samples: []}` / `{series: []}` / `{entries: []}`
  */
 
-import { parseQueryString, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { parsePage, parseQueryString, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import * as am from './alertmanager-client.js';
 import { queryAuditStore } from './audit-store-client.js';
@@ -39,16 +39,17 @@ import {
   substituteOrg,
 } from './catalog.js';
 import * as prom from './prometheus-client.js';
+import { sendUpstreamFailure } from './upstream.js';
 import { audit } from '../helpers/audit.js';
-import { getAdminContext, requireAuth, withController } from '../helpers/controller-helper.js';
+import { getAdminContext, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
 /**
  * Parse the `range` query param.
  *   - missing / undefined  →  '1h' (sensible default for a dashboard load)
  *   - one of '1h'/'6h'/'24h' →  return as-is
- *   - any other value      →  null (caller returns 400; previously this path
- *                              silently defaulted to '1h' and masked bugs)
+ *   - any other value      →  null (caller returns 400 rather than silently
+ *                              defaulting and masking a client bug)
  */
 function parseRange(raw: unknown): RangeKey | null {
   if (raw === undefined) return '1h';
@@ -56,11 +57,8 @@ function parseRange(raw: unknown): RangeKey | null {
   return null;
 }
 
-function parseLimit(raw: unknown): number {
-  const n = typeof raw === 'string' ? parseInt(raw, 10) : NaN;
-  if (!Number.isFinite(n) || n < 1) return 50;
-  return Math.min(n, 500);
-}
+/** Audit-trail panel page: 50 by default, at most 500. */
+const AUDIT_PAGE = { def: 50, max: 500 };
 
 /**
  * Enforce the tenancy boundary for a catalog key.
@@ -110,7 +108,7 @@ async function sendAuditStoreResult(
     {
       range,
       end: Math.floor(Date.now() / 1000),
-      limit: parseLimit(req.query.limit),
+      limit: parsePage(req.query as Record<string, unknown>, AUDIT_PAGE).limit,
       vars: { event: pick('event'), actor: pick('actor'), requestId: pick('requestId') },
     },
   );
@@ -121,35 +119,25 @@ async function sendAuditStoreResult(
   }
 }
 
-/** Convert a Prometheus/Alertmanager error to the right HTTP response per the contract above. */
+const UPSTREAM_MESSAGES = {
+  rejected: 'Upstream rejected query (catalog bug)',
+  unreachable: 'Upstream observability backend unreachable',
+};
+
+/** Write-path failure: rejection → 500, unreachable → 502 (no degraded fallback for writes). */
 function sendUpstreamError(res: Response, err: unknown): void {
-  const e = err as { kind?: string; status?: number; message?: string };
-  if (e.kind === 'upstream-4xx') {
-    // 4xx from Prometheus means our catalog produced an unparseable query —
-    // no user-supplied value reaches PromQL (only the server-driven `$ORG`),
-    // so this is our bug, surface 500.
-    sendError(res, 500, 'Upstream rejected query (catalog bug)');
-    return;
-  }
-  sendError(res, 502, 'Upstream observability backend unreachable');
+  sendUpstreamFailure(res, err, UPSTREAM_MESSAGES);
 }
 
 /**
- * Read-endpoint degradation. An `unreachable` backend — the normal case on a LEAN
- * deploy, which omits prometheus/alertmanager/thanos — yields the given empty
- * body with `degraded: true` and a 200, so dashboards render a clean empty state
- * instead of a 502. A reachable-but-erroring backend (`upstream-4xx`) still surfaces
- * as an error via sendUpstreamError. Returns true when it degraded.
+ * Read-path failure. An unreachable backend — the normal case on a LEAN deploy,
+ * which omits prometheus/alertmanager/thanos — yields the given empty body with
+ * `degraded: true` and a 200, so dashboards render a clean empty state instead
+ * of a 502. A rejection still surfaces as a 500.
  */
 function sendReadResultOrDegrade(res: Response, err: unknown, emptyBody: Record<string, unknown>): void {
-  const e = err as { kind?: string };
-  if (e.kind === 'unreachable') {
-    sendSuccess(res, 200, { ...emptyBody, degraded: true });
-    return;
-  }
-  sendUpstreamError(res, err);
+  sendUpstreamFailure(res, err, UPSTREAM_MESSAGES, emptyBody);
 }
-
 
 /**
  * GET /api/observability/query — Prometheus instant or range query by key.
@@ -161,7 +149,7 @@ function sendReadResultOrDegrade(res: Response, err: unknown, emptyBody: Record<
 export const observabilityQuery = withController('Observability query', async (req, res) => {
   // Auth: any authenticated user with a valid token. Org-scoping happens
   // below via $ORG substitution; sysadmin gets a wildcard.
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const caller = getAdminContext(req);
   const sysadmin = caller.isSuperAdmin;
 
@@ -212,7 +200,7 @@ export const observabilityQuery = withController('Observability query', async (r
  * Admin-only and org-scoped per the catalog entry (see `requireCatalogScope`).
  */
 export const observabilityAuditQuery = withController('Observability audit query', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const caller = getAdminContext(req);
 
   const key = parseQueryString(req.query.key);
@@ -241,7 +229,7 @@ export const observabilityAuditQuery = withController('Observability audit query
  * panel that renders a 403.
  */
 export const observabilityCatalog = withController('Observability catalog', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const caller = getAdminContext(req);
   const entries = Object.entries(QUERIES).filter(([key]) => canQueryCatalogKey(key, caller)).map(([key, entry]) => ({
     key,
@@ -260,7 +248,7 @@ export const observabilityCatalog = withController('Observability catalog', asyn
  * see all alerts unfiltered.
  */
 export const observabilityAlerts = withController('Observability alerts', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const sysadmin = isSystemAdmin(req);
   const orgId = req.user?.organizationId;
 
@@ -286,7 +274,7 @@ export const observabilityAlerts = withController('Observability alerts', async 
  * include the caller's org_id, or whose matchers are platform-wide).
  */
 export const observabilitySilencesList = withController('Observability silences list', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const sysadmin = isSystemAdmin(req);
   const orgId = req.user?.organizationId;
   try {
@@ -315,7 +303,7 @@ export const observabilitySilencesList = withController('Observability silences 
  * pass through unmodified.
  */
 export const observabilitySilenceCreate = withController('Observability silence create', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const sysadmin = isSystemAdmin(req);
   const orgId = req.user?.organizationId;
 
@@ -400,7 +388,7 @@ export const observabilitySilenceCreate = withController('Observability silence 
  * matchers include their own org_id. Sysadmins can delete any silence.
  */
 export const observabilitySilenceDelete = withController('Observability silence delete', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const sysadmin = isSystemAdmin(req);
   const orgId = req.user?.organizationId;
 

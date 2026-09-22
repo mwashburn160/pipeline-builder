@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// Tool set for the "Ask" agent's tool-calling loop (Phase 2). All tools are READ or
+// Tool set for the "Ask" agent's tool-calling loop. All tools are READ or
 // PROPOSE — none of them writes. `propose_pipeline` calls the pipeline service's
 // generate endpoint (forwarding the user's token) and returns a DRAFT; the actual
 // create is a separate, explicit user action in the UI (confirm gate), committed

@@ -18,6 +18,7 @@
 
 import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { routeChain } from './helpers/route-chain.js';
 
 const tagged = (name: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { __mw: name });
 
@@ -94,19 +95,13 @@ const authRouter = (await import('../src/routes/auth.js')).default as any;
 const recoveryRouter = (await import('../src/routes/recovery-codes.js')).default as any;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function chain(router: any, method: string, path: string): string[] {
-  const layer = router.stack.find((l: { route?: { path: string; methods: Record<string, boolean> } }) =>
-    l.route?.path === path && l.route.methods[method]);
-  expect(layer).toBeDefined();
-  return layer.route.stack.map((s: { handle: { __mw?: string } }) => s.handle.__mw);
-}
 
 describe('TOTP route gates', () => {
   it.each([
     ['post', '/enrol'],
     ['delete', '/'],
   ])('%s %s requires step-up and an interactive session, after auth', (method, path) => {
-    const mw = chain(totpRouter, method, path);
+    const mw = routeChain(totpRouter, method, path);
     expect(mw).toContain('requireStepUp');
     expect(mw).toContain('requireInteractiveSession');
     expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
@@ -114,20 +109,20 @@ describe('TOTP route gates', () => {
   });
 
   it('activate confirms the already-gated enrolment instead of re-prompting', () => {
-    const mw = chain(totpRouter, 'post', '/activate');
+    const mw = routeChain(totpRouter, 'post', '/activate');
     expect(mw).toContain('requireAuth');
     expect(mw).toContain('requireInteractiveSession');
     expect(mw).not.toContain('requireStepUp');
   });
 
   it('status is a plain authenticated read of the caller\'s own account', () => {
-    expect(chain(totpRouter, 'get', '/status')).toEqual(['requireAuth', 'totpStatus']);
+    expect(routeChain(totpRouter, 'get', '/status')).toEqual(['requireAuth', 'totpStatus']);
   });
 
   it('audits both ends of the factor\'s life', () => {
-    expect(chain(totpRouter, 'post', '/enrol')).toContain('audited:user.totp.enrol');
-    expect(chain(totpRouter, 'post', '/activate')).toContain('audited:user.totp.enrol,user.login.failed');
-    expect(chain(totpRouter, 'delete', '/')).toContain('audited:user.totp.disable');
+    expect(routeChain(totpRouter, 'post', '/enrol')).toContain('audited:user.totp.enrol');
+    expect(routeChain(totpRouter, 'post', '/activate')).toContain('audited:user.totp.enrol,user.login.failed');
+    expect(routeChain(totpRouter, 'delete', '/')).toContain('audited:user.totp.disable');
   });
 
   it('no longer owns the recovery codes (they belong to the account)', () => {
@@ -139,7 +134,7 @@ describe('TOTP route gates', () => {
 describe('recovery-code routes (/auth/recovery-codes)', () => {
 
   it('regeneration requires step-up and an interactive session, and is audited', () => {
-    const mw = chain(recoveryRouter, 'post', '/');
+    const mw = routeChain(recoveryRouter, 'post', '/');
     expect(mw).toContain('requireStepUp');
     expect(mw).toContain('requireInteractiveSession');
     expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
@@ -147,13 +142,13 @@ describe('recovery-code routes (/auth/recovery-codes)', () => {
   });
 
   it('status is a plain authenticated read', () => {
-    expect(chain(recoveryRouter, 'get', '/')).toEqual(['requireAuth', 'recoveryCodeStatus']);
+    expect(routeChain(recoveryRouter, 'get', '/')).toEqual(['requireAuth', 'recoveryCodeStatus']);
   });
 });
 
 describe('TOTP on the sign-in surface', () => {
   it('step-up by code shares the one per-user step-up budget', () => {
-    const mw = chain(authRouter, 'post', '/step-up/totp');
+    const mw = routeChain(authRouter, 'post', '/step-up/totp');
     expect(mw).toContain('requireAuth');
     expect(mw).toContain('stepUpLimiter');
     expect(mw).toContain('audited:user.step-up,user.login.failed');
@@ -162,7 +157,7 @@ describe('TOTP on the sign-in surface', () => {
   });
 
   it('the sign-in exchange is public, limited per challenge, and audits both outcomes', () => {
-    const mw = chain(authRouter, 'post', '/mfa/verify');
+    const mw = routeChain(authRouter, 'post', '/mfa/verify');
     // Pre-auth by construction: the caller holds a challenge handle, not a session.
     expect(mw).not.toContain('requireAuth');
     expect(mw).toContain('limiter:mfa-verify');

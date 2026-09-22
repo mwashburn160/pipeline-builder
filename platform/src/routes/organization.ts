@@ -105,7 +105,7 @@ const router: Router = Router();
  */
 const adminMfa = requireOrgAdminAssurance({ machines: 'allow' });
 
-/** Always `aal: 2` (#8): the action mints a durable machine credential or hands
+/** Always `aal: 2`: the action mints a durable machine credential or hands
  *  the org to someone else, whatever the org's policy says. */
 const mfaGrade = requireAssurance({ minAssurance: 2 });
 
@@ -191,7 +191,7 @@ router.put('/:id', requireAuth, requireSystemAdmin, requireStepUp, audited('org.
 /** PATCH /organization/:id/identity - Self-serve org identity edit (name/slug).
  *  Owner/admin reachable (NOT sysadmin-only): `requirePermission('org:settings')`
  *  is the capability gate (admin/owner bundle) and the controller's
- *  `canAdministerOrg` is the tenancy gate (own org or a managed team). Mirrors
+ *  `canManageOrgScope` is the tenancy gate (own org or a managed team). Mirrors
  *  the export route's gating. */
 router.patch('/:id/identity', requireAuth, requirePermission('org:settings'), audited('org.update'), updateOrganizationIdentity);
 
@@ -201,7 +201,7 @@ router.patch('/:id/identity', requireAuth, requirePermission('org:settings'), au
  *  Gated by its OWN capability, `org:impersonation`, not `org:settings` — split
  *  out for the same reason as `org:idp`/`org:kms`: a custom role that manages
  *  general settings must not thereby control who can view the org's data.
- *  `canAdministerOrg` remains the tenancy gate (own org or a managed team).
+ *  `canManageOrgScope` remains the tenancy gate (own org or a managed team).
  *
  *  The WRITE additionally requires step-up. Loosening this policy widens who can
  *  see the org's data. Reading the current policy needs no re-auth. */
@@ -209,7 +209,7 @@ router.get('/:id/impersonation-policy', requireAuth, requirePermission('org:impe
 router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org:impersonation'), requireStepUp, audited('org.update'), updateImpersonationPolicy);
 
 /** GET/PATCH /organization/:id/mfa-policy — whether this org requires two-factor
- *  authentication of its members (#8), with the grace period that follows
+ *  authentication of its members, with the grace period that follows
  *  turning it on, and whether the org's own IdP enforces MFA (which is what
  *  makes an SSO sign-in count as MFA-grade).
  *
@@ -220,7 +220,7 @@ router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org:im
  *  alone. LOOSENING (requirement off, admin-actions policy off, "our IdP
  *  enforces MFA" on) additionally needs an `aal: 2` session — checked in the
  *  controller because tightening must stay open to an admin without MFA. The
- *  same holds for the impersonation policy above. Tenancy is `canAdministerOrg`
+ *  same holds for the impersonation policy above. Tenancy is `canManageOrgScope`
  *  in the controller, as on the siblings. */
 router.get('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), getMfaPolicy);
 router.patch('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.mfa_policy.update'), updateMfaPolicy);
@@ -229,15 +229,15 @@ router.patch('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), 
  *  length (≥ the platform minimum, strictest wins down the org tree), and
  *  GET/PATCH /organization/:id/authenticator-policy — the passkey models
  *  (AAGUIDs) members may register and that count as MFA here. Same gating as
- *  the MFA policy: `org:settings`, step-up on the write, `canAdministerOrg` and
+ *  the MFA policy: `org:settings`, step-up on the write, `canManageOrgScope` and
  *  an `aal: 2` session for LOOSENING in the controller. */
 router.get('/:id/password-policy', requireAuth, requirePermission('org:settings'), getPasswordPolicy);
 router.patch('/:id/password-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.password_policy.update'), updatePasswordPolicy);
 router.get('/:id/authenticator-policy', requireAuth, requirePermission('org:settings'), getAuthenticatorPolicy);
 router.patch('/:id/authenticator-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.authenticator_policy.update'), updateAuthenticatorPolicy);
 
-// -- Domain-based join (P2b) — owner/admin manage verified domains + approve
-//    join requests. Gated by `org:settings` (capability) + `canAdministerOrg`
+// -- Domain-based join — `org:settings` holders manage verified domains + approve
+//    join requests. Gated by `org:settings` (capability) + `canManageOrgScope`
 //    (tenancy) in each controller, same as the identity route above.
 router.get('/:id/domains', requireAuth, requirePermission('org:settings'), listOrgDomains);
 router.post('/:id/domains', requireAuth, requirePermission('org:settings'), audited('org.domain.add'), addOrgDomain);
@@ -265,12 +265,12 @@ router.post('/:id/move', requireAuth, requireSystemAdmin, requireStepUp, audited
 
 /** POST /organization/:id/restore - Restore a soft-deleted org within its
  *  retention window. `requirePermission('org:settings')` is the capability gate;
- *  the controller's `canAdministerOrg` is the tenancy gate (sysadmin or an
- *  admin/owner of the org / a managing parent). Step-up gated like DELETE. */
+ *  the controller's `canManageOrgScope` is the tenancy gate (sysadmin, the
+ *  caller's own org, or a team under it). Step-up gated like DELETE. */
 router.post('/:id/restore', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.restore'), restoreOrganization);
 
-/** GET /organization/:id/export - GDPR portability dump (org admin or sysadmin).
- *  Controller gates with `canAdministerOrg` (target-org scope); `requirePermission`
+/** GET /organization/:id/export - GDPR portability dump (org:settings holder or sysadmin).
+ *  Controller gates with `canManageOrgScope` (target-org scope); `requirePermission`
  *  is the capability gate (org:settings, in the admin/owner bundle). */
 router.get('/:id/export', requireAuth, requirePermission('org:settings'), exportOrganization);
 
@@ -305,7 +305,7 @@ router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntit
 router.get('/:id/idp', requireAuth, requirePermission('org:idp'), getOwnOrgIdpConfig);
 
 /*
- * ASSURANCE (#8) on every IdP WRITE, self-serve and fleet alike: whoever
+ * ASSURANCE on every IdP WRITE, self-serve and fleet alike: whoever
  * controls an org's IdP can sign in as any of its members, so the session must
  * be MFA-grade (`minAssurance: 2`) and the confirmation must be earned by a
  * SECOND FACTOR (`STRONG_STEP_UP_METHODS`) rather than by re-entering the
@@ -339,7 +339,7 @@ router.post('/:id/idp/test', requireAuth, requirePermission('org:idp'), audited(
 router.post('/:id/idp/test/complete', requireAuth, requirePermission('org:idp'), audited('sso.test'), completeSsoTest);
 
 /*
- * IdP group → Role mappings (3a) — what the IdP's groups are worth inside the
+ * IdP group → Role mappings — what the IdP's groups are worth inside the
  * org. Gated on `roles:manage`, NOT `org:idp`: a mapping grants Roles, so it
  * belongs to whoever manages Roles, and an org can delegate the login connection
  * and the Role policy to different people. The controller adds the own-org /
@@ -380,7 +380,7 @@ router.get('/:id/teams', requireAuth, getOrganizationTeams);
 
 /** GET /organization/:id/teams/deleted - Soft-deleted teams of :id still inside
  *  their retention window (restorable via POST /:teamId/restore).
- *  `org:settings` is the capability gate; `canAdministerOrg(:id)` the tenancy gate. */
+ *  `org:settings` is the capability gate; `canManageOrgScope(:id)` the tenancy gate. */
 router.get('/:id/teams/deleted', requireAuth, requirePermission('org:settings'), listDeletedTeams);
 
 /** DELETE /organization/:id/teams/:teamId - A parent admin soft-deletes one of
@@ -402,7 +402,7 @@ router.patch('/:id/members/:userId/deactivate', requireAuth, requirePermission('
 router.patch('/:id/members/:userId/activate', requireAuth, requirePermission('members:manage'), adminMfa, audited('org.member.activate'), activateMember);
 
 /*
- * MFA recovery — the TWO-PERSON reset of a member's second factors (#8). An
+ * MFA recovery — the TWO-PERSON reset of a member's second factors. An
  * owner/admin REQUESTS it with a reason; a DIFFERENT owner/admin of the org or
  * of a parent org, or a sysadmin, APPROVES it. `members:manage` is the
  * capability; the controller adds `canAdministerOrg` (owner/admin of the org or
@@ -451,7 +451,7 @@ router.post('/:id/roles/:roleId/members', requireAuth, requirePermission('roles:
 router.delete('/:id/roles/:roleId/members/:userId', requireAuth, requirePermission('roles:manage'), adminMfa, audited('org.role.member.remove'), removeRoleMember);
 
 /*
- * Service accounts (#2) — org-scoped non-human principals and their `pb_sa_…`
+ * Service accounts — org-scoped non-human principals and their `pb_sa_…`
  * keys. EVERY route, read included, requires `service_accounts:manage`: the
  * listing is an inventory of the org's machine credentials (which exist, what
  * they can do, when they were last used), and nothing in the product needs a

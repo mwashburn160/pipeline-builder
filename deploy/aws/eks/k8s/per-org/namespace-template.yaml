@@ -21,10 +21,11 @@
 #   - ResourceQuota capping CPU / memory / pod-count budgets
 #   - LimitRange enforcing per-pod CPU + memory ceilings
 #
-# This is scaffolding only — no orchestrator wires the template into the
-# org-create flow yet. Operators apply manually when a customer signs up
-# for the enterprise tier; future work: a sysadmin admin endpoint that
-# templated-applies on org creation (and tears down on org delete).
+# Nothing applies this automatically. A superadmin can also fetch the
+# rendered manifest (both templates, filled in) from the platform:
+#   GET /api/admin/orgs/<orgId>/k8s-namespace.yaml
+# which the platform test org-namespace-template.test.ts keeps identical to
+# these templates.
 
 apiVersion: v1
 kind: Namespace

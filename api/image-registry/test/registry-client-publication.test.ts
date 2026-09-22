@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for the registry-client calls the public/* publication machinery added
- * (plugin ecosystem §3.3): repository-scoped management tokens for cosign
+ * Tests for the registry-client calls the public/* publication machinery added:
+ * repository-scoped management tokens for cosign
  * (push and pull-only), tag-only delete (yank), small-blob upload (publication
  * records), JSON blob reads, and manifest HEAD.
  *

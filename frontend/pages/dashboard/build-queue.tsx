@@ -52,8 +52,8 @@ interface TierRow { tier: string; waiting: number; active: number; completed: nu
 function tierCount(n: number, tone?: 'red' | 'amber') {
   const cls = n === 0
     ? 'text-fg-subtle'
-    : tone === 'red' ? 'text-red-600 dark:text-red-400 font-medium'
-      : tone === 'amber' ? 'text-amber-600 dark:text-amber-400 font-medium'
+    : tone === 'red' ? 'text-danger font-medium'
+      : tone === 'amber' ? 'text-warning font-medium'
         : 'text-fg';
   return <span className={`tabular-nums ${cls}`}>{n}</span>;
 }
@@ -180,7 +180,7 @@ export default function BuildQueuePage() {
       const newJobId = res.data?.newJobId ?? '?';
       toast.success(`Re-enqueued as job ${newJobId}`);
       refetchFailed();
-      fetchStatus();
+      void fetchStatus();
     } catch (err) {
       toast.error(formatError(err, 'Failed to retry build'));
     } finally {
@@ -200,7 +200,7 @@ export default function BuildQueuePage() {
       await api.purgeDlq();
       toast.success('Dead-letter queue purged');
       refetchDlq();
-      fetchStatus();
+      void fetchStatus();
     } catch (err) {
       toast.error(formatError(err, 'Failed to purge DLQ'));
     } finally {

@@ -133,7 +133,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     schema: { plugin: aiPluginTable, pluginStats: aiStatsTable },
     withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
     // Visibility-ladder predicate pieces plugin-lookup-service links against.
-    // Listing resolution (plugin ecosystem W2): no listings unless a test sets some.
+    // Listing resolution: no listings unless a test sets some.
     OFFICIAL_PUBLISHER_HANDLE: 'pipeline-builder',
     drizzleListingSource: () => ({ liveListings: async () => [], publishersByIds: async () => [] }),
     getTenantContext: () => undefined,
@@ -146,19 +146,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
 
 // Import AFTER mocks
 
-const {
-  getAvailableProviders,
-  getProviderModels,
-  generatePipelineConfig,
-  streamPipelineConfig,
-  getFilteredPlugins,
-  rankPlugins,
-} = await import('../src/services/ai-generation-service.js');
+const { getAvailableProviders, getProviderModels } = await import('@pipeline-builder/ai-core');
+const { generatePipelineConfig, streamPipelineConfig } = await import('../src/services/ai-generation-service.js');
+const { getFilteredPlugins, rankPlugins } = await import('../src/services/plugin-catalog.js');
 type GenerationRequest = import('../src/services/ai-generation-service.js').GenerationRequest;
 
 // Tests
 
-describe('AI plugin selection lifecycle (plugin-ecosystem W0.4)', () => {
+describe('AI plugin selection lifecycle', () => {
   it('never offers a deprecated or yanked plugin version', async () => {
     aiPluginTx.where.mockClear();
     await getFilteredPlugins('org-1', { prompt: '' });
@@ -172,7 +167,7 @@ describe('AI plugin selection lifecycle (plugin-ecosystem W0.4)', () => {
   });
 });
 
-describe('AI plugin selection includes installed listings (plugin ecosystem G17)', () => {
+describe('AI plugin selection includes installed listings', () => {
   const state = (handle: string, name: string, over: Record<string, unknown> = {}) => ({
     publisher: { handle, tier: handle === 'pipeline-builder' ? 'official' : 'verified' },
     listing: { name, keywords: ['scan'], category: 'security', summary: `${name} summary` },
@@ -195,7 +190,7 @@ describe('AI plugin selection includes installed listings (plugin ecosystem G17)
   });
 });
 
-describe('AI plugin ranking by trust and health (plugin ecosystem W7)', () => {
+describe('AI plugin ranking by trust and health', () => {
   it('orders own → Official → Verified → others, active before paused/unmaintained, then by health', () => {
     const p = (name: string, tier: any, healthScore: number | null, lifecycle: any = 'active') => ({ name, tier, healthScore, lifecycle });
     const ranked = rankPlugins([

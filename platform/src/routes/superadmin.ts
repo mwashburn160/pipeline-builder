@@ -20,7 +20,7 @@ const router: Router = Router({ mergeParams: true });
 // `requireSystemAdmin` mirrors the controllers' own first-line gate at the route
 // layer (defense-in-depth) — granting/revoking platform-admin is sysadmin-only.
 //
-// ASSURANCE (#8): granting platform-admin is the single most valuable write on
+// ASSURANCE: granting platform-admin is the single most valuable write on
 // the platform — it manufactures another operator. It is therefore in the first
 // wave of `minAssurance: 2` routes, and its step-up must be earned by a SECOND
 // FACTOR rather than by re-typing a password the session already proved.

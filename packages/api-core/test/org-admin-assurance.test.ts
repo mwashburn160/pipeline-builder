@@ -13,11 +13,7 @@
 
 import { jest, describe, it, expect } from '@jest/globals';
 import express, { type Request, type Response } from 'express';
-import {
-  ORG_ADMIN_MFA_REASON,
-  orgAdminAssuranceRefusal,
-  requireOrgAdminAssurance,
-} from '../src/middleware/auth.js';
+import { ORG_ADMIN_MFA_REASON, orgAdminAssuranceRefusal, requireOrgAdminAssurance } from '../src/middleware/assurance.js';
 import { buildRouteTable, getRouteGates } from '../src/middleware/route-table.js';
 
 function mockReq(user: Record<string, unknown> | undefined): Request {

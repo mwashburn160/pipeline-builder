@@ -22,9 +22,8 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
 // Stub the service-auth header so no JWT signing / secret loading is required.
 // SYSTEM_ORG_ID is re-exported by org-hierarchy-http (fetchOrgNames default org),
 // so the mock must provide it or ESM linking against auth.js throws.
-jest.unstable_mockModule('../src/middleware/auth.js', () => ({
+jest.unstable_mockModule('../src/middleware/service-tokens.js', () => ({
   getServiceAuthHeader: jest.fn(() => 'Bearer test-token'),
-  SYSTEM_ORG_ID: '000000000000000000000001',
 }));
 
 // Mock the shared HTTP client: controllable `get`/`post` spies back every

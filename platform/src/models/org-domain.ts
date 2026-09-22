@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Document, Schema, model } from 'mongoose';
+import { Schema, model, type HydratedDocument, Types } from 'mongoose';
 
 /**
  * A verified email domain owned by an organization, used for domain-based org
- * discovery + join (P2b). A domain becomes usable for discovery ONLY after it is
+ * discovery + join. A domain becomes usable for discovery ONLY after it is
  * verified (DNS TXT challenge) AND `autoJoin` is not `off` — an unverified or
  * off-mode domain never surfaces to a signing-up user, so this is not a
  * tenant-enumeration oracle.
@@ -24,8 +24,8 @@ import { Document, Schema, model } from 'mongoose';
 export type DomainJoinMode = 'off' | 'request' | 'auto';
 export const DOMAIN_JOIN_MODES: readonly DomainJoinMode[] = ['off', 'request', 'auto'];
 
-export interface OrgDomainDocument extends Document {
-  orgId: string;
+export interface OrgDomainData {
+  organizationId: Types.ObjectId;
   domain: string;
   verified: boolean;
   /** Random token the admin publishes as a DNS TXT record to prove ownership.
@@ -40,14 +40,16 @@ export interface OrgDomainDocument extends Document {
   updatedAt: Date;
 }
 
-const orgDomainSchema = new Schema<OrgDomainDocument>(
+export type OrgDomainDocument = HydratedDocument<OrgDomainData>;
+
+const orgDomainSchema = new Schema<OrgDomainData>(
   {
-    orgId: { type: String, required: true, index: true },
+    organizationId: { type: Schema.Types.ObjectId, required: true, index: true },
     domain: { type: String, required: true, lowercase: true, trim: true },
     verified: { type: Boolean, default: false },
     verificationToken: { type: String, required: true },
     verifiedAt: { type: Date },
-    autoJoin: { type: String, enum: DOMAIN_JOIN_MODES as unknown as string[], default: 'off' },
+    autoJoin: { type: String, enum: [...DOMAIN_JOIN_MODES], default: 'off' },
     createdBy: { type: String, required: true },
   },
   { timestamps: true, collection: 'org_domains' },
@@ -58,6 +60,6 @@ const orgDomainSchema = new Schema<OrgDomainDocument>(
 // namespace and permanently block the real owner from ever verifying it.
 orgDomainSchema.index({ domain: 1 }, { unique: true, partialFilterExpression: { verified: true } });
 // A given org registers a domain at most once.
-orgDomainSchema.index({ orgId: 1, domain: 1 }, { unique: true });
+orgDomainSchema.index({ organizationId: 1, domain: 1 }, { unique: true });
 
-export default model<OrgDomainDocument>('OrgDomain', orgDomainSchema);
+export default model<OrgDomainData>('OrgDomain', orgDomainSchema);

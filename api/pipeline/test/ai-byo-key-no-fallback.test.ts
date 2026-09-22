@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * F3b — a BYO (bring-your-own) AI key must NEVER fall back to a platform-configured
+ * A BYO (bring-your-own) AI key must NEVER fall back to a platform-configured
  * provider key. The fallback path resolves models from the platform's env keys
  * (`resolveModel`), which would silently spend the platform's AI budget on a
  * request the caller intended to bill to their own key. A BYO primary failure is
@@ -69,7 +69,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     schema: { plugin: {} },
     withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
     // Visibility-ladder predicate pieces plugin-lookup-service links against.
-    // Listing resolution (plugin ecosystem W2): no listings unless a test sets some.
+    // Listing resolution: no listings unless a test sets some.
     OFFICIAL_PUBLISHER_HANDLE: 'pipeline-builder',
     drizzleListingSource: () => ({ liveListings: async () => [], publishersByIds: async () => [] }),
     getTenantContext: () => undefined,
@@ -99,7 +99,7 @@ const OK_OUTPUT = {
   },
 };
 
-describe('F3b — BYO key must not fall back to platform provider keys', () => {
+describe('BYO key must not fall back to platform provider keys', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 
   it('BYO key + failed primary + fallback available → throws, never uses the platform fallback', async () => {

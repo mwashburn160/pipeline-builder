@@ -21,7 +21,7 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() }) }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() })));
 
 let stepUpProps: { onConfirmed: (t: string) => void | Promise<void> } | null = null;
 jest.mock('@/components/admin/StepUpModal', () => ({
@@ -41,11 +41,9 @@ jest.mock('@/lib/api', () => ({
   default: { getUnreadCount: jest.fn<AnyFn>().mockResolvedValue({ data: { count: 0 } }) },
 }));
 const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
-jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
-jest.mock('next/head', () => ({ __esModule: true, default: ({ children }: { children: ReactNode }) => <>{children}</> }));
-jest.mock('@/hooks/useAuthGuard', () => ({
-  useAuthGuard: () => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
+jest.mock('next/head', () => require('./helpers/pageMocks').headModule());
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() })));
 jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn<AnyFn>() }) }));
 let aiEntitled = false;
 jest.mock('@/hooks/useFeatures', () => ({

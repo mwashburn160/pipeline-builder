@@ -7,8 +7,9 @@
  * soft-deleted org is treated as not-found for mutations).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockOrgFindById = jest.fn<AnyFn>();
@@ -45,7 +46,7 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({ getOrganizationQuotaStatus: jest.fn<AnyFn>(), QuotaType: {} }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { quota: { tier: {} } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ quota: { tier: {} } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   isAncestorOrg: async () => false,

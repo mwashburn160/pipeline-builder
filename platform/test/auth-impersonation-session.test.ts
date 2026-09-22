@@ -20,6 +20,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { selectLean } from './helpers/query-chain.js';
 
 // Loading the auth middleware pulls in platform's config module, which refuses
 // to boot without these secrets.
@@ -47,7 +48,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: { exists: async () => ({ _id: 'key' }) },
 }));
 
-jest.unstable_mockModule('../src/utils/index.js', () => ({
+jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyAccessToken: (...a: unknown[]) => mockVerifyAccessToken(...a),
   verifyRefreshToken: jest.fn(),
 }));
@@ -63,7 +64,6 @@ function makeRes() {
 }
 const req = () => ({ headers: { authorization: 'Bearer imp.jwt' } }) as any;
 /** findOne(...).select(...).lean() → doc. */
-const selectLean = (doc: unknown) => ({ select: () => ({ lean: () => Promise.resolve(doc) }) });
 const selectLeanThrows = () => ({ select: () => ({ lean: () => Promise.reject(new Error('mongo down')) }) });
 
 beforeEach(() => {

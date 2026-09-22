@@ -3,7 +3,7 @@
 
 /**
  * Header for the public (signed-out-capable) pages: sign-in is always one click
- * away (§6a "Header").
+ * away.
  *
  * The server always renders the GUEST variant — Sign in / Create account — so
  * the SSR HTML is identical for everyone and can be CDN-cached. Only after mount

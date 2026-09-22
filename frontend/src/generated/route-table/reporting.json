@@ -268,7 +268,7 @@
         "allowService": false
       }
     ],
-    "systemAdmin": false,
+    "systemAdmin": true,
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,
@@ -568,7 +568,7 @@
         "allowService": false
       }
     ],
-    "systemAdmin": false,
+    "systemAdmin": true,
     "servicePrincipal": false,
     "internalCallers": [],
     "stepUp": false,

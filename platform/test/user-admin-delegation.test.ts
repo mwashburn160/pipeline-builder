@@ -14,6 +14,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetUserIdsInOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -35,9 +36,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a) }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
-jest.unstable_mockModule('../src/controllers/user-profile.js', () => ({
-  formatUserResponse: (u: unknown) => u, toUserResponseInput: (u: unknown) => u, toOverridesRecord: (v: unknown) => v,
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8 } }));
+jest.unstable_mockModule('../src/helpers/user-response.js', () => ({
+  formatUserResponse: (u: unknown) => u, toOverridesRecord: (v: unknown) => v,
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({ Organization: { findById: jest.fn() } }));
 jest.unstable_mockModule('../src/services/index.js', () => ({
@@ -118,6 +119,16 @@ describe('/users with a members:manage delegate (not an admin/owner)', () => {
   it('refuses a caller with no active org', async () => {
     const r = await call(listAllUsers, { user: delegate({ organizationId: undefined }) });
     expect(r.status).toHaveBeenCalledWith(403);
+  });
+
+  it.each([
+    ['a platform admin', { sub: 'op', isSuperAdmin: true, permissions: [] }],
+    ['a members:manage delegate', delegate()],
+  ])('refuses role: owner from %s (ownership moves only via transfer) instead of recording a no-op change', async (_who, user) => {
+    const r = await call(updateUserById, { user, params: { id: 'u2' }, body: { role: 'owner' } });
+    expect(r.status).toHaveBeenCalledWith(403);
+    expect(r.json.mock.calls[0][0]).toMatchObject({ code: 'OWNERSHIP_TRANSFER_REQUIRED' });
+    expect(mockUpdateUserById).not.toHaveBeenCalled();
   });
 
   it('a platform admin is not org-scoped', async () => {

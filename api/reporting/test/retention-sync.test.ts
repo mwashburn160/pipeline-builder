@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for the inbound billing → reporting retention-sync route (Phase 8):
- * `PUT /reports/retention-sync/:orgId`. It is an INTERNAL route (#14) — only
+ * Tests for the inbound billing → reporting retention-sync route:
+ * `PUT /reports/retention-sync/:orgId`. It is an INTERNAL route — only
  * `billing`'s own signed token passes, and no user token does, however
  * privileged — and it clamps/validates the two retention windows before
  * upserting them into `dora_settings`.
@@ -36,7 +36,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 const mockGetIncidentSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const tenantScopes: unknown[] = [];
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  reportingService: { setReportingSettings: mockSetReportingSettings, getIncidentSettings: mockGetIncidentSettings },
+  reportingService: { setReportingSettings: mockSetReportingSettings, getReportingSettings: mockGetIncidentSettings },
   runWithTenantContext: (ctx: unknown, fn: () => unknown) => { tenantScopes.push(ctx); return fn(); },
 }));
 
@@ -118,8 +118,7 @@ describe('PUT /reports/retention-sync/:orgId', () => {
   });
 
   it('rejects a SYSTEM-ADMIN caller too — an internal route admits no user token', async () => {
-    // This leg used to accept `isSystemAdmin`. #14 closed that: a retention
-    // reduction destroys data on the next sweep, and "a sufficiently privileged
+    // No `isSystemAdmin` escape hatch: a retention reduction destroys data on the next sweep, and "a sufficiently privileged
     // human" is not one of billing's identities.
     await run({ eventRetentionDays: 90, doraRetentionDays: 365 }, { sub: 'user-1', isSuperAdmin: true });
 

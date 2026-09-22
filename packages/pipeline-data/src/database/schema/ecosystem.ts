@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //
-// Plugin ecosystem tables (docs/plans/plugin-ecosystem.md). Mirrors the
+// Plugin ecosystem tables (docs/plugin-publishing.md). Mirrors the
 // "PLUGIN ECOSYSTEM" section of postgres-init.sql, which is authoritative for
 // the trigger-maintained `search_vector`, the RLS policies and the public views.
 //
@@ -11,9 +11,9 @@
 //     request queue, reviews, advisories, anonymous submissions, … The
 //     directory is instance-wide, so these carry NO `org_id`: they are not
 //     tenant scoped, writes are gated in the service layer (system-org-only
-//     approval, §3.0), and their RLS policy admits the application role only.
+//     approval), and their RLS policy admits the application role only.
 //     `publishers.owner_org_id` is deliberately not named `org_id`: a publisher
-//     outlives its org (§3.6), so it must stay out of the org cascade, which
+//     outlives its org, so it must stay out of the org cascade, which
 //     treats every `org_id` table as the org's data.
 //   * ORG-SCOPED — pipeline_step_manifests, plugin_installs,
 //     plugin_install_policies, plugin_advisory_deliveries: `org_id` + the
@@ -26,6 +26,24 @@
 // out of the aggregate `schema` object, which lists tables only.
 //
 
+import type {
+  PublisherTier,
+  ListingState,
+  PublishRequestKind,
+  PublishRequestStatus,
+  PublishRequestLane,
+  InstallVersionPolicy,
+  InstallStatus,
+  BlockOnAdvisory,
+  OfficialInstalls,
+  ReviewStatus,
+  ReviewHoldReason,
+  ReviewReportCategory,
+  AdvisorySeverity,
+  AdvisoryState,
+  AdvisorySource,
+  SubmissionStatus,
+} from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import {
   boolean, check, customType, doublePrecision, index, integer, jsonb, pgTable, pgView, primaryKey, smallint, text,
@@ -33,7 +51,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { PluginIcon, PluginSecret, PluginUploadedIcon } from './plugin.js';
 
-/** Per-component health scores (W7); mirrors api-core's `HealthBreakdown`. */
+/** Per-component health scores; mirrors api-core's `HealthBreakdown`. */
 export type HealthBreakdown = Record<string, { score: number | null; weight: number }>;
 
 /** Postgres `tsvector`, which drizzle-orm has no native column for. */
@@ -44,37 +62,37 @@ const tsvector = customType<{ data: string }>({
 });
 
 // ---------------------------------------------------------------------------
-// Enumerations (each mirrored by a CHECK in postgres-init.sql)
+// Enumerations — defined in api-core's wire vocabulary so the frontend shares
+// them; each is mirrored by a CHECK in postgres-init.sql
 // ---------------------------------------------------------------------------
 
-/** Publisher trust tier (§3.1). */
-export const PUBLISHER_TIERS = ['official', 'verified', 'community', 'unverified'] as const;
-export type PublisherTier = (typeof PUBLISHER_TIERS)[number];
-
-/** Listing state (§3.1, §3.6). */
-export const LISTING_STATES = ['listed', 'unmaintained', 'suspended', 'transferred'] as const;
-export type ListingState = (typeof LISTING_STATES)[number];
-
-/** What a publish request asks the system org to do (§3.1). */
-export const PUBLISH_REQUEST_KINDS = [
-  'new_listing', 'new_version', 'listing_update', 'yank', 'unpause',
-  'transfer', 'claim', 'profile_change', 'advisory', 'verify', 'moderation', 'submission',
-] as const;
-export type PublishRequestKind = (typeof PUBLISH_REQUEST_KINDS)[number];
-
-export const PUBLISH_REQUEST_STATUSES = ['pending', 'pending_second_approval', 'approved', 'rejected', 'withdrawn'] as const;
-export type PublishRequestStatus = (typeof PUBLISH_REQUEST_STATUSES)[number];
-
-/** The statuses a request is still "open" in (drives the one-open-request index). */
-export const OPEN_PUBLISH_REQUEST_STATUSES = ['pending', 'pending_second_approval'] as const satisfies readonly PublishRequestStatus[];
-
-export type PublishRequestLane = 'standard' | 'security';
-
-/** Install version policy: exact, `~`, `^`, or anything non-breaking (§3.2). */
-export const INSTALL_VERSION_POLICIES = ['pinned', 'patch', 'minor', 'latest'] as const;
-export type InstallVersionPolicy = (typeof INSTALL_VERSION_POLICIES)[number];
-
-export type InstallStatus = 'active' | 'pending_approval' | 'denied';
+export {
+  PUBLISHER_TIERS,
+  LISTING_STATES,
+  PUBLISH_REQUEST_KINDS,
+  PUBLISH_REQUEST_STATUSES,
+  OPEN_PUBLISH_REQUEST_STATUSES,
+  INSTALL_VERSION_POLICIES,
+  REVIEW_HOLD_REASONS,
+  REVIEW_REPORT_CATEGORIES,
+  SUBMISSION_STATUSES,
+  type PublisherTier,
+  type ListingState,
+  type PublishRequestKind,
+  type PublishRequestStatus,
+  type PublishRequestLane,
+  type InstallVersionPolicy,
+  type InstallStatus,
+  type BlockOnAdvisory,
+  type OfficialInstalls,
+  type ReviewStatus,
+  type ReviewHoldReason,
+  type ReviewReportCategory,
+  type AdvisorySeverity,
+  type AdvisoryState,
+  type AdvisorySource,
+  type SubmissionStatus,
+} from '@pipeline-builder/api-core';
 
 /**
  * A member's pending request to CHANGE an active install (its version or
@@ -92,44 +110,19 @@ export interface InstallChangeRequest {
   requestedAt: string;
   note: string | null;
 }
-export type BlockOnAdvisory = 'critical' | 'high' | 'never';
-export type OfficialInstalls = 'implicit' | 'explicit';
-
 /** A `(publisher, name)` an org's consumption policy blocks. */
 export interface BlockedListingRef {
   publisher: string;
   name: string;
 }
 
-export type ReviewStatus = 'published' | 'held' | 'removed';
-/** Why a held review is held (§5 G16). */
-export const REVIEW_HOLD_REASONS = ['reports', 'burst', 'filter', 'security', 'moderator'] as const;
-export type ReviewHoldReason = (typeof REVIEW_HOLD_REASONS)[number];
-/** A review report's category; `security` routes privately to the advisory path (W8). */
-export const REVIEW_REPORT_CATEGORIES = ['spam', 'abuse', 'off_topic', 'security'] as const;
-export type ReviewReportCategory = (typeof REVIEW_REPORT_CATEGORIES)[number];
-
-export type AdvisorySeverity = 'critical' | 'high' | 'medium' | 'low';
-export type AdvisoryState = 'draft' | 'published' | 'withdrawn';
-export type AdvisorySource = 'publisher' | 'moderator' | 'cve_rescan' | 'review';
-
-/** An anonymous submission's accepted catalog metadata and per-field provenance (§3.1a). */
+/** An anonymous submission's accepted catalog metadata and per-field provenance. */
 export interface SubmissionCatalog {
   values: Record<string, unknown>;
   sources: Record<string, string>;
 }
 
-/**
- * A submission's lifecycle. `publishing` is the short claim an approval takes
- * before it copies the quarantined image out (E10), so an expiry can never
- * delete the artifacts of a submission that is being published.
- */
-export const SUBMISSION_STATUSES = [
-  'pending_verification', 'pending_review', 'publishing', 'gate_failed', 'approved', 'rejected', 'expired', 'claimed',
-] as const;
-export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
-
-/** Notification event number from §5b (`N1` … `N29`). */
+/** Notification event number (`N1` … `N29`). */
 export type EcosystemNotificationEvent = `N${number}`;
 
 // ---------------------------------------------------------------------------
@@ -193,7 +186,7 @@ export const pluginListing = pgTable('plugin_listings', {
   uploadedIcon: jsonb('uploaded_icon').$type<PluginUploadedIcon>(),
   keywords: jsonb('keywords').$type<string[]>().default([]).notNull(),
   state: varchar('state', { length: 20 }).$type<ListingState>().default('listed').notNull(),
-  // Publisher pause (D14): no new installs; existing installs keep resolving.
+  // Publisher pause: no new installs; existing installs keep resolving.
   pausedAt: timestamp('paused_at', { withTimezone: true }),
   featured: boolean('featured').default(false).notNull(),
   latestVersion: varchar('latest_version', { length: 50 }),
@@ -214,7 +207,7 @@ export const pluginListing = pgTable('plugin_listings', {
 /**
  * The public, frozen subset of a plugin record captured at approval, so a
  * listed version keeps synthesizing after the publisher org's own `plugins`
- * row is deleted or purged (§3.6). Only the keys the `public_listed_versions`
+ * row is deleted or purged. Only the keys the `public_listed_versions`
  * view projects are public; the rest is visible to installers' synth only.
  */
 export interface ListingVersionSpecSnapshot {
@@ -232,7 +225,7 @@ export interface ListingVersionSpecSnapshot {
 
 /**
  * A version published to a listing — the copy in the read-only `public/*`
- * namespace (§3.3). Immutable once written apart from pause / yank /
+ * namespace. Immutable once written apart from pause / yank /
  * deprecation. `sourcePluginId` is provenance only (no FK: the org row is
  * soft-deleted and purged on its own schedule).
  *
@@ -257,8 +250,10 @@ export const pluginListingVersion = pgTable('plugin_listing_versions', {
   vulnCritical: integer('vuln_critical'),
   vulnHigh: integer('vuln_high'),
   scannedAt: timestamp('scanned_at', { withTimezone: true }),
-  // The base image's config `created` time, recorded at publish (W7 freshness); NULL = unknown.
+  // The base image's config `created` time, recorded at publish; NULL = unknown.
   baseImageCreatedAt: timestamp('base_image_created_at', { withTimezone: true }),
+  // When maintenance collected this long-yanked, unreferenced version's public/* image; NULL = still stored.
+  imageCollectedAt: timestamp('image_collected_at', { withTimezone: true }),
   publishedAt: timestamp('published_at', { withTimezone: true }).defaultNow().notNull(),
   publishedBy: text('published_by').notNull(),
 }, (table) => ({
@@ -273,7 +268,7 @@ export const pluginListingVersion = pgTable('plugin_listing_versions', {
 }));
 
 /**
- * Security advisory against a listing's version range (W8).
+ * Security advisory against a listing's version range.
  *
  * @table plugin_advisories
  */
@@ -309,7 +304,7 @@ export const pluginAdvisory = pgTable('plugin_advisories', {
 
 /**
  * A proposed enable or widening of an auto-approval rule, waiting for a SECOND
- * Ecosystem Manager (never the proposer, §3.0.1). Disabling or deleting a rule
+ * Ecosystem Manager (never the proposer). Disabling or deleting a rule
  * narrows it and applies at once.
  */
 export interface AutoApprovalRulePendingChange {
@@ -321,7 +316,7 @@ export interface AutoApprovalRulePendingChange {
 }
 
 /**
- * System-org auto-approval rules (§3.0.1, §3.0.3); enabling or widening one
+ * System-org auto-approval rules; enabling or widening one
  * needs a second approver (`pendingChange`).
  *
  * @table ecosystem_auto_approval_rules
@@ -340,8 +335,8 @@ export const ecosystemAutoApprovalRule = pgTable('ecosystem_auto_approval_rules'
 });
 
 /**
- * The single queue the Ecosystem console works from (§3.1). `digest` is pinned
- * at submit (G25): approval publishes exactly it, or fails closed. `pluginId`
+ * The single queue the Ecosystem console works from. `digest` is pinned
+ * at submit: approval publishes exactly it, or fails closed. `pluginId`
  * has no FK (the org row is soft-deleted and purged on its own schedule).
  *
  * @table plugin_publish_requests
@@ -436,7 +431,7 @@ export const ecosystemCollection = pgTable('ecosystem_collections', {
 });
 
 /**
- * A listing review (§5). `authorOrgId` feeds the integrity rules (no
+ * A listing review. `authorOrgId` feeds the integrity rules (no
  * self-review, per-org rate limit, verified use) and is NEVER exposed. GDPR
  * user deletion anonymizes: `authorUserId` and the body go NULL, the rating stays.
  *
@@ -560,13 +555,13 @@ export const pluginStats = pgTable('plugin_stats', {
   activeOrgCount: integer('active_org_count').default(0).notNull(),
   successRate30d: doublePrecision('success_rate_30d'),
   healthScore: doublePrecision('health_score'),
-  // Per-component health scores and weights (W7), for the breakdown panel.
+  // Per-component health scores and weights, for the breakdown panel.
   healthBreakdown: jsonb('health_breakdown').$type<HealthBreakdown>(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 /**
- * Anonymous public submission (§4). The email is kept hashed (rate limits,
+ * Anonymous public submission. The email is kept hashed (rate limits,
  * claim matching) and encrypted (takedown notices only) and purged at
  * `emailPurgeAfter`. Nothing here is ever listed or resolvable.
  *
@@ -586,7 +581,7 @@ export const pluginSubmission = pgTable('plugin_submissions', {
   name: varchar('name', { length: 255 }).notNull(),
   version: varchar('version', { length: 50 }).notNull(),
   spec: jsonb('spec').$type<Record<string, unknown>>().default({}).notNull(),
-  // The accept-or-edit catalog values + provenance (§3.1a) and the Dockerfile,
+  // The accept-or-edit catalog values + provenance and the Dockerfile,
   // captured at submit so moderation reviews exactly what was submitted.
   catalog: jsonb('catalog').$type<SubmissionCatalog>().default({ values: {}, sources: {} }).notNull(),
   dockerfile: text('dockerfile'),
@@ -638,7 +633,7 @@ export const ecosystemSearchMiss = pgTable('ecosystem_search_misses', {
 }));
 
 /**
- * Notification digest/batching queue (§5b). Rows sharing a `digestKey` are
+ * Notification digest/batching queue. Rows sharing a `digestKey` are
  * coalesced into one email at `deliverAfter`.
  *
  * @table ecosystem_notification_queue
@@ -665,7 +660,7 @@ export const ecosystemNotificationQueue = pgTable('ecosystem_notification_queue'
 // ---------------------------------------------------------------------------
 
 /**
- * Step manifest (W0.1): which plugin each (pipeline, stage, action) runs,
+ * Step manifest: which plugin each (pipeline, stage, action) runs,
  * recorded at synth. Event ingest joins on it to stamp
  * `pipeline_events.plugin_*`. `pluginPublisher` is NULL for an own-org plugin.
  *
@@ -694,7 +689,7 @@ export const pipelineStepManifest = pgTable('pipeline_step_manifests', {
 }));
 
 /**
- * An org's install of a listing (§3.2). Official listings are installed
+ * An org's install of a listing. Official listings are installed
  * implicitly (virtual — no row); a row is an explicit install or override.
  *
  * @table plugin_installs
@@ -726,8 +721,8 @@ export const pluginInstall = pgTable('plugin_installs', {
 }));
 
 /**
- * Org consumption policy (§3.2). One row per org; absent = the column defaults.
- * None of these safety controls is plan-gated (§3.7).
+ * Org consumption policy. One row per org; absent = the column defaults.
+ * None of these safety controls is plan-gated.
  *
  * @table plugin_install_policies
  */
@@ -771,7 +766,7 @@ export const pluginAdvisoryDelivery = pgTable('plugin_advisory_deliveries', {
 }));
 
 // ---------------------------------------------------------------------------
-// Public read path (§6a G28) — views created by postgres-init.sql
+// Public read path — views created by postgres-init.sql
 // ---------------------------------------------------------------------------
 
 /**
@@ -811,7 +806,7 @@ export const publicListings = pgView('public_listings', {
   activeOrgCount: integer('active_org_count'),
   successRate30d: doublePrecision('success_rate_30d'),
   healthScore: doublePrecision('health_score'),
-  // 'listed' | 'unmaintained' — unmaintained stays public with a banner (§3.6).
+  // 'listed' | 'unmaintained' — unmaintained stays public with a banner.
   state: varchar('state', { length: 20 }).$type<ListingState>().notNull(),
   healthBreakdown: jsonb('health_breakdown').$type<HealthBreakdown>(),
 }).existing();
@@ -871,7 +866,7 @@ export const publicAdvisories = pgView('public_advisories', {
 
 /**
  * `public_reviews`: PUBLISHED reviews of public (non-paused) listings, public
- * columns only — the author's display name, never a user or org id (G15) —
+ * columns only — the author's display name, never a user or org id —
  * with the publisher's reply.
  */
 export const publicReviews = pgView('public_reviews', {
@@ -895,12 +890,12 @@ export const publicReviews = pgView('public_reviews', {
   replyUpdatedAt: timestamp('reply_updated_at', { withTimezone: true }),
 }).existing();
 
-/** The official publisher's handle (§3.1: the system org's catalog). */
+/** The official publisher's handle (the system org's catalog). */
 export const OFFICIAL_PUBLISHER_HANDLE = 'pipeline-builder';
-/** The platform-owned publisher anonymous submissions land under (§4). */
+/** The platform-owned publisher anonymous submissions land under. */
 export const COMMUNITY_PUBLISHER_HANDLE = 'community';
 
-/** Fixed ids of the two auto-approval rules postgres-init.sql seeds (§3.0.3, W1). */
+/** Fixed ids of the two auto-approval rules postgres-init.sql seeds. */
 export const SEEDED_AUTO_APPROVAL_RULE_IDS = {
   verifiedUpdates: '00000000-0000-4000-8000-00000000a001',
   officialCatalog: '00000000-0000-4000-8000-00000000a002',

@@ -246,7 +246,7 @@ export default function PipelineDetailPage() {
       id: 'failing',
       header: 'Failing step',
       render: (ex) => (ex.failing_stage || ex.failing_action
-        ? <span className="text-red-600 dark:text-red-400">{ex.failing_stage || ex.failing_action}</span>
+        ? <span className="text-danger">{ex.failing_stage || ex.failing_action}</span>
         : <span className="text-fg-subtle">—</span>),
     },
     { id: 'execution', header: 'Execution', render: (ex) => <CopyableId value={ex.execution_id} size="sm" /> },
@@ -477,11 +477,11 @@ export default function PipelineDetailPage() {
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-fg-muted">Succeeded</dt>
-                  <dd className="font-mono text-xs text-green-600 dark:text-green-400">{execStats.succeeded}</dd>
+                  <dd className="font-mono text-xs text-success">{execStats.succeeded}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-fg-muted">Failed</dt>
-                  <dd className="font-mono text-xs text-red-600 dark:text-red-400">{execStats.failed}</dd>
+                  <dd className="font-mono text-xs text-danger">{execStats.failed}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-fg-muted">Canceled</dt>

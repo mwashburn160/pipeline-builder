@@ -25,7 +25,6 @@ import {
   normalizeRecoveryCode,
   timeStepAt,
   totpAuthUri,
-  totpCode,
   totpCodeForStep,
   verifyTotp,
 } from '../src/utils/totp.js';
@@ -84,7 +83,7 @@ describe('TOTP — RFC 6238 Appendix B vectors (SHA-1)', () => {
     [2000000000, '279037'],
   ];
   it.each(CASES)('t=%i → %s', (seconds, expected) => {
-    expect(totpCode(RFC4226_SECRET, seconds * 1000)).toBe(expected);
+    expect(totpCodeForStep(RFC4226_SECRET, timeStepAt(seconds * 1000))).toBe(expected);
   });
 });
 

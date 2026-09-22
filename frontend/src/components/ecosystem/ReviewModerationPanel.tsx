@@ -60,7 +60,7 @@ const ACTION_COPY: Record<ActionKind, {
 };
 
 /**
- * Ecosystem console → Review moderation (plan §5, `plugins:moderate`): held and
+ * Ecosystem console → Review moderation (`plugins:moderate`): held and
  * reported reviews, and the removed ones. Moderators may hold, release or
  * remove a review, and remove a publisher reply. Reviewer org is never shown;
  * the user id is, for moderators only.
@@ -86,7 +86,7 @@ export function ReviewModerationPanel({ can }: Props) {
     else if (kind === 'remove') await api.removeReview(review.id, text);
     else await api.removeReviewReply(review.id, text);
     toast.success(ACTION_COPY[kind].done);
-    reviewsQ.refetch();
+    void reviewsQ.refetch();
   };
 
   const actionsFor = (r: ModerationReview): ActionKind[] => {

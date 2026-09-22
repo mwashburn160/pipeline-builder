@@ -13,7 +13,7 @@ import { User, Organization, UserOrganization, ImpersonationRequest, PersonalAcc
 import type { OrgMemberRole } from '../models/user-organization.js';
 import { incCounter } from '../observability/metrics.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import { verifyAccessToken, verifyRefreshToken } from '../utils/index.js';
+import { verifyAccessToken, verifyRefreshToken } from '../utils/token.js';
 
 const logger = createLogger('auth-middleware');
 
@@ -34,7 +34,7 @@ interface UserLike {
  *
  * Used by the REFRESH path (`isValidRefreshToken`), whose refresh token carries
  * only `sub`/`tokenVersion` — no role/org/permission claims — so those must be
- * re-derived from the DB. `requireAuth` no longer calls this: an access token
+ * re-derived from the DB. `requireAuth` does not call this: an access token
  * already carries fresh claims (kept current by tokenVersion bumps), so it trusts
  * them instead of re-querying on every request.
  *
@@ -205,150 +205,168 @@ export async function requireAuth(
     return next();
   }
 
+  // Only token VERIFICATION failures are a bad credential. A database error
+  // further down is our outage, not the caller's token — answering 401 there
+  // would tell every client to throw its session away during a Mongo blip.
+  let decoded: AccessTokenPayload;
   try {
-    const decoded = verifyAccessToken(token);
-
-    // Only access tokens may authenticate Bearer requests. Refresh, step-up,
-    // and impersonation tokens are minted via the same JWT secret but carry
-    // a non-'access' `type` claim; accepting them here would let those
-    // short-lived/special-purpose tokens act as a session bearer.
-    if (decoded.type !== 'access') {
-      return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
-    }
-
-    // Every token must carry a well-formed identity (`principalType`,
-    // `token_use`, and a user principal's assurance claims). Fail closed: gates
-    // below branch on those claims, so a token without them is not an identity
-    // this service can reason about.
-    if (!hasValidIdentityClaims(decoded)) {
-      return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
-    }
-
-    // Service principal (api-core `signServiceToken`, `principalType: 'service'`).
-    // These are NOT backed by a User row — `User.findById('service:x')` below
-    // would throw a CastError (non-ObjectId) and reject every inter-service call,
-    // which silently broke all service→platform hierarchy/name lookups. A service
-    // token is a short-lived access token signed with the CALLING service's own
-    // key (#14), whose per-route authority is gated by `isServicePrincipal` (and,
-    // on the internal routes, by `requireInternalService`); accept it here and skip the
-    // user/tokenVersion checks (there is no user/session to invalidate).
-    if (decoded.principalType === 'service') {
-      if (rejectDeniedService(decoded, res)) return;
-      req.user = decoded;
-      return next();
-    }
-
-    // ORG SERVICE ACCOUNT (#2) — also NOT backed by a User row, so the
-    // `User.findById(decoded.sub)` below would reject every one of its requests.
-    // Its authority was re-derived from the account, its Roles and its org at
-    // EXCHANGE time (5 minutes ago at most) and it has no session or
-    // `tokenVersion` to compare, so the verified claims are the identity. It is
-    // still subject to every permission gate a member is — and can never pass
-    // step-up (api-core's `requireStepUp` refuses the principal outright).
-    // Fail closed on a malformed one: the token must name the key it came from.
-    if (decoded.principalType === 'service_account') {
-      if (decoded.token_use !== 'api_key' || !decoded.jti || !decoded.organizationId) {
-        return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
-      }
-      if (!(await isAccessKeyLive(decoded.jti))) return sendError(res, 401, 'Session invalid');
-      req.user = decoded;
-      return next();
-    }
-
-    // The ONLY DB read this path needs: the current tokenVersion, to reject
-    // tokens minted before the last "invalidate all sessions" / role / permission
-    // / membership change (every such change bumps tokenVersion). Everything else
-    // the request needs — role, org, permissions, isSuperAdmin — already rides in
-    // the validated JWT and is kept fresh by that same bump, so re-deriving it
-    // per request (previously up to 5 sequential queries) is redundant.
-    //
-    // A token minted for a refresh-session slot (`sid`) also needs that slot to
-    // still exist: signing one device out, stopping one machine credential, or a
-    // slot killed by refresh-token reuse must end ITS access token now, not at
-    // expiry (other services read `revoke:sid:<sid>` for the same effect).
-    const user = await User.findById(decoded.sub)
-      .select(decoded.sid ? '+tokenVersion +isSuperAdmin +refreshSessions' : '+tokenVersion +isSuperAdmin')
-      .lean();
-
-    if (!user) {
-      return sendError(res, 401, 'Session invalid');
-    }
-
-    if (decoded.impersonatorId) {
-      if (!decoded.jti) return sendError(res, 401, 'Session invalid');
-      // IMPERSONATION SESSION — named by the `impersonatorId` claim. It carries
-      // a `jti` like a PAT does, but its authority lives in a completely
-      // different record, so it is classified by the claim, never by the shape.
-      //
-      // FAIL CLOSED, deliberately against the grain of the rest of auth. The
-      // Redis revocation store is fail-open because denying on a blip would lock
-      // every user out; here the only cost of failing closed is that an operator
-      // re-requests a session, while failing open would mean a session someone
-      // explicitly ended keeps working. Consent that cannot be withdrawn is not
-      // consent, so an unreadable record denies.
-      let session;
-      try {
-        session = await ImpersonationRequest.findOne({ jti: decoded.jti })
-          .select('status expiresAt targetUserId').lean();
-      } catch (err) {
-        logger.warn('Impersonation session lookup failed — denying', { error: String(err) });
-        return sendError(res, 401, 'Session invalid');
-      }
-      if (!session || session.status !== 'consumed') {
-        // `revoked` lands here too: the session was ended early.
-        return sendError(res, 401, 'Impersonation session ended');
-      }
-      // Defense in depth against a jti/sub mismatch — the token must name the
-      // user the request was opened against.
-      if (String(session.targetUserId) !== String(decoded.sub)) {
-        return sendError(res, 401, 'Session invalid');
-      }
-    } else if (decoded.token_use === 'api_key') {
-      // An EXCHANGED ACCESS-KEY token. It lives ~5 minutes and its claims were
-      // re-derived from the user, the membership and the org at exchange time,
-      // so there is nothing left to re-validate here: no key-record read, no
-      // authority re-check, and no `tokenVersion` comparison (a key is revoked by
-      // revoking the KEY, which stops the next exchange and therefore the
-      // credential everywhere within one token lifetime). `jti` names the key.
-      if (!decoded.jti) return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
-      // …except that revoking the key must also end the token it already
-      // exchanged for: platform owns the record, so it checks it (every other
-      // service reads the `revoke:key:<id>` entry the revoke published).
-      if (!(await isAccessKeyLive(decoded.jti))) return sendError(res, 401, 'Session invalid');
-    } else if (decoded.tokenVersion !== accessTokenVersion(user)) {
-      // Session token: reject if minted before the last hard revocation
-      // (tokenVersion) or claims change (claimsVersion) — the latter is cured by
-      // a refresh, which re-mints current claims.
-      return sendError(res, 401, 'Session invalid');
-    } else if (decoded.sid && !(user.refreshSessions ?? []).some((s) => s.id === decoded.sid)) {
-      // Its slot was revoked (sign-out of that device / machine credential).
-      return sendError(res, 401, 'Session invalid');
-    }
-
-    // BOOTSTRAP-ADMIN ENROLMENT SESSION (#8, revision 4). Platform is the one
-    // service that must still ADMIT such a token — it hosts enrolment, sign-out
-    // and the setup routes `init-platform.sh` calls — so the allowlist lives
-    // here rather than in api-core, which simply refuses the flag outright
-    // everywhere else. Fail-closed: anything not named in the list is refused.
-    if (decoded.mfaEnrollmentPending === true && !bootstrapSessionMayReach(req)) {
-      incCounter('platform_mfa_enforcement_refused_total', { reason: 'bootstrap_session' });
-      return sendError(
-        res, 403,
-        'Finish setting up two-factor authentication before using the rest of Pipeline Builder',
-        ErrorCode.MFA_ENROLLMENT_REQUIRED,
-      );
-    }
-
-    // Trust the JWT claims verbatim (role/organizationId/organizationName/
-    // isSuperAdmin/permissions/tier/features/hierarchy/scope). They were minted
-    // for the org the token was issued against and are only stale if tokenVersion
-    // moved — which we just checked.
-    req.user = decoded;
-    next();
+    decoded = verifyAccessToken(token);
   } catch {
     // Token verification failed - return unauthorized without exposing error details
     return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
   }
+
+  // Only access tokens may authenticate Bearer requests. Refresh, step-up,
+  // and impersonation tokens are minted via the same JWT secret but carry
+  // a non-'access' `type` claim; accepting them here would let those
+  // short-lived/special-purpose tokens act as a session bearer.
+  if (decoded.type !== 'access') {
+    return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+  }
+
+  // Every token must carry a well-formed identity (`principalType`,
+  // `token_use`, and a user principal's assurance claims). Fail closed: gates
+  // below branch on those claims, so a token without them is not an identity
+  // this service can reason about.
+  if (!hasValidIdentityClaims(decoded)) {
+    return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+  }
+
+  // Service principal (api-core `signServiceToken`, `principalType: 'service'`).
+  // These are NOT backed by a User row — `User.findById('service:x')` below
+  // would throw a CastError (non-ObjectId). A service token is a short-lived
+  // access token signed with the CALLING service's own key, whose per-route
+  // authority is gated by `isServicePrincipal` (and, on the internal routes, by
+  // `requireInternalService`); accept it here and skip the user/tokenVersion
+  // checks (there is no user/session to invalidate).
+  if (decoded.principalType === 'service') {
+    if (rejectDeniedService(decoded, res)) return;
+    req.user = decoded;
+    return next();
+  }
+
+  // ORG SERVICE ACCOUNT — also NOT backed by a User row, so the
+  // `User.findById(decoded.sub)` below would reject every one of its requests.
+  // Its authority was re-derived from the account, its Roles and its org at
+  // EXCHANGE time (5 minutes ago at most) and it has no session or
+  // `tokenVersion` to compare, so the verified claims are the identity. It is
+  // still subject to every permission gate a member is — and can never pass
+  // step-up (api-core's `requireStepUp` refuses the principal outright).
+  // Fail closed on a malformed one: the token must name the key it came from.
+  if (decoded.principalType === 'service_account') {
+    if (decoded.token_use !== 'api_key' || !decoded.jti || !decoded.organizationId) {
+      return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+    }
+    if (!(await isAccessKeyLive(decoded.jti))) return sendError(res, 401, 'Session invalid');
+    req.user = decoded;
+    return next();
+  }
+
+  let rejection: SessionRejection | undefined;
+  try {
+    rejection = await userSessionRejection(decoded);
+  } catch (err) {
+    logger.error('Session lookup failed', { error: String(err) });
+    return sendError(res, 503, 'Authentication temporarily unavailable', ErrorCode.SERVICE_UNAVAILABLE);
+  }
+  if (rejection) return sendError(res, 401, rejection.message, rejection.code);
+
+  // BOOTSTRAP-ADMIN ENROLMENT SESSION. Platform is the one service that must
+  // still ADMIT such a token — it hosts enrolment, sign-out and the setup
+  // routes `init-platform.sh` calls — so the allowlist lives here rather than
+  // in api-core, which simply refuses the flag outright everywhere else.
+  // Fail-closed: anything not named in the list is refused.
+  if (decoded.mfaEnrollmentPending === true && !bootstrapSessionMayReach(req)) {
+    incCounter('platform_mfa_enforcement_refused_total', { reason: 'bootstrap_session' });
+    return sendError(
+      res, 403,
+      'Finish setting up two-factor authentication before using the rest of Pipeline Builder',
+      ErrorCode.MFA_ENROLLMENT_REQUIRED,
+    );
+  }
+
+  // Trust the JWT claims verbatim (role/organizationId/organizationName/
+  // isSuperAdmin/permissions/tier/features/hierarchy/scope). They were minted
+  // for the org the token was issued against and are only stale if tokenVersion
+  // moved — which we just checked.
+  req.user = decoded;
+  next();
+}
+
+interface SessionRejection { message: string; code?: ErrorCode }
+const SESSION_INVALID: SessionRejection = { message: 'Session invalid' };
+
+/**
+ * The DB-backed half of user-token validation: returns the 401 to send when
+ * the session behind `decoded` is no longer valid, undefined when it is.
+ * Throws on a database error (the caller answers 503).
+ */
+async function userSessionRejection(decoded: AccessTokenPayload): Promise<SessionRejection | undefined> {
+  // The ONLY DB read this path needs: the current tokenVersion, to reject
+  // tokens minted before the last "invalidate all sessions" / role / permission
+  // / membership change (every such change bumps tokenVersion). Everything else
+  // the request needs — role, org, permissions, isSuperAdmin — already rides in
+  // the validated JWT and is kept fresh by that same bump.
+  //
+  // A token minted for a refresh-session slot (`sid`) also needs that slot to
+  // still exist: signing one device out, stopping one machine credential, or a
+  // slot killed by refresh-token reuse must end ITS access token now, not at
+  // expiry (other services read `revoke:sid:<sid>` for the same effect).
+  const user = await User.findById(decoded.sub)
+    .select(decoded.sid ? '+tokenVersion +isSuperAdmin +refreshSessions' : '+tokenVersion +isSuperAdmin')
+    .lean();
+
+  if (!user) return SESSION_INVALID;
+
+  if (decoded.impersonatorId) {
+    if (!decoded.jti) return SESSION_INVALID;
+    // IMPERSONATION SESSION — named by the `impersonatorId` claim. It carries
+    // a `jti` like a PAT does, but its authority lives in a completely
+    // different record, so it is classified by the claim, never by the shape.
+    //
+    // FAIL CLOSED, deliberately against the grain of the rest of auth. The
+    // Redis revocation store is fail-open because denying on a blip would lock
+    // every user out; here the only cost of failing closed is that an operator
+    // re-requests a session, while failing open would mean a session someone
+    // explicitly ended keeps working. Consent that cannot be withdrawn is not
+    // consent, so an unreadable record denies.
+    let session;
+    try {
+      session = await ImpersonationRequest.findOne({ jti: decoded.jti })
+        .select('status expiresAt targetUserId').lean();
+    } catch (err) {
+      logger.warn('Impersonation session lookup failed — denying', { error: String(err) });
+      return SESSION_INVALID;
+    }
+    // `revoked` lands here too: the session was ended early.
+    if (!session || session.status !== 'consumed') return { message: 'Impersonation session ended' };
+    // Defense in depth against a jti/sub mismatch — the token must name the
+    // user the request was opened against.
+    if (String(session.targetUserId) !== String(decoded.sub)) return SESSION_INVALID;
+    return undefined;
+  }
+
+  if (decoded.token_use === 'api_key') {
+    // An EXCHANGED ACCESS-KEY token. It lives ~5 minutes and its claims were
+    // re-derived from the user, the membership and the org at exchange time,
+    // so there is nothing left to re-validate here: no authority re-check and
+    // no `tokenVersion` comparison (a key is revoked by revoking the KEY, which
+    // stops the next exchange). `jti` names the key — and revoking the key must
+    // also end the token it already exchanged for: platform owns the record, so
+    // it checks it (every other service reads the `revoke:key:<id>` entry the
+    // revoke published).
+    if (!decoded.jti) return { message: 'Token invalid', code: ErrorCode.TOKEN_INVALID };
+    if (!(await isAccessKeyLive(decoded.jti))) return SESSION_INVALID;
+    return undefined;
+  }
+
+  // Session token: reject if minted before the last hard revocation
+  // (tokenVersion) or claims change (claimsVersion) — the latter is cured by a
+  // refresh, which re-mints current claims.
+  if (decoded.tokenVersion !== accessTokenVersion(user)) return SESSION_INVALID;
+  // Its slot was revoked (sign-out of that device / machine credential).
+  if (decoded.sid && !(user.refreshSessions ?? []).some((s) => s.id === decoded.sid)) return SESSION_INVALID;
+  return undefined;
 }
 
 /**
@@ -362,7 +380,7 @@ export async function requireAuth(
  * Used by the audit-events ingest endpoint so the plugin build worker
  * (and any future internal emitter) can write into MongoDB without
  * needing a real platform user identity. The signature is verified against the
- * CALLING service's published key (#14) — the same per-service bundle api-core
+ * CALLING service's published key — the same per-service bundle api-core
  * uses, so the two cannot drift.
  *
  * On its own this only proves "some service"; the routes that use it compose
@@ -459,13 +477,18 @@ export async function isValidRefreshToken(
     return sendError(res, 401, 'Token required');
   }
 
+  let decoded: ReturnType<typeof verifyRefreshToken>;
   try {
-    const decoded = verifyRefreshToken(refreshToken);
+    decoded = verifyRefreshToken(refreshToken);
+  } catch {
+    // Token verification failed - return unauthorized without exposing error details
+    return sendError(res, 401, 'Token invalid');
+  }
+  if (!decoded?.sub || decoded.tokenVersion === undefined || !decoded.sid) {
+    return sendError(res, 401, 'Token invalid');
+  }
 
-    if (!decoded?.sub || decoded.tokenVersion === undefined || !decoded.sid) {
-      return sendError(res, 401, 'Token invalid');
-    }
-
+  try {
     const user = await User.findById(decoded.sub).select('+refreshSessions +tokenVersion +isSuperAdmin');
     const slot = user?.refreshSessions?.find((s) => s.id === decoded.sid);
 
@@ -481,11 +504,13 @@ export async function isValidRefreshToken(
     res.locals.refreshSessionId = decoded.sid;
     res.locals.refreshSessionKind = slot.kind;
     res.locals.presentedRefreshToken = refreshToken;
-    next();
-  } catch {
-    // Token verification failed - return unauthorized without exposing error details
-    return sendError(res, 401, 'Token invalid');
+  } catch (err) {
+    // A database failure is our outage, not a bad refresh token: a 401 here
+    // would sign the person out.
+    logger.error('Refresh session lookup failed', { error: String(err) });
+    return sendError(res, 503, 'Authentication temporarily unavailable', ErrorCode.SERVICE_UNAVAILABLE);
   }
+  next();
 }
 
 /**

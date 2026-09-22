@@ -10,10 +10,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   AppError: class AppError extends Error {
     statusCode: number;
     code: string;
-    constructor(statusCode: number, code: string, message: string) {
+    details?: Record<string, unknown>;
+    constructor(statusCode: number, code: string, message: string, details?: Record<string, unknown>) {
       super(message);
       this.statusCode = statusCode;
       this.code = code;
+      this.details = details;
       this.name = 'AppError';
     }
   },
@@ -210,6 +212,14 @@ describe('withRoute', () => {
 
       expect(sendError).toHaveBeenCalledWith(res, 404, 'Pipeline not found', 'NOT_FOUND');
       expect(sendInternalError).not.toHaveBeenCalled();
+    });
+
+    it("sends an AppError's structured details with it", async () => {
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(mockContext('org-1', 'user-1'));
+      const handler = jest.fn<AnyFn>().mockRejectedValue(new (AppError as any)(422, 'GATES_FAILED', 'Gates failed', { gates: ['vuln'] }));
+      const res = mockRes();
+      await withRoute(handler)(mockReq(), res, jest.fn<AnyFn>());
+      expect(sendError).toHaveBeenCalledWith(res, 422, 'Gates failed', 'GATES_FAILED', { gates: ['vuln'] });
     });
 
     it('does not send response when headers already sent', async () => {

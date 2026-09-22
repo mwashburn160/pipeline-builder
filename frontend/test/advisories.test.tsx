@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Security advisories and version deprecation (plan W8):
+ * Security advisories and version deprecation:
  *  - the plugin page's advisory banner (severity order, CVEs, sanitized details)
  *    and the per-version advisory marker;
  *  - the publisher submits an advisory REQUEST and deprecates a version;
@@ -36,7 +36,7 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 jest.mock('@/hooks/useDebounce', () => ({ __esModule: true, useDebounce: <T,>(v: T) => v }));
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ isReady: true, query: {}, replace: jest.fn(), push: jest.fn() }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: {}, replace: jest.fn(), push: jest.fn() })));
 
 const api = {
   listPublisherAdvisories: jest.fn<AnyFn>(),

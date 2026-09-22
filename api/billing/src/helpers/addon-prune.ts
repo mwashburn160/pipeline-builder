@@ -2,28 +2,161 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Add-on prune + plan-tier-change orchestration — the tier-included add-on
- * pruning finalizer and the plan-change side-effect runner. Split out of the
- * (large) billing-helpers module; imports its shared deps from there ONE-WAY
- * (billing-helpers never imports this file, so there's no cycle).
+ * Add-on prune + plan-tier-change orchestration: the pure tier-included add-on
+ * prune, the provider line-item leg (with its durable retry marker), the prune
+ * finalizer, and the plan-change side-effect runner.
  */
-import { createLogger, type QuotaTier } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, TIER_FEATURES, type QuotaTier, recordAudit } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
+import type { BundleConfig } from '../config/billing-types.js';
 import { cascadeRemoveDependents } from './addon-catalog.js';
-import {
-  billingServiceAuth,
-  createBillingEvent,
-  getBundleCatalog,
-  pruneTierIncludedFeatureAddons,
-  syncEntitlements,
-  syncProviderAddons,
-  type PrunedAddon,
-} from './billing-helpers.js';
+import { billingServiceAuth, createBillingEvent, getBundleCatalog } from './billing-helpers.js';
+import { syncEntitlements } from './entitlement-sync.js';
 import { isGraceDowngraded } from './subscription-status.js';
 import type { BillingEventType } from '../models/billing-event.js';
-import type { BillingInterval } from '../models/subscription.js';
-import { getAuditClient } from '../services/audit.js';
+import { Subscription, type BillingInterval } from '../models/subscription.js';
+import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('billing-addon-prune');
+
+/** An add-on removed because the destination tier now includes its feature. */
+export interface PrunedAddon {
+  bundleId: string;
+  features: string[];
+}
+
+/** Result of pruning tier-included pure-feature add-ons off a subscription. */
+export interface PruneResult {
+  /** The reduced add-on list to persist + sync. */
+  addons: Array<{ bundleId: string; quantity: number }>;
+  /** The add-ons that were dropped (for logging / audit). */
+  pruned: PrunedAddon[];
+}
+
+/**
+ * Drop any PURE-FEATURE add-on bundle whose granted feature is now included in
+ * the destination tier's feature set (docs/billing-bundles.md). Prevents
+ * double-billing: a Pro/Team account that bought e.g. `advanced_reporting` or
+ * `team_usage_analytics` and then upgrades into a tier that bundles that feature keeps
+ * paying for the now-redundant add-on, and the tier-filtered `/bundles` catalog
+ * hides it (its `availableForTiers` excludes the higher tier) so they can't
+ * self-service-remove it.
+ *
+ * Prune predicate (applied per add-on): the add-on's bundle exists in the
+ * catalog AND has NO quota grants (`Object.keys(bundle.grants).length === 0`)
+ * AND every flag in `bundle.features` is present in `TIER_FEATURES[newTier]`.
+ * HYBRID bundles — ones that grant a feature AND a quota — are NEVER pruned:
+ * dropping them would strip the paid quota along with the redundant feature. No
+ * shipped bundle is hybrid today (the last one, `sso`, was withdrawn when SSO
+ * became Team-and-above only), but the rule is structural, not a special case,
+ * so a future hybrid pack can't be silently deleted by a tier upgrade.
+ * Quota-only packs (seat, pipeline_pack, etc.) carry no features and are never
+ * pruned.
+ *
+ * Pure function (no I/O) so callers persist + sync the reduced list themselves.
+ */
+export function pruneTierIncludedFeatureAddons(
+  addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
+  newTier: QuotaTier,
+  catalog: readonly BundleConfig[],
+): PruneResult {
+  const tierFeatures = new Set<string>(TIER_FEATURES[newTier] ?? []);
+  const byId = new Map(catalog.map((b) => [b.id, b]));
+  const kept: Array<{ bundleId: string; quantity: number }> = [];
+  const pruned: PrunedAddon[] = [];
+
+  for (const addon of addons) {
+    const bundle = byId.get(addon.bundleId);
+    const features = bundle?.features ?? [];
+    const isPureFeatureBundle = Boolean(bundle)
+      && Object.keys(bundle!.grants).length === 0
+      && features.length > 0
+      && features.every((f) => tierFeatures.has(f));
+    if (isPureFeatureBundle) {
+      pruned.push({ bundleId: addon.bundleId, features: [...features] });
+    } else {
+      kept.push(addon);
+    }
+  }
+
+  return { addons: kept, pruned };
+}
+
+/**
+ * Best-effort: reconcile the external provider's add-on line items to `addons`
+ * (the target/reduced set). Local entitlements are already applied, so a provider
+ * error must not fail the request — it's logged and reconciled on the next
+ * change/webhook. No-ops when there is no external subscription id, and when the
+ * active provider has no line-item add-ons (marketplace/stub `syncAddons` is a
+ * no-op — marketplace add-ons are AWS-metered, not pushed as line items).
+ *
+ * The single provider path shared by the user-initiated add/remove routes
+ * (routes/addons) AND the auto-prune finalizer ({@link finalizePrunedAddons}), so
+ * a bundle's line item is always deleted through ONE call with identical
+ * proration behavior.
+ */
+export async function syncProviderAddons(
+  externalId: string | null | undefined,
+  addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
+  interval: BillingInterval,
+  orgId: string,
+  subscriptionId?: string,
+  source = 'addon_change',
+): Promise<void> {
+  if (!externalId) return;
+  try {
+    await getPaymentProvider().syncAddons?.(externalId, addons, interval);
+    // Success — clear any durable marker a prior failed attempt left so the
+    // lifecycle reconciler stops re-driving it. (No-op for marketplace, whose
+    // syncAddons never fails, so the marker is never set there in the first place.)
+    await setProviderAddonSyncPending(subscriptionId, orgId, false);
+  } catch (err) {
+    logger.warn('Provider add-on sync failed (local entitlements already applied)', { orgId, error: errorMessage(err) });
+    // Meter every provider add-on sync failure so SRE can alert — covers BOTH the
+    // user add/remove path and the auto-prune finalizer via `source`.
+    incCounter('billing_provider_addon_sync_failed_total', { source });
+    // Durable marker so the lifecycle reconciler re-drives the removal from the
+    // CURRENT reduced add-on list — otherwise a transient Stripe failure during a
+    // tier upgrade leaves the customer billed for the pruned bundle forever
+    // (invisibly). This is the provider leg's own recovery; the entitlement leg
+    // recovers separately via the durable event-bus retry.
+    await setProviderAddonSyncPending(subscriptionId, orgId, true);
+  }
+}
+
+/**
+ * Set/clear the durable `metadata.providerAddonSyncPending` marker on a
+ * Subscription — the provider leg's own durable-retry signal (the entitlement
+ * leg instead retries via the event bus). When
+ * {@link syncProviderAddons} fails to reconcile a Stripe line item (e.g. a
+ * transient outage during a tier-upgrade prune), the removal is only local; this
+ * marker lets the lifecycle reconciler re-drive the removal so the customer stops
+ * being billed for a bundle they no longer have. Only Stripe-backed subs reach
+ * here with a failure (syncProviderAddons no-ops without an externalId, and the
+ * marketplace `syncAddons` is a no-op that never throws), so the marker is
+ * effectively Stripe-only. Surgical dot-path $set/$unset so a concurrent metadata
+ * write (grace/renewal/pending markers) isn't clobbered. Best-effort + swallowed:
+ * it can NOT alter syncProviderAddons's fail-open contract.
+ */
+async function setProviderAddonSyncPending(
+  subscriptionId: string | undefined,
+  orgId: string,
+  pending: boolean,
+): Promise<void> {
+  if (!subscriptionId) return;
+  try {
+    await Subscription.updateOne(
+      { _id: subscriptionId },
+      pending
+        ? { $set: { 'metadata.providerAddonSyncPending': true } }
+        : { $unset: { 'metadata.providerAddonSyncPending': '' } },
+    );
+  } catch (err) {
+    logger.warn('Failed to persist providerAddonSyncPending marker', {
+      orgId, subscriptionId, error: errorMessage(err),
+    });
+  }
+}
 
 /** Context threaded into the tier-included add-on prune helpers — for logging, the
  *  billing_events / central-audit trail, and the provider line-item removal. */
@@ -129,13 +262,13 @@ export async function finalizePrunedAddons(
     // a tier-included bundle). Still tagged with `reason: 'addon_pruned'`;
     // actorId is 'system' on the auto-prune paths. Id/feature whitelist only, so
     // no card/payment secret or AWS account id can leak. Fire-and-forget.
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.addon.prune',
       actorId: ctx.actorId ?? 'system',
       orgId: ctx.orgId,
       targetId: p.bundleId,
       details: { reason: 'addon_pruned', bundleId: p.bundleId, features: p.features, subscriptionId: ctx.subscriptionId },
-    }, 'billing');
+    });
   }
   // Remove the dropped bundles' provider line items through the same call the
   // user-initiated removal uses (identical proration). No-op for marketplace.

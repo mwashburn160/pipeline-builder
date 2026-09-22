@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The §3.1a ACCEPT-OR-EDIT step for `plugin publish`: every descriptive
+ * The ACCEPT-OR-EDIT step for `plugin publish`: every descriptive
  * catalog field is shown with its detected value and source, and the author
  * accepts it, edits it or clears it. `--yes` accepts everything detected;
  * `--metadata <file.yaml>` supplies edits non-interactively. Edits pass the
- * same api-core validator the server applies (contract keys refused, G56).
+ * same api-core validator the server applies (contract keys refused).
  */
 
 import fs from 'fs';

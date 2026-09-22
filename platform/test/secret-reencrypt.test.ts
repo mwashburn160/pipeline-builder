@@ -14,8 +14,8 @@
  *     decrypted, so a rotation never proceeds over unreadable data.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockOrgFindById = jest.fn<AnyFn>();
@@ -108,7 +108,7 @@ describe('reencryptOrgSecrets', () => {
     expect(orgDoc.save).toHaveBeenCalledTimes(1);
     // IdP secret re-wrapped via a targeted update.
     expect(mockIdpUpdateOne).toHaveBeenCalledWith(
-      { orgId: 'org-1' },
+      { organizationId: 'org-1' },
       { $set: { clientSecretEncrypted: 'enc:idp-plain' } },
     );
   });
@@ -172,7 +172,7 @@ describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
     const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'old-a', openai: 'old-o' }, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
     const orgB: any = { _id: 'org-b', aiProviderKeys: undefined, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
     mockOrgFind.mockReturnValue(cursorOver([orgA, orgB]));
-    mockIdpFind.mockReturnValue(cursorOver([{ _id: 'idp-1', orgId: 'org-a', clientSecretEncrypted: 'old-idp' }]));
+    mockIdpFind.mockReturnValue(cursorOver([{ _id: 'idp-1', organizationId: 'org-a', clientSecretEncrypted: 'old-idp' }]));
     mockTotpFind.mockReturnValue(cursorOver([{ _id: 'totp-1', userId: 'u-1', secret: 'old-totp' }]));
     mockSamlFind.mockReturnValue(bareCursorOver([
       { _id: 'signing', privateKeyEncrypted: 'old-sign' },

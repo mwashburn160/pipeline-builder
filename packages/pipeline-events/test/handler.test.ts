@@ -8,7 +8,7 @@
 import { jest, describe, it, expect, beforeEach, beforeAll, afterEach } from '@jest/globals';
 
 /**
- * The stored credential is an OPAQUE service-account key (#N2) — no claims, no
+ * The stored credential is an OPAQUE service-account key — no claims, no
  * signature, nothing to verify locally. The handler trades it at platform's
  * `/auth/token/exchange` for a short-lived token, so `mockFetch` serves that
  * exchange, and the cutover behaviours under test are caching, re-reading the
@@ -43,7 +43,7 @@ jest.unstable_mockModule('@aws-sdk/client-codepipeline', () => ({
   ListTagsForResourceCommand: jest.fn((input: unknown) => input),
 }));
 
-// SQS (Phase 3 self-healing redrive) and CodeCommit (Phase 4 commit resolution) are
+// SQS (self-healing redrive) and CodeCommit (commit resolution) are
 // NOT real dependencies of this package — they exist only in the Lambda runtime. The
 // handler dynamic-imports them by name; jest's moduleNameMapper points both to
 // test/aws-sdk-stub.js (see package.json), whose clients call these send fns via
@@ -289,7 +289,7 @@ describe('pipeline-events handler', () => {
     await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow('Reporting API failed: 500');
   });
 
-  describe('Phase 1 — pb.deploys → per-stage environment', () => {
+  describe('pb.deploys → per-stage environment', () => {
     it('should set environment on a deploy-stage STAGE event listed in pb.deploys', async () => {
       await handler(createSQSEvent([{
         ...MOCK_CODEPIPELINE_EVENT,
@@ -340,7 +340,7 @@ describe('pipeline-events handler', () => {
     });
   });
 
-  describe('Phase 4 — in-account commit range (commitTimestamp/commitCount)', () => {
+  describe('in-account commit range (commitTimestamp/commitCount)', () => {
     // Commit enrichment only runs when DORA is enabled (setup-events --with-dora).
     beforeEach(() => { process.env.DORA_ENABLED = 'true'; });
 
@@ -527,7 +527,7 @@ describe('pipeline-events handler', () => {
     });
   });
 
-  describe('Phase 3 — ingest-health + self-healing DLQ redrive', () => {
+  describe('ingest-health + self-healing DLQ redrive', () => {
     it('POSTs ingest-health after a successful batch (forwarded + lastEventAt)', async () => {
       await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
       const health = ingestHealthBody();
@@ -753,7 +753,7 @@ describe('pipeline-events handler', () => {
     });
   });
   /**
-   * The Lambda is a KEY HOLDER, not a verifier (#N2). It stores an opaque
+   * The Lambda is a KEY HOLDER, not a verifier. It stores an opaque
    * `pb_sa_…` key, trades it for a short-lived token per batch, and checks
    * NOTHING locally — an opaque key has no claims to check, and the exchange
    * already re-reads the account, its org and the key's own state. What matters
@@ -834,7 +834,7 @@ describe('pipeline-events handler', () => {
     it('REFUSES a pre-cutover JWT in the secret, naming the fix', async () => {
       mockSend.mockResolvedValue({ SecretString: JSON.stringify({ password: 'header.payload.signature' }) });
       await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT])))
-        .rejects.toThrow(/still holds a JWT from before the service-account cutover/);
+        .rejects.toThrow(/holds a JWT, not a service-account key/);
       expect(posted()).toBe(false);
     });
 

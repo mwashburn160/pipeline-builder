@@ -54,9 +54,6 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 
 // create-message emits its (announcement-only) audit through this client; the
 // support route emits none. Stubbed so the real client never loads here.
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 // Stub attachmentService (imported by create-message/read-messages) so the real
 // one (pipeline-data withTenantTx) doesn't load in this permission-focused test.
@@ -109,7 +106,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   // gate, so the chain is empty and `requirePermission('messages:read')` is the
   // only guard preceding the handler.
   createProtectedRoute: jest.fn(() => []),
-  incrementQuotaFromCtx: jest.fn<AnyFn>(),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {

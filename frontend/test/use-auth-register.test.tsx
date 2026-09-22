@@ -16,8 +16,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
 const mockPush = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({ useRouter: () => ({ push: mockPush }) }));
-jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: jest.fn<AnyFn>() }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push: mockPush })));
 
 const mockApi = {
   isAuthenticated: jest.fn<AnyFn>(() => true),

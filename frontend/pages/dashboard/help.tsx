@@ -61,9 +61,8 @@ export default function HelpPage() {
   return (
     <DashboardLayout title="Help" subtitle="Guides, references, and what's new">
       {/* Two columns: search + topics stack in the main column; "What's new"
-          is a sticky sidebar spanning both rows. It used to share a grid row
-          with the search card, so the (taller) feed pushed the topics down and
-          left a large empty gap under the search box.
+          is a sticky sidebar spanning both rows, so the (taller) feed doesn't
+          push the topics down and leave a gap under the search box.
           `lg:grid-rows-[auto_1fr]` keeps the spanning sidebar from stretching
           the search row. DOM order (search → feed → topics) gives phones a
           sensible stack; the feed hides there while searching so results sit

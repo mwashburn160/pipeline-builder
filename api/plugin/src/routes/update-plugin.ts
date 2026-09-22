@@ -5,6 +5,7 @@ import {
   audited, getParam, ErrorCode, isSystemAdmin, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess,
   userHasPermission, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound, actorId,
   PLUGIN_CATALOG_FIELDS, contractKeysMessage, findContractKeys, type MetadataSources, type PluginCatalogField,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
@@ -12,11 +13,10 @@ import { Router } from 'express';
 import { onPluginDeprecated } from '../helpers/deprecation-notice.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
-import { emitPluginAudit } from '../services/audit.js';
 import { pluginService, type Plugin } from '../services/plugin-service.js';
 
 /**
- * The columns a set of catalog edits writes (§3.1a). `null` clears a field
+ * The columns a set of catalog edits writes. `null` clears a field
  * (category falls back to `unknown`, keywords to none); the README is stored as
  * source AND sanitized HTML, rendered once here. Every edited field's
  * provenance becomes `user`.
@@ -72,7 +72,7 @@ function lifecycleColumns(existing: Plugin, lifecycle: string | undefined): { co
  *
  * Edits only DESCRIPTIVE catalog fields and the version's operational flags.
  * Execution-contract keys (commands, env, secrets, compute type, …) are
- * refused with 400 (G56): what runs changes only with a new version, a new
+ * refused with 400: what runs changes only with a new version, a new
  * digest and — once published — a review diff. A frozen or listed version's
  * catalog metadata is frozen with it (409).
  */
@@ -108,9 +108,9 @@ export function createUpdatePluginRoutes(): Router {
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     // A version referenced by a publish request, or published to a listing,
-    // has its catalog metadata frozen with it (§3.1a, §3.4): changing a live
+    // has its catalog metadata frozen with it: changing a live
     // listing goes through a listing_update request instead.
-    // Its VISIBILITY is frozen too (E19): a version waiting for approval must
+    // Its VISIBILITY is frozen too: a version waiting for approval must
     // still be `public` when it is published.
     const catalogEdited = PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(body, f));
     const visibilityChanged = body.visibility !== undefined && body.visibility !== existing.visibility;
@@ -174,7 +174,7 @@ export function createUpdatePluginRoutes(): Router {
       id,
       updateData,
       orgId,
-      userId || 'system',
+      userId,
       { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') },
     );
 
@@ -184,7 +184,7 @@ export function createUpdatePluginRoutes(): Router {
 
     if (lifecycle.deprecates) void onPluginDeprecated(updated, actorId({ userId }));
 
-    emitPluginAudit({
+    recordAudit({
       action: 'plugin.update',
       actorId: actorId({ userId }),
       orgId,

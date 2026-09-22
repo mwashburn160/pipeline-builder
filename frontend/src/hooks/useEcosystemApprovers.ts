@@ -6,7 +6,7 @@ import api from '@/lib/api';
 import type { EcosystemApprovers } from '@/types/ecosystem';
 
 /**
- * The system org's approver standing (plan §3.0.1), as the console overview
+ * The system org's approver standing, as the console overview
  * reports it: Ecosystem Manager headcount per decision permission, with the
  * staffing floor (3) and the two-person floor (2) already applied server-side.
  * Fails soft: `null` while loading or when the overview can't be read, so no

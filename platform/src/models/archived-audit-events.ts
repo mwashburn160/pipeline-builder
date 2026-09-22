@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Schema, model, Document } from 'mongoose';
+import { Schema, model, type HydratedDocument } from 'mongoose';
 
 /**
  * Durable, PERMANENT archive of audit events.
@@ -17,14 +17,16 @@ import { Schema, model, Document } from 'mongoose';
  * duplicate) and every original field is kept via `strict: false`. `archivedAt`
  * records when the copy was taken.
  */
-export interface ArchivedAuditEventDocument extends Document {
+export interface ArchivedAuditEventData {
   /** When this event was copied into the archive (purge time). */
   archivedAt: Date;
   /** All original audit-event fields are preserved verbatim (strict: false). */
   [key: string]: unknown;
 }
 
-const archivedAuditEventSchema = new Schema<ArchivedAuditEventDocument>(
+export type ArchivedAuditEventDocument = HydratedDocument<ArchivedAuditEventData>;
+
+const archivedAuditEventSchema = new Schema<ArchivedAuditEventData>(
   {
     archivedAt: { type: Date, required: true, index: true },
   },
@@ -45,4 +47,4 @@ const archivedAuditEventSchema = new Schema<ArchivedAuditEventDocument>(
 archivedAuditEventSchema.index({ orgId: 1, archivedAt: -1 });
 archivedAuditEventSchema.index({ affectedOrgId: 1, archivedAt: -1 });
 
-export default model<ArchivedAuditEventDocument>('ArchivedAuditEvent', archivedAuditEventSchema);
+export default model<ArchivedAuditEventData>('ArchivedAuditEvent', archivedAuditEventSchema);

@@ -135,11 +135,6 @@ export function totpCodeForStep(secretBase32: string, step: number): string {
   return hotp(base32Decode(secretBase32), step);
 }
 
-/** The code valid right now (test + diagnostics; the service verifies instead). */
-export function totpCode(secretBase32: string, nowMs: number = Date.now()): string {
-  return totpCodeForStep(secretBase32, timeStepAt(nowMs));
-}
-
 /**
  * Drift allowance, in steps either side of the current one. ONE — so a code is
  * accepted for at most 90 seconds. Wider windows are the usual way TOTP gets

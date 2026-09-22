@@ -28,10 +28,7 @@ jest.mock('@/lib/api', () => ({
     updateAuthenticatorPolicy: (...a: unknown[]) => updateAuthenticatorPolicy(...a),
   },
 }));
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
   StepUpModal: ({ onConfirmed, action }: { onConfirmed: (t: string) => void; action: string }) => (

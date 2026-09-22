@@ -19,9 +19,10 @@
  * `requireInteractiveSession` itself is exercised against real payloads below.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { routeChain } from './helpers/route-chain.js';
 
 const tagged = (name: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { __mw: name });
 
@@ -98,19 +99,13 @@ const { requireInteractiveSession } = await import('../src/middleware/require-in
 const { sendError } = await import('@pipeline-builder/api-core');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function chain(router: any, method: string, path: string): string[] {
-  const layer = router.stack.find((l: { route?: { path: string; methods: Record<string, boolean> } }) =>
-    l.route?.path === path && l.route.methods[method]);
-  expect(layer).toBeDefined();
-  return layer.route.stack.map((s: { handle: { __mw?: string } }) => s.handle.__mw);
-}
 
 describe('passkey route gates', () => {
   it.each([
     ['post', '/register/options'],
     ['delete', '/credentials/:id'],
   ])('%s %s requires step-up and an interactive session, after auth', (method, path) => {
-    const mw = chain(webauthnRouter, method, path);
+    const mw = routeChain(webauthnRouter, method, path);
     expect(mw).toContain('requireStepUp');
     expect(mw).toContain('requireInteractiveSession');
     expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
@@ -118,28 +113,28 @@ describe('passkey route gates', () => {
   });
 
   it('register/verify consumes the already-gated ceremony instead of re-prompting', () => {
-    const mw = chain(webauthnRouter, 'post', '/register/verify');
+    const mw = routeChain(webauthnRouter, 'post', '/register/verify');
     expect(mw).toContain('requireAuth');
     expect(mw).toContain('requireInteractiveSession');
     expect(mw).not.toContain('requireStepUp');
   });
 
   it('renaming needs an interactive session but no step-up (a label is not a credential)', () => {
-    const mw = chain(webauthnRouter, 'patch', '/credentials/:id');
+    const mw = routeChain(webauthnRouter, 'patch', '/credentials/:id');
     expect(mw).toContain('requireInteractiveSession');
     expect(mw).not.toContain('requireStepUp');
   });
 
   it('listing is a plain authenticated read of the caller\'s own credentials', () => {
-    expect(chain(webauthnRouter, 'get', '/credentials')).toEqual(['requireAuth', 'listPasskeys']);
+    expect(routeChain(webauthnRouter, 'get', '/credentials')).toEqual(['requireAuth', 'listPasskeys']);
   });
 
   it('sign-in is public, and its challenge endpoint has its own limiter', () => {
-    const options = chain(webauthnRouter, 'post', '/login/options');
+    const options = routeChain(webauthnRouter, 'post', '/login/options');
     expect(options).not.toContain('requireAuth');
     expect(options).toContain('limiter:webauthn-login-options');
 
-    const verify = chain(webauthnRouter, 'post', '/login/verify');
+    const verify = routeChain(webauthnRouter, 'post', '/login/verify');
     expect(verify).not.toContain('requireAuth');
     // The credential presentation stays on the shared pre-auth budget.
     expect(verify.filter((m) => m?.startsWith('limiter:'))).toEqual([]);
@@ -147,19 +142,19 @@ describe('passkey route gates', () => {
   });
 
   it('audits both ends of a passkey\'s life', () => {
-    expect(chain(webauthnRouter, 'post', '/register/verify')).toContain('audited:user.passkey.register');
-    expect(chain(webauthnRouter, 'delete', '/credentials/:id')).toContain('audited:user.passkey.remove');
-    expect(chain(webauthnRouter, 'patch', '/credentials/:id')).toContain('audited:user.passkey.rename');
+    expect(routeChain(webauthnRouter, 'post', '/register/verify')).toContain('audited:user.passkey.register');
+    expect(routeChain(webauthnRouter, 'delete', '/credentials/:id')).toContain('audited:user.passkey.remove');
+    expect(routeChain(webauthnRouter, 'patch', '/credentials/:id')).toContain('audited:user.passkey.rename');
   });
 
   it('passkey step-up shares the one per-user step-up budget', () => {
     for (const path of ['/step-up/webauthn/options', '/step-up/webauthn/verify']) {
-      const mw = chain(authRouter, 'post', path);
+      const mw = routeChain(authRouter, 'post', path);
       expect(mw).toContain('requireAuth');
       expect(mw).toContain('stepUpLimiter');
     }
     // The same instance the password path uses.
-    expect(chain(authRouter, 'post', '/step-up')).toContain('stepUpLimiter');
+    expect(routeChain(authRouter, 'post', '/step-up')).toContain('stepUpLimiter');
   });
 });
 

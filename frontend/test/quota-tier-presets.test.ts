@@ -10,10 +10,13 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { buildTierPresets, pillClassFor, TIER_KEYS, TIER_PRESETS } from '../src/components/quotas/constants';
+import { buildTierPresets, TIER_KEYS, TIER_PRESETS } from '../src/components/quotas/constants';
 import {
   ALL_TIER_KEYS, TIER_KEYS as SELECTABLE_TIER_KEYS, TIER_META, getTierMeta, tierAllowsTeams,
 } from '../src/lib/tiers';
+
+/** The quota pages' tier pill is the shared TIER_META one. */
+const pillClassFor = (tier: string) => getTierMeta(tier).pillClass;
 
 describe('buildTierPresets (pkg#9 server-sourced tier presets)', () => {
   it('returns the hardcoded fallback when no server presets are provided', () => {

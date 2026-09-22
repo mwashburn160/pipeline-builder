@@ -15,12 +15,13 @@
  * bounded process-local set) so a replay inside the TTL is rejected.
  *
  * WHY here: restore endpoints on the api services (pipeline/plugin/...) are
- * step-up-gated, but step-up previously lived only in `platform`. This ports the
- * verify + single-use jti into api-core so any service can require it.
+ * step-up-gated, so the verify + single-use jti live in api-core where any
+ * service can require them.
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { verifyUserJwt, isServiceAccountPrincipal, isServicePrincipal } from './auth.js';
+import { verifyUserJwt } from './jwt-verify.js';
+import { isServiceAccountPrincipal, isServicePrincipal } from './service-tokens.js';
 import { tagRouteGate } from './route-table.js';
 import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from '../services/env-redis.js';
 import { getHeaderString } from '../utils/headers.js';
@@ -103,8 +104,8 @@ let _redis: JtiRedis | null | undefined;
 let _redisReady: (() => Promise<void>) | undefined;
 /**
  * The jti client, built lazily. The env client has no offline queue, so a SET on
- * a connection that isn't up yet is rejected — which used to fail the FIRST
- * step-up on every pod. Wait (bounded, never rejecting) for readiness before
+ * a connection that isn't up yet is rejected — the FIRST step-up on every pod
+ * would fail. Wait (bounded, never rejecting) for readiness before
  * handing it out; a genuinely down Redis still fails closed on the SET below.
  */
 async function redis(): Promise<JtiRedis | null> {
@@ -206,8 +207,8 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   // the same trust basis (a signed service JWT), and internal callers of a
   // step-up-gated route — e.g. the platform org-cascade's `DELETE /quotas/:orgId`
   // or the billing→quota entitlement sync — would otherwise be hard-blocked.
-  // Safe: a service token can only be minted with a SERVICE's own ES256 key
-  // (#14), which no external client holds, so this can't be spoofed to skip
+  // Safe: a service token can only be minted with a SERVICE's own ES256 key,
+  // which no external client holds, so this can't be spoofed to skip
   // step-up.
   if (isServicePrincipal(req)) {
     next();
@@ -250,7 +251,7 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
     return;
   }
 
-  // Factor restriction (#8). Checked BEFORE the jti is consumed, so a token
+  // Factor restriction. Checked BEFORE the jti is consumed, so a token
   // earned by the wrong factor can still be spent on a route that accepts it —
   // burning it here would make the refusal destructive as well as confusing.
   if (options.methods && !(payload.method && options.methods.includes(payload.method))) {

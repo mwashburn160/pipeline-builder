@@ -68,7 +68,7 @@ suite('user delete cascade (real Mongo replica set)', () => {
     ['admin deleteUserById', (id: string) => userAdminService.deleteUserById(id)],
   ])('%s removes the user\'s join requests and passkeys with the account', async (_name, del) => {
     const u = await newUser('leaver');
-    await m.JoinRequest.create({ orgId, userId: u._id, email: u.email });
+    await m.JoinRequest.create({ organizationId: orgId, userId: u._id, email: u.email });
     await m.UserOrganization.create({ userId: u._id, organizationId: orgId, role: 'member' });
     await m.WebAuthnCredential.create({
       userId: u._id, credentialId: 'cred-leaver', publicKey: Buffer.from([1, 2, 3]), counter: 0, name: 'Laptop',
@@ -86,7 +86,7 @@ suite('user delete cascade (real Mongo replica set)', () => {
 
   it('refuses to approve a join request whose requester no longer exists — no orphan membership', async () => {
     const u = await newUser('ghost');
-    const request = await m.JoinRequest.create({ orgId, userId: u._id, email: u.email });
+    const request = await m.JoinRequest.create({ organizationId: orgId, userId: u._id, email: u.email });
     await m.User.deleteOne({ _id: u._id }); // deleted without the cascade (a race)
     // Eligibility passes, so the only thing standing between approval and an
     // orphan membership is the requester check.

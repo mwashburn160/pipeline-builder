@@ -37,7 +37,7 @@ import {
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);
 // A system-org plugin reaches other orgs only as an Official LISTING, resolved
 // through the org's (explicit or implicit) install — see plugin-resolution.ts —
-// never through `visibility = 'public'` on its `plugins` row (plan §3.1, G26).
+// never through `visibility = 'public'` on its `plugins` row.
 const pluginBuilder = new AccessControlQueryBuilder(schema.plugin, { systemCatalog: false });
 const pipelineTemplateBuilder = new AccessControlQueryBuilder(schema.pipelineTemplate);
 
@@ -145,7 +145,7 @@ export function buildPipelineConditions(
  * `/plugins/find`, the pipeline service's contract check) — one definition so
  * synth and the contract check never pick different winners. Rows are only the
  * org's own and its parent's: the Official catalog and every other publisher
- * resolve as LISTINGS afterwards (plugin-resolution.ts, plan §3.5).
+ * resolve as LISTINGS afterwards (plugin-resolution.ts).
  *   1. owner — the caller's own org, then its parent org (a team reads the
  *      parent's shared rows), then anything else a superadmin can see;
  *   2. the default version;

@@ -7,7 +7,6 @@ import { createApp, runServer, attachRequestContext } from '@pipeline-builder/ap
 import { mountRoutes } from './app-routes.js';
 import { config } from './config/index.js';
 import { PLUGIN_SIGNATURES_PATH } from './routes/internal.js';
-import { getAuditClient } from './services/audit.js';
 import { startGcScheduler, startQuarantineGcScheduler } from './services/gc-scheduler.js';
 
 const logger = createLogger('pipeline-image-registry');
@@ -19,7 +18,7 @@ const logger = createLogger('pipeline-image-registry');
 // `record` never throws, and the gate wraps this call in try/catch regardless.
 // (Routes gated purely by bearer-token scopes don't route through the gate, so
 // this simply never fires for those — registering it is still correct.)
-wireServiceSecurity('image-registry', getAuditClient);
+wireServiceSecurity('image-registry');
 
 // The plugin-signature route carries a multi-MB SBOM and parses its own body
 // with a larger limit, so the global 1mb JSON parser must skip it.

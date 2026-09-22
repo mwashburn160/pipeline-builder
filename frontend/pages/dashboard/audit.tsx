@@ -168,9 +168,8 @@ export default function AuditPage() {
   const orgIdFilter = isSuperAdmin ? (filters.orgId ?? '') : '';
 
   // Org id → display name, so org references render as `name (id)` instead of
-  // a bare ObjectId. Resolved for exactly the ids this page shows (the first
-  // 200 orgs of the fleet used to be fetched, so every org past that rendered
-  // as a bare id). Sysadmin only — the org-list endpoint is sysadmin-scoped;
+  // a bare ObjectId. Resolved for exactly the ids this page shows, not a
+  // capped page of the fleet. Sysadmin only — the org-list endpoint is sysadmin-scoped;
   // org-admins only ever see their own org's events and degrade to bare ids.
   const shownOrgIds = useMemo(() => {
     const ids = [affectedOrgId, orgIdFilter, user?.organizationId ?? ''];

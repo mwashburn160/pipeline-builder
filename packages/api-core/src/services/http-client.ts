@@ -16,13 +16,14 @@ import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
+import { envInt } from '../utils/env.js';
 
 const logger = createLogger('http-client');
 
 /**
  * Default request timeout in milliseconds (env: `HTTP_CLIENT_TIMEOUT`).
  */
-const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10);
+const DEFAULT_TIMEOUT = envInt('HTTP_CLIENT_TIMEOUT', 5000, { min: 1 });
 
 /**
  * Default cap on concurrent keep-alive sockets per client agent
@@ -31,7 +32,7 @@ const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10);
  * (fd exhaustion + connection-storm on the callee). 64 is ample for
  * service-to-service fan-out while staying bounded.
  */
-const DEFAULT_MAX_SOCKETS = parseInt(process.env.HTTP_CLIENT_MAX_SOCKETS || '64', 10);
+const DEFAULT_MAX_SOCKETS = envInt('HTTP_CLIENT_MAX_SOCKETS', 64, { min: 1 });
 
 /**
  * Default cap on a response body (bytes; env: `HTTP_CLIENT_MAX_RESPONSE_BYTES`,
@@ -39,7 +40,7 @@ const DEFAULT_MAX_SOCKETS = parseInt(process.env.HTTP_CLIENT_MAX_SOCKETS || '64'
  * unbounded body from a misbehaving (or compromised) peer is a memory DoS on the
  * caller. Exceeding it aborts the request with {@link ResponseTooLargeError}.
  */
-const DEFAULT_MAX_RESPONSE_BYTES = parseInt(process.env.HTTP_CLIENT_MAX_RESPONSE_BYTES || String(10 * 1024 * 1024), 10);
+const DEFAULT_MAX_RESPONSE_BYTES = envInt('HTTP_CLIENT_MAX_RESPONSE_BYTES', 10 * 1024 * 1024, { min: 1 });
 
 /** A response body exceeded the client's `maxResponseBytes`. Not retried. */
 export class ResponseTooLargeError extends Error {

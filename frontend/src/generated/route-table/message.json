@@ -421,6 +421,8 @@
     "systemAdmin": false,
     "servicePrincipal": true,
     "internalCallers": [
+      "billing",
+      "compliance",
       "platform"
     ],
     "stepUp": false,

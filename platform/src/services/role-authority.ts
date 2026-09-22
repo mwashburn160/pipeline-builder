@@ -66,8 +66,8 @@ export function carriesSystemOrgOnlyPermission(rolePermissions: readonly string[
 
 /**
  * Target-side guard for a Role carrying a system-org-only permission: such a
- * Role may be held only inside the system org (docs/plans/plugin-ecosystem.md
- * §5a). The seeder only creates one there and custom Roles can never carry the
+ * Role may be held only inside the system org (moderating the shared
+ * directory is a platform decision, never a tenant's). The seeder only creates one there and custom Roles can never carry the
  * permissions, so this is defence in depth against a hand-written document.
  * Throws `RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG`.
  */

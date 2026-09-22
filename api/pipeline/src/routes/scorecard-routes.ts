@@ -11,15 +11,17 @@ import {
   createComplianceClient,
   requireFeature,
   runConcurrent,
+  envInt,
   errorMessage,
   requirePermission,
+  toComplianceAttributes,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
+import { withRoute, meterQuotaOnSuccess } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { buildScorecard, unavailableScorecard, type Scorecard } from '../helpers/scorecard.js';
-import { pipelineService, toComplianceAttributes } from '../services/pipeline-service.js';
+import { pipelineService } from '../services/pipeline-service.js';
 
 const complianceClient = createComplianceClient();
 
@@ -27,9 +29,9 @@ const complianceClient = createComplianceClient();
 const SCORECARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Cap on pipelines scored per org-wide roll-up (bounds the N× compliance+DORA cost). */
-const ORG_SCORECARD_MAX = parseInt(process.env.ORG_SCORECARD_MAX_PIPELINES || '50', 10);
+const ORG_SCORECARD_MAX = envInt('ORG_SCORECARD_MAX_PIPELINES', 50, { min: 1 });
 /** Max concurrent per-pipeline computes in a roll-up (bounds load on the compliance service). */
-const ORG_SCORECARD_CONCURRENCY = parseInt(process.env.ORG_SCORECARD_CONCURRENCY || '4', 10);
+const ORG_SCORECARD_CONCURRENCY = envInt('ORG_SCORECARD_CONCURRENCY', 4, { min: 1 });
 
 /** Minimal shape the scorecard compute needs off a pipeline record. */
 interface ScorablePipeline { id: string; name?: string; [k: string]: unknown }
@@ -81,11 +83,13 @@ async function computeScorecard(
  */
 export function createScorecardRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
+  // apiCalls metering: once per 2xx, never for service principals.
+  const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
 
   // Mounted behind the shared auth chain + the apiCalls quota check (see
   // src/index.ts), so this heavy endpoint (compliance dry-run + DORA scan) is
   // metered like other reads rather than being a free cost-amplification path.
-  router.get('/:id/scorecard', requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id/scorecard', meter, requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -100,11 +104,10 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
     // Thread the org's incident→deploy correlation-window override into the DORA
     // compute so the scorecard's CFR/MTTR (post-deploy correlation) match what the
     // `/dora` report shows for the same org (both then key the same cache entry).
-    const { incidentWindowHours } = await reportingService.getIncidentSettings(orgId);
+    const { incidentWindowHours } = await reportingService.getReportingSettings(orgId);
 
     const scorecard = await computeScorecard(pipeline as ScorablePipeline, orgId, from, to, incidentWindowHours, (msg, meta) => ctx.log('WARN', msg, meta));
     ctx.log('COMPLETED', 'Computed pipeline scorecard', { id, score: scorecard.score, grade: scorecard.grade });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     return sendSuccess(res, 200, { scorecard });
   }));
 
@@ -116,10 +119,10 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
   // above, but it DOES match the read router's single-segment `GET /:id` — so
   // src/index.ts must mount this router BEFORE the read router (else the roll-up
   // is looked up as a pipeline with id "scorecard" and 404s).
-  router.get('/scorecard', requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/scorecard', meter, requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ res, ctx, orgId }) => {
     const to = new Date();
     const from = new Date(to.getTime() - SCORECARD_WINDOW_MS);
-    const { incidentWindowHours } = await reportingService.getIncidentSettings(orgId);
+    const { incidentWindowHours } = await reportingService.getReportingSettings(orgId);
 
     // List the org's pipelines (RLS + access clause scope it), capped.
     const listed = await pipelineService.findPaginated({}, orgId, { limit: ORG_SCORECARD_MAX + 1, offset: 0 });
@@ -162,7 +165,6 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
     ctx.log('COMPLETED', 'Computed org-wide scorecard roll-up', {
       pipelineCount: scored.length, averageScore, truncated, failed,
     });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
     return sendSuccess(res, 200, {
       rollup: {
         orgId,

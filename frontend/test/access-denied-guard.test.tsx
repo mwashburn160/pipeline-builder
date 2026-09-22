@@ -19,16 +19,11 @@ import { AccessDenied } from '@/components/ui/AccessDenied';
 let pathname = '/dashboard/pipelines';
 const push = jest.fn<AnyFn>();
 const replace = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ pathname, push, replace, query: {}, isReady: true }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ pathname, push, replace, query: {}, isReady: true })));
 
 interface TestUser { id: string; permissions?: string[]; isSuperAdmin?: boolean; role?: string }
 let user: TestUser | null = { id: 'u1', permissions: ['pipelines:read'] };
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({
     user,
     isAuthenticated: !!user,
     isInitialized: true,
@@ -36,8 +31,7 @@ jest.mock('@/hooks/useAuth', () => ({
     isReadOnly: false,
     logout: jest.fn<AnyFn>(),
     refreshUser: jest.fn<AnyFn>(),
-  }),
-}));
+  })));
 
 describe('useAuthGuard resolves the route gate from the nav declaration', () => {
   beforeEach(() => {
@@ -67,8 +61,8 @@ describe('useAuthGuard resolves the route gate from the nav declaration', () => 
   });
 
   it('applies the gate with no options on the page at all', () => {
-    // /dashboard/templates used to call useAuthGuard() bare, so a deep link
-    // rendered the gallery and then failed every fetch.
+    // /dashboard/templates calls useAuthGuard() bare: the gate must still
+    // apply, not render the gallery and then fail every fetch.
     pathname = '/dashboard/templates';
     user = { id: 'u1', permissions: ['pipelines:read'] };
     const { result } = renderHook(() => useAuthGuard());

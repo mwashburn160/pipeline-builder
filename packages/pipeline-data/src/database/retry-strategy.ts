@@ -13,12 +13,10 @@ export type { RetryConfig };
  * The backoff DECISION (how many attempts, how long to wait, jitter) is
  * api-core's `getErrorRetryDecision` — this class owns only the connection-
  * specific concerns (attempt tracking, logging, the health-probe recovery
- * path). It previously carried a second, subtly different implementation: its
- * own `RetryConfig` (`baseDelay` rather than `retryDelayMs`), no jitter — so a
- * pool of replicas retried in lockstep after a database blip — and an
- * off-by-one in the loop condition that gave `maxRetries: 3` only TWO retries.
+ * path). Delays are jittered so a pool of replicas doesn't retry in lockstep
+ * after a database blip.
  *
- * `maxRetries` now means what it says: N retries AFTER the initial attempt, so
+ * `maxRetries` means what it says: N retries AFTER the initial attempt, so
  * `{ maxRetries: 3 }` makes up to 4 attempts total.
  *
  * @example

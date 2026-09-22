@@ -7,7 +7,6 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { ReadonlyField } from '@/components/ui/ReadonlyField';
 import { Button } from '@/components/ui/Button';
-import { Textarea } from '@/components/ui/Textarea';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -17,14 +16,17 @@ import { invalidate } from '@/lib/api-cache';
 import type { PipelineSummary } from '@/lib/api/domains/pipelines';
 import { Pipeline, BuilderProps, Visibility } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
+import { JsonPreviewPanel } from './JsonPreviewPanel';
+import { useBuilderWizard } from '@/hooks/useBuilderWizard';
 import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
-import { formatError, formatJSON } from '@/lib/constants';
+import { formatError, formatEnvelopeError } from '@/lib/constants';
 import { useIsDirty } from '@/hooks/useIsDirty';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOwnerFields';
 import { useAuth } from '@/hooks/useAuth';
 import { isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
 /** Props for {@link EditPipelineModal}. */
 interface EditPipelineModalProps {
@@ -61,26 +63,15 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     (data: Parameters<typeof api.updatePipeline>[1]) => api.updatePipeline(pipeline.id, data),
   );
   const [success, setSuccess] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewJson, setPreviewJson] = useState<string | null>(null);
-  const [jsonError, setJsonError] = useState<string | null>(null);
-  const [jsonApplied, setJsonApplied] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
 
   const formRef = useRef<FormBuilderTabRef>(null);
+  const { currentStep, setCurrentStep, next: handleNext, prev: handlePrevious, reset: resetWizard, scrollRef, preview } = useBuilderWizard(formRef);
   // The builder owns the bulk of the form, so it reports its own edits; the
   // fields this modal owns are compared here. Together they gate the discard prompt.
   const [formDirty, setFormDirty] = useState(false);
   const ownFieldsDirty = useIsDirty({ isActive, isDefault, visibility, ownerId: owner.ownerId, ownerType: owner.ownerType });
-  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Track mount state so the success-close timer never calls onClose() after the
-  // parent has already torn the modal down (e.g. list refresh unmounts us).
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const autoClose = useAutoCloseTimer();
 
   // Fetch full pipeline data by ID to ensure description/keywords are populated.
   // useEntityFetch only re-fetches when `id` changes, so stale re-mounts during
@@ -89,7 +80,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   // an empty config would let a save wipe the pipeline's real one.
   const fetchPipeline = useCallback(async (id: string): Promise<Pipeline> => {
     const response = await api.getPipelineById(id);
-    if (!response.data?.pipeline) throw new Error(formatError(response, 'Failed to load pipeline'));
+    if (!response.data?.pipeline) throw new Error(formatEnvelopeError(response, 'Failed to load pipeline'));
     return response.data.pipeline;
   }, []);
   const { entity: fullPipeline, fetching, error: fetchError } = useEntityFetch<Pipeline>(pipeline.id, fetchPipeline);
@@ -97,11 +88,9 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   // Reset wizard/preview state and seed editable fields when the fetched
   // pipeline changes (parent may keep us mounted within the close window).
   useEffect(() => {
-    setCurrentStep(0);
-    setShowPreview(false);
-    setPreviewJson(null);
+    resetWizard();
     setSuccess(null);
-  }, [pipeline.id]);
+  }, [pipeline.id, resetWizard]);
 
   useEffect(() => {
     if (!fullPipeline) return;
@@ -110,11 +99,6 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     setVisibility(fullPipeline.visibility);
     setOwner({ ownerId: fullPipeline.ownerId, ownerType: fullPipeline.ownerType });
   }, [fullPipeline]);
-
-  // Scroll to top when step changes
-  useEffect(() => {
-    scrollRef.current?.scrollTo(0, 0);
-  }, [currentStep]);
 
   // The full record (fetched by id); null until it lands.
   const p = fullPipeline;
@@ -126,59 +110,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
 
   const handlePreview = () => {
     clearError();
-    setJsonError(null);
-    setJsonApplied(false);
-    const props = formRef.current?.getPropsPreview() ?? null;
-    if (props) {
-      setPreviewJson(formatJSON(props));
-      setShowPreview(true);
-    }
-  };
-
-  // Apply hand-edited JSON back into the form (raw-JSON escape hatch). Parses the
-  // textarea, feeds it through the same props→form conversion the loader uses, then
-  // re-renders the JSON from the normalized form so the two stay in sync.
-  const handleApplyJson = () => {
-    setJsonError(null);
-    setJsonApplied(false);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(previewJson ?? '');
-    } catch (err) {
-      setJsonError(`Invalid JSON: ${formatError(err)}`);
-      return;
-    }
-    if (!formRef.current) {
-      setJsonError('Form not ready');
-      return;
-    }
-    // loadFromProps returns an error string on failure, or null on success — so check
-    // the ref separately above (a successful null must NOT be read as "not ready").
-    const err = formRef.current.loadFromProps(parsed);
-    if (err) {
-      setJsonError(err);
-      return;
-    }
-    // Reflect the normalized form back into the editor.
-    const normalized = formRef.current?.getPropsPreview() ?? null;
-    if (normalized) setPreviewJson(formatJSON(normalized));
-    setJsonApplied(true);
-  };
-
-  const handleNext = () => {
-    if (formRef.current?.canProceed()) {
-      const next = currentStep + 1;
-      setCurrentStep(next);
-      formRef.current?.goToStep(next);
-    }
-  };
-
-  const handlePrevious = () => {
-    if (currentStep > 0) {
-      const prev = currentStep - 1;
-      setCurrentStep(prev);
-      formRef.current?.goToStep(prev);
-    }
+    preview.show(formRef.current?.getPropsPreview() ?? null);
   };
 
   const handleSave = async () => {
@@ -212,7 +144,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       // Every cached pipeline list (palette, home, deployments drift) is stale now.
       invalidate.pipelines();
       onSaved();
-      setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
+      autoClose.schedule(onClose, 1500);
     }
   };
 
@@ -262,40 +194,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     </div>
   );
 
-  const jsonPreview = showPreview && previewJson !== null ? (
-    <div className="border-t border-default">
-      <div className="flex items-center justify-between px-6 py-2 bg-surface-muted">
-        <span className="text-sm font-medium text-fg-muted">Edit JSON <span className="font-normal text-fg-subtle">— edit the pipeline `props` directly, then Apply</span></span>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleApplyJson}
-            disabled={loading}
-            className="text-brand hover:text-brand-strong text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            Apply to form
-          </button>
-          <button
-            onClick={() => setShowPreview(false)}
-            className="text-fg-subtle hover:text-fg text-sm transition-colors"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-      <div className="px-6 py-3 bg-canvas">
-        <Textarea
-          value={previewJson}
-          onChange={(e) => { setPreviewJson(e.target.value); setJsonError(null); setJsonApplied(false); }}
-          rows={14}
-          spellCheck={false}
-          className="font-mono text-xs w-full"
-          disabled={loading}
-        />
-        {jsonError && <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">{jsonError}</p>}
-        {jsonApplied && !jsonError && <p className="mt-2 text-xs text-green-600 dark:text-green-400">Applied to the form. Review the wizard, then Save.</p>}
-      </div>
-    </div>
-  ) : undefined;
+  const jsonPreview = <JsonPreviewPanel preview={preview} edit={{ subject: 'pipeline', disabled: loading }} />;
 
   const footer = (
     <div className="flex items-center justify-between">
@@ -304,7 +203,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
         onClick={handlePreview}
         disabled={loading || loadingRecord}
       >
-        {showPreview ? 'Refresh JSON' : 'Edit JSON'}
+        {preview.open ? 'Refresh JSON' : 'Edit JSON'}
       </Button>
 
       <div className="flex items-center space-x-3">
@@ -346,7 +245,6 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     >
       <ErrorAlert message={error} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
-
 
       {!p && fetchError ? (
         <ErrorAlert message={formatError(fetchError, 'Failed to load pipeline')} />

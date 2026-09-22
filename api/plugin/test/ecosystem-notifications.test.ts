@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin-ecosystem notification enqueue + digest dispatcher (plan §5b):
+ * Plugin-ecosystem notification enqueue + digest dispatcher:
  * immediate events go straight to the relay (queued for retry when it is
  * down); digest events send in-app now and queue the email; the dispatcher
  * coalesces due rows by digest_key into one email, backs off on failure and
@@ -104,7 +104,7 @@ describe('enqueueEcosystemNotification', () => {
     expect(table).toHaveLength(0);
   });
 
-  it('strips CR/LF and control characters from the subject (user text never injects a header) — E15', async () => {
+  it('strips CR/LF and control characters from the subject (user text never injects a header) —', async () => {
     await enqueueEcosystemNotification('N8', mods, { subject: 'Yanked: evil\r\nBcc: x@y\u0007 1.0', text: 'line1\nline2' });
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ subject: 'Yanked: evil Bcc: x@y  1.0', text: 'line1\nline2' }));
   });

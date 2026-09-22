@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery, API_URL, isMfaErrorCode } from '../util';
-import { ApiError, MfaRequiredError } from '../errors';
+import { buildQuery } from '../util';
 import type { ApiResponse } from '@/types';
 import type { LogQueryParams } from '@/types/logs';
 
@@ -47,11 +46,11 @@ export function observabilityApi(core: ApiCore) {
     observabilityQuery: async (
       key: string,
       range: '1h' | '6h' | '24h',
-      signal?: AbortSignal,
+      opts?: { signal?: AbortSignal },
     ) => {
       return core.request<ApiResponse<import('@/types/observability').ObservabilityQueryResponse>>(
         `/api/observability/query${buildQuery({ key, range })}`,
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
@@ -67,17 +66,17 @@ export function observabilityApi(core: ApiCore) {
     observabilityAuditQuery: async (
       key: string,
       range: '1h' | '6h' | '24h',
-      opts: Omit<import('@/types/observability').ObservabilityLogsParams, 'range'> = {},
-      signal?: AbortSignal,
+      filters: Omit<import('@/types/observability').ObservabilityLogsParams, 'range'> = {},
+      opts?: { signal?: AbortSignal },
     ) => {
       const params: Record<string, unknown> = { key, range };
-      if (opts.limit !== undefined) params.limit = opts.limit;
-      if (opts.event) params.event = opts.event;
-      if (opts.actor) params.actor = opts.actor;
-      if (opts.requestId) params.requestId = opts.requestId;
+      if (filters.limit !== undefined) params.limit = filters.limit;
+      if (filters.event) params.event = filters.event;
+      if (filters.actor) params.actor = filters.actor;
+      if (filters.requestId) params.requestId = filters.requestId;
       return core.request<ApiResponse<import('@/types/observability').ObservabilityLogsResponse>>(
         `/api/observability/audit-query${buildQuery(params)}`,
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
@@ -97,108 +96,76 @@ export function observabilityApi(core: ApiCore) {
     /** Search log entries. `window` is a preset range or an absolute from/to (unix ms). */
     logSearch: async (
       params: import('@/types/logs').LogQueryParams,
-      signal?: AbortSignal,
+      opts?: { signal?: AbortSignal },
     ) => {
       return core.request<ApiResponse<import('@/types/logs').LogSearchResponse>>(
         `/api/observability/logs${buildQuery(logQueryToParams(params))}`,
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
     /** Per-level counts across the window, for the volume histogram. */
     logVolume: async (
       params: import('@/types/logs').LogQueryParams,
-      signal?: AbortSignal,
+      opts?: { signal?: AbortSignal },
     ) => {
       return core.request<ApiResponse<import('@/types/logs').LogVolumeResponse>>(
         `/api/observability/logs/volume${buildQuery(logQueryToParams(params))}`,
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
     /** Lines either side of one entry, for the "show context" drill-down. */
     logContext: async (
       params: import('@/types/logs').LogQueryParams & { at: number; spanMs?: number },
-      signal?: AbortSignal,
+      opts?: { signal?: AbortSignal },
     ) => {
       const qs = { ...logQueryToParams(params), at: params.at, spanMs: params.spanMs };
       return core.request<ApiResponse<import('@/types/logs').LogContextResponse>>(
         `/api/observability/logs/context${buildQuery(qs)}`,
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
-    /**
-     * The current selection as plain text.
-     *
-     * Bypasses `core.request` (the endpoint returns text/plain, not the usual
-     * envelope) and returns the body for the caller to render or save — the same
-     * shape as `exportOrganization`.
-     */
+    /** The current selection as plain text (the endpoint serves text/plain, not the envelope). */
     logRaw: async (params: import('@/types/logs').LogQueryParams): Promise<string> => {
-      await core.ensureFreshToken();
-      const res = await fetch(`${API_URL}/api/observability/logs/raw${buildQuery(logQueryToParams(params))}`, {
-        headers: core.authHeaders() as Record<string, string>,
-        credentials: 'same-origin',
+      return core.requestText(`/api/observability/logs/raw${buildQuery(logQueryToParams(params))}`, {
+        errorMessage: 'Failed to load raw logs',
       });
-      if (!res.ok) throw new ApiError('Failed to load raw logs', res.status);
-      return res.text();
     },
 
     /**
      * Download the current selection as a file.
      *
      * Fetched with auth headers and saved as a Blob rather than linked to
-     * directly — a bare `<a href>` cannot carry the Authorization header (same
-     * reason `fetchAttachmentBlob` exists). Requires `logs:export`.
+     * directly — a bare `<a href>` cannot carry the Authorization header. Requires
+     * `logs:export`; an MFA refusal (the org's "administrative actions require
+     * MFA" policy covers exports) opens the shell's enrol / sign-in dialog like
+     * any other request. No timeout: the export streams.
      */
     logExport: async (
       params: import('@/types/logs').LogQueryParams & { format?: 'log' | 'jsonl'; name?: string },
     ): Promise<{ blob: Blob; filename: string }> => {
-      await core.ensureFreshToken();
       const qs = { ...logQueryToParams(params), format: params.format ?? 'log', name: params.name };
-      const res = await fetch(`${API_URL}/api/observability/logs/export${buildQuery(qs)}`, {
-        headers: core.authHeaders() as Record<string, string>,
-        credentials: 'same-origin',
+      return core.requestBlob(`/api/observability/logs/export${buildQuery(qs)}`, `logs.${params.format ?? 'log'}`, {
+        timeoutMs: null,
+        errorMessage: 'Log export failed',
       });
-      if (!res.ok) {
-        // A raw fetch (the body is a file, not JSON), so it does not pass through
-        // the client's error handling — an MFA refusal (the org's "administrative
-        // actions require MFA" policy covers exports) is surfaced the same way the
-        // client surfaces it everywhere else: the shell's enrol / sign-in dialog.
-        const data = await res.json().catch(() => ({})) as { code?: string; message?: string };
-        if (res.status === 401 && isMfaErrorCode(data.code)) {
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('mfa-required', {
-              detail: { code: data.code, message: data.message, endpoint: '/api/observability/logs/export' },
-            }));
-          }
-          throw new MfaRequiredError(data.message || 'Two-factor authentication is required', String(data.code));
-        }
-        throw new ApiError(data.message || 'Log export failed', res.status);
-      }
-      // Prefer the server's filename (it is sanitized there) over rebuilding one.
-      const disposition = res.headers.get('Content-Disposition') ?? '';
-      const match = /filename="([^"]+)"/.exec(disposition);
-      return {
-        blob: await res.blob(),
-        filename: match?.[1] ?? `logs.${params.format ?? 'log'}`,
-      };
     },
 
     /** List firing + suppressed alerts visible to the caller (Alertmanager v2 shape). */
-    observabilityAlerts: async (signal?: AbortSignal) => {
+    observabilityAlerts: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').AlertsResponse>>(
         '/api/observability/alerts',
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
     /** List active + recent silences. */
-    observabilitySilences: async (signal?: AbortSignal) => {
+    observabilitySilences: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').SilencesResponse>>(
         '/api/observability/silences',
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
@@ -231,18 +198,18 @@ export function observabilityApi(core: ApiCore) {
     // ==========================================================================
 
     /** List dashboards visible to the caller (org-scoped + public). */
-    listDashboards: async (signal?: AbortSignal) => {
+    listDashboards: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').DashboardsResponse>>(
         '/api/dashboards',
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
     /** Fetch one dashboard + its panels in render order. */
-    getDashboard: async (id: string, signal?: AbortSignal) => {
+    getDashboard: async (id: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').DashboardResponse>>(
         `/api/dashboards/${encodeURIComponent(id)}`,
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
@@ -274,10 +241,10 @@ export function observabilityApi(core: ApiCore) {
      *  restorable until the retention sweep purges them. Server-side the list is
      *  already narrowed to rows the caller may restore. Powers the
      *  RecentlyDeletedPanel. */
-    listDeletedDashboards: async (signal?: AbortSignal) => {
+    listDeletedDashboards: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').DashboardsResponse>>(
         '/api/dashboards/deleted',
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
@@ -309,10 +276,10 @@ export function observabilityApi(core: ApiCore) {
     },
 
     /** List catalog query keys — drives the editor's panel-add picker. */
-    observabilityCatalog: async (signal?: AbortSignal) => {
+    observabilityCatalog: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').CatalogResponse>>(
         '/api/observability/catalog',
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
@@ -361,10 +328,10 @@ export function observabilityApi(core: ApiCore) {
 
     /** List this org's soft-deleted destinations (tombstones), newest first.
      *  Targets stay masked exactly as on the live list. */
-    listDeletedAlertDestinations: async (signal?: AbortSignal) => {
+    listDeletedAlertDestinations: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').AlertDestinationsResponse>>(
         '/api/observability/alert-destinations/deleted',
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
@@ -405,10 +372,10 @@ export function observabilityApi(core: ApiCore) {
 
     /** One page of this org's alert rules (sorted by name server-side), with
      *  the `{ total, offset, limit, hasMore }` pagination envelope. */
-    listAlertRules: async (page: { offset: number; limit: number }, signal?: AbortSignal) => {
+    listAlertRules: async (page: { offset: number; limit: number }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').AlertRulesPageResponse>>(
         `/api/observability/alert-rules${buildQuery(page)}`,
-        { signal },
+        { signal: opts?.signal },
       );
     },
 
@@ -416,17 +383,13 @@ export function observabilityApi(core: ApiCore) {
      * The Prometheus `rule_files` YAML the materializer renders from every org's
      * enabled rules — the exact document Prometheus loads. System-admin only
      * (cross-tenant). Returned as text: the endpoint serves `application/yaml`,
-     * not the JSON envelope, so it bypasses `core.request` like `logRaw`.
+     * not the JSON envelope.
      */
-    getMaterializedAlertRules: async (signal?: AbortSignal): Promise<string> => {
-      await core.ensureFreshToken();
-      const res = await fetch(`${API_URL}/api/observability/alert-rules/materialized.yml`, {
-        headers: core.authHeaders() as Record<string, string>,
-        credentials: 'same-origin',
-        signal,
+    getMaterializedAlertRules: async (opts?: { signal?: AbortSignal }): Promise<string> => {
+      return core.requestText('/api/observability/alert-rules/materialized.yml', {
+        signal: opts?.signal,
+        errorMessage: 'Failed to load the rendered alert rules',
       });
-      if (!res.ok) throw new ApiError('Failed to load the rendered alert rules', res.status);
-      return res.text();
     },
 
     /** Create an alert rule. `name`, `expr`, and `summary` are required
@@ -455,10 +418,10 @@ export function observabilityApi(core: ApiCore) {
     },
 
     /** List this org's soft-deleted alert rules (tombstones), newest first. */
-    listDeletedAlertRules: async (signal?: AbortSignal) => {
+    listDeletedAlertRules: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<import('@/types/observability').AlertRulesResponse>>(
         '/api/observability/alert-rules/deleted',
-        { signal },
+        { signal: opts?.signal },
       );
     },
 

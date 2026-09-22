@@ -128,7 +128,7 @@ describe('markWebhookEventDone (phase 2)', () => {
 
 describe('crash durability (two-phase)', () => {
   it('re-runs the event when the handler crashed before the done-marker', async () => {
-    // Phase 1 claim succeeds...
+    // Step 1 claim succeeds...
     expect(await claimWebhookEvent('stripe', 'evt_crash')).toEqual(expect.any(String));
     // ...then the process dies before markWebhookEventDone. Its lease expires.
     expireLease('stripe', 'evt_crash');

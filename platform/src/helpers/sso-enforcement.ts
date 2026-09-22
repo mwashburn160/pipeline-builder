@@ -19,7 +19,7 @@
  * downgraded org from silently locking every user out.
  *
  * On top of those, REFUSING the other sign-in methods is a separate, explicit
- * org policy — "SSO required" (`OrgIdpConfig.ssoRequired`, #5). An enabled IdP
+ * org policy — "SSO required" (`OrgIdpConfig.ssoRequired`). An enabled IdP
  * without it OFFERS single sign-on to its verified domains; with it, people in
  * those domains can sign in no other way — except the org's OWNERS, who always
  * keep their own password / passkey / social sign-in as the break-glass path.
@@ -64,7 +64,7 @@ export async function ownsVerifiedDomain(orgId: string, domain: string): Promise
   } catch {
     // Own domains only.
   }
-  return !!(await OrgDomain.exists({ domain: domain.toLowerCase(), verified: true, orgId: { $in: owners } }));
+  return !!(await OrgDomain.exists({ domain: domain.toLowerCase(), verified: true, organizationId: { $in: owners } }));
 }
 
 /** Where a verified SSO identity came from. The Google carve-out is decided
@@ -144,7 +144,7 @@ export async function requireOwnOrgSso(
 }
 
 /**
- * Which protocol an org's ENFORCED IdP speaks (#4), or a typed
+ * Which protocol an org's ENFORCED IdP speaks, or a typed
  * {@link import('../services/oidc-service.js').OIDC_ERROR_MAP} error describing
  * why enforcement doesn't apply at all. The two protocol-specific resolvers
  * below re-check the same gates, so this is the DISPATCH, never the gate.
@@ -244,8 +244,8 @@ export interface SsoCoverage {
 
 /** The org that DNS-verified `domain` (a verified domain belongs to exactly one). */
 async function verifiedDomainOwner(domain: string): Promise<string | null> {
-  const row = await OrgDomain.findOne({ domain, verified: true }).select('orgId').lean();
-  return row ? String((row as { orgId: string }).orgId) : null;
+  const row = await OrgDomain.findOne({ domain, verified: true }).select('organizationId').lean();
+  return row ? String(row.organizationId) : null;
 }
 
 /**
@@ -347,7 +347,7 @@ export async function hasVerifiedDomain(orgId: string): Promise<boolean> {
   } catch {
     // Own domains only.
   }
-  return !!(await OrgDomain.exists({ verified: true, orgId: { $in: owners } }));
+  return !!(await OrgDomain.exists({ verified: true, organizationId: { $in: owners } }));
 }
 
 /**

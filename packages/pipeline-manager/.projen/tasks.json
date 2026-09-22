@@ -61,7 +61,8 @@
       "description": "Runs eslint against the codebase",
       "env": {
         "ESLINT_USE_FLAT_CONFIG": "false",
-        "NODE_NO_WARNINGS": "1"
+        "NODE_NO_WARNINGS": "1",
+        "NODE_OPTIONS": "--max-old-space-size=6144"
       },
       "steps": [
         {
@@ -102,7 +103,8 @@
       "description": "Run eslint with --fix (local only — CI runs `eslint` without it)",
       "env": {
         "ESLINT_USE_FLAT_CONFIG": "false",
-        "NODE_NO_WARNINGS": "1"
+        "NODE_NO_WARNINGS": "1",
+        "NODE_OPTIONS": "--max-old-space-size=6144"
       },
       "steps": [
         {
@@ -129,6 +131,9 @@
       "name": "post-compile",
       "description": "Runs after successful compilation",
       "steps": [
+        {
+          "exec": "esbuild src/lambda/token-renew-handler.ts --bundle --platform=node --format=esm --target=node24 --external:@aws-sdk/* --log-level=warning --outfile=dist/lambda/token-renew-handler.js"
+        },
         {
           "exec": "copyfiles -f ./cdk.json dist/ --verbose --error"
         },

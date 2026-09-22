@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, actorId } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, getParam, requirePermission, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { emitComplianceAudit } from '../services/audit.js';
 import { compliancePolicyService } from '../services/policy-service.js';
 
 export function createDeletePolicyRoutes(): Router {
@@ -20,7 +19,7 @@ export function createDeletePolicyRoutes(): Router {
     ctx.log('COMPLETED', 'Deleted compliance policy', { id, name: deleted.name });
 
     // Best-effort attributed audit — the policy delete succeeded.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.policy.delete',
       actorId: actorId({ userId }),
       orgId,

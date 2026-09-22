@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError, NotFoundError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@pipeline-builder/api-core';
-import { SQL, eq, and, or, asc, desc, sql, inArray, getTableColumns } from 'drizzle-orm';
+import { ConflictError, NotFoundError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, SYSTEM_ACTOR_ID, envInt } from '@pipeline-builder/api-core';
+import { SQL, eq, and, or, asc, desc, sql, inArray, isNull, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
@@ -75,39 +75,6 @@ export interface PaginatedResult<T> {
   nextCursor?: string;
 }
 
-/**
- * Abstract CRUD service with multi-tenant access control and pagination.
- *
- * Subclasses bind to a specific Drizzle table by implementing `schema`,
- * `buildConditions`, `getSortColumn`, and the org/project-column accessors.
- *
- * @typeParam TEntity - Entity type extending BaseEntity
- * @typeParam TFilter - Filter type for query parameters
- * @typeParam TInsert - Insert DTO type
- * @typeParam TUpdate - Update DTO type
- *
- * **A note on the type casts.** Drizzle's row types are inferred from
- * `pgTable(...)` and don't generically narrow through the abstract `schema`
- * getter, so the base class casts query results to `TEntity` and back. The
- * cast is *not* a runtime safety guarantee — it relies on each subclass
- * passing the matching entity type. Org-scoping is enforced by every
- * subclass's `buildConditions` injecting `WHERE org_id = $1`; this class
- * does not add that filter itself.
- *
- * **Error policy.** Errors propagate up to the route-level handler
- * (`withRoute`); no catch-and-swallow here.
- *
- * @example
- * ```typescript
- * class PipelineService extends CrudService<Pipeline, PipelineFilter, PipelineInsert, PipelineUpdate> {
- *   protected get schema() { return schema.pipeline; }
- *   protected buildConditions(filter, orgId) { return buildPipelineConditions(filter, orgId); }
- *   protected getSortColumn(sortBy) { return Object.hasOwn(sortColumnMap, sortBy) ? sortColumnMap[sortBy] : null; }
- *   protected getProjectColumn() { return schema.pipeline.project; }
- *   protected getOrgColumn() { return schema.pipeline.orgId; }
- * }
- * ```
- */
 /** Structural view of the subclass table's columns the base class touches
  *  directly. `id`/`isActive`/`isDefault` are always present on a CRUD entity;
  *  `visibility` only on visibility-bearing entities; the index signature
@@ -210,7 +177,7 @@ function keysetAfter(
  * Stamped into `purge_after` at delete time; the per-service purge sweep hard-
  * deletes tombstones once it has passed. `0` disables purge-deadline stamping.
  */
-const SOFT_DELETE_RETENTION_MS = Math.max(0, Number.parseInt(process.env.SOFT_DELETE_RETENTION_DAYS ?? '30', 10) || 0) * 24 * 60 * 60 * 1000;
+const SOFT_DELETE_RETENTION_MS = envInt('SOFT_DELETE_RETENTION_DAYS', 30, { min: 0 }) * 24 * 60 * 60 * 1000;
 
 /** The shared soft-delete retention window in ms (`SOFT_DELETE_RETENTION_DAYS`,
  *  default 30d; 0 disables purge-deadline stamping). Exposed so non-CrudService
@@ -220,6 +187,39 @@ export function softDeleteRetentionMs(): number {
   return SOFT_DELETE_RETENTION_MS;
 }
 
+/**
+ * Abstract CRUD service with multi-tenant access control and pagination.
+ *
+ * Subclasses bind to a specific Drizzle table by implementing `schema`,
+ * `buildConditions`, `getSortColumn`, and the org/project-column accessors.
+ *
+ * @typeParam TEntity - Entity type extending BaseEntity
+ * @typeParam TFilter - Filter type for query parameters
+ * @typeParam TInsert - Insert DTO type
+ * @typeParam TUpdate - Update DTO type
+ *
+ * **A note on the type casts.** Drizzle's row types are inferred from
+ * `pgTable(...)` and don't generically narrow through the abstract `schema`
+ * getter, so the base class casts query results to `TEntity` and back. The
+ * cast is *not* a runtime safety guarantee — it relies on each subclass
+ * passing the matching entity type. Org-scoping is enforced by every
+ * subclass's `buildConditions` injecting `WHERE org_id = $1`; this class
+ * does not add that filter itself.
+ *
+ * **Error policy.** Errors propagate up to the route-level handler
+ * (`withRoute`); no catch-and-swallow here.
+ *
+ * @example
+ * ```typescript
+ * class PipelineService extends CrudService<Pipeline, PipelineFilter, PipelineInsert, PipelineUpdate> {
+ *   protected get schema() { return schema.pipeline; }
+ *   protected buildConditions(filter, orgId) { return buildPipelineConditions(filter, orgId); }
+ *   protected getSortColumn(sortBy) { return Object.hasOwn(sortColumnMap, sortBy) ? sortColumnMap[sortBy] : null; }
+ *   protected getProjectColumn() { return schema.pipeline.project; }
+ *   protected getOrgColumn() { return schema.pipeline.orgId; }
+ * }
+ * ```
+ */
 export abstract class CrudService<
   TEntity extends BaseEntity,
   TFilter,
@@ -231,10 +231,9 @@ export abstract class CrudService<
 
   /**
    * Typed column view of {@link schema}. `PgTable` exposes no static columns, so
-   * the base class previously reached for `(this.schema as any).id` etc. at each
-   * use; centralize that single unavoidable cast here so callers get structured,
-   * typed access instead. `visibility` is optional (not every entity has it)
-   * and the index signature covers dynamic sparse-fieldset column lookup.
+   * this is the single unavoidable cast for column access. `visibility` is
+   * optional (not every entity has it) and the index signature covers dynamic
+   * sparse-fieldset column lookup.
    */
   private get cols(): CrudColumns {
     return this.schema as unknown as CrudColumns;
@@ -280,7 +279,23 @@ export abstract class CrudService<
    *  hierarchy) — same opt-in semantics as `find`/`findPaginated`. Omitted by the
    *  write path (`writeConditions`), which must stay own-org scoped. */
   private idConditions(id: string, orgId?: string, parentOrgId?: string): SQL[] {
-    return this.buildConditions({ id } as unknown as Partial<TFilter>, orgId, parentOrgId);
+    return [
+      ...this.buildConditions({ id } as unknown as Partial<TFilter>, orgId, parentOrgId),
+      ...this.notTombstoned(),
+    ];
+  }
+
+  /**
+   * Excludes soft-deleted tombstones on entities with a `deletedAt` column. The
+   * by-id filter deliberately skips the `isActive` default (a deactivated row is
+   * still readable by id), so without this a tombstone would be readable and —
+   * through `update` — half-revivable (`isActive` flipped back while
+   * `deletedAt`/`purgeAfter` stay set, so the sweep later purges a row the UI
+   * shows as live). Tombstones are reached only via the dedicated
+   * restore/purge/findDeleted paths.
+   */
+  private notTombstoned(): SQL[] {
+    return this.cols.deletedAt ? [isNull(this.cols.deletedAt)] : [];
   }
 
   /**
@@ -297,7 +312,7 @@ export abstract class CrudService<
     const conditions = this.idConditions(id, orgId);
     // Pin the mutation to the caller's own org via the tenant column
     // (getOrgColumn, asserted non-null in the constructor) — consistent with
-    // setDefault and without the old silent fail-open when the property was absent.
+    // setDefault, and never silently fail-open when the property is absent.
     if (orgId) conditions.push(eq(this.getOrgColumn(), orgId));
     // Force EXACT id equality on the mutation path. `idConditions` reuses the
     // list-filter clause, whose `buildIdFilter` PREFIX-matches (`id::text LIKE
@@ -315,6 +330,69 @@ export abstract class CrudService<
    *  sort/default helpers use for column access. */
   private exactIdCondition(id: string): SQL {
     return eq(this.cols.id, String(id).toLowerCase());
+  }
+
+  /** The actor stamped on a write: the caller, or the system actor for background work. */
+  private actor(userId: string): string {
+    return userId || SYSTEM_ACTOR_ID;
+  }
+
+  /**
+   * The one cast point for `.set()` / `.values()` / `.select()` shapes. The base class writes
+   * the shared columns (`updatedBy`, `deletedAt`, …) through the abstract
+   * `PgTable`, whose insert/update types can't prove those columns exist.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private row(values: Record<string, unknown>): any {
+    return values;
+  }
+
+  /** Run a lifecycle hook best-effort: a failure is logged, never thrown. */
+  private async runHook(hook: () => Promise<void>): Promise<void> {
+    try {
+      await hook();
+    } catch (err) {
+      this._logger.warn('Lifecycle hook failed', { error: String(err) });
+    }
+  }
+
+  /** The columns a soft-delete stamps, including the purge deadline. */
+  private tombstoneSet(now: Date, userId: string): Record<string, unknown> {
+    const user = this.actor(userId);
+    return {
+      isActive: false,
+      updatedAt: now,
+      updatedBy: user,
+      deletedAt: now,
+      deletedBy: user,
+      // Stamp the purge deadline so the retention sweep can hard-delete later.
+      ...this.purgeAfterStamp(now),
+    };
+  }
+
+  /**
+   * Hard-delete up to `limit` rows matching `conditions` in one transaction:
+   * dependents are torn down first by `onBeforePurge` in the SAME tx (a
+   * FK-blocking child can't strand the parent; a throw aborts the batch), then
+   * `onAfterPurge` handles external side-effects best-effort. Returns the ids.
+   */
+  private async purgeWhere(conditions: SQL[], limit: number): Promise<string[]> {
+    const purgedIds = await withTenantTx(async (tx) => {
+      const doomed = await tx
+        .select(this.row({ id: this.cols.id }))
+        .from(this.schema)
+        .where(and(...conditions))
+        .limit(limit)
+        .then(r => (r as Array<{ id: unknown }>).map(d => String(d.id)));
+
+      if (doomed.length === 0) return [];
+      await this.onBeforePurge(doomed, tx);
+      await tx.delete(this.schema).where(inArray(this.cols.id, doomed));
+      return doomed;
+    });
+
+    if (purgedIds.length > 0) await this.runHook(() => this.onAfterPurge(purgedIds));
+    return purgedIds;
   }
 
   // Lifecycle hooks — override in subclasses to react to mutations
@@ -448,8 +526,8 @@ export abstract class CrudService<
     // Total, deterministic order: (sort column, id). `id` is unique, so rows that
     // share a sort value have a stable relative order and a keyset cursor can
     // never skip or repeat them. An absent or UNKNOWN `sortBy` orders by `id`
-    // alone — an unknown sort used to add no WHERE and no ORDER BY while still
-    // emitting a cursor, so a cursor client looped on page 1 forever.
+    // alone — an unknown sort that added no WHERE and no ORDER BY while still
+    // emitting a cursor would loop a cursor client on page 1 forever.
     const idColumn = this.cols.id;
     const sortColumn = (sortBy ? this.getSortColumn(sortBy) : null) ?? idColumn;
     const direction = sortOrder === 'desc' ? desc : asc;
@@ -601,9 +679,8 @@ export abstract class CrudService<
   // Mutation operations
 
   /**
-   * Defense-in-depth tenant stamp. RLS is in owner-bypass mode, so the app layer
-   * is the only tenant gate on writes. A NON-sysadmin caller may only write into
-   * its OWN org, so pin the row to the trusted tenant-context org.
+   * Defense-in-depth tenant stamp alongside RLS: a NON-sysadmin caller may only
+   * write into its OWN org, so pin the row to the trusted tenant-context org.
    *
    * The stamp fires whenever the payload's `orgId` differs from the context org —
    * which covers BOTH a forged/mismatched `data.orgId` AND an ABSENT one. The
@@ -616,10 +693,9 @@ export abstract class CrudService<
    * is undefined) keep the supplied org, matching the RLS policy
    * `current_is_sysadmin() OR org_id = current_org_id()`.
    */
-  // Generic over the payload shape so BOTH the create (`TInsert`) and update
-  // (`Partial<TUpdate>`) call sites use it without the `as unknown as TInsert`
-  // round-trip they previously needed — the org-stamp logic is identical for
-  // either shape (it only touches the `orgId` key).
+  // Generic over the payload shape so both the create (`TInsert`) and update
+  // (`Partial<TUpdate>`) call sites use it — the org-stamp logic only touches
+  // the `orgId` key.
   protected enforceOrgId<T>(data: T, isCreate = false): T {
     const ctx = getTenantContext();
     const d = data as Record<string, unknown>;
@@ -659,11 +735,11 @@ export abstract class CrudService<
     // step-up. On any conflict nothing is written and the caller gets a 409.
     const [created] = await withTenantTx(async (tx) => tx
       .insert(this.schema)
-      .values({
+      .values(this.row({
         ...safeData,
-        createdBy: userId || 'system',
-        updatedBy: userId || 'system',
-      } as any)
+        createdBy: this.actor(userId),
+        updatedBy: this.actor(userId),
+      }))
       .onConflictDoNothing({ target: this.conflictTarget as any })
       .returning().then(r => drizzleRows<TEntity>(r)));
 
@@ -675,11 +751,7 @@ export abstract class CrudService<
     // fire-and-forget pattern lets a subsequent read inside the same request
     // return the stale pre-write entry. The hook is expected to be fast
     // (single Redis op); slow hooks should run their own background work.
-    try {
-      await this.onAfterCreate(created, userId);
-    } catch (err) {
-      this._logger.warn('Lifecycle hook failed', { error: String(err) });
-    }
+    await this.runHook(() => this.onAfterCreate(created, userId));
 
     return created;
   }
@@ -702,20 +774,16 @@ export abstract class CrudService<
 
     const [updated] = await withTenantTx(async (tx) => tx
       .update(this.schema)
-      .set({
+      .set(this.row({
         ...safeData,
         updatedAt: new Date(),
-        updatedBy: userId || 'system',
-      } as any)
+        updatedBy: this.actor(userId),
+      }))
       .where(and(...conditions))
       .returning().then(r => drizzleRows<TEntity>(r)));
 
     if (updated) {
-      try {
-        await this.onAfterUpdate(id, updated, userId);
-      } catch (err) {
-        this._logger.warn('Lifecycle hook failed', { error: String(err) });
-      }
+      await this.runHook(() => this.onAfterUpdate(id, updated, userId));
     }
 
     return updated || null;
@@ -730,24 +798,12 @@ export abstract class CrudService<
 
     const [deleted] = await withTenantTx(async (tx) => tx
       .update(this.schema)
-      .set({
-        isActive: false,
-        updatedAt: now,
-        updatedBy: userId || 'system',
-        deletedAt: now,
-        deletedBy: userId || 'system',
-        // Stamp the purge deadline so the retention sweep can hard-delete later.
-        ...this.purgeAfterStamp(now),
-      } as any)
+      .set(this.row(this.tombstoneSet(now, userId)))
       .where(and(...conditions))
       .returning().then(r => drizzleRows<TEntity>(r)));
 
     if (deleted) {
-      try {
-        await this.onAfterDelete(id, deleted, userId);
-      } catch (err) {
-        this._logger.warn('Lifecycle hook failed', { error: String(err) });
-      }
+      await this.runHook(() => this.onAfterDelete(id, deleted, userId));
     }
 
     return deleted || null;
@@ -766,7 +822,7 @@ export abstract class CrudService<
   ): Promise<TEntity> {
     // A non-sysadmin may only flip defaults within its OWN org — pin the scope to
     // the trusted tenant context so a forwarded `org` arg can't touch another
-    // tenant's defaults (RLS is in owner-bypass mode; this is the gate).
+    // tenant's defaults (app-layer pin, in addition to RLS).
     const ctx = getTenantContext();
     if (ctx && !ctx.isSuperAdmin && ctx.orgId) org = ctx.orgId;
     return withTenantTx(async (tx) => {
@@ -794,11 +850,11 @@ export abstract class CrudService<
       // Mark all entities in scope as non-default
       await tx
         .update(this.schema)
-        .set({
+        .set(this.row({
           isDefault: false,
           updatedAt: new Date(),
-          updatedBy: userId || 'system',
-        } as any)
+          updatedBy: this.actor(userId),
+        }))
         .where(and(...scopeConditions));
 
       // Set the specified entity as default. Guard against promoting a
@@ -809,11 +865,11 @@ export abstract class CrudService<
       // so a mixed-case id could miss its row). A non-match → NotFoundError below.
       const [updated] = await tx
         .update(this.schema)
-        .set({
+        .set(this.row({
           isDefault: true,
           updatedAt: new Date(),
-          updatedBy: userId || 'system',
-        } as any)
+          updatedBy: this.actor(userId),
+        }))
         .where(
           and(
             this.exactIdCondition(id),
@@ -854,11 +910,11 @@ export abstract class CrudService<
 
     return withTenantTx(async (tx) => tx
       .update(this.schema)
-      .set({
+      .set(this.row({
         ...safeData,
         updatedAt: new Date(),
-        updatedBy: userId || 'system',
-      } as any)
+        updatedBy: this.actor(userId),
+      }))
       .where(and(...conditions))
       .returning().then(r => drizzleRows<TEntity>(r)));
   }
@@ -902,15 +958,8 @@ export abstract class CrudService<
     userId: string,
     /**
      * The caller's authority on the three-rung `visibility` ladder. Omit (or
-     * pass `isSystemAdmin: true`) for an unrestricted delete.
-     *
-     * This used to be a `restrictToPrivate` boolean that narrowed to
-     * `visibility = 'private'`. That encoded the OLD two-state model: since
-     * `resolveVisibility` defaults pipelines and plugins to `org`, and
-     * single-row delete allows an `org` row with plain `:write`, bulk delete
-     * 403'd the normal case — an org admin could delete a pipeline one at a
-     * time but not in bulk. The rungs enforced here mirror
-     * `requireVisibilityWriteAccess` exactly:
+     * pass `isSystemAdmin: true`) for an unrestricted delete. The rungs mirror
+     * `requireVisibilityWriteAccess` exactly, so bulk and single-row delete agree:
      *   - `private` → author only (`createdBy === userId`)
      *   - `org`     → any member of the org (plain `:write`)
      *   - `public`  → requires the entity's publish permission
@@ -920,7 +969,6 @@ export abstract class CrudService<
     if (ids.length === 0) return [];
 
     const now = new Date();
-    const user = userId || 'system';
     // Owner-scope the bulk soft-delete: buildConditions also matches system/other
     // -org PUBLIC rows, so without the strict orgId pin a tenant could delete
     // shared records by id. (See writeConditions.)
@@ -933,46 +981,21 @@ export abstract class CrudService<
       // writeConditions; no silent fail-open when the property is absent.
       ...(orgId ? [eq(this.getOrgColumn(), orgId)] : []),
       ...this.visibilityDeleteConditions(access, userId, accessCol, createdByCol),
+      // Re-deleting a tombstone would re-stamp its purge deadline.
+      ...this.notTombstoned(),
     ];
 
     const deleted = await withTenantTx(async (tx) => tx
       .update(this.schema)
-      .set({
-        isActive: false,
-        updatedAt: now,
-        updatedBy: user,
-        deletedAt: now,
-        deletedBy: user,
-        // Stamp the purge deadline so the retention sweep can hard-delete later.
-        ...this.purgeAfterStamp(now),
-      } as any)
+      .set(this.row(this.tombstoneSet(now, userId)))
       .where(and(...conditions))
       .returning().then(r => drizzleRows<TEntity>(r)));
 
-    await Promise.all(
-      deleted.map(entity =>
-        this.onAfterDelete(entity.id, entity, userId).catch(err =>
-          this._logger.warn('Lifecycle hook failed', { error: String(err) }),
-        ),
-      ),
-    );
+    await Promise.all(deleted.map(entity => this.runHook(() => this.onAfterDelete(entity.id, entity, userId))));
 
     return deleted;
   }
 
-  /**
-   * Restore a soft-deleted (tombstoned) entity: clear `isActive`/`deletedAt`/
-   * `deletedBy`/`purgeAfter` so it reappears in normal reads.
-   *
-   * Matches ONLY a genuine tombstone — `isActive = false` AND `deletedAt IS NOT
-   * NULL` — so a merely *deactivated* row (isActive=false, no deletedAt) is never
-   * silently "restored". Pinned to the caller's own org (orgId-less sysadmin
-   * context spans orgs, matching delete/update). Returns null when there is no
-   * such tombstone (already active, purged, or unknown) so the route can 404.
-   * A unique-key collision (a live row already holds the key) surfaces as the
-   * driver's unique-violation for the route to map to 409 — in practice the
-   * tombstone IS the key holder, so this is defensive.
-   */
   /** Conditions matching a GENUINE tombstone (`isActive=false` AND `deletedAt IS
    *  NOT NULL`), optionally pinned to `id` and/or `orgId`. Single source of truth
    *  for restore/findDeletedById/findDeleted so the "what is a tombstone" rule
@@ -991,12 +1014,9 @@ export abstract class CrudService<
   /**
    * The `private` rung, for TOMBSTONE reads and restore.
    *
-   * Deleting a row does not declassify it. These conditions carried only
-   * `isActive=false + deletedAt IS NOT NULL + org_id = O`, so the "recently
-   * deleted" list handed every member of an org the tombstones of everyone
-   * else's PRIVATE pipelines, plugins and templates — rows the very same member
-   * could not read one second before they were deleted. `restore` shared the
-   * clause, so they could also bring one back.
+   * Deleting a row does not declassify it: without this, the "recently
+   * deleted" list (and restore) would expose other members' PRIVATE rows that
+   * the same viewer could not read before they were deleted.
    *
    * Mirrors the live read ladder (`visibility <> 'private' OR created_by = V`)
    * rather than the delete ladder: this gates who may SEE a tombstone, and a
@@ -1021,29 +1041,38 @@ export abstract class CrudService<
     return [or(...rungs) as SQL];
   }
 
+  /**
+   * Restore a soft-deleted (tombstoned) entity: clear `isActive`/`deletedAt`/
+   * `deletedBy`/`purgeAfter` so it reappears in normal reads.
+   *
+   * Matches ONLY a genuine tombstone — `isActive = false` AND `deletedAt IS NOT
+   * NULL` — so a merely *deactivated* row (isActive=false, no deletedAt) is never
+   * silently "restored". Pinned to the caller's own org (orgId-less sysadmin
+   * context spans orgs, matching delete/update). Returns null when there is no
+   * such tombstone (already active, purged, or unknown) so the route can 404.
+   * A unique-key collision (a live row already holds the key) surfaces as the
+   * driver's unique-violation for the route to map to 409 — in practice the
+   * tombstone IS the key holder, so this is defensive.
+   */
   async restore(id: string, orgId: string, userId: string): Promise<TEntity | null> {
     if (!this.cols.deletedAt) return null; // entity has no soft-delete lifecycle
     const conditions = this.tombstoneConditions(orgId, id);
 
     const [restored] = await withTenantTx(async (tx) => tx
       .update(this.schema)
-      .set({
+      .set(this.row({
         isActive: true,
         updatedAt: new Date(),
-        updatedBy: userId || 'system',
+        updatedBy: this.actor(userId),
         deletedAt: null,
         deletedBy: null,
         ...(this.cols.purgeAfter ? { purgeAfter: null } : {}),
-      } as any)
+      }))
       .where(and(...conditions))
       .returning().then(r => drizzleRows<TEntity>(r)));
 
     if (restored) {
-      try {
-        await this.onAfterRestore(id, restored, userId);
-      } catch (err) {
-        this._logger.warn('Lifecycle hook failed', { error: String(err) });
-      }
+      await this.runHook(() => this.onAfterRestore(id, restored, userId));
     }
 
     return restored || null;
@@ -1107,37 +1136,8 @@ export abstract class CrudService<
    */
   async purgeExpired(now: Date, limit = 500): Promise<number> {
     if (!this.cols.deletedAt || !this.cols.purgeAfter) return 0;
-
-    const purgedIds = await withTenantTx(async (tx) => {
-      const doomed = await tx
-        // `as any`: cols.id is the base `AnyColumn`, which drizzle's typed
-        // select-field map doesn't accept directly (same friction the `.set()`
-        // casts elsewhere in this file work around). Result is re-typed below.
-        .select({ id: this.cols.id as any })
-        .from(this.schema)
-        .where(and(sql`${this.cols.deletedAt} IS NOT NULL`, sql`${this.cols.purgeAfter} < ${now}`))
-        .limit(limit)
-        .then(r => (r as Array<{ id: unknown }>).map(d => String(d.id)));
-
-      if (doomed.length === 0) return [];
-
-      // Dependent teardown must happen inside the same tx so a FK-blocking child
-      // can't strand the parent. A throw here aborts this batch (retried next tick).
-      await this.onBeforePurge(doomed, tx);
-
-      await tx.delete(this.schema).where(inArray(this.cols.id, doomed));
-      return doomed;
-    });
-
-    if (purgedIds.length > 0) {
-      try {
-        await this.onAfterPurge(purgedIds);
-      } catch (err) {
-        this._logger.warn('Lifecycle hook failed', { error: String(err) });
-      }
-    }
-
-    return purgedIds.length;
+    const purged = await this.purgeWhere([sql`${this.cols.deletedAt} IS NOT NULL`, sql`${this.cols.purgeAfter} < ${now}`], limit);
+    return purged.length;
   }
 
   /**
@@ -1155,35 +1155,7 @@ export abstract class CrudService<
    */
   async purgeById(id: string, orgId?: string): Promise<string | null> {
     if (!this.cols.deletedAt) return null;
-    const conditions = this.tombstoneConditions(orgId, id);
-
-    const purgedId = await withTenantTx(async (tx) => {
-      const [doomed] = await tx
-        // `as any`: cols.id is the base `AnyColumn`, which drizzle's typed
-        // select-field map doesn't accept directly (same friction elsewhere).
-        .select({ id: this.cols.id as any })
-        .from(this.schema)
-        .where(and(...conditions))
-        .limit(1)
-        .then(r => (r as Array<{ id: unknown }>).map(d => String(d.id)));
-
-      if (!doomed) return null;
-
-      // Dependent teardown in the same tx (FK-blocking children can't strand
-      // the parent) — identical to the sweep's per-batch path.
-      await this.onBeforePurge([doomed], tx);
-      await tx.delete(this.schema).where(inArray(this.cols.id, [doomed]));
-      return doomed;
-    });
-
-    if (purgedId) {
-      try {
-        await this.onAfterPurge([purgedId]);
-      } catch (err) {
-        this._logger.warn('Lifecycle hook failed', { error: String(err) });
-      }
-    }
-
-    return purgedId;
+    const [purgedId] = await this.purgeWhere(this.tombstoneConditions(orgId, id), 1);
+    return purgedId ?? null;
   }
 }

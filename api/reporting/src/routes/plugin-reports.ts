@@ -4,18 +4,17 @@
 import {
   sendSuccess,
   sendBadRequest,
-  sendError,
   ErrorCode,
   parseReportInterval,
   parseDateRange,
   parseQueryIntClamped,
-  isSystemAdmin,
+  requireSystemAdmin,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService, type PluginRuntimeFilter, type PluginRuntimeStats } from '@pipeline-builder/pipeline-data';
 import { Router, type Request, type Response } from 'express';
 import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField, rollupIds } from '../helpers/report-helpers.js';
-import { parseOrgReportRange, retentionOrgIdFor } from '../helpers/retention-cap.js';
+import { resolveReportScope } from '../helpers/report-scope.js';
 
 /** Plugin name shape (the plugin spec's `name` rule). */
 const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,254}$/;
@@ -53,9 +52,9 @@ export function parsePluginRuntimeFilter(query: Request['query']): PluginRuntime
  * filters, rollup. Sends the 400 itself and returns undefined on bad input.
  */
 async function pluginRuntimeStats(req: Request, res: Response, orgId: string): Promise<PluginRuntimeStats[] | undefined> {
-  const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-  if ('error' in range) {
-    sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
+  const scope = await resolveReportScope(req, orgId, 'event');
+  if ('error' in scope) {
+    sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
     return undefined;
   }
   const filter = parsePluginRuntimeFilter(req.query);
@@ -63,8 +62,7 @@ async function pluginRuntimeStats(req: Request, res: Response, orgId: string): P
     sendBadRequest(res, filter.error, ErrorCode.VALIDATION_ERROR);
     return undefined;
   }
-  const orgIds = await rollupIds(req, orgId);
-  return reportingService.getPluginRuntime(orgId, range.from, range.to, filter, orgIds);
+  return reportingService.getPluginRuntime(orgId, scope.range.from, scope.range.to, filter, scope.orgIds);
 }
 
 export function createPluginReportRoutes(): Router {
@@ -91,20 +89,20 @@ export function createPluginReportRoutes(): Router {
   router.get('/build-success-rate', withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, { timeline: await reportingService.getBuildSuccessRate(orgId, interval, range.from, range.to, orgIds) });
   }));
 
   router.get('/build-duration', withRoute(async ({ req, res, orgId }) => {
-    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
-    if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
-    const orgIds = await rollupIds(req, orgId);
+    const scope = await resolveReportScope(req, orgId, 'event');
+    if ('error' in scope) return sendBadRequest(res, scope.error, ErrorCode.VALIDATION_ERROR);
+    const { range, orgIds } = scope;
     sendSuccess(res, 200, { plugins: await reportingService.getBuildDuration(orgId, range.from, range.to, orgIds) });
   }));
 
-  // ── Plugin RUNTIME telemetry (plugin-ecosystem W0.1) ──────────────────────
+  // ── Plugin RUNTIME telemetry ──────────────────────────────────────────────
   // How plugins behave when the org's pipelines RUN them (vs the BUILD reports
   // above): terminal ACTION events attributed at ingest via the step manifest.
   // Rollup-aware like the build reports. Both routes read the same per-version
@@ -128,10 +126,8 @@ export function createPluginReportRoutes(): Router {
     });
   }));
 
-  router.get('/build-failures', withRoute(async ({ req, res, orgId }) => {
-    if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Admin access required', ErrorCode.INSUFFICIENT_PERMISSIONS);
-    }
+  // System-admin only: cross-org failure text, so the retention floor doesn't apply.
+  router.get('/build-failures', requireSystemAdmin, withRoute(async ({ req, res, orgId }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);

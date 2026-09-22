@@ -9,10 +9,10 @@
  * The caller allow-list itself is pinned by route-coverage.test.ts.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, beforeAll, afterAll, beforeEach, describe, it, expect } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
@@ -31,10 +31,6 @@ const signPluginImage = jest.fn<(p: unknown) => Promise<void>>(async () => undef
 jest.unstable_mockModule('../src/services/plugin-signing.js', () => ({
   signPluginImage,
   PluginSigningError,
-  isPluginRepository: (r: string) => /^(system|org-[a-z0-9]+|quarantine)\/[a-z0-9][a-z0-9._-]*$/.test(r),
-  isPublicRepository: (r: string) => r.startsWith('public/'),
-  isQuarantineRepository: (r: string) => /^quarantine\/[a-z0-9][a-z0-9-]{0,127}$/.test(r),
-  isSha256Digest: (d: string) => /^sha256:[0-9a-f]{64}$/.test(d),
 }));
 
 // The quarantine delete hook (DELETE /internal/quarantine/:submissionId) is
@@ -42,14 +38,9 @@ jest.unstable_mockModule('../src/services/plugin-signing.js', () => ({
 const deleteQuarantineRepository = jest.fn<(repo: string, reason: string) => Promise<{ repository: string; deleted: number }>>();
 jest.unstable_mockModule('../src/services/registry-gc.js', () => ({
   deleteQuarantineRepository,
-  QUARANTINE_PREFIX: 'quarantine/',
 }));
 
-const emitImageRegistryAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitImageRegistryAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
+const recordAuditMock = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
@@ -65,6 +56,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: recordAuditMock,
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
   sendBadRequest: (res: Res, message: string, code?: string) => res.status(400).json({ success: false, message, code }),
   sendError: (res: Res, status: number, message: string, code?: string) => res.status(status).json({ success: false, message, code }),
@@ -123,7 +115,7 @@ describe('POST /internal/plugin-signatures', () => {
     expect(body.data).toEqual({ repository: `org-${ORG}/foo`, digest: DIGEST, signed: true });
     expect(headManifest).toHaveBeenCalledWith(`org-${ORG}/foo`, DIGEST);
     expect(signPluginImage).toHaveBeenCalledWith({ repository: `org-${ORG}/foo`, digest: DIGEST, sbom: SBOM });
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.sign',
       affectedOrgId: ORG,
       targetId: `org-${ORG}/foo`,
@@ -193,7 +185,7 @@ describe('POST /internal/plugin-signatures', () => {
     const { status, body } = await post({ repository: `org-${ORG}/foo`, digest: DIGEST, sbom: SBOM });
     expect(status).toBe(502);
     expect(body.message).toMatch(/cosign sign failed/);
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -211,7 +203,7 @@ describe('DELETE /internal/quarantine/:submissionId', () => {
     expect(status).toBe(200);
     expect(body.data).toEqual({ repository: `quarantine/${ID}`, deleted: 3 });
     expect(deleteQuarantineRepository).toHaveBeenCalledWith(`quarantine/${ID}`, 'requested');
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.gc', targetId: `quarantine/${ID}`, affectedOrgId: SYSTEM_ORG,
     }));
   });
@@ -221,7 +213,7 @@ describe('DELETE /internal/quarantine/:submissionId', () => {
     const { status, body } = await del(ID);
     expect(status).toBe(200);
     expect(body.data).toEqual({ repository: `quarantine/${ID}`, deleted: 0 });
-    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('refuses a token minted for a tenant org (moderation state is the system org\'s)', async () => {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * CLI tests for `plugin deprecate` and `plugin yank` (plugin-ecosystem W0.4):
+ * CLI tests for `plugin deprecate` and `plugin yank`:
  * the request each sends, local validation of the message / reason, and the
  * output — all against a mocked client.
  */

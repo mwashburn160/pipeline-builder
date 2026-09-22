@@ -8,8 +8,6 @@ import {
   audited,
   isSystemAdmin,
   requirePermission,
-  reserveQuota,
-  decrementQuota,
   resolveVisibility,
   sendBadRequest,
   sendError,
@@ -19,10 +17,10 @@ import {
   errorMessage,
   ErrorCode,
   getServiceAuthHeader,
-  createComplianceClient,
   PluginDeployGeneratedSchema,
   userHasPermission,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { getIdempotencyStore, withRoute, type SSEManager } from '@pipeline-builder/api-server';
@@ -32,17 +30,12 @@ import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
+import { compliancePreflight, queuePluginBuild, reservePluginSlot } from '../helpers/build-submission.js';
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
-import { enqueueBuild, getOrgTier } from '../queue/connections.js';
-import { emitPluginAudit } from '../services/audit.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
-
-// Fail-closed compliance client (shared with the upload path's contract):
-// an unreachable compliance service rejects the deploy rather than letting it through.
-const complianceClient = createComplianceClient();
 
 /** Best-effort removal of a local scratch context that will never be built. */
 function removeScratchDir(dir: string | undefined): void {
@@ -102,7 +95,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
       await pluginService.assertDeployable(orgId, name, version, userId || 'system', access);
 
-      // -- Idempotency guard (Wave-1 Redis IdempotencyStore) ----------------
+      // -- Idempotency guard (Redis IdempotencyStore) -----------------------
       // The auto-plugin-creation path sends `Idempotency-Key: <requestId>:<name>`
       // (generate-pipeline.ts) so a client retrying a failed SSE generate doesn't
       // enqueue duplicate buildkit builds + double the `plugins` quota. Claim the
@@ -163,27 +156,28 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       // service does NOT throw — it comes back as an `unavailable` reservation
       // (503 below). The try only guards an unexpected throw so it can't strand
       // the idempotency claim for its TTL (a false 202 + no build on retry).
-      let reservation: Awaited<ReturnType<typeof reserveQuota>>;
+      const logWarn = ctx.log.bind(null, 'WARN');
+      let reserved: Awaited<ReturnType<typeof reservePluginSlot>>;
       try {
-        reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
+        reserved = await reservePluginSlot(quotaService, orgId, authHeader, logWarn);
       } catch (err) {
         releaseIdem();
         throw err;
       }
-      if (reservation.exceeded) {
+      const slot = reserved.slot;
+      if (!slot) {
+        const { reservation } = reserved;
         ctx.log('WARN', reservation.unavailable ? 'Plugin quota unconfirmable (quota service unavailable)' : 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
         releaseIdem();
         // 503 + Retry-After when the quota service couldn't confirm; 429 when over limit.
         return sendQuotaReserveDenied(res, 'plugins', reservation);
       }
-      let reserved = true;
 
       // -- Compliance check (fail-closed) -----------------------------------
-      // AI-generated plugins must satisfy the same org compliance rules as
-      // uploaded ones (see upload-plugin.ts). Without this, the deploy-generated
-      // path was a bypass around org governance.
-      try {
-        const complianceResult = await complianceClient.validatePlugin(orgId, {
+      // AI-generated plugins satisfy the same org compliance rules as uploaded
+      // ones, with the same deferred image facts (evaluated post-build).
+      const preflight = await compliancePreflight(orgId, authHeader, {
+        attributes: {
           name,
           version,
           pluginType: pluginType || 'CodeBuildStep',
@@ -193,36 +187,29 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           installCommands: installCommands || [],
           commands,
           visibility,
-          keywords: keywords || [],
-          buildType: 'build_image',
-        }, authHeader, undefined, name, 'deploy-generated');
-
-        if (complianceResult.blocked) {
-          ctx.log('WARN', 'AI-generated plugin blocked by compliance', {
-            pluginName: name,
-            violations: complianceResult.violations.length,
-          });
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
-          releaseIdem();
-          return sendError(res, 403, 'Plugin deploy blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
-            violations: complianceResult.violations,
-          });
-        }
-
-        if (complianceResult.warnings.length > 0) {
-          ctx.log('WARN', 'Compliance warnings on AI-generated plugin', {
-            pluginName: name,
-            warnings: complianceResult.warnings.length,
-          });
-        }
-      } catch (err) {
+        },
+        buildType: 'build_image',
+        pluginType: pluginType || 'CodeBuildStep',
+        keywords: keywords || [],
+        action: 'deploy-generated',
+      });
+      if (preflight.status === 'blocked') {
+        ctx.log('WARN', 'AI-generated plugin blocked by compliance', { pluginName: name, violations: preflight.violations.length });
+        slot.release();
+        releaseIdem();
+        return sendError(res, 403, 'Plugin deploy blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+          violations: preflight.violations,
+        });
+      }
+      if (preflight.status === 'unavailable') {
         // Fail-closed: compliance unreachable → reject the deploy and release the slot.
-        ctx.log('ERROR', 'Compliance service unavailable', { error: errorMessage(err) });
-        decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        reserved = false;
+        ctx.log('ERROR', 'Compliance service unavailable', { error: preflight.error });
+        slot.release();
         releaseIdem();
         return sendError(res, 503, 'Compliance service unavailable — plugin deploy rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+      }
+      if (preflight.warnings > 0) {
+        ctx.log('WARN', 'Compliance warnings on AI-generated plugin', { pluginName: name, warnings: preflight.warnings });
       }
 
       ctx.log('INFO', 'Deploying AI-generated plugin', {
@@ -253,8 +240,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           await putPluginArtifact(stagedKey, contextZip.toBuffer());
         } catch (s3Err) {
           ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
+          slot.release();
           releaseIdem();
           removeScratchDir(tempDir);
           return sendError(res, 503, 'Object storage unavailable — please retry', ErrorCode.SERVICE_UNAVAILABLE);
@@ -269,7 +255,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           access,
           // Period snapshot for the reserved slot so a DLQ retry spanning a
           // quota reset refunds the correct period (see releasePluginQuota).
-          reservedResetAt: reservation.quota.resetAt,
+          reservedResetAt: slot.resetAt,
           buildRequest: {
             contextDir: tempDir,
             s3Key,
@@ -297,22 +283,12 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
             commands,
             visibility,
             buildType: 'build_image',
-            // The period this deploy's `plugins` slot was charged to (W0.5 refund on delete).
-            quotaResetAt: reservation.quota.resetAt ?? null,
+            // The period this deploy's `plugins` slot was charged to (refunded on delete).
+            quotaResetAt: slot.resetAt ?? null,
           },
         });
 
-        // Bind the build-log stream's owner BEFORE the requestId is returned to
-        // the caller (F3): a client can mint a ticket as soon as it has the
-        // requestId, so the owner must be recorded first or a tenant could mint a
-        // ticket for another tenant's guessed stream. Best-effort — a Redis hiccup
-        // must not fail an accepted deploy; the worker re-binds as a backstop.
-        await sseManager.bindStreamOwner(ctx.requestId, orgId).catch((bindErr) =>
-          ctx.log('WARN', 'Stream-owner bind failed (non-fatal)', { error: errorMessage(bindErr) }));
-
-        // route to the org's per-tier queue.
-        const tier = await getOrgTier(quotaService, orgId, authHeader);
-        await enqueueBuild(tier, `deploy-generated-${name}-${version}`, jobData);
+        await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `deploy-generated-${name}-${version}`, jobData, logWarn });
 
         ctx.log('INFO', 'Build queued', {
           pluginName: name,
@@ -323,7 +299,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         // build queued. No plugin id exists yet (the worker persists the record
         // on build completion, where plugin.build.completed carries the id), so
         // `targetId` is omitted here; name/version identify the plugin.
-        emitPluginAudit({
+        recordAudit({
           action: 'plugin.deploy',
           actorId: actorId({ userId }),
           orgId,
@@ -347,10 +323,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         // idempotency key too so the client's retry isn't wrongly suppressed —
         // the build was never queued — and drop the staged context so it
         // doesn't orphan (best-effort; the bucket's expiry rule is the backstop).
-        if (reserved) {
-          decrementQuota(quotaService, orgId, 'plugins', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-          reserved = false;
-        }
+        slot.release();
         releaseIdem();
         await deletePluginArtifact(s3Key);
         removeScratchDir(tempDir);

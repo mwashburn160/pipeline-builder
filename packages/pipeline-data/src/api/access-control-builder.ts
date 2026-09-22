@@ -141,7 +141,7 @@ export interface AccessControlOptions {
    * Whether the SYSTEM org's `public` rung reaches callers in other orgs (and
    * anonymous callers). Default true: the system org's sample pipelines,
    * templates and dashboards are visible from every org. Plugins set it false:
-   * since the plugin ecosystem (plan §3.1, G26) the Official catalog reaches
+   * since the plugin ecosystem the Official catalog reaches
    * other orgs only as LISTINGS resolved through installs, never through
    * `visibility = 'public'` on a `plugins` row.
    */
@@ -187,7 +187,7 @@ export class AccessControlQueryBuilder<
    *
    * An entity can drop the system-org branch with `systemCatalog: false`
    * ({@link AccessControlOptions}): plugins do, so a system-org plugin reaches
-   * other orgs only as an Official listing (plugin ecosystem §3.1, G26).
+   * other orgs only as an Official listing.
    *
    * An explicit `visibility` filter NARROWS within that set, never widens it —
    * so `?visibility=public` still surfaces the system-org catalog.

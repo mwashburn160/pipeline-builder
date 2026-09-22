@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `plugin publish` (plugin-ecosystem W6, §3.1a): the local pre-flight, the
+ * `plugin publish`: the local pre-flight, the
  * scan preview (never a silent pass), the accept-or-edit step (`--yes`,
  * `--metadata`, interactive), the zip, and the one upload that carries
  * `visibility=public`, `publishRequest=true` and the edits.

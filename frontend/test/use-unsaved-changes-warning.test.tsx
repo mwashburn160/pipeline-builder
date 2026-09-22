@@ -35,9 +35,7 @@ function emitRouteChangeStart(url: string) {
   for (const cb of listeners.get('routeChangeStart') ?? []) cb(url);
 }
 
-jest.mock('next/router', () => ({
-  useRouter: () => ({ events }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ events })));
 
 import { useUnsavedChangesWarning } from '../src/hooks/useUnsavedChangesWarning';
 

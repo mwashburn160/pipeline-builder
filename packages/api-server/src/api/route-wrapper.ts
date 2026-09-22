@@ -87,9 +87,7 @@ export function withRoute(
   return async (req: Request, res: Response) => {
     const ctx = getContext(req);
     // `identity.orgId` is already normalized (trimmed + lowercased) once at
-    // resolution in api-core's `getIdentity`, so the previously-duplicated
-    // `.toLowerCase()` here is redundant — kept normalization at the single
-    // source of truth instead. This value now matches the RLS GUC exactly.
+    // resolution in api-core's `getIdentity`, so it matches the RLS GUC exactly.
     const orgId = ctx.identity.orgId || '';
     const userId = ctx.identity.userId || '';
 
@@ -113,7 +111,9 @@ export function withRoute(
         const status = error.statusCode >= 400 && error.statusCode < 600
           ? error.statusCode
           : 500;
-        return sendError(res, status, error.message, error.code);
+        return error.details === undefined
+          ? sendError(res, status, error.message, error.code)
+          : sendError(res, status, error.message, error.code, error.details);
       }
 
       // Unhandled error → 500. NEVER echo the raw message to the client: DB driver

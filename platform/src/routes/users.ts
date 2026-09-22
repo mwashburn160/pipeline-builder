@@ -21,7 +21,7 @@ const router: Router = Router();
 // controller). Create/bulk paths are further restricted to sysadmins there.
 //
 // Editing, deleting or re-entitling ANOTHER person's account always needs an
-// `aal: 2` session (#8) — a single-factor session must not be able to take
+// `aal: 2` session — a single-factor session must not be able to take
 // over or erase accounts, whatever any org's policy says.
 const mfaGrade = requireAssurance({ minAssurance: 2 });
 

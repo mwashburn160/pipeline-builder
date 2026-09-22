@@ -290,8 +290,8 @@ spec:
 # postStart has no readable logs.
 #
 # SHAPE: the shared public-egress ipBlock (see EGRESS SHAPE in networkpolicy.yaml).
-# This rule used to be ports-only because excepting the WHOLE 169.254.0.0/16
-# range here severed ollama's TLS under Istio ambient (the handshake completed,
+# Excepting the WHOLE 169.254.0.0/16 range here would sever ollama's TLS under
+# Istio ambient (the handshake completed,
 # then no bytes flowed: "net/http: TLS handshake timeout") — ambient's node-side
 # plumbing uses link-local addresses. The shared shape excepts only the
 # credential addresses (169.254.169.254/32, 169.254.170.0/24), which ambient

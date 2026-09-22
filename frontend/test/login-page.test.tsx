@@ -14,10 +14,7 @@ import { POST_SIGN_IN_KEY, takeReturnPath } from '../src/lib/return-to';
 const replace = jest.fn<AnyFn>();
 let query: Record<string, unknown> = {};
 let isReady = true;
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady, query, replace }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady, query, replace })));
 
 import LoginPage from '../pages/login';
 

@@ -3,7 +3,7 @@
 
 /**
  * Self-hosted hashcash proof-of-work for the anonymous plugin submission API
- * (docs/plans/plugin-ecosystem.md §4.2, D1): no third-party captcha, so it
+ * (docs/plugin-publishing.md): no third-party captcha, so it
  * works air-gapped.
  *
  * A CHALLENGE is `base64url(JSON{ nonce, difficulty, exp }) + '.' +

@@ -15,13 +15,14 @@
  * Two request shapes:
  *  - **tenant email** (`compliance`): `{ orgId, targetUsers, subject, text }`,
  *    tenant-bound to the caller's org.
- *  - **ecosystem notice** (`plugin`, docs/plans/plugin-ecosystem.md §5b): an
+ *  - **ecosystem notice** (`plugin`): an
  *    api-core `EcosystemNotifyRequest` — recipient RULES resolved here at send
  *    time, per-user `ecosystem.*` email preferences, in-app copy + individual
  *    emails. Ecosystem notices legitimately span orgs (a publisher's managers,
  *    each installing org's approvers, the system org's moderators), so they are
  *    not tenant-bound; instead only the `plugin` service may send them, and the
- *    rules can only reach the audiences §5b defines.
+ *    rules can only reach the ecosystem's own audiences (publisher managers,
+ *    installing orgs' approvers, moderators, superadmins).
  */
 
 import { createLogger, sendError, sendSuccess, errorMessage, parseEcosystemNotifyRequest, serviceNameOf } from '@pipeline-builder/api-core';
@@ -32,6 +33,7 @@ import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { User, UserOrganization } from '../models/index.js';
 import { deliverEcosystemNotification } from '../services/ecosystem-notifications.js';
 import { emailService } from '../utils/email.js';
+import { notifyEmailSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('notify-email-controller');
 
@@ -78,14 +80,9 @@ export async function notifyEmail(req: Request, res: Response): Promise<void> {
   if (serviceNameOf(req.user) === ECOSYSTEM_NOTICE_CALLER) {
     return sendError(res, 400, 'recipients is required for an ecosystem notice');
   }
-  const body = req.body as { orgId?: unknown; targetUsers?: unknown; subject?: unknown; text?: unknown };
-
-  if (typeof body.orgId !== 'string' || !body.orgId) return sendError(res, 400, 'orgId is required');
-  if (typeof body.subject !== 'string' || !body.subject) return sendError(res, 400, 'subject is required');
-  if (typeof body.text !== 'string' || !body.text) return sendError(res, 400, 'text is required');
-  const targetUsers = Array.isArray(body.targetUsers)
-    ? body.targetUsers.filter((u): u is string => typeof u === 'string')
-    : null;
+  const body = validateBody(notifyEmailSchema, req.body, res);
+  if (!body) return;
+  const { targetUsers } = body;
 
   // Tenant binding (mirrors /audit/events): a non-sysadmin service token may only
   // email its OWN org's users — otherwise any service token could email any

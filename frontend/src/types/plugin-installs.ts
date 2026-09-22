@@ -2,21 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin installs and the org consumption policy (docs/plans/plugin-ecosystem.md
- * §3.1 D16, §3.2, §3.4, §3.5 — workstream W2). Mirrors the plugin service's
- * install routes.
+ * Plugin installs and the org consumption policy. Mirrors the plugin service's
+ * install routes (see docs/plugin-installing.md).
  *
  * Official listings reach every org as IMPLICIT installs (virtual, no row:
  * `id: null`, `implicit: true`). Everything from other orgs resolves only
  * through an install. Own-org plugins still come from `GET /plugins`.
  */
 
-import type { AdvisorySeverity, EcosystemListingState, PublisherTier } from './ecosystem';
+import type {
+  AdvisorySeverity, BlockOnAdvisory, InstallStatus, InstallVersionPolicy, ListingState, OfficialInstalls, PublisherTier,
+} from '@pipeline-builder/api-core';
 
-export type VersionPolicy = 'pinned' | 'patch' | 'minor' | 'latest';
-export type InstallStatus = 'active' | 'pending_approval' | 'denied';
-export type BlockOnAdvisory = 'critical' | 'high' | 'never';
-export type OfficialInstalls = 'implicit' | 'explicit';
+export type { BlockOnAdvisory, InstallStatus, InstallVersionPolicy, OfficialInstalls };
 
 export interface BlockedInfo {
   reason: 'tier' | 'blocked_listing' | 'advisory' | 'suspended';
@@ -46,7 +44,7 @@ export interface InstallUpgrade {
 }
 
 export interface InstallView {
-  /** `null` = the implicit Official install (virtual, D16). */
+  /** `null` = the implicit Official install (virtual). */
   id: string | null;
   listingId: string;
   publisherHandle: string;
@@ -56,9 +54,9 @@ export interface InstallView {
   summary: string | null;
   category: string;
   icon: unknown | null;
-  state: EcosystemListingState;
+  state: ListingState;
   paused: boolean;
-  versionPolicy: VersionPolicy;
+  versionPolicy: InstallVersionPolicy;
   /** The install's baseline version (null for implicit). */
   pinnedVersion: string | null;
   /** What a new synth resolves to now (null when nothing resolves). */
@@ -75,7 +73,7 @@ export interface InstallView {
   /** The newest version OUTSIDE the policy range. */
   upgrade: InstallUpgrade | null;
   blocked: BlockedInfo | null;
-  /** Warnings for the version it resolves to (W8). */
+  /** Warnings for the version it resolves to. */
   warnings: InstallWarning[];
   /** Published advisories covering the resolved version — or, when resolution is
    *  blocked by an advisory, the blocking ones (`blocking: true`). */
@@ -134,11 +132,10 @@ export interface CatalogEntry {
   install: InstallView | null;
   /** May this org install it now (not blocked, not paused, not already installed). */
   installable: boolean;
-  /** Installing it would create a pending request. */
-  requiresApproval: boolean;
-  /** Moving this install across a major/breaking version, or its policy to
-   *  `latest`, needs an approver (`plugin_installs:manage`) for this caller —
-   *  the server refuses it otherwise. */
+  /** This caller needs an approver (`plugin_installs:manage`) for the
+   *  listing's tier: installing it creates a pending request, and moving an
+   *  install across a major/breaking version, or its policy to `latest`, is
+   *  refused without one. */
   needsApproval: boolean;
   blocked: BlockedInfo | null;
   /** Null when not installed / nothing resolves. */
@@ -193,19 +190,19 @@ export type InstallStatusFilter = InstallStatus | 'all';
 export interface CreateInstallBody {
   publisher: string;
   name: string;
-  versionPolicy?: VersionPolicy;
+  versionPolicy?: InstallVersionPolicy;
   version?: string;
 }
 
 export interface UpdateInstallBody {
-  versionPolicy?: VersionPolicy;
+  versionPolicy?: InstallVersionPolicy;
   version?: string;
 }
 
 /** An install change waiting for an approver (`plugin_installs:manage`). */
 export interface InstallPendingChange {
   version: string;
-  versionPolicy: VersionPolicy;
+  versionPolicy: InstallVersionPolicy;
   requestedBy: string;
   requestedAt: string;
   note: string | null;
@@ -216,8 +213,8 @@ export interface InstallChangeRequestView {
   installId: string;
   /** `publisher/name`. */
   listing: string;
-  from: { version: string | null; versionPolicy: VersionPolicy };
-  to: { version: string; versionPolicy: VersionPolicy };
+  from: { version: string | null; versionPolicy: InstallVersionPolicy };
+  to: { version: string; versionPolicy: InstallVersionPolicy };
   requestedBy: string;
   requestedAt: string;
   note: string | null;

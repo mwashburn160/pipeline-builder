@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SAML 2.0 enforcement engine for per-org SSO (#4).
+ * SAML 2.0 enforcement engine for per-org SSO.
  *
  * The second protocol behind the SAME sign-in path as OIDC
  * (`services/oidc-service.ts`): a different wire format in, the identical
@@ -92,8 +92,6 @@ export const SAML_ERROR_MAP = {
   SAML_METADATA_INVALID: { status: 400, message: 'That is not a usable SAML identity-provider metadata document: it needs one IdP entity with an entityID, an HTTP-Redirect SingleSignOnService https URL and a signing certificate' },
 } as const;
 
-/** Every error key this module throws — the union the controllers map. */
-export type SamlErrorCode = keyof typeof SAML_ERROR_MAP;
 
 // Configuration
 
@@ -203,14 +201,6 @@ const logoutRequestIdCache = createPendingStateStore<number>({
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
   maxEntries: config.oauth.maxPendingStates,
 });
-
-/** TEST-ONLY: drop the in-memory fallbacks of every SAML cache. */
-export function __resetSamlCaches(): void {
-  requestIdCache._resetForTests();
-  assertionIdCache._resetForTests();
-  testRequestIdCache._resetForTests();
-  logoutRequestIdCache._resetForTests();
-}
 
 // SAML instance
 
@@ -377,7 +367,7 @@ export interface SamlIdentity {
   email: string;
   name?: string;
   /** Groups asserted by the IdP, read from the org's configured attribute.
-   *  Drives JIT Role mapping (3a) only — never trusted as a permission. */
+   *  Drives JIT Role mapping only — never trusted as a permission. */
   groups: string[];
   /** The IdP's handle on this sign-in, kept for Single Logout. */
   session: SamlSessionRef;

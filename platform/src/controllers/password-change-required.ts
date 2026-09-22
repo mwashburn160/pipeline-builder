@@ -23,22 +23,19 @@
  * under the `/auth` per-IP limiter like the rest of sign-in.
  */
 
-import { sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { sendError } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { isBootstrapExceptionOpen, recordBootstrapSession } from '../helpers/bootstrap-admin.js';
-import { clientInfoOf } from '../helpers/client-info.js';
+import { isBootstrapExceptionOpen } from '../helpers/bootstrap-admin.js';
 import { withController } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
-import { deliverSessionTokens } from '../helpers/session-cookie.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
+import { completeInteractiveSignIn } from '../helpers/sign-in.js';
 import { User } from '../models/index.js';
-import { incCounter } from '../observability/metrics.js';
 import {
   claimPasswordChangeChallenge,
   restorePasswordChangeChallenge,
 } from '../services/password-change-challenge.js';
-import { issueTokens } from '../utils/token.js';
 import { requiredPasswordChangeSchema, validateBody } from '../utils/validation.js';
 
 export const completeRequiredPasswordChange = withController('Required password change', async (req, res) => {
@@ -86,22 +83,10 @@ export const completeRequiredPasswordChange = withController('Required password 
   // Same bootstrap-admin rule as `/auth/login` (only a password-only sign-in
   // can still be inside it; one that passed TOTP has already closed it).
   const bootstrapPending = pending.aal < 2 && await isBootstrapExceptionOpen(user);
-  const tokens = await issueTokens(user, pending.orgId ?? user.lastActiveOrgId?.toString(), {
-    kind: 'interactive',
+  await completeInteractiveSignIn(req, res, user, {
+    orgId: pending.orgId ?? user.lastActiveOrgId?.toString(),
     auth: { amr: [...pending.amr], aal: pending.aal, authTime: new Date() },
-    client: clientInfoOf(req),
-    ...(bootstrapPending ? { mfaEnrollmentPending: true } : {}),
-  });
-  if (bootstrapPending) await recordBootstrapSession(req, pending.userId, user.email);
-
-  audit(req, 'user.login', {
-    targetType: 'user',
-    targetId: pending.userId,
-    details: { method: pending.amr.includes('mfa') ? 'pwd+totp' : 'pwd', passwordChanged: true },
-  });
-  incCounter('platform_logins_total');
-  sendSuccess(res, 200, {
-    ...deliverSessionTokens(req, res, tokens),
-    ...(bootstrapPending ? { mfaEnrollmentPending: true } : {}),
+    bootstrapPending,
+    auditDetails: { method: pending.amr.includes('mfa') ? 'pwd+totp' : 'pwd', passwordChanged: true },
   });
 }, { ...MFA_POLICY_ERROR_MAP });

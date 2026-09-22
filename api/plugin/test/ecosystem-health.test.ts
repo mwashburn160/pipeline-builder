@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * W7 quality signals (plugin ecosystem §6 W7) against the in-memory database:
+ * quality signals against the in-memory database:
  * the stats sweep's per-listing health score + breakdown and the publisher
  * roll-ups; the base-image age recorded on a listed version at publish; the
  * authenticated listing views; and the publisher Insights (k-anonymous
@@ -19,7 +19,7 @@ const stats = await import('../src/services/ecosystem/stats.js');
 const insights = await import('../src/services/ecosystem/insights.js');
 const publishersSvc = await import('../src/services/ecosystem/publishers.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
-const decisions = await import('../src/services/ecosystem/decisions.js');
+const executeMod = await import('../src/services/ecosystem/execute.js');
 const installs = await import('../src/services/ecosystem/installs.js');
 await wireEcosystemHarness(h);
 
@@ -32,7 +32,7 @@ const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000);
 beforeEach(() => {
   db.reset();
   db.execute.handler = () => ({ rows: [] });
-  decisions.setBaseImageProbeForTests(async () => null);
+  executeMod.setBaseImageProbeForTests(async () => null);
 });
 
 const statsRow = (listingId: string) => (db.tables.plugin_stats ?? []).find((s) => s.listingId === listingId);
@@ -123,7 +123,7 @@ describe('listingHealth / currentListedVersion', () => {
   });
 });
 
-describe('the stats sweep (W7)', () => {
+describe('the stats sweep', () => {
   it('writes each listing\'s health score + breakdown and the publisher roll-ups', async () => {
     const { acme, official } = seedPublishers(db);
     const a = seedHealthy(acme.id, 'lint');
@@ -178,7 +178,7 @@ describe('the stats sweep (W7)', () => {
     expect(seen.find((s) => s.includes('pipeline_events'))).toMatch(/COUNT\(\*\)::int AS "runs30d"/);
   });
 
-  it('joins runtime and installs on the publisher ID, and counts only LIVE pipelines\' manifests (E8/E12)', async () => {
+  it('joins runtime and installs on the publisher ID, and counts only LIVE pipelines\' manifests', async () => {
     const { acme } = seedPublishers(db);
     seedHealthy(acme.id, 'lint');
     const seen: string[] = [];
@@ -198,7 +198,7 @@ describe('base-image age at publish', () => {
     seedPublishers(db);
     const created = new Date('2026-08-01T00:00:00Z');
     const probed: string[] = [];
-    decisions.setBaseImageProbeForTests(async (plugin) => { probed.push(plugin.name); return plugin.name === 'lint' ? created : null; });
+    executeMod.setBaseImageProbeForTests(async (plugin) => { probed.push(plugin.name); return plugin.name === 'lint' ? created : null; });
     const lint = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, createdBy: 'sa-loader' }));
     const fmt = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, name: 'fmt', createdBy: 'sa-loader' }));
     expect(await requestsSvc.submitAfterBuild(loader() as any, lint.id)).toMatchObject({ status: 'approved' });

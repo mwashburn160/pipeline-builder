@@ -6,9 +6,8 @@ import type { SubscriptionDocument } from '../models/subscription.js';
 
 /**
  * Subscription statuses an org can still MANAGE (change plan, buy add-ons,
- * redeem discounts). Single source of truth — imported by billing-helpers,
- * discount-helpers, and promotion-engine so the three can't drift (they
- * previously each kept their own copy, e.g. if `past_due` handling changed).
+ * redeem discounts). Single source of truth for every route and helper so
+ * `past_due` handling can't drift between them.
  *
  * This is a deliberately LEAF module (only the Subscription model) so the
  * heavy-import-averse consumers can pull it without dragging in billing-helpers.

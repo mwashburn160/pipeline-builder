@@ -24,9 +24,10 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const createMock = jest.fn(async (..._args: unknown[]) => ({ id: 'scan-1', target: 'all' }));
 const cancelMock = jest.fn(async (..._args: unknown[]) => ({ id: 'scan-1', status: 'cancelled' }));
-const emitComplianceAuditMock = jest.fn<AnyFn>();
+const recordAuditMock = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...args: unknown[]) => recordAuditMock(...args),
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   validateBody: (req: any, schema: any) => {
@@ -70,9 +71,6 @@ jest.unstable_mockModule('../src/services/compliance-scan-service.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...args: unknown[]) => emitComplianceAuditMock(...args),
-}));
 
 const { createScanRoutes } = await import('../src/routes/scans.js');
 
@@ -149,7 +147,7 @@ describe('POST /compliance/scans/:id/cancel — requires compliance:write', () =
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ code: 'INSUFFICIENT_PERMISSIONS' }));
     expect(cancelMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('lets a caller WITH compliance:write cancel (200) and still emits the audit', async () => {
@@ -163,7 +161,7 @@ describe('POST /compliance/scans/:id/cancel — requires compliance:write', () =
     expect(status).toHaveBeenCalledWith(200);
     expect(cancelMock).toHaveBeenCalled();
     // Tier-2 audit emission on the cancel route is preserved.
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.scan.cancel',
       targetId: SCAN_ID,
     }));

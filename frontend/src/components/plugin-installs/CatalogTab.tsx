@@ -14,7 +14,6 @@ import { RatingSummary, formatCount } from '@/components/public-directory/Listin
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
-import { clearPluginCache } from '@/hooks/usePlugins';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/plugin-categories';
@@ -23,12 +22,13 @@ import { formatReference, listingUsage } from '@/lib/plugin-installs';
 import type { CatalogEntry } from '@/types/plugin-installs';
 import { InstallControls } from './InstallControls';
 import { InstallWarnings } from './InstallWarnings';
+import { invalidate } from '@/lib/api-cache';
 
 /** Listings fetched per page (the server's cap). */
 const CATALOG_PAGE = 200;
 
 /**
- * The in-app catalog (§3.2): every listed listing with THIS org's install
+ * The in-app catalog: every listed listing with THIS org's install
  * state, searchable by text and category. Install actions are the same as the
  * public plugin page's; the card shows the pipeline reference to write.
  */
@@ -54,15 +54,15 @@ export function CatalogTab({
     const res = await api.getPluginCatalog({ ...filters, limit: CATALOG_PAGE }, { signal });
     return { listings: res.data?.listings ?? [], total: res.data?.total ?? res.data?.listings.length ?? 0, hasMore: !!res.data?.hasMore };
   }, [debouncedQ, category, installed]);
-  // Later pages, appended by "Load more". The tab used to show the server's
-  // first 200 and say nothing — a listing past that was simply not there.
+  // Later pages, appended by "Load more", so a listing past the server's first
+  // page is reachable.
   const [more, setMore] = useState<{ listings: CatalogEntry[]; hasMore: boolean } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   useEffect(() => { setMore(null); setMoreError(null); }, [catalog.data]);
 
   // An install changes what the pipeline editor can resolve.
-  const afterChange = () => { clearPluginCache(); catalog.refetch(); };
+  const afterChange = () => { invalidate.plugins(); void catalog.refetch(); };
   const entries = [...(catalog.data?.listings ?? []), ...(more?.listings ?? [])];
   const total = catalog.data?.total ?? entries.length;
   const hasMore = more ? more.hasMore : !!catalog.data?.hasMore;

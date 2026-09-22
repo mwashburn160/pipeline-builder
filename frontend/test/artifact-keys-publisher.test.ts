@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Artifact keys for publisher-qualified references (W2 §3.5): the plugin-alias
+ * Artifact keys for publisher-qualified references: the plugin-alias
  * segment matches pipeline-core's `pluginArtifactAlias`, and output directories
  * come from own plugins first, then catalog listings.
  */

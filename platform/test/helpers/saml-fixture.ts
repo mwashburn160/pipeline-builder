@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SAML assertion fixtures, signed for real (#4).
+ * SAML assertion fixtures, signed for real.
  *
  * The roadmap asks for a Keycloak-in-docker test. That is a useful MANUAL
  * exercise but a bad CI gate — it needs a container, a network and a

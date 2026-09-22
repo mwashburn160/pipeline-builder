@@ -64,23 +64,19 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
   // Distinct prefix so requireAuth doesn't double-run for the reads below.
   app.use('/reports/ingest-health', requireAuth, createIngestHealthRoutes());
 
-  // Incident webhook (Phase 5) — same machine credential as /reports/events (the
-  // `reporting:ingest` token scope is checked inside the router). The user's
-  // PagerDuty/Datadog/Alertmanager posts here; DORA correlates each incident to a
-  // deploy for automated post-deploy CFR + real MTTR. Distinct prefix so
-  // requireAuth doesn't double-run for the user-facing report reads below. NOT
-  // gated by reports:read/advanced_reporting: it's a machine WRITE path (the DORA
-  // READ endpoints that consume this data carry the advanced_reporting gate).
-  // Incident webhook + org-admin config (Phase 5 / 5b). The webhook writes
-  // (`POST /`, `POST /alertmanager`) are machine — the `reporting:ingest` token
-  // scope is checked inside the router, mount is bare requireAuth so it doesn't
-  // double-run. The org-admin surfaces on this same router (`GET /`, `POST /test`)
-  // carry their OWN per-route guards (requireOrgId + tenant context + reports:read
-  // + advanced_reporting) so they get an orgId + RLS scope from the user JWT
-  // without a second mount.
+  // Incident webhook + org-admin config. The user's PagerDuty/Datadog/Alertmanager
+  // posts here and DORA correlates each incident to a deploy for automated
+  // post-deploy CFR + real MTTR. The webhook writes (`POST /`, `POST
+  // /alertmanager`) are machine — the `reporting:ingest` token scope is checked
+  // inside the router, and the mount is bare requireAuth so it doesn't double-run.
+  // They are NOT gated by reports:read/advanced_reporting (the DORA READ endpoints
+  // that consume this data carry that gate). The org-admin surfaces on this same
+  // router (`GET /`, `POST /test`) carry their OWN per-route guards (requireOrgId
+  // + tenant context + reports:read + advanced_reporting) so they get an orgId +
+  // RLS scope from the user JWT without a second mount.
   app.use('/reports/incidents', requireAuth, createIncidentRoutes());
 
-  // Per-org reporting configuration (Phase 5b). User-facing: auth + orgId +
+  // Per-org reporting configuration. User-facing: auth + orgId +
   // `reports:read` + `advanced_reporting` (the DORA gate); the PUT adds an
   // org-admin `org:settings` gate inside the router. Distinct prefix so requireAuth
   // doesn't double-run.
@@ -93,14 +89,13 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
   // whole path segments, so this mount never sees the machine sync leg).
   app.use('/reports/retention', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), createRetentionRoutes());
 
-  // Inbound billing → reporting retention sync (Phase 8). MACHINE write: billing
-  // pushes the account's effective retention entitlement (tier baseline + purchased
-  // retention bundles) onto the root org's `dora_settings`. Mounted at a bare
-  // `requireAuth` machine prefix (like /reports/events, /reports/incidents) — the
-  // service-principal / system-admin guard runs INSIDE the router (identical to the
-  // platform seat-limit sync leg billing already uses). NOT gated by reports:read /
-  // advanced_reporting / an org-user permission: the caller is the billing service
-  // token, not a user, and the target org is the `:orgId` path param.
+  // Inbound billing → reporting retention sync. MACHINE write: billing pushes the
+  // account's effective retention entitlement (tier baseline + purchased retention
+  // bundles) onto the root org's `dora_settings`. Mounted at a bare `requireAuth`
+  // machine prefix (like /reports/events, /reports/incidents) — the internal-service
+  // guard (billing's own signed token only) runs INSIDE the router. NOT gated by
+  // reports:read / advanced_reporting / an org-user permission: the caller is the
+  // billing service token, not a user, and the target org is the `:orgId` path param.
   app.use('/reports/retention-sync', requireAuth, createRetentionSyncRoutes());
 
   // Post-deploy outcome markers (mark failed/restored). A user-facing DORA WRITE

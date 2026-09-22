@@ -19,8 +19,8 @@ interface SelectablePlanCardProps {
 }
 
 /**
- * A selectable plan option shared by the signup and onboarding plan pickers
- * (previously two divergent copies). Both are `type="button"` + `aria-pressed`
+ * A selectable plan option shared by the signup and onboarding plan pickers.
+ * Both are `type="button"` + `aria-pressed`
  * with the same brand-ring-on-select treatment; the layout differs by `variant`.
  */
 export function SelectablePlanCard({

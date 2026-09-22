@@ -82,7 +82,7 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
           <Detail label="Default" value={plugin.isDefault ? 'Yes' : 'No'} />
         </div>
         {plugin.yankedAt ? (
-          <div role="note" className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 p-3">
+          <div role="note" className="rounded-md border border-danger-border bg-danger-bg p-3">
             <div className="flex items-center gap-2"><PluginLifecycleBadges plugin={plugin} /><span className="text-xs text-fg-muted">{formatDateTime(plugin.yankedAt)}</span></div>
             <p className="text-fg mt-1">
               No longer resolves for version ranges, <code>latest</code> or the default; an exact pin still does, with a warning.
@@ -90,7 +90,7 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
             </p>
           </div>
         ) : plugin.deprecatedAt ? (
-          <div role="note" className="rounded-md border border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950/40 p-3">
+          <div role="note" className="rounded-md border border-warning-border bg-warning-bg p-3">
             <div className="flex items-center gap-2"><PluginLifecycleBadges plugin={plugin} /><span className="text-xs text-fg-muted">{formatDateTime(plugin.deprecatedAt)}</span></div>
             <p className="text-fg mt-1">
               Still resolves, but synth warns and AI suggestions skip it.

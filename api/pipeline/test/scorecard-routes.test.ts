@@ -19,17 +19,17 @@ const mockGetDoraMetrics = jest.fn<AnyFn>();
 const mockGetIncidentSettings = jest.fn<AnyFn>();
 const mockFindById = jest.fn<AnyFn>();
 const mockFindPaginated = jest.fn<AnyFn>();
-const mockIncrementQuota = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
-  incrementQuotaFromCtx: (...a: unknown[]) => mockIncrementQuota(...a),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  toComplianceAttributes: (p: unknown) => p,
   sendSuccess: mockSendSuccess,
   sendBadRequest: mockSendBadRequest,
   sendEntityNotFound: mockSendEntityNotFound,
@@ -44,7 +44,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     getDoraMetrics: (...a: unknown[]) => mockGetDoraMetrics(...a),
-    getIncidentSettings: (...a: unknown[]) => mockGetIncidentSettings(...a),
+    getReportingSettings: (...a: unknown[]) => mockGetIncidentSettings(...a),
   },
 }));
 
@@ -53,7 +53,6 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
     findById: (...a: unknown[]) => mockFindById(...a),
     findPaginated: (...a: unknown[]) => mockFindPaginated(...a),
   },
-  toComplianceAttributes: (p: unknown) => p,
 }));
 
 const { createScorecardRoutes } = await import('../src/routes/scorecard-routes.js');

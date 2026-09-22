@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org pickers used to be `<select>`s over the first 100 orgs of the fleet:
- * past that cap an org could not be chosen, and a user already IN one showed a
- * blank select — saving then quietly moved them out. The replacement searches
- * on the server and always keeps the current value as an option.
+ * The org pickers are not `<select>`s over a capped page of the fleet (past the
+ * cap an org can't be chosen, and a user already IN one shows a blank select
+ * that a save quietly moves them out of). They search on the server and always keeps the current value as an option.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';

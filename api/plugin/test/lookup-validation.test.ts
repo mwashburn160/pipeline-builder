@@ -10,14 +10,13 @@
  * filter to the service layer.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import * as z from 'zod';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFind = jest.fn<AnyFn>();
-const mockIncrementQuotaFromCtx = jest.fn<AnyFn>();
 const mockNormalizeArrayFields = jest.fn((p: unknown) => p);
 const mockSendBadRequest = jest.fn((res: any, msg: string, code?: string) =>
   res.status(400).json({ message: msg, code }));
@@ -34,12 +33,12 @@ class ImageVerificationError extends Error {
   constructor(message: string) { super(message); this.name = 'ImageVerificationError'; }
 }
 
-// The listing half of lookup (plan §3.5); the resolver itself is unit-tested in
+// The listing half of lookup; the resolver itself is unit-tested in
 // ecosystem-installs.test.ts and pipeline-data's plugin-resolution.test.ts.
 const mockResolveListed = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => null);
 const mockShadowed = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => null);
 const mockVerifyListed = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
-jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
+jest.unstable_mockModule('../src/services/ecosystem/lookup.js', () => ({
   resolveListedLookup: mockResolveListed,
   shadowedListing: mockShadowed,
   verifyListedImage: mockVerifyListed,
@@ -85,7 +84,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: 'org-1', userId: 'u-1' });
   },
-  incrementQuotaFromCtx: (...a: unknown[]) => mockIncrementQuotaFromCtx(...a),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -326,7 +325,7 @@ describe('GET /plugins/:id/sbom', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Resolution semantics + lifecycle warnings (plugin-ecosystem W0.3/W0.4)
+// Resolution semantics + lifecycle warnings
 // ---------------------------------------------------------------------------
 
 const { lookupWarnings, resolutionFilter } = await import('../src/routes/read-plugins.js');
@@ -403,7 +402,7 @@ describe('POST /plugins/lookup — answer carries warnings', () => {
   });
 });
 
-describe('POST /plugins/lookup — listings (plan §3.5, G30)', () => {
+describe('POST /plugins/lookup — listings', () => {
   const record = {
     id: 'lv-1',
     source: 'listing',

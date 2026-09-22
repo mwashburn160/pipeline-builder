@@ -180,7 +180,7 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
         />
 
         {propsError && (
-          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{propsError}</p>
+          <p className="mt-2 text-sm text-danger">{propsError}</p>
         )}
 
         <p className="mt-2 text-xs text-fg-muted">

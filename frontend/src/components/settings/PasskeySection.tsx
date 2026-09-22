@@ -16,7 +16,7 @@ import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { AccountRecoveryCodes, RecoveryCodes } from '@/components/settings/RecoveryCodes';
 import { useAuth } from '@/hooks/useAuth';
-import { useLoadable } from '@/hooks/useLoadable';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import { beginPasskeyRegistration, browserSupportsWebAuthn, finishPasskeyRegistration, type PendingPasskeyRegistration } from '@/lib/passkeys';
@@ -36,8 +36,8 @@ import type { Passkey } from '@/types';
  * `StepUpModal` first — which is also how an account with no password enrols its
  * FIRST passkey: step-up is factor-agnostic, so the modal offers "Sign in again
  * with <provider>" and that earns the same token. That ONE dialog also states
- * what removal costs; it used to be preceded by a ConfirmDialog asking the same
- * question, which taught people to click through both.
+ * what removal costs — a second confirm asking the same question only teaches
+ * people to click through both.
  *
  * Removing the last thing you can sign in with is refused by the server
  * (`409`); the message is shown as-is rather than being re-derived here, so the
@@ -68,7 +68,11 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     if (!res.success || !res.data) throw new Error('Failed to load passkeys');
     return res.data.passkeys;
   }, []);
-  const { data: passkeys, loading, error: loadError, reload } = useLoadable<Passkey[]>(loadPasskeys, [], 'Failed to load passkeys');
+  const { data: passkeysLoaded, loading, error: loadErrorFailure, refetch: reload } = useFetch<Passkey[]>(() => loadPasskeys(), [loadPasskeys], {
+    onError: (err) => toast.error(formatError(err, 'Failed to load passkeys')),
+  });
+  const passkeys = passkeysLoaded ?? [];
+  const loadError = loadErrorFailure ? formatError(loadErrorFailure, 'Failed to load passkeys') : null;
 
   /** Re-read the list AND the profile. `user.authFactors.passkeyCount` is what
    *  the posture strip at the top of this page reports, so without the refresh

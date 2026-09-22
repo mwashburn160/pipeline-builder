@@ -14,10 +14,10 @@ import {
   createLogger,
   getParam,
   validateBody,
-  parseQueryInt,
-  parseQueryIntClamped,
   parseQueryString,
   actorId,
+  parsePage,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -36,7 +36,6 @@ import {
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
-import { getAuditClient } from '../services/audit.js';
 import { DiscountMintSchema, DiscountUpdateSchema, DiscountApplySchema, DiscountRedeemSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-discounts');
@@ -121,13 +120,13 @@ export function createDiscountRoutes(): Router {
     });
 
     await createBillingEvent(body.targetOrgId ?? orgId, 'discount_generated', { discountId: _id, kind: spec.kind, unit: spec.unit, value: spec.value }, undefined, req.user?.sub);
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.discount.generate',
       actorId: actorId({ userId }),
       orgId,
       targetId: _id,
       details: { discountId: _id, kind: spec.kind, unit: spec.unit, value: spec.value, targetOrgId: body.targetOrgId },
-    }, 'billing');
+    });
 
     logger.info('Discount minted', { discountId: _id, kind: spec.kind });
     return sendSuccess(res, 201, { discount: toDiscountResponse(discount) });
@@ -158,13 +157,13 @@ export function createDiscountRoutes(): Router {
     }
 
     await createBillingEvent(discount.targetOrgId ?? orgId, 'discount_issued', { discountId: id }, undefined, req.user?.sub);
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.discount.issue',
       actorId: actorId({ userId }),
       orgId,
       targetId: id,
       details: { discountId: id },
-    }, 'billing');
+    });
     // The token itself is a bearer credential — never logged or audited.
     return sendSuccess(res, 200, { token });
   }));
@@ -183,13 +182,13 @@ export function createDiscountRoutes(): Router {
     const result = await applyDiscountToOrg(targetOrgId, discount, req.user?.sub);
     if (!result.ok) return sendError(res, result.status, result.error, result.code);
 
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.discount.apply',
       actorId: actorId({ userId }),
       orgId: targetOrgId,
       targetId: id,
       details: { discountId: id, kind: discount.kind, affectedOrgId: targetOrgId, via: 'system' },
-    }, 'billing');
+    });
     logger.info('Discount granted (system)', { discountId: id, targetOrgId });
     return sendSuccess(res, 200, { discount: toDiscountResponse(discount), applied: result.kind, priceBreakdown: result.breakdown });
   }));
@@ -211,8 +210,7 @@ export function createDiscountRoutes(): Router {
 
   // GET /billing/admin/discounts — list (filtered + paginated). Never a token.
   router.get('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
-    const limit = parseQueryIntClamped(req.query.limit, 50, 200);
-    const offset = parseQueryInt(req.query.offset, 0);
+    const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
     const filter: Record<string, unknown> = {};
     const campaign = parseQueryString(req.query.campaign);
     const targetOrgId = parseQueryString(req.query.targetOrgId);
@@ -259,13 +257,13 @@ export function createDiscountRoutes(): Router {
     // A revoke (isActive:false) is the notable, auditable transition.
     if (body.isActive === false) {
       await createBillingEvent(discount.targetOrgId ?? orgId, 'discount_revoked', { discountId: id }, undefined, req.user?.sub);
-      getAuditClient().record({
+      recordAudit({
         action: 'billing.discount.revoke',
         actorId: actorId({ userId }),
         orgId,
         targetId: id,
         details: { discountId: id },
-      }, 'billing');
+      });
     }
     return sendSuccess(res, 200, { discount: toDiscountResponse(discount) });
   }));
@@ -277,13 +275,13 @@ export function createDiscountRoutes(): Router {
     const discount = await Discount.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
     if (!discount) return sendError(res, 404, 'Discount not found', ErrorCode.NOT_FOUND);
     await createBillingEvent(discount.targetOrgId ?? orgId, 'discount_revoked', { discountId: id }, undefined, req.user?.sub);
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.discount.revoke',
       actorId: actorId({ userId }),
       orgId,
       targetId: id,
       details: { discountId: id },
-    }, 'billing');
+    });
     return sendSuccess(res, 200, { discount: toDiscountResponse(discount) });
   }));
 
@@ -312,13 +310,13 @@ export function createDiscountRoutes(): Router {
     const result = await applyDiscountToOrg(orgId, discount, req.user?.sub);
     if (!result.ok) return sendError(res, result.status, result.error, result.code);
 
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.discount.apply',
       actorId: actorId({ userId }),
       orgId,
       targetId: discount._id,
       details: { discountId: discount._id, kind: discount.kind, affectedOrgId: orgId, via: 'self-service' },
-    }, 'billing');
+    });
     logger.info('Discount redeemed (self-service)', { discountId: discount._id, orgId });
     return sendSuccess(res, 200, { discount: toDiscountResponse(discount), applied: result.kind, priceBreakdown: result.breakdown });
   }));
@@ -340,13 +338,13 @@ export function createDiscountRoutes(): Router {
     subscription.recurringDiscount = null;
     await subscription.save();
     await createBillingEvent(orgId, 'discount_removed', { discountId }, subscription._id.toString(), req.user?.sub);
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.discount.remove',
       actorId: actorId({ userId }),
       orgId,
       targetId: discountId,
       details: { discountId, subscriptionId: subscription._id.toString() },
-    }, 'billing');
+    });
     return sendSuccess(res, 200, { removed: discountId });
   }));
 

@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The tenant side of the publish-request queue (docs/plans/plugin-ecosystem.md
- * §3.0, §3.1, §3.1a, §3.4, §3.6, §3.7): a publisher SUBMITS requests — nothing
+ * The tenant side of the publish-request queue (docs/plugin-publishing.md
+ * ): a publisher SUBMITS requests — nothing
  * a tenant does alone puts anything in the directory — and can withdraw them.
  *
  *  - A version request (new_listing / new_version) needs a `public` version
  *    with a license, a README and a passing vulnerability gate. Its image
- *    digest is PINNED at submit and the version is FROZEN (§3.4, G25):
+ *    digest is PINNED at submit and the version is FROZEN:
  *    approval publishes exactly that digest or fails closed.
- *  - The `listings` quota (§3.7) is checked at submit (and again at approval):
+ *  - The `listings` quota is checked at submit (and again at approval):
  *    a new listing needs room under the plan's limit; a publisher OVER its
  *    limit after a downgrade may only use the security-fix lane.
- *  - A new listing carries the §3.1a accept-or-edit metadata (pre-filled from
+ *  - A new listing carries the accept-or-edit metadata (pre-filled from
  *    the version's effective metadata, with provenance).
  *  - After submitting, the bootstrap exception or an auto-approval rule may
  *    decide it on the spot (decisions.ts).
@@ -33,22 +33,24 @@ import {
   TENANT_REQUEST_KINDS,
   type Permission,
   type PluginCatalogEdits,
+  parsePage,
 } from '@pipeline-builder/api-core';
 import {
+  isUniqueViolation,
   OFFICIAL_PUBLISHER_HANDLE,
-  schema,
   type PluginListing,
   type PluginPublishRequest,
   type PluginPublishRequestInsert,
   type Publisher,
   type PublishRequestKind,
-  type PublishRequestStatus,
 } from '@pipeline-builder/pipeline-data';
-import { eq } from 'drizzle-orm';
 
+import { advisoryStore } from './advisories-store.js';
 import { buildPublisherDraft, discardDraft, removeDraft } from './advisories.js';
+import { ecosystemAudit } from './audit.js';
+import { autoDecide } from './auto-approval.js';
 import { can, EcosystemError, submitterTag, type Caller } from './context.js';
-import { autoDecide, releaseFreeze } from './decisions.js';
+import { releaseFreeze } from './decisions.js';
 import {
   applyEdits, effectiveMetadata, LISTING_FIELDS, listingFieldValue, listingUpdateOffer, parseSources, type RequestMetadata,
 } from './metadata.js';
@@ -58,14 +60,13 @@ import {
   assertRootOrg, displayNameOf, handleRefusal, listingsQuota, ownPublisher, termsAccepted, verifiedEligible,
 } from './publishers.js';
 import {
-  ACTIVE_LISTING_STATES, decodeRequestCursor, elevated, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, requests, reservedNames, versions,
-  type PluginRow, type RequestCursor, type RequestFilter,
+  decodeRequestCursor, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, REQUEST_STATUS_FILTERS, requests, reservedNames, versions, type PluginRow, type RequestCursor, type RequestFilter,
 } from './store.js';
 import { claimantEmailHash as claimantEmailHashOf } from './submission-moderation.js';
 import { topInstalledListings } from './submissions-store.js';
+import { isActiveListing, optionalText, requiredText } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { listingView, publisherView, requestView } from './views.js';
-import { emitPluginAudit } from '../audit.js';
 import { pluginService } from '../plugin-service.js';
 
 type Req = PluginPublishRequest;
@@ -102,22 +103,21 @@ async function ownListing(publisher: Publisher, listingId: unknown): Promise<Plu
   return listing;
 }
 
-const isLive = (l: PluginListing) => (ACTIVE_LISTING_STATES as readonly string[]).includes(l.state);
 
 /**
- * The submit gates for a version request: the version's own gates (§3.1),
+ * The submit gates for a version request: the version's own gates,
  * plus the listing it would land on.
  */
 async function versionRequestGates(publisher: Publisher | null, plugin: PluginRow, listing: PluginListing | null): Promise<Gate[]> {
   const gates = versionGates(plugin);
   if (listing) {
-    gates.push({ id: 'listing_state', ok: isLive(listing), message: isLive(listing) ? 'The listing is live' : `The listing is ${listing.state}` });
+    gates.push({ id: 'listing_state', ok: isActiveListing(listing), message: isActiveListing(listing) ? 'The listing is live' : `The listing is ${listing.state}` });
     const existing = await versions.get(listing.id, plugin.version);
     gates.push({ id: 'already_listed', ok: !existing, message: existing ? `${plugin.version} is already published` : 'The version is not published yet' });
   } else if (publisher) {
     const reserved = await reservedNames.get(plugin.name);
     const blocked = !!reserved && reserved.publisherId !== publisher.id;
-    // E9: not confusable with another publisher's top listing (a typosquat of a popular plugin).
+    // not confusable with another publisher's top listing (a typosquat of a popular plugin).
     const confusable = blocked ? null : findConfusableName(plugin.name,
       (await topInstalledListings()).filter((l) => l.publisherId !== publisher.id).map((l) => l.name));
     gates.push({
@@ -135,17 +135,17 @@ async function quotaGate(publisher: Publisher, kind: string, securityLane: boole
   const quota = await listingsQuota(publisher.ownerOrgId ?? SYSTEM_ORG_ID, publisher.id);
   if (quota.limit === -1) return { id: 'quota', ok: true, message: 'Unlimited listings', ...quota };
   if (kind === 'new_listing') {
-    const pendingNew = (await requests.list({ publisherId: publisher.id, statuses: OPEN_STATUSES, kinds: ['new_listing'] })).length;
+    const pendingNew = await requests.count({ publisherId: publisher.id, statuses: OPEN_STATUSES, kinds: ['new_listing'] });
     const ok = quota.used + pendingNew < quota.limit;
     return { id: 'quota', ok, message: ok ? `${quota.used + pendingNew} of ${quota.limit} listings used` : `The plan allows ${quota.limit} listings (${quota.used} live, ${pendingNew} pending)`, ...quota };
   }
-  // Over the limit after a downgrade: updates are frozen, the security lane stays open (§3.7).
+  // Over the limit after a downgrade: updates are frozen, the security lane stays open.
   const ok = securityLane || quota.used <= quota.limit;
   return { id: 'quota', ok, message: ok ? `${quota.used} of ${quota.limit} listings used` : `Over the plan's listings limit (${quota.used}/${quota.limit}): only security fixes can be published until you are back under it`, ...quota };
 }
 
 /**
- * GET /plugins/publish-requests/draft?pluginId= — everything the §3.1a request
+ * GET /plugins/publish-requests/draft?pluginId= — everything the request
  * form shows: the kind, the gates, the version's effective metadata (for a new
  * version: next to the live listing's values) and the changed-fields offer.
  */
@@ -195,24 +195,15 @@ export async function draft(caller: Caller, pluginId: unknown) {
   };
 }
 
-/** A security-fix advisory the request remediates, validated against the listing (§3.0 security lane). */
+/** A security-fix advisory the request remediates, validated against the listing (the security-fix lane). */
 async function securityAdvisory(advisoryId: unknown, listingId: string | null): Promise<string | null> {
   if (advisoryId === undefined || advisoryId === null || advisoryId === '') return null;
   if (typeof advisoryId !== 'string') throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'securityFixAdvisoryId must be a string');
-  const advisory = await elevated(async (tx) => (await tx.select().from(schema.pluginAdvisory).where(eq(schema.pluginAdvisory.id, advisoryId)))[0] ?? null);
+  const advisory = await advisoryStore.byId(advisoryId);
   if (!advisory || (listingId && advisory.listingId !== listingId) || advisory.state === 'withdrawn') {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'securityFixAdvisoryId does not name an advisory on this listing');
   }
   return advisory.id;
-}
-
-function requiredString(value: unknown, field: string, max = 1000): string {
-  if (typeof value !== 'string' || value.trim() === '') throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, `${field} is required`);
-  return value.trim().slice(0, max);
-}
-
-function optionalString(value: unknown, max = 1000): string | null {
-  return typeof value === 'string' && value.trim() !== '' ? value.trim().slice(0, max) : null;
 }
 
 function assertGates(gates: Gate[]): void {
@@ -254,7 +245,7 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
       assertGates(gates);
       const metadata: RequestMetadata = kind === 'new_listing' ? applyEdits(effectiveMetadata(plugin), parseEdits(body.metadata)) : effectiveMetadata(plugin);
       const bump = versionBump(listing?.latestVersion ?? null, plugin.version);
-      // G25: freeze first — a digest that moved since the caller looked fails closed.
+      // freeze first — a digest that moved since the caller looked fails closed.
       await pluginService.freezeVersion(caller.orgId, plugin.id, plugin.imageDigest);
       return {
         listingId: listing?.id ?? null,
@@ -274,7 +265,7 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
     }
     case 'listing_update': {
       const listing = await ownListing(publisher, body.listingId);
-      if (!isLive(listing)) throw new EcosystemError(ErrorCode.CONFLICT, `The listing is ${listing.state}.`);
+      if (!isActiveListing(listing)) throw new EcosystemError(ErrorCode.CONFLICT, `The listing is ${listing.state}.`);
       const edits = parseEdits(body.metadata);
       const changed = Object.fromEntries(Object.entries(edits)
         .filter(([field, value]) => LISTING_FIELDS.includes(field as never) && value !== undefined && !sameValue(value, listingFieldValue(listing, field as never))));
@@ -287,35 +278,35 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
     }
     case 'yank': {
       const listing = await ownListing(publisher, body.listingId);
-      const version = requiredString(body.version, 'version', 50);
+      const version = requiredText(body.version, 'version', 50);
       const v = await versions.get(listing.id, version);
       if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
       if (v.yankedAt) throw new EcosystemError(ErrorCode.CONFLICT, `${version} is already yanked.`);
       const advisory = await securityAdvisory(body.securityFixAdvisoryId, listing.id);
-      const reason = requiredString(body.reason, 'reason');
+      const reason = requiredText(body.reason, 'reason', 1000);
       return { listingId: listing.id, version, digest: v.imageDigest, reason, lane: advisory ? 'security' : 'standard', securityFixAdvisoryId: advisory, payload: { name: listing.name, reason, submitter } };
     }
     case 'unpause': {
       const listing = await ownListing(publisher, body.listingId);
-      const version = optionalString(body.version, 50);
+      const version = optionalText(body.version, 50);
       if (version) {
         const v = await versions.get(listing.id, version);
         if (!v?.pausedAt) throw new EcosystemError(ErrorCode.CONFLICT, `${version} is not paused.`);
       } else if (!listing.pausedAt) {
         throw new EcosystemError(ErrorCode.CONFLICT, 'The listing is not paused.');
       }
-      return { listingId: listing.id, version, reason: optionalString(body.reason), payload: { name: listing.name, submitter } };
+      return { listingId: listing.id, version, reason: optionalText(body.reason, 1000), payload: { name: listing.name, submitter } };
     }
     case 'transfer': {
       const listing = await ownListing(publisher, body.listingId);
-      const handle = requiredString((body.target as Record<string, unknown> | undefined)?.targetPublisherHandle, 'target.targetPublisherHandle', 39).toLowerCase();
+      const handle = requiredText((body.target as Record<string, unknown> | undefined)?.targetPublisherHandle, 'target.targetPublisherHandle', 39).toLowerCase();
       const target = await publishers.byHandle(handle);
       if (!target || !target.ownerOrgId || target.id === publisher.id) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Receiving publisher not found');
       if (target.suspendedAt) throw new EcosystemError(ErrorCode.CONFLICT, 'The receiving publisher is suspended.');
       if (target.handle === OFFICIAL_PUBLISHER_HANDLE) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'Listings can\'t be transferred to the Official publisher.');
       return {
         listingId: listing.id,
-        reason: optionalString(body.reason),
+        reason: optionalText(body.reason, 1000),
         payload: { name: listing.name, submitter, transfer: { targetPublisherId: target.id, targetOrgId: target.ownerOrgId, targetHandle: target.handle, response: 'pending' } },
       };
     }
@@ -326,16 +317,16 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
         const refusal = await handleRefusal(handle, publisher.id);
         if (!refusal) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `The handle "${handle}" isn't reserved: request it with a profile_change instead.`);
         if (refusal.code !== ErrorCode.PUBLISHER_HANDLE_RESERVED) throw new EcosystemError(refusal.code, refusal.message);
-        return { reason: optionalString(body.reason), payload: { name: `handle:${handle}`, target: { handle }, submitter } };
+        return { reason: optionalText(body.reason, 1000), payload: { name: `handle:${handle}`, target: { handle }, submitter } };
       }
-      const listing = await listings.byId(requiredString(target.listingId, 'target.listingId', 64));
+      const listing = await listings.byId(requiredText(target.listingId, 'target.listingId', 64));
       const owner = listing ? await publishers.byId(listing.publisherId) : null;
       if (!listing || owner?.ownerOrgId !== null) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Only listings of the platform community publisher can be claimed.');
-      // E10: the claimer's VERIFIED email, hashed, so approval can link the
+      // the claimer's VERIFIED email, hashed, so approval can link the
       // listing's anonymous submissions to this account (never returned by the API).
       const claimantEmailHash = claimantEmailHashOf(caller);
       return {
-        reason: optionalString(body.reason),
+        reason: optionalText(body.reason, 1000),
         payload: { name: `listing:${listing.id}`, target: { listingId: listing.id }, submitter, ...(claimantEmailHash ? { claimantEmailHash } : {}) },
       };
     }
@@ -353,32 +344,37 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
         if (name !== publisher.displayName) out.displayName = name;
       }
       if (!out.handle && !out.displayName) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'Nothing changes.');
-      return { reason: optionalString(body.reason), payload: { name: 'profile', target: out, submitter } };
+      return { reason: optionalText(body.reason, 1000), payload: { name: 'profile', target: out, submitter } };
     }
     case 'verify': {
       if (publisher.tier !== 'community') throw new EcosystemError(ErrorCode.CONFLICT, `The publisher is already ${publisher.tier}.`);
       const app = (body.application ?? {}) as Record<string, unknown>;
-      const domain = optionalString(app.domain, 253);
-      // Automatic eligibility (§3.7): plan, a DNS-verified domain, owner MFA.
+      const domain = optionalText(app.domain, 253);
+      // Automatic eligibility: plan, a DNS-verified domain, owner MFA.
       const eligibility = await checkVerifiedEligibility(publisher.ownerOrgId ?? caller.orgId, { planEligible: verifiedEligible(caller), domain });
       assertVerifiedEligible(eligibility, 'application');
       return {
         payload: {
           name: 'verify',
           submitter,
-          application: { domain, notes: optionalString(app.notes, 2000) },
+          application: { domain, notes: optionalText(app.notes, 2000) },
           eligibility,
         },
       };
     }
     case 'advisory': {
-      // A PRIVATE draft (security lane); only the system org publishes it (W8).
+      // A PRIVATE draft (security lane); only the system org publishes it.
       const built = await buildPublisherDraft(caller, publisher, body);
       return built.request;
     }
     default:
       throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `Unknown request kind: ${String(kind)}`);
   }
+}
+
+/** The tenant permission that submits (and withdraws) a request of `kind`. */
+function submitPermission(kind: string): Permission {
+  return PUBLISH_PERMISSION_REQUEST_KINDS.includes(kind) ? 'plugins:publish' : 'publishers:manage';
 }
 
 /**
@@ -391,7 +387,7 @@ export async function submit(caller: Caller, body: Record<string, unknown>): Pro
   if (!(TENANT_REQUEST_KINDS as readonly string[]).includes(kind)) {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `kind must be one of: ${TENANT_REQUEST_KINDS.join(', ')}`);
   }
-  const permission: Permission = PUBLISH_PERMISSION_REQUEST_KINDS.includes(kind) ? 'plugins:publish' : 'publishers:manage';
+  const permission = submitPermission(kind);
   if (!can(caller, permission)) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, `${kind} requests need ${permission}.`);
   assertRootOrg(caller);
   assertPublishingOpen(caller);
@@ -414,15 +410,15 @@ export async function submit(caller: Caller, body: Record<string, unknown>): Pro
     await releaseFreeze(built.pluginId ?? null);
     const advisoryId = (built.payload as { advisoryId?: string }).advisoryId;
     if (kind === 'advisory' && advisoryId) await removeDraft(advisoryId);
-    if ((err as { code?: string }).code === '23505') throw new EcosystemError(ErrorCode.DUPLICATE_ENTRY, 'An open request of this kind already exists for it.');
+    if (isUniqueViolation(err)) throw new EcosystemError(ErrorCode.DUPLICATE_ENTRY, 'An open request of this kind already exists for it.');
     throw err;
   }
 
   const listing = stored.listingId ? await listings.byId(stored.listingId) : null;
   const title = requestTitle({ kind, handle: publisher.handle, name: listing?.name ?? listingName.replace(/^(handle|listing):/, ''), version: stored.version });
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'plugin.request.submit',
-    actorId: actorId({ userId: caller.userId }),
+    actor: actorId({ userId: caller.userId }),
     orgId: caller.orgId,
     affectedOrgId: caller.orgId,
     targetType: 'plugin-publish-request',
@@ -431,9 +427,9 @@ export async function submit(caller: Caller, body: Record<string, unknown>): Pro
   });
   if (kind === 'advisory') {
     const p = stored.payload as { advisoryId: string; severity: string; affectedRange: string };
-    emitPluginAudit({
+    ecosystemAudit({
       action: 'plugin.advisory.create',
-      actorId: actorId({ userId: caller.userId }),
+      actor: actorId({ userId: caller.userId }),
       orgId: caller.orgId,
       affectedOrgId: caller.orgId,
       targetType: 'plugin-advisory',
@@ -442,11 +438,11 @@ export async function submit(caller: Caller, body: Record<string, unknown>): Pro
     });
   }
   if (kind === 'verify') {
-    emitPluginAudit({ action: 'publisher.verify.request', actorId: actorId({ userId: caller.userId }), orgId: caller.orgId, targetType: 'publisher', targetId: publisher.id, details: { requestId: stored.id } });
+    ecosystemAudit({ action: 'publisher.verify.request', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, targetType: 'publisher', targetId: publisher.id, details: { requestId: stored.id } });
   }
   if (kind === 'transfer') {
     const t = (stored.payload as { transfer: { targetOrgId: string } }).transfer;
-    emitPluginAudit({ action: 'publisher.transfer.request', actorId: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: t.targetOrgId, targetType: 'plugin-listing', targetId: stored.listingId!, details: { requestId: stored.id } });
+    ecosystemAudit({ action: 'publisher.transfer.request', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: t.targetOrgId, targetType: 'plugin-listing', targetId: stored.listingId!, details: { requestId: stored.id } });
     await notifyTransferRequested({ receivingOrgId: t.targetOrgId, title });
   } else {
     await notifyRequestSubmitted({ kind, lane: stored.lane, title, submittedOrgId: caller.orgId, permission: requiredDecisionPermission(kind) });
@@ -461,16 +457,16 @@ export async function withdraw(caller: Caller, id: string) {
   const publisher = await ownPublisher(caller);
   const r = await requests.byId(id);
   if (!r || r.publisherId !== publisher.id) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Request not found');
-  const permission: Permission = PUBLISH_PERMISSION_REQUEST_KINDS.includes(r.kind) ? 'plugins:publish' : 'publishers:manage';
+  const permission = submitPermission(r.kind);
   if (!can(caller, permission)) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, `Withdrawing ${r.kind} requests needs ${permission}.`);
   if (!OPEN_STATUSES.includes(r.status)) throw new EcosystemError(ErrorCode.CONFLICT, `This request is ${r.status}.`);
   const done = await requests.transition(r.id, r.status, { status: 'withdrawn', decidedBy: caller.userId, decidedAt: new Date() });
   if (!done) throw new EcosystemError(ErrorCode.CONFLICT, 'The request was decided meanwhile.');
   await releaseFreeze(r.pluginId);
   await discardDraft(r);
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'plugin.request.withdraw',
-    actorId: actorId({ userId: caller.userId }),
+    actor: actorId({ userId: caller.userId }),
     orgId: caller.orgId,
     targetType: 'plugin-publish-request',
     targetId: r.id,
@@ -497,7 +493,7 @@ const PAGE_MAX = 200;
 
 /** `limit` + `cursor` from a query string (400 on a malformed cursor). */
 export function pageParams(query: { limit?: unknown; cursor?: unknown }): { limit: number; cursor: RequestCursor | null } {
-  const limit = Math.min(PAGE_MAX, Math.max(1, Number.parseInt(String(query.limit ?? PAGE_DEFAULT), 10) || PAGE_DEFAULT));
+  const { limit } = parsePage(query, { def: PAGE_DEFAULT, max: PAGE_MAX });
   const cursor = decodeRequestCursor(query.cursor);
   if (cursor === 'invalid') throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'cursor is not a valid page cursor', { field: 'cursor' });
   return { limit, cursor };
@@ -511,14 +507,6 @@ async function pageOf(filter: RequestFilter, page: { limit: number; cursor: Requ
   return { items, nextCursor };
 }
 
-const STATUS_FILTERS: Record<string, PublishRequestStatus[]> = {
-  open: OPEN_STATUSES,
-  pending: ['pending'],
-  pending_second_approval: ['pending_second_approval'],
-  approved: ['approved'],
-  rejected: ['rejected'],
-  withdrawn: ['withdrawn'],
-};
 
 /** A page of request views plus the cursor for the next one (null = last page). */
 export interface RequestPage { requests: ReturnType<typeof requestView>[]; nextCursor: string | null }
@@ -528,7 +516,7 @@ export async function ownRequests(caller: Caller, query: { status?: unknown; lim
   const page = pageParams(query);
   const publisher = await publishers.byOrg(caller.orgId);
   if (!publisher) return { requests: [], nextCursor: null };
-  const statuses = typeof query.status === 'string' ? STATUS_FILTERS[query.status] : undefined;
+  const statuses = typeof query.status === 'string' ? REQUEST_STATUS_FILTERS[query.status] : undefined;
   const { items, nextCursor } = await pageOf({ publisherId: publisher.id, ...(statuses ? { statuses } : {}) }, page);
   return { requests: await requestViews(items), nextCursor };
 }
@@ -561,11 +549,11 @@ export async function respondToTransfer(caller: Caller, id: string, accept: bool
   if (!updated) throw new EcosystemError(ErrorCode.CONFLICT, 'The transfer was decided meanwhile.');
   const sender = await publishers.byId(r.publisherId);
   const listing = r.listingId ? await listings.byId(r.listingId) : null;
-  emitPluginAudit({
+  ecosystemAudit({
     action: accept ? 'publisher.transfer.accept' : 'publisher.transfer.decline',
-    actorId: actorId({ userId: caller.userId }),
+    actor: actorId({ userId: caller.userId }),
     orgId: caller.orgId,
-    ...(sender?.ownerOrgId ? { affectedOrgId: sender.ownerOrgId } : {}),
+    affectedOrgId: sender?.ownerOrgId,
     targetType: 'plugin-publish-request',
     targetId: r.id,
     details: { listing: listing?.name ?? null },
@@ -582,7 +570,7 @@ export async function respondToTransfer(caller: Caller, id: string, accept: bool
  * any scripted publisher). A new name gets a new_listing, a listed name a
  * new_version. For the Official loader a new version whose detected metadata
  * differs from the listing also gets a `listing_update` (auto-approved only for
- * text-only changes, §3.0.3). Never throws: the build succeeded either way;
+ * text-only changes). Never throws: the build succeeded either way;
  * the refusal is returned for the build log.
  */
 export async function submitAfterBuild(submitter: Caller, pluginId: string): Promise<{ ok: boolean; message: string; requestId?: string; status?: string }> {

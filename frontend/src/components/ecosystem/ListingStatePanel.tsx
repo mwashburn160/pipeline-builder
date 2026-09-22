@@ -19,7 +19,7 @@ import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { LISTING_STATE_COLORS, LISTING_STATE_LABELS } from '@/lib/ecosystem';
-import type { EcosystemListingState, ListingVersionView, ListingView } from '@/types/ecosystem';
+import type { ListingState, ListingVersionView, ListingView } from '@/types/ecosystem';
 import { EcosystemActionDialog } from './EcosystemActionDialog';
 
 interface Props {
@@ -40,15 +40,15 @@ const STATE_ACTION_COPY: Record<SettableState, { label: string; details: string 
 };
 
 /**
- * Ecosystem console → Listings (plan §3.4, §3.6, `plugins:moderate`): set a
- * listing's state, yank / unyank versions and deprecate / clear them (W8). Lifting a suspension and
+ * Ecosystem console → Listings (`plugins:moderate`): set a
+ * listing's state, yank / unyank versions and deprecate / clear them. Lifting a suspension and
  * unyanking are two-person — they create a request for a second approver.
  * Every write is step-up gated.
  */
 export function ListingStatePanel({ can }: Props) {
   const toast = useToast();
   const mayModerate = can('plugins:moderate');
-  const [state, setState] = useState<EcosystemListingState | ''>('');
+  const [state, setState] = useState<ListingState | ''>('');
   const [q, setQ] = useState('');
   const debouncedQ = useDebounce(q, 300);
   const [action, setAction] = useState<Action | null>(null);
@@ -89,7 +89,7 @@ export function ListingStatePanel({ can }: Props) {
       await api.requestUnyankListingVersion(l.id, action.version.version, reason, token);
       toast.success(`Unyanking ${l.name} v${action.version.version} now waits for a second approver`);
     }
-    listingsQ.refetch();
+    void listingsQ.refetch();
   };
 
   return (
@@ -109,9 +109,9 @@ export function ListingStatePanel({ can }: Props) {
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Listing or publisher" />
           </FormField>
           <FormField label="State" className="min-w-[10rem]">
-            <Select value={state} onChange={(e) => setState(e.target.value as EcosystemListingState | '')}>
+            <Select value={state} onChange={(e) => setState(e.target.value as ListingState | '')}>
               <option value="">All states</option>
-              {(Object.keys(LISTING_STATE_LABELS) as EcosystemListingState[]).map((s) => (
+              {(Object.keys(LISTING_STATE_LABELS) as ListingState[]).map((s) => (
                 <option key={s} value={s}>{LISTING_STATE_LABELS[s]}</option>
               ))}
             </Select>

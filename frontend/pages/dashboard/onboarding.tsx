@@ -44,14 +44,14 @@ const DISCOVERY_TIMEOUT_MS = 6000;
  *   - JOIN (already onboarded) — the same domain discovery + join/request flow,
  *     re-enterable for good.
  *
- * The second mode exists because the first used to be the ONLY one: the flag is
- * cleared permanently by both "Continue" and "Skip for now", and this page is
- * in no nav or palette, so the entire domain-discovery + join-request feature
- * became unreachable the instant a user finished (or skipped) onboarding —
- * while the admin half of it, the approval queue in `DomainJoinSettings`, stayed
- * live. Worse, a user whose request came back `status: 'requested'` had nowhere
- * to see what became of it. Landing here already onboarded now shows that state
- * instead of bouncing to the dashboard.
+ * The second mode exists because the first-run flag is cleared permanently by
+ * both "Continue" and "Skip for now" and this page is in no nav or palette:
+ * without it the domain-discovery + join-request feature would be unreachable
+ * once a user finished (or skipped) onboarding — while its admin half, the
+ * approval queue in `DomainJoinSettings`, stays live — and a user whose request
+ * came back `status: 'requested'` would have nowhere to see what became of it.
+ * Landing here already onboarded shows that state instead of bouncing to the
+ * dashboard.
  */
 export default function OnboardingPage() {
   const router = useRouter();
@@ -124,7 +124,7 @@ export default function OnboardingPage() {
         setRequestedOrgIds((prev) => new Set(prev).add(org.orgId));
         // Re-read so the row switches to its server-side state (and stays that
         // way on a later visit) rather than relying only on local memory.
-        discovery.refetch();
+        void discovery.refetch();
         setJoiningOrgId(null);
         return; // async approval — the user can still set up their own org below
       }
@@ -132,7 +132,7 @@ export default function OnboardingPage() {
         setError(joinOnly
           ? 'A previous request to join this organization was declined. Ask one of its admins to invite you directly.'
           : 'A previous request to join this organization was declined. Contact an admin, or set up your own organization below.');
-        discovery.refetch();
+        void discovery.refetch();
         setJoiningOrgId(null);
         return;
       }
@@ -348,7 +348,7 @@ export default function OnboardingPage() {
               </Button>
             </div>
             {/* Skipping clears the first-run flag for good, so say where the
-                join flow lives afterwards — it used to simply vanish. */}
+                join flow lives afterwards. */}
             <p className="text-xs text-fg-subtle mt-3">
               Skipping is not final: you can come back to this page any time from Help → Join an organization.
             </p>

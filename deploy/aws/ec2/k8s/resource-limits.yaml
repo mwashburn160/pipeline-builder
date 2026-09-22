@@ -86,10 +86,10 @@ spec:
       # ${BUILDKIT_MEMORY_LIMIT} value (3072Mi here), so adding it to
       # kustomization.yaml silently produced a Deployment that never ran.
       #
-      # Sized to ask-model (the 7B model — now the largest container here, at
-      # cpu 4 / memory 10Gi), matching the eks copy. The ResourceQuota below was
-      # raised by that pod's share rather than shrinking it. These no longer
-      # track BUILDKIT_MEMORY_LIMIT, so keep that <= 10Gi (buildkitd's cgroup
+      # Sized to ask-model (the 7B model — the largest container here, at
+      # cpu 4 / memory 10Gi), matching the eks copy. The ResourceQuota below
+      # includes that pod's share. These do not track BUILDKIT_MEMORY_LIMIT,
+      # so keep that <= 10Gi (buildkitd's cgroup
       # limit; default 3072Mi) or the plugin pod hits this same cap.
       max:
         cpu: "4"

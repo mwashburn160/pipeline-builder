@@ -9,9 +9,12 @@
  * user text escaping into the query.
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 
-import {
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: { get lokiBaseSelector() { return process.env.LOKI_BASE_SELECTOR || 'service_name=~".+"'; } } }));
+
+const {
   buildLogQL,
   buildLogVolumeQL,
   INFRA_TENANT,
@@ -19,7 +22,7 @@ import {
   MAX_TENANTS_PER_QUERY,
   parseLogQuery,
   resolveTenants,
-} from '../src/observability/log-query.js';
+} = await import('../src/observability/log-query.js');
 
 describe('resolveTenants', () => {
   it('confines a member to their own org', () => {

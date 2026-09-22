@@ -24,7 +24,7 @@ import SamlSession from '../models/saml-session.js';
  * approve it later and mint a membership for a user who no longer exists — an
  * orphan row that still counts toward the org's seats.
  *
- * NOT removed: the SERVICE ACCOUNTS this user created (#2). They belong to the
+ * NOT removed: the SERVICE ACCOUNTS this user created. They belong to the
  * ORG, not to the person — `ServiceAccount.createdBy`/`createdByEmail` are an
  * attribution snapshot that deliberately outlives the user, so automation does
  * not break when an engineer leaves. Every delete here filters on `userId`, and

@@ -70,6 +70,7 @@ const streamHowTo = jest.fn((opts: { abortSignal?: AbortSignal }) => {
   };
 });
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
+  resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5' })),
   streamText,
   streamHowTo,
   stepCountIs: (n: number) => n,
@@ -79,6 +80,7 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
 
 const mockDecrementQuota = jest.fn();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (event: unknown) => auditRecord(event, 'ask'),
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   getServiceAuthHeader: jest.fn(() => 'Bearer service'),
   reserveQuota: jest.fn(async () => ({ exceeded: false, quota: { type: 'aiCalls', resetAt: '2026-09-01T00:00:00Z' } })),
@@ -89,18 +91,16 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   audited: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireFeature: () => (_req: unknown, _res: unknown, next: () => void) => next(),
-  initSSEStream: (_req: unknown, res: http.ServerResponse) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.flushHeaders();
-    return { aborted: () => false };
-  },
   sendBadRequest: jest.fn(),
   sendQuotaReserveDenied: jest.fn(),
   sendSuccess: jest.fn(),
   handleAIError: jest.fn((res: http.ServerResponse) => res.end()),
 }));
 
+// The REAL reservation helper (its api-core calls hit this file's api-core mock).
+let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: req.context, orgId: 'org-1', userId: 'u1' });
     req.context.done();
@@ -111,13 +111,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', { CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex: jest.fn(async () => ({ search: () => [], size: 1 })) }));
-jest.unstable_mockModule('../src/services/model.js', () => ({ resolveAskModel: jest.fn(() => ({ id: 'model' })), ASK_MAX_OUTPUT_TOKENS: 2048 }));
+jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048 }));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools: jest.fn(() => ({})) }));
 jest.unstable_mockModule('../src/services/internal-http.js', () => ({ pipelineClient: jest.fn(), pluginClient: jest.fn() }));
 const auditRecord = jest.fn();
-jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: auditRecord }) }));
 
 const express = (await import('express')).default;
+({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createAskRoutes } = await import('../src/routes/ask.js');
 const { createAgentRoutes } = await import('../src/routes/agent.js');
 

@@ -16,19 +16,24 @@
  * These functions deliberately do NOT swallow transport errors: a connection
  * failure/timeout propagates so each caller keeps its own fallback policy (log
  * level, degrade-to-self vs. return-undefined). A non-2xx response is treated
- * as "no data" (returns undefined), matching what the callers previously did.
+ * as "no data" (returns undefined).
  */
 
-import { getServiceAuthHeader, SYSTEM_ORG_ID } from '../middleware/auth.js';
+import { getServiceAuthHeader } from '../middleware/service-tokens.js';
+import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import { InternalHttpClient } from '../services/http-client.js';
+import { serviceIdentity } from '../services/service-keys.js';
 import type { ServiceConfig } from '../types/common.js';
+import { serviceEndpoint } from '../utils/service-registry.js';
 
 /** Options shared by the platform org-hierarchy HTTP lookups. */
 export interface OrgHierarchyHttpOptions {
-  /** Platform service host/port (+ optional default timeout) for the client. */
-  service: ServiceConfig;
-  /** Service name minted into the service-auth JWT `sub` (e.g. 'compliance'). */
-  serviceName: string;
+  /** Platform service host/port (+ optional default timeout). Defaults to the
+   *  registry's platform endpoint. */
+  service?: ServiceConfig;
+  /** Service name minted into the service-auth JWT `sub`. Defaults to this
+   *  process's own identity (`SERVICE_NAME`). */
+  serviceName?: string;
   /**
    * Org id embedded in the signed service token's org context. Defaults to the
    * queried `orgId`; pass a system org id for a system-scoped lookup.
@@ -51,22 +56,29 @@ export interface OrgHierarchyHttpOptions {
   throwOnHttpError?: boolean;
 }
 
+/** The platform client + signed service-auth headers for one lookup. */
+function platformRequest(
+  opts: OrgHierarchyHttpOptions,
+  authOrgId: string,
+): { client: InternalHttpClient; headers: Record<string, string> } {
+  const client = new InternalHttpClient(opts.service ?? serviceEndpoint('platform'));
+  const headers: Record<string, string> = {
+    Authorization: getServiceAuthHeader({
+      serviceName: opts.serviceName ?? serviceIdentity(),
+      orgId: opts.authOrgId ?? authOrgId,
+      role: opts.role ?? 'member',
+    }),
+    ...opts.headers,
+  };
+  return { client, headers };
+}
+
 function buildRequest(
   orgId: string,
   suffix: 'parent' | 'descendants',
   opts: OrgHierarchyHttpOptions,
 ): { client: InternalHttpClient; path: string; headers: Record<string, string> } {
-  const client = new InternalHttpClient(opts.service);
-  const path = `/organization/${encodeURIComponent(orgId)}/${suffix}`;
-  const headers: Record<string, string> = {
-    Authorization: getServiceAuthHeader({
-      serviceName: opts.serviceName,
-      orgId: opts.authOrgId ?? orgId,
-      role: opts.role ?? 'member',
-    }),
-    ...opts.headers,
-  };
-  return { client, path, headers };
+  return { ...platformRequest(opts, orgId), path: `/organization/${encodeURIComponent(orgId)}/${suffix}` };
 }
 
 /**
@@ -76,7 +88,7 @@ function buildRequest(
  * `throwOnHttpError` is set. Always throws on a transport failure
  * (connection/timeout) so the caller can apply its own fallback.
  */
-export async function fetchParentOrgId(orgId: string, opts: OrgHierarchyHttpOptions): Promise<string | undefined> {
+export async function fetchParentOrgId(orgId: string, opts: OrgHierarchyHttpOptions = {}): Promise<string | undefined> {
   const { client, path, headers } = buildRequest(orgId, 'parent', opts);
   const res = await client.get<{ data?: { parentOrgId?: string | null } }>(path, { headers, timeout: opts.timeout });
   if (res.statusCode >= 400) {
@@ -100,7 +112,7 @@ export async function fetchParentOrgId(orgId: string, opts: OrgHierarchyHttpOpti
  * a malformed payload can never smuggle a non-string into the returned
  * `string[]`.
  */
-export async function fetchOrgDescendants(orgId: string, opts: OrgHierarchyHttpOptions): Promise<string[] | undefined> {
+export async function fetchOrgDescendants(orgId: string, opts: OrgHierarchyHttpOptions = {}): Promise<string[] | undefined> {
   const { client, path, headers } = buildRequest(orgId, 'descendants', opts);
   const res = await client.get<{ data?: { orgIds?: unknown } }>(path, { headers, timeout: opts.timeout });
   if (res.statusCode >= 400) return undefined;
@@ -125,20 +137,12 @@ export async function fetchOrgDescendants(orgId: string, opts: OrgHierarchyHttpO
  */
 export async function fetchOrgNames(
   orgIds: string[],
-  opts: OrgHierarchyHttpOptions,
+  opts: OrgHierarchyHttpOptions = {},
 ): Promise<Record<string, string>> {
   if (orgIds.length === 0) return {};
-  const client = new InternalHttpClient(opts.service);
-  const headers: Record<string, string> = {
-    Authorization: getServiceAuthHeader({
-      serviceName: opts.serviceName,
-      // A cross-org registry read, not a tenant-scoped op — default to the system
-      // org context when the caller doesn't pin one.
-      orgId: opts.authOrgId ?? SYSTEM_ORG_ID,
-      role: opts.role ?? 'member',
-    }),
-    ...opts.headers,
-  };
+  // A cross-org registry read, not a tenant-scoped op — default to the system
+  // org context when the caller doesn't pin one.
+  const { client, headers } = platformRequest(opts, SYSTEM_ORG_ID);
   const res = await client.post<{ data?: { names?: unknown } }>(
     '/organization/names',
     { orgIds },
@@ -162,24 +166,15 @@ export async function fetchOrgNames(
  * Returns `undefined` (— "couldn't determine") on a non-2xx response, and
  * throws only on a transport failure (connection/timeout) — so the caller
  * distinguishes a definitive not-a-member (`false`) from an indeterminate
- * lookup (`undefined`) and applies its own fail-open/closed policy. The `path`
- * differs from the parent/descendants shape, so this builds its own request.
+ * lookup (`undefined`) and applies its own fail-open/closed policy.
  */
 export async function fetchOrgMembership(
   orgId: string,
   userId: string,
-  opts: OrgHierarchyHttpOptions,
+  opts: OrgHierarchyHttpOptions = {},
 ): Promise<boolean | undefined> {
-  const client = new InternalHttpClient(opts.service);
+  const { client, headers } = platformRequest(opts, orgId);
   const path = `/organization/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/exists`;
-  const headers: Record<string, string> = {
-    Authorization: getServiceAuthHeader({
-      serviceName: opts.serviceName,
-      orgId: opts.authOrgId ?? orgId,
-      role: opts.role ?? 'member',
-    }),
-    ...opts.headers,
-  };
   const res = await client.get<{ data?: { isMember?: unknown } }>(path, { headers, timeout: opts.timeout });
   if (res.statusCode >= 400) return undefined;
   const isMember = res.body?.data?.isMember;

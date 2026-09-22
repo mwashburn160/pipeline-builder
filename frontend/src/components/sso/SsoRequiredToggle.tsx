@@ -75,7 +75,7 @@ export function SsoRequiredToggle({
             exempt</strong> (the break-glass path): they keep their own sign-in methods in case the identity
             provider is unavailable.
           </p>
-          {blocker && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{blocker}</p>}
+          {blocker && <p className="mt-1 text-xs text-warning">{blocker}</p>}
         </div>
       </div>
       <ErrorAlert message={error} onDismiss={() => setError(null)} />

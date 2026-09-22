@@ -625,7 +625,7 @@ describe('CrudService', () => {
     });
   });
 
-  // Lifecycle hooks — Phase 1 cleanup awaits onAfter* before returning.
+  // Lifecycle hooks — the base class awaits onAfter* before returning.
   // Verifies post-hook state is observable on a subsequent read, and that
   // a throwing hook is caught + logged (not propagated to the caller).
 

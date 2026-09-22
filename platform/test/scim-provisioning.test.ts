@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `services/scim-service.ts` — the PROVISIONING POLICY.
+ * `services/scim-users.ts` / `scim-groups.ts` — the PROVISIONING POLICY.
  *
  * `scim-protocol.test.ts` covers the wire contract (filters, pagination, the
  * error envelope, discovery) with the models stubbed to return nothing, and
@@ -30,7 +30,9 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Types } from 'mongoose';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { seatsMock } from './helpers/seats-mock.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -253,9 +255,13 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/idp-group-mapping-service.js', () => ({
   idpGroupMappingService: { resolveMappedRoles: (...a: unknown[]) => mockResolveMappedRoles(...a) },
+}));
+// A small mapping cap, so the directory-group limit is reachable in a test.
+jest.unstable_mockModule('../src/services/idp-mapping-errors.js', () => ({
+  ...(jest.requireActual('../src/services/idp-mapping-errors.js') as Record<string, unknown>),
   MAX_MAPPINGS_PER_ORG: 3,
 }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({
+jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
   pooledSeatUsage: (...a: unknown[]) => seats.usage(...a),
   seatCapacityAvailable: (...a: unknown[]) => seats.available(...a),
   seatCapacityStillWithinCap: (...a: unknown[]) => seats.stillWithinCap(...a),
@@ -274,9 +280,14 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: async (fn: (s: unknown) => Promise<unknown>) => fn({ id: 'session' }),
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { app: { frontendUrl: 'https://pb.example.com/' } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ app: { frontendUrl: 'https://pb.example.com/' } }));
 
-const scim = await import('../src/services/scim-service.js');
+const scim = {
+  ...(await import('../src/services/scim-filter.js')),
+  ...(await import('../src/services/scim-users.js')),
+  ...(await import('../src/services/scim-groups.js')),
+  ...(await import('../src/services/scim-discovery.js')),
+};
 const { isScimError } = await import('../src/services/scim-errors.js');
 
 // ---------------------------------------------------------------------------
@@ -304,7 +315,7 @@ function seedMembership(userId: string, over: Record<string, unknown> = {}): any
   return m;
 }
 function seedGroup(name: string, over: Record<string, unknown> = {}): any {
-  const g = groupDoc({ orgId: ORG, group: name, groupKey: name.trim().toLowerCase(), ...over });
+  const g = groupDoc({ organizationId: ORG, group: name, groupKey: name.trim().toLowerCase(), ...over });
   db.groups.push(g);
   return g;
 }

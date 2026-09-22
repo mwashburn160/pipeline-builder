@@ -11,14 +11,14 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
+import { queryChain } from './helpers/query-chain.js';
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      passwordMinLength: 8,
-      jwt: { secret: 'test-jwt-secret', expiresIn: 7200, algorithm: 'HS256', tierExpiresIn: {} },
-      refreshToken: { secret: 'test-refresh-secret', expiresIn: 2592000 },
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    passwordMinLength: 8,
+    jwt: { secret: 'test-jwt-secret', expiresIn: 7200, algorithm: 'HS256', tierExpiresIn: {} },
+    refreshToken: { secret: 'test-refresh-secret', expiresIn: 2592000 },
   },
 }));
 jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({ resolveEffectiveMfaPolicy: async () => ({}) }));
@@ -39,33 +39,32 @@ function matches(m: Membership, q: Record<string, any>): boolean {
   if (q.role?.$in && !q.role.$in.includes(m.role)) return false;
   return true;
 }
-const chain = <T>(value: T) => {
-  const c: any = { lean: async () => value, select: () => c, session: () => c, sort: () => c };
-  return c;
-};
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: {},
   UserPreferences: {},
   User: { updateOne: jest.fn(async () => ({})) },
-  Organization: { findById: (id: string) => chain(orgs.get(String(id)) ?? null) },
+  Organization: { findById: (id: string) => queryChain(orgs.get(String(id)) ?? null) },
   UserOrganization: {
-    findOne: (q: Record<string, any>) => chain(memberships.find((m) => matches(m, q)) ?? null),
-    find: (q: Record<string, any>) => chain(
+    findOne: (q: Record<string, any>) => queryChain(memberships.find((m) => matches(m, q)) ?? null),
+    find: (q: Record<string, any>) => queryChain(
       memberships.filter((m) => matches(m, q)).map((m) => ({ ...m, organizationId: { toString: () => m.organizationId } })),
     ),
   },
   RoleAssignment: {
-    find: (q: { userId: string; organizationId: string }) => chain(
-      rolePerms.has(`${q.userId}|${q.organizationId}`) ? [{ roleId: `${q.userId}|${q.organizationId}` }] : [],
+    find: (q: { userId: string; organizationId: { $in: string[] } }) => queryChain(
+      q.organizationId.$in
+        .filter((org) => rolePerms.has(`${q.userId}|${org}`))
+        .map((org) => ({ roleId: `${q.userId}|${org}` })),
     ),
   },
   Role: {
-    find: (q: { _id: { $in: string[] } }) => chain(q._id.$in.map((id) => ({ permissions: rolePerms.get(id) ?? [] }))),
+    find: (q: { _id: { $in: string[] } }) => queryChain(q._id.$in.map((id) => ({ permissions: rolePerms.get(id) ?? [] }))),
   },
 }));
 
-const { issueTokens, signInAuth } = await import('../src/utils/token.js');
+const { signInAuth } = await import('../src/services/session/access-tokens.js');
+const { issueTokens } = await import('../src/services/session/refresh-sessions.js');
 const { installTestSigningKeys } = await import('./helpers/signing.js');
 installTestSigningKeys();
 

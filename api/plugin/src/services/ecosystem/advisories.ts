@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Security advisories and CVE response (docs/plans/plugin-ecosystem.md W8, G9,
- * §3.0, §3.2 `blockOnAdvisory`, §5b N20/N21, §5c `plugin.advisory.*`).
+ * Security advisories and CVE response (docs/plugin-publishing.md,
+ * `blockOnAdvisory`, N20/N21, `plugin.advisory.*`).
  *
  * Lifecycle — every advisory starts as a PRIVATE draft (`plugin_advisories`
  * state `draft`, invisible to the public views) paired with an `advisory`
@@ -14,7 +14,7 @@
  *  - the nightly CVE rescan opens one when a NEW critical/high finding hits a
  *    listed version ({@link openRescanDraft}, N20);
  *  - a security-flagged review report opens one ({@link openReviewAdvisoryDraft},
- *    registered on W4's review-hooks seam; W4 sends N19 itself);
+ * called by the review service, which sends N19 itself);
  *  - an Ecosystem Manager can open one and edit any draft before publishing.
  *
  * Only the system org PUBLISHES (approving the request, decisions.ts) or
@@ -26,7 +26,7 @@
  * refuses per the org's `blockOnAdvisory` (pipeline-data plugin-resolution);
  * withdrawal clears both and tells the orgs that were told.
  *
- * Also here: LISTED-VERSION DEPRECATION (the W2 handoff) — a publisher
+ * Also here: LISTED-VERSION DEPRECATION (the handoff) — a publisher
  * deprecates its own listed version at once (it only narrows, like pause), the
  * system org may deprecate or clear, and deprecating the source plugin row of a
  * listed version carries over. Lookup warns; installers get N14.
@@ -35,39 +35,37 @@
 import {
   actorId,
   createLogger,
-  emitCounter,
   ErrorCode,
   errorMessage,
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
 import {
   advisoryRangeCovers,
   advisoryRangeProblem,
   parseSemver,
-  schema,
   type AdvisorySeverity,
   type AdvisorySource,
   type AdvisoryState,
   type PluginAdvisory,
-  type PluginAdvisoryInsert,
   type PluginListing,
   type PluginListingVersion,
   type PluginPublishRequest,
   type Publisher,
 } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, gte, inArray, type SQL } from 'drizzle-orm';
 
+import { advisoryStore, deliveryStore } from './advisories-store.js';
+import { ecosystemAudit } from './audit.js';
 import { can, EcosystemError, submitterTag, type Caller } from './context.js';
-import { INSTALLER_RECIPIENT_CHUNK, installingOrgs, notifyInstallers, orgApprovers } from './install-notify.js';
-import { moderators, publisherManagers } from './notify.js';
+import { INSTALLER_RECIPIENT_CHUNK, installingOrgs, notifyInstallers, orgApprovers, sendToOrgs } from './install-notify.js';
+import { moderators, publisherManagers, sendNotice } from './notify.js';
 import { assertRootOrg, ownPublisher } from './publishers.js';
-import { setReviewSecurityReportHandler, type ReviewSecurityReport } from './review-hooks.js';
-import { ACTIVE_LISTING_STATES, elevated, listings, OPEN_STATUSES, publishers, requests, versions } from './store.js';
+import { listings, listingsWithPublishers, OPEN_STATUSES, publishers, requests, versions } from './store.js';
 import { listingView } from './views.js';
-import { emitPluginAudit } from '../audit.js';
 import { enqueueEcosystemNotification } from '../ecosystem-notifications.js';
+import { isActiveListing, iso, normalizeVulnId, requiredText } from './util.js';
 
 const logger = createLogger('ecosystem-advisories');
 
@@ -84,54 +82,6 @@ export const FAN_OUT_RETRY_WINDOW_MS = 24 * 3_600_000;
 export const DEPRECATION_MESSAGE_MAX = 500;
 
 type Advisory = PluginAdvisory;
-
-// -----------------------------------------------------------------------------
-// Data access (elevated, like store.ts: the advisory tables are instance-wide
-// and the delivery ledger is written for other orgs)
-// -----------------------------------------------------------------------------
-
-const A = () => schema.pluginAdvisory;
-const D = () => schema.pluginAdvisoryDelivery;
-const first = <T>(rows: T[]): T | null => rows[0] ?? null;
-
-export const advisoryStore = {
-  byId: (id: string): Promise<Advisory | null> =>
-    elevated(async (tx) => first(await tx.select().from(A()).where(eq(A().id, id)))),
-  list: (filter: { listingId?: string; publisherId?: string; states?: AdvisoryState[]; publishedSince?: Date; limit?: number } = {}): Promise<Advisory[]> =>
-    elevated(async (tx) => {
-      const where: SQL[] = [];
-      if (filter.listingId) where.push(eq(A().listingId, filter.listingId));
-      if (filter.publisherId) where.push(eq(A().publisherId, filter.publisherId));
-      if (filter.states?.length) where.push(inArray(A().state, filter.states));
-      if (filter.publishedSince) where.push(gte(A().publishedAt, filter.publishedSince));
-      return tx.select().from(A()).where(and(...where)).orderBy(desc(A().createdAt)).limit(filter.limit ?? 500);
-    }),
-  insert: (values: PluginAdvisoryInsert): Promise<Advisory> =>
-    elevated(async (tx) => (await tx.insert(A()).values(values).returning())[0] as Advisory),
-  /** Update, but only from `fromState` (the optimistic lock on publish / withdraw / edit). */
-  transition: (id: string, fromState: AdvisoryState, patch: Partial<PluginAdvisoryInsert>): Promise<Advisory | null> =>
-    elevated(async (tx) => first(await tx.update(A()).set({ ...patch, updatedAt: new Date() })
-      .where(and(eq(A().id, id), eq(A().state, fromState))).returning())),
-  remove: (id: string): Promise<void> =>
-    elevated(async (tx) => { await tx.delete(A()).where(eq(A().id, id)); }),
-};
-
-export const deliveryStore = {
-  /** The orgs already told about `advisoryId`. */
-  orgsFor: (advisoryId: string): Promise<string[]> =>
-    elevated(async (tx) => (await tx.select().from(D()).where(eq(D().advisoryId, advisoryId))).map((r) => r.orgId)),
-  /** Record that `orgIds` were told (a duplicate from a racing retry is harmless). */
-  record: async (advisoryId: string, orgIds: readonly string[]): Promise<void> => {
-    // One transaction per row: a unique violation aborts only its own.
-    for (const orgId of orgIds) {
-      try {
-        await elevated(async (tx) => { await tx.insert(D()).values({ advisoryId, orgId }); });
-      } catch (err) {
-        if ((err as { code?: string }).code !== '23505') throw err;
-      }
-    }
-  },
-};
 
 // -----------------------------------------------------------------------------
 // Validation
@@ -162,14 +112,14 @@ export function parseVulnIds(raw: unknown): string[] {
     const id = item.trim();
     if (id === '') continue;
     if (!VULN_ID.test(id)) invalid(`"${id.slice(0, 80)}" is not a vulnerability id (e.g. CVE-2026-1234 or GHSA-xxxx-xxxx-xxxx)`);
-    const normalized = /^cve-/i.test(id) ? id.toUpperCase() : id;
+    const normalized = normalizeVulnId(id);
     if (!out.includes(normalized)) out.push(normalized);
   }
   if (out.length > ADVISORY_MAX_IDS) invalid(`At most ${ADVISORY_MAX_IDS} vulnerability ids per advisory`);
   return out;
 }
 
-/** Details markdown → the stored markdown + its SERVER-SANITIZED html (G6). */
+/** Details markdown → the stored markdown + its SERVER-SANITIZED html. */
 function details(raw: unknown): { detailsMd: string | null; detailsHtml: string | null } {
   if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) return { detailsMd: null, detailsHtml: null };
   if (typeof raw !== 'string') invalid('detailsMd must be a string');
@@ -235,7 +185,6 @@ const fieldsOf = (a: Advisory): AdvisoryFields => ({
 // Views
 // -----------------------------------------------------------------------------
 
-const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
 
 export function advisoryView(
   a: Advisory,
@@ -269,10 +218,8 @@ export type AdvisoryView = ReturnType<typeof advisoryView>;
 /** Views for a set of advisories (listings, publishers, versions and open requests resolved once each). */
 export async function advisoryViews(rows: Advisory[]): Promise<AdvisoryView[]> {
   const listingIds = [...new Set(rows.map((a) => a.listingId))];
-  const listingMap = new Map<string, PluginListing | null>();
-  for (const id of listingIds) listingMap.set(id, await listings.byId(id));
-  const pubMap = new Map<string, Publisher | null>();
-  for (const id of new Set(rows.map((a) => a.publisherId))) pubMap.set(id, await publishers.byId(id));
+  const listingMap = new Map((await listings.byIds(listingIds)).map((l) => [l.id, l]));
+  const pubMap = new Map((await publishers.byIds([...new Set(rows.map((a) => a.publisherId))])).map((p) => [p.id, p]));
   const allVersions = await versions.forListings(listingIds);
   const open = await requests.list({ statuses: OPEN_STATUSES, kinds: ['advisory'], limit: 1000 });
   const requestFor = new Map(open.map((r) => [String((r.payload as { advisoryId?: string }).advisoryId ?? ''), r.id]));
@@ -350,7 +297,7 @@ async function advisoryOf(r: Pick<PluginPublishRequest, 'payload'>): Promise<Adv
 /**
  * Store a SYSTEM-side draft (moderator, CVE rescan, review report) with its
  * `advisory` request in the security lane. The request is attributed to the
- * system org, so the publisher's members can never decide it (§3.0.1).
+ * system org, so the publisher's members can never decide it.
  */
 async function createSystemDraft(input: {
   listing: PluginListing;
@@ -379,16 +326,15 @@ async function createSystemDraft(input: {
     await removeDraft(advisory.id);
     throw err;
   }
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'plugin.advisory.create',
-    actorId: createdBy,
-    orgId: SYSTEM_ORG_ID,
-    ...(publisher.ownerOrgId ? { affectedOrgId: publisher.ownerOrgId } : {}),
+    actor: createdBy,
+    affectedOrgId: publisher.ownerOrgId,
     targetType: 'plugin-advisory',
     targetId: advisory.id,
     details: { source, listing: `${publisher.handle}/${listing.name}`, severity: fields.severity, affectedRange: fields.affectedRange, cveCount: fields.cveIds.length, requestId: request.id, ...(input.auditDetails ?? {}) },
   });
-  emitCounter('ecosystem_advisory_drafts_total', { source });
+  incCounter('ecosystem_advisory_drafts_total', { source });
   return { advisory, request };
 }
 
@@ -423,19 +369,17 @@ export async function editDraft(caller: Caller, id: string, body: Record<string,
   const fields = parseAdvisoryFields(body, fieldsOf(current));
   const updated = await advisoryStore.transition(id, 'draft', fields);
   if (!updated) throw new EcosystemError(ErrorCode.CONFLICT, 'The advisory was published or discarded meanwhile.');
-  const open = (await requests.list({ statuses: OPEN_STATUSES, kinds: ['advisory'], listingId: updated.listingId }))
-    .find((r) => (r.payload as { advisoryId?: string }).advisoryId === id);
+  const [open] = await requests.list({ statuses: OPEN_STATUSES, kinds: ['advisory'], advisoryId: id, limit: 1 });
   if (open) {
     await requests.transition(open.id, open.status, {
       payload: { ...open.payload, severity: updated.severity, summary: updated.summary, affectedRange: updated.affectedRange },
     });
   }
   const publisher = await publishers.byId(updated.publisherId);
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'plugin.advisory.update',
-    actorId: actorId({ userId: caller.userId }),
-    orgId: SYSTEM_ORG_ID,
-    ...(publisher?.ownerOrgId ? { affectedOrgId: publisher.ownerOrgId } : {}),
+    actor: actorId({ userId: caller.userId }),
+    affectedOrgId: publisher?.ownerOrgId,
     targetType: 'plugin-advisory',
     targetId: id,
     details: { fields: Object.keys(body).filter((k) => k in fields), severity: updated.severity, affectedRange: updated.affectedRange },
@@ -454,19 +398,14 @@ async function notifyDraftOpened(
   const ref = `${publisher.handle}/${listing.name}`;
   const recipients = [moderators('plugins:moderate', { orgId: publisher.ownerOrgId, userIds: opts.excludeUserIds })];
   if (opts.toPublisher && publisher.ownerOrgId) recipients.push(publisherManagers(publisher.ownerOrgId));
-  try {
-    await enqueueEcosystemNotification('N20', recipients, {
-      subject: `Security advisory draft (${a.severity}): ${ref}`.slice(0, 500),
-      text: [
-        `A private ${a.severity} advisory draft was opened for ${ref} (${a.affectedRange}): ${a.summary}`,
-        ...(a.cveIds.length ? [`Vulnerabilities: ${a.cveIds.slice(0, 20).join(', ')}${a.cveIds.length > 20 ? ', …' : ''}`] : []),
-        'It is not public. An Ecosystem Manager reviews and publishes it; publishers can ship a fixed version through the security-fix lane meanwhile.',
-      ].join('\n\n').slice(0, 10_000),
-    }, { immediate: true });
-  } catch (err) {
-    emitCounter('ecosystem_notification_failed_total', { event: 'N20' });
-    logger.warn('Advisory draft notice not sent', { advisoryId: a.id, error: errorMessage(err) });
-  }
+  await sendNotice('N20', recipients, {
+    subject: `Security advisory draft (${a.severity}): ${ref}`,
+    text: [
+      `A private ${a.severity} advisory draft was opened for ${ref} (${a.affectedRange}): ${a.summary}`,
+      ...(a.cveIds.length ? [`Vulnerabilities: ${a.cveIds.slice(0, 20).join(', ')}${a.cveIds.length > 20 ? ', …' : ''}`] : []),
+      'It is not public. An Ecosystem Manager reviews and publishes it; publishers can ship a fixed version through the security-fix lane meanwhile.',
+    ].join('\n\n'),
+  }, { immediate: true });
 }
 
 /** A finding as the CVE rescan reports it. */
@@ -489,20 +428,20 @@ export async function openRescanDraft(input: {
     const { listingVersion: lv } = input;
     if (lv.yankedAt) return null;
     const listing = await listings.byId(lv.listingId);
-    if (!listing || !(ACTIVE_LISTING_STATES as readonly string[]).includes(listing.state)) return null;
+    if (!listing || !isActiveListing(listing)) return null;
     const publisher = await publishers.byId(listing.publisherId);
     if (!publisher || publisher.suspendedAt) return null;
 
     const covered = new Set((await advisoryStore.list({ listingId: listing.id }))
       .filter((a) => advisoryRangeCovers(a.affectedRange, lv.version))
       .flatMap((a) => a.cveIds ?? []));
-    const fresh = input.findings.filter((f) => VULN_ID.test(f.id) && !covered.has(/^cve-/i.test(f.id) ? f.id.toUpperCase() : f.id));
+    const fresh = input.findings.filter((f) => VULN_ID.test(f.id) && !covered.has(normalizeVulnId(f.id)));
     const ids = parseVulnIds([...new Set(fresh.map((f) => f.id))].slice(0, ADVISORY_MAX_IDS));
     if (ids.length === 0) {
-      emitCounter('ecosystem_advisory_rescan_deduplicated_total', {});
+      incCounter('ecosystem_advisory_rescan_deduplicated_total', {});
       return null;
     }
-    const kept = fresh.filter((f) => ids.includes(/^cve-/i.test(f.id) ? f.id.toUpperCase() : f.id));
+    const kept = fresh.filter((f) => ids.includes(normalizeVulnId(f.id)));
     const severity: AdvisorySeverity = kept.some((f) => f.severity === 'critical') ? 'critical' : 'high';
     const rows = kept.slice(0, 100).map((f) => `| ${f.id} | ${f.severity} | ${f.packageName.replace(/\|/g, '\\|')} | ${f.packageVersion.replace(/\|/g, '\\|')} |`);
     const detailsMd = [
@@ -536,17 +475,27 @@ export async function openRescanDraft(input: {
     await notifyDraftOpened(advisory, listing, publisher, { toPublisher: true });
     return advisory;
   } catch (err) {
-    emitCounter('ecosystem_advisory_rescan_draft_failed_total', {});
+    incCounter('ecosystem_advisory_rescan_draft_failed_total', {});
     logger.error('Could not open the rescan advisory draft', { listingVersionId: input.listingVersion.id, error: errorMessage(err) });
     return null;
   }
 }
 
+/** A review report flagged as a security issue, as the advisory path receives it. */
+export interface ReviewSecurityReport {
+  reviewId: string;
+  reportId: string;
+  listingId: string;
+  /** The version the review is about (the draft's starting affected range), when known. */
+  version: string | null;
+  /** The reporter's free-text details (private: never shown on the public page). */
+  details: string | null;
+}
+
 /**
- * The W4 HOOK (review-hooks.ts `setReviewSecurityReportHandler`, registered by
- * {@link registerAdvisoryHooks}): a review report flagged as a SECURITY issue
- * opens a PRIVATE advisory draft on the listing. W4 already sent N19, so this
- * sends nothing. Idempotent per review: another report on the same review
+ * A review report flagged as a SECURITY issue opens a PRIVATE advisory draft
+ * on the listing (the review service calls this after sending N19, so this
+ * sends nothing). Idempotent per review: another report on the same review
  * returns the existing draft. The range starts at the reviewed version (else
  * the listing's latest) and the severity at `high`; an Ecosystem Manager edits
  * both before publishing. The reporter is never recorded on the draft or in
@@ -556,8 +505,7 @@ export async function openRescanDraft(input: {
  */
 export async function openReviewAdvisoryDraft(report: ReviewSecurityReport): Promise<Advisory> {
   const { listing, publisher } = await listingWithPublisher(report.listingId);
-  const existing = (await requests.list({ kinds: ['advisory'], listingId: listing.id, limit: 1000 }))
-    .find((r) => (r.payload as { reviewId?: string }).reviewId === report.reviewId);
+  const [existing] = await requests.list({ kinds: ['advisory'], reviewId: report.reviewId, limit: 1 });
   if (existing) return advisoryOf(existing);
   const range = report.version && parseSemver(report.version) ? report.version : listing.latestVersion;
   if (!range) throw new EcosystemError(ErrorCode.CONFLICT, 'The listing has no published version to scope the advisory to.');
@@ -586,16 +534,11 @@ export async function openReviewAdvisoryDraft(report: ReviewSecurityReport): Pro
   return advisory;
 }
 
-/** Register the advisory side of the review-report seam (once, at mount). */
-export function registerAdvisoryHooks(): void {
-  setReviewSecurityReportHandler(async (report) => { await openReviewAdvisoryDraft(report); });
-}
-
 // -----------------------------------------------------------------------------
 // Publish (the approved `advisory` request), discard, withdraw
 // -----------------------------------------------------------------------------
 
-/** Every org whose install reaches a version `a` covers (the §5b "installing orgs"). */
+/** Every org whose install reaches a version `a` covers (the "installing orgs"). */
 async function affectedInstallers(a: Advisory, listing: PluginListing, publisher: Publisher): Promise<string[]> {
   const covered = (await versions.forListings([listing.id])).filter((v) => advisoryRangeCovers(a.affectedRange, v.version));
   const orgs = new Set<string>();
@@ -655,10 +598,10 @@ export async function fanOutAdvisory(a: Advisory): Promise<number> {
       await deliveryStore.record(a.id, chunk);
       told += chunk.length;
     }
-    if (told > 0) emitCounter('ecosystem_advisory_notified_orgs_total', {}, told);
+    if (told > 0) incCounter('ecosystem_advisory_notified_orgs_total', {}, told);
     return told;
   } catch (err) {
-    emitCounter('ecosystem_notification_failed_total', { event: 'N21' });
+    incCounter('ecosystem_notification_failed_total', { event: 'N21' });
     logger.warn('Advisory fan-out incomplete; the maintenance pass retries it', { advisoryId: a.id, error: errorMessage(err) });
     return 0;
   }
@@ -677,11 +620,10 @@ export async function publishAdvisory(r: PluginPublishRequest, publisher: Publis
   if (!listing) throw new EcosystemError(ErrorCode.NOT_FOUND, 'The listing no longer exists.');
   const published = await advisoryStore.transition(draft.id, 'draft', { state: 'published', publishedBy: actor, publishedAt: new Date() });
   if (!published) throw new EcosystemError(ErrorCode.CONFLICT, 'The advisory was published or discarded meanwhile.');
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'plugin.advisory.publish',
-    actorId: actor,
-    orgId: SYSTEM_ORG_ID,
-    ...(publisher.ownerOrgId ? { affectedOrgId: publisher.ownerOrgId } : {}),
+    actor: actor,
+    affectedOrgId: publisher.ownerOrgId,
     targetType: 'plugin-advisory',
     targetId: published.id,
     details: {
@@ -694,7 +636,7 @@ export async function publishAdvisory(r: PluginPublishRequest, publisher: Publis
       requestId: r.id,
     },
   });
-  emitCounter('ecosystem_advisories_published_total', { severity: published.severity });
+  incCounter('ecosystem_advisories_published_total', { severity: published.severity });
   await fanOutAdvisory(published);
   return published;
 }
@@ -715,8 +657,7 @@ export async function discardDraft(r: Pick<PluginPublishRequest, 'kind' | 'paylo
  */
 export async function withdrawAdvisory(caller: Caller, id: string, body: Record<string, unknown>) {
   if (!can(caller, 'plugins:moderate')) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Advisories need plugins:moderate');
-  const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 1000) : '';
-  if (!reason) throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'reason is required');
+  const reason = requiredText(body.reason, 'reason', 1000);
   const current = await advisoryStore.byId(id);
   if (!current) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Advisory not found');
   if (current.state !== 'published') {
@@ -729,31 +670,22 @@ export async function withdrawAdvisory(caller: Caller, id: string, body: Record<
   const listing = await listings.byId(withdrawn.listingId);
   const publisher = await publishers.byId(withdrawn.publisherId);
   const actor = actorId({ userId: caller.userId });
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'plugin.advisory.withdraw',
-    actorId: actor,
-    orgId: SYSTEM_ORG_ID,
-    ...(publisher?.ownerOrgId ? { affectedOrgId: publisher.ownerOrgId } : {}),
+    actor: actor,
+    affectedOrgId: publisher?.ownerOrgId,
     targetType: 'plugin-advisory',
     targetId: id,
     details: { listing: `${publisher?.handle ?? ''}/${listing?.name ?? ''}`, severity: withdrawn.severity, reason: reason.slice(0, 200) },
   });
-  emitCounter('ecosystem_advisories_withdrawn_total', {});
+  incCounter('ecosystem_advisories_withdrawn_total', {});
   if (listing && publisher) {
     // Exactly the orgs that were told it was published (the publisher among them).
     const told = await deliveryStore.orgsFor(id);
     const content = n21Content(withdrawn, listing, publisher, true, reason);
     const publisherOrg = publisher.ownerOrgId?.toLowerCase() ?? null;
-    try {
-      if (publisherOrg) await enqueueEcosystemNotification('N21', [publisherManagers(publisherOrg)], content, { immediate: true });
-      const installers = told.filter((o) => o !== publisherOrg);
-      for (let i = 0; i < installers.length; i += INSTALLER_RECIPIENT_CHUNK) {
-        await enqueueEcosystemNotification('N21', installers.slice(i, i + INSTALLER_RECIPIENT_CHUNK).map(orgApprovers), content, { immediate: true });
-      }
-    } catch (err) {
-      emitCounter('ecosystem_notification_failed_total', { event: 'N21' });
-      logger.warn('Advisory withdrawal notice not sent', { advisoryId: id, error: errorMessage(err) });
-    }
+    if (publisherOrg) await sendNotice('N21', [publisherManagers(publisherOrg)], content, { immediate: true });
+    await sendToOrgs('N21', told.filter((o) => o !== publisherOrg), content, { immediate: true });
   }
   const [view] = await advisoryViews([withdrawn]);
   return view!;
@@ -799,7 +731,7 @@ export async function consoleAdvisories(query: Record<string, unknown>) {
 }
 
 // -----------------------------------------------------------------------------
-// Listed-version deprecation (W2 handoff)
+// Listed-version deprecation
 // -----------------------------------------------------------------------------
 
 function deprecationMessageOf(raw: unknown, required: boolean): string | null {
@@ -831,11 +763,11 @@ async function markDeprecated(
   const fresh = v.deprecatedAt === null;
   if (!fresh && (v.deprecationMessage ?? null) === message) return false;
   await versions.update(v.id, { deprecatedAt: v.deprecatedAt ?? new Date(), deprecationMessage: message });
-  emitPluginAudit({
+  ecosystemAudit({
     action: 'plugin.version.deprecate',
-    actorId: audit.actor,
+    actor: audit.actor,
     orgId: audit.orgId,
-    ...(publisher.ownerOrgId ? { affectedOrgId: publisher.ownerOrgId } : {}),
+    affectedOrgId: publisher.ownerOrgId,
     targetType: 'plugin-listing-version',
     targetId: v.id,
     details: { listing: `${publisher.handle}/${listing.name}`, version: v.version, deprecated: true, via: audit.via },
@@ -874,11 +806,10 @@ export async function setListedVersionDeprecation(caller: Caller, listingId: str
   if (body.deprecated === false) {
     if (v.deprecatedAt !== null) {
       await versions.update(v.id, { deprecatedAt: null, deprecationMessage: null });
-      emitPluginAudit({
+      ecosystemAudit({
         action: 'plugin.version.deprecate',
-        actorId: actor,
-        orgId: SYSTEM_ORG_ID,
-        ...(publisher.ownerOrgId ? { affectedOrgId: publisher.ownerOrgId } : {}),
+        actor: actor,
+        affectedOrgId: publisher.ownerOrgId,
         targetType: 'plugin-listing-version',
         targetId: v.id,
         details: { listing: `${publisher.handle}/${listing.name}`, version, deprecated: false, via: 'system_org' },
@@ -892,7 +823,7 @@ export async function setListedVersionDeprecation(caller: Caller, listingId: str
 
 /**
  * Deprecating an org plugin row carries over to every listing version
- * published FROM it (W0.4 `POST /plugins/:id/deprecate` and a `lifecycle:
+ * published FROM it ( `POST /plugins/:id/deprecate` and a `lifecycle:
  * deprecated` update, through deprecation-notice.ts). Never throws; returns how
  * many listed versions were newly deprecated.
  */
@@ -902,10 +833,10 @@ export async function deprecateListedFromSource(
 ): Promise<number> {
   try {
     const listed = await versions.bySourcePlugins([plugin.id]);
+    const owners = await listingsWithPublishers(listed.map((v) => v.listingId));
     let count = 0;
     for (const v of listed) {
-      const listing = await listings.byId(v.listingId);
-      const publisher = listing ? await publishers.byId(listing.publisherId) : null;
+      const { listing, publisher } = owners.get(v.listingId) ?? { listing: null, publisher: null };
       if (!listing || !publisher || v.deprecatedAt !== null) continue;
       if (await markDeprecated(v, listing, publisher, plugin.deprecationMessage?.trim() || null, { actor, orgId: plugin.orgId, via: 'source_plugin' })) count++;
     }

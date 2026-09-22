@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The `/plugins/submit` state machine (plan §4, W5) and how API failures are
+ * The `/plugins/submit` state machine and how API failures are
  * read: a disabled instance ends the flow, a limit / taken name / refused
  * proof-of-work is a message, and a validation 400 lands on the fields it names.
  */

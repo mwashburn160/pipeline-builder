@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES, refuseForOrgAdminAssurance, sendError, sendSuccess, resolveUserFeatures, TOKEN_SCOPES } from '@pipeline-builder/api-core';
-import type { TokenScope, FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
-import { Types } from 'mongoose';
+import type { TokenScope, QuotaTier } from '@pipeline-builder/api-core';
+import { PASSWORD_MAX_LENGTH } from '../constants/password.js';
 import { audit } from '../helpers/audit.js';
 import { loadFactorUser, resolveAuthFactors } from '../helpers/auth-factors.js';
-import { PASSWORD_MAX_LENGTH, passwordPolicyForPerson } from '../helpers/password-policy.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
 import { reportableMfaNudge, type StoredMfaNudge } from '../helpers/mfa-nudge.js';
 import { MFA_POLICY_ERROR_MAP, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
+import { passwordPolicyForPerson } from '../helpers/password-policy.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
 import {
   SESSION_SLOT_REQUIRED,
@@ -19,12 +19,14 @@ import {
   callerRestriction,
   resolveRequestedPermissions,
 } from '../helpers/token-permissions.js';
+import { formatUserResponse, toOverridesRecord, type OrgMembership, type UserResponseInput } from '../helpers/user-response.js';
 import { SESSION_AUTH_MISSING, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
 import { apiKeyService, userProfileService, type PreferencesPatch } from '../services/index.js';
 import { RL_LAST_PRIVILEGED_MEMBER } from '../services/roles-errors.js';
+import { authFromClaims } from '../services/session/access-tokens.js';
+import { findRefreshSession, issueTokens, renewSessionTokens } from '../services/session/refresh-sessions.js';
 import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, PROFILE_PAT_LIMIT, USER_OWNER_HAS_ORGS } from '../services/user-errors.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import { authFromClaims, findRefreshSession, issueTokens, renewSessionTokens } from '../utils/token.js';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation.js';
 
 const logger = createLogger('user-profile-controller');
@@ -70,95 +72,9 @@ const profileErrorMap = {
   [PROFILE_PAT_LIMIT]: { status: 409, message: 'You have reached the maximum number of active access keys. Revoke one first.' },
   // A re-issue (generate-token, sign-out-everywhere) for an org that now
   // requires MFA is refused for an `aal: 1` session — the same refusal sign-in
-  // would have given (#8).
+  // would have given.
   ...MFA_POLICY_ERROR_MAP,
 };
-
-/** Compact organization summary included in user responses. */
-export interface OrgSummary {
-  id: string;
-  name: string;
-  slug: string;
-}
-
-/** Membership info returned alongside user responses. */
-export interface OrgMembership {
-  id: string;
-  name: string;
-  role: string;
-}
-
-/** Fields required to build a user API response. */
-export interface UserResponseInput {
-  _id: Types.ObjectId;
-  username: string;
-  email: string;
-  isEmailVerified: boolean;
-  needsOnboarding?: boolean;
-  isSuperAdmin?: boolean;
-  lastActiveOrgId?: string;
-  featureOverrides?: Map<string, boolean> | Record<string, boolean>;
-  createdAt?: Date;
-  updatedAt?: Date;
-  tokenVersion?: number;
-}
-
-/**
- * Adapt a lean/projected user document to `formatUserResponse`'s input. Lean
- * Mongoose projections don't structurally line up with `UserResponseInput`
- * (looser field types), so this centralizes the single unavoidable cast in one
- * auditable place instead of scattering `as unknown as UserResponseInput`.
- */
-export function toUserResponseInput(doc: unknown): UserResponseInput {
-  return doc as UserResponseInput;
-}
-
-/** Convert Mongoose Map or plain object to Record<string, boolean>. */
-export function toOverridesRecord(overrides?: Map<string, boolean> | Record<string, boolean>): Record<string, boolean> | undefined {
-  if (!overrides) return undefined;
-  if (overrides instanceof Map) return Object.fromEntries(overrides);
-  return overrides;
-}
-
-/** Build a standardized user response object for API output. */
-export function formatUserResponse(
-  user: UserResponseInput,
-  opts?: {
-    activeOrgRole?: string;
-    activeOrgName?: string | null;
-    organization?: OrgSummary;
-    organizations?: OrgMembership[];
-    tier?: QuotaTier;
-    features?: FeatureFlag[];
-    /** Effective fine-grained permissions for the active org (RBAC UI gating). */
-    permissions?: string[];
-  },
-) {
-  return {
-    id: user._id.toString(),
-    username: user.username,
-    email: user.email,
-    role: opts?.activeOrgRole || null,
-    // Echo the sysadmin flag from mongo so the frontend can gate
-    // sysadmin-only sidebar entries (Registry, Build Queue, All Users,
-    // All Organizations) via isSystemAdmin(user). Was previously dropped
-    // here, making the sidebar filter always see false.
-    isSuperAdmin: user.isSuperAdmin === true,
-    isEmailVerified: user.isEmailVerified,
-    needsOnboarding: user.needsOnboarding === true,
-    organizationId: user.lastActiveOrgId?.toString() || null,
-    organizationName: opts?.activeOrgName || null,
-    ...(opts?.organization && { organization: opts.organization }),
-    ...(opts?.organizations && { organizations: opts.organizations }),
-    ...(opts?.tier && { tier: opts.tier }),
-    ...(opts?.features && { features: opts.features }),
-    ...(opts?.permissions && { permissions: opts.permissions }),
-    ...(user.featureOverrides && { featureOverrides: toOverridesRecord(user.featureOverrides) }),
-    ...(user.createdAt && { createdAt: user.createdAt }),
-    ...(user.updatedAt && { updatedAt: user.updatedAt }),
-    ...(user.tokenVersion !== undefined && { tokenVersion: user.tokenVersion }),
-  };
-}
 
 /** GET /user/profile — current user with active-org context. */
 export const getUser = withController('Get user profile', async (req, res) => {
@@ -201,7 +117,7 @@ export const getUser = withController('Get user profile', async (req, res) => {
   // unable to suppress a future prompt. Absent is the common case.
   const mfaNudge = reportableMfaNudge(authFactors, (user as { mfaNudge?: StoredMfaNudge }).mfaNudge);
 
-  // The active org's MFA requirement (#8), so the shell can show the banner with
+  // The active org's MFA requirement, so the shell can show the banner with
   // its deadline and route the person into enrolment BEFORE the grace ends —
   // rather than letting them discover the policy through a failed sign-in.
   // Resolved here (not read off the token) so it is current the moment an admin
@@ -673,7 +589,7 @@ export const updatePreferences = withController('Update preferences', async (req
     if (entries.some(([, v]) => typeof v !== 'boolean')) {
       return sendError(res, 400, 'Notification preferences must be booleans', 'INVALID_NOTIFICATIONS');
     }
-    // Plugin-ecosystem email opt-outs (§5b): a nested object of known booleans.
+    // Plugin-ecosystem email opt-outs: a nested object of known booleans.
     if (ecosystem !== undefined) {
       if (!ecosystem || typeof ecosystem !== 'object' || Array.isArray(ecosystem)) {
         return sendError(res, 400, 'notifications.ecosystem must be an object', 'INVALID_NOTIFICATIONS');

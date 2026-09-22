@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Client for ANONYMOUS plugin submissions (plan §4, W5): the plugin service's
+ * Client for ANONYMOUS plugin submissions: the plugin service's
  * `/public/plugin-submissions` routes, exposed by nginx under `/api/public/`.
  *
  * Deliberately NOT part of the shared `api` object: that client attaches the

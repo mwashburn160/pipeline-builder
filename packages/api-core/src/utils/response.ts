@@ -5,7 +5,8 @@ import type { Response } from 'express';
 import { createLogger } from './logger.js';
 import type { QuotaInfo } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
-import { MAX_PAGE_LIMIT, MAX_PAGE_OFFSET } from '../validation/common-schemas.js';
+import { MAX_PAGE_LIMIT } from '../validation/common-schemas.js';
+import { parsePage } from './params.js';
 
 const logger = createLogger('response');
 
@@ -215,11 +216,10 @@ const NODE_ERRNO_PATTERN = /^E/;
  * Extracts PostgreSQL error codes, details, hints, and constraint names
  * from database errors for better error messages.
  *
- * Only a genuine Postgres error yields a `dbCode`. Any error object carrying a
- * `.code` used to be reported as one, so a transport failure (`ECONNRESET` when
- * the pooler drops out of the Service endpoints, say) logged as
- * `{"db":{"dbCode":"ECONNRESET"}}` and sent every reader hunting through clean
- * Postgres logs. The transport code is not lost — callers log the error message
+ * Only a genuine Postgres error yields a `dbCode`: reporting any `.code` as one
+ * would log a transport failure (`ECONNRESET` when the pooler drops out of the
+ * Service endpoints, say) as `{"db":{"dbCode":"ECONNRESET"}}` and send readers
+ * hunting through clean Postgres logs. The transport code is not lost — callers log the error message
  * itself alongside these details — it just stops claiming to be a DB fault.
  *
  * @param error - Error object from database operation
@@ -321,16 +321,25 @@ export interface PaginationParams {
   sortOrder: 'asc' | 'desc';
 }
 
-/** Parse pagination/sort params from query string, clamping to safe defaults. */
-export function parsePaginationParams(query: Record<string, unknown>): PaginationParams {
-  const limit = Math.min(Math.max(parseInt(String(query.limit), 10) || 10, 1), MAX_PAGE_LIMIT);
-  // Clamp offset too — an unbounded offset forces Postgres to scan+discard huge row
-  // counts on hot list endpoints (a cheap DoS amplifier). Deep paging should use the
-  // cursor API. Ceiling = MAX_PAGE_OFFSET.
-  const offset = Math.min(Math.max(parseInt(String(query.offset), 10) || 0, 0), MAX_PAGE_OFFSET);
+/** A parsed `?sortBy=&sortOrder=` (default: newest first). */
+export interface SortParams {
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
+
+/** Parse `?sortBy=&sortOrder=`; defaults to `createdAt` descending. */
+export function parseSort(query: Record<string, unknown>): SortParams {
   const sortBy = String(query.sortBy || 'createdAt');
   const sortOrder: 'asc' | 'desc' =
     String(query.sortOrder || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+  return { sortBy, sortOrder };
+}
 
-  return { limit, offset, sortBy, sortOrder };
+/**
+ * The default list-route window + sort: {@link parsePage} with a page of 10
+ * (capped at `MAX_PAGE_LIMIT`, offset capped at `MAX_PAGE_OFFSET` — deep paging
+ * uses the cursor API) plus {@link parseSort}.
+ */
+export function parsePaginationParams(query: Record<string, unknown>): PaginationParams {
+  return { ...parsePage(query, { def: 10, max: MAX_PAGE_LIMIT }), ...parseSort(query) };
 }

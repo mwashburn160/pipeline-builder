@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState } from 'react';
 import { CalendarClock, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -28,8 +29,6 @@ interface ScanScheduleManagerProps {
 
 export default function ScanScheduleManager({ readOnly = false }: ScanScheduleManagerProps) {
   const toast = useToast();
-  const [schedules, setSchedules] = useState<ScanSchedule[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<ScanScheduleFormData>(EMPTY_FORM);
@@ -38,30 +37,12 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ScanSchedule | null>(null);
 
-  // Stale-response guard: skip setState if a newer fetch started or the
-  // component unmounted while this request was in flight.
-  const genRef = useRef(0);
-
-  const fetchSchedules = useCallback(async () => {
-    const gen = ++genRef.current;
-    setLoading(true);
-    try {
-      const res = await api.getScanSchedules();
-      if (gen !== genRef.current) return;
-      if (res.success && res.data) {
-        setSchedules(res.data.schedules);
-      }
-    } catch (err) {
-      if (gen !== genRef.current) return;
-      toast.error(formatError(err, 'Failed to load scan schedules'));
-    }
-    if (gen === genRef.current) setLoading(false);
-  }, [toast]);
-
-  useEffect(() => {
-    void fetchSchedules();
-    return () => { genRef.current++; };
-  }, [fetchSchedules]);
+  const { data, loading, refetch: fetchSchedules } = useFetch<ScanSchedule[]>(
+    async () => (await api.getScanSchedules()).data?.schedules ?? [],
+    [],
+    { onError: (err) => toast.error(formatError(err, 'Failed to load scan schedules')) },
+  );
+  const schedules = data ?? [];
 
   const openCreate = () => {
     setEditingId(null);
@@ -130,7 +111,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
       id: 'cron',
       header: 'Cron expression',
       render: (s) => (
-        <code className="text-sm bg-surface-muted px-2 py-0.5 rounded text-gray-800 dark:text-gray-200">{s.cronExpression}</code>
+        <code className="text-sm bg-surface-muted px-2 py-0.5 rounded text-fg">{s.cronExpression}</code>
       ),
     },
     {

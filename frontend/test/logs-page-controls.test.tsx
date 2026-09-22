@@ -45,7 +45,7 @@ jest.mock('@/lib/api', () => {
   return { __esModule: true, default: api, api };
 });
 const triggerBlobDownload = jest.fn<AnyFn>();
-jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a) }));
+jest.mock('@/lib/download', () => ({ __esModule: true, triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a) }));
 
 beforeEach(() => {
   jest.clearAllMocks();

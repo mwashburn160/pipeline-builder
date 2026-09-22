@@ -3,7 +3,7 @@
 
 /**
  * Tests for validation/plugin-name-confusable — the name gate new community
- * listings pass (plugin-ecosystem §4.2 "Names", E9).
+ * listings pass.
  */
 
 import { describe, it, expect } from '@jest/globals';

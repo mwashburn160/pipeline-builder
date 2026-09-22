@@ -5,8 +5,8 @@
  * Tests for billing helper functions.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -18,9 +18,8 @@ jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   },
 }));
 
-// billing-helpers imports the Subscription model; stub updateOne so no real Mongo
-// is touched. (A failed sync no longer writes an entitlementSyncPending marker — it
-// publishes a durable-bus retry instead — so this stub is now just a no-op guard.)
+// entitlement-sync imports the Subscription model; stub it so no real Mongo is
+// touched (a failed sync publishes a durable-bus retry, not a row marker).
 const mockSubscriptionUpdateOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ modifiedCount: 1 });
 // findById backs (a) syncEntitlements' occurredAt read (`.select().lean()`) and
 // (b) the retry consumer's re-read of the CURRENT row (awaited directly).
@@ -39,13 +38,9 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: { findById: (...args: unknown[]) => mockPlanFindById(...args) },
 }));
 
-// billing-helpers now imports the provider factory + service audit client (for the
-// auto-prune line-item removal). Stub both so no real Stripe/AWS SDK is loaded.
+// Stub the provider factory so no real Stripe/AWS SDK is loaded.
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({ syncAddons: jest.fn<AnyFn>() }),
-}));
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 const mockClientPut = jest.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -66,46 +61,32 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   incCounter: jest.fn<AnyFn>(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
-  const get = (section: string) => {
-    if (section === 'server') return { services: { billingTimeout: 5000 } };
-    // Phase 8 retention bundles — getBundleCatalog() reads Config.get('billing').bundles;
-    // the retention leg sums these grants onto the tier baseline. `dora_history_pack`
-    // grants +365 dora days (base 180 → 545); `retention_pack` grants +90 event days.
-    if (section === 'billing') {
-      return {
-        bundles: [
-          { id: 'retention_pack', name: 'Retention Pack', description: '', grants: { eventRetentionDays: 90 }, prices: { monthly: 1500, annual: 15000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 10 },
-          { id: 'dora_history_pack', name: 'DORA History Pack', description: '', grants: { doraRetentionDays: 365 }, prices: { monthly: 3000, annual: 30000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 11 },
-          // Compliance content bundles — pure-feature (no quota grants); the
-          // compliance sync leg derives its `sets` from these granted flags.
-          { id: 'compliance_standard', name: 'Standard Compliance', description: '', grants: {}, features: ['compliance_standard'], prices: { monthly: 2990, annual: 29900 }, stackable: false, availableForTiers: ['developer', 'pro', 'team'], isActive: true, sortOrder: 12 },
-          { id: 'compliance_advanced', name: 'Advanced Compliance', description: '', grants: {}, features: ['compliance_advanced'], prices: { monthly: 9990, annual: 99900 }, stackable: false, availableForTiers: ['developer', 'pro', 'team'], requires: ['compliance_standard'], isActive: true, sortOrder: 13 },
-        ],
-      };
-    }
-    return {};
-  };
-  // `effectiveEntitlements` moved to pipeline-core; billing-helpers imports it
-  // from the barrel (which this suite mocks). Pull in the REAL implementation
-  // from its leaf module — it depends only on the (mocked) api-core
-  // `getTierLimits`, so the bundle math runs against the same base limits the
-  // suite already asserts on, and no heavy pipeline-core graph loads.
-  const { effectiveEntitlements } = await import(
-    '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
-  );
-  return stubModule('@pipeline-builder/pipeline-core', {
-    Config: { get, getAny: get },
-    effectiveEntitlements,
-    // billing-helpers imports incCounter from api-server, whose
-    // idempotency-middleware reads these at module load.
-    CoreConstants: {
-      IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000,
-      IDEMPOTENCY_TTL_MS: 300_000,
-      IDEMPOTENCY_MAX_STORE_SIZE: 10_000,
-    },
-  });
-});
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
+  Config: { get: (section: string) => (section === 'server' ? { services: { billingTimeout: 5000 } } : {}) },
+  // api-server's idempotency-middleware reads these at module load.
+  CoreConstants: {
+    IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000,
+    IDEMPOTENCY_TTL_MS: 300_000,
+    IDEMPOTENCY_MAX_STORE_SIZE: 10_000,
+  },
+}));
+
+// Retention bundles — the retention leg sums these grants onto the tier baseline.
+// `dora_history_pack` grants +365 dora days (base 180 → 545); `retention_pack`
+// grants +90 event days. The compliance bundles are pure-feature (no quota
+// grants); the compliance sync leg derives its `sets` from these granted flags.
+jest.unstable_mockModule('../src/config/billing-config.js', () => ({
+  getBillingConfig: () => ({
+    plans: [],
+    comboDiscounts: [],
+    bundles: [
+      { id: 'retention_pack', name: 'Retention Pack', description: '', grants: { eventRetentionDays: 90 }, prices: { monthly: 1500, annual: 15000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 10 },
+      { id: 'dora_history_pack', name: 'DORA History Pack', description: '', grants: { doraRetentionDays: 365 }, prices: { monthly: 3000, annual: 30000 }, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], isActive: true, sortOrder: 11 },
+      { id: 'compliance_standard', name: 'Standard Compliance', description: '', grants: {}, features: ['compliance_standard'], prices: { monthly: 2990, annual: 29900 }, stackable: false, availableForTiers: ['developer', 'pro', 'team'], isActive: true, sortOrder: 12 },
+      { id: 'compliance_advanced', name: 'Advanced Compliance', description: '', grants: {}, features: ['compliance_advanced'], prices: { monthly: 9990, annual: 99900 }, stackable: false, availableForTiers: ['developer', 'pro', 'team'], requires: ['compliance_standard'], isActive: true, sortOrder: 13 },
+    ],
+  }),
+}));
 
 jest.unstable_mockModule('../src/config.js', () => ({
   config: {
@@ -116,16 +97,15 @@ jest.unstable_mockModule('../src/config.js', () => ({
   },
 }));
 
+const { calculatePeriodEnd, createBillingEvent } = await import('../src/helpers/billing-helpers.js');
+const { buildSubscriptionResponse } = await import('../src/helpers/subscription-response.js');
 const {
-  calculatePeriodEnd,
-  createBillingEvent,
-  buildSubscriptionResponse,
   syncTierToQuotaService,
   syncEntitlements,
   setEntitlementSyncBus,
   startEntitlementSyncConsumer,
-  effectiveEntitlements,
-} = await import('../src/helpers/billing-helpers.js');
+} = await import('../src/helpers/entitlement-sync.js');
+const { effectiveEntitlements } = await import('../src/config/entitlements.js');
 
 // effectiveEntitlements — bundle math
 
@@ -442,7 +422,7 @@ describe('syncEntitlements durable-bus retry', () => {
   });
 });
 
-// syncEntitlements — reporting retention leg (Phase 8)
+// syncEntitlements — reporting retention leg
 
 describe('syncEntitlements reporting retention leg', () => {
   beforeEach(() => { jest.clearAllMocks(); });

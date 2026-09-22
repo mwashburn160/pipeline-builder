@@ -20,7 +20,7 @@ jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastMod
 jest.mock('@/hooks/usePolling', () => ({ __esModule: true, usePolling: () => {} }));
 
 const mockRouter = { query: {} as Record<string, string>, pathname: '/dashboard/registry', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 // Registry data hooks — the list read is what 403s.
 const repoListState: { error: unknown } = { error: null };

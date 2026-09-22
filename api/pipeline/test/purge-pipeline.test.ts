@@ -37,10 +37,6 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
 }));
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPipelineAudit: mockEmitPipelineAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
   res.status(400).json({ success: false, statusCode: 400, message: msg });
@@ -66,6 +62,7 @@ const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?:
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPipelineAudit,
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   requireVisibilityWriteAccess,
   sendSuccess,
@@ -75,11 +72,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   loadAndPurge: jest.fn(async (
     req: any,
     res: any,
-    orgId: string,
     service: any,
-    label: string,
-    publishPermission: string,
-    userId: string,
+    { orgId, userId, label, publishPermission }: { orgId: string; userId: string; label: string; publishPermission: string },
   ) => {
     const id = req.params?.id;
     if (!id) {

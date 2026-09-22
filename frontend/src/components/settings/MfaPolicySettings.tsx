@@ -31,7 +31,7 @@ interface Draft {
 
 /**
  * Whether this organization requires its members to sign in with two factors
- * (#8).
+ *.
  *
  * The requirement is enforced when a token is ISSUED, not per route: once the
  * grace period ends, a member whose session was opened with a password alone
@@ -120,7 +120,7 @@ export function MfaPolicySettings({ orgId, readOnly }: { orgId: string; readOnly
           : res.message || 'Two-factor policy saved');
         // Re-read rather than adopting the write's response: the READ is what
         // carries the enrolment counts, and enrolment moves on its own anyway.
-        read.refetch();
+        void read.refetch();
       }
       setError(null);
     } catch (e) {

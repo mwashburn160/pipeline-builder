@@ -27,7 +27,9 @@
  */
 
 import crypto from 'crypto';
+import { safeEqual } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
+import { envLite } from '../config/env-lite.js';
 
 const COOKIE_NAME = 'pb_login_binding';
 
@@ -41,7 +43,7 @@ const COOKIE_PATH = process.env.AUTH_LOGIN_BINDING_COOKIE_PATH || '/api';
 function cookieAttributes() {
   return {
     httpOnly: true,
-    secure: process.env.AUTH_COOKIE_SECURE !== 'false',
+    secure: envLite.authCookieSecure,
     sameSite: 'lax' as const,
     path: COOKIE_PATH,
   };
@@ -81,9 +83,7 @@ function readBinding(req: Pick<Request, 'headers'>): string | undefined {
 export function isBoundToThisBrowser(req: Pick<Request, 'headers'>, expectedHash: string | undefined): boolean {
   const nonce = readBinding(req);
   if (!expectedHash || !nonce) return false;
-  const a = Buffer.from(digest(nonce), 'hex');
-  const b = Buffer.from(expectedHash, 'hex');
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  return safeEqual(digest(nonce), expectedHash);
 }
 
 /** Drop the binding once a flow has completed (or failed terminally). */

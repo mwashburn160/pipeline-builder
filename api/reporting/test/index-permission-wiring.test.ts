@@ -78,8 +78,7 @@ jest.unstable_mockModule('../src/routes/plugin-reports.js', () => ({ createPlugi
 jest.unstable_mockModule('../src/routes/report-settings.js', () => ({ createReportSettingsRoutes: () => ROUTERS.settings }));
 jest.unstable_mockModule('../src/routes/retention-sync.js', () => ({ createRetentionSyncRoutes: () => ROUTERS.retentionSync }));
 jest.unstable_mockModule('../src/routes/retention.js', () => ({ createRetentionRoutes: () => ROUTERS.retention }));
-jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: jest.fn() }) }));
-// Retention sweep (Phase 7) is wired at boot; stub it so this wiring test doesn't
+// Retention sweep is wired at boot; stub it so this wiring test doesn't
 // pull in pipeline-data / start a real scheduler.
 jest.unstable_mockModule('../src/services/reporting-retention.js', () => ({
   startReportingRetention: jest.fn(),

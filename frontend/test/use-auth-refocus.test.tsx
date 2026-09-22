@@ -15,9 +15,12 @@ import { render, screen, act, waitFor, fireEvent, renderHook } from '@testing-li
 import type { ReactNode } from 'react';
 
 const mockRouter = { push: jest.fn<AnyFn>(), replace: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
-const mockClearPluginCache = jest.fn<AnyFn>();
-jest.mock('../src/hooks/usePlugins', () => ({ clearPluginCache: () => mockClearPluginCache() }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
+const mockClearQueryCache = jest.fn<AnyFn>();
+jest.mock('@/lib/query-cache', () => {
+  const actual = jest.requireActual<typeof import('../src/lib/query-cache')>('../src/lib/query-cache');
+  return { ...actual, clearQueryCache: () => { mockClearQueryCache(); actual.clearQueryCache(); } };
+});
 const mockClearAttachmentImageCache = jest.fn<AnyFn>();
 jest.mock('@/lib/attachment-image-cache', () => ({ clearAttachmentImageCache: () => mockClearAttachmentImageCache() }));
 
@@ -121,14 +124,14 @@ describe('useAuth refocus with an unchanged profile', () => {
 });
 
 describe('useAuth per-session cache clearing', () => {
-  it('clears the plugin and attachment-image caches on logout', async () => {
+  it('clears the shared read cache (plugins included) and attachment-image cache on logout', async () => {
     const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
     const { result } = renderHook(() => useAuth(), { wrapper });
     await waitFor(() => expect(result.current.isInitialized).toBe(true));
 
     await act(async () => { await result.current.logout(); });
 
-    expect(mockClearPluginCache).toHaveBeenCalled();
+    expect(mockClearQueryCache).toHaveBeenCalled();
     expect(mockClearAttachmentImageCache).toHaveBeenCalled();
   });
 

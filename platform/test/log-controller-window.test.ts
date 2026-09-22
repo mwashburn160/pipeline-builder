@@ -4,13 +4,15 @@
 /** `resolveWindow` — the Logs API time-window parser. */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/observability/loki-client.js', () => ({}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: {} }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
-  requireAuth: jest.fn(),
+  ensureAuthenticated: jest.fn(),
   withController: (_l: string, fn: unknown) => fn,
 }));
 

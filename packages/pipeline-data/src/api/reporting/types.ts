@@ -121,7 +121,7 @@ export interface BuildDuration {
 }
 
 /**
- * Plugin runtime report filters (W0.1). `publisher: null` selects own-org
+ * Plugin runtime report filters. `publisher: null` selects own-org
  * (publisher-less) plugins; an omitted field doesn't filter.
  */
 export interface PluginRuntimeFilter {
@@ -167,7 +167,7 @@ export interface BuildFailure {
  * environment's card is the summary shown at the top of the panel.
  */
 
-/** Per-org retention override row (Phase 7). Both nullable ⇒ global defaults. */
+/** Per-org retention override row. Both nullable ⇒ global defaults. */
 export interface ReportingRetentionSettings {
   eventRetentionDays: number | null;
   doraRetentionDays: number | null;
@@ -226,7 +226,7 @@ export interface DoraOptions {
    * Per-org incident→deploy correlation window override (hours). When set (a
    * positive finite number), the incident correlation uses it instead of the
    * global `DORA_INCIDENT_WINDOW_HOURS`. The route resolves this from the org's
-   * `dora_settings` row (see {@link ReportingService.getIncidentSettings}) and
+   * `dora_settings` row (see {@link ReportingService.getReportingSettings}) and
    * passes it in; unset falls back to the env default.
    */
   incidentWindowHours?: number;
@@ -234,18 +234,18 @@ export interface DoraOptions {
 
 /**
  * Per-org reporting settings surfaced to the org-admin panel. `incidentWindowHours`
- * (Phase 5b) is the incident→deploy correlation window; `eventRetentionDays` /
- * `doraRetentionDays` (Phase 7) are the two retention-sweep windows. Each override
+ * is the incident→deploy correlation window; `eventRetentionDays` /
+ * `doraRetentionDays` are the two retention-sweep windows. Each override
  * is `null` when unset (the paired `default*` field shows the env fallback applied).
  */
-export interface IncidentSettings {
+export interface ReportingSettings {
   /** The org's stored correlation-window override in hours, or `null` when unset. */
   incidentWindowHours: number | null;
   /** The global env default applied when no override is stored. */
   defaultWindowHours: number;
-  /** Standard-event retention override in days, or `null` when unset (Phase 7). */
+  /** Standard-event retention override in days, or `null` when unset. */
   eventRetentionDays: number | null;
-  /** DORA-source retention override in days, or `null` when unset (Phase 7). */
+  /** DORA-source retention override in days, or `null` when unset. */
   doraRetentionDays: number | null;
   /** Global standard-event retention default applied when unset (days). */
   defaultEventRetentionDays: number;
@@ -253,7 +253,7 @@ export interface IncidentSettings {
   defaultDoraRetentionDays: number;
 }
 
-/** A partial reporting-settings write (Phase 5b + 7). Only provided fields are
+/** A partial reporting-settings write (7). Only provided fields are
  *  upserted; omitted fields are left unchanged (an omitted retention field keeps
  *  its stored override / the global default). */
 export interface ReportingSettingsPatch {
@@ -398,7 +398,7 @@ export interface DoraTrendPoint {
   changeFailurePct: number;
 }
 
-/** Per-stage build-health metrics (Phase 6) for one pipeline over a window. */
+/** Per-stage build-health metrics for one pipeline over a window. */
 export interface BuildHealthStage {
   stage: string;
   /** Terminal stage runs (succeeded + failed) in the window. */
@@ -414,7 +414,7 @@ export interface BuildHealthStage {
 }
 
 /**
- * Per-pipeline build-health breakdown (Phase 6). Standard reporting (NOT
+ * Per-pipeline build-health breakdown. Standard reporting (NOT
  * `advanced_reporting`-gated) — per-stage success rate + timing percentiles, with
  * totals summed across stages.
  */
@@ -423,7 +423,7 @@ export interface BuildHealth {
   totals: { runs: number; failures: number; failureRate: number };
 }
 
-/** Post-deploy incident marker (Phase 5) accepted by `ReportingService.recordIncident`. */
+/** Post-deploy incident marker accepted by `ReportingService.recordIncident`. */
 export interface IncidentInput {
   incidentId: string;
   environment: string;
@@ -486,17 +486,15 @@ export interface IngestResult {
    * Every org with at least one row in this batch, deduped.
    *
    * Already computed for post-commit cache invalidation; surfaced because the
-   * ingest route needs the same set to push its live SSE frame. That fan-out
-   * used to be driven off the stage-metric hook, which only fires for STAGE
-   * events — so a batch of PIPELINE or BUILD events landed rows and pushed no
-   * frame at all, and the dashboard silently went back to needing a manual
-   * refresh for exactly the events an execution view is about.
+   * ingest route needs the same set to push its live SSE frame. The stage-metric
+   * hook can't drive that fan-out: it only fires for STAGE events, so a batch of
+   * PIPELINE or BUILD events would land rows and push no frame at all.
    */
   affectedOrgs: string[];
 }
 
 /**
- * One org's ingestion-health row as READ back by the Reports UI (Phase 3). The
+ * One org's ingestion-health row as READ back by the Reports UI. The
  * AWS events Lambda writes it; this is the shape that lets the UI tell
  * "ingestion is healthy, there were simply no deploys in the range" apart from
  * "we haven't heard from the ingest pipeline since X".

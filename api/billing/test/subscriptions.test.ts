@@ -8,8 +8,8 @@
  * the router. Mocks Mongoose models, payment provider, and helpers.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -23,6 +23,7 @@ const mockIsSystemAdmin = jest.fn<AnyFn>();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockAuditRecord,
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendBadRequest: mockSendBadRequest,
@@ -70,11 +71,8 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 }));
 
 // Central-trail audit client — the route emits billing.subscription.* here
-// ALONGSIDE the local billing_events write. Mock it so we can assert emission.
+// ALONGSIDE the local billing_events write. Spied via the api-core mock's `recordAudit`.
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: mockAuditRecord }),
-}));
 
 const mockPlanFindOne = jest.fn<(...args: unknown[]) => any>();
 const mockPlanFindById = jest.fn<(...args: unknown[]) => any>();
@@ -146,29 +144,26 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
 });
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
-  applyPlanTierChange: mockApplyPlanTierChange,
   billingServiceAuth: (_orgId: string) => 'Bearer service-token',
-  buildSubscriptionResponse: mockBuildSubscriptionResponse,
   calculatePeriodEnd: mockCalculatePeriodEnd,
   createBillingEvent: mockCreateBillingEvent,
+}));
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
   syncTierToQuotaService: mockSyncTierToQuotaService,
   syncEntitlements: mockSyncTierToQuotaService,
-  syncProviderAddons: jest.fn(async () => undefined),
   // Over-cap gate: default to "no overages" so plan-change tests proceed.
   checkEntitlementOvercap: async () => [],
-  applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
-  finalizePrunedAddons: mockFinalizePrunedAddons,
-  // The routes now widen their lookups to the non-terminal set; re-export the
-  // real constant so the `$in` filters aren't `undefined`.
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
+}));
+jest.unstable_mockModule('../src/helpers/subscription-response.js', () => ({
+  buildSubscriptionResponse: mockBuildSubscriptionResponse,
 }));
 
-// The prune/plan-change helpers moved to addon-prune.js — the route imports them
-// from there now, so mock that module (same stubs) or the real one loads.
+// The route imports the prune/plan-change helpers from addon-prune; mock them.
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyPlanTierChange: mockApplyPlanTierChange,
   applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
   finalizePrunedAddons: mockFinalizePrunedAddons,
+  syncProviderAddons: jest.fn(async () => undefined),
 }));
 
 jest.unstable_mockModule('../src/validation/schemas.js', () => ({
@@ -861,7 +856,6 @@ describe('POST /subscriptions/:id/cancel', () => {
         targetId: 'sub-1',
         details: expect.objectContaining({ planId: 'pro', orgId: 'org-1' }),
       }),
-      'billing',
     );
   });
 

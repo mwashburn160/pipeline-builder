@@ -43,8 +43,7 @@ interface Props {
 }
 
 /**
- * The publisher's listings, each with its versions and their state (plan §3.1,
- * §3.4). Pausing is immediate and only narrows the publisher's own reach, so
+ * The publisher's listings, each with its versions and their state. Pausing is immediate and only narrows the publisher's own reach, so
  * it's a plain confirm; everything else — unpause, yank, listing update,
  * transfer — is a REQUEST the system org decides.
  */
@@ -68,7 +67,7 @@ export function PublisherListingsPanel({ canPublish, canManage }: Props) {
       await api.pauseListing(pending.listing.id, pending.version?.version);
       toast.success(pending.version ? `Paused ${pending.listing.name} v${pending.version.version}` : `Paused ${pending.listing.name}`);
       close();
-      listingsQ.refetch();
+      void listingsQ.refetch();
     } catch (err) {
       toast.error(formatError(err, 'Could not pause'));
     } finally {
@@ -78,7 +77,7 @@ export function PublisherListingsPanel({ canPublish, canManage }: Props) {
 
   const requested = (what: string) => {
     toast.success(`${what} requested. The ecosystem team will review it.`);
-    listingsQ.refetch();
+    void listingsQ.refetch();
   };
 
   const submitOrExplain = async (fn: () => Promise<unknown>) => {
@@ -271,7 +270,7 @@ export function PublisherListingsPanel({ canPublish, canManage }: Props) {
             if (message.length > DEPRECATION_MESSAGE_MAX) throw new Error(`The message can be at most ${DEPRECATION_MESSAGE_MAX} characters.`);
             await submitOrExplain(() => api.deprecateListingVersion(pending.listing.id, pending.version.version, message));
             toast.success(`Deprecated ${pending.listing.name} v${pending.version.version}`);
-            listingsQ.refetch();
+            void listingsQ.refetch();
           }}
           onClose={close}
         />

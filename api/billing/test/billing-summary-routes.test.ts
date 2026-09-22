@@ -45,7 +45,7 @@ const getAdminBillingSummary = jest.fn<AnyFn>(async () => ({ accounts: [] }));
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ getBillingSummary, listBillingInvoices, getAdminBillingSummary }));
 
 const fetchSeatUsage = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/helpers/quota-client.js', () => ({ fetchSeatUsage }));
+jest.unstable_mockModule('../src/helpers/downstream-client.js', () => ({ fetchSeatUsage }));
 const getTeamUsage = jest.fn<AnyFn>(async (ids: string[]) => ids.map((orgId) => ({ orgId })));
 jest.unstable_mockModule('../src/helpers/team-usage.js', () => ({ getTeamUsage }));
 

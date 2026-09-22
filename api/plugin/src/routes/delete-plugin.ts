@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, getParam, ErrorCode, requireStepUp, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, actorId, type QuotaService } from '@pipeline-builder/api-core';
+import { audited, getParam, ErrorCode, requireStepUp, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, actorId, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
-import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 /** `?force=true` — delete a version that is in use or listed. */
@@ -30,7 +29,7 @@ function stepUpWhenForced(req: Request, res: Response, next: NextFunction): void
  * Expects auth + orgId + tenant scope (the shared `/plugins` chain) and
  * `requirePermission('plugins:write')` from the parent mount in app-routes.ts.
  *
- * Delete safety (W0.5):
+ * Delete safety:
  * - a version referenced by a pending publish request is never deletable (409);
  * - one used by the org's pipelines, or published to a listing, is refused with
  *   409 `PLUGIN_VERSION_IN_USE` unless `?force=true`, which requires a step-up;
@@ -65,7 +64,7 @@ export function createDeletePluginRoutes(quotaService: QuotaService): Router {
 
     ctx.log('COMPLETED', 'Deleted plugin', { id, name: existing.name, inUse, listed, promotedId: promoted?.id, refunded });
 
-    emitPluginAudit({
+    recordAudit({
       action: 'plugin.delete',
       actorId: actorId({ userId }),
       orgId,

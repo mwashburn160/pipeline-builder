@@ -8,7 +8,6 @@ export {
   ApiKeyExchangeUnavailableError,
 } from './api-key-exchange.js';
 export {
-  createRedisCacheInvalidationBus,
   createCacheService,
   type RedisCacheClient,
   type CacheInvalidationMessage,
@@ -23,21 +22,28 @@ export {
   type LockRedis,
 } from './leader-lock.js';
 export {
+  sendSystemNotification,
+  SYSTEM_NOTIFY_PATH,
+  type SystemNotification,
+} from './system-notification.js';
+export {
   createScheduler,
   type SchedulerOptions,
   type Scheduler,
 } from './scheduler.js';
 export {
-  pluginRunsOwnImage,
-  pluginComplianceTags,
-  derivePluginImageCompliance,
   createComplianceClient,
   type ComplianceCheckResult,
   type ComplianceViolation,
+} from './compliance-client.js';
+export {
+  pluginRunsOwnImage,
+  pluginComplianceTags,
+  derivePluginImageCompliance,
   type PluginComplianceAttributes,
   PLUGIN_IMAGE_COMPLIANCE_FIELDS,
   type PluginImageRow,
-} from './compliance-client.js';
+} from '../utils/plugin-compliance.js';
 export * from './compliance-event-subscriber.js';
 export {
   type EntityEvent,
@@ -62,6 +68,7 @@ export {
 // by deep import from inside api-core and its testing helpers.
 export {
   isServiceKid,
+  serviceIdentity,
   verifyServiceJwt,
 } from './service-keys.js';
 // The breaker is wired by the shared HTTP client; services consume its EFFECT,
@@ -70,14 +77,11 @@ export {
   resetCircuitBreakers,
 } from './circuit-breaker.js';
 export {
-  createRedisDurableEventBus,
   createEnvRedisDurableEventBus,
   type EventSubscription,
   type DurableEventBus,
 } from './durable-event-bus.js';
 export {
-  calculateBackoff,
-  getRetryDecision,
   getErrorRetryDecision,
 } from './retry-strategy.js';
 export type {
@@ -101,48 +105,38 @@ export {
   isRemoteAuditAction,
   createRemoteAuditClient,
   wireAuthzDenialAuditor,
-  createServiceAuditClient,
-  createRemoteAuditAccessor,
+  recordAudit,
   REMOTE_AUDIT_ACTIONS,
   type RemoteAuditEvent,
   type RemoteAuditClient,
-  type ServiceAuditClient,
 } from './remote-audit-client.js';
 export {
   auditSpoolKey,
-  createRedisAuditSpool,
   createEnvRedisAuditSpool,
   type AuditSpool,
 } from './audit-spool.js';
 export {
-  parseSentinels,
   resolveRedisConnection,
   describeRedisConnection,
   createRedisClient,
   createEnvRedisClient,
-  whenRedisReady,
   createRedisReadyGate,
   incrWindow,
   RedisConfigError,
   type RedisEvalClient,
 } from './env-redis.js';
 export {
-  tokenRevocationKey,
-  sessionRevocationKey,
-  credentialRevocationKey,
   createRedisTokenRevocationStore,
   createEnvRedisTokenRevocationStore,
   publishTokenRevocation,
   publishSessionRevocation,
   publishCredentialRevocation,
-  TOKEN_REVOCATION_KEY_PREFIX,
-  SESSION_REVOCATION_KEY_PREFIX,
-  SET_IF_GREATER_LUA,
 } from './token-revocation.js';
 export {
   createMemorySseTicketStore,
-  createRedisSseTicketStore,
   createEnvSseTicketStore,
+  envSseTicketCaps,
+  type EnvSseTicketStoreConfig,
   type SseTicketStore,
   type SseTicketStoreConfig,
 } from './sse-ticket-store.js';

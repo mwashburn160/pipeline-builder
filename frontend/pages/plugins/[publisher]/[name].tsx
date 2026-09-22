@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `/plugins/[publisher]/[name]` — a plugin's public page (§6a "Plugin page").
+ * `/plugins/[publisher]/[name]` — a plugin's public page.
  *
  * Server-rendered and CDN-cached; the tab is part of the URL (`?tab=`), so every
  * tab works without JavaScript and can be linked. The only viewer-dependent bit

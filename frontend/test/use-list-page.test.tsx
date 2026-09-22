@@ -21,9 +21,7 @@ import { useListPage, type FilterField } from '../src/hooks/useListPage';
 // `mockRouter` is reassignable so the urlSync test can flip `isReady` on.
 let mockRouter: { query: Record<string, string>; isReady: boolean; pathname: string; replace: jest.Mock<AnyFn> } =
   { query: {}, isReady: false, pathname: '/', replace: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({
-  useRouter: () => mockRouter,
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 interface Row { id: string; }
 

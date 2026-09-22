@@ -1,16 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getParam, isServicePrincipal, isSystemAdmin, isValidFeatureFlag, sendError, sendSuccess, parsePaginationParams, SYSTEM_ORG_ID, VALID_TIERS, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, getParam, isServicePrincipal, isSystemAdmin, isValidFeatureFlag, sendError, sendSuccess, MAX_PAGE_LIMIT, parsePage, SYSTEM_ORG_ID, VALID_TIERS, errorMessage } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
   canAdministerOrg,
-  requireAuth,
+  canManageOrgScope,
+  ensureAuthenticated,
   requireSystemAdmin,
   withController,
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
+import { paginationMeta } from '../helpers/pagination.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
 import type { QuotaTier } from '../models/organization.js';
 import { incCounter } from '../observability/metrics.js';
@@ -29,9 +31,8 @@ const logger = createLogger('organization-controller');
 
 // Organization CRUD (System Admin)
 
+/** GET /organizations — every tenant. System-admin only, gated at the route. */
 export const listAllOrganizations = withController('List organizations', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
-
   const search = typeof req.query.search === 'string' ? req.query.search: undefined;
   // Tier facet — passed through verbatim; service coerces invalid values
   // to "no filter" via the QuotaTier union (Mongo just no-ops on unknown enums).
@@ -39,7 +40,7 @@ export const listAllOrganizations = withController('List organizations', async (
   const tier = tierRaw && VALID_TIERS.includes(tierRaw as QuotaTier)
     ? (tierRaw as QuotaTier)
     : undefined;
-  const { offset, limit } = parsePaginationParams(req.query);
+  const { offset, limit } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
   // `ids=a,b,c` — resolve exactly these orgs (names for the ids a page shows).
   // Malformed ids are dropped rather than failing the Mongo cast.
   const ids = typeof req.query.ids === 'string'
@@ -50,19 +51,20 @@ export const listAllOrganizations = withController('List organizations', async (
 
   sendSuccess(res, 200, {
     organizations,
-    pagination: { total, offset, limit, hasMore: offset + limit < total },
+    pagination: paginationMeta(total, offset, limit),
   });
 });
 
 export const createOrganization = withController('Create organization', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const body = validateBody(createOrganizationSchema, req.body, res);
   if (!body) return;
 
-  // Creating a team (nested org) requires admin/owner over the parent (or an
-  // ancestor), and the parent must itself be a root org (one nesting level).
+  // Creating a team (nested org) requires the parent to be within the caller's
+  // scope (their own org or a team under it; `org:settings` is the route's
+  // capability gate), and the parent must itself be a root org (one nesting level).
   if (body.parentOrgId) {
-    if (!(await canAdministerOrg(req, body.parentOrgId))) {
+    if (!(await canManageOrgScope(req, body.parentOrgId))) {
       return sendError(res, 403, 'You must be an admin of the parent organization to create a team under it');
     }
     const eligibility = await organizationService.checkParentEligible(body.parentOrgId);
@@ -87,7 +89,7 @@ export const createOrganization = withController('Create organization', async (r
 });
 
 export const getOrganizationById = withController('Get organization', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
   // Own org (any member), a team you manage (parent-org admin), or sysadmin.
@@ -118,7 +120,7 @@ export const getOrganizationById = withController('Get organization', async (req
  * can access the org (own org, an ancestor admin, or sysadmin).
  */
 export const getOrganizationDescendants = withController('Get org descendants', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
   if (!(await canAccessOrg(req, id))) {
@@ -138,7 +140,7 @@ export const getOrganizationDescendants = withController('Get org descendants', 
  * service principal OR org-admin, never the broad `canAccessOrg`/full-org body.
  */
 export const getOrganizationParent = withController('Get organization parent', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
     return sendError(res, 403, 'Forbidden: service or organization-admin only');
@@ -161,7 +163,7 @@ export const getOrganizationParent = withController('Get organization parent', a
  * scan.
  */
 export const getOrganizationNames = withController('Get organization names', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   // The service-principal gate is `requireServicePrincipal` on the route, so it
   // shows up in the route table; nothing is re-checked here.
   const raw = (req.body as { orgIds?: unknown })?.orgIds;
@@ -210,22 +212,21 @@ export const updateOrganization = withController('Update organization', async (r
 /**
  * PATCH /organization/:id/identity — self-serve org identity edit (name/slug).
  *
- * Unlike `PUT /organization/:id` (sysadmin-only), this is reachable by an org
- * owner/admin for their OWN org (or a parent-org admin over a managed team) via
- * `canAdministerOrg` — the same target-scoped authority gate `exportOrganization`
- * uses. `requirePermission('org:settings')` is the capability gate at the route;
- * this is the tenancy gate. A plain member is refused. Reuses the shared
+ * Unlike `PUT /organization/:id` (sysadmin-only), this is reachable by anyone
+ * holding `org:settings` (the route's capability gate — an owner/admin, or a
+ * custom Role delegating it) for their OWN org or a team under it, via
+ * `canManageOrgScope` — the tenancy gate `exportOrganization` also uses. A
+ * member without the permission is refused at the route. Reuses the shared
  * `organizationService.update` logic (name/slug), which enforces slug
  * uniqueness. Does NOT touch tier/quotas/description-via-sysadmin or DELETE.
  */
 export const updateOrganizationIdentity = withController('Update organization identity', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
-  // Tenancy: sysadmin, own-org admin/owner, or an admin/owner of a parent org
-  // managing this team. Members and unrelated orgs are refused — a non-sysadmin
-  // can only edit an org they administer.
-  if (!(await canAdministerOrg(req, id))) {
+  // Tenancy: sysadmin, the caller's own org, or a team under it. Unrelated
+  // orgs are refused.
+  if (!(await canManageOrgScope(req, id))) {
     return sendError(res, 403, 'You can only edit an organization you administer');
   }
 
@@ -266,7 +267,7 @@ export const updateOrganizationTier = withController('Update organization tier',
   }
   const tier: QuotaTier = tierRaw as QuotaTier;
 
-  // Over-cap gate (docs/billing-bundles.md §8): a downgrade must not strand
+  // Over-cap gate: a downgrade must not strand
   // members/resources. Same protection as the billing plan-change path; a
   // sysadmin can deliberately override with `force: true`.
   const force = (req.body as { force?: unknown })?.force === true;
@@ -359,16 +360,15 @@ export const deleteOrganization = withController('Delete organization', async (r
  * retention window. Reverses {@link deleteOrganization}: clears the tombstone
  * and bumps member tokenVersion so re-issued tokens see the org live again.
  *
- * Authorized for a sysadmin OR an admin/owner of the org (or a managing parent
- * org) via `canAdministerOrg` — the same target-scoped authority gate `export`
- * uses. `requirePermission('org:settings')` is the capability gate at the route.
+ * Tenancy via `canManageOrgScope` (sysadmin, the caller's own org, or a team
+ * under it) — the same gate `export` uses. `requirePermission('org:settings')` is the capability gate at the route.
  * Refused (404) if the org was already purged (gone — nothing to restore).
  */
 export const restoreOrganization = withController('Restore organization', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) {
+  if (!(await canManageOrgScope(req, id))) {
     return sendError(res, 403, 'You can only restore an organization you administer');
   }
 
@@ -399,13 +399,12 @@ export const restoreOrganization = withController('Restore organization', async 
  * JSON blob with every Postgres + Mongo row for the target org. Read-only.
  */
 export const exportOrganization = withController('Export organization', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
   const actorOrgId = (req.user!.organizationId as string) ?? SYSTEM_ORG_ID;
-  // Sysadmin, own-org admin/owner, or admin/owner of a parent org managing
-  // this team. Members and unrelated orgs are refused.
-  if (!(await canAdministerOrg(req, id))) {
+  // Tenancy: sysadmin, the caller's own org, or a team under it.
+  if (!(await canManageOrgScope(req, id))) {
     return sendError(res, 403, 'Org admins can only export their own org or a team they manage');
   }
 
@@ -417,9 +416,8 @@ export const exportOrganization = withController('Export organization', async (r
     affectedOrgId: id,
     details: {
       postgresTables: Object.keys(dump.postgres).length,
-      // Row counts per Mongo collection — the artifact now carries every
-      // collection the teardown removes, so name them all rather than the two
-      // that used to be the whole export.
+      // Row counts per Mongo collection — the artifact carries every
+      // collection the teardown removes.
       mongo: Object.fromEntries(Object.entries(dump.mongo).map(([name, rows]) => [name, rows.length])),
       ...(dump.failed ? { failedStores: dump.failed } : {}),
     },
@@ -442,7 +440,7 @@ export const exportOrganization = withController('Export organization', async (r
  * be the account ROOT — a team id is refused with 409 (never redirected).
  */
 export const updateOrganizationSeatLimit = withController('Update organization seat limit', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
     return sendError(res, 403, 'Forbidden: service or system-admin only');
   }
@@ -539,7 +537,7 @@ export const updateOrganizationSeatLimit = withController('Update organization s
  * bundle. Service principal or sysadmin.
  */
 export const getOrganizationSeatUsage = withController('Get organization seat usage', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   // Billing's over-cap gate calls this with a service token; an account admin
   // (or an ancestor-org admin) may also read their OWN pooled seat usage — it's
@@ -561,7 +559,7 @@ export const getOrganizationSeatUsage = withController('Get organization seat us
  * rides along on this account's token issuance / user-profile reads.
  */
 export const getOrganizationFeatureEntitlements = withController('Get organization feature entitlements', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   // Mirror the seat-usage gate exactly: billing calls with a service token; an
   // account (or ancestor-org) admin may also read their OWN entitlements.
@@ -578,12 +576,12 @@ export const getOrganizationFeatureEntitlements = withController('Get organizati
 /**
  * GET /organization/:id/teams/deleted — soft-deleted teams of `:id` still inside
  * their retention window (restorable via `POST /:teamId/restore`). Capability
- * `org:settings` at the route; tenancy `canAdministerOrg(:id)` here.
+ * `org:settings` at the route; tenancy `canManageOrgScope(:id)` here.
  */
 export const listDeletedTeams = withController('List deleted teams', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) {
+  if (!(await canManageOrgScope(req, id))) {
     return sendError(res, 403, 'You can only view the teams of an organization you administer');
   }
   sendSuccess(res, 200, await orgHierarchyService.listDeletedTeams(id));
@@ -599,10 +597,10 @@ export const listDeletedTeams = withController('List deleted teams', async (req,
  * 404 unless the team's DIRECT parent is `:id`.
  */
 export const deleteTeam = withController('Delete team', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   const teamId = getParam(req.params, 'teamId')!;
-  if (!(await canAdministerOrg(req, id))) {
+  if (!(await canManageOrgScope(req, id))) {
     return sendError(res, 403, 'You can only delete a team of an organization you administer');
   }
   const team = await orgHierarchyService.getTeamParent(teamId);
@@ -695,7 +693,7 @@ export const moveOrganization = withController('Move organization', async (req, 
 // Current User's Organization
 
 export const getMyOrganization = withController('Get my organization', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const orgId = req.user!.organizationId;
   if (!orgId) return sendError(res, 404, 'No organization associated with this user');
@@ -709,7 +707,7 @@ export const getMyOrganization = withController('Get my organization', async (re
 // AI Provider Configuration
 
 export const getOrgAIConfig = withController('Get AI config', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const orgId = req.user!.organizationId;
   if (!orgId) return sendError(res, 404, 'No organization associated with this user');
@@ -721,7 +719,7 @@ export const getOrgAIConfig = withController('Get AI config', async (req, res) =
 });
 
 export const updateOrgAIConfig = withController('Update AI config', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const orgId = req.user!.organizationId;
   if (!orgId) return sendError(res, 404, 'No organization associated with this user');

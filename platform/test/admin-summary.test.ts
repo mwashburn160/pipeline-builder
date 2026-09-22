@@ -8,8 +8,8 @@
  * forgetting to lowercase the env values.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockOrgCount = jest.fn<AnyFn>();
@@ -85,7 +85,7 @@ describe('getAdminSummary', () => {
 
   it('401s an unauthenticated caller and counts nothing', async () => {
     const res = mockRes();
-    // No `req.user` at all — the real `requireAuth` inside `requireSystemAdmin`
+    // No `req.user` at all — the real `ensureAuthenticated` inside `requireSystemAdmin`
     // short-circuits before any Mongo count runs.
     await (getAdminSummary as unknown as (req: any, res: any) => Promise<void>)({}, res);
     expect(res.status).toHaveBeenCalledWith(401);

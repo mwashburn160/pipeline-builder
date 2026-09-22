@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -34,13 +35,11 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controller
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { auth: { passwordMinLength: 8 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8 } }));
 
-jest.unstable_mockModule('../src/controllers/user-profile.js', () => ({
+jest.unstable_mockModule('../src/helpers/user-response.js', () => ({
   formatUserResponse: (u: unknown) => u,
-  toUserResponseInput: (u: unknown) => u,
+
   toOverridesRecord: (v: unknown) => v,
 }));
 

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * STATIC reading of a plugin's own Dockerfile (plugin-ecosystem §3.1a, G55;
- * W0.6 `runAsRoot`): its `LABEL` instructions and its final `USER`, without
+ * STATIC reading of a plugin's own Dockerfile (catalog detection and the
+ * `runAsRoot` compliance fact): its `LABEL` instructions and its final `USER`, without
  * building anything.
  *
  * - Only the plugin's OWN instructions count. The built image's config also
@@ -211,7 +211,7 @@ export function parseDockerfile(content: string | null | undefined): DockerfileF
   return { labels, finalUser, baseImage };
 }
 
-/** The OCI annotation keys the catalog reads (§3.1a). */
+/** The OCI annotation keys the catalog reads. */
 export const OCI_LABELS = {
   title: 'org.opencontainers.image.title',
   description: 'org.opencontainers.image.description',

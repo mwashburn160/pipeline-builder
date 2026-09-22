@@ -8,14 +8,13 @@
  * their behaviour — pin the vetted IP, refuse redirects, HMAC when a secret is
  * present, cap body + time, skipped/dedupe semantics — is asserted against the
  * real code in `packages/api-core/test/notification-channels.test.ts`. Asserting
- * it again here would test the same code twice; the compliance-local fork that
- * used to justify it is gone.
+ * it again here would test the same code twice.
  *
  * What belongs to compliance, and so to this file: WHICH channels it registers,
  * that it builds them from the shared factories, the arguments it configures
  * them with, and its own `in-app` transport (the one transport that legitimately
- * differs per service — compliance posts to the message service over HTTP,
- * platform writes the shared table directly).
+ * differs per service — compliance sends a system notification through the
+ * message service, platform writes the shared table directly).
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -30,7 +29,10 @@ const emailOpts: Record<string, any>[] = [];
 const mockWebhookDeliver = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ ok: true, code: 200 }));
 const mockEmailDeliver = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ ok: true }));
 
+const mockSendSystemNotification = jest.fn<(...a: any[]) => Promise<boolean>>(async () => true);
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  sendSystemNotification: (...a: any[]) => mockSendSystemNotification(...a),
   getServiceAuthHeader: (opts: { orgId?: string }) => `Bearer test-service-token:${opts?.orgId}`,
   createWebhookChannel: (opts: Record<string, any> = {}) => {
     webhookOpts.push(opts);
@@ -46,13 +48,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-// notification-channels imports these clients at module load; stub so their real
-// InternalHttpClient imports don't run.
-const mockMessagePost = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
+// notification-channels imports this client at module load; stub so its real
+// InternalHttpClient import doesn't run.
 const mockEmailPost = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
-jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
-  messageClient: { post: (...a: unknown[]) => mockMessagePost(...a) },
-}));
 jest.unstable_mockModule('../src/helpers/email-client.js', () => ({
   emailClient: { post: (...a: unknown[]) => mockEmailPost(...a) },
 }));
@@ -70,10 +68,10 @@ const notification = {
 };
 
 beforeEach(() => {
-  mockMessagePost.mockClear();
-  mockMessagePost.mockResolvedValue(undefined);
+  mockSendSystemNotification.mockClear();
+  mockSendSystemNotification.mockResolvedValue(true);
   mockEmailPost.mockClear();
-  mockEmailPost.mockResolvedValue(undefined);
+  mockEmailPost.mockResolvedValue({ statusCode: 200, body: {} });
 });
 
 describe('channel registry', () => {
@@ -122,37 +120,38 @@ describe('email channel configuration', () => {
     const [, payload] = mockEmailPost.mock.calls[0] as [string, Record<string, unknown>];
     expect(payload.targetUsers).toBeNull();
   });
+
+  it('reports sent only for a 2xx from platform', async () => {
+    await expect(emailOpts[0].send({ orgId: 'org-9', targetUsers: null, subject: 's', text: 't' }))
+      .resolves.toBe(true);
+  });
+
+  // The HTTP client resolves (does not throw) on 4xx/5xx; treating that as sent
+  // made the notifier record a refused/failed email as delivered.
+  it.each([403, 500])('reports NOT sent when platform answers %i', async (statusCode) => {
+    mockEmailPost.mockResolvedValueOnce({ statusCode, body: { message: 'nope' } });
+    await expect(emailOpts[0].send({ orgId: 'org-9', targetUsers: null, subject: 's', text: 't' }))
+      .resolves.toBe(false);
+  });
 });
 
 describe('inAppChannel (the one transport that stays per-service)', () => {
-  it('posts to the message service, mapping the shared `body` onto `content`', async () => {
+  it('sends a system notification, mapping the shared `body` onto `content`', async () => {
     const result = await inAppChannel.deliver(notification, {});
 
     expect(result).toEqual({ ok: true });
-    expect(mockMessagePost).toHaveBeenCalledTimes(1);
-    const [path, payload] = mockMessagePost.mock.calls[0] as [string, Record<string, unknown>];
-    expect(path).toBe('/messages');
-    expect(payload).toMatchObject({
+    expect(mockSendSystemNotification).toHaveBeenCalledWith({
       recipientOrgId: 'org-1',
-      messageType: 'announcement',
       subject: 's',
       content: 'c',
       priority: 'normal',
     });
   });
 
-  it('authors the cross-tenant write as the system org with a service token', async () => {
-    await inAppChannel.deliver(notification, {});
-    const [, , opts] = mockMessagePost.mock.calls[0] as [string, unknown, { headers: Record<string, string> }];
-    // A user bearer cannot write across tenants — it must be service-minted.
-    expect(opts.headers.Authorization).toBe('Bearer test-service-token:000000000000000000000001');
-    expect(opts.headers['x-org-id']).toBeDefined();
-  });
-
-  it('reports failed (not thrown) when the message service rejects', async () => {
-    mockMessagePost.mockRejectedValueOnce(new Error('message service down'));
+  it('reports failed when the message service does not accept it (4xx/5xx/unreachable)', async () => {
+    mockSendSystemNotification.mockResolvedValueOnce(false);
     const result = await inAppChannel.deliver(notification, {});
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/message service down/);
+    expect(result.error).toMatch(/did not accept/);
   });
 });

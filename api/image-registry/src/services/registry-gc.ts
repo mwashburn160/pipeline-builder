@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, SYSTEM_ORG_ID, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
-import { emitImageRegistryAudit } from './audit.js';
 import { INDEX_MEDIA_TYPES, isIndex } from './manifest.js';
+import { inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, QUARANTINE_PREFIX, repoOwnerOrgId } from './namespaces.js';
 import {
   listRepositoriesUnderPrefix,
   listTags,
@@ -14,7 +14,6 @@ import {
   isNotFound,
 } from './registry-client.js';
 import { computeStorageUsage, invalidateStorageCache } from './storage-usage.js';
-import { repoOwnerOrgId } from '../routes/images/repo-access.js';
 
 const logger = createLogger('registry-gc');
 
@@ -53,11 +52,11 @@ interface ManifestBody {
  *    only when it was yanked more than 180 days ago AND no step manifest
  *    references it — a decision only the plugin service (which owns the step
  *    manifests) can make. It hands such digests over one at a time through
- *    `POST /internal/plugin-publications/gc` (plugin ecosystem G40).
+ *    `POST /internal/plugin-publications/gc`.
  *  - `registry-meta/*` — the publication records (public-publications.ts).
  */
 export function isAgeGcExempt(repo: string): boolean {
-  return repo.startsWith('public/') || repo.startsWith('registry-meta/');
+  return inPublicNamespace(repo) || inRegistryMetaNamespace(repo);
 }
 
 export interface GcOptions {
@@ -319,7 +318,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   // (no secrets / AWS account ids).
   if (!dryRun && deleted > 0) {
     const affectedOrgId = repoOwnerOrgId(prefix);
-    emitImageRegistryAudit({
+    recordAudit({
       action: 'registry.gc',
       actorId: actorId ?? 'system',
       ...(actorEmail && { actorEmail }),
@@ -347,14 +346,11 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
 }
 
 // -----------------------------------------------------------------------------
-// Quarantine namespace (anonymous plugin submissions, plugin ecosystem §4.2 / W5)
+// Quarantine namespace (anonymous plugin submissions)
 // -----------------------------------------------------------------------------
 
-/** Namespace prefix of the anonymous-submission builds. */
-export const QUARANTINE_PREFIX = 'quarantine/';
-
 /**
- * Quarantined artifacts live 30 days (plan §8 retention, G46) — the same window
+ * Quarantined artifacts live 30 days — the same window
  * as the quarantine bucket's lifecycle expiry and a pending submission's
  * `expires_at`. A repo whose NEWEST image is older than this is deleted whole.
  */
@@ -386,7 +382,7 @@ export interface QuarantineDeleteResult {
  * the age sweep below is the backstop for a missed call.
  */
 export async function deleteQuarantineRepository(repository: string, reason: 'requested' | 'expired'): Promise<QuarantineDeleteResult> {
-  if (!repository.startsWith(QUARANTINE_PREFIX)) throw new Error(`Not a quarantine repository: ${repository}`);
+  if (!inQuarantineNamespace(repository)) throw new Error(`Not a quarantine repository: ${repository}`);
   let tags: string[];
   try {
     tags = (await listTags(repository)).tags ?? [];
@@ -493,7 +489,7 @@ export async function runQuarantineGc(opts: { maxAgeDays?: number; dryRun?: bool
       const r = await deleteQuarantineRepository(repo, 'expired');
       if (r.deleted > 0) {
         deleted++;
-        emitImageRegistryAudit({
+        recordAudit({
           action: 'registry.gc',
           actorId: 'system',
           affectedOrgId: SYSTEM_ORG_ID,

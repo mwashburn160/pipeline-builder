@@ -3,7 +3,7 @@
 
 import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import { makeFakeRedis } from './helpers/fake-redis.js';
-import { createEnvSseTicketStore, createRedisSseTicketStore, type SseTicketStore, type SseTicketStoreConfig } from '../src/services/sse-ticket-store.js';
+import { createEnvSseTicketStore, createRedisSseTicketStore, envSseTicketCaps, type SseTicketStore, type SseTicketStoreConfig } from '../src/services/sse-ticket-store.js';
 
 const stores: Array<{ stop(): void }> = [];
 afterEach(() => { while (stores.length) stores.pop()!.stop(); });
@@ -78,6 +78,35 @@ function contract(name: string, make: (cfg?: Partial<SseTicketStoreConfig>) => S
 // No REDIS_URL / REDIS_SENTINELS in the test env → in-memory fallback.
 contract('in-memory', (cfg) => createEnvSseTicketStore({ ...BASE, ...cfg }));
 contract('redis (fake)', (cfg) => createRedisSseTicketStore(makeFakeRedis() as never, { ...BASE, ...cfg }));
+
+describe('env ticket caps', () => {
+  const saved = { total: process.env.SSE_MAX_TOTAL_TICKETS, perOrg: process.env.SSE_MAX_TICKETS_PER_ORG };
+  afterEach(() => {
+    for (const [k, v] of [['SSE_MAX_TOTAL_TICKETS', saved.total], ['SSE_MAX_TICKETS_PER_ORG', saved.perOrg]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+
+  it('defaults to 1000 total / 10 per org and reads the env overrides', () => {
+    delete process.env.SSE_MAX_TOTAL_TICKETS;
+    delete process.env.SSE_MAX_TICKETS_PER_ORG;
+    expect(envSseTicketCaps()).toEqual({ maxTotal: 1000, maxPerOrg: 10 });
+    process.env.SSE_MAX_TOTAL_TICKETS = '50';
+    process.env.SSE_MAX_TICKETS_PER_ORG = 'junk';
+    expect(envSseTicketCaps()).toEqual({ maxTotal: 50, maxPerOrg: 10 });
+  });
+
+  it('createEnvSseTicketStore applies the env caps when the caller omits them', async () => {
+    process.env.SSE_MAX_TICKETS_PER_ORG = '1';
+    const store = createEnvSseTicketStore({ ttlMs: 60_000 });
+    expect((await store.issue('org-a')).ok).toBe(true);
+    expect(await store.issue('org-a')).toEqual({ ok: false, reason: 'org' });
+    // An explicit cap still wins over the env.
+    const explicit = createEnvSseTicketStore({ ttlMs: 60_000, maxPerOrg: 2 });
+    expect((await explicit.issue('org-a')).ok).toBe(true);
+    expect((await explicit.issue('org-a')).ok).toBe(true);
+  });
+});
 
 describe('Redis SSE ticket store specifics', () => {
   it('expired tickets stop counting against the cap', async () => {

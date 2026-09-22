@@ -4,9 +4,9 @@
 /**
  * A step-up refusal has to FINISH the action, not just re-verify.
  *
- * The global fallback used to pass an empty `onConfirmed`: the person
- * re-verified, the dialog closed, and nothing happened — leaving them to guess
- * which control had failed and click it again. The refusal happens BEFORE the
+ * The global fallback must not pass an empty `onConfirmed`: the person would
+ * re-verify, the dialog close, and nothing happen — leaving them to guess which
+ * control had failed and click it again. The refusal happens BEFORE the
  * server does anything, so replaying the identical request with the fresh token
  * is exactly what the user would have done by hand.
  *
@@ -101,7 +101,7 @@ describe('step-up refusal carries a retry', () => {
 // ---------------------------------------------------------------------------
 
 const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
 
 // Capture what the global fallback renders, and drive its confirmation.
 let stepUpProps: { action: string; details: ReactNode; onConfirmed: (t: string) => void | Promise<void>; onClose: () => void } | null = null;
@@ -123,11 +123,9 @@ jest.mock('@/lib/api', () => ({
   default: { getUnreadCount: jest.fn<AnyFn>().mockResolvedValue({ data: { count: 0 } }) },
 }));
 const mockRouter = { pathname: '/dashboard', asPath: '/dashboard', push: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
-jest.mock('next/router', () => ({ useRouter: () => mockRouter }));
-jest.mock('next/head', () => ({ __esModule: true, default: ({ children }: { children: ReactNode }) => <>{children}</> }));
-jest.mock('@/hooks/useAuthGuard', () => ({
-  useAuthGuard: () => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
+jest.mock('next/head', () => require('./helpers/pageMocks').headModule());
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => ({ user: { id: 'u1', organizationId: 'org-1' }, isReady: true, isSuperAdmin: false, isAdmin: false, logout: jest.fn<AnyFn>() })));
 jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn<AnyFn>() }) }));
 jest.mock('@/hooks/useFeatures', () => ({ useFeatures: () => ({ isLoaded: true, isEnabled: () => false }) }));
 jest.mock('../src/components/ui/Sidebar', () => ({ Sidebar: () => null }));

@@ -24,10 +24,10 @@ interface ContactSupportCardProps {
 /**
  * The Help page's outbound path.
  *
- * Help used to be a terminal surface: a search box, a topic index and no way
- * to reach a human. The contact form already existed — it is the `!canWrite`
- * branch of {@link ComposeModal} — but the only door to it was the Messages nav
- * item, which a reader looking for help has no reason to open. This mounts the
+ * Without it Help is a terminal surface: a search box, a topic index and no way
+ * to reach a human. The contact form is the `!canWrite` branch of
+ * {@link ComposeModal}, otherwise reachable only from the Messages nav item,
+ * which a reader looking for help has no reason to open. This mounts the
  * same compose flow directly, in support mode (`canWrite={false}`): the
  * recipient is not a choice, and the send goes to `POST /messages/support`,
  * whose recipient the server forces and which needs only `messages:read`.

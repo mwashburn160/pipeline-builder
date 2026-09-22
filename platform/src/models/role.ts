@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, model, Types, type HydratedDocument } from 'mongoose';
 
 /**
  * Coarse org roles a Role can grant its members, highest authority first. A
@@ -16,7 +16,7 @@ export type RoleGrant = typeof ROLE_GRANTS[number];
 /**
  * Named seed bundles for built-in Roles whose permissions are NOT derived from
  * their `grantsRole`. `ecosystem_manager` is the system org's "Ecosystem
- * Manager" (docs/plans/plugin-ecosystem.md §5a.1): it grants the coarse
+ * Manager" (docs/permissions.md): it grants the coarse
  * `member` label but carries api-core `ECOSYSTEM_MANAGER_PERMISSIONS`. The key
  * is what distinguishes it from the built-in Member Role (same `grantsRole`,
  * both `system: true`), so the Member-floor lookups filter `seedBundle: null`.
@@ -28,7 +28,7 @@ export type RoleSeedBundle = typeof ROLE_SEED_BUNDLES[number];
  * A named permission Role inside an organization or team.
  *
  * Two grant mechanisms, unioned at token-issue time (see `resolveUserPermissions`
- * in api-core and `getUserRolePermissions` in the roles service):
+ * in api-core and `rolePermissionsFor` in services/role-permissions.ts):
  * - `grantsRole` — the seeded Roles (Admin/Member, and the system
  *   org's Super Admin) confer a base org role, which drives the cached
  *   `UserOrganization.role` and the `superadmin` bootstrap. Custom Roles leave
@@ -37,7 +37,7 @@ export type RoleSeedBundle = typeof ROLE_SEED_BUNDLES[number];
  *   ADDED to the member's effective permissions. This is what custom,
  *   user-defined Roles use.
  */
-export interface RoleDocument extends Document {
+export interface RoleData {
   /** Owning org/team id. */
   organizationId: Types.ObjectId;
   name: string;
@@ -54,15 +54,17 @@ export interface RoleDocument extends Document {
   seedBundle?: RoleSeedBundle;
 }
 
-const roleSchema = new Schema<RoleDocument>(
+export type RoleDocument = HydratedDocument<RoleData>;
+
+const roleSchema = new Schema<RoleData>(
   {
     organizationId: { type: Schema.Types.ObjectId, required: true, index: true },
     name: { type: String, required: true },
     description: { type: String },
-    grantsRole: { type: String, enum: ROLE_GRANTS as unknown as string[], default: 'member' },
+    grantsRole: { type: String, enum: [...ROLE_GRANTS], default: 'member' },
     permissions: { type: [String], default: [] },
     system: { type: Boolean, default: false },
-    seedBundle: { type: String, enum: ROLE_SEED_BUNDLES as unknown as string[] },
+    seedBundle: { type: String, enum: [...ROLE_SEED_BUNDLES] },
   },
   { timestamps: true, collection: 'roles' },
 );
@@ -70,4 +72,4 @@ const roleSchema = new Schema<RoleDocument>(
 // One Role name per org.
 roleSchema.index({ organizationId: 1, name: 1 }, { unique: true });
 
-export default model<RoleDocument>('Role', roleSchema);
+export default model<RoleData>('Role', roleSchema);

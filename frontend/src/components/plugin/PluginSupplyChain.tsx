@@ -10,7 +10,7 @@ import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { formatError } from '@/lib/constants';
-import { triggerBlobDownload } from '@/lib/csv-export';
+import { triggerBlobDownload } from '@/lib/download';
 
 type SupplyChainFields = Pick<PluginSummary, 'buildType' | 'pluginType' | 'imageDigest'>;
 

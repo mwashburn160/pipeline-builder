@@ -99,10 +99,6 @@ const DEFAULT_STALE_OWNER_MS = 10 * 60_000;
 /** Guard so a pathological in-progress list can't spin `recover`/`take` forever. */
 const MAX_MOVE_ITERATIONS = 100_000;
 
-function errMsg(err: unknown): string {
-  return errorMessage(err);
-}
-
 function safeParse(raw: string): AuditSpoolEntry | null {
   try {
     const parsed = JSON.parse(raw) as AuditSpoolEntry;
@@ -170,7 +166,7 @@ export function createRedisAuditSpool(redis: RedisListClient, opts: RedisAuditSp
           logger.warn('Audit spool overflow — dropped oldest buffered events', { dropped, maxDepth });
         }
       } catch (err) {
-        logger.warn('Audit spool enqueue failed (event lost)', { error: errMsg(err) });
+        logger.warn('Audit spool enqueue failed (event lost)', { error: errorMessage(err) });
       }
     },
 
@@ -198,7 +194,7 @@ export function createRedisAuditSpool(redis: RedisListClient, opts: RedisAuditSp
         }
         return out;
       } catch (err) {
-        logger.warn('Audit spool take failed', { error: errMsg(err) });
+        logger.warn('Audit spool take failed', { error: errorMessage(err) });
         return [];
       }
     },
@@ -212,7 +208,7 @@ export function createRedisAuditSpool(redis: RedisListClient, opts: RedisAuditSp
           rawByEntry.delete(entry);
         }
       } catch (err) {
-        logger.warn('Audit spool ack failed (may re-deliver on recover)', { error: errMsg(err) });
+        logger.warn('Audit spool ack failed (may re-deliver on recover)', { error: errorMessage(err) });
       }
     },
 
@@ -237,7 +233,7 @@ export function createRedisAuditSpool(redis: RedisListClient, opts: RedisAuditSp
           rawByEntry.delete(entries[i]);
         }
       } catch (err) {
-        logger.warn('Audit spool requeue failed (events lost)', { error: errMsg(err) });
+        logger.warn('Audit spool requeue failed (events lost)', { error: errorMessage(err) });
       }
     },
 
@@ -266,7 +262,7 @@ export function createRedisAuditSpool(redis: RedisListClient, opts: RedisAuditSp
         }
         return reclaimed;
       } catch (err) {
-        logger.warn('Audit spool recover failed', { error: errMsg(err) });
+        logger.warn('Audit spool recover failed', { error: errorMessage(err) });
         return 0;
       }
     },
@@ -276,7 +272,7 @@ export function createRedisAuditSpool(redis: RedisListClient, opts: RedisAuditSp
         await ready();
         await beat();
       } catch (err) {
-        logger.debug('Audit spool heartbeat failed', { error: errMsg(err) });
+        logger.debug('Audit spool heartbeat failed', { error: errorMessage(err) });
       }
     },
 
@@ -300,8 +296,8 @@ export function createEnvRedisAuditSpool(opts: Omit<RedisAuditSpoolOptions, 'rea
   const inst = createEnvRedisClient<RedisListClient & ReadyAwareRedis>('audit-spool');
   if (!inst) return null;
   logger.info('Redis audit spool initialized', { key: opts.key });
-  // The env client has no offline queue: the boot-time recover() used to run
-  // before the connection was up, fail, and leave stranded batches until the
-  // next restart. Every command now waits (bounded) for readiness.
+  // The env client has no offline queue: a boot-time recover() run before the
+  // connection is up would fail and strand batches until the next restart, so
+  // every command waits (bounded) for readiness.
   return createRedisAuditSpool(inst, { ...opts, ready: createRedisReadyGate(inst, 10_000) });
 }

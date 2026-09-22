@@ -111,10 +111,6 @@ const DEFAULT_BLOCK_MS = 5_000;
 const DEFAULT_MIN_IDLE_MS = 60_000;
 const DEFAULT_MAX_DELIVERIES = 10;
 
-function errMsg(err: unknown): string {
-  return errorMessage(err);
-}
-
 function streamKey(topic: string): string {
   return `evt:${topic}`;
 }
@@ -132,7 +128,7 @@ function publishedAtFromId(id: string): Date {
 
 /** True when the error is Redis' "group already exists" (idempotent create). */
 function isBusyGroup(err: unknown): boolean {
-  return errMsg(err).includes('BUSYGROUP');
+  return errorMessage(err).includes('BUSYGROUP');
 }
 
 /**
@@ -188,7 +184,7 @@ export function createRedisDurableEventBus(
         return id;
       } catch (err) {
         emitCounter('event_bus_publish_failed_total', { topic });
-        logger.warn('Event bus publish failed (event dropped)', { topic, error: errMsg(err) });
+        logger.warn('Event bus publish failed (event dropped)', { topic, error: errorMessage(err) });
         return null;
       }
     },
@@ -207,7 +203,7 @@ export function createRedisDurableEventBus(
       const reader = redis.duplicate();
       // A duplicated ioredis connection doesn't inherit listeners; without one a
       // connection error is an unhandled 'error' event that crashes the process.
-      reader.on?.('error', (err) => logger.warn('Event bus reader connection error', { topic, group, error: errMsg(err) }));
+      reader.on?.('error', (err) => logger.warn('Event bus reader connection error', { topic, group, error: errorMessage(err) }));
 
       let stopped = false;
 
@@ -223,7 +219,7 @@ export function createRedisDurableEventBus(
             // Leave it pending (no XACK) — XAUTOCLAIM redelivers it after minIdle.
             emitCounter('event_bus_handler_failed_total', { topic, group });
             logger.warn('Event handler failed; leaving message pending for redelivery', {
-              topic, group, id: env.id, error: errMsg(err),
+              topic, group, id: env.id, error: errorMessage(err),
             });
           }
         }
@@ -264,7 +260,7 @@ export function createRedisDurableEventBus(
 
       // The consumer group must exist before XREADGROUP can succeed. Creating it
       // is retried inside the loop: at startup the client may not have connected
-      // yet, and a single failed attempt used to leave the consumer reading a
+      // yet, and a single failed attempt would leave the consumer reading a
       // group that was never created — forever.
       let groupReady = false;
       const ensureGroup = async (): Promise<void> => {
@@ -303,8 +299,8 @@ export function createRedisDurableEventBus(
           } catch (err) {
             if (stopped) break;
             // The stream or group was deleted out from under us — recreate it.
-            if (/NOGROUP/i.test(errMsg(err))) groupReady = false;
-            logger.warn('Event bus consumer loop error; backing off', { topic, group, error: errMsg(err) });
+            if (/NOGROUP/i.test(errorMessage(err))) groupReady = false;
+            logger.warn('Event bus consumer loop error; backing off', { topic, group, error: errorMessage(err) });
             // Back off so a persistent Redis error doesn't hot-spin.
             await new Promise((r) => setTimeout(r, 1000));
           }

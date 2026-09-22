@@ -36,10 +36,9 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
-// One STABLE object: `useLoadable`'s `reload` depends on the toast, and a fresh
-// object per render would re-run the load effect forever.
+// One toast spy object, shared by every render (the real `useToast` memoizes).
 const toast = { success: toastSuccess, error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
 
 // Step-up has its own suite; here it only needs to hand a token back so the
 // gated call can be asserted, and to record WHICH action opened it.
@@ -71,7 +70,7 @@ jest.mock('@/components/settings/TotpQrCode', () => ({
 // Turning the factor on or off changes `user.authFactors`, which the posture
 // strip above this panel reads off the profile — so the panel refreshes it.
 const refreshUser = jest.fn<AnyFn>(async () => undefined);
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ refreshUser }) }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser })));
 
 import { TotpSection } from '../src/components/settings/TotpSection';
 import { clearQueryCache } from '../src/lib/query-cache';

@@ -4,7 +4,7 @@
 /**
  * Tests for helpers/plugin-compliance — the image facts (`signed`, `scanned`,
  * `vuln*`, `runAsRoot`, `packages`, `tags`) sent to the compliance service at
- * upload (deferred), after the build (real) and on update (stored), W0.6.
+ * upload (deferred), after the build (real) and on update (stored),.
  */
 
 import { describe, it, expect } from '@jest/globals';

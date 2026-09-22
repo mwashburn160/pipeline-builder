@@ -3,12 +3,12 @@
 
 /**
  * SYSTEM-ORG ecosystem governance routes — the Ecosystem console's API
- * (docs/plans/plugin-ecosystem.md §3.0, §3.0.1, §3.0.2, §3.0.3, §3.6, §5a).
+ * (docs/plugin-publishing.md).
  * Mounted at `/plugins/ecosystem`. EVERY route runs `requireEcosystemPermission`
  * (active org = the system org + the permission + an aal2 session); the
  * route-coverage governance check fails any that doesn't.
  *
- * Step-up (§5a): suspensions, yanks, rule changes and every
+ * Step-up: suspensions, yanks, rule changes and every
  * `publishers:verify` action. Deciding a request needs step-up only for the
  * sensitive kinds (yank, transfer, claim, profile change, Verified,
  * moderation) — `stepUpForSensitiveRequest` looks the kind up first.
@@ -70,7 +70,7 @@ export function createEcosystemConsoleRoutes(): Router {
     sendSuccess(res, 200, await requestDetail(caller, param(req, 'id')));
   }));
 
-  // An anonymous submission's quarantined build (§4.2): its signed SBOM, and a
+  // An anonymous submission's quarantined build: its signed SBOM, and a
   // grype report run now over it — the evidence behind the gate report.
   // Both are file downloads (the console's download buttons).
   router.get('/requests/:id/submission-sbom', ...moderate, ecosystemRoute(async ({ req, res }) => {
@@ -159,7 +159,7 @@ export function createEcosystemConsoleRoutes(): Router {
     sendSuccess(res, 200, { listing: await setListedVersionDeprecation(caller, param(req, 'id'), param(req, 'version'), bodyOf(req)) });
   }));
 
-  // -- Security advisories (W8) — publishing a draft = approving its `advisory` request.
+  // -- Security advisories — publishing a draft = approving its `advisory` request.
   router.get('/advisories', ...moderate, ecosystemRoute(async ({ req, res }) => {
     sendSuccess(res, 200, { advisories: await consoleAdvisories(req.query as Record<string, unknown>) });
   }));
@@ -200,7 +200,7 @@ export function createEcosystemConsoleRoutes(): Router {
     sendSuccess(res, 200, await deleteRule(caller, param(req, 'id')));
   }));
 
-  // -- Review moderation (W4, §5) ---------------------------------------------
+  // -- Review moderation ---------------------------------------------
   router.get('/reviews', ...moderate, ecosystemRoute(async ({ req, res }) => {
     sendSuccess(res, 200, await reviewQueue(req.query as Record<string, unknown>));
   }));

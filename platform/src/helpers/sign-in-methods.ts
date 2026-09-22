@@ -18,6 +18,7 @@
  */
 
 import type { ClientSession } from 'mongoose';
+import { ACTIVE_TOTP } from './auth-factors.js';
 import { User, WebAuthnCredential, UserTotp } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
@@ -40,10 +41,9 @@ export async function loadSignInMethods(userId: string, session?: ClientSession)
   // conflict with — what a concurrent removal wrote).
   const inTx = <Q extends { session(s: ClientSession): Q }>(q: Q): Q => (session ? q.session(session) : q);
   const [user, passkeyCount, totp] = await Promise.all([
-    inTx(User.findById(userId).select('+password oauth')).lean() as Promise<
-    { password?: string; oauth?: Record<string, { id?: string } | undefined> } | null>,
+    inTx(User.findById(userId).select('+password oauth')).lean(),
     inTx(WebAuthnCredential.countDocuments({ userId })),
-    inTx(UserTotp.exists({ userId, activatedAt: { $ne: null } })),
+    inTx(UserTotp.exists({ userId, ...ACTIVE_TOTP })),
   ]);
   return {
     hasPassword: typeof user?.password === 'string' && user.password.length > 0,

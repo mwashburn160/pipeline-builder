@@ -57,7 +57,7 @@ const traceIdFormat = winston.format((info) => {
  * attributed to the org that caused them.
  *
  * `orgId` is the tenancy key for the Logs surface: promtail routes each line to
- * its org's Loki tenant from this field (see `docs/plans/frontend-logs.md`). A
+ * its org's Loki tenant from this field (see `docs/observability-logs.md`). A
  * line written outside a request scope (startup, background worker, migration)
  * has no org and lands in the sysadmin-only `_infra` tenant — fail-closed.
  */

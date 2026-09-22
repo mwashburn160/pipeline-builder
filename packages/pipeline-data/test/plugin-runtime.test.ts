@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Per-plugin runtime telemetry (plugin-ecosystem W0.1):
+ * Per-plugin runtime telemetry:
  *   - ingest stamps plugin_publisher/name/version onto action events from the
  *     pipeline's step manifest, with ONE manifest read per batch;
  *   - the runtime report / ecosystem aggregate / verified-use reads build the

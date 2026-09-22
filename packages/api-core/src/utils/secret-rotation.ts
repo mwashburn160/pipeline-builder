@@ -15,7 +15,7 @@
  * stays 1 past the overlap window. See docs/runbooks/secret-rotation.md.
  *
  * `SERVICE_SIGNING_KEY` is registered here because every service that loads
- * api-core signs its internal SERVICE tokens with its own key (#14). Its
+ * api-core signs its internal SERVICE tokens with its own key. Its
  * overlap is not an env value: while a rotation is open, the shared key bundle
  * publishes TWO public keys for this service, so the probe asks the key loader
  * whether the retiring one is still trusted. The ES256 user-token signing key is

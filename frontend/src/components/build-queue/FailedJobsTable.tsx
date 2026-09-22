@@ -136,8 +136,8 @@ export function FailedJobsTable({
                 className={`px-3 py-1.5 text-xs font-medium rounded-full border capitalize transition-colors ${
                   categoryFilter === cat
                     ? cat === 'permanent'
-                      ? 'border-red-300 dark:border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
-                      : 'border-yellow-300 dark:border-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300'
+                      ? 'border-danger-border bg-danger-bg text-danger'
+                      : 'border-warning-border bg-warning-bg text-warning'
                     : 'border-default text-fg-muted hover:bg-surface-muted'
                 }`}
               >
@@ -194,7 +194,7 @@ export function FailedJobsTable({
                   <td className="px-4 py-2.5 text-fg-muted whitespace-nowrap">
                     {job.failedAt ? <RelativeTime value={job.failedAt} /> : '—'}
                   </td>
-                  <td className="px-4 py-2.5 text-red-600 dark:text-red-400 text-xs max-w-xs">
+                  <td className="px-4 py-2.5 text-danger text-xs max-w-xs">
                     <span className="line-clamp-2" title={job.error}>{job.error || '—'}</span>
                   </td>
                   {onAction && (

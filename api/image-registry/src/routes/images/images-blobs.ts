@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  envInt,
   sendBadRequest,
   sendError,
   sendEntityNotFound,
@@ -23,7 +24,7 @@ import {
 // (typically < 50 KB). Larger payloads (layer blobs, attestations) are
 // rejected with 413 so the platform can't OOM serving a multi-GB layer.
 // Override via `REGISTRY_MAX_BLOB_PROXY_BYTES`.
-const MAX_BLOB_PROXY_BYTES = parseInt(process.env.REGISTRY_MAX_BLOB_PROXY_BYTES || String(5 * 1024 * 1024), 10);
+const MAX_BLOB_PROXY_BYTES = envInt('REGISTRY_MAX_BLOB_PROXY_BYTES', 5 * 1024 * 1024, { min: 1 });
 
 /**
  * Register the blob proxy route (gated on `registry:read`):

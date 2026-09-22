@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org-teardown half of service accounts (#2) — deliberately its OWN module.
+ * The org-teardown half of service accounts — deliberately its OWN module.
  *
  * `org-cascade-service` runs inside the org purge, and everything it imports
  * becomes part of that graph. The full `service-account-service` reaches the

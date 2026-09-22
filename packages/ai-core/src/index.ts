@@ -6,7 +6,9 @@ export {
   getProviderModels,
   resolveModel,
   createModelWithKey,
+  resolveModelSelection,
 } from './provider-registry.js';
+export type { ModelSelection, ResolvedModelSelection } from './provider-registry.js';
 
 // Grounding / retrieval for the "Ask" agent. `tokenize`, `chunkMarkdown` and
 // `buildGroundingIndex` are the index-building internals `buildDocsIndexFromFiles`
@@ -25,5 +27,5 @@ export type { AskSource } from './ask-agent.js';
 // Re-export AI SDK types consumers commonly need
 export type { LanguageModel, ToolSet } from 'ai';
 // generateText/streamText/Output for generation; tool/generateObject/stepCountIs
-// for the agent tool-calling loop (Phase 2 write tools).
+// for the agent tool-calling loop (write tools).
 export { generateText, streamText, Output, tool, generateObject, stepCountIs } from 'ai';

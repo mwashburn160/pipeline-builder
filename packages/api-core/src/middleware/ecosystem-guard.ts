@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The plugin-ecosystem governance gate (docs/plans/plugin-ecosystem.md §3.0,
- * §5a, §5a.1).
+ * The plugin-ecosystem governance gate (docs/runbooks/ecosystem-moderation.md).
  *
  * Only the system org manages or approves the ecosystem. A route that exercises
  * a system-org-only permission (`plugins:moderate`, `publishers:verify`) must
@@ -24,7 +23,9 @@
  */
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { isSystemOrgId, recordAuthzDenial, requireAssurance, requirePermission } from './auth.js';
+import { isSystemOrgId } from './system-org.js';
+import { recordAuthzDenial, requirePermission } from './permission-gates.js';
+import { requireAssurance } from './assurance.js';
 import { tagRouteGate } from './route-table.js';
 import { HttpStatus } from '../constants/http-status.js';
 import { ErrorCode } from '../types/error-codes.js';

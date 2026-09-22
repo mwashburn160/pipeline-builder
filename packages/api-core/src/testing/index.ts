@@ -14,6 +14,7 @@
  */
 
 export * from './any-fn.js';
+export * from './audit-binding.js';
 export * from './mock-api-core.js';
 export * from './mock-drizzle.js';
 export * from './route-coverage.js';

@@ -55,7 +55,7 @@ x-dev-ca: &dev-ca
 x-common-env: &common-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LOG_FORMAT: ${LOG_FORMAT:-json}
-  # INTERNAL service-to-service tokens (#14): each service signs with its OWN
+  # INTERNAL service-to-service tokens: each service signs with its OWN
   # ES256 key, mounted read-only at the path below, and verifies its peers
   # against the shared PUBLIC bundle. There is no shared signing secret left —
   # tokens that speak for a person are ES256 signed by platform alone. Both
@@ -144,6 +144,78 @@ x-ai-env: &ai-env
   OPENAI_COMPATIBLE_NAME: ${OPENAI_COMPATIBLE_NAME:-}
   OPENAI_COMPATIBLE_API_KEY: ${OPENAI_COMPATIBLE_API_KEY:-}
 
+# -- Tunables read by the shared packages (api-core, api-server, pipeline-core,
+# pipeline-data, ai-core) and therefore by every API service. Each is optional:
+# blank (the default when .env leaves it commented) means "use the code
+# default" — the shared env readers treat blank as unset. Documented in
+# .env.example / docs/environment-variables.md; a deploy contract test keeps
+# every app-read .env.example key passed through somewhere in this file.
+x-tunables-env: &tunables-env
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  BILLING_SERVICE_TIMEOUT: ${BILLING_SERVICE_TIMEOUT:-}
+  BITBUCKET_API_BASE_URL: ${BITBUCKET_API_BASE_URL:-}
+  CACHE_CLEANUP_INTERVAL_MS: ${CACHE_CLEANUP_INTERVAL_MS:-}
+  CACHE_CONTROL_DETAIL: ${CACHE_CONTROL_DETAIL:-}
+  CACHE_CONTROL_LIST: ${CACHE_CONTROL_LIST:-}
+  CODEBUILD_COMPUTE_TYPE: ${CODEBUILD_COMPUTE_TYPE:-}
+  CODEBUILD_DEFAULT_IMAGE: ${CODEBUILD_DEFAULT_IMAGE:-}
+  COMPLIANCE_VALIDATE_TIMEOUT_MS: ${COMPLIANCE_VALIDATE_TIMEOUT_MS:-}
+  COMPRESSION_THRESHOLD_BYTES: ${COMPRESSION_THRESHOLD_BYTES:-}
+  DB_MAX_RETRIES: ${DB_MAX_RETRIES:-}
+  DB_RETRY_DELAY_MS: ${DB_RETRY_DELAY_MS:-}
+  DEFAULT_PAGE_LIMIT: ${DEFAULT_PAGE_LIMIT:-}
+  DEFAULT_PLUGIN_VERSION: ${DEFAULT_PLUGIN_VERSION:-}
+  DIGEST_LOCK_TTL_MS: ${DIGEST_LOCK_TTL_MS:-}
+  DIGEST_SCHEDULER_INTERVAL_MS: ${DIGEST_SCHEDULER_INTERVAL_MS:-}
+  DORA_INCIDENT_WINDOW_HOURS: ${DORA_INCIDENT_WINDOW_HOURS:-}
+  GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:-}
+  HTTP_CLIENT_MAX_RETRIES: ${HTTP_CLIENT_MAX_RETRIES:-}
+  HTTP_CLIENT_MAX_SOCKETS: ${HTTP_CLIENT_MAX_SOCKETS:-}
+  HTTP_CLIENT_RETRY_DELAY_MS: ${HTTP_CLIENT_RETRY_DELAY_MS:-}
+  HTTP_CLIENT_TIMEOUT: ${HTTP_CLIENT_TIMEOUT:-}
+  HTTP_METRICS_ORG_SAMPLE_RATE: ${HTTP_METRICS_ORG_SAMPLE_RATE:-}
+  IDEMPOTENCY_CLEANUP_INTERVAL_MS: ${IDEMPOTENCY_CLEANUP_INTERVAL_MS:-}
+  IDEMPOTENCY_MAX_STORE_SIZE: ${IDEMPOTENCY_MAX_STORE_SIZE:-}
+  IDEMPOTENCY_PENDING_TTL_MS: ${IDEMPOTENCY_PENDING_TTL_MS:-}
+  IDEMPOTENCY_TTL_MS: ${IDEMPOTENCY_TTL_MS:-}
+  LAMBDA_ARCHITECTURE: ${LAMBDA_ARCHITECTURE:-}
+  LAMBDA_MEMORY_SIZE: ${LAMBDA_MEMORY_SIZE:-}
+  LAMBDA_RUNTIME: ${LAMBDA_RUNTIME:-}
+  LAMBDA_TIMEOUT: ${LAMBDA_TIMEOUT:-}
+  LOG_GROUP_NAME: ${LOG_GROUP_NAME:-}
+  MAX_PAGE_LIMIT: ${MAX_PAGE_LIMIT:-}
+  MAX_PROMPT_LENGTH: ${MAX_PROMPT_LENGTH:-}
+  PIPELINE_NAME_MAX_LENGTH: ${PIPELINE_NAME_MAX_LENGTH:-}
+  PLUGIN_BUILD_BACKOFF_DELAY_MS: ${PLUGIN_BUILD_BACKOFF_DELAY_MS:-}
+  PLUGIN_BUILD_COMPLETED_RETENTION_SECS: ${PLUGIN_BUILD_COMPLETED_RETENTION_SECS:-}
+  PLUGIN_BUILD_FAILED_RETENTION_SECS: ${PLUGIN_BUILD_FAILED_RETENTION_SECS:-}
+  PLUGIN_BUILD_MAX_ATTEMPTS: ${PLUGIN_BUILD_MAX_ATTEMPTS:-}
+  PLUGIN_BUILD_QUEUE_NAME: ${PLUGIN_BUILD_QUEUE_NAME:-}
+  PLUGIN_BUILD_WORKER_TIMEOUT_MS: ${PLUGIN_BUILD_WORKER_TIMEOUT_MS:-}
+  PLUGIN_DLQ_BACKOFF_BASE_MS: ${PLUGIN_DLQ_BACKOFF_BASE_MS:-}
+  PLUGIN_DLQ_MAX_ATTEMPTS: ${PLUGIN_DLQ_MAX_ATTEMPTS:-}
+  PLUGIN_DLQ_MAX_SIZE: ${PLUGIN_DLQ_MAX_SIZE:-}
+  PLUGIN_MAX_UPLOAD_MB: ${PLUGIN_MAX_UPLOAD_MB:-}
+  REPORTING_DORA_RETENTION_DAYS: ${REPORTING_DORA_RETENTION_DAYS:-}
+  REPORTING_EVENT_RETENTION_DAYS: ${REPORTING_EVENT_RETENTION_DAYS:-}
+  SCAN_LOCK_TTL_MS: ${SCAN_LOCK_TTL_MS:-}
+  SCAN_SCHEDULER_INTERVAL_MS: ${SCAN_SCHEDULER_INTERVAL_MS:-}
+  SOFT_DELETE_PURGE_ENABLED: ${SOFT_DELETE_PURGE_ENABLED:-}
+  SOFT_DELETE_PURGE_INTERVAL_HOURS: ${SOFT_DELETE_PURGE_INTERVAL_HOURS:-}
+  SOFT_DELETE_PURGE_LOCK_TTL_MS: ${SOFT_DELETE_PURGE_LOCK_TTL_MS:-}
+  SOFT_DELETE_PURGE_STARTUP_DELAY_MS: ${SOFT_DELETE_PURGE_STARTUP_DELAY_MS:-}
+  SOFT_DELETE_RETENTION_DAYS: ${SOFT_DELETE_RETENTION_DAYS:-}
+  SSE_BACKPRESSURE_THRESHOLD: ${SSE_BACKPRESSURE_THRESHOLD:-}
+  SSE_CLEANUP_INTERVAL_MS: ${SSE_CLEANUP_INTERVAL_MS:-}
+  SSE_CLIENT_TIMEOUT_MS: ${SSE_CLIENT_TIMEOUT_MS:-}
+  SSE_MAX_CLIENTS_PER_ORG: ${SSE_MAX_CLIENTS_PER_ORG:-}
+  SSE_MAX_CLIENTS_PER_REQUEST: ${SSE_MAX_CLIENTS_PER_REQUEST:-}
+  SSE_MAX_TICKETS_PER_ORG: ${SSE_MAX_TICKETS_PER_ORG:-}
+  SSE_MAX_TOTAL_TICKETS: ${SSE_MAX_TOTAL_TICKETS:-}
+  SSE_STREAM_TIMEOUT_MS: ${SSE_STREAM_TIMEOUT_MS:-}
+  TEMP_DIR_MAX_AGE_MS: ${TEMP_DIR_MAX_AGE_MS:-}
+
 # =============================================================================
 # Services
 # =============================================================================
@@ -159,7 +231,7 @@ services:
     environment:
       # Redis (x-redis-env) is how this service learns an impersonation session
       # was ended; without it impersonation tokens are rejected.
-      <<: [*common-env, *server-env, *redis-env, *ai-env]
+      <<: [*common-env, *server-env, *redis-env, *ai-env, *tunables-env]
       SERVICE_NAME: ask
     volumes:
       - *service-key-bundle
@@ -573,8 +645,37 @@ services:
     environment:
       # Redis (x-redis-env) is how this service PUBLISHES revocations and shares
       # login / step-up / leader state; without it revocations never propagate.
-      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env]
       SERVICE_NAME: platform
+      # Service tunables (blank = code default; see .env.example).
+      ALERTMANAGER_TIMEOUT_MS: ${ALERTMANAGER_TIMEOUT_MS:-}
+      ALERT_DELIVERY_TIMEOUT_MS: ${ALERT_DELIVERY_TIMEOUT_MS:-}
+      ALERT_DESTINATION_MAX_LABEL: ${ALERT_DESTINATION_MAX_LABEL:-}
+      ALERT_DESTINATION_MAX_TARGET: ${ALERT_DESTINATION_MAX_TARGET:-}
+      AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-}
+      AUTH_LIMITER_MAX: ${AUTH_LIMITER_MAX:-}
+      AUTH_LIMITER_WINDOWMS: ${AUTH_LIMITER_WINDOWMS:-}
+      AUTH_VERIFICATION_TOKEN_TTL_MS: ${AUTH_VERIFICATION_TOKEN_TTL_MS:-}
+      DASHBOARD_MAX_DESCRIPTION: ${DASHBOARD_MAX_DESCRIPTION:-}
+      DASHBOARD_MAX_NAME: ${DASHBOARD_MAX_NAME:-}
+      DASHBOARD_MAX_PANELS: ${DASHBOARD_MAX_PANELS:-}
+      DASHBOARD_MAX_PANEL_TITLE: ${DASHBOARD_MAX_PANEL_TITLE:-}
+      GOOGLE_AUTHORIZE_URL: ${GOOGLE_AUTHORIZE_URL:-}
+      GOOGLE_TOKEN_URL: ${GOOGLE_TOKEN_URL:-}
+      GOOGLE_USERINFO_URL: ${GOOGLE_USERINFO_URL:-}
+      LOGIN_ACCOUNT_LIMITER_MAX: ${LOGIN_ACCOUNT_LIMITER_MAX:-}
+      LOGIN_ACCOUNT_LIMITER_WINDOWMS: ${LOGIN_ACCOUNT_LIMITER_WINDOWMS:-}
+      OAUTH_CLEANUP_INTERVAL_MS: ${OAUTH_CLEANUP_INTERVAL_MS:-}
+      OAUTH_MAX_PENDING_STATES: ${OAUTH_MAX_PENDING_STATES:-}
+      OAUTH_STATE_TTL_MS: ${OAUTH_STATE_TTL_MS:-}
+      ORG_CASCADE_HTTP_TIMEOUT_MS: ${ORG_CASCADE_HTTP_TIMEOUT_MS:-}
+      PLATFORM_SCRAPER_INTERVAL_MS: ${PLATFORM_SCRAPER_INTERVAL_MS:-}
+      QUOTA_SERVICE_TIMEOUT: ${QUOTA_SERVICE_TIMEOUT:-}
+      WEBAUTHN_CHALLENGE_TTL_MS: ${WEBAUTHN_CHALLENGE_TTL_MS:-}
+      WEBAUTHN_MAX_PENDING_CEREMONIES: ${WEBAUTHN_MAX_PENDING_CEREMONIES:-}
+      WEBAUTHN_ORIGINS: ${WEBAUTHN_ORIGINS:-}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-}
       # Audit hash-chain HMAC key — outside the database by design (see .env.example).
       AUDIT_CHAIN_HMAC_KEY: ${AUDIT_CHAIN_HMAC_KEY}
       # Signed chain-head export to the Object-Lock `audit-heads` MinIO bucket.
@@ -597,7 +698,6 @@ services:
       BILLING_SERVICE_PORT: ${BILLING_SERVICE_PORT:-3000}
       # Security
       PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-12}
-      MAX_LOGIN_ATTEMPTS: ${MAX_LOGIN_ATTEMPTS:-5}
       # Breached-password check (HIBP k-anonymity range API) — an OUTBOUND
       # INTERNET CALL on the registration / password-change / admin-reset path.
       # Fail-open, metered as platform_password_breach_checks_total.
@@ -617,6 +717,7 @@ services:
       # Platform-only multi-tenant knobs. RLS_CONTEXT_MODE is set via
       # x-postgres-env so every postgres-backed service inherits it.
       BOOTSTRAP_SUPERADMIN_EMAILS: ${BOOTSTRAP_SUPERADMIN_EMAILS:-}
+      BOOTSTRAP_SETUP_WINDOW_MS: ${BOOTSTRAP_SETUP_WINDOW_MS:-}
       SECRET_ENCRYPTION_PER_ORG_KMS: ${SECRET_ENCRYPTION_PER_ORG_KMS:-false}
       # JWT
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
@@ -657,11 +758,6 @@ services:
       LIMITER_MULT_PRO: ${LIMITER_MULT_PRO:-}
       LIMITER_MULT_TEAM: ${LIMITER_MULT_TEAM:-}
       LIMITER_MULT_ENTERPRISE: ${LIMITER_MULT_ENTERPRISE:-}
-      # Per-tier quota reset period (seeds Organization model defaults)
-      QUOTA_TIER_DEVELOPER_RESET_PERIOD: ${QUOTA_TIER_DEVELOPER_RESET_PERIOD:-}
-      QUOTA_TIER_PRO_RESET_PERIOD: ${QUOTA_TIER_PRO_RESET_PERIOD:-}
-      QUOTA_TIER_TEAM_RESET_PERIOD: ${QUOTA_TIER_TEAM_RESET_PERIOD:-}
-      QUOTA_TIER_ENTERPRISE_RESET_PERIOD: ${QUOTA_TIER_ENTERPRISE_RESET_PERIOD:-}
       # Developer-tier limit overrides — platform seeds new-org quota defaults
       # from QUOTA_TIERS.developer.limits, so it must receive these to honor
       # operator overrides (the quota service receives the full tier matrix).
@@ -738,8 +834,20 @@ services:
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *ai-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *ai-env, *tunables-env]
       SERVICE_NAME: plugin
+      # Service tunables (blank = code default; see .env.example).
+      PLUGIN_BUILD_CONCURRENCY_DEVELOPER: ${PLUGIN_BUILD_CONCURRENCY_DEVELOPER:-}
+      PLUGIN_BUILD_CONCURRENCY_PRO: ${PLUGIN_BUILD_CONCURRENCY_PRO:-}
+      PLUGIN_BUILD_CONCURRENCY_TEAM: ${PLUGIN_BUILD_CONCURRENCY_TEAM:-}
+      PLUGIN_BUILD_CONCURRENCY_ENTERPRISE: ${PLUGIN_BUILD_CONCURRENCY_ENTERPRISE:-}
+      PLUGIN_BUILD_CONCURRENCY_UNLIMITED: ${PLUGIN_BUILD_CONCURRENCY_UNLIMITED:-}
+      PLUGIN_MAX_BUILDS_PER_ORG: ${PLUGIN_MAX_BUILDS_PER_ORG:-}
+      PLUGIN_ORG_SLOT_DELAY_MS: ${PLUGIN_ORG_SLOT_DELAY_MS:-}
+      PLUGIN_ORG_SLOT_TTL_SEC: ${PLUGIN_ORG_SLOT_TTL_SEC:-}
+      PLUGIN_QUEUE_METRICS_INTERVAL_MS: ${PLUGIN_QUEUE_METRICS_INTERVAL_MS:-}
+      PLUGIN_TIER_CACHE_TTL_MS: ${PLUGIN_TIER_CACHE_TTL_MS:-}
+      PLUGIN_UPLOAD_TIMEOUT_MS: ${PLUGIN_UPLOAD_TIMEOUT_MS:-}
       COMPLIANCE_SERVICE_HOST: ${COMPLIANCE_SERVICE_HOST:-compliance}
       COMPLIANCE_SERVICE_PORT: ${COMPLIANCE_SERVICE_PORT:-3000}
       COMPLIANCE_BYPASS: ${COMPLIANCE_BYPASS:-false}
@@ -797,13 +905,13 @@ services:
       # as the view-only ecosystem_public_reader — never as DB_USER.
       ECOSYSTEM_PUBLIC_READER_PASSWORD: ${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}
       PUBLIC_DIRECTORY_DB_NAME: ${PUBLIC_DIRECTORY_DB_NAME:-pipeline_builder_public}
-      # Plugin ecosystem flags (docs/plans/plugin-ecosystem.md §9).
+      # Plugin ecosystem flags (docs/runbooks/ecosystem-moderation.md#kill-switches).
       PUBLIC_DIRECTORY_ENABLED: ${PUBLIC_DIRECTORY_ENABLED:-true}
       PLUGIN_PUBLISHING_ENABLED: ${PLUGIN_PUBLISHING_ENABLED:-false}
       PLUGIN_REVIEWS_ENABLED: ${PLUGIN_REVIEWS_ENABLED:-true}
       ANONYMOUS_SUBMISSIONS_ENABLED: ${ANONYMOUS_SUBMISSIONS_ENABLED:-false}
       OFFICIAL_AUTO_APPROVAL_ENABLED: ${OFFICIAL_AUTO_APPROVAL_ENABLED:-true}
-      # Anonymous submissions (§4.2, W5). Quarantine builds run ONLY on the
+      # Anonymous submissions. Quarantine builds run ONLY on the
       # isolated buildkitd-quarantine below — never on BUILDKIT_HOST (no fallback:
       # the plugin service fails closed without it). The zip waits in its own
       # bucket (30-day expiry), same bucket-scoped MinIO credentials as S3_BUCKET.
@@ -919,7 +1027,7 @@ services:
 
   # ---------------------------------------------------------------------------
   # QUARANTINE BuildKit daemon — anonymous plugin submissions ONLY
-  # (docs/plans/plugin-ecosystem.md §4.2 "Isolated build pool", W5).
+  # (docs/plugin-publishing.md#submitting-without-an-account).
   #
   # Runs the Dockerfile RUN steps of zips uploaded by people who are not logged
   # in, so it is the least-trusted workload in the stack and is kept apart from
@@ -937,7 +1045,7 @@ services:
   # Compose has no FQDN egress filter, so outbound internet (package mirrors) is
   # NOT narrowed here as it is on the k8s targets' NetworkPolicies/Cilium set —
   # this target is a local dev stack, and the flag stays off by default.
-  # platform/test/deploy-quarantine-builder-contract.test.ts pins all of this.
+  # test/deploy-contracts/test/quarantine-builder-contract.test.ts pins all of this.
   # ---------------------------------------------------------------------------
   buildkitd-quarantine:
     image: 'moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88'  # moby/buildkit:v0.32.1-rootless
@@ -984,8 +1092,13 @@ services:
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *ai-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *ai-env, *tunables-env]
       SERVICE_NAME: pipeline
+      # Service tunables (blank = code default; see .env.example).
+      PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS: ${PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS:-}
+      PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS: ${PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS:-}
+      ORG_SCORECARD_MAX_PIPELINES: ${ORG_SCORECARD_MAX_PIPELINES:-}
+      ORG_SCORECARD_CONCURRENCY: ${ORG_SCORECARD_CONCURRENCY:-}
       COMPLIANCE_SERVICE_HOST: ${COMPLIANCE_SERVICE_HOST:-compliance}
       COMPLIANCE_SERVICE_PORT: ${COMPLIANCE_SERVICE_PORT:-3000}
       COMPLIANCE_BYPASS: ${COMPLIANCE_BYPASS:-false}
@@ -1011,7 +1124,7 @@ services:
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env]
       SERVICE_NAME: message
       SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
       # Message attachments — S3-compatible object storage (MinIO). Path-style +
@@ -1051,8 +1164,11 @@ services:
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *redis-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *tunables-env]
       SERVICE_NAME: reporting
+      # Service tunables (blank = code default; see .env.example).
+      REPORTING_RETENTION_ENABLED: ${REPORTING_RETENTION_ENABLED:-}
+      REPORTING_RETENTION_INTERVAL_HOURS: ${REPORTING_RETENTION_INTERVAL_HOURS:-}
     volumes:
       - *service-key-bundle
       - *dev-ca
@@ -1079,8 +1195,13 @@ services:
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env]
       SERVICE_NAME: compliance
+      # Service tunables (blank = code default; see .env.example).
+      COMPLIANCE_MAX_ATTRIBUTE_DEPTH: ${COMPLIANCE_MAX_ATTRIBUTE_DEPTH:-}
+      COMPLIANCE_MAX_ATTRIBUTE_KEYS: ${COMPLIANCE_MAX_ATTRIBUTE_KEYS:-}
+      COMPLIANCE_MAX_REGEX_LENGTH: ${COMPLIANCE_MAX_REGEX_LENGTH:-}
+      COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE: ${COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE:-}
       MESSAGE_SERVICE_HOST: message
       MESSAGE_SERVICE_PORT: '3000'
       PLUGIN_SERVICE_HOST: plugin
@@ -1114,8 +1235,10 @@ services:
     stop_grace_period: 10s
     environment:
       # server-env: NODE_ENV=production (security guards), CORS, rate limits, TRUST_PROXY.
-      <<: [*common-env, *server-env, *redis-env]
+      <<: [*common-env, *server-env, *redis-env, *tunables-env]
       SERVICE_NAME: quota
+      # Service tunables (blank = code default; see .env.example).
+      QUOTA_AT_RISK_CACHE_TTL_MS: ${QUOTA_AT_RISK_CACHE_TTL_MS:-}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
       QUOTA_DEFAULT_PLUGINS: ${QUOTA_DEFAULT_PLUGINS:-100}
@@ -1205,8 +1328,19 @@ services:
     stop_grace_period: 10s
     environment:
       # server-env: NODE_ENV=production (security guards), CORS, rate limits, TRUST_PROXY.
-      <<: [*common-env, *server-env, *redis-env]
+      <<: [*common-env, *server-env, *redis-env, *tunables-env]
       SERVICE_NAME: image-registry
+      # Service tunables (blank = code default; see .env.example).
+      REGISTRY_BLOB_STREAM_TIMEOUT_MS: ${REGISTRY_BLOB_STREAM_TIMEOUT_MS:-}
+      REGISTRY_COPY_PARALLEL_BLOBS: ${REGISTRY_COPY_PARALLEL_BLOBS:-}
+      REGISTRY_COPY_PARALLEL_CHILDREN: ${REGISTRY_COPY_PARALLEL_CHILDREN:-}
+      REGISTRY_GC_ENABLED: ${REGISTRY_GC_ENABLED:-false}
+      REGISTRY_GC_INTERVAL_HOURS: ${REGISTRY_GC_INTERVAL_HOURS:-}
+      REGISTRY_GC_MAX_AGE_DAYS: ${REGISTRY_GC_MAX_AGE_DAYS:-}
+      REGISTRY_GC_STARTUP_DELAY_MS: ${REGISTRY_GC_STARTUP_DELAY_MS:-}
+      REGISTRY_GC_LOCK_TTL_MS: ${REGISTRY_GC_LOCK_TTL_MS:-}
+      REGISTRY_MAX_BLOB_PROXY_BYTES: ${REGISTRY_MAX_BLOB_PROXY_BYTES:-}
+      REGISTRY_STORAGE_CACHE_TTL_MS: ${REGISTRY_STORAGE_CACHE_TTL_MS:-}
       PORT: ${PORT:-3000}
       # Underlying registry the proxy + management API talks to.
       IMAGE_REGISTRY_HOST: ${IMAGE_REGISTRY_HOST:-registry}
@@ -1272,8 +1406,11 @@ services:
     stop_grace_period: 10s
     environment:
       # server-env: NODE_ENV=production (security guards), CORS, rate limits, TRUST_PROXY.
-      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env]
       SERVICE_NAME: billing
+      # Service tunables (blank = code default; see .env.example).
+      BILLING_USAGE_FALLBACK_DAYS: ${BILLING_USAGE_FALLBACK_DAYS:-}
+      BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS: ${BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS:-}
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
@@ -1332,7 +1469,7 @@ services:
       # Add-on bundles (docs/billing-bundles.md) — off by default
       BILLING_BUNDLES_ENABLED: ${BILLING_BUNDLES_ENABLED:-true}
       # Per-bundle price (cents) + single-dimension grant overrides. Defaults
-      # live in packages/pipeline-core billing-config; unset = default.
+      # live in api/billing src/config/billing-config.ts; unset = default.
       BILLING_BUNDLE_SEAT_PACK_MONTHLY: ${BILLING_BUNDLE_SEAT_PACK_MONTHLY:-}
       BILLING_BUNDLE_SEAT_PACK_ANNUAL: ${BILLING_BUNDLE_SEAT_PACK_ANNUAL:-}
       BILLING_BUNDLE_SEAT_PACK_GRANT: ${BILLING_BUNDLE_SEAT_PACK_GRANT:-}
@@ -1545,8 +1682,8 @@ services:
         # each after its build, but expire after 7 days as a backstop so a missed
         # delete (crash between build + cleanup) can't grow the bucket unbounded.
         run_ok "ilm expire plugins" mc ilm rule add --expire-days 7 local/plugins
-        # plugin-quarantine holds anonymous-submission zips (plugin-ecosystem
-        # §4.2): 30 days is the quarantine retention promise (§8, G46), the same
+        # plugin-quarantine holds anonymous-submission zips —
+        # 30 days is the quarantine retention promise, the same
         # window as a pending submission's expiry and the quarantine/* registry GC.
         run_ok "ilm expire plugin-quarantine" mc ilm rule add --expire-days 30 local/plugin-quarantine
         make_user() {  # $1=bucket  $2=policy  $3=access  $4=secret

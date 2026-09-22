@@ -5,7 +5,7 @@
  * The plugin PACKAGE schemas: `plugin-spec.yaml` and `config.yaml`, exactly as
  * the plugin service validates an upload. Shared from api-core so the upload
  * path (api/plugin) and the CLI (`pipeline-manager plugin validate` /
- * `plugin publish`) apply ONE schema and can't drift (plugin-ecosystem W6).
+ * `plugin publish`) apply ONE schema and can't drift.
  *
  * Pure: no YAML parsing, no filesystem. Callers parse (with their own size and
  * alias bounds) and hand the resulting object to {@link checkPluginSpec} /
@@ -14,8 +14,9 @@
 
 import { z } from 'zod';
 
+import { PLUGIN_CHANGELOG_MAX_BYTES } from '../types/plugin-catalog.js';
 import {
-  IconKeySchema, PLUGIN_CATALOG_FIELD_SCHEMAS, PLUGIN_CHANGELOG_MAX_BYTES, ProjectUrlSchema, isAllowedSpdxId,
+  IconKeySchema, PLUGIN_CATALOG_FIELD_SCHEMAS, ProjectUrlSchema, isAllowedSpdxId,
 } from './plugin-catalog-metadata.js';
 
 // -----------------------------------------------------------------------------
@@ -34,7 +35,7 @@ export const PLUGIN_NAME_PATTERN = /^[a-z0-9-]+$/;
 export const PLUGIN_VERSION_PATTERN = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
 
 // -----------------------------------------------------------------------------
-// network.egress (spec-only trust metadata, W0.2)
+// network.egress (spec-only trust metadata)
 // -----------------------------------------------------------------------------
 
 /** Max declared `network.egress` hostnames. */
@@ -122,7 +123,7 @@ export const PluginSpecSchema = z.object({
   // A command the build tooling runs against the built image
   // (build-plugin-images.sh, test-plugins.sh --build, `plugin test`).
   smokeTest: z.string().optional(),
-  // Documentation + trust metadata (W0.2). The README is NOT a spec field — it
+  // Documentation + trust metadata. The README is NOT a spec field — it
   // is README.md at the zip root.
   license: z.string().refine(isAllowedSpdxId, {
     message: 'must be a supported SPDX license identifier (e.g. Apache-2.0, MIT)',
@@ -132,7 +133,7 @@ export const PluginSpecSchema = z.object({
   }).optional(),
   homepageUrl: ProjectUrlSchema.optional(),
   sourceUrl: ProjectUrlSchema.optional(),
-  // Catalog metadata (§3.1a, G53): the card one-liner and the docs link. Same
+  // Catalog metadata: the card one-liner and the docs link. Same
   // validators as a value typed into the upload form.
   summary: PLUGIN_CATALOG_FIELD_SCHEMAS.summary.optional(),
   documentationUrl: ProjectUrlSchema.optional(),

@@ -9,7 +9,7 @@ const auth = [{ bearerAuth: [] }];
 const publicTags = ['Public plugin directory'];
 
 export function registerPluginRoutes(): void {
-  // -- Anonymous public directory (plugin-ecosystem §6a). No auth; nginx serves
+  // -- Anonymous public directory. No auth; nginx serves
   //    these at /api/public/* with credentials stripped. Off → every route 404s.
   registry.registerPath({
     method: 'get',

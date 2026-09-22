@@ -1,12 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import {
+  BILLING_INTERVALS, SUBSCRIPTION_STATUSES, type BillingInterval, type SubscriptionStatus,
+} from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 
 // Types
 
-export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete';
-export type BillingInterval = 'monthly' | 'annual';
+export type { BillingInterval, SubscriptionStatus };
 
 export interface SubscriptionDocument extends Document {
   orgId: string;
@@ -71,12 +73,12 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
     planId: { type: String, required: true },
     status: {
       type: String,
-      enum: ['active', 'canceled', 'past_due', 'trialing', 'incomplete'],
+      enum: SUBSCRIPTION_STATUSES,
       default: 'active',
     },
     interval: {
       type: String,
-      enum: ['monthly', 'annual'],
+      enum: BILLING_INTERVALS,
       default: 'monthly',
     },
     currentPeriodStart: { type: Date, required: true },

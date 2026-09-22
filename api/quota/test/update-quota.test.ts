@@ -8,8 +8,8 @@
  * those are tested separately in authorize-org.test.ts.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -46,6 +46,7 @@ class MockValidationError extends MockAppError {
 }
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitQuotaAudit,
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendQuotaExceeded: mockSendQuotaExceeded,
@@ -134,10 +135,6 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
 }));
 
 const mockEmitQuotaAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitQuotaAudit: mockEmitQuotaAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 // Org → team hierarchy: stub as flat so the shared-root-cap pre-check in
 // incrementUsage short-circuits (no DB walk). Hierarchy logic is covered by

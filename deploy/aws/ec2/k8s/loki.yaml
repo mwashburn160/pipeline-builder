@@ -96,8 +96,8 @@ spec:
           # Loki's /ready stays red until it can reach its S3 (MinIO) backend,
           # which the minio-init Job provisions AFTER Loki starts. Gate liveness
           # behind a generous startup window so a cold MinIO doesn't trigger a
-          # liveness-kill loop on a fresh provision (previously ~6 restarts
-          # before the bucket/user existed). While startupProbe runs, liveness
+          # liveness-kill loop on a fresh provision (~6 restarts before the
+          # bucket/user exists). While startupProbe runs, liveness
           # and readiness are suspended; up to 10*30 = 300s for MinIO.
           startupProbe:
             httpGet:

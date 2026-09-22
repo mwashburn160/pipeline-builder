@@ -7,7 +7,7 @@
  *
  *  - GET /internal/plugins/public-names?orgId= — image-registry → the names of
  *    an org's live `public` plugins: the only repositories of that org's
- *    namespace its TEAMS may pull (E22).
+ *    namespace its TEAMS may pull.
  */
 
 import { ErrorCode, requireInternalService, sendBadRequest, sendSuccess } from '@pipeline-builder/api-core';

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Sysadmin DIRECT MFA reset (#8), mounted at `/admin/users/:id/mfa-reset`.
+ * Sysadmin DIRECT MFA reset, mounted at `/admin/users/:id/mfa-reset`.
  *
  * The single-person path, for an org that has no second owner/admin to approve
  * a two-person request (`/organization/:id/mfa-resets`). A sysadmin with an

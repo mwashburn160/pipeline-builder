@@ -22,10 +22,7 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn<AnyFn>() } }));
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 jest.mock('@/components/onboarding/OrgSetupStep', () => ({ __esModule: true, OrgSetupStep: () => null }));
 // Search immediately — the debounce is not what's under test.
 jest.mock('@/hooks/useDebounce', () => ({ __esModule: true, useDebounce: (v: unknown) => v }));

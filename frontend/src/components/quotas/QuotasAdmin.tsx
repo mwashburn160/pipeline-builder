@@ -15,11 +15,12 @@ import { formatError, QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
 import type { AtRiskDimension } from '@/lib/api/domains/admin';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
+import { getTierMeta } from '@/lib/tiers';
 import { QuotaCard } from './QuotaCard';
 import { OrgListItem } from './OrgListItem';
 import { CurrentTierPanel } from './CurrentTierPanel';
 import {
-  AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_KEYS, TIER_PRESETS, pillClassFor, POOLING_TITLE, poolingExplanation, type TierPreset,
+  AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_KEYS, TIER_PRESETS, POOLING_TITLE, poolingExplanation, type TierPreset,
 } from './constants';
 
 /**
@@ -118,10 +119,10 @@ export function QuotasAdmin({
   };
   const titleExtra = !loading && orgData ? (
     <div className="hidden sm:flex items-center gap-2">
-      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-info-bg text-blue-800 dark:text-blue-300 font-mono">
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-info-bg text-info-strong font-mono">
         {orgData.orgId}
       </span>
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${pillClassFor(editTier)}`}>
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getTierMeta(editTier).pillClass}`}>
         <span className={`w-1.5 h-1.5 rounded-full ${tierPresets[editTier].color}`} />
         {tierPresets[editTier].label}
       </span>
@@ -213,9 +214,9 @@ export function QuotasAdmin({
                 that org in the sidebar. Stays on screen at every cut-off, since
                 "nobody is exhausted" is the answer an operator came for. */}
             {isSuperAdmin && (
-              <div className="mb-6 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-4">
+              <div className="mb-6 rounded-lg border border-warning-border bg-warning-bg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                  <h3 className="text-sm font-semibold text-warning-strong">
                     {atRisk.length} org{atRisk.length !== 1 ? 's' : ''}{' '}
                     {atRiskThreshold >= 100 ? 'already exhausted on a quota' : `at risk (≥${atRiskThreshold}% on a quota)`}
                   </h3>
@@ -239,14 +240,14 @@ export function QuotasAdmin({
                       variant="ghost"
                       size="xs"
                       onClick={fetchAtRisk}
-                      className="text-xs text-amber-800 dark:text-amber-200 underline hover:no-underline"
+                      className="text-xs text-warning-strong underline hover:no-underline"
                     >
                       Refresh
                     </Button>
                   </div>
                 </div>
                 {atRisk.length === 0 && (
-                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                  <p className="text-sm text-warning-strong">
                     {atRiskThreshold >= 100
                       ? 'No organization has exhausted a quota.'
                       : `No organization is at ${atRiskThreshold}% or more on any quota.`}
@@ -258,17 +259,17 @@ export function QuotasAdmin({
                       <Button
                         variant="link"
                         onClick={() => handleSelectOrg(entry.orgId)}
-                        className="text-amber-900 dark:text-amber-100"
+                        className="text-warning-strong"
                       >
                         <span className="font-medium">{entry.name}</span>
-                        <span className="ml-2 text-amber-700 dark:text-amber-300">
+                        <span className="ml-2 text-warning">
                           {QUOTA_TYPE_LABEL[entry.type] ?? entry.type} {entry.percent}% ({entry.used}/{entry.limit})
                         </span>
                       </Button>
                     </li>
                   ))}
                   {atRisk.length > 10 && (
-                    <li className="text-xs text-amber-700 dark:text-amber-300">
+                    <li className="text-xs text-warning">
                       …and {atRisk.length - 10} more
                     </li>
                   )}
@@ -284,10 +285,10 @@ export function QuotasAdmin({
 
             {!loading && pooledTeam && (
               <div className="mb-6 rounded-lg border border-info-border bg-info-bg p-4" role="note">
-                <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                <h3 className="text-sm font-semibold text-info-strong mb-1">
                   {POOLING_TITLE}
                 </h3>
-                <p className="text-sm text-blue-800 dark:text-blue-200">
+                <p className="text-sm text-info-strong">
                   This is a team, so its tier is inherited too.{' '}
                   {poolingExplanation('team', pooledTeam.rootOrgName || undefined, pooledTeam.orgCount - 1)}{' '}
                   Change the tier or limits on the root organization.
@@ -347,7 +348,7 @@ export function QuotasAdmin({
                           isSelected
                             ? 'ring-2 ring-blue-500 dark:ring-blue-400 border-info-border'
                             : isSuperAdmin
-                              ? 'hover:border-gray-300 dark:hover:border-gray-600 cursor-pointer'
+                              ? 'hover:border-default cursor-pointer'
                               : 'opacity-60'
                         }`}
                       >
@@ -418,8 +419,8 @@ export function QuotasAdmin({
       </div>
 
       {/* Step-up gated: the step-up dialog IS the confirmation, and its token
-          rides the request (sent bare, the global dialog's replay reset the
-          counters while this page kept showing the old figures). */}
+          rides the request (sent bare, the global dialog's replay would reset
+          the counters while this page kept showing stale figures). */}
       {resetOpen && orgData && (
         <StepUpModal
           title="Reset usage counters?"
@@ -433,7 +434,7 @@ export function QuotasAdmin({
                 before the natural period reset. Quota <strong>limits</strong> and tier are
                 left unchanged.
               </p>
-              <p className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+              <p className="rounded border border-warning-border bg-warning-bg px-3 py-2 text-xs text-warning-strong">
                 This is an operational reset that affects what the org can consume this
                 period. It is audit-logged and cannot be undone.
               </p>

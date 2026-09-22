@@ -23,7 +23,7 @@ import type { AdvisoryView } from '@/types/ecosystem';
 import { describePublishError } from './PublishRequestForm';
 
 /**
- * The publisher's security advisories (plan W8). Readable with `plugins:read`
+ * The publisher's security advisories. Readable with `plugins:read`
  * (the server's gate on the list); REQUESTING or withdrawing one is
  * `publishers:manage` — `canManage`. A publisher only ever REQUESTS an advisory: it lands as a private draft the
  * system org publishes (or discards). Drafts the nightly CVE rescan created for
@@ -53,7 +53,7 @@ export function PublisherAdvisoriesPanel({ canManage }: { canManage: boolean }) 
       await api.withdrawPublishRequest(withdrawing.requestId);
       toast.success('Advisory request withdrawn');
       setWithdrawing(null);
-      advisoriesQ.refetch();
+      void advisoriesQ.refetch();
     } catch (err) {
       toast.error(formatError(err, 'Could not withdraw the request'));
     } finally {
@@ -127,7 +127,7 @@ export function PublisherAdvisoriesPanel({ canManage }: { canManage: boolean }) 
             }
             toast.success('Advisory submitted. The ecosystem team will review it.');
             setSubmitting(false);
-            advisoriesQ.refetch();
+            void advisoriesQ.refetch();
           }}
           onClose={() => setSubmitting(false)}
         />

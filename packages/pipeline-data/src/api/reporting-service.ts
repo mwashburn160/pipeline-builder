@@ -3,7 +3,7 @@
 
 import { createLogger, errorMessage, scrubAwsIdentifiers, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
 import { eq, inArray, sql } from 'drizzle-orm';
-import { drizzleRows } from './crud-service.js';
+import { drizzleRows, type CrudTx } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
 import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
 
@@ -21,42 +21,150 @@ import {
   getPluginRuntimeAggregate as pluginRuntimeAggregate,
   hasVerifiedPluginUse as verifiedPluginUse,
 } from './reporting/plugin-runtime.js';
-import { orgScope, runReport } from './reporting/query-scope.js';
+import { report } from './reporting/query-scope.js';
 // Aliased: the module functions and the delegating methods below share names.
 import {
   REPORTING_EVENT_RETENTION_DAYS, REPORTING_DORA_RETENTION_DAYS,
   resolveEventRetentionDays, resolveDoraRetentionDays, retentionCutoff,
 } from './reporting/retention.js';
-import { assertReportInterval, scrubOptional, optionalStartedAtRange } from './reporting/sql-helpers.js';
+import { assertReportInterval, scrubOptional, optionalStartedAtRange, startedAtWindow } from './reporting/sql-helpers.js';
 import type {
   ExecutionCount, TimeSeriesEntry, DurationStats, PipelineExecution, StageFailure, StageBottleneck,
   ActionFailure, ErrorEntry, PluginSummary, TypeComputeDistribution, VersionCount,
   BuildTimeSeriesEntry, BuildDuration, BuildFailure,
   PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionOptions, ReportingRetentionCounts,
-  DoraOptions, IncidentSettings, ReportingSettingsPatch, IncidentListItem, IncidentTestResult,
+  DoraOptions, ReportingSettings, ReportingSettingsPatch, IncidentListItem, IncidentTestResult,
   DoraMetrics, DoraTrendPoint, BuildHealth, IncidentInput,
   IngestEvent, IngestMetric, IngestResult, IngestHealthStatus,
 } from './reporting/types.js';
 
-// Re-export EXACTLY the surface this module had before the split — no more.
-// `src/index.ts` does `export * from './api/reporting-service.js'`, so anything
-// re-exported here becomes part of the package's public API. Enumerated rather
-// than `export *` for that reason: the extracted modules also export internals
-// (orgScope, runReport, the caches, the DORA row shapes) that were private
-// before and must stay that way.
+// The reporting types that are part of the package API. Enumerated rather than
+// `export *` because the reporting modules also export internals (orgScope,
+// runReport, the caches, the DORA row shapes) that must stay private.
 export type {
   BuildHealth, BuildHealthStage, DoraEnvMetrics, DoraLevel, DoraMetrics, DoraOptions, DoraTrendPoint,
-  IncidentInput, IncidentListItem, IncidentSettings, IncidentTestResult,
+  IncidentInput, IncidentListItem, ReportingSettings, IncidentTestResult,
   IngestEvent, IngestHealthStatus, IngestMetric, IngestResult,
   PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionCounts, ReportingRetentionOptions, ReportingRetentionSettings,
   ReportingSettingsPatch,
 } from './reporting/types.js';
-export { resolveDoraRetentionDays, resolveEventRetentionDays, retentionCutoff } from './reporting/retention.js';
 
 
 const logger = createLogger('reporting-service');
+
+type PipelineEventInsert = typeof schema.pipelineEvent.$inferInsert;
+
+/** The plugin a pipeline step runs, from the step manifest its last deploy registered. */
+interface StepPlugin {
+  orgId: string;
+  pluginPublisher: string | null;
+  pluginPublisherId: string | null;
+  pluginName: string | null;
+  pluginVersion: string | null;
+}
+
+/** An action/build event that can be attributed to a plugin step. */
+function isAttributable(e: IngestEvent): boolean {
+  return (e.eventType === 'ACTION' || e.eventType === 'BUILD')
+    && (e.eventSource === 'codepipeline' || e.eventSource === 'codebuild')
+    && !!e.stageName && !!e.actionName;
+}
+
+function stepKey(pipelineId: string, stageName: string, actionName: string): string {
+  return `${pipelineId}\u0000${stageName}\u0000${actionName}`;
+}
+
+/**
+ * Plugin attribution: the step manifests of every pipeline with an attributable
+ * event, in ONE read per batch, keyed for an in-memory join. Names are compared
+ * post-scrub on both sides (the manifest stores them scrubbed the same way).
+ */
+async function loadStepPlugins(tx: CrudTx, attributable: IngestEvent[]): Promise<Map<string, StepPlugin>> {
+  const pipelineIds = [...new Set(attributable.map((e) => e.pipelineId))];
+  if (pipelineIds.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      pipelineId: schema.pipelineStepManifest.pipelineId,
+      orgId: schema.pipelineStepManifest.orgId,
+      stageName: schema.pipelineStepManifest.stageName,
+      actionName: schema.pipelineStepManifest.actionName,
+      pluginPublisher: schema.pipelineStepManifest.pluginPublisher,
+      pluginPublisherId: schema.pipelineStepManifest.pluginPublisherId,
+      pluginName: schema.pipelineStepManifest.pluginName,
+      pluginVersion: schema.pipelineStepManifest.pluginVersion,
+    })
+    .from(schema.pipelineStepManifest)
+    .where(inArray(schema.pipelineStepManifest.pipelineId, pipelineIds));
+  return new Map(rows.map((m) => [stepKey(m.pipelineId, m.stageName, m.actionName), m]));
+}
+
+/**
+ * The persisted row for one ingested event. This is the DURABLE persistence
+ * boundary: every user/AWS-derived free-form string is scrubbed here, and
+ * tenancy comes from the pipeline registry, never the caller's claimed org.
+ */
+function toEventRow(event: IngestEvent, registry: { pipelineId: string; orgId: string }, plugin: StepPlugin | undefined): PipelineEventInsert {
+  return {
+    // registry.pipelineId === event.pipelineId; the registry's is always a row
+    // that exists (FK) and its orgId is the trusted tenant.
+    pipelineId: registry.pipelineId,
+    orgId: registry.orgId,
+    eventSource: event.eventSource,
+    eventType: event.eventType,
+    status: event.status,
+    // An AWS-ASSIGNED UUID, not free-form text: it can't carry an account id,
+    // and scrubbing a 12-digit run inside it would corrupt the correlation key.
+    executionId: event.executionId,
+    // USER-AUTHORED pipeline-structure names — same untrusted origin as
+    // errorMessage, so scrubbed (a stage named with an ARN must not persist).
+    stageName: scrubOptional(event.stageName),
+    actionName: scrubOptional(event.actionName),
+    // HARD CONSTRAINT: an AWS account id must NEVER be persisted. Failure detail
+    // and messages routinely carry ARNs and bare 12-digit account ids.
+    errorMessage: scrubOptional(event.errorMessage),
+    startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
+    completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
+    durationMs: event.durationMs,
+    // Deploy attribution — scrubbed like the other free-form strings.
+    commitSha: scrubOptional(event.commitSha),
+    commitRef: scrubOptional(event.commitRef),
+    environment: scrubOptional(event.environment),
+    // Measured lead time: the oldest unshipped commit's time + the count. An
+    // SCM-derived instant and a plain integer — nothing to scrub.
+    commitTimestamp: event.commitTimestamp ? new Date(event.commitTimestamp) : undefined,
+    commitCount: event.commitCount,
+    // NULL for non-plugin actions and for pipelines deployed without a manifest.
+    pluginPublisher: plugin?.pluginPublisher ?? null,
+    pluginPublisherId: plugin?.pluginPublisherId ?? null,
+    pluginName: plugin?.pluginName ?? null,
+    pluginVersion: plugin?.pluginVersion ?? null,
+    detail: event.detail !== undefined ? scrubAwsIdentifiers(event.detail) : undefined,
+  };
+}
+
+/**
+ * Fan terminal STAGE outcomes into the route's metric hook (pipeline-data can't
+ * import api-server's registry) after the insert commits. Driven off the
+ * INSERTED rows, so a re-delivered event the dedup index swallowed is never
+ * counted twice. A non-null environment marks a deploy.
+ */
+function emitStageMetrics(
+  rows: ReadonlyArray<{ orgId: string; pipelineId: string | null; eventType: string; status: string; stageName: string | null; environment: string | null }>,
+  onMetric: (m: IngestMetric) => void,
+): void {
+  for (const r of rows) {
+    if (r.eventType !== 'STAGE' || (r.status !== 'SUCCEEDED' && r.status !== 'FAILED') || !r.pipelineId) continue;
+    onMetric({
+      pipelineId: r.pipelineId,
+      orgId: r.orgId,
+      stage: r.stageName ?? '',
+      environment: r.environment ?? null,
+      result: r.status === 'SUCCEEDED' ? 'succeeded' : 'failed',
+    });
+  }
+}
 
 export class ReportingService {
 
@@ -85,12 +193,9 @@ export class ReportingService {
     // org>` could only write events for that org; bypass via sysadmin is
     // the right gate for this server-internal cross-tenant endpoint. See
     // api/reporting/src/routes/event-ingest.ts for the wrapper.
-    // Run insert inside the tx, but COLLECT affected orgs and invalidate
-    // caches AFTER the tx resolves. Keeping invalidation inside the tx held
-    // the pg locks open for the duration of the cache round-trips (Redis or
-    // in-memory invalidations are unrelated to the tx but still serialized
-    // its commit). Cache TTL is 2-5 min so fire-and-forget post-commit is
-    // an acceptable trade for tighter lock windows.
+    // Caches are invalidated AFTER the tx resolves: doing it inside held the pg
+    // locks open across unrelated cache round-trips. The TTL is 2-5 min, so a
+    // fire-and-forget post-commit invalidation is an acceptable trade.
     const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, insertedRows } = await withTenantTx(async (tx) => {
       // Batch-resolve all unique pipeline ids in one query
       const uniqueIds = [...new Set(events.map(e => e.pipelineId))];
@@ -103,39 +208,10 @@ export class ReportingService {
         .where(inArray(schema.pipelineRegistry.pipelineId, uniqueIds));
 
       const idMap = new Map(registryRows.map(r => [r.pipelineId, r]));
-
-      // Plugin attribution (W0.1): stamp each action event with the plugin its
-      // (pipeline, stage, action) runs, from the step manifest the pipeline's
-      // last deploy registered. ONE manifest read per batch — every step of
-      // every pipeline with an attributable event — then an in-memory join.
-      // Names are compared post-scrub on both sides (the manifest stores them
-      // scrubbed the same way), so a scrubbed name still matches.
-      const attributable = (e: IngestEvent) =>
-        (e.eventType === 'ACTION' || e.eventType === 'BUILD')
-        && (e.eventSource === 'codepipeline' || e.eventSource === 'codebuild')
-        && !!e.stageName && !!e.actionName && idMap.has(e.pipelineId);
-      const stepKey = (pipelineId: string, stageName: string, actionName: string) =>
-        `${pipelineId}\u0000${stageName}\u0000${actionName}`;
-      const manifestPipelineIds = [...new Set(events.filter(attributable).map(e => e.pipelineId))];
-      const manifestRows = manifestPipelineIds.length > 0
-        ? await tx
-          .select({
-            pipelineId: schema.pipelineStepManifest.pipelineId,
-            orgId: schema.pipelineStepManifest.orgId,
-            stageName: schema.pipelineStepManifest.stageName,
-            actionName: schema.pipelineStepManifest.actionName,
-            pluginPublisher: schema.pipelineStepManifest.pluginPublisher,
-            pluginPublisherId: schema.pipelineStepManifest.pluginPublisherId,
-            pluginName: schema.pipelineStepManifest.pluginName,
-            pluginVersion: schema.pipelineStepManifest.pluginVersion,
-          })
-          .from(schema.pipelineStepManifest)
-          .where(inArray(schema.pipelineStepManifest.pipelineId, manifestPipelineIds))
-        : [];
-      const stepPlugins = new Map(manifestRows.map(m => [stepKey(m.pipelineId, m.stageName, m.actionName), m]));
+      const stepPlugins = await loadStepPlugins(tx, events.filter((e) => isAttributable(e) && idMap.has(e.pipelineId)));
 
       // Build insert batch (skip events whose pipeline isn't registered)
-      const rows: Array<typeof schema.pipelineEvent.$inferInsert> = [];
+      const rows: PipelineEventInsert[] = [];
       let skippedLocal = 0;
       const unregisteredLocal: string[] = [];
 
@@ -146,66 +222,14 @@ export class ReportingService {
           unregisteredLocal.push(event.pipelineId);
           continue;
         }
-
         const stageName = scrubOptional(event.stageName);
         const actionName = scrubOptional(event.actionName);
-        const step = attributable(event) && stageName && actionName
+        const step = isAttributable(event) && stageName && actionName
           ? stepPlugins.get(stepKey(registry.pipelineId, stageName, actionName))
           : undefined;
         // Same-org guard: a manifest row is only ever written by the org that
         // owns the pipeline, but the ingest runs cross-tenant, so don't lean on it.
-        const plugin = step && step.orgId === registry.orgId ? step : undefined;
-
-        rows.push({
-          // registry.pipelineId === event.pipelineId; use the registry's so the
-          // FK is always a row that exists, and pull orgId from the registry for
-          // tenancy (never trust the caller's claimed org).
-          pipelineId: registry.pipelineId,
-          orgId: registry.orgId,
-          eventSource: event.eventSource,
-          eventType: event.eventType,
-          status: event.status,
-          // executionId is an AWS-ASSIGNED identifier (a UUID), not free-form
-          // user text, so it can't carry an account id — and scrubbing a UUID
-          // that happens to contain a 12-digit run would corrupt the correlation
-          // key. Left intact by design.
-          executionId: event.executionId,
-          // stageName/actionName are USER-AUTHORED pipeline-structure names
-          // promoted from the CodePipeline detail — same untrusted-AWS-derived
-          // origin as errorMessage below, so scrub them at this persistence
-          // boundary too (a stage named with an ARN/12-digit id must not persist).
-          stageName,
-          actionName,
-          // HARD CONSTRAINT: an AWS account id must NEVER be persisted. This is
-          // the DURABLE persistence boundary and must not trust upstream:
-          // CodePipeline/CodeBuild failure detail & messages routinely carry
-          // ARNs (arn:aws:…:<account-id>:…) and bare 12-digit account ids. Scrub
-          // both free-form fields here before insert (per-event, non-mutating).
-          errorMessage: scrubOptional(event.errorMessage),
-          startedAt: event.startedAt ? new Date(event.startedAt) : undefined,
-          completedAt: event.completedAt ? new Date(event.completedAt) : undefined,
-          durationMs: event.durationMs,
-          // Deploy-attribution fields — scrubbed like the other free-form strings
-          // so an ARN/account id can never enter via a ref or environment name.
-          commitSha: scrubOptional(event.commitSha),
-          commitRef: scrubOptional(event.commitRef),
-          environment: scrubOptional(event.environment),
-          // Measured lead time (Phase 4): oldest unshipped commit time + count.
-          // commitTimestamp is an AWS/SCM-derived instant (never account-id
-          // shaped); commitCount is a plain integer. Neither needs scrubbing.
-          commitTimestamp: event.commitTimestamp ? new Date(event.commitTimestamp) : undefined,
-          commitCount: event.commitCount,
-          // Plugin attribution from the step manifest (NULL for non-plugin
-          // actions and for pipelines deployed before the manifest existed).
-          pluginPublisher: plugin?.pluginPublisher ?? null,
-          pluginPublisherId: plugin?.pluginPublisherId ?? null,
-          pluginName: plugin?.pluginName ?? null,
-          pluginVersion: plugin?.pluginVersion ?? null,
-          detail: event.detail !== undefined
-            ? scrubAwsIdentifiers(event.detail)
-            : undefined,
-        });
-
+        rows.push(toEventRow(event, registry, step && step.orgId === registry.orgId ? step : undefined));
       }
 
       // SQS is at-least-once, so EventBridge can deliver the same state-change
@@ -235,24 +259,7 @@ export class ReportingService {
       };
     });
 
-    // Phase 3b: fan terminal STAGE outcomes into Prometheus counters via the
-    // route's hook (pipeline-data can't import api-server's registry), after the
-    // insert COMMITS. Driven off the INSERTED rows — not the request batch — so a re-delivered event
-    // the dedup index swallowed is never counted twice (counters, unlike the
-    // table, have no idempotency of their own). Values are the persisted,
-    // already-scrubbed columns. A non-null environment also marks a deploy.
-    if (onMetric) {
-      for (const r of insertedRows) {
-        if (r.eventType !== 'STAGE' || (r.status !== 'SUCCEEDED' && r.status !== 'FAILED') || !r.pipelineId) continue;
-        onMetric({
-          pipelineId: r.pipelineId,
-          orgId: r.orgId,
-          stage: r.stageName ?? '',
-          environment: r.environment ?? null,
-          result: r.status === 'SUCCEEDED' ? 'succeeded' : 'failed',
-        });
-      }
-    }
+    if (onMetric) emitStageMetrics(insertedRows, onMetric);
 
     // Surface the silent skip: an unregistered pipeline id usually means the
     // pipeline hasn't called POST /pipelines/registry yet (or its
@@ -281,9 +288,8 @@ export class ReportingService {
   // ── Category 1: Pipeline Execution & Performance ──
 
 
-  /** 1.1 Execution count per pipeline with status breakdown. */
+  /** Execution count per pipeline with status breakdown. */
   async getExecutionCount(orgId: string, orgIds?: string[], range?: { from?: string; to?: string }): Promise<ExecutionCount[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
     // Optional [from,to] window on the execution's started_at, mirroring the
     // sibling timeseries reports so the dashboard date-range picker narrows the
     // count too (an empty range = all-time, preserving the prior behavior). The
@@ -291,7 +297,7 @@ export class ReportingService {
     // (LEFT semantics preserved via the inner-join filter — a pipeline with zero
     // matching events drops from the count, same as before for its window).
     const rangeClause = optionalStartedAtRange(range);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<ExecutionCount>(`exec-count:${range?.from ?? ''}:${range?.to ?? ''}`, orgId, orgIds, (pred) => sql`
         SELECT
           p.id, p.project, p.organization, p.pipeline_name,
           COUNT(*)::int AS total,
@@ -307,12 +313,11 @@ export class ReportingService {
         WHERE p.org_id ${pred} AND p.is_active = true
         GROUP BY p.id
         ORDER BY total DESC
-      `).then(r => drizzleRows<ExecutionCount>(r.rows)));
-    return runReport(`${orgId}:exec-count:${range?.from ?? ''}:${range?.to ?? ''}`, multi, exec);
+      `);
   }
 
   /**
-   * 1.1b Per-pipeline execution history — DISTINCT executions for one pipeline,
+   * Per-pipeline execution history — DISTINCT executions for one pipeline,
    * newest first. Groups all events by `execution_id` in a single scan and
    * rolls each execution up to one row:
    *   - status: derived from the PIPELINE-type events. FAILED wins, then
@@ -334,9 +339,8 @@ export class ReportingService {
     range?: { from?: string; to?: string },
     limit: number = 50,
   ): Promise<PipelineExecution[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
     const rangeClause = optionalStartedAtRange(range);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<PipelineExecution>(`pipeline-executions:${pipelineId}:${range?.from ?? ''}:${range?.to ?? ''}:${limit}`, orgId, orgIds, (pred) => sql`
         SELECT
           e.execution_id,
           CASE
@@ -357,15 +361,13 @@ export class ReportingService {
         GROUP BY e.execution_id
         ORDER BY MAX(e.created_at) DESC
         LIMIT ${limit}
-      `).then(r => drizzleRows<PipelineExecution>(r.rows)));
-    return runReport(`${orgId}:pipeline-executions:${pipelineId}:${range?.from ?? ''}:${range?.to ?? ''}:${limit}`, multi, exec);
+      `);
   }
 
-  /** 1.2 Success rate over time for an org. */
+  /** Success rate over time for an org. */
   async getSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[]): Promise<TimeSeriesEntry[]> {
     assertReportInterval(interval);
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<TimeSeriesEntry>(`success-rate:${interval}:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
           DATE_TRUNC(${interval}, e.started_at)::text AS period,
           COUNT(*) FILTER (WHERE e.status = 'SUCCEEDED')::int AS succeeded,
@@ -377,16 +379,14 @@ export class ReportingService {
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'PIPELINE'
           AND e.status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY period ORDER BY period
-      `).then(r => drizzleRows<TimeSeriesEntry>(r.rows)));
-    return runReport(`${orgId}:success-rate:${interval}:${from}:${to}`, multi, exec);
+      `);
   }
 
-  /** 1.3 Average duration per pipeline. */
+  /** Average duration per pipeline. */
   async getAverageDuration(orgId: string, from: string, to: string, orgIds?: string[]): Promise<DurationStats[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<DurationStats>(`avg-duration:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
           p.id, p.project, p.pipeline_name,
           AVG(e.duration_ms)::int AS avg_ms,
@@ -397,16 +397,14 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'PIPELINE' AND e.duration_ms IS NOT NULL
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY p.id ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<DurationStats>(r.rows)));
-    return runReport(`${orgId}:avg-duration:${from}:${to}`, multi, exec);
+      `);
   }
 
-  /** 1.5 Stage failure heatmap — which stages fail most. */
+  /** Stage failure heatmap — which stages fail most. */
   async getStageFailures(orgId: string, from: string, to: string, orgIds?: string[]): Promise<StageFailure[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<StageFailure>(`stage-failures:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
           e.stage_name,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failures,
@@ -416,10 +414,9 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.stage_name IS NOT NULL
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY e.stage_name ORDER BY failures DESC
-      `).then(r => drizzleRows<StageFailure>(r.rows)));
-    return runReport(`${orgId}:stage-failures:${from}:${to}`, multi, exec);
+      `);
   }
 
   /**
@@ -428,22 +425,20 @@ export class ReportingService {
    * reports; only non-null environments (i.e. deploy-attributed executions).
    */
   async getReportEnvironments(orgId: string, from: string, to: string, orgIds?: string[]): Promise<string[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    const rows = await report<{ environment: string }>(`report-envs:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT DISTINCT e.environment AS environment
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.environment IS NOT NULL
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         ORDER BY environment
-      `).then(r => drizzleRows<{ environment: string }>(r.rows).map((row) => row.environment)));
-    return runReport(`${orgId}:report-envs:${from}:${to}`, multi, exec);
+      `);
+    return rows.map((row) => row.environment);
   }
 
-  /** 1.6 Stage bottlenecks — slowest stages per pipeline. */
+  /** Stage bottlenecks — slowest stages per pipeline. */
   async getStageBottlenecks(orgId: string, from: string, to: string, orgIds?: string[]): Promise<StageBottleneck[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<StageBottleneck>(`stage-bottlenecks:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
           p.id, p.pipeline_name, e.stage_name,
           AVG(e.duration_ms)::int AS avg_ms,
@@ -451,16 +446,14 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'STAGE' AND e.duration_ms IS NOT NULL
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY p.id, e.stage_name ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<StageBottleneck>(r.rows)));
-    return runReport(`${orgId}:stage-bottlenecks:${from}:${to}`, multi, exec);
+      `);
   }
 
-  /** 1.7 Action failure rate — which plugin steps fail most. */
+  /** Action failure rate — which plugin steps fail most. */
   async getActionFailures(orgId: string, from: string, to: string, orgIds?: string[]): Promise<ActionFailure[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<ActionFailure>(`action-failures:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
           e.action_name,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failures,
@@ -470,21 +463,19 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.event_type = 'ACTION' AND e.action_name IS NOT NULL
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY e.action_name ORDER BY failures DESC
-      `).then(r => drizzleRows<ActionFailure>(r.rows)));
-    return runReport(`${orgId}:action-failures:${from}:${to}`, multi, exec);
+      `);
   }
 
   /**
-   * 1.8 Error categorization — group failure messages. Execution report, so
+   * Error categorization — group failure messages. Execution report, so
    * rollup-aware exactly like the sibling execution reports: with `orgIds`
    * (the org→team subtree) the org gate becomes an `IN (...)` and the read runs
    * fresh under sysadmin via `runReport`; single-org reads keep the per-org cache.
    */
   async getErrors(orgId: string, from: string, to: string, limit: number = 20, orgIds?: string[]): Promise<ErrorEntry[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<ErrorEntry>(`errors:${from}:${to}:${limit}`, orgId, orgIds, (pred) => sql`
         SELECT
           SUBSTRING(e.error_message FROM 1 FOR 200) AS error_pattern,
           COUNT(*)::int AS occurrences,
@@ -493,11 +484,10 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.status = 'FAILED' AND e.error_message IS NOT NULL
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY error_pattern ORDER BY occurrences DESC
         LIMIT ${limit}
-      `).then(r => drizzleRows<ErrorEntry>(r.rows)));
-    return runReport(`${orgId}:errors:${from}:${to}:${limit}`, multi, exec);
+      `);
   }
 
   /**
@@ -542,7 +532,7 @@ export class ReportingService {
     });
   }
 
-  /** 2.2 Type & compute distribution.
+  /** Type & compute distribution.
    *  INTENTIONALLY SINGLE-ORG (no rollup): plugin inventory is per-org (see
    *  getPluginSummary). Single `= $org` scope. */
   async getPluginDistribution(orgId: string): Promise<TypeComputeDistribution[]> {
@@ -560,7 +550,7 @@ export class ReportingService {
     );
   }
 
-  /** 2.3 Version counts per plugin name.
+  /** Version counts per plugin name.
    *  INTENTIONALLY SINGLE-ORG (no rollup): plugin inventory is per-org (see
    *  getPluginSummary). Single `= $org` scope. */
   async getPluginVersions(orgId: string): Promise<VersionCount[]> {
@@ -593,7 +583,7 @@ export class ReportingService {
   }
 
   /**
-   * 2.4 Build success rate over time.
+   * Build success rate over time.
    *
    * STATUS CASING NOTE: This query filters by `event_source = 'plugin-build'`
    * and uses lowercase status values (`'completed'`, `'failed'`), while
@@ -611,8 +601,7 @@ export class ReportingService {
     // Build activity report — rollup-aware like the execution reports. These
     // rows are gated on the pipeline_event `org_id` directly (no pipeline join),
     // so `pred` applies to `e.org_id`.
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<BuildTimeSeriesEntry>(`build-success:${interval}:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
           DATE_TRUNC(${interval}, e.started_at)::text AS period,
           COUNT(*) FILTER (WHERE e.status = 'completed')::int AS succeeded,
@@ -622,16 +611,14 @@ export class ReportingService {
         FROM ${schema.pipelineEvent} e
         WHERE e.org_id ${pred} AND e.event_source = 'plugin-build'
           AND e.status IN ('completed', 'failed')
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY period ORDER BY period
-      `).then(r => drizzleRows<BuildTimeSeriesEntry>(r.rows)));
-    return runReport(`${orgId}:build-success:${interval}:${from}:${to}`, multi, exec);
+      `);
   }
 
-  /** 2.5 Build duration per plugin. Build activity report — rollup-aware. */
+  /** Build duration per plugin. Build activity report — rollup-aware. */
   async getBuildDuration(orgId: string, from: string, to: string, orgIds?: string[]): Promise<BuildDuration[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<BuildDuration>(`build-duration:${from}:${to}`, orgId, orgIds, (pred) => sql`
         SELECT
           e.detail->>'pluginName' AS plugin_name,
           AVG(e.duration_ms)::int AS avg_ms,
@@ -639,16 +626,14 @@ export class ReportingService {
           COUNT(*)::int AS builds
         FROM ${schema.pipelineEvent} e
         WHERE e.org_id ${pred} AND e.event_source = 'plugin-build' AND e.duration_ms IS NOT NULL
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY plugin_name ORDER BY avg_ms DESC
-      `).then(r => drizzleRows<BuildDuration>(r.rows)));
-    return runReport(`${orgId}:build-duration:${from}:${to}`, multi, exec);
+      `);
   }
 
-  /** 2.6 Build failures — top error messages. Build activity report — rollup-aware. */
+  /** Build failures — top error messages. Build activity report — rollup-aware. */
   async getBuildFailures(orgId: string, from: string, to: string, limit: number = 20, orgIds?: string[]): Promise<BuildFailure[]> {
-    const { pred, multi } = orgScope(orgId, orgIds);
-    const exec = () => withTenantTx((tx) => tx.execute(sql`
+    return report<BuildFailure>(`build-failures:${from}:${to}:${limit}`, orgId, orgIds, (pred) => sql`
         SELECT
           e.detail->>'pluginName' AS plugin_name,
           e.error_message,
@@ -656,18 +641,17 @@ export class ReportingService {
           MAX(e.started_at)::text AS last_seen
         FROM ${schema.pipelineEvent} e
         WHERE e.org_id ${pred} AND e.event_source = 'plugin-build' AND e.status = 'failed'
-          AND e.started_at >= ${from}::timestamptz AND e.started_at <= ${to}::timestamptz
+          AND ${startedAtWindow(from, to)}
         GROUP BY plugin_name, e.error_message
         ORDER BY occurrences DESC
         LIMIT ${limit}
-      `).then(r => drizzleRows<BuildFailure>(r.rows)));
-    return runReport(`${orgId}:build-failures:${from}:${to}:${limit}`, multi, exec);
+      `);
   }
 
-  // ── Plugin runtime telemetry (W0.1) — see ./reporting/plugin-runtime.ts ──
+  // ── Plugin runtime telemetry — see ./reporting/plugin-runtime.ts ──
 
   /**
-   * 2.7 Plugin runtime: per plugin version runs, success rate and p50/p95
+   * Plugin runtime: per plugin version runs, success rate and p50/p95
    * duration over `[from, to]`, from the manifest-attributed ACTION events.
    * Rollup-aware.
    */
@@ -688,7 +672,7 @@ export class ReportingService {
   // ── Category 3: DORA write paths (post-deploy outcomes + ingest health) ──
 
   /**
-   * Record a manual post-deploy outcome marker (Phase 2): a user marks a
+   * Record a manual post-deploy outcome marker: a user marks a
    * deployment `failed` (a production incident linked to the deploy) or
    * `restored` (recovered). Idempotent — keyed on (execution_id, outcome) so a
    * duplicate POST refreshes `at` rather than double-counting, while a
@@ -722,7 +706,7 @@ export class ReportingService {
   }
 
   /**
-   * Ingest a production incident (Phase 5) from the org's incident tooling
+   * Ingest a production incident from the org's incident tooling
    * (PagerDuty / Datadog / Alertmanager webhook). Idempotent — keyed on
    * (org_id, incident_id) so a later resolve re-post upserts `resolved_at`
    * (and refreshes the other mutable fields) instead of inserting a duplicate.
@@ -769,12 +753,12 @@ export class ReportingService {
   }
 
   /**
-   * Read the per-org DORA settings (Phase 5b). Returns the stored
+   * Read the per-org DORA settings. Returns the stored
    * `incidentWindowHours` override (or `null` when unset) plus the global env
    * default, so the settings UI can show both. Runs under the caller's tenant
    * context (RLS-scoped); a single-org read.
    */
-  async getIncidentSettings(orgId: string, retentionOrgId: string = orgId): Promise<IncidentSettings> {
+  async getReportingSettings(orgId: string, retentionOrgId: string = orgId): Promise<ReportingSettings> {
     const rows = drizzleRows<{
       incident_window_hours: number | null;
       event_retention_days: number | null;
@@ -824,7 +808,7 @@ export class ReportingService {
   }
 
   /**
-   * Upsert per-org reporting settings (Phase 5b incident window + Phase 7
+   * Upsert per-org reporting settings (incident window +
    * retention overrides), idempotent on `org_id`. A partial write — only the
    * fields present in `patch` are set (so updating retention never clears the
    * incident window, and vice-versa). Set self-serve by an org admin via
@@ -855,7 +839,7 @@ export class ReportingService {
   }
 
   /**
-   * List recent incidents for an org (Phase 5b org-admin surface), newest first,
+   * List recent incidents for an org (org-admin surface), newest first,
    * paginated. Each row carries its resolved state and its deploy correlation —
    * the most recent SUCCESSFUL deploy to the incident's `environment` whose
    * `completed_at` falls within the effective per-org correlation window before
@@ -864,7 +848,7 @@ export class ReportingService {
    * the `p.org_id`/`i.org_id` predicates + the tenant context.
    */
   async listIncidents(orgId: string, opts: { limit: number; offset: number }): Promise<IncidentListItem[]> {
-    const { incidentWindowHours } = await this.getIncidentSettings(orgId);
+    const { incidentWindowHours } = await this.getReportingSettings(orgId);
     const windowHours = resolveIncidentWindowHours(incidentWindowHours);
     const limit = Math.max(1, Math.min(opts.limit, 200));
     const offset = Math.max(0, opts.offset);
@@ -908,7 +892,7 @@ export class ReportingService {
   }
 
   /**
-   * Wiring-test dry-run (Phase 5b): would a synthetic incident opening NOW for
+   * Wiring-test dry-run: would a synthetic incident opening NOW for
    * `environment` correlate to a recent successful deploy under the org's
    * effective window? This is a NON-persisting correlation check — it verifies
    * the admin's environment naming + window line up with real deploy events
@@ -917,7 +901,7 @@ export class ReportingService {
   async testIncidentCorrelation(orgId: string, environment: string): Promise<IncidentTestResult> {
     const env = scrubAwsIdentifiersFromString(environment);
     const openedAt = new Date().toISOString();
-    const { incidentWindowHours } = await this.getIncidentSettings(orgId);
+    const { incidentWindowHours } = await this.getReportingSettings(orgId);
     const windowHours = resolveIncidentWindowHours(incidentWindowHours);
     const rows = drizzleRows<{ execution_id: string | null; completed_at: string | null }>((await withTenantTx((tx) => tx.execute(sql`
         SELECT e.execution_id AS execution_id, e.completed_at::text AS completed_at
@@ -942,7 +926,7 @@ export class ReportingService {
   }
 
   /**
-   * Upsert per-org ingestion health (Phase 3): the AWS events Lambda periodically
+   * Upsert per-org ingestion health: the AWS events Lambda periodically
    * reports forwarded/dropped counters + the last event timestamp so the Reports
    * UI can show flowing / stale / dropping. One row per org (upsert on org_id).
    */
@@ -971,7 +955,7 @@ export class ReportingService {
   }
 
   /**
-   * Read back one org's ingestion health (Phase 3) for the Reports UI freshness
+   * Read back one org's ingestion health for the Reports UI freshness
    * indicator. Returns `null` when the org has NO row — i.e. the deployment has
    * never ingested anything — which the UI must render as "no ingest reported
    * yet", never as "stale". RLS-scoped to the org like every other read.
@@ -996,7 +980,7 @@ export class ReportingService {
 
   /**
    * Batched hard-DELETE of one reporting table's rows expired past a `created_at`
-   * cutoff, scoped to an org and an optional row predicate (Phase 7). Uses a
+   * cutoff, scoped to an org and an optional row predicate. Uses a
    * `ctid`-in-subquery LIMIT so each statement touches at most `batchSize` rows
    * (short lock windows, no long table scan under lock); `RETURNING 1` lets us
    * count via `.rows.length` without depending on the driver's `rowCount`. Loops
@@ -1034,7 +1018,7 @@ export class ReportingService {
   }
 
   /**
-   * Reporting retention sweep (Phase 7). Hard-deletes rows older than their
+   * Reporting retention sweep. Hard-deletes rows older than their
    * retention window, by `created_at`, across every org that has reporting data —
    * a **split** policy so high-volume standard events expire faster than the
    * low-volume DORA source:
@@ -1105,7 +1089,7 @@ export class ReportingService {
         const ov = overrides.get(retentionOrgId);
         const eventDays = resolveEventRetentionDays(ov?.event_retention_days);
         const doraDays = resolveDoraRetentionDays(ov?.dora_retention_days);
-        // `-1` = unlimited (Phase 8): keep forever, skip that window's deletes for
+        // `-1` = unlimited: keep forever, skip that window's deletes for
         // this org. Standard-event and DORA-source windows are independent; an org
         // with both `-1` is fully skipped. Log the skip so it's observable.
         const skipEvents = eventDays === -1;

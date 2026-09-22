@@ -163,7 +163,7 @@ export default function DeviceApprovalPage() {
           Return to your terminal — it finishes signing in within a few seconds. The session shows up under
           Security → Sessions, where you can sign it out again.
         </p>
-        {/* The sessions list itself, not the Profile page it used to point at. */}
+        {/* The sessions list itself. */}
         <Link href={SESSIONS_HREF} className="btn btn-secondary btn-full text-sm mt-4">Sessions and devices</Link>
       </div>,
     );

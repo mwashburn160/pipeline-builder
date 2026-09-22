@@ -4,32 +4,15 @@
 import {
   sendSuccess, sendBadRequest, ErrorCode,
   getParam, requireInternalService, audited,
-  actorId,
+  actorId, normalizeRetentionDays, RETENTION_MAX_DAYS,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { emitReportingAudit } from '../services/audit.js';
-
-/** Absolute retention ceiling (days). Mirrors reporting-service RETENTION_MAX_DAYS. */
-const RETENTION_MAX_DAYS = 730;
 
 /**
- * Normalize an inbound retention value from billing.
- *  - `-1` (unlimited) passes through untouched.
- *  - an integer in `[1, 730]` is accepted as-is.
- *  - an integer `> 730` clamps down to 730 (the absolute ceiling).
- *  - anything else (non-integer, `0`, `< -1`) is rejected → `null`.
- */
-function normalizeRetentionDays(v: unknown): number | null {
-  if (typeof v !== 'number' || !Number.isInteger(v)) return null;
-  if (v === -1) return -1;
-  if (v < 1) return null;
-  return v > RETENTION_MAX_DAYS ? RETENTION_MAX_DAYS : v;
-}
-
-/**
- * Inbound billing → reporting retention sync (Phase 8).
+ * Inbound billing → reporting retention sync.
  *
  * `PUT /:orgId` — billing pushes the account's EFFECTIVE retention entitlement
  * (tier baseline + purchased retention/dora-history bundles, already computed by
@@ -37,12 +20,11 @@ function normalizeRetentionDays(v: unknown): number | null {
  * per-org query cap read the current entitlement without reporting recomputing
  * billing math.
  *
- * AUTH: an INTERNAL route (#14) — only `billing`'s own signed token passes, and
- * the name is bound to the signing key, so no other service can drive an org's
+ * AUTH: an INTERNAL route — only `billing`'s own signed token passes, and the
+ * name is bound to the signing key, so no other service can drive an org's
  * retention. The token carries NO `reporting:ingest` scope and NO org-user
- * permission, so the guard must not require either. The system-admin escape
- * hatch this leg used to allow is gone: an internal route refuses every user
- * token, however privileged. The `:orgId` path param carries the target ROOT org
+ * permission, so the guard must not require either. There is no system-admin
+ * escape hatch: an internal route refuses every user token, however privileged. The `:orgId` path param carries the target ROOT org
  * (billing resolves the org to its root before calling) — NOT the token's org.
  */
 export function createRetentionSyncRoutes(): Router {
@@ -56,10 +38,10 @@ export function createRetentionSyncRoutes(): Router {
     const eventRetentionDays = normalizeRetentionDays(body.eventRetentionDays);
     const doraRetentionDays = normalizeRetentionDays(body.doraRetentionDays);
     if (eventRetentionDays === null) {
-      return sendBadRequest(res, 'eventRetentionDays must be -1 or an integer in [1, 730]', ErrorCode.VALIDATION_ERROR);
+      return sendBadRequest(res, `eventRetentionDays must be -1 or an integer in [1, ${RETENTION_MAX_DAYS}]`, ErrorCode.VALIDATION_ERROR);
     }
     if (doraRetentionDays === null) {
-      return sendBadRequest(res, 'doraRetentionDays must be -1 or an integer in [1, 730]', ErrorCode.VALIDATION_ERROR);
+      return sendBadRequest(res, `doraRetentionDays must be -1 or an integer in [1, ${RETENTION_MAX_DAYS}]`, ErrorCode.VALIDATION_ERROR);
     }
 
     await reportingService.setReportingSettings(orgId, { eventRetentionDays, doraRetentionDays });
@@ -70,7 +52,7 @@ export function createRetentionSyncRoutes(): Router {
     // reduction (a data-destroying change, applied by the next sweep) must be
     // traceable to the service call that made it. `affectedOrgId` is the target
     // ROOT org; the actor is the billing service principal (or a sysadmin).
-    emitReportingAudit({
+    recordAudit({
       action: 'reporting.retention.sync',
       actorId: actorId({ userId }),
       affectedOrgId: orgId,
@@ -88,7 +70,7 @@ export function createRetentionSyncRoutes(): Router {
   router.get('/:orgId', requireInternalService({ callers: ['billing'] }), withRoute(async ({ req, res }) => {
     const orgId = getParam(req.params, 'orgId');
     if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
-    const settings = await runWithTenantContext({ orgId, isSuperAdmin: false }, () => reportingService.getIncidentSettings(orgId));
+    const settings = await runWithTenantContext({ orgId, isSuperAdmin: false }, () => reportingService.getReportingSettings(orgId));
     return sendSuccess(res, 200, {
       orgId,
       eventRetentionDays: settings.eventRetentionDays,

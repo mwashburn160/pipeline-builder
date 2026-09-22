@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { formatError } from '@/lib/constants';
+import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 
 /**
  * Return type for `useAsyncCallback()`.
@@ -44,14 +45,7 @@ export function useAsyncCallback<T, A extends unknown[]>(
 ): UseAsyncCallbackResult<T, A> {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  const unmountedRef = useUnmountedRef();
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -61,10 +55,10 @@ export function useAsyncCallback<T, A extends unknown[]>(
       setError(null);
       try {
         const result = await fn(...args);
-        if (mountedRef.current) setLoading(false);
+        if (!unmountedRef.current) setLoading(false);
         return result;
       } catch (err) {
-        if (mountedRef.current) {
+        if (!unmountedRef.current) {
           setError(formatError(err));
           setLoading(false);
         }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useState, type ReactNode } from 'react';
-import { Bot, Eye, KeyRound, Pencil, Plus, Power, Trash2 } from 'lucide-react';
+import { Bot, Eye, KeyRound, Pencil, Power, Trash2 } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -11,17 +11,17 @@ import { SecretReveal } from '@/components/ui/SecretReveal';
 import { RetryError } from '@/components/ui/RetryError';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { FormField } from '@/components/ui/FormField';
 import { Badge } from '@/components/ui/Badge';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { AccessKeyTable } from '@/components/settings/AccessKeyTable';
 import { ServiceAccountDrawer } from '@/components/settings/ServiceAccountDrawer';
-import { TOKEN_SCOPE_OPTIONS } from '@/components/settings/token-scopes';
-import { useLoadable } from '@/hooks/useLoadable';
+import { CreateServiceAccountForm } from '@/components/settings/CreateServiceAccountForm';
+import { ServiceAccountDetails } from '@/components/settings/ServiceAccountDetails';
+import { ServiceAccountKeys } from '@/components/settings/ServiceAccountKeys';
+import type { ServiceAccountAction } from '@/components/settings/service-account-actions';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { ServiceAccount, ServiceAccountBilling } from '@/lib/api/domains/organizations';
@@ -36,37 +36,13 @@ interface ServiceAccountsData {
 
 const EMPTY: ServiceAccountsData = { accounts: [], billing: null, roles: [] };
 
-/**
- * Parse the token-budget field: empty = unlimited (-1), otherwise a whole number
- * of exchanges per period, at least 1 — the same rule as the API's schema.
- * Returns null for anything else.
- */
-function parseTokenBudget(text: string): number | null {
-  const trimmed = text.trim();
-  if (trimmed === '') return -1;
-  if (!/^\d+$/.test(trimmed)) return null;
-  const n = Number(trimmed);
-  return Number.isSafeInteger(n) && n >= 1 ? n : null;
-}
-
-const BUDGET_HINT = 'Token exchanges per period. Leave empty for unlimited.';
-
-/** A pending step-up-gated action, held until the user re-confirms. */
-type PendingAction =
-  | { kind: 'create'; name: string; description?: string; roleIds: string[]; tokenBudget: number }
-  | { kind: 'details'; accountId: string; accountName: string; changes: { description?: string | null; tokenBudget?: number } }
-  | { kind: 'key'; accountId: string; accountName: string; name: string; expiresIn: number; ipAllowlist: string[]; scope: string }
-  | { kind: 'toggle'; accountId: string; accountName: string; disabled: boolean }
-  | { kind: 'roles'; accountId: string; accountName: string; roleIds: string[]; roleNames: string[] }
-  | { kind: 'delete'; accountId: string; name: string; keyCount: number };
-
 /** Same members, order-insensitive — a reordered role list is not an edit. */
 function sameRoleSet(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && [...a].sort().join() === [...b].sort().join();
 }
 
 /**
- * Org service accounts (#2): the page where an admin creates non-human
+ * Org service accounts: the page where an admin creates non-human
  * principals, gives them roles, and issues or revokes their `pb_sa_…` keys.
  *
  * Three properties the UI states rather than implies, because they are what
@@ -80,10 +56,9 @@ function sameRoleSet(a: readonly string[], b: readonly string[]): boolean {
  *   - Creating an account, issuing a key, enabling/disabling and deleting are
  *     step-up gated server-side, so a single StepUpModal states the consequence
  *     AND takes the factor.
- *   - ROLE EDITS ARE A BATCH. Ticking a box used to fire its own step-up, so
- *     granting three roles meant three re-verifications and three writes (and a
- *     half-applied set if you abandoned one). Edits now collect into a draft and
- *     Save sends the whole set once.
+ *   - ROLE EDITS ARE A BATCH. Edits collect into a draft and Save sends the
+ *     whole set once — one re-verification and one write, never a half-applied
+ *     set.
  *   - Revoking a key is a plain confirm: the server deliberately does not gate
  *     revocation, so a compromised key is always killable.
  *
@@ -94,7 +69,7 @@ function sameRoleSet(a: readonly string[], b: readonly string[]): boolean {
  *
  * Its keys are rendered by the shared {@link AccessKeyTable}, the same rows the
  * personal access-keys panel shows — including the never-used / expiring-soon
- * flags that the hand-rolled list here used to omit.
+ * flags.
  */
 export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
   const toast = useToast();
@@ -111,27 +86,27 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
       roles: rolesRes.success && rolesRes.data ? rolesRes.data.roles : [],
     };
   }, [orgId]);
-  const { data, loading, error: loadError, reload } = useLoadable<ServiceAccountsData>(load, EMPTY, 'Failed to load service accounts');
+  const { data: dataLoaded, loading, error: loadErrorFailure, refetch: reload } = useFetch<ServiceAccountsData>(() => load(), [load], {
+    onError: (err) => toast.error(formatError(err, 'Failed to load service accounts')),
+  });
+  const data = dataLoaded ?? EMPTY;
+  const loadError = loadErrorFailure ? formatError(loadErrorFailure, 'Failed to load service accounts') : null;
 
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [budget, setBudget] = useState('');
-  // Inline editor for an account's description + budget (the other PATCH fields
-  // — roles and disabled — have their own controls on the card).
-  const [detailsDraft, setDetailsDraft] = useState<{ accountId: string; description: string; budget: string } | null>(null);
+  // Bumped after a create lands: remounting the form clears it.
+  const [createFormKey, setCreateFormKey] = useState(0);
+  // The account whose description/budget editor or new-key form is open. The
+  // `open` counter remounts (and so re-seeds) the form on every open.
+  const [detailsEditor, setDetailsEditor] = useState<{ accountId: string; open: number } | null>(null);
+  const [keyForm, setKeyForm] = useState<{ accountId: string; open: number } | null>(null);
   // The account open in the detail drawer.
   const [viewingId, setViewingId] = useState<string | null>(null);
-  const [roleIds, setRoleIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
-  const [pending, setPending] = useState<PendingAction | null>(null);
-  const [keyDraft, setKeyDraft] = useState<{ accountId: string; name: string; days: number; ips: string; scope: string } | null>(null);
+  const [pending, setPending] = useState<ServiceAccountAction | null>(null);
   const [pendingKeyRevoke, setPendingKeyRevoke] = useState<{ account: ServiceAccount; keyId: string; keyName: string } | null>(null);
   // Unsaved role edits, per account. Absent = the account's stored set.
   const [roleDrafts, setRoleDrafts] = useState<Record<string, string[]>>({});
   const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
-
-  const toggleRole = (id: string) => setRoleIds((prev) => (prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]));
 
   /** The role set currently shown for an account: its draft, else what it holds. */
   const rolesOf = (account: ServiceAccount): string[] =>
@@ -142,56 +117,6 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
       const current = prev[account.id] ?? account.roles.map((r) => r.id);
       const next = current.includes(roleId) ? current.filter((r) => r !== roleId) : [...current, roleId];
       return { ...prev, [account.id]: next };
-    });
-  };
-
-  const handleCreate = () => {
-    const trimmed = name.trim().toLowerCase();
-    if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(trimmed)) {
-      toast.error('Name must be 2-64 characters: lowercase letters, digits, hyphen or underscore');
-      return;
-    }
-    const tokenBudget = parseTokenBudget(budget);
-    if (tokenBudget === null) {
-      toast.error('Token budget must be a whole number of at least 1, or empty for unlimited');
-      return;
-    }
-    setPending({ kind: 'create', name: trimmed, description: description.trim() || undefined, roleIds, tokenBudget });
-  };
-
-  /** Validate the description/budget editor and hold the changed fields for step-up. */
-  const handleDetailsSave = () => {
-    if (!detailsDraft) return;
-    const account = data.accounts.find((a) => a.id === detailsDraft.accountId);
-    if (!account) return;
-    const tokenBudget = parseTokenBudget(detailsDraft.budget);
-    if (tokenBudget === null) {
-      toast.error('Token budget must be a whole number of at least 1, or empty for unlimited');
-      return;
-    }
-    const nextDescription = detailsDraft.description.trim();
-    const changes: { description?: string | null; tokenBudget?: number } = {};
-    // `null` clears the description on the server; an unchanged value isn't sent.
-    if (nextDescription !== (account.description ?? '')) changes.description = nextDescription || null;
-    if (tokenBudget !== account.tokenBudget) changes.tokenBudget = tokenBudget;
-    if (Object.keys(changes).length === 0) { setDetailsDraft(null); return; }
-    setPending({ kind: 'details', accountId: account.id, accountName: account.name, changes });
-  };
-
-  const handleKeyCreate = () => {
-    if (!keyDraft) return;
-    if (!keyDraft.name.trim()) { toast.error('Key name is required'); return; }
-    const days = Math.floor(Number(keyDraft.days));
-    if (!Number.isFinite(days) || days < 1 || days > 365) { toast.error('Expiry must be 1-365 days'); return; }
-    const account = data.accounts.find((a) => a.id === keyDraft.accountId);
-    setPending({
-      kind: 'key',
-      accountId: keyDraft.accountId,
-      accountName: account?.name ?? '',
-      name: keyDraft.name.trim(),
-      expiresIn: days * 86400,
-      ipAllowlist: keyDraft.ips.split(',').map((s) => s.trim()).filter(Boolean),
-      scope: keyDraft.scope,
     });
   };
 
@@ -209,13 +134,13 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
         }, stepUpToken);
         if (res.success) {
           toast.success('Service account created');
-          setName(''); setDescription(''); setBudget(''); setRoleIds([]);
+          setCreateFormKey((k) => k + 1);
         } else {toast.error('Failed to create service account');}
       } else if (pending.kind === 'details') {
         const res = await api.updateServiceAccount(orgId, pending.accountId, pending.changes, stepUpToken);
         if (res.success) {
           toast.success('Service account updated');
-          setDetailsDraft(null);
+          setDetailsEditor(null);
         } else {toast.error('Failed to update service account');}
       } else if (pending.kind === 'key') {
         setNewKey(null);
@@ -227,7 +152,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
         }, stepUpToken);
         if (res.success && res.data) {
           setNewKey(res.data.key);
-          setKeyDraft(null);
+          setKeyForm(null);
           toast.success(`Key created for ${pending.accountName}`);
         } else {toast.error('Failed to create key');}
       } else if (pending.kind === 'toggle') {
@@ -238,7 +163,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
         const res = await api.updateServiceAccount(orgId, pending.accountId, { roleIds: pending.roleIds }, stepUpToken);
         if (res.success) {
           toast.success('Roles updated');
-          // The saved set is now the stored set; drop the draft so the Save
+          // The saved set is the stored set; drop the draft so the Save
           // button goes away instead of offering to re-send what just landed.
           setRoleDrafts((prev) => {
             const next = { ...prev };
@@ -275,8 +200,10 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
     }
   };
 
+  const keyFormAccount = keyForm ? data.accounts.find((a) => a.id === keyForm.accountId) : undefined;
+
   /** Heading + consequence for whichever step-up-gated action is held. */
-  const stepUpCopy = (action: PendingAction): { title: string; action: string; details: ReactNode } => {
+  const stepUpCopy = (action: ServiceAccountAction): { title: string; action: string; details: ReactNode } => {
     switch (action.kind) {
       case 'create':
         return {
@@ -374,36 +301,14 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
         </Callout>
       )}
 
-      {/* Create */}
-      <div className="flex flex-wrap items-end gap-2 mb-2">
-        <FormField label="Name" className="flex-1 min-w-[180px]" hint="Lowercase machine name, e.g. ci-deploy">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="ci-deploy" maxLength={64} disabled={busy || readOnly} />
-        </FormField>
-        <FormField label="Description" className="flex-1 min-w-[180px]">
-          <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Deploys from CI" maxLength={256} disabled={busy || readOnly} />
-        </FormField>
-        <FormField label="Token budget" className="w-44" hint={BUDGET_HINT}>
-          <Input value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Unlimited" inputMode="numeric" disabled={busy || readOnly} />
-        </FormField>
-        <Button onClick={handleCreate} loading={busy && pending?.kind === 'create'} readOnly={readOnly} className="gap-1">
-          <Plus className="w-4 h-4" /> Create
-        </Button>
-      </div>
-      {data.roles.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Roles for the new service account">
-          {data.roles.map((role) => (
-            <label key={role.id} className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
-              <input
-                type="checkbox"
-                checked={roleIds.includes(role.id)}
-                onChange={() => toggleRole(role.id)}
-                disabled={busy || readOnly}
-              />
-              {role.name}
-            </label>
-          ))}
-        </div>
-      )}
+      <CreateServiceAccountForm
+        key={createFormKey}
+        roles={data.roles}
+        busy={busy}
+        creating={busy && pending?.kind === 'create'}
+        readOnly={readOnly}
+        onRequest={setPending}
+      />
 
       {newKey && (
         <SecretReveal
@@ -465,11 +370,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
                       className="gap-1"
                       readOnly={readOnly}
                       disabled={busy}
-                      onClick={() => setDetailsDraft({
-                        accountId: account.id,
-                        description: account.description ?? '',
-                        budget: account.tokenBudget === -1 ? '' : String(account.tokenBudget),
-                      })}
+                      onClick={() => setDetailsEditor((prev) => ({ accountId: account.id, open: (prev?.open ?? 0) + 1 }))}
                     >
                       <Pencil className="w-3.5 h-3.5" /> Edit
                     </Button>
@@ -491,7 +392,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
                       className="gap-1"
                       readOnly={readOnly}
                       disabled={busy}
-                      onClick={() => setKeyDraft({ accountId: account.id, name: `${account.name}-key`, days: 90, ips: '', scope: '' })}
+                      onClick={() => setKeyForm((prev) => ({ accountId: account.id, open: (prev?.open ?? 0) + 1 }))}
                     >
                       <KeyRound className="w-3.5 h-3.5" /> New key
                     </Button>
@@ -510,28 +411,15 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
                   </div>
                 </div>
 
-                {detailsDraft?.accountId === account.id && (
-                  <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md bg-surface-muted p-2">
-                    <FormField label="Description" className="flex-1 min-w-[180px]" hint="Leave empty to clear it.">
-                      <Input
-                        value={detailsDraft.description}
-                        onChange={(e) => setDetailsDraft({ ...detailsDraft, description: e.target.value })}
-                        maxLength={256}
-                        aria-label={`Description for ${account.name}`}
-                      />
-                    </FormField>
-                    <FormField label="Token budget" className="w-44" hint={BUDGET_HINT}>
-                      <Input
-                        value={detailsDraft.budget}
-                        onChange={(e) => setDetailsDraft({ ...detailsDraft, budget: e.target.value })}
-                        placeholder="Unlimited"
-                        inputMode="numeric"
-                        aria-label={`Token budget for ${account.name}`}
-                      />
-                    </FormField>
-                    <Button size="xs" onClick={handleDetailsSave} readOnly={readOnly} loading={busy && pending?.kind === 'details'}>Save</Button>
-                    <Button variant="ghost" size="xs" onClick={() => setDetailsDraft(null)}>Cancel</Button>
-                  </div>
+                {detailsEditor?.accountId === account.id && (
+                  <ServiceAccountDetails
+                    key={detailsEditor.open}
+                    account={account}
+                    saving={busy && pending?.kind === 'details'}
+                    readOnly={readOnly}
+                    onCancel={() => setDetailsEditor(null)}
+                    onRequest={setPending}
+                  />
                 )}
 
                 {/* Roles — the account's authority, edited as a SET and saved once. */}
@@ -601,34 +489,15 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
       )}
 
       {/* New-key form (per account) */}
-      {keyDraft && (
-        <div className="mt-4 rounded-lg border border-default p-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <FormField label="Key name" className="flex-1 min-w-[160px]">
-              <Input value={keyDraft.name} onChange={(e) => setKeyDraft({ ...keyDraft, name: e.target.value })} maxLength={100} />
-            </FormField>
-            <FormField label="Expires (days)" className="w-32">
-              <Input type="number" min={1} max={365} value={keyDraft.days} onChange={(e) => setKeyDraft({ ...keyDraft, days: Number(e.target.value) })} />
-            </FormField>
-            <FormField label="IP allowlist" className="flex-1 min-w-[200px]" hint="Optional, comma-separated IPs or CIDRs">
-              <Input value={keyDraft.ips} onChange={(e) => setKeyDraft({ ...keyDraft, ips: e.target.value })} placeholder="203.0.113.7, 10.0.0.0/8" />
-            </FormField>
-            <FormField
-              label="Capability"
-              className="min-w-[220px]"
-              hint={keyDraft.scope
-                ? 'Least privilege: this key can do only that, and carries none of the account’s roles.'
-                : 'The key acts with the account’s full roles.'}
-            >
-              <Select value={keyDraft.scope} onChange={(e) => setKeyDraft({ ...keyDraft, scope: e.target.value })}>
-                <option value="">Account roles (no scope)</option>
-                {TOKEN_SCOPE_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </Select>
-            </FormField>
-            <Button onClick={handleKeyCreate} loading={busy && pending?.kind === 'key'} readOnly={readOnly}>Issue key</Button>
-            <Button variant="ghost" onClick={() => setKeyDraft(null)}>Cancel</Button>
-          </div>
-        </div>
+      {keyFormAccount && keyForm && (
+        <ServiceAccountKeys
+          key={keyForm.open}
+          account={keyFormAccount}
+          issuing={busy && pending?.kind === 'key'}
+          readOnly={readOnly}
+          onCancel={() => setKeyForm(null)}
+          onRequest={setPending}
+        />
       )}
 
       {viewingId && (

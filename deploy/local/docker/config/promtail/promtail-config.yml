@@ -85,7 +85,7 @@ scrape_configs:
       - structured_metadata:
           orgId:
       # Route each line to its org's Loki tenant. Tenancy is PHYSICAL (see
-      # docs/plans/frontend-logs.md §3.1): a query-construction bug cannot leak
+ docs/observability-logs.md): a query-construction bug cannot leak
       # across orgs, and per-tenant retention/deletion become possible.
       #
       # The template is not optional. promtail's `tenant` stage leaves the tenant

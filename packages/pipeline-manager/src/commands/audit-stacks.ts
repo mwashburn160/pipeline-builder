@@ -93,8 +93,8 @@ export function auditStacks(program: Command): void {
 
         // Fetch stacks from CloudFormation. DescribeStacks (no StackName) returns every
         // active stack WITH its tags in one paginated sweep — avoiding the N+1
-        // DescribeStacks-per-stack the old ListStacks path needed (ListStacks omits tags)
-        // and the API throttling it caused on accounts with many stacks.
+        // DescribeStacks-per-stack a ListStacks path needs (ListStacks omits tags)
+        // and the API throttling that causes on accounts with many stacks.
         if (!options.json) printInfo('Listing CloudFormation stacks', { region });
         const cfn = new CloudFormationClient({ region });
         const stacks: StackInfo[] = [];

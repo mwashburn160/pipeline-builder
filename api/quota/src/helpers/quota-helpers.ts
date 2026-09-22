@@ -1,23 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier, QuotaReserveResult } from '@pipeline-builder/api-core';
-export type { QuotaTier } from '@pipeline-builder/api-core';
-export { QUOTA_TIERS, VALID_QUOTA_TYPES, isValidQuotaType } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
-export { toOrgId } from './org-id.js';
-
-// Date helpers
-
-/** Calculate the next reset date based on days from now (midnight). */
-export function getNextResetDate(days: number): Date {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
 
 /**
  * Apply partial quota limit updates to an organization document.
@@ -69,8 +56,7 @@ export type ReserveOutcome = 'allowed' | 'exceeded';
 /**
  * Build a {@link QuotaReserveResult} from raw usage figures. Centralizes the
  * unlimited (`limit === -1` ⇒ remaining `-1`) logic and resetAt serialization
- * so the read-back blocks across increment/decrement can't drift (they
- * previously hand-rolled this with subtly inconsistent `-1` handling).
+ * so the read-back blocks across increment/decrement can't drift.
  * `resetAt` accepts a Date or ISO string; `undefined` ⇒ omitted.
  */
 export function buildReserveResult(
@@ -120,13 +106,13 @@ export interface OrgQuotaResponse {
   };
 }
 
-/** Build all three quota summaries, falling back to config defaults. */
+/** Build the per-type quota summaries, falling back to config defaults. */
 function buildSummaries(
   quotas: Partial<QuotaLimits> | undefined,
   usage: Partial<QuotaUsageTracking> | undefined,
 ): Record<QuotaType, QuotaSummary> {
   const d = config.quota.defaults;
-  const du = { used: 0, resetAt: getNextResetDate(config.quota.resetDays) };
+  const du = { used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) };
 
   // Drop the `allowed` flag from the per-type status — summaries are read-only views.
   const summarize = (limit: number, u: { used: number; resetAt: Date }): QuotaSummary => {
@@ -134,18 +120,9 @@ function buildSummaries(
     return rest;
   };
 
-  return {
-    plugins: summarize(quotas?.plugins ?? d.plugins, usage?.plugins ?? du),
-    pipelines: summarize(quotas?.pipelines ?? d.pipelines, usage?.pipelines ?? du),
-    apiCalls: summarize(quotas?.apiCalls ?? d.apiCalls, usage?.apiCalls ?? du),
-    aiCalls: summarize(quotas?.aiCalls ?? d.aiCalls, usage?.aiCalls ?? du),
-    storageBytes: summarize(quotas?.storageBytes ?? d.storageBytes, usage?.storageBytes ?? du),
-    dashboards: summarize(quotas?.dashboards ?? d.dashboards, usage?.dashboards ?? du),
-    alertRules: summarize(quotas?.alertRules ?? d.alertRules, usage?.alertRules ?? du),
-    alertDestinations: summarize(quotas?.alertDestinations ?? d.alertDestinations, usage?.alertDestinations ?? du),
-    idpConfigs: summarize(quotas?.idpConfigs ?? d.idpConfigs, usage?.idpConfigs ?? du),
-    listings: summarize(quotas?.listings ?? d.listings, usage?.listings ?? du),
-  };
+  return Object.fromEntries(
+    VALID_QUOTA_TYPES.map((t) => [t, summarize(quotas?.[t] ?? d[t], usage?.[t] ?? du)]),
+  ) as Record<QuotaType, QuotaSummary>;
 }
 
 /**

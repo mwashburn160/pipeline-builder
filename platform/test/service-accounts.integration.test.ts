@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Real-Mongo test for the org service-account lifecycle (#2): create → key →
+ * Real-Mongo test for the org service-account lifecycle: create → key →
  * exchange → revoke → org cascade.
  *
  * The invariants here are the ones a mocked collection cannot prove:
@@ -50,7 +50,12 @@ suite('service accounts (real Mongo)', () => {
     m = await import('../src/models/index.js');
     sa = await import('../src/services/service-account-service.js');
     ({ apiKeyService } = await import('../src/services/api-key-service.js'));
-    token = await import('../src/utils/token.js');
+    token = {
+      ...(await import('../src/services/session/membership-context.js')),
+      ...(await import('../src/services/session/access-tokens.js')),
+      ...(await import('../src/services/session/refresh-sessions.js')),
+      ...(await import('../src/utils/token.js')),
+    };
     seats = await import('../src/helpers/seats.js');
     roles = {
       ...(await import('../src/services/roles-service.js')),
@@ -285,7 +290,7 @@ suite('service accounts (real Mongo)', () => {
     expect(await m.ServiceAccount.countDocuments({ name: 'sneaky' })).toBe(0);
   });
 
-  // ── Scoped keys (#12) ────────────────────────────────────────────────────
+  // ── Scoped keys ────────────────────────────────────────────────────
   //
   // A scoped key is the least-privilege shape: the exchanged token carries the
   // one capability INSTEAD of the account's Roles, which is what lets an org

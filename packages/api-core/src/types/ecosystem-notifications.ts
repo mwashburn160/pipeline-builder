@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The plugin-ecosystem notification contract (docs/plans/plugin-ecosystem.md
- * §5b), shared by the sender (the plugin service's enqueue API and digest
+ * The plugin-ecosystem notification contract (docs/plugin-publishing.md),
+ * shared by the sender (the plugin service's enqueue API and digest
  * dispatcher) and the relay (platform `POST /internal/notify-email`).
  *
  * Recipients travel as RULES, never as lists: platform resolves each
@@ -14,7 +14,7 @@
  * individually — no shared To: line).
  */
 
-/** A §5b event number. */
+/** A notification event number. */
 export type EcosystemNotificationEventId =
   | 'N1' | 'N2' | 'N3' | 'N4' | 'N5' | 'N6' | 'N7' | 'N8' | 'N9' | 'N10'
   | 'N11' | 'N12' | 'N13' | 'N14' | 'N15' | 'N16' | 'N17' | 'N18' | 'N19' | 'N20'
@@ -23,7 +23,7 @@ export type EcosystemNotificationEventId =
 /** A delivery channel. In-app is the source of truth; email is the courtesy copy. */
 export type EcosystemNotificationChannel = 'in_app' | 'email';
 
-/** A per-user EMAIL opt-out key (§5b "Preferences"). In-app is never optional. */
+/** A per-user EMAIL opt-out key. In-app is never optional. */
 export type EcosystemEmailPreference =
   | 'ecosystem.reviews.email'
   | 'ecosystem.upgrades.email'
@@ -46,7 +46,7 @@ export type EcosystemEmailPreferenceField = 'reviewsEmail' | 'upgradesEmail' | '
 export const ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES: readonly EcosystemEmailPreferenceField[] =
   Object.values(ECOSYSTEM_EMAIL_PREFERENCE_FIELDS);
 
-/** How often a batched email is flushed (§5b timing column). */
+/** How often a batched email is flushed. */
 export type EcosystemDigestCadence = 'hourly' | 'daily' | 'weekly';
 
 /** One event's delivery rules. */
@@ -57,17 +57,17 @@ export interface EcosystemEventSpec {
   channels: readonly EcosystemNotificationChannel[];
   /**
    * Email opt-out key, or `null` when the email is TRANSACTIONAL / security
-   * (§5b: N1, N3–N5, N7–N10, N18–N23, N25, N28, N29 can't be turned off).
+   * (N1, N3–N5, N7–N10, N18–N23, N25, N28, N29 can't be turned off).
    */
   preference: EcosystemEmailPreference | null;
   /** When the email is batched rather than immediate, its cadence. */
   digest?: EcosystemDigestCadence;
-  /** Allowed to address a raw email (the anonymous SUBMITTER, §4) — only the
+  /** Allowed to address a raw email (the anonymous SUBMITTER) — only the
    *  transactional submission notices. */
   allowsAddress?: boolean;
 }
 
-/** The §5b event table, as data. */
+/** The notification event table, as data. */
 export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificationEventId, EcosystemEventSpec>> = {
   N1: { description: 'Anonymous submission received (magic link)', channels: ['email'], preference: null, allowsAddress: true },
   N2: { description: 'Submission verified, entered the moderation queue', channels: ['in_app', 'email'], preference: 'ecosystem.moderationDigest.email', digest: 'daily' },
@@ -100,7 +100,7 @@ export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificatio
   N29: { description: 'Plan change affects publishing', channels: ['in_app', 'email'], preference: null },
 };
 
-/** Whether `value` is a §5b event number. */
+/** Whether `value` is a notification event number. */
 export function isEcosystemNotificationEvent(value: unknown): value is EcosystemNotificationEventId {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(ECOSYSTEM_NOTIFICATION_EVENTS, value);
 }
@@ -111,7 +111,7 @@ export type EcosystemOrgRecipientPermission = 'publishers:manage' | 'plugin_inst
 export type EcosystemModeratorPermission = 'plugins:moderate' | 'publishers:verify';
 
 /**
- * A recipient RULE (§5b "Recipient rules"), resolved by platform at send time:
+ * A recipient RULE, resolved by platform at send time:
  *
  *  - `user` — one user (Requester, Review author, the affected user of N23).
  *    `orgId` picks the inbox; defaults to the user's last active org.
@@ -240,7 +240,7 @@ export function parseEcosystemNotifyRequest(body: unknown): EcosystemNotifyReque
   };
 }
 
-/** The UTC hour digests flush at (§5b: "daily digest email (09:00 UTC)"). */
+/** The UTC hour digests flush at ("daily digest email (09:00 UTC)"). */
 export const ECOSYSTEM_DIGEST_HOUR_UTC = 9;
 
 /**
@@ -276,7 +276,7 @@ export interface EcosystemNotificationContent {
 
 /**
  * N23 — someone was added to or removed from the system org's Ecosystem
- * Manager role (§5a.1). Sent to every superadmin and to the affected user;
+ * Manager role. Sent to every superadmin and to the affected user;
  * transactional (no opt-out).
  */
 export function renderEcosystemManagerChange(input: {

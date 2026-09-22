@@ -91,7 +91,6 @@ const EXTRA_PAGE_GATES: Record<string, PageGate> = {
   // Forwards to Security → Service accounts. Keeps its own gate (it is NOT a
   // next.config redirect) so a viewer without the permission is told why here
   // instead of landing on a tab that won't render.
-  '/dashboard/settings/service-accounts': { permission: 'service_accounts:manage' },
 };
 
 /**

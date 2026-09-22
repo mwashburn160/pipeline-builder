@@ -72,13 +72,13 @@ export default function AlertRulesPage() {
   const { data, loading, error, refetch } = useFetch(
     async (signal) => {
       if (!ready) return null;
-      return (await api.listAlertRules({ offset, limit }, signal)).data ?? null;
+      return (await api.listAlertRules({ offset, limit }, { signal })).data ?? null;
     },
     [ready, offset, limit],
   );
   const rules: AlertRule[] = data?.rules ?? [];
   const total = data?.pagination.total ?? 0;
-  const refresh = async () => { refetch(); };
+  const refresh = async () => { void refetch(); };
 
   // A delete can empty the last page — step back to the new last page rather
   // than render an empty list on a stale offset.
@@ -259,7 +259,7 @@ export default function AlertRulesPage() {
  */
 function MaterializedRulesModal({ onClose }: { onClose: () => void }) {
   const { data: yaml, loading, error, refetch } = useFetch(
-    (signal) => api.getMaterializedAlertRules(signal),
+    (signal) => api.getMaterializedAlertRules({ signal }),
     [],
   );
   return (

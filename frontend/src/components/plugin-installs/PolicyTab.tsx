@@ -17,7 +17,6 @@ import { Select } from '@/components/ui/Select';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
-import { clearPluginCache } from '@/hooks/usePlugins';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import {
@@ -25,6 +24,7 @@ import {
   removeBlockedListing, toggleTier, type TierListKey,
 } from '@/lib/plugin-installs';
 import type { ConsumptionPolicy, InstallPolicyResponse } from '@/types/plugin-installs';
+import { invalidate } from '@/lib/api-cache';
 
 const TIER_LISTS: Array<{ key: TierListKey; label: string; hint: string }> = [
   { key: 'allowedTiers', label: 'Allowed publisher tiers', hint: 'Pipelines may use listings only from these tiers; others are blocked.' },
@@ -33,9 +33,9 @@ const TIER_LISTS: Array<{ key: TierListKey; label: string; hint: string }> = [
 ];
 
 /**
- * The org's plugin CONSUMPTION policy (§3.2): which publisher tiers pipelines
+ * The org's plugin CONSUMPTION policy: which publisher tiers pipelines
  * may use, which need approval, which get secrets, the advisory block, whether
- * Official plugins are installed implicitly (D16), and blocked listings.
+ * Official plugins are installed implicitly, and blocked listings.
  * Org-local — it never affects the ecosystem. Editing needs
  * `plugin_installs:manage` and a step-up; a team's policy is merged with its
  * root org's and can only be stricter.
@@ -63,9 +63,9 @@ export function PolicyTab({ canManage }: { canManage: boolean }) {
       const res = await api.updateInstallPolicy(changes, stepUpToken);
       if (res.data) setDraft(res.data.policy);
       toast.success('Plugin consumption policy saved');
-      clearPluginCache();
+      invalidate.plugins();
       setError(null);
-      read.refetch();
+      void read.refetch();
     } catch (e) {
       setError(formatError(e, 'Could not save the policy'));
     } finally {

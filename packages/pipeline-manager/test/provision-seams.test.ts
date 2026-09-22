@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import path from 'node:path';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { PostStep } from '../src/agent/post-steps.js';
 
 // Mock the I/O boundary the seams touch; let the pure helpers (assembleCommand,
@@ -37,8 +37,10 @@ jest.unstable_mockModule('node:readline/promises', () => ({
   createInterface: () => ({ question: questionMock, close: jest.fn<AnyFn>() }),
 }));
 
-const { runPostSteps, bootstrapAndLocate, runDeployWithRetry, preflightPorts, runTeardown, resolveLoadsInteractively } =
-  await import('../src/commands/provision.js');
+const {
+  runPostSteps, bootstrapAndLocate, runDeployWithRetry, preflightPorts, runTeardown, resolveLoadsInteractively,
+  buildParams, printPlan, ensureLocalEnvFile, offerToolFetch, runDiagnose,
+} = await import('../src/commands/provision.js');
 const { TARGETS } = await import('../src/agent/targets.js');
 
 const step = (id: string, command: string): PostStep => ({ id, label: id, command });
@@ -247,5 +249,56 @@ describe('resolveLoadsInteractively — prompts, re-sync, re-resolve', () => {
     const cmd = runScript.mock.calls[0]![0] as string;
     expect(cmd).toContain('sparse-checkout add');
     expect(cmd).toContain('deploy/plugins');
+  });
+});
+
+describe('provision plan helpers', () => {
+  it('buildParams carries the flags and derives noAutoInit from the init mode', () => {
+    const params = buildParams({ region: 'us-east-1', lean: true, stackName: 'pb2', ghcrToken: 't' }, false);
+    expect(params).toMatchObject({ region: 'us-east-1', lean: true, stackName: 'pb2', ghcrToken: 't', noAutoInit: true });
+    expect(buildParams({}, true)).toMatchObject({ lean: false, noAutoInit: false });
+  });
+
+  it('printPlan prints every section without throwing', () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    printPlan({
+      spec: TARGETS.docker,
+      target: 'docker',
+      prereqs: [{ name: 'docker', ok: false, detail: 'not found', required: true }],
+      missing: [],
+      bootstrap: { repo: 'https://example.com/r.git', ref: 'main', workdir: 'pb', paths: ['deploy/local'] },
+      bootstrapCmd: 'git clone …',
+      sparsePaths: ['deploy/local'],
+      command: 'bash setup.sh',
+      postSteps: [step('smoke', 'curl /health')],
+      skippedSteps: [{ id: 'events', reason: 'AWS only' }],
+    });
+    expect(log.mock.calls.flat().join('\n')).toContain('bash setup.sh');
+    log.mockRestore();
+    warn.mockRestore();
+  });
+
+  it('ensureLocalEnvFile is a no-op for the AWS targets', async () => {
+    await expect(ensureLocalEnvFile('ec2', TARGETS.ec2, '/nonexistent', true)).resolves.toBeUndefined();
+  });
+
+  it('offerToolFetch leaves a non-fetchable gap alone', async () => {
+    const prereqs = [{ name: 'docker', ok: false, detail: 'not found', required: true }];
+    const recheck = jest.fn(() => []);
+    await expect(offerToolFetch(prereqs, true, recheck)).resolves.toBe(prereqs);
+    expect(recheck).not.toHaveBeenCalled();
+  });
+
+  it('runDiagnose fails on an unreadable file and emits a null diagnosis as JSON without AI', async () => {
+    const err = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await runDiagnose('/nonexistent/failure.log', false, {}, 'exec-1');
+    expect(process.exitCode).toBe(1);
+    err.mockRestore();
+
+    const log = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    await runDiagnose(path.join(import.meta.dirname, 'provision-seams.test.ts'), true, {}, 'exec-2');
+    expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({ success: true, executionId: 'exec-2', diagnosis: null });
+    log.mockRestore();
   });
 });

@@ -26,10 +26,6 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
 }));
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPipelineAudit: mockEmitPipelineAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
   res.status(400).json({ success: false, statusCode: 400, message: msg });
@@ -39,6 +35,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPipelineAudit,
   extractDbError: jest.fn(() => ({})),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   resolveVisibility: jest.fn((_req: any, am?: string) => am || 'private'),

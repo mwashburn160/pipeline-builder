@@ -17,7 +17,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { Inbox } from 'lucide-react';
 import type { User } from '../src/types';
 
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ isReadOnly: false, user: null }) }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ isReadOnly: false, user: null })));
 jest.mock('@/hooks/useBillingEnabled', () => ({ __esModule: true, useBillingEnabled: () => true }));
 jest.mock('@/hooks/useFeatures', () => ({ __esModule: true, useFeatures: () => ({ isEnabled: () => false, isLoaded: true, isSuperAdmin: false }) }));
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The BOOTSTRAP-ADMIN MFA exception (#8, revision 4).
+ * The BOOTSTRAP-ADMIN MFA exception.
  *
  * A fresh install has exactly one admin and no enrolled factor. Requiring MFA
  * would lock out the only person who can enrol one, and an HTTP recovery route
@@ -33,6 +33,7 @@
 
 import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { NextFunction, Request, Response } from 'express';
+import { envLite } from '../config/env-lite.js';
 import type { UserDocument } from '../models/user.js';
 import { incCounter } from '../observability/metrics.js';
 
@@ -70,21 +71,23 @@ export const BOOTSTRAP_ALERT_AFTER_MS = 24 * 60 * 60 * 1000;
  * only asked to enrol a factor before minting machine credentials.
  */
 export function bootstrapSetupWindowMs(): number {
-  const raw = Number(process.env.BOOTSTRAP_SETUP_WINDOW_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : BOOTSTRAP_ALERT_AFTER_MS;
+  return envLite.bootstrapSetupWindowMs ?? BOOTSTRAP_ALERT_AFTER_MS;
 }
 
 /**
- * Is this email operator-authorized as a platform super-admin (listed in
- * `BOOTSTRAP_SUPERADMIN_EMAILS`)? Env is read LIVE rather than cached, so an
- * operator can change the list without a redeploy, and it is unset in
- * customer/SaaS environments (where no caller is ever authorized).
+ * The operator-authorized platform super-admin emails
+ * (`BOOTSTRAP_SUPERADMIN_EMAILS`), lowercased. Read LIVE rather than cached, so
+ * an operator can change the list without a redeploy; empty in customer/SaaS
+ * environments, where no caller is ever authorized.
  */
+export function bootstrapSuperAdminEmails(): Set<string> {
+  return envLite.bootstrapSuperAdminEmails;
+}
+
+/** Is this email operator-authorized as a platform super-admin? */
 export function isBootstrapSuperAdminEmail(email: string | undefined): boolean {
   if (!email) return false;
-  const raw = process.env.BOOTSTRAP_SUPERADMIN_EMAILS || '';
-  const allow = new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
-  return allow.size > 0 && allow.has(email.trim().toLowerCase());
+  return bootstrapSuperAdminEmails().has(email.trim().toLowerCase());
 }
 
 /**
@@ -106,28 +109,6 @@ async function writeAudit(req: Request, action: 'auth.mfa.bootstrap_session' | '
 }
 
 /**
- * Every model this module touches is imported ON DEMAND.
- *
- * `controllers/auth.ts` imports this for the sign-in check, and the sign-in path
- * must not gain the WebAuthn/TOTP model graph in its STATIC imports just to
- * learn the answer is "no exception" for every account but one. The same
- * reasoning as `auth-factors.ts`'s lazy provider dependencies.
- */
-
-/** The factor state of an account: does it have a passkey or an active TOTP? */
-export async function hasAnyMfaFactor(userId: string): Promise<boolean> {
-  // Lazily imported for the same reason `auth-factors.ts` does it: a sign-in
-  // shouldn't pull the WebAuthn + TOTP model graph in just to learn the answer
-  // is `false` for most accounts.
-  const { WebAuthnCredential, UserTotp } = await import('../models/index.js');
-  const [passkey, totp] = await Promise.all([
-    WebAuthnCredential.exists({ userId }),
-    UserTotp.exists({ userId, activatedAt: { $ne: null } }),
-  ]);
-  return !!passkey || !!totp;
-}
-
-/**
  * Whether the exception is OPEN for `user` right now: an operator-authorized
  * email, a member of the system org, never closed before, and still with no
  * enrolled factor. Fails CLOSED — anything it cannot establish means "no
@@ -137,9 +118,13 @@ export async function isBootstrapExceptionOpen(user: Pick<UserDocument, '_id' | 
   if (!isBootstrapSuperAdminEmail(user.email)) return false;
   if (user.mfaBootstrapClosedAt) return false;
   const userId = user._id.toString();
+  // Models are imported ON DEMAND: `controllers/auth.ts` imports this module for
+  // the sign-in check, and that path must not gain the model graph statically
+  // just to learn the answer is "no exception" for every account but one.
   const { UserOrganization } = await import('../models/index.js');
   const inSystemOrg = await UserOrganization.exists({ userId, organizationId: SYSTEM_ORG_ID, isActive: true });
   if (!inSystemOrg) return false;
+  const { hasAnyMfaFactor } = await import('./auth-factors.js');
   return !(await hasAnyMfaFactor(userId));
 }
 
@@ -173,7 +158,7 @@ export async function closeBootstrapException(userId: string): Promise<boolean> 
  * That does NOT raise its assurance: the slot is still `aal: 1`, so any route
  * with `minAssurance: 2` (and any org that requires MFA) still sends them back
  * to sign in with the new factor. Raising `aal` on anything but a fresh sign-in
- * is exactly what #8 forbids.
+ * is exactly what the assurance model forbids.
  *
  * A no-op for every account that never had the exception open.
  */

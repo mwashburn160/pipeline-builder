@@ -116,7 +116,7 @@ describe('<FeatureLockedAction>', () => {
     // Bulk Operations comes with Pro and is not sold as a pack, so the CTA is
     // the Plans tab rather than a `?highlight=` that matches no card.
     expect(link).toHaveAttribute('href', '/dashboard/billing?tab=plans');
-    expect(link).toHaveAttribute('title', expect.stringContaining('Bulk operations'));
+    expect(link).toHaveAttribute('title', expect.stringContaining('Bulk Operations'));
   });
 
   it('gets out of the way when the org holds the feature', () => {

@@ -128,7 +128,7 @@ describe('Entity Events Route', () => {
     expect(sendBadRequest).not.toHaveBeenCalled();
   });
 
-  it('rejects a service that is not one of its callers (#14)', async () => {
+  it('rejects a service that is not one of its callers', async () => {
     // `reporting` holds a valid key of its own; it is just not a producer of
     // entity events, and the caller list is what says so.
     await runRoute(makeReq({}, { user: { sub: 'service:reporting', principalType: 'service' } }), res);

@@ -4,15 +4,14 @@
 import { AlertCircle, AlertTriangle, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import type { Subscription } from '@/types';
+import type { Subscription, SubscriptionStatus } from '@/types';
 import { formatDateLong } from '@/lib/format';
 
 /** Friendly labels for subscription status (avoids raw "Past_due" from CSS capitalize). */
-const STATUS_LABELS: Record<string, string> = {
+const STATUS_LABELS: Record<SubscriptionStatus, string> = {
   active: 'Active',
   canceled: 'Canceled',
   past_due: 'Past due',
-  unpaid: 'Unpaid',
   trialing: 'Trialing',
   incomplete: 'Incomplete',
 };
@@ -39,9 +38,9 @@ export function SubscriptionStatusCard({
   onCancel,
   onManageBilling,
 }: SubscriptionStatusCardProps) {
-  // Dunning: a failed payment (past_due) or exhausted retries (unpaid) put the
-  // subscription at risk. Reserve the alarm styling for these states.
-  const needsPayment = subscription.status === 'past_due' || subscription.status === 'unpaid';
+  // Dunning: a failed payment (past_due) puts the subscription at risk. Reserve
+  // the alarm styling for it. (The provider's `unpaid` maps to `canceled`.)
+  const needsPayment = subscription.status === 'past_due';
   return (    <Card>
       {/* Dunning banner — a clear path back to good standing before access lapses. */}
       {needsPayment && (

@@ -29,6 +29,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
+  isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: (p: any, k: string) => p[k],
   parseQueryIntClamped: (v: unknown, def: number, max: number) => {
@@ -48,11 +49,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
-}));
-
-jest.unstable_mockModule('../src/helpers/quota-helpers.js', () => ({
-  isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
-
 }));
 
 const { getRouteGates } = await import('@pipeline-builder/api-core');
@@ -189,9 +185,9 @@ describe('GET /quotas/at-risk', () => {
 });
 
 /**
- * GET /quotas/all — the sysadmin org listing. `limit` was always clamped but
- * `offset` was not, so `?offset=99999999999` made Mongo walk (and discard)
- * every matching document before returning an empty page.
+ * GET /quotas/all — the sysadmin org listing. `offset` is 0-based and clamped,
+ * so `?offset=99999999999` can't make Mongo walk (and discard) every matching
+ * document before returning an empty page.
  */
 describe('GET /quotas/all pagination bounds', () => {
   let handler: (req: any, res: any) => Promise<unknown>;
@@ -199,13 +195,13 @@ describe('GET /quotas/all pagination bounds', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     handler = getHandler('/all');
-    findAll.mockResolvedValue([]);
+    findAll.mockResolvedValue({ organizations: [], total: 0 });
   });
 
   it('clamps an absurd offset instead of passing it through to the skip', async () => {
     await handler({ query: { offset: '99999999999' } } as any, makeRes());
-    // MAX_LIST_OFFSET is 100_000, and the param is 1-based.
-    expect(findAll).toHaveBeenCalledWith({ limit: 100, offset: 99_999 });
+    // MAX_PAGE_OFFSET defaults to 100_000.
+    expect(findAll).toHaveBeenCalledWith({ limit: 100, offset: 100_000 });
   });
 
   it('clamps a negative offset to the first page', async () => {
@@ -215,6 +211,6 @@ describe('GET /quotas/all pagination bounds', () => {
 
   it('passes an ordinary offset through unchanged', async () => {
     await handler({ query: { offset: '3', limit: '25' } } as any, makeRes());
-    expect(findAll).toHaveBeenCalledWith({ limit: 25, offset: 2 });
+    expect(findAll).toHaveBeenCalledWith({ limit: 25, offset: 3 });
   });
 });

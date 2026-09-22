@@ -76,9 +76,8 @@ export default function BillingPage() {
   // The page's `billing:read` gate comes from its nav entry (page-access.ts).
   const { accessDenied, user, isReady, isAdmin, isSuperAdmin, can, isReadOnly } = useAuthGuard();
   // Whether the billing SERVICE is enabled in this deployment (`/api/billing/config`
-  // probe). Replaces the old `features.isEnabled('billing')` gate — `'billing'` is
-  // NOT a FeatureFlag, so that check was always false and this page redirected/span
-  // forever for everyone. Tri-state so the redirect below only fires on a definitive
+  // probe) — `'billing'` is not a FeatureFlag, so the feature set can't answer
+  // it. Tri-state so the redirect below only fires on a definitive
   // `false`, not while the probe is still resolving.
   const billingEnabled = useBillingEnabledState();
   const billingProvider = useBillingProvider();
@@ -173,7 +172,7 @@ export default function BillingPage() {
     billingInterval,
     billingProvider,
     changeTab,
-    onReload: () => { bundlesQ.refetch(); usageQ.refetch(); },
+    onReload: () => { void bundlesQ.refetch(); void usageQ.refetch(); },
   });
 
   // While auth or the billing-enabled probe is still resolving, show loading.

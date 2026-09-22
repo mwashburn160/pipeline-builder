@@ -88,8 +88,8 @@ describe('canModify', () => {
 
 // ---------------------------------------------------------------------------
 // canWritePipeline — requires BOTH `pipelines:write` AND ownership (canModify).
-// Guards against the list/detail pages diverging (detail page previously only
-// checked canModify, showing enabled write controls to read-only members).
+// Guards against the list/detail pages diverging (a detail page checking only
+// canModify would show enabled write controls to read-only members).
 // ---------------------------------------------------------------------------
 describe('canWritePipeline', () => {
   const canWrite = (p: string) => p === 'pipelines:write';

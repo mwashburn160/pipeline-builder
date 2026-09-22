@@ -3,25 +3,25 @@
 
 /**
  * Installs, the org consumption policy and the in-app catalog
- * (docs/plans/plugin-ecosystem.md §3.2, §5a). ORG-LOCAL routes: they decide
+ * (docs/plugin-publishing.md). ORG-LOCAL routes: they decide
  * only what the caller's own org (and, for a root org, its teams) may use —
- * never anything in the ecosystem (D13):
+ * never anything in the ecosystem:
  *
- *   GET    /plugins/catalog                                 plugins:read
- *   GET    /plugins/listings/:publisher/:name/install-state plugins:read
- *   GET    /plugins/installs                                plugins:read
- *   POST   /plugins/installs                                plugins:install        install, or request it (approval policy)
- *   PATCH  /plugins/installs/:id                            plugins:install        upgrade / change the version policy
- *   GET    /plugins/installs/change-requests                plugin_installs:manage the org's pending install changes
- *   POST   /plugins/installs/:id/change-requests            plugins:install        request a change that needs an approver
- *   POST   /plugins/installs/:id/change-requests/approve    plugin_installs:manage apply it
- *   POST   /plugins/installs/:id/change-requests/reject     plugin_installs:manage drop it (reason)
- *   DELETE /plugins/installs/:id                            plugins:install        uninstall / withdraw a request
- *   POST   /plugins/installs/:id/approve                    plugin_installs:manage
- *   POST   /plugins/installs/:id/deny                       plugin_installs:manage
- *   GET    /plugins/install-policy                          plugins:read
- *   PUT    /plugins/install-policy                          plugin_installs:manage + step-up
- *   GET    /plugins/shadowing                               plugins:read
+ *   GET /plugins/catalog plugins:read
+ *   GET /plugins/listings/:publisher/:name/install-state plugins:read
+ *   GET /plugins/installs plugins:read
+ *   POST /plugins/installs plugins:install install, or request it (approval policy)
+ *   PATCH /plugins/installs/:id plugins:install upgrade / change the version policy
+ *   GET /plugins/installs/change-requests plugin_installs:manage the org's pending install changes
+ *   POST /plugins/installs/:id/change-requests plugins:install request a change that needs an approver
+ *   POST /plugins/installs/:id/change-requests/approve plugin_installs:manage apply it
+ *   POST /plugins/installs/:id/change-requests/reject plugin_installs:manage drop it (reason)
+ *   DELETE /plugins/installs/:id plugins:install uninstall / withdraw a request
+ *   POST /plugins/installs/:id/approve plugin_installs:manage
+ *   POST /plugins/installs/:id/deny plugin_installs:manage
+ *   GET /plugins/install-policy plugins:read
+ *   PUT /plugins/install-policy plugin_installs:manage + step-up
+ *   GET /plugins/shadowing plugins:read
  */
 
 import { audited, requirePermission, requireStepUp, sendSuccess } from '@pipeline-builder/api-core';

@@ -16,6 +16,7 @@
  */
 
 import {
+  createMongoOrgHierarchy,
   resolveRootOrgIdWith,
   expandOrgScopeWith,
   toOrgIdString,
@@ -23,14 +24,10 @@ import {
 import { toOrgId } from './org-id.js';
 import { Organization } from '../models/organization.js';
 
-/**
- * Fetch a single org's direct parent id (cast-aware), or undefined when the org
- * is a root (no `parentOrgId`) or does not exist.
- */
-export async function getParentOrgId(orgId: string): Promise<string | undefined> {
-  const org = await Organization.findById(toOrgId(orgId)).select('parentOrgId').lean();
-  return toOrgIdString((org as { parentOrgId?: unknown } | null)?.parentOrgId);
-}
+const { getParentOrgId, getChildOrgIds } = createMongoOrgHierarchy(Organization, toOrgId);
+
+/** A single org's direct parent id (cast-aware), or undefined for a root / missing org. */
+export { getParentOrgId };
 
 /** One org's own row plus its position in the org → team hierarchy. */
 export interface OrgHierarchyLookup<T> {
@@ -63,17 +60,6 @@ export async function findOrgWithHierarchy<T extends object>(
     else hasChildren = true;
   }
   return { self, parentOrgId: toOrgIdString(self?.parentOrgId), hasChildren };
-}
-
-/** Fetch the direct LIVE child org ids of every org in `frontier` (a
- *  soft-deleted team leaves the pool, matching the platform's scope). */
-async function getChildOrgIds(frontier: string[]): Promise<string[]> {
-  const children = await Organization.find({ parentOrgId: { $in: frontier }, deletedAt: null })
-    .select('_id')
-    .lean();
-  return children
-    .map((c) => toOrgIdString((c as { _id?: unknown })._id))
-    .filter((id): id is string => !!id);
 }
 
 /** Walk `parentOrgId` up to the root. Returns the input itself for a root org. */

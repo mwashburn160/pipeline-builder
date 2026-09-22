@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Org-scoped SERVICE ACCOUNTS (#2): non-human principals that belong to one org,
+ * Org-scoped SERVICE ACCOUNTS: non-human principals that belong to one org,
  * hold that org's Roles, and authenticate only with `pb_sa_…` keys.
  *
  * The design in one paragraph: an account is a row in `service_accounts`, its
@@ -67,9 +67,9 @@ import { toOrgId } from '../helpers/org-id.js';
 // including the org cascade, whose suites mock models file-by-file.
 import Organization from '../models/organization.js';
 import ServiceAccount from '../models/service-account.js';
-import type { ServiceAccountDocument } from '../models/service-account.js';
+import type { ServiceAccountData } from '../models/service-account.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
-import type { ServiceAccountTokenContext } from '../utils/token.js';
+import type { ServiceAccountTokenContext } from './session/access-tokens.js';
 
 const logger = createLogger('service-account-service');
 
@@ -130,7 +130,7 @@ export interface CreateServiceAccountKeyInput {
   /** Exact addresses or CIDR blocks the key may be exchanged from. */
   ipAllowlist?: readonly string[];
   /**
-   * Narrow capability scope (#12). When set, the exchanged token carries this
+   * Narrow capability scope. When set, the exchanged token carries this
    * scope INSTEAD of the account's Roles — least privilege for a key that only
    * has to ingest events or push images.
    */
@@ -238,7 +238,7 @@ async function requireLiveOrg(orgId: string): Promise<OrgFacts> {
  * they are not, they are read for this account alone.
  */
 async function viewOf(
-  doc: ServiceAccountDocument & { _id: unknown },
+  doc: ServiceAccountData & { _id: unknown },
   prefetched?: { roles: ServiceAccountRole[]; keys: AccessKeyView[] },
 ): Promise<ServiceAccountView> {
   const id = String(doc._id);
@@ -321,7 +321,7 @@ export async function createServiceAccount(
   }
 
   logger.info('Created service account', { organizationId: orgId, serviceAccountId: String(doc._id), name });
-  return viewOf(doc as unknown as ServiceAccountDocument & { _id: unknown });
+  return viewOf(doc);
 }
 
 /**
@@ -339,18 +339,18 @@ export async function listServiceAccounts(orgId: string): Promise<ServiceAccount
     serviceAccountRolesFor(toOrgId(orgId), ids),
     apiKeyService.listForServiceAccounts(ids),
   ]);
-  return Promise.all(docs.map((d) => viewOf(d as unknown as ServiceAccountDocument & { _id: unknown }, {
+  return Promise.all(docs.map((d) => viewOf(d, {
     roles: rolesByAccount.get(String(d._id)) ?? [],
     keys: keysByAccount.get(String(d._id)) ?? [],
   })));
 }
 
 /** One account of `orgId`, or `SA_NOT_FOUND`. */
-async function requireAccount(orgId: string, id: string): Promise<ServiceAccountDocument & { _id: unknown }> {
+async function requireAccount(orgId: string, id: string): Promise<ServiceAccountData & { _id: unknown }> {
   if (!Types.ObjectId.isValid(id)) throw new Error(SA_NOT_FOUND);
   const doc = await ServiceAccount.findOne({ _id: new Types.ObjectId(id), organizationId: toOrgId(orgId) }).lean();
   if (!doc) throw new Error(SA_NOT_FOUND);
-  return doc as unknown as ServiceAccountDocument & { _id: unknown };
+  return doc;
 }
 
 /** One account of `orgId` as the API returns it. */

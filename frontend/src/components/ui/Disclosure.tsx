@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 /**
  * Shared disclosure (expand/collapse) primitive.
  *
- * Consolidates four previously divergent disclosure widgets:
+ * The one disclosure widget, used by:
  *  - `pipeline/editors/CollapsibleSection` (custom button + local isOpen)
  *  - `pipeline/DeployedPipelinesPanel`     (`<details>` with controlled open)
  *  - `registry/RecentActionsPanel`         (custom button + local open)

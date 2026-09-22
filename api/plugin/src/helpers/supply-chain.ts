@@ -189,8 +189,8 @@ export interface PluginImageRef {
   name: string;
   imageDigest: string | null;
   /**
-   * Namespace-relative repository the image lives at, as lookup resolved it
-   * (G30): `org-<id>/<name>` / `system/<name>` for the org's own row,
+   * Namespace-relative repository the image lives at, as lookup resolved it:
+   * `org-<id>/<name>` / `system/<name>` for the org's own row,
    * `public/<publisher>/<name>` for a listed version. Absent for a row the
    * service handles as its own (build, rescan): its owner's namespace.
    */
@@ -329,7 +329,7 @@ export function _resetPublicSbomCache(): void {
 
 /**
  * The SBOM of a PUBLISHED plugin image (`public/<handle>/<name>@<digest>`), for
- * the anonymous directory (plugin-ecosystem §6a). Read from the signed
+ * the anonymous directory. Read from the signed
  * attestation like {@link fetchImageSbom}. `public/*` is pull-open to every
  * platform identity, so the pull credential carries the system org and no
  * permission. Verified SBOMs are cached by digest, concurrent requests for one

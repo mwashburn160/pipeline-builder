@@ -74,7 +74,10 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserPreferences: {},
   Invitation: { distinct: (...a: unknown[]) => mockInvDistinct(a[0] as string, a[1] as Record<string, unknown>) },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
-  UserOrganization: { distinct: (...a: unknown[]) => mockUoDistinct(...a) },
+  UserOrganization: {
+    distinct: (...a: unknown[]) => mockUoDistinct(...a),
+    exists: () => ({ session: () => Promise.resolve(alreadySeated ? { _id: 'm' } : null) }),
+  },
 }));
 
 // Test-controlled fixtures the mocks read.
@@ -82,8 +85,9 @@ let seatLimit = 3;
 let seededMembers: string[] = [];
 let seededInvitations: Array<{ email: string; status: string; expiresAt: Date }> = [];
 let seededFeatures: string[] | undefined = [];
+let alreadySeated = false;
 
-const { seatCapacityAvailable, pooledSeatUsage, pooledFeatureEntitlements } = await import('../src/helpers/seats.js');
+const { seatCapacityAvailable, pooledSeatUsage, pooledFeatureEntitlements, withSeatGuard } = await import('../src/helpers/seats.js');
 
 const future = () => new Date(Date.now() + 60_000);
 const past = () => new Date(Date.now() - 60_000);
@@ -95,6 +99,7 @@ beforeEach(() => {
   seededMembers = [];
   seededInvitations = [];
   seededFeatures = [];
+  alreadySeated = false;
   mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
   mockExpandOrgScope.mockResolvedValue(['root-1']);
 });
@@ -157,5 +162,46 @@ describe('pooledFeatureEntitlements — the account (root) feature set', () => {
     seededFeatures = undefined; // simulate a doc with no featureEntitlements field
     const features = await pooledFeatureEntitlements('org-1');
     expect(features).toEqual([]);
+  });
+});
+
+describe('withSeatGuard', () => {
+  it('runs the write when the account has room', async () => {
+    seatLimit = 2;
+    seededMembers = ['m1'];
+    const write = jest.fn(async () => { seededMembers = ['m1', 'u1']; return 'ok'; });
+    await expect(withSeatGuard({ userId: 'u1', orgId: 'org-1', errorCode: 'FULL' }, write)).resolves.toBe('ok');
+    expect(write).toHaveBeenCalled();
+  });
+
+  it('refuses before writing when the account is at its cap', async () => {
+    seatLimit = 1;
+    seededMembers = ['m1'];
+    const write = jest.fn(async () => undefined);
+    await expect(withSeatGuard({ userId: 'u1', orgId: 'org-1', errorCode: 'FULL' }, write)).rejects.toThrow('FULL');
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('throws after the write when the post-write recount is over the cap (so the tx rolls back)', async () => {
+    seatLimit = 2;
+    seededMembers = ['m1'];
+    // A concurrent writer took the last seat between the pre-check and ours.
+    const write = jest.fn(async () => { seededMembers = ['m1', 'other', 'u1']; });
+    await expect(withSeatGuard({ userId: 'u1', orgId: 'org-1', errorCode: 'FULL' }, write)).rejects.toThrow('FULL');
+    expect(write).toHaveBeenCalled();
+  });
+
+  it('skips both checks for someone already seated in the account', async () => {
+    seatLimit = 1;
+    seededMembers = ['m1', 'm2'];
+    alreadySeated = true;
+    await expect(withSeatGuard({ userId: 'm1', orgId: 'org-1', errorCode: 'FULL' }, async () => 'ok')).resolves.toBe('ok');
+  });
+
+  it('checks for a write with no user (an invite), and honours consumesSeat: false and a structured refusal', async () => {
+    seatLimit = 1;
+    seededMembers = ['m1'];
+    await expect(withSeatGuard({ orgId: 'org-1', refuse: () => new Error('STRUCTURED') }, async () => 'x')).rejects.toThrow('STRUCTURED');
+    await expect(withSeatGuard({ orgId: 'org-1', errorCode: 'FULL', consumesSeat: false }, async () => 'x')).resolves.toBe('x');
   });
 });

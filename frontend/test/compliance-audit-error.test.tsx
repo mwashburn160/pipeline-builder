@@ -13,10 +13,7 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ComplianceDashboard from '../src/components/compliance/ComplianceDashboard';
 
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: {}, pathname: '/', replace: jest.fn<AnyFn>() })));
 
 // The overview issues two kinds of audit-log queries: the list fetch (no
 // `result`) and the pass/warn/block COUNT fetches (with `result`). Only the list

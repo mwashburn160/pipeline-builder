@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SCIM 2.0 HTTP layer (3b) — the twelve handlers under `/scim/v2`.
+ * SCIM 2.0 HTTP layer — the twelve handlers under `/scim/v2`.
  *
  * Everything that is protocol lives here; everything that is policy lives in
- * `services/scim-service.ts`. Specifically, this module owns:
+ * `services/scim-users.ts` / `scim-groups.ts`. Specifically, this module owns:
  *
  *   - THE CONTEXT. The org comes from the VERIFIED token (`req.user.organizationId`),
  *     never from a path segment or a body, and its live `sso` entitlement is
@@ -30,27 +30,11 @@ import { notifyScimEntitlementLapsed } from '../helpers/scim-entitlement-notice.
 import { isSsoEntitled } from '../helpers/sso-enforcement.js';
 import type { AuditAction } from '../models/audit-event.js';
 import { incCounter } from '../observability/metrics.js';
+import { resourceTypes, schemas, serviceProviderConfig } from '../services/scim-discovery.js';
 import { isScimError } from '../services/scim-errors.js';
-import {
-  createGroup,
-  createUser,
-  deleteGroup,
-  deleteUser,
-  getGroup,
-  getUser,
-  listGroups,
-  listUsers,
-  patchGroup,
-  patchUser,
-  replaceGroup,
-  replaceUser,
-  resourceTypes,
-  schemas,
-  serviceProviderConfig,
-  type ScimContext,
-  type ScimListQuery,
-  type ScimWriteOutcome,
-} from '../services/scim-service.js';
+import { type ScimContext, type ScimListQuery, type ScimWriteOutcome } from '../services/scim-filter.js';
+import { createGroup, deleteGroup, getGroup, listGroups, patchGroup, replaceGroup } from '../services/scim-groups.js';
+import { createUser, deleteUser, getUser, listUsers, patchUser, replaceUser } from '../services/scim-users.js';
 import { sendScim, sendScimError } from '../utils/scim-response.js';
 
 const logger = createLogger('scim-controller');

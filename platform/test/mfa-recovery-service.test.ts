@@ -178,6 +178,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const svc = await import('../src/services/mfa-recovery.js');
+const { MFA_RESET_GRACE_MAX_HOURS } = await import('../src/helpers/mfa-policy.js');
+const { MFA_RESET_ALREADY_PENDING, MFA_RESET_EXPIRED, MFA_RESET_NOT_FOUND, MFA_RESET_NOT_MEMBER, MFA_RESET_NOT_PENDING, MFA_RESET_PLATFORM_ADMIN, MFA_RESET_SECOND_PERSON_REQUIRED, MFA_RESET_SELF } = await import('../src/services/mfa-recovery-errors.js');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -276,7 +278,7 @@ describe('resetFactors — what a reset actually does', () => {
       return Math.round((r!.graceUntil.getTime() - Date.now()) / 3600_000);
     };
     // Beyond a week an MFA-required org would have a member quietly exempt.
-    expect(await hours(1000)).toBe(svc.MFA_RESET_GRACE_MAX_HOURS);
+    expect(await hours(1000)).toBe(MFA_RESET_GRACE_MAX_HOURS);
     expect(await hours(0)).toBe(1);
     expect(await hours(-5)).toBe(1);
     expect(await hours(6)).toBe(6);
@@ -328,14 +330,14 @@ describe('requestMfaReset — who may be asked for, and by whom', () => {
     // second factor with one person: yours.
     await expect(svc.requestMfaReset({
       organizationId: ORG, targetUserId: ADMIN_1, requester: actor(ADMIN_1, 'a1@acme.test'), reason: 'r',
-    })).rejects.toThrow(svc.MFA_RESET_SELF);
+    })).rejects.toThrow(MFA_RESET_SELF);
     expect(UserOrganization.exists).not.toHaveBeenCalled();
   });
 
   it('REFUSES a platform administrator — a tenant\'s admins never strip an operator\'s factors', async () => {
     await expect(svc.requestMfaReset({
       organizationId: ORG, targetUserId: SYSADMIN, requester: actor(ADMIN_1, 'a1@acme.test'), reason: 'r',
-    })).rejects.toThrow(svc.MFA_RESET_PLATFORM_ADMIN);
+    })).rejects.toThrow(MFA_RESET_PLATFORM_ADMIN);
     expect(MfaResetRequest.create).not.toHaveBeenCalled();
   });
 
@@ -343,13 +345,13 @@ describe('requestMfaReset — who may be asked for, and by whom', () => {
     db.memberships = db.memberships.filter((m) => String(m.userId) !== MEMBER);
     await expect(svc.requestMfaReset({
       organizationId: ORG, targetUserId: MEMBER, requester: actor(ADMIN_1, 'a1@acme.test'), reason: 'r',
-    })).rejects.toThrow(svc.MFA_RESET_NOT_MEMBER);
+    })).rejects.toThrow(MFA_RESET_NOT_MEMBER);
   });
 
   it('refuses a malformed target id without querying', async () => {
     await expect(svc.requestMfaReset({
       organizationId: ORG, targetUserId: 'not-an-id', requester: actor(ADMIN_1, 'a1@acme.test'), reason: 'r',
-    })).rejects.toThrow(svc.MFA_RESET_NOT_MEMBER);
+    })).rejects.toThrow(MFA_RESET_NOT_MEMBER);
     expect(UserOrganization.exists).not.toHaveBeenCalled();
   });
 
@@ -357,12 +359,12 @@ describe('requestMfaReset — who may be asked for, and by whom', () => {
     db.users = db.users.filter((u) => String(u._id) !== MEMBER);
     await expect(svc.requestMfaReset({
       organizationId: ORG, targetUserId: MEMBER, requester: actor(ADMIN_1, 'a1@acme.test'), reason: 'r',
-    })).rejects.toThrow(svc.MFA_RESET_NOT_MEMBER);
+    })).rejects.toThrow(MFA_RESET_NOT_MEMBER);
   });
 
   it('allows ONE pending request per member — a second is refused', async () => {
     await fileRequest();
-    await expect(fileRequest()).rejects.toThrow(svc.MFA_RESET_ALREADY_PENDING);
+    await expect(fileRequest()).rejects.toThrow(MFA_RESET_ALREADY_PENDING);
   });
 
   it('but a LAPSED request is expired first, so it never blocks a fresh one', async () => {
@@ -413,8 +415,8 @@ describe('listMfaResets / getMfaReset', () => {
   });
 
   it('answers NOT_FOUND for a missing or malformed id', async () => {
-    await expect(svc.getMfaReset('nope')).rejects.toThrow(svc.MFA_RESET_NOT_FOUND);
-    await expect(svc.getMfaReset(GONE)).rejects.toThrow(svc.MFA_RESET_NOT_FOUND);
+    await expect(svc.getMfaReset('nope')).rejects.toThrow(MFA_RESET_NOT_FOUND);
+    await expect(svc.getMfaReset(GONE)).rejects.toThrow(MFA_RESET_NOT_FOUND);
   });
 });
 
@@ -437,7 +439,7 @@ describe('approveMfaReset — the two-person rule', () => {
     const id = await fileRequest();
 
     await expect(svc.approveMfaReset({ requestId: id, approver: actor(ADMIN_1, 'a1@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_SECOND_PERSON_REQUIRED);
+      .rejects.toThrow(MFA_RESET_SECOND_PERSON_REQUIRED);
 
     // Still pending, and no factor was touched.
     expect(db.requests[0].status).toBe('pending');
@@ -448,7 +450,7 @@ describe('approveMfaReset — the two-person rule', () => {
     const id = await fileRequest();
 
     await expect(svc.approveMfaReset({ requestId: id, approver: actor(MEMBER, 'member@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_SECOND_PERSON_REQUIRED);
+      .rejects.toThrow(MFA_RESET_SECOND_PERSON_REQUIRED);
     expect(db.requests[0].status).toBe('pending');
   });
 
@@ -457,7 +459,7 @@ describe('approveMfaReset — the two-person rule', () => {
     db.requests[0].expiresAt = new Date(Date.now() - 1000);
 
     await expect(svc.approveMfaReset({ requestId: id, approver: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_EXPIRED);
+      .rejects.toThrow(MFA_RESET_EXPIRED);
     expect(db.requests[0].status).toBe('expired');
     expect(mockPublishRevocation).not.toHaveBeenCalled();
   });
@@ -467,21 +469,21 @@ describe('approveMfaReset — the two-person rule', () => {
     await svc.approveMfaReset({ requestId: id, approver: actor(ADMIN_2, 'a2@acme.test') });
 
     await expect(svc.approveMfaReset({ requestId: id, approver: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_PENDING);
+      .rejects.toThrow(MFA_RESET_NOT_PENDING);
   });
 
   it('reports an already-expired request as expired rather than "not pending"', async () => {
     const id = await fileRequest();
     db.requests[0].status = 'expired';
     await expect(svc.approveMfaReset({ requestId: id, approver: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_EXPIRED);
+      .rejects.toThrow(MFA_RESET_EXPIRED);
   });
 
   it('answers NOT_FOUND for a malformed or unknown id', async () => {
     await expect(svc.approveMfaReset({ requestId: 'nope', approver: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_FOUND);
+      .rejects.toThrow(MFA_RESET_NOT_FOUND);
     await expect(svc.approveMfaReset({ requestId: GONE, approver: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_FOUND);
+      .rejects.toThrow(MFA_RESET_NOT_FOUND);
   });
 
   it('RELEASES the claim when the reset itself fails, so the request can be retried', async () => {
@@ -503,7 +505,7 @@ describe('approveMfaReset — the two-person rule', () => {
     db.users = db.users.filter((u) => String(u._id) !== MEMBER);
 
     await expect(svc.approveMfaReset({ requestId: id, approver: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_MEMBER);
+      .rejects.toThrow(MFA_RESET_NOT_MEMBER);
     expect(db.requests[0].status).toBe('expired');
   });
 
@@ -535,19 +537,19 @@ describe('denyMfaReset — denial and withdrawal', () => {
     const lapsed = await fileRequest();
     db.requests[0].expiresAt = new Date(Date.now() - 1000);
     await expect(svc.denyMfaReset({ requestId: lapsed, actor: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_EXPIRED);
+      .rejects.toThrow(MFA_RESET_EXPIRED);
     expect(db.requests[0].status).toBe('expired');
 
     db.requests[0].status = 'denied';
     await expect(svc.denyMfaReset({ requestId: lapsed, actor: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_PENDING);
+      .rejects.toThrow(MFA_RESET_NOT_PENDING);
   });
 
   it('answers NOT_FOUND for a malformed or unknown id', async () => {
     await expect(svc.denyMfaReset({ requestId: 'nope', actor: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_FOUND);
+      .rejects.toThrow(MFA_RESET_NOT_FOUND);
     await expect(svc.denyMfaReset({ requestId: GONE, actor: actor(ADMIN_2, 'a2@acme.test') }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_FOUND);
+      .rejects.toThrow(MFA_RESET_NOT_FOUND);
   });
 });
 
@@ -567,22 +569,22 @@ describe('directMfaReset — the single-person sysadmin path', () => {
 
   it('REFUSES a sysadmin resetting their own factors', async () => {
     await expect(svc.directMfaReset({ targetUserId: SYSADMIN, actor: actor(SYSADMIN, 'root@pipeline-builder.test', true) }))
-      .rejects.toThrow(svc.MFA_RESET_SELF);
+      .rejects.toThrow(MFA_RESET_SELF);
     expect(mockPublishRevocation).not.toHaveBeenCalled();
   });
 
   it('answers NOT_FOUND for a malformed id or a missing account', async () => {
     await expect(svc.directMfaReset({ targetUserId: 'not-an-id', actor: actor(SYSADMIN, 'root@pipeline-builder.test', true) }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_FOUND);
+      .rejects.toThrow(MFA_RESET_NOT_FOUND);
     await expect(svc.directMfaReset({ targetUserId: GONE, actor: actor(SYSADMIN, 'root@pipeline-builder.test', true) }))
-      .rejects.toThrow(svc.MFA_RESET_NOT_FOUND);
+      .rejects.toThrow(MFA_RESET_NOT_FOUND);
   });
 
   it('honours a bounded custom grace', async () => {
     const result = await svc.directMfaReset({
       targetUserId: MEMBER, actor: actor(SYSADMIN, 'root@pipeline-builder.test', true), graceHours: 200,
     });
-    expect(Math.round((result.graceUntil.getTime() - Date.now()) / 3600_000)).toBe(svc.MFA_RESET_GRACE_MAX_HOURS);
+    expect(Math.round((result.graceUntil.getTime() - Date.now()) / 3600_000)).toBe(MFA_RESET_GRACE_MAX_HOURS);
   });
 });
 

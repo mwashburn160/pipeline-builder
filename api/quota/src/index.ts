@@ -7,7 +7,6 @@ import mongoose from 'mongoose';
 
 import { mountRoutes } from './app-routes.js';
 import { config } from './config.js';
-import { getAuditClient } from './services/audit.js';
 
 const logger = createLogger('quota-service');
 
@@ -33,7 +32,7 @@ mountRoutes(app);
 // requireSystemAdmin) into the same remote audit sink as the mutation events,
 // as best-effort `authz.denied` failure records. Registered once at boot; the
 // gate already wraps this call in try/catch and only fires for non-GET requests.
-wireServiceSecurity('quota', getAuditClient);
+wireServiceSecurity('quota');
 
 // -- Startup -------------------------------------------------------------------
 

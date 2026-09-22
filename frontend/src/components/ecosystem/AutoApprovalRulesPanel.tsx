@@ -180,7 +180,7 @@ type Pending =
   | { kind: 'enable' | 'disable' | 'approve' | 'delete'; rule: AutoRule };
 
 /**
- * Ecosystem console → Auto-approval rules (plan §3.0, §3.0.3). Rules decide
+ * Ecosystem console → Auto-approval rules. Rules decide
  * routine requests without a human; creating, widening or re-enabling one is
  * itself two-person — the proposer can't approve their own change. Disabling
  * applies at once. Every write is step-up gated.
@@ -238,7 +238,7 @@ export function AutoApprovalRulesPanel({ can, currentUserId }: Props) {
       await api.deleteAutoRule(pending.rule.id, token);
       toast.success(`Deleted ${pending.rule.name}`);
     }
-    rulesQ.refetch();
+    void rulesQ.refetch();
   };
 
   return (

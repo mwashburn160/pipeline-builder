@@ -20,7 +20,7 @@ import type { PluginBuildJobData, PublishCaller } from '../helpers/plugin-helper
 const logger = createLogger('plugin-build-queue');
 
 /**
- * Who is re-running the build (E20). A retry or replay runs on the RETRYING
+ * Who is re-running the build. A retry or replay runs on the RETRYING
  * caller's authority, never the original uploader's snapshot: the new job's
  * `userId` and overwrite `access` are theirs, `public` visibility survives only
  * if they hold `plugins:publish`, and the post-build publish request is

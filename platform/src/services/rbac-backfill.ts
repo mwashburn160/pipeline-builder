@@ -37,8 +37,7 @@ function permissionSetsEqual(a: string[], b: string[]): boolean {
  *   b. Every ACTIVE `UserOrganization` membership is ensured to hold the built-in
  *      Role matching its current coarse role (member → Member, admin/owner →
  *      Admin), keyed off `grantsRole`, via an idempotent assignment upsert — so
- *      users who previously relied on the (now-removed) role baseline keep their
- *      permissions.
+ *      every member's permissions come from a Role.
  *
  * Failures are surfaced by the caller (index.ts wraps this in try/catch so a
  * partial failure logs and boot continues) — nothing here is fatal.
@@ -47,9 +46,9 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // ── Pass A: RE-SYNC built-in Role permission bundles to the current source ──
   // Overwrite every built-in (`system:true`) Role's `permissions[]` to the CURRENT
   // bundle for its `grantsRole` (admin/superadmin → admin bundle, member → member
-  // bundle). Overwriting — not the old only-when-empty fill — is what lets a newly
-  // added catalog permission reach EXISTING orgs' Admin/Member Roles; the previous
-  // guard left them frozen with a stale list forever (only fresh orgs picked it up).
+  // bundle). Overwriting — not filling only when empty — is what lets a newly
+  // added catalog permission reach EXISTING orgs' Admin/Member Roles instead of
+  // only fresh orgs.
   // Idempotent: a Role already carrying the exact bundle is skipped (no write, not
   // counted). Scoped to system Roles only — user-authored custom Roles (system:false)
   // are never touched.

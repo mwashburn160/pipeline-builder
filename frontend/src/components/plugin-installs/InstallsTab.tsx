@@ -12,7 +12,6 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge } from '@/components/ui/Badge';
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import { useFetch } from '@/hooks/useFetch';
-import { clearPluginCache } from '@/hooks/usePlugins';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { pluginPagePath } from '@/lib/public-directory/links';
@@ -20,12 +19,13 @@ import { entryFromInstall, INSTALL_STATUS_LABELS, listingUsage } from '@/lib/plu
 import type { InstallStatusFilter, InstallView } from '@/types/plugin-installs';
 import { InstallControls } from './InstallControls';
 import { InstallWarnings } from './InstallWarnings';
+import { invalidate } from '@/lib/api-cache';
 
 const STATUS_COLOR = { active: 'green', pending_approval: 'yellow', denied: 'red' } as const;
 
 /**
- * The org's installs (§3.2), optionally with the automatic Official installs
- * (D16). Each row carries the same controls as the catalog: Upgrade (when a
+ * The org's installs, optionally with the automatic Official installs
+ *. Each row carries the same controls as the catalog: Upgrade (when a
  * version outside the policy's range exists), Change policy, Uninstall, or
  * Withdraw for a pending request. Rows inherited from the root org are read-only.
  */
@@ -38,7 +38,7 @@ export function InstallsTab({ canInstall, usage }: { canInstall: boolean; usage:
     return res.data?.installs ?? [];
   }, [status, implicit]);
   const installs = list.data ?? [];
-  const afterChange = () => { clearPluginCache(); list.refetch(); };
+  const afterChange = () => { invalidate.plugins(); void list.refetch(); };
 
   return (
     <div className="space-y-4" data-testid="installs-tab">

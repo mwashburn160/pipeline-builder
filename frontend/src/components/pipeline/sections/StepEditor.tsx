@@ -219,7 +219,7 @@ export default function StepEditor({
                     type="button"
                     onClick={() => removeAdditionalInput(idx)}
                     disabled={disabled}
-                    className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm transition-colors"
+                    className="text-danger hover:text-danger text-sm transition-colors"
                   >
                     Remove
                   </button>

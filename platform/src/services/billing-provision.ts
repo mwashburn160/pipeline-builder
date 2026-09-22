@@ -24,14 +24,13 @@
  * only guarantees the provisioning eventually happens (or is operator-visible).
  */
 
-import { createLogger, createSafeClient, getServiceAuthHeader, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, getServiceAuthHeader, errorMessage, sleep } from '@pipeline-builder/api-core';
 import { authService } from './auth-service.js';
 import { config } from '../config/index.js';
 import { incCounter } from '../observability/metrics.js';
 
 const logger = createLogger('billing-provision');
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Summary of a reconcile pass (for logging + tests). */
 export interface BillingReconcileSummary {

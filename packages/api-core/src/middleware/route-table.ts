@@ -52,7 +52,7 @@ export type RouteGate =
    *  credential meets on the route while the policy is on. */
   | { kind: 'orgAdminAssurance'; machines: OrgAdminAssuranceMachines }
   /** The caller's ACTIVE org must be the system org (`requireSystemOrg`) — the
-   *  plugin-ecosystem governance boundary (docs/plans/plugin-ecosystem.md §3.0). */
+   *  plugin-ecosystem governance boundary (docs/runbooks/ecosystem-moderation.md). */
   | { kind: 'systemOrg' }
   | { kind: 'feature'; feature: string }
   | { kind: 'scope'; scope: string }

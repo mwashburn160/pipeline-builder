@@ -29,19 +29,18 @@
  */
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { z } from 'zod';
 import { audit } from '../helpers/audit.js';
 import { closeBootstrapExceptionOnEnrolment } from '../helpers/bootstrap-admin.js';
-import { clientInfoOf } from '../helpers/client-info.js';
 import { withController, type ErrorMap } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
-import { deliverSessionTokens } from '../helpers/session-cookie.js';
+import { completeInteractiveSignIn } from '../helpers/sign-in.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { User } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
 import { clearMfaNudgeOnEnrolment, clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
 import { issueRecoveryCodesIfAbsent, removeRecoveryCodesIfNoFactor } from '../services/recovery-codes-service.js';
+import { issueStepUpToken, signInAuth } from '../services/session/access-tokens.js';
 import {
   WEBAUTHN_ATTESTATION_UNVERIFIABLE,
   WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED,
@@ -54,8 +53,7 @@ import {
   WEBAUTHN_VERIFICATION_FAILED,
 } from '../services/webauthn-errors.js';
 import * as webauthn from '../services/webauthn-service.js';
-import { issueStepUpToken, issueTokens, signInAuth } from '../utils/token.js';
-import { validateBody } from '../utils/validation.js';
+import { passkeyRenameSchema, validateBody, webauthnCeremonySchema, webauthnRegisterVerifySchema } from '../utils/validation.js';
 
 const logger = createLogger('webauthn');
 
@@ -82,22 +80,6 @@ export const WEBAUTHN_ERROR_MAP: ErrorMap = {
   },
 };
 
-/**
- * The authenticator's reply, forwarded verbatim from `@simplewebauthn/browser`.
- * Validated only for SHAPE — the library re-parses and cryptographically
- * verifies every field, so re-describing the WebAuthn schema here would be a
- * second source of truth that could only drift.
- */
-const ceremonyResponseSchema = z.object({
-  ceremonyId: z.string().min(1).max(256),
-  response: z.object({ id: z.string().min(1).max(512) }).passthrough(),
-});
-
-const registerVerifySchema = ceremonyResponseSchema.extend({
-  name: z.string().trim().min(1).max(64),
-});
-
-const renameSchema = z.object({ name: z.string().trim().min(1).max(64) });
 
 /** Metric for every ceremony outcome, so enrolment and sign-in failures are
  *  visible without reading the audit log. */
@@ -158,7 +140,7 @@ export const registerOptions = withController('Passkey register options', async 
 /** POST /auth/webauthn/register/verify — store the new passkey. */
 export const registerVerify = withController('Passkey register verify', async (req, res) => {
   const userId = req.user!.sub;
-  const body = validateBody(registerVerifySchema, req.body, res);
+  const body = validateBody(webauthnRegisterVerifySchema, req.body, res);
   if (!body) return;
 
   let passkey;
@@ -198,7 +180,7 @@ export const registerVerify = withController('Passkey register verify', async (r
       attestationVerified: passkey.attestationVerified,
     },
   });
-  // A factor now exists, so the bootstrap-admin MFA exception (#8) closes — for
+  // A factor now exists, so the bootstrap-admin MFA exception closes — for
   // good, even if this passkey is later removed.
   await closeBootstrapExceptionOnEnrolment(req, userId);
   // ...and so does any MFA-reset enrolment grace: they have enrolled.
@@ -223,7 +205,7 @@ export const listPasskeys = withController('List passkeys', async (req, res) => 
 /** PATCH /auth/webauthn/credentials/:id — relabel one. */
 export const renamePasskey = withController('Rename passkey', async (req, res) => {
   const userId = req.user!.sub;
-  const body = validateBody(renameSchema, req.body, res);
+  const body = validateBody(passkeyRenameSchema, req.body, res);
   if (!body) return;
 
   const passkey = await webauthn.renameCredential(userId, String(req.params.id), body.name);
@@ -260,7 +242,7 @@ export const stepUpOptions = withController('Passkey step-up options', async (re
 /** POST /auth/step-up/webauthn/verify — issue the standard step-up token. */
 export const stepUpVerifyWebAuthn = withController('Passkey step-up verify', async (req, res) => {
   const userId = req.user!.sub;
-  const body = validateBody(ceremonyResponseSchema, req.body, res);
+  const body = validateBody(webauthnCeremonySchema, req.body, res);
   if (!body) return;
 
   let assertion;
@@ -316,7 +298,7 @@ export const loginOptions = withController('Passkey login options', async (_req,
  * user, and the code is what routes the sign-in page into the right IdP.
  */
 export const loginVerify = withController('Passkey login verify', async (req, res) => {
-  const body = validateBody(ceremonyResponseSchema, req.body, res);
+  const body = validateBody(webauthnCeremonySchema, req.body, res);
   if (!body) return;
 
   const deny = (reason: string, userId?: string): void => {
@@ -365,25 +347,17 @@ export const loginVerify = withController('Passkey login verify', async (req, re
   }
 
   // Identical to the password path: an INTERACTIVE session, `amr: ['webauthn']`
-  // — and `aal: 2` (#8). A passkey is verified with user verification REQUIRED
-  // (see the WebAuthn service), so a single ceremony proves both the credential
-  // and the person, which is what MFA-grade asks for.
+  // — and `aal: 2`. A passkey is verified with user verification REQUIRED (see
+  // the WebAuthn service), so a single ceremony proves both the credential and
+  // the person, which is what MFA-grade asks for.
   // The passkey's MODEL rides on the session so the active org's authenticator
   // allowlist is applied at issuance (and again at every refresh / switch-org):
   // a model the org does not allowlist still signs the person in, but counts as
   // `aal: 1` there — see helpers/authenticator-policy.ts.
-  const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
-    kind: 'interactive',
+  await completeInteractiveSignIn(req, res, user, {
+    orgId: user.lastActiveOrgId?.toString(),
     auth: { ...signInAuth('webauthn'), ...(assertion.aaguid ? { aaguid: assertion.aaguid } : {}) },
-    client: clientInfoOf(req),
+    auditDetails: { method: 'webauthn', passkeyId: assertion.id },
   });
-
-  audit(req, 'user.login', {
-    targetType: 'user',
-    targetId: assertion.userId,
-    details: { method: 'webauthn', passkeyId: assertion.id },
-  });
-  incCounter('platform_logins_total');
   meter('login', 'success');
-  sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 }, { ...WEBAUTHN_ERROR_MAP, ...MFA_POLICY_ERROR_MAP });

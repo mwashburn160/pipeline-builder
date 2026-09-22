@@ -7,7 +7,6 @@ import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data'
 
 import { mountRoutes } from './app-routes.js';
 import { attachmentService } from './services/attachment-service.js';
-import { getAuditClient } from './services/audit.js';
 import { messageService } from './services/message-service.js';
 
 const logger = createLogger('message');
@@ -15,7 +14,7 @@ const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck });
 
 // Forward denied (non-GET) requests to the shared authz.denied audit sink.
-wireServiceSecurity('message', getAuditClient);
+wireServiceSecurity('message');
 
 // -- Attach request context to all requests -----------------------------------
 app.use(attachRequestContext(sseManager));
@@ -25,18 +24,9 @@ app.use(attachRequestContext(sseManager));
 // Redis-backed when configured so a ticket minted on one replica is redeemable
 // on another (multi-replica correctness); falls back to in-memory single-process.
 
-/** Hard cap on tickets minted per TTL window across all orgs — bounds abuse.
- *  Override via SSE_MAX_TOTAL_TICKETS. */
-const MAX_TOTAL_TICKETS = parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10);
-/** Per-org cap — prevents a single tenant from saturating the store.
- *  Override via SSE_MAX_TICKETS_PER_ORG. */
-const MAX_TICKETS_PER_ORG = parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10);
-
-const ticketStore = createEnvSseTicketStore({
-  ttlMs: SSE_TICKET_TTL_MS,
-  maxTotal: MAX_TOTAL_TICKETS,
-  maxPerOrg: MAX_TICKETS_PER_ORG,
-});
+// Global + per-org ticket caps come from SSE_MAX_TOTAL_TICKETS /
+// SSE_MAX_TICKETS_PER_ORG (api-core envSseTicketCaps).
+const ticketStore = createEnvSseTicketStore({ ttlMs: SSE_TICKET_TTL_MS });
 
 mountRoutes(app, { quotaService, sseManager, ticketStore });
 

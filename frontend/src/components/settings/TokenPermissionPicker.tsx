@@ -96,7 +96,7 @@ export function TokenPermissionPicker({
             ))}
           </div>
           {selected.size === 0 && (
-            <p className="text-xs text-red-600 dark:text-red-400">Choose at least one permission, or switch to full access.</p>
+            <p className="text-xs text-danger">Choose at least one permission, or switch to full access.</p>
           )}
         </div>
       )}

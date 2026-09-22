@@ -9,13 +9,9 @@ import { config } from '../config/index.js';
 import { verifyPlatformJwt } from '../utils/jwt-options.js';
 
 /**
- * Rate-limit key/bucket selection, extracted from `index.ts`.
- *
- * These ran inline in the app bootstrap, which meant nothing could import
- * them and nothing tested them — and that is precisely where a header-trust
- * bug went unnoticed: `extractClientIp` used to prefer the raw
- * `X-Forwarded-For` over `req.ip`, which made the auth limiter bypassable
- * (see `extractClientIp`).
+ * Rate-limit key/bucket selection, in its own module so it can be tested:
+ * header trust is where a limiter becomes bypassable (a raw
+ * `X-Forwarded-For` preferred over `req.ip` — see `extractClientIp`).
  *
  * All of these run BEFORE `requireAuth`, so every one must tolerate a
  * missing/malformed token. Everything that selects a bucket or a limit uses
@@ -143,7 +139,7 @@ export function rateLimitKey(req: express.Request): string {
 }
 
 /**
- * SCIM bucket (3b): the VERIFIED token's ORG, not the service account.
+ * SCIM bucket: the VERIFIED token's ORG, not the service account.
  *
  * `rateLimitKey` deliberately buckets a service account on its own, so one
  * runaway automation can't spend its org's window. SCIM is the opposite

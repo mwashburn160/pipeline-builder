@@ -21,6 +21,8 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 const post = jest.fn<(path: string, body: unknown, opts?: { headers?: Record<string, string> }) => Promise<unknown>>();
 const emitCounter = jest.fn<AnyFn>();
 const wireAuthzDenialAuditor = jest.fn<AnyFn>();
+const bindAuditService = jest.fn<AnyFn>();
+const getBoundAuditClient = jest.fn<AnyFn>();
 const setTokenRevocationStore = jest.fn<AnyFn>();
 const createEnvRedisTokenRevocationStore = jest.fn(() => ({ store: 'redis' }));
 const getServiceAuthHeader = jest.fn((..._args: unknown[]) => 'Bearer service-token');
@@ -29,13 +31,12 @@ jest.unstable_mockModule('../src/services/http-client.js', () => ({
   InternalHttpClient: jest.fn(() => ({ post })),
 }));
 jest.unstable_mockModule('../src/utils/metric-emitter.js', () => ({ emitCounter }));
-jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({ wireAuthzDenialAuditor }));
+jest.unstable_mockModule('../src/services/remote-audit-client.js', () => ({ wireAuthzDenialAuditor, bindAuditService, getBoundAuditClient }));
 jest.unstable_mockModule('../src/services/token-revocation.js', () => ({ createEnvRedisTokenRevocationStore }));
 // `SYSTEM_ORG_ID` is read by the access-key exchange client, which service-boot
 // imports to name this process in its exchange calls.
-jest.unstable_mockModule('../src/middleware/auth.js', () => ({
-  setTokenRevocationStore, getServiceAuthHeader, SYSTEM_ORG_ID: '000000000000000000000001',
-}));
+jest.unstable_mockModule('../src/middleware/revocation.js', () => ({ setTokenRevocationStore }));
+jest.unstable_mockModule('../src/middleware/service-tokens.js', () => ({ getServiceAuthHeader }));
 
 const { wireServiceSecurity } = await import('../src/services/service-boot.js');
 const { registerComplianceEventSubscriber } = await import('../src/services/compliance-event-subscriber.js');
@@ -50,14 +51,18 @@ beforeEach(() => {
 });
 
 describe('wireServiceSecurity', () => {
-  it('wires the authz-denial auditor with the service name', () => {
-    const getAuditClient = jest.fn<AnyFn>();
-    wireServiceSecurity('pipeline', getAuditClient as never);
-    expect(wireAuthzDenialAuditor).toHaveBeenCalledWith('pipeline', getAuditClient);
+  it('binds the service identity for recordAudit', () => {
+    wireServiceSecurity('pipeline');
+    expect(bindAuditService).toHaveBeenCalledWith('pipeline');
+  });
+
+  it('wires the authz-denial auditor with the service name and the bound client', () => {
+    wireServiceSecurity('pipeline');
+    expect(wireAuthzDenialAuditor).toHaveBeenCalledWith('pipeline', getBoundAuditClient);
   });
 
   it('registers the env-Redis token revocation store', () => {
-    wireServiceSecurity('plugin', jest.fn<AnyFn>() as never);
+    wireServiceSecurity('plugin');
     expect(createEnvRedisTokenRevocationStore).toHaveBeenCalledTimes(1);
     expect(setTokenRevocationStore).toHaveBeenCalledWith({ store: 'redis' });
   });

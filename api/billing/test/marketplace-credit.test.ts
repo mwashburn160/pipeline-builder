@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Unit tests for the Marketplace metered usage-credit drawdown (Phase 10, opt-in).
+ * Unit tests for the Marketplace metered usage-credit drawdown, opt-in.
  * Pure — no mocks.
  */
 

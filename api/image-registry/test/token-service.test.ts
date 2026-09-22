@@ -183,7 +183,7 @@ describe('authorizeScope', () => {
     expect(granted).toEqual(['pull']);
   });
 
-  // A `registry:push`-scoped SERVICE-ACCOUNT key (#12) reaches this function as
+  // A `registry:push`-scoped SERVICE-ACCOUNT key reaches this function as
   // an ordinary jwt identity with `canWritePlugins: true` and every elevation
   // flag false — so the namespace rules bound it to its own org exactly as they
   // bound the human it replaces. These assert the bounding, not the grant.
@@ -202,7 +202,7 @@ describe('authorizeScope', () => {
       .toEqual(['pull']);
   });
 
-  it('grants a TEAM pull-only on its parent org namespace — only the parent\'s PUBLIC plugins (E22)', () => {
+  it('grants a TEAM pull-only on its parent org namespace — only the parent\'s PUBLIC plugins', () => {
     const team = { type: 'jwt' as const, orgId: 'acme-team', parentOrgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false, canWritePlugins: true };
     const ctx = { parentPublicPlugins: new Set(['shared-plugin']) };
     expect(authorizeScope(team, { type: 'repository', name: 'org-acme/shared-plugin', actions: ['pull', 'push'] }, ctx))
@@ -289,7 +289,7 @@ describe('authorizeScope', () => {
   });
 });
 
-// authorizeAndIssue is async  the push-gate calls quotaService.check
+// authorizeAndIssue is async the push-gate calls quotaService.check
 // + computeStorageUsage. With no quota service reachable in tests it
 // fail-opens, but the call still requires an await.
 describe('authorizeAndIssue', () => {
@@ -360,7 +360,7 @@ describe('authorizeAndIssue', () => {
   });
 });
 
-// Plugin ecosystem §3.3: `public/*` is pull-open and append-only; `registry-meta/*`
+// Plugin ecosystem `public/*` is pull-open and append-only; `registry-meta/*`
 // (the publication records) is closed to every external identity.
 describe('authorizeScope — public/* and registry-meta/*', () => {
   const identities = {
@@ -408,7 +408,7 @@ describe('authorizeScope — public/* and registry-meta/*', () => {
   });
 });
 
-// Anonymous plugin submissions (plugin ecosystem §4.2 / W5): `quarantine/*`
+// Anonymous plugin submissions: `quarantine/*`
 // belongs to the plugin SERVICE principal alone — push AND pull — and every
 // other identity, a superadmin and the system org included, gets nothing.
 describe('authorizeScope — quarantine/*', () => {
@@ -426,12 +426,12 @@ describe('authorizeScope — quarantine/*', () => {
     lookalikeUser: { type: 'jwt' as const, orgId: '000000000000000000000001', userId: 'service:plugin', isAdmin: true, isSuperAdmin: true, canWritePlugins: true },
   };
 
-  it('grants the plugin service principal PULL only (its scans) — the build pushes with its own credential (E21)', () => {
+  it('grants the plugin service principal PULL only (its scans) — the build pushes with its own credential', () => {
     expect(authorizeScope(pluginService, { type: 'repository', name: REPO, actions: ['pull', 'push', 'delete', '*'] }))
       .toEqual(['pull']);
   });
 
-  it('grants a quarantine build credential push/pull on ITS repository and base-image pulls — nothing else (E21)', () => {
+  it('grants a quarantine build credential push/pull on ITS repository and base-image pulls — nothing else', () => {
     const build = { type: 'quarantine' as const, submissionId: REPO.slice('quarantine/'.length) };
     expect(authorizeScope(build, { type: 'repository', name: REPO, actions: ['pull', 'push', 'delete'] })).toEqual(['pull', 'push']);
     expect(authorizeScope(build, { type: 'repository', name: 'quarantine/another-submission', actions: ['pull', 'push'] })).toEqual([]);

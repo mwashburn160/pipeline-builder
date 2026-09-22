@@ -16,31 +16,25 @@ import {
   getParam,
   validateBody,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { Request, RequestHandler, Response } from 'express';
 import { config } from '../config.js';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
-import {
-  billingServiceAuth,
-  buildSubscriptionResponse,
-  calculatePeriodEnd,
-  checkEntitlementOvercap,
-  createBillingEvent,
-  MANAGEABLE_SUBSCRIPTION_STATUSES,
-  syncEntitlements,
-  syncProviderAddons,
-} from '../helpers/billing-helpers.js';
-import type { PrunedAddon } from '../helpers/billing-helpers.js';
+import { syncProviderAddons, type PrunedAddon } from '../helpers/addon-prune.js';
+import { billingServiceAuth, calculatePeriodEnd, createBillingEvent } from '../helpers/billing-helpers.js';
+import { checkEntitlementOvercap, syncEntitlements } from '../helpers/entitlement-sync.js';
 import { evaluatePromotions, clawbackRecentPromotions } from '../helpers/promotion-engine.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { runSignupPromotions } from '../helpers/signup-promotions.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
+import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
-import { getAuditClient } from '../services/audit.js';
 import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-subscriptions');
@@ -258,8 +252,8 @@ export function createSubscriptionRoutes(): Router {
     // Grant the paid tier ONLY when the provider's status is entitlement-worthy
     // (active or trialing). For incomplete/past_due/etc. we keep the persisted
     // subscription row but leave the org on its unprovisioned/developer tier —
-    // the later `customer.subscription.updated`→active webhook (plus the Tier-1
-    // reconciler) grants entitlements once payment settles. Gating on PROVIDER
+    // the later `customer.subscription.updated`→active webhook (plus the
+    // lifecycle reconciler) grants entitlements once payment settles. Gating on PROVIDER
     // STATUS (not a blanket card-required check) keeps trials working.
     //
     // Sync via a freshly-minted service token rather than forwarding the user's
@@ -280,13 +274,13 @@ export function createSubscriptionRoutes(): Router {
     // billing_events row above) — it's the financially-binding start of a paid
     // relationship. Fire-and-forget; details are an explicit plan/tier whitelist,
     // so no card/payment secret or AWS account id can reach the trail.
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.subscription.create',
       actorId: actorId({ userId }),
       orgId,
       targetId: subscription._id.toString(),
       details: { planId, interval, tier: plan.tier, status: subscription.status },
-    }, 'billing');
+    });
 
     // Promotions + referrals: only credit an ENTITLEMENT-WORTHY signup (active/
     // trialing). An `incomplete`/`past_due` sub hasn't paid and may be deleted by
@@ -343,7 +337,7 @@ export function createSubscriptionRoutes(): Router {
       if (!plan) {
         return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
       }
-      // Downgrade gate (docs/billing-bundles.md §8): a lower tier (with the
+      // Downgrade gate (docs/billing-bundles.md): a lower tier (with the
       // account's existing add-ons) must not drop a count-quota cap below
       // current pooled usage. Structured overages drive the UI's "remove N".
       const overages = await checkEntitlementOvercap(orgId, plan.tier, subscription.addons ?? [], '');
@@ -356,7 +350,8 @@ export function createSubscriptionRoutes(): Router {
     // single call whenever EITHER changes: the provider selects the price via
     // `{planId}_{interval}`, so an interval-only change actually re-cadences
     // billing and a combined change applies the new plan AT the new interval's
-    // price (the old split path left the provider on the stale cadence).
+    // price (separate plan / interval calls would leave the provider on the
+    // stale cadence).
     const effectivePlanId = planChanged && planId ? planId : subscription.planId;
     const effectiveInterval = intervalChanged && interval ? interval : subscription.interval;
 
@@ -456,7 +451,7 @@ export function createSubscriptionRoutes(): Router {
     // plan_changed / interval_changed rows are written above). Customer-driven
     // counterpart to the sysadmin `billing.tier.override`. Fire-and-forget;
     // details are an explicit plan/interval whitelist — no payment secrets.
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.subscription.update',
       actorId: actorId({ userId }),
       orgId,
@@ -468,7 +463,7 @@ export function createSubscriptionRoutes(): Router {
         planChanged,
         intervalChanged,
       },
-    }, 'billing');
+    });
 
     logger.info('Subscription updated', { orgId, subscriptionId, planId, interval });
 
@@ -518,13 +513,13 @@ export function createSubscriptionRoutes(): Router {
     // details are an explicit whitelist of plan/subscription ids — the raw
     // subscription doc (externalCustomerId / provider tokens) is never spread in,
     // so no card/payment secret or AWS account id can reach the trail.
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.subscription.cancel',
       actorId: actorId({ userId }),
       orgId,
       targetId: subscriptionId,
       details: { planId: subscription.planId, orgId },
-    }, 'billing');
+    });
 
     // Promotions: claw back any grants made inside the clawback window — defuses
     // signup-grab-churn. Post-event + fail-soft; never blocks the cancellation.
@@ -588,13 +583,13 @@ export function createSubscriptionRoutes(): Router {
     // Mirror the undo-cancel to the CENTRAL audit trail — the inverse of
     // `billing.subscription.cancel`, so the trail shows both sides of a churn
     // decision. Fire-and-forget; plan id only, no payment secrets.
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.subscription.reactivate',
       actorId: actorId({ userId }),
       orgId,
       targetId: subscriptionId,
       details: { planId: subscription.planId, orgId },
-    }, 'billing');
+    });
 
     logger.info('Subscription reactivated', { orgId, subscriptionId });
 

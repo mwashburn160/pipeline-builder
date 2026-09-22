@@ -3,13 +3,13 @@
 
 /**
  * The review half of the Ecosystem console's moderation queue
- * (docs/plans/plugin-ecosystem.md §5, §5a `plugins:moderate`, N17/N18): held
+ * (docs/plugin-publishing.md `plugins:moderate`, N17/N18): held
  * reviews and reviews with open reports, and the four decisions — hold,
  * release, remove, remove the publisher's reply. Reached only through
  * `requireEcosystemPermission('plugins:moderate')` (system org + aal2).
  *
  * Every decision is audited with `orgId` = the system org and `affectedOrgId`
- * = the publisher's org (§5c), resolves the review's open reports once it is
+ * = the publisher's org, resolves the review's open reports once it is
  * released or removed, and refreshes the listing's rating (a hold or removal
  * takes the review out of the score; a release puts it back).
  */
@@ -18,18 +18,18 @@ import { actorId, ErrorCode, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { PluginListing, PluginReview, PluginReviewReply, PluginReviewReport, Publisher } from '@pipeline-builder/pipeline-data';
 import { z } from 'zod';
 
+import { ecosystemAudit } from './audit.js';
 import { EcosystemError, type Caller } from './context.js';
 import { notifyReviewPosted, notifyReviewRemoved } from './review-notify.js';
 import { replies, reports, reviews } from './reviews-store.js';
-import { replyView } from './reviews.js';
+import { loadReview, replyView } from './reviews.js';
 import { refreshListingRating } from './stats.js';
 import { listings, publishers } from './store.js';
-import { emitPluginAudit } from '../audit.js';
+import { iso } from './util.js';
 
 /** How many items one queue page holds. */
 export const REVIEW_QUEUE_LIMIT = 200;
 
-const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
 
 function moderationView(
   r: PluginReview,
@@ -67,11 +67,10 @@ async function views(rows: PluginReview[]): Promise<ModerationReviewView[]> {
   const [allReports, allReplies, allListings] = await Promise.all([
     reports.forReviews(ids),
     replies.byReviews(ids),
-    Promise.all([...new Set(rows.map((r) => r.listingId))].map((id) => listings.byId(id))),
+    listings.byIds([...new Set(rows.map((r) => r.listingId))]),
   ]);
-  const listingBy = new Map(allListings.filter((l): l is PluginListing => !!l).map((l) => [l.id, l]));
-  const pubs = await Promise.all([...new Set([...listingBy.values()].map((l) => l.publisherId))].map((id) => publishers.byId(id)));
-  const publisherBy = new Map(pubs.filter((p): p is Publisher => !!p).map((p) => [p.id, p]));
+  const listingBy = new Map(allListings.map((l) => [l.id, l]));
+  const publisherBy = new Map((await publishers.byIds([...new Set(allListings.map((l) => l.publisherId))])).map((p) => [p.id, p]));
   return rows.map((r) => {
     const listing = listingBy.get(r.listingId) ?? null;
     return moderationView(
@@ -121,33 +120,6 @@ function reasonOf(body: Record<string, unknown>, key: 'reason' | 'note', require
   return parsed.data;
 }
 
-async function load(id: string) {
-  const review = z.string().uuid().safeParse(id).success ? await reviews.byId(id) : null;
-  const listing = review ? await listings.byId(review.listingId) : null;
-  const publisher = listing ? await publishers.byId(listing.publisherId) : null;
-  if (!review || !listing || !publisher) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Review not found.');
-  return { review, listing, publisher };
-}
-
-function audit(
-  moderator: Caller,
-  action: 'plugin.review.hold' | 'plugin.review.release' | 'plugin.review.remove' | 'plugin.review.reply.delete',
-  publisher: Publisher,
-  listing: PluginListing,
-  reviewId: string,
-  details: Record<string, unknown>,
-): void {
-  emitPluginAudit({
-    action,
-    actorId: actorId({ userId: moderator.userId }),
-    orgId: SYSTEM_ORG_ID,
-    affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID,
-    targetType: 'plugin_review',
-    targetId: reviewId,
-    details: { listing: `${publisher.handle}/${listing.name}`, ...details },
-  });
-}
-
 async function viewOf(id: string): Promise<{ review: ModerationReviewView }> {
   const row = await reviews.byId(id);
   return { review: (await views([row!]))[0]! };
@@ -156,10 +128,10 @@ async function viewOf(id: string): Promise<{ review: ModerationReviewView }> {
 /** POST /plugins/ecosystem/reviews/:id/hold — take a published review out of the directory. */
 export async function holdReview(moderator: Caller, id: string, body: Record<string, unknown>) {
   const reason = reasonOf(body, 'reason', true)!;
-  const { review, listing, publisher } = await load(id);
+  const { review, listing, publisher } = await loadReview(id);
   if (review.status !== 'published') throw new EcosystemError(ErrorCode.CONFLICT, `The review is ${review.status}, not published.`);
   await reviews.update(review.id, { status: 'held', holdReason: 'moderator', moderationReason: reason });
-  audit(moderator, 'plugin.review.hold', publisher, listing, review.id, { reason: 'moderator' });
+  ecosystemAudit({ action: 'plugin.review.hold', actor: actorId({ userId: moderator.userId }), affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: `${publisher.handle}/${listing.name}`, reason: 'moderator' } });
   await refreshListingRating(listing.id);
   return viewOf(review.id);
 }
@@ -171,12 +143,12 @@ export async function holdReview(moderator: Caller, id: string, body: Record<str
  */
 export async function releaseReview(moderator: Caller, id: string, body: Record<string, unknown>) {
   const note = reasonOf(body, 'note', false);
-  const { review, listing, publisher } = await load(id);
+  const { review, listing, publisher } = await loadReview(id);
   if (review.status === 'removed') throw new EcosystemError(ErrorCode.CONFLICT, 'A removed review can\'t be released.');
   const wasHeld = review.status === 'held';
   const updated = (await reviews.update(review.id, { status: 'published', holdReason: null, moderationReason: null }))!;
   await reports.resolve(review.id);
-  audit(moderator, 'plugin.review.release', publisher, listing, review.id, { from: review.status, heldFor: review.holdReason, ...(note ? { note } : {}) });
+  ecosystemAudit({ action: 'plugin.review.release', actor: actorId({ userId: moderator.userId }), affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: `${publisher.handle}/${listing.name}`, from: review.status, heldFor: review.holdReason, ...(note ? { note } : {}) } });
   if (wasHeld) {
     await refreshListingRating(listing.id);
     await notifyReviewPosted(publisher, listing, updated, false);
@@ -187,21 +159,21 @@ export async function releaseReview(moderator: Caller, id: string, body: Record<
 /** POST /plugins/ecosystem/reviews/:id/remove — remove for good; the author is told why (N18). */
 export async function removeReview(moderator: Caller, id: string, body: Record<string, unknown>) {
   const reason = reasonOf(body, 'reason', true)!;
-  const { review, listing, publisher } = await load(id);
+  const { review, listing, publisher } = await loadReview(id);
   if (review.status === 'removed') throw new EcosystemError(ErrorCode.CONFLICT, 'The review is already removed.');
   await reviews.update(review.id, { status: 'removed', holdReason: null, moderationReason: reason });
   await reports.resolve(review.id);
-  audit(moderator, 'plugin.review.remove', publisher, listing, review.id, { from: review.status });
+  ecosystemAudit({ action: 'plugin.review.remove', actor: actorId({ userId: moderator.userId }), affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: `${publisher.handle}/${listing.name}`, from: review.status } });
   await refreshListingRating(listing.id);
   await notifyReviewRemoved(publisher, listing, review, reason);
   return viewOf(review.id);
 }
 
-/** POST /plugins/ecosystem/reviews/:id/remove-reply — replies are moderated like reviews (§3.0). */
+/** POST /plugins/ecosystem/reviews/:id/remove-reply — replies are moderated like reviews. */
 export async function removeReply(moderator: Caller, id: string, body: Record<string, unknown>) {
   reasonOf(body, 'reason', true);
-  const { review, listing, publisher } = await load(id);
+  const { review, listing, publisher } = await loadReview(id);
   if (!(await replies.remove(review.id))) throw new EcosystemError(ErrorCode.NOT_FOUND, 'This review has no reply.');
-  audit(moderator, 'plugin.review.reply.delete', publisher, listing, review.id, { by: 'moderator' });
+  ecosystemAudit({ action: 'plugin.review.reply.delete', actor: actorId({ userId: moderator.userId }), affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: `${publisher.handle}/${listing.name}`, by: 'moderator' } });
   return viewOf(review.id);
 }

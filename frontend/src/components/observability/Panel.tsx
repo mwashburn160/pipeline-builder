@@ -40,7 +40,7 @@ export function Panel({ title, span = 6, loading, error, empty, children }: Pane
       <h3 className="text-sm font-semibold text-fg-muted mb-3">{title}</h3>
       <div className="flex-1 min-h-[8rem] flex items-center justify-center">
         {error ? (
-          <div className="text-xs text-red-600 dark:text-red-400 text-center px-2">
+          <div className="text-xs text-danger text-center px-2">
             <div className="font-medium mb-1">Failed to load</div>
             <div className="text-fg-muted break-words">{formatError(error, 'Something went wrong')}</div>
           </div>

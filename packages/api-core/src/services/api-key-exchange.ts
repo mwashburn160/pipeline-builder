@@ -33,12 +33,15 @@
  * platform's audit trail.
  */
 
-import { getServiceAuthHeader, SYSTEM_ORG_ID } from '../middleware/auth.js';
+import { getServiceAuthHeader } from '../middleware/service-tokens.js';
+import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import { InternalHttpClient } from '../services/http-client.js';
 import { hashApiKey } from '../utils/api-key.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
+import { envInt } from '../utils/env.js';
+import { serviceEndpoint } from '../utils/service-registry.js';
 
 const logger = createLogger('api-key-exchange');
 
@@ -103,9 +106,8 @@ export function setApiKeyExchangeServiceName(name: string): void {
 /** Platform's in-cluster address — the same env pair every other caller uses. */
 function platformClient(): InternalHttpClient {
   return new InternalHttpClient({
-    host: process.env.PLATFORM_SERVICE_HOST || 'platform',
-    port: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
-    timeout: parseInt(process.env.API_KEY_EXCHANGE_TIMEOUT_MS || '3000', 10),
+    ...serviceEndpoint('platform'),
+    timeout: envInt('API_KEY_EXCHANGE_TIMEOUT_MS', 3000, { min: 1 }),
   });
 }
 

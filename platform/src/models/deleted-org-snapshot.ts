@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Schema, model, Document } from 'mongoose';
+import { Schema, model, type HydratedDocument, Types } from 'mongoose';
 
 /**
  * Durable recovery snapshot of an org taken at SOFT-DELETE time.
@@ -13,9 +13,9 @@ import { Schema, model, Document } from 'mongoose';
  * eventual purge (it IS the recovery artifact), so operators can hand the JSON
  * back to a customer or rebuild after a mistaken deletion.
  */
-export interface DeletedOrgSnapshotDocument extends Document {
+export interface DeletedOrgSnapshotData {
   /** The soft-deleted org's id (string form of its `_id`). */
-  orgId: string;
+  organizationId: Types.ObjectId;
   /** Denormalized org name at deletion time (so the snapshot is legible without
    *  parsing the blob). */
   name: string;
@@ -28,9 +28,11 @@ export interface DeletedOrgSnapshotDocument extends Document {
   createdAt: Date;
 }
 
-const deletedOrgSnapshotSchema = new Schema<DeletedOrgSnapshotDocument>(
+export type DeletedOrgSnapshotDocument = HydratedDocument<DeletedOrgSnapshotData>;
+
+const deletedOrgSnapshotSchema = new Schema<DeletedOrgSnapshotData>(
   {
-    orgId: { type: String, required: true, index: true },
+    organizationId: { type: Schema.Types.ObjectId, required: true, index: true },
     name: { type: String, required: true },
     snapshot: { type: Schema.Types.Mixed, required: true },
     deletedAt: { type: Date, required: true },
@@ -42,4 +44,4 @@ const deletedOrgSnapshotSchema = new Schema<DeletedOrgSnapshotDocument>(
   },
 );
 
-export default model<DeletedOrgSnapshotDocument>('DeletedOrgSnapshot', deletedOrgSnapshotSchema);
+export default model<DeletedOrgSnapshotData>('DeletedOrgSnapshot', deletedOrgSnapshotSchema);

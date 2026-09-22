@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, audited, isSystemAdmin, requirePermission, validateBody, actorId } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, audited, isSystemAdmin, requirePermission, validateBody, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas.js';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService, InvalidRuleRegexError, InvalidSetTagError } from '../services/compliance-rule-service.js';
 
 export function createCreateRuleRoutes(): Router {
@@ -40,7 +39,7 @@ export function createCreateRuleRoutes(): Router {
       // Best-effort attributed audit — the rule create succeeded. Only safe
       // scalar metadata (name/target/scope); never the full rule definition,
       // which can carry sensitive match config.
-      emitComplianceAudit({
+      recordAudit({
         action: 'compliance.rule.create',
         actorId: actorId({ userId }),
         orgId,

@@ -16,14 +16,10 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from './addon-prune.js';
-import {
-  calculatePeriodEnd,
-  createBillingEvent,
-  syncEntitlements,
-  recordReactivatePlanMissing,
-  MANAGEABLE_SUBSCRIPTION_STATUSES,
-} from './billing-helpers.js';
+import { calculatePeriodEnd, createBillingEvent, recordReactivatePlanMissing } from './billing-helpers.js';
+import { syncEntitlements } from './entitlement-sync.js';
 import { mapActionToStatus, type MarketplaceNotification } from './marketplace-helpers.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type BillingInterval } from '../models/subscription.js';
 import { AWSMarketplaceProvider, type EntitlementResult } from '../providers/aws-marketplace-provider.js';

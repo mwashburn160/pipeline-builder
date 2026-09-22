@@ -3,17 +3,18 @@
 
 import { Agent } from 'https';
 import type { Readable } from 'stream';
-import { createLogger } from '@pipeline-builder/api-core';
+import { envInt, createLogger } from '@pipeline-builder/api-core';
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
 import type { RegistryScope } from './scope.js';
 import { authorizeAndIssue } from './token-service.js';
+import { TtlCache } from './ttl-cache.js';
 import { config } from '../config/index.js';
 
 const logger = createLogger('registry-client');
 
 /** Read timeout for blob streaming — short to fail fast on stuck upstream
  * connections. Override via `REGISTRY_BLOB_STREAM_TIMEOUT_MS`. */
-const BLOB_STREAM_TIMEOUT_MS = parseInt(process.env.REGISTRY_BLOB_STREAM_TIMEOUT_MS || '30000', 10);
+const BLOB_STREAM_TIMEOUT_MS = envInt('REGISTRY_BLOB_STREAM_TIMEOUT_MS', 30_000, { min: 1 });
 
 const protocol = config.registry.http ? 'http': 'https';
 const baseURL = `${protocol}://${config.registry.host}:${config.registry.port}`;
@@ -116,7 +117,7 @@ function tokenReuseWindowMs(): number {
  * `repository:<repo>:pull`. Keying by the exact scope set keeps each op's
  * token correctly scoped while still sharing across identical calls.
  */
-const authedClientCache = new Map<string, { client: AxiosInstance; expiresAt: number }>();
+const authedClientCache = new TtlCache<AxiosInstance>(500, 60_000);
 
 /** Mint a management-identity bearer token scoped to `scopes` (catalog when empty). */
 async function mintManagementToken(scopes: RegistryScope[]): Promise<string> {
@@ -157,9 +158,8 @@ export function mintRepositoryPullToken(repository: string): Promise<string> {
  */
 async function authedClient(scopes: RegistryScope[] = []): Promise<AxiosInstance> {
   const key = scopeCacheKey(scopes);
-  const now = Date.now();
   const cached = authedClientCache.get(key);
-  if (cached && cached.expiresAt > now) return cached.client;
+  if (cached) return cached;
 
   const token = await mintManagementToken(scopes);
   const instance = axios.create({
@@ -168,7 +168,7 @@ async function authedClient(scopes: RegistryScope[] = []): Promise<AxiosInstance
     httpsAgent: client.defaults.httpsAgent,
     headers: { Authorization: `Bearer ${token}` },
   });
-  authedClientCache.set(key, { client: instance, expiresAt: now + tokenReuseWindowMs() });
+  authedClientCache.set(key, instance, tokenReuseWindowMs());
   return instance;
 }
 

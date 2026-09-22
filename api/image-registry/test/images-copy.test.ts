@@ -17,10 +17,10 @@
  * req.user from a header to stand in for what requireAuth populates.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, describe, it, expect, beforeEach, beforeAll, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -45,11 +45,7 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
 }));
 
 // --- durable-audit mock (assert registry.image.copy is emitted) -------------
-const emitImageRegistryAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitImageRegistryAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
+const recordAuditMock = jest.fn<AnyFn>();
 
 // --- api-server mock: withRoute passthrough + metric counter ----------------
 const incCounter = jest.fn<AnyFn>();
@@ -68,9 +64,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 // --- api-core mock ----------------------------------------------------------
-const emitAudit = jest.fn<AnyFn>();
+const logAuditEvent = jest.fn<AnyFn>();
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: recordAuditMock,
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
   sendBadRequest: (res: Res, message: string, code?: string) => res.status(400).json({ success: false, message, code }),
   sendError: (res: Res, status: number, message: string, code?: string, details?: unknown) => res.status(status).json({ success: false, message, code, details }),
@@ -81,7 +78,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   runConcurrent: async <T>(items: T[], _n: number, fn: (t: T) => Promise<void>) => {
     for (const item of items) await fn(item);
   },
-  emitAudit,
+  logAuditEvent,
 }));
 
 const express = (await import('express')).default;
@@ -174,7 +171,7 @@ describe('POST /api/images/copy — cross-tenant guard', () => {
     const { status, body } = await copy('super', { source: 'org-acme/foo:1.0', target: 'org-beta/foo:1.0', allowCrossTenant: true });
     expect(status).toBe(200);
     expect(body.success).toBe(true);
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.copy',
       targetType: 'registry-image',
       details: expect.objectContaining({ crossTenant: true }),
@@ -186,7 +183,7 @@ describe('POST /api/images/copy — cross-tenant guard', () => {
   it('omits affectedOrgId when the target namespace has no owning org (library/*)', async () => {
     const { status } = await copy('super', { source: 'library/foo:1.0', target: 'library/bar:9.9' });
     expect(status).toBe(200);
-    const event = emitImageRegistryAudit.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    const event = recordAuditMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(event.action).toBe('registry.image.copy');
     expect(event).not.toHaveProperty('affectedOrgId');
   });

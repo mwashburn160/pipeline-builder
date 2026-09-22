@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Users, Trash2, Pencil, X } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Callout } from '@/components/ui/Callout';
@@ -15,6 +15,7 @@ import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import type { IdpGroupMappingDto, IdpProtocol, IdpProvider, OrganizationRole } from '@/types';
 
@@ -31,6 +32,9 @@ import type { IdpGroupMappingDto, IdpProtocol, IdpProvider, OrganizationRole } f
  * impersonated session. Providers with no group claim (Google) get an
  * explanation instead of the editor — see `providerSupportsGroups` on the API.
  */
+const NO_MAPPINGS: IdpGroupMappingDto[] = [];
+const NO_ROLES: OrganizationRole[] = [];
+
 export function SsoGroupMappings({
   orgId,
   provider,
@@ -43,14 +47,11 @@ export function SsoGroupMappings({
   provider: IdpProvider | null;
   /** Which protocol the org federates over. SAML carries groups in a mapped
    *  assertion ATTRIBUTE rather than a token claim, so the Google/GitHub
-   *  carve-out below has nothing to say about it (#4). */
+   *  carve-out below has nothing to say about it. */
   protocol?: IdpProtocol;
   readOnly?: boolean;
 }) {
   const toast = useToast();
-  const [mappings, setMappings] = useState<IdpGroupMappingDto[]>([]);
-  const [roles, setRoles] = useState<OrganizationRole[]>([]);
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<IdpGroupMappingDto | null>(null);
@@ -65,6 +66,17 @@ export function SsoGroupMappings({
   const supportsGroups = protocol === 'saml'
     || (provider !== null && provider !== 'google' && provider !== 'github');
 
+  const { data: loaded, loading, error: loadError, refetch: load } = useFetch(async () => {
+    if (!supportsGroups) return null;
+    const [m, r] = await Promise.all([api.listIdpGroupMappings(orgId), api.getOrganizationRoles(orgId)]);
+    return {
+      mappings: m.success && m.data ? m.data.mappings : [],
+      roles: r.success && r.data ? r.data.roles : [],
+    };
+  }, [orgId, supportsGroups]);
+  const mappings = loaded?.mappings ?? NO_MAPPINGS;
+  const roles = loaded?.roles ?? NO_ROLES;
+
   /** Roles a mapping may grant: everything except the platform-admin role, which
    *  the server refuses outright (a directory must not be able to mint one). */
   const assignableRoles = useMemo(
@@ -72,21 +84,6 @@ export function SsoGroupMappings({
     [roles],
   );
 
-  const load = useCallback(async (): Promise<boolean> => {
-    try {
-      const [m, r] = await Promise.all([api.listIdpGroupMappings(orgId), api.getOrganizationRoles(orgId)]);
-      if (m.success && m.data) setMappings(m.data.mappings);
-      if (r.success && r.data) setRoles(r.data.roles);
-      return true;
-    } catch (e) {
-      setError(formatError(e));
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => { if (supportsGroups) void load(); else setLoading(false); }, [load, supportsGroups]);
 
   const resetDraft = () => { setEditing(null); setGroup(''); setRoleIds([]); };
 
@@ -145,7 +142,7 @@ export function SsoGroupMappings({
       ) : (
         <>
           <ReadOnlyNotice show={readOnly} />
-          {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
+          {(error || loadError) && <div className="mb-3"><ErrorAlert message={error ?? formatError(loadError)} /></div>}
 
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-fg-muted py-4">

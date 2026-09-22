@@ -46,7 +46,7 @@ interface RecipientPickerProps {
   onRecipientUserIdChange: (userId: string) => void;
   /** Server-side member search for the user typeahead. */
   fetchMembers: (orgId: string, search: string) => Promise<MemberOption[]>;
-  /** Cross-org directory search (#8) — resolve a typed query to messageable orgs
+  /** Cross-org directory search — resolve a typed query to messageable orgs
    *  beyond the caller's own teams. Supplied only for sysadmins (who alone may
    *  send cross-org); omitted ⇒ the combobox stays limited to `teamOptions`. */
   searchTeams?: (query: string) => Promise<TeamOption[]>;
@@ -144,7 +144,7 @@ export function RecipientPicker({
     [onRecipientOrgIdChange, recipientUserId, onRecipientUserIdChange, team],
   );
 
-  // Cross-org directory search (#8, sysadmin-only). As the user types, query the
+  // Cross-org directory search (sysadmin-only). As the user types, query the
   // org directory (debounced) and merge the results BELOW the local teams. Guarded
   // to an open dropdown + a ≥2-char query; races resolved with an ignore flag.
   const [remoteTeams, setRemoteTeams] = useState<TeamOption[]>([]);

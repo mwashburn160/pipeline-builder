@@ -26,10 +26,8 @@
 
 import { readOrgPolicyLineage } from './org-policy-lineage.js';
 import { config } from '../config/index.js';
-import { PASSWORD_MAX_LENGTH } from '../models/user.js';
+import { PASSWORD_MAX_LENGTH } from '../constants/password.js';
 import { checkPasswordBreach } from '../services/password-breach.js';
-
-export { PASSWORD_MAX_LENGTH };
 
 /** The platform-wide floor every org minimum sits on. */
 export function platformPasswordMinLength(): number {
@@ -171,7 +169,7 @@ export async function passwordShortfall(password: string, userId: string): Promi
 export async function invitationOrgForRegistration(token: string, email: string): Promise<string | undefined> {
   const { Invitation } = await import('../models/index.js');
   const invitation = await Invitation.findOne({ token, status: 'pending' })
-    .select('organizationId email expiresAt').lean() as { organizationId?: unknown; email?: string; expiresAt?: Date } | null;
+    .select('organizationId email expiresAt').lean();
   if (!invitation?.organizationId) return undefined;
   if ((invitation.email ?? '').toLowerCase() !== email.trim().toLowerCase()) return undefined;
   if (invitation.expiresAt && new Date(invitation.expiresAt).getTime() <= Date.now()) return undefined;

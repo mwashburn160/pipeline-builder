@@ -15,7 +15,6 @@ import {
   PKCE_METHOD_S256,
   codeChallengeFor,
   createCodeVerifier,
-  createPkcePair,
   pkceAuthorizeParams,
 } from '../src/helpers/pkce.js';
 
@@ -55,9 +54,10 @@ describe('codeChallengeFor', () => {
   });
 });
 
-describe('createPkcePair / pkceAuthorizeParams', () => {
+describe('verifier / challenge / pkceAuthorizeParams', () => {
   it('pairs a verifier with its own challenge', () => {
-    const { verifier, challenge } = createPkcePair();
+    const verifier = createCodeVerifier();
+    const challenge = codeChallengeFor(verifier);
     expect(challenge).toBe(codeChallengeFor(verifier));
   });
 

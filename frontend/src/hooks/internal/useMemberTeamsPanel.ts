@@ -60,8 +60,8 @@ export function useMemberTeamsPanel({
   const { refetch: refetchDeletedTeams } = deletedTeamsQ;
   const refreshTeams = useCallback(async () => {
     await refreshUser();
-    refetchTeams();
-    refetchDeletedTeams();
+    void refetchTeams();
+    void refetchDeletedTeams();
   }, [refreshUser, refetchTeams, refetchDeletedTeams]);
 
   // Switch the active org context to a team so its members can be managed

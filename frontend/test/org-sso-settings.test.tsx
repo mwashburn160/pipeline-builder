@@ -57,10 +57,7 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 const toastSuccess = jest.fn<AnyFn>();
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: toastSuccess, error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: toastSuccess, error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 
 const stored: OrgIdpConfigDto = {
   orgId: 'org-1',

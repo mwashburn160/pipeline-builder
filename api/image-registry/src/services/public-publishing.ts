@@ -3,7 +3,7 @@
 
 /**
  * The public plugin namespace (`public/<publisherHandle>/<name>`, plugin
- * ecosystem §3.3) — the operations behind `/internal/plugin-publications*`.
+ * ecosystem) — the operations behind `/internal/plugin-publications*`.
  *
  *  - publish: copy the approved digest's manifest + blobs (NOT its `.sig` /
  *    `.att` — a signature records the repository it was made for) from the
@@ -23,9 +23,11 @@
  * sign. The plugin service drives these one image at a time.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { envInt, createLogger, AppError, ErrorCode } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 
+import { cosignCompanionTags, isCosignCompanionTag } from './cosign-tags.js';
+import { copyManifestTree } from './manifest-copy.js';
 import {
   CosignRejectedError,
   PUBLISHER_ANNOTATION,
@@ -46,16 +48,15 @@ import {
   putManifest,
 } from './registry-client.js';
 import { invalidateOrgStorageCache, invalidateStorageCache } from './storage-usage.js';
+import { TtlCache } from './ttl-cache.js';
 import { config } from '../config/index.js';
-import { copyManifestTree } from '../routes/images/manifest-copy.js';
-import { cosignCompanionTags, isCosignCompanionTag } from '../routes/images/shared.js';
 
 const logger = createLogger('public-publishing');
 
 export const TRUST_TIERS = ['official', 'verified', 'community', 'unverified'] as const;
 export type TrustTier = typeof TRUST_TIERS[number];
 
-/** Metric names (plugin ecosystem §9a). */
+/** Metric names. */
 export const PublicationMetrics = {
   PUBLISH: 'registry_public_publish_total',
   RESIGN: 'registry_public_resign_total',
@@ -70,25 +71,25 @@ export const PublicationMetrics = {
 } as const;
 
 /** A publish/yank/gc precondition failed (maps to 409). */
-export class PublicationConflictError extends Error {
+export class PublicationConflictError extends AppError {
   constructor(message: string) {
-    super(message);
+    super(409, ErrorCode.CONFLICT, message);
     this.name = 'PublicationConflictError';
   }
 }
 
 /** The named source or public manifest doesn't exist (maps to 404). */
-export class PublicationNotFoundError extends Error {
+export class PublicationNotFoundError extends AppError {
   constructor(message: string) {
-    super(message);
+    super(404, ErrorCode.NOT_FOUND, message);
     this.name = 'PublicationNotFoundError';
   }
 }
 
 /** The source image has no verifiable signed SBOM to re-attest (maps to 409 IMAGE_VERIFICATION_FAILED). */
-export class SourceVerificationError extends Error {
+export class SourceVerificationError extends AppError {
   constructor(message: string) {
-    super(message);
+    super(409, ErrorCode.IMAGE_VERIFICATION_FAILED, message);
     this.name = 'SourceVerificationError';
   }
 }
@@ -126,9 +127,8 @@ export interface PublicationVerification {
  * on, and every resign/yank/gc clears the pod that ran it — the TTL bounds how
  * long another replica can serve the old annotations.
  */
-const VERIFY_CACHE_TTL_MS = parseInt(process.env.PUBLIC_VERIFY_CACHE_TTL_MS || '60000', 10);
-const VERIFY_CACHE_MAX = 5000;
-const verifyCache = new Map<string, { result: PublicationVerification; expiresAt: number }>();
+const VERIFY_CACHE_TTL_MS = envInt('PUBLIC_VERIFY_CACHE_TTL_MS', 60_000, { min: 1 });
+const verifyCache = new TtlCache<PublicationVerification>(5000, VERIFY_CACHE_TTL_MS);
 
 const cacheKey = (repository: string, digest: string) => `${repository}@${digest}`;
 
@@ -137,20 +137,9 @@ const cacheKey = (repository: string, digest: string) => `${repository}@${digest
  * (no arguments) everything. Returns how many entries were removed.
  */
 export function invalidateVerifyCache(repository?: string, digest?: string): number {
-  if (!repository) {
-    const n = verifyCache.size;
-    verifyCache.clear();
-    return n;
-  }
+  if (!repository) return verifyCache.clear();
   if (digest) return verifyCache.delete(cacheKey(repository, digest)) ? 1 : 0;
-  let n = 0;
-  for (const key of [...verifyCache.keys()]) {
-    if (key.startsWith(`${repository}@`)) {
-      verifyCache.delete(key);
-      n++;
-    }
-  }
-  return n;
+  return verifyCache.deleteWhere((key) => key.startsWith(`${repository}@`));
 }
 
 function isTrustTier(v: unknown): v is TrustTier {
@@ -167,9 +156,9 @@ function isTrustTier(v: unknown): v is TrustTier {
 export async function verifyPublication(repository: string, digest: string): Promise<PublicationVerification> {
   const key = cacheKey(repository, digest);
   const hit = verifyCache.get(key);
-  if (hit && hit.expiresAt > Date.now()) {
-    incCounter(PublicationMetrics.VERIFY, { result: hit.result.tier ? 'signed' : 'mismatch', cache: 'hit' });
-    return hit.result;
+  if (hit) {
+    incCounter(PublicationMetrics.VERIFY, { result: hit.tier ? 'signed' : 'mismatch', cache: 'hit' });
+    return hit;
   }
 
   const signatures = (await verifyPluginSignature(repository, digest)).filter((s) =>
@@ -194,8 +183,7 @@ export async function verifyPublication(repository: string, digest: string): Pro
   // Cache only a fully-verified result: a negative one would outlive the
   // publish or re-sign that fixes it.
   if (result.signed && result.tier) {
-    if (verifyCache.size >= VERIFY_CACHE_MAX) verifyCache.clear();
-    verifyCache.set(key, { result, expiresAt: Date.now() + VERIFY_CACHE_TTL_MS });
+    verifyCache.set(key, result);
   }
   return result;
 }

@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin-ecosystem notification delivery (docs/plans/plugin-ecosystem.md §5b):
+ * Plugin-ecosystem notification delivery:
  * recipient RULES resolved at send time, per-user email opt-outs honoured only
  * for optional notices, one email per recipient (no shared To: line), the
- * in-app copy always, and N23 for Ecosystem Manager role changes.
+ * in-app copy always, and the `N23` notice for Ecosystem Manager role changes.
  *
  * The models are an in-memory directory so the resolution logic runs for real.
  */
@@ -130,7 +130,7 @@ describe('holdersOfPermission', () => {
   });
 });
 
-describe('countEcosystemApprovers (§3.0.1)', () => {
+describe('countEcosystemApprovers', () => {
   it('counts the holders, the ones left after conflicts of interest, and the superadmins', async () => {
     expect(await countEcosystemApprovers('plugins:moderate')).toEqual({ holders: 2, eligible: 2, superadmins: 1 });
     // mod2 belongs to PUB; mod1 submitted.

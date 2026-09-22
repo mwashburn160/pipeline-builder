@@ -13,7 +13,9 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import type { Request, Response } from 'express';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
+import { featureQuotaMock } from './helpers/feature-quota-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { AlertWebhookInstance } from '../src/config/index.js';
 
@@ -42,16 +44,14 @@ jest.unstable_mockModule('mongoose', () => {
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-jest.unstable_mockModule('../src/middleware/quota.js', () => ({
+jest.unstable_mockModule('../src/middleware/quota.js', () => featureQuotaMock({
   reserveFeatureQuota: jest.fn(),
   releaseFeatureQuota: jest.fn(),
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    alertWebhook: { get instances() { return instances; } },
-    observability: { alertDestinationMaxLabel: 80, alertDestinationMaxTarget: 500 },
-  },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  alertWebhook: { get instances() { return instances; } },
+  observability: { alertDestinationMaxLabel: 80, alertDestinationMaxTarget: 500 },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {

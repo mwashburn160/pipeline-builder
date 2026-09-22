@@ -37,17 +37,11 @@ jest.mock('@/lib/api', () => ({
     revokeServiceAccountKey: (...a: unknown[]) => revokeServiceAccountKey(...a),
   },
 }));
-jest.mock('@/hooks/useAuthGuard', () => ({
-  __esModule: true,
-  useAuthGuard: () => ({
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule(() => ({
     user: { organizationId: 'org-1', permissions: ['pipelines:read', 'pipelines:write', 'plugins:read'] },
     can: (p: string) => (p === 'service_accounts:manage' ? canManageServiceAccounts : true),
-  }),
-}));
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+  })));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: toastError, warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 // The step-up modal is exercised in its own suite; here it only needs to hand a
 // token back so the create call can be asserted.
 jest.mock('@/components/admin/StepUpModal', () => ({

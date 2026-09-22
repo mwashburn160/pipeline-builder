@@ -3,8 +3,9 @@
 
 import type { AssuranceLevel, AuthMethod } from '@pipeline-builder/api-core';
 import bcrypt from 'bcryptjs';
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, type HydratedDocument, type Model } from 'mongoose';
 import { config } from '../config/index.js';
+import { PASSWORD_RULES } from '../constants/password.js';
 
 /**
  * OAuth provider data structure. Internal to the user model — the user-
@@ -37,7 +38,7 @@ interface OAuthProviders {
   // `google`/`github` above double as SSO keys; these two are SSO-only.
   'generic-oidc'?: OAuthProviderData;
   'cognito'?: OAuthProviderData;
-  /** SAML 2.0 SSO (#4). One key for every SAML IdP: a SAML config has no named
+  /** SAML 2.0 SSO. One key for every SAML IdP: a SAML config has no named
    *  provider, and the link is only ever matched together with its `issuer`
    *  (the IdP's entity id), so two orgs on SAML never collide here. */
   'saml'?: OAuthProviderData;
@@ -83,7 +84,7 @@ export interface RefreshSession {
   amr: AuthMethod[];
   /** Assurance level of that sign-in (JWT `aal`). Never raised by renewal. */
   aal: AssuranceLevel;
-  /** The slot is a BOOTSTRAP-ADMIN ENROLMENT session (#8): it may reach only
+  /** The slot is a BOOTSTRAP-ADMIN ENROLMENT session: it may reach only
    *  enrolment, sign-out and the setup routes. Stored here, not derived per
    *  token, so a refresh of the slot stays exactly as limited. */
   mfaEnrollmentPending?: boolean;
@@ -106,8 +107,7 @@ export interface RefreshSession {
  * There is no global `role` on the User model -- roles are per-organization
  * and stored in UserOrganization (see `models/user-organization.ts`).
  */
-export interface UserDocument extends Document {
-  _id: Types.ObjectId;
+export interface UserData {
   username: string;
   email: string;
   password?: string;
@@ -197,7 +197,7 @@ export interface UserDocument extends Document {
    */
   webauthnUserId?: string;
   /**
-   * When the BOOTSTRAP-ADMIN MFA exception closed for this account (#8).
+   * When the BOOTSTRAP-ADMIN MFA exception closed for this account.
    *
    * A fresh install has exactly one admin and no enrolled factor, so requiring
    * MFA would lock out the only person who can enrol one. Until this is set, a
@@ -248,8 +248,15 @@ export interface UserDocument extends Document {
     /** The person asked never to be prompted again. Reversible by them. */
     declinedAt?: Date;
   };
+}
+
+/** Instance methods of a User document. */
+export interface UserMethods {
   comparePassword(password: string): Promise<boolean>;
 }
+
+export type UserDocument = HydratedDocument<UserData, UserMethods>;
+type UserModel = Model<UserData, object, UserMethods>;
 
 const oauthProviderSchema = new Schema<OAuthProviderData>(
   {
@@ -263,7 +270,7 @@ const oauthProviderSchema = new Schema<OAuthProviderData>(
   { _id: false },
 );
 
-const userSchema = new Schema<UserDocument>(
+const userSchema = new Schema<UserData, UserModel, UserMethods>(
   {
     username: {
       type: String,
@@ -420,7 +427,7 @@ const userSchema = new Schema<UserDocument>(
       // login re-matched by email instead of the oauth-id fast path.
       'generic-oidc': oauthProviderSchema,
       'cognito': oauthProviderSchema,
-      // SAML 2.0 SSO (#4) — subject is the assertion's NameID, issuer the IdP's
+      // SAML 2.0 SSO — subject is the assertion's NameID, issuer the IdP's
       // entity id. Same strict-mode reason as the two above.
       'saml': oauthProviderSchema,
     },
@@ -429,29 +436,7 @@ const userSchema = new Schema<UserDocument>(
 );
 
 /**
- * Password complexity rules — single source of truth.
- *
- * Both the Mongoose `pre('save')` hook below AND the request-body Zod
- * schema in `utils/validation.ts` (`passwordSchema`) MUST evaluate the
- * same rules so a value that passes API validation never trips the model
- * hook (and vice versa). Exporting the regexes here lets the validation
- * module import them instead of re-typing the patterns.
- *
- * Length minimum comes from `config.auth.passwordMinLength` so it's tunable
- * per environment without a code change.
- */
-/** Hard ceiling on any password (and on an org's minimum). bcrypt reads only
- *  72 bytes, and an unbounded value is a hashing DoS. Not configurable. */
-export const PASSWORD_MAX_LENGTH = 128;
-
-export const PASSWORD_RULES: ReadonlyArray<{ test: RegExp; message: string }> = [
-  { test: /[A-Z]/, message: 'Password must contain at least one uppercase letter' },
-  { test: /[a-z]/, message: 'Password must contain at least one lowercase letter' },
-  { test: /[0-9]/, message: 'Password must contain at least one digit' },
-];
-
-/**
- * Validate password strength. Returns the first violation message or `null`
+ * Validate password strength (the rules in constants/password.ts). Returns the first violation message or `null`
  * if the value satisfies every rule in `PASSWORD_RULES` and meets the
  * configured minimum length.
  */
@@ -505,4 +490,4 @@ userSchema.index({ 'oauth.generic-oidc.id': 1 }, { sparse: true });
 userSchema.index({ 'oauth.cognito.id': 1 }, { sparse: true });
 userSchema.index({ email: 1, username: 1 }); // login lookup: email OR username
 
-export default mongoose.model<UserDocument>('User', userSchema);
+export default mongoose.model<UserData, UserModel>('User', userSchema);

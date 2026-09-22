@@ -20,6 +20,8 @@ import { queries } from '@/lib/api-cache';
 import { useQuery } from '@/hooks/useQuery';
 import type { Pipeline, BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
+import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
 /** How each rung reads back in the post-save confirmation. */
 const VISIBILITY_BLURB: Record<TemplateVisibility, string> = {
@@ -58,9 +60,9 @@ function parameterizeProps(props: BuilderProps, rows: EditableInput[]): BuilderP
   let json = JSON.stringify(props);
   for (const r of rows) {
     // Only rows that also become a declared input (`toTemplateInputs` keeps
-    // named rows, trimmed). A nameless row used to be substituted anyway,
-    // writing `{{ vars. }}` — a reference to nothing — into the saved props, so
-    // every instance of the template got a broken value (typically the repo URL).
+    // named rows, trimmed). Substituting a nameless row would write
+    // `{{ vars. }}` — a reference to nothing — into the saved props, breaking
+    // that value in every instance of the template.
     const name = r.name.trim();
     if (!name || !r.replaces.trim()) continue;
     json = json.split(r.replaces).join(`{{ vars.${name} }}`);
@@ -113,7 +115,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const preselected = !!pipeline;
 
   // Pipeline picker (New-template flow): EVERY pipeline, id/name/project only —
-  // the chosen one's props are fetched by id on selection. A capped page used to
+  // the chosen one's props are fetched by id on selection. A capped page would
   // leave pipelines past the cap unpickable.
   const pickerQ = useQuery(preselected ? null : queries.allPipelines(PICKER_FIELDS));
   const pipelines = pickerQ.data ?? [];
@@ -148,13 +150,8 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const [success, setSuccess] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Track mount state so the success-close timer never calls onClose() after the
-  // parent has already torn the modal down.
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const unmountedRef = useUnmountedRef();
+  const autoClose = useAutoCloseTimer();
   // Monotonic token guarding selectPipeline's async fetch: rapid re-selection
   // (or unmount) must not let an older response overwrite the current source.
   const selectGenRef = useRef(0);
@@ -201,16 +198,16 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
     setSourceLoading(true);
     try {
       const res = await api.getPipelineById(id);
-      if (!mountedRef.current || selectGenRef.current !== gen) return; // superseded / unmounted
+      if (unmountedRef.current || selectGenRef.current !== gen) return; // superseded / unmounted
       const p = res.success ? res.data?.pipeline : undefined;
       if (!p) { setError('Could not load the selected pipeline.'); return; }
       setSource(p);
       if (!name.trim()) setName(`${p.pipelineName || p.project}-template`);
     } catch (err) {
-      if (!mountedRef.current || selectGenRef.current !== gen) return;
+      if (unmountedRef.current || selectGenRef.current !== gen) return;
       setError(formatError(err, 'Failed to load the selected pipeline'));
     } finally {
-      if (mountedRef.current && selectGenRef.current === gen) setSourceLoading(false);
+      if (!unmountedRef.current && selectGenRef.current === gen) setSourceLoading(false);
     }
   };
 
@@ -256,7 +253,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
         created = true;
         setSuccess(`Template "${name.trim()}" saved as ${VISIBILITY_BLURB[visibility]}.`);
         onCreated();
-        setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
+        autoClose.schedule(onClose, 1500);
       } else {
         setError(res.message || 'Failed to create template.');
       }

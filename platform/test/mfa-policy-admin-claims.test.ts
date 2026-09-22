@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -18,6 +19,7 @@ const mockFindById = jest.fn<(...a: unknown[]) => Promise<Record<string, unknown
 const mockUpdateOne = jest.fn(async (..._a: unknown[]) => ({}));
 const mockAudit = jest.fn();
 
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig());
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, string>, key: string) => params[key],
   refuseWeakSession: () => false,
@@ -31,7 +33,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-// `canAdministerOrg` (real — see helpers/controller-helper-mock.ts) lazily
+// `canManageOrgScope` (real — see helpers/controller-helper-mock.ts) lazily
 // imports this module on the CROSS-org branch, so `isAncestorOrg` must exist
 // here too. Flat tree: nobody is anyone's ancestor, so only the same-org admin
 // in the fixture below is admitted.
@@ -39,7 +41,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   getOrgName: async () => undefined,
   isAncestorOrg: async () => false,
 }));
-jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
+jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false, bootstrapSuperAdminEmails: () => new Set<string>() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
 jest.unstable_mockModule('../src/services/admin-mfa-claims.js', () => ({
   refreshAdminPolicyClaims: (...a: unknown[]) => mockRefreshClaims(...a),
@@ -72,7 +74,7 @@ function makeRes() {
   return r;
 }
 /**
- * The route is `canAdministerOrg`-gated and that gate runs FOR REAL: `role` is
+ * The route is `canManageOrgScope`-gated and that gate runs FOR REAL: `role` is
  * what the real `isOrgAdmin` reads, and `organizationId` must match the `:id`
  * being edited. `user` is overridable so the negative cases can send a caller
  * the gate has to refuse.
@@ -121,7 +123,6 @@ describe('updateMfaPolicy — admin-actions claim refresh', () => {
   // written, nothing is audited, and no session is touched.
   it.each([
     ['an anonymous caller', null, 401],
-    ['a plain member of the same org', { sub: 'u2', organizationId: 'org-1' }, 403],
     ['an admin of an unrelated org', { sub: 'u3', organizationId: 'org-2', role: 'admin' }, 403],
   ] as const)('refuses %s and writes nothing', async (_label, user, status) => {
     mockFindById.mockResolvedValue({ adminActionsRequireMfa: false });

@@ -14,8 +14,10 @@ import {
   getParam,
   validateBody,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
+import { effectiveEntitlements } from '../config/entitlements.js';
 import { Router } from 'express';
 import type { Request, RequestHandler } from 'express';
 import { config } from '../config.js';
@@ -32,26 +34,16 @@ import {
   type Addon,
   type ComboChange,
 } from '../helpers/addon-catalog.js';
-import {
-  bundleSelfServiceAllowed,
-  bundlesEnabled,
-  buildSubscriptionResponse,
-  checkEntitlementOvercap,
-  billingServiceAuth,
-  createBillingEvent,
-  effectiveEntitlements,
-  getBundleCatalog,
-  MANAGEABLE_SUBSCRIPTION_STATUSES,
-  syncEntitlements,
-  syncProviderAddons,
-} from '../helpers/billing-helpers.js';
+import { syncProviderAddons } from '../helpers/addon-prune.js';
+import { bundleSelfServiceAllowed, bundlesEnabled, billingServiceAuth, createBillingEvent, getBundleCatalog } from '../helpers/billing-helpers.js';
 import { getComboDiscounts } from '../helpers/combo-pricing.js';
+import { checkEntitlementOvercap, syncEntitlements } from '../helpers/entitlement-sync.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
-import { isGraceDowngraded } from '../helpers/subscription-status.js';
+import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES, isGraceDowngraded } from '../helpers/subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
-import { getAuditClient } from '../services/audit.js';
 import { AddonMutateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-addons');
@@ -73,13 +65,13 @@ const ROOT_ONLY = refuseTeamBilling as RequestHandler;
 async function recordLostCombos(orgId: string, lost: ComboChange[], subscriptionId: string, eventActorId?: string): Promise<void> {
   for (const c of lost) {
     await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscriptionId, eventActorId);
-    getAuditClient().record({
+    recordAudit({
       action: 'billing.combo.expired',
       actorId: eventActorId ?? 'system',
       orgId,
       targetId: c.comboId,
       details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId },
-    }, 'billing');
+    });
   }
 }
 
@@ -144,19 +136,19 @@ async function commitAddonChange(args: {
   );
   await syncProviderAddons(committed.externalId, next, committed.interval, orgId, subscriptionId, source);
   await createBillingEvent(orgId, 'subscription_updated', args.eventDetails, subscriptionId, eventActorId);
-  getAuditClient().record({
+  recordAudit({
     action: source === 'addon_add' ? 'billing.addon.add' : 'billing.addon.remove',
     actorId: eventActorId ?? 'system',
     orgId,
     targetId: bundleId,
     details: { ...args.auditDetails, subscriptionId },
-  }, 'billing');
+  });
   return committed;
 }
 
 /**
  * Add-on bundle management routes (root-org billing; behind
- * `BILLING_BUNDLES_ENABLED`). See docs/billing-bundles.md §7/§7a.
+ * `BILLING_BUNDLES_ENABLED`). See docs/billing-bundles.md.
  *
  * - POST   /subscriptions/:id/addons/preview  — dry-run effective limits + price
  * - POST   /subscriptions/:id/addons          — add/set a bundle quantity
@@ -348,7 +340,7 @@ export function createAddonRoutes(): Router {
       }
     }
 
-    // Over-cap gate (docs §8): reducing a pack below current usage is blocked
+    // Over-cap gate (docs/billing-bundles.md): reducing a pack below current usage is blocked
     // (an increase never trips it). Structured details drive the UI's "remove N".
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
     if (overages.length > 0) {
@@ -389,7 +381,7 @@ export function createAddonRoutes(): Router {
 
   // DELETE /billing/subscriptions/:id/addons/:bundleId — remove a bundle.
   // The over-cap gate below blocks a removal that would drop a pooled cap under
-  // current usage (docs/billing-bundles.md §8); otherwise it removes + re-syncs.
+  // current usage (docs/billing-bundles.md); otherwise it removes + re-syncs.
   router.delete('/subscriptions/:id/addons/:bundleId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, audited('billing.addon.remove', 'billing.combo.expired'), withRoute(async ({ req, res, orgId, userId }) => {
     if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
     if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
@@ -439,13 +431,13 @@ export function createAddonRoutes(): Router {
     // trail, tagged `cascadedFrom` the bundle the user explicitly removed.
     for (const dep of cascaded) {
       await createBillingEvent(orgId, 'subscription_updated', { reason: 'addon_removed', bundleId: dep, cascadedFrom: bundleId }, committed._id.toString(), req.user?.sub);
-      getAuditClient().record({
+      recordAudit({
         action: 'billing.addon.remove',
         actorId: actorId({ userId }),
         orgId,
         targetId: dep,
         details: { bundleId: dep, cascadedFrom: bundleId, subscriptionId: committed._id.toString() },
-      }, 'billing');
+      });
     }
 
     logger.info('Add-on removed', { orgId, bundleId, cascaded });

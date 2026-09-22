@@ -10,9 +10,8 @@
 # NOTE: the `minio-secret` Secret is NOT defined here. It is created from .env by
 # pb_create_app_secrets (deploy/bin/k8s-resources.sh) before this manifest is
 # applied, so the MINIO_*/`*_S3_*` values in .env are the single source of truth
-# and pb_gen_env_secrets can randomise them per deploy. It previously lived here
-# as a literal with `minioadmin`/`minioadmin` defaults, which silently overrode
-# whatever the operator put in .env.
+# and pb_gen_env_secrets can randomise them per deploy. A literal Secret here
+# would silently override whatever the operator put in .env.
 ---
 # One-shot bootstrap: create per-service buckets + per-service, bucket-scoped
 # users (so no workload uses the root credentials). Idempotent; safe to re-apply.
@@ -101,8 +100,8 @@ spec:
               # plugins holds transient build-context ZIPs (deleted post-build);
               # expire after 7 days as a backstop against a missed delete.
               run_ok "ilm expire plugins" mc ilm rule add --expire-days 7 local/plugins
-              # plugin-quarantine holds anonymous-submission zips (plugin-ecosystem
-              # §4.2, W5): 30 days is the quarantine retention promise (§8, G46) —
+              # plugin-quarantine holds anonymous-submission zips —
+              # 30 days is the quarantine retention promise —
               # the same window as a pending submission's expiry and the
               # image-registry quarantine/* GC.
               run_ok "ilm expire plugin-quarantine" mc ilm rule add --expire-days 30 local/plugin-quarantine

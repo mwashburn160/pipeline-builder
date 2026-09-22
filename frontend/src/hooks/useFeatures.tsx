@@ -90,7 +90,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
           setIsLoaded(true);
         } else {
           // 200 but `success:false` (no data): still release the loading gate so
-          // the page doesn't hang on it forever (the old `.finally` covered this).
+          // the page doesn't hang on it forever.
           setIsLoaded(true);
         }
       }).catch(() => {
@@ -131,8 +131,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
     }
 
     // Per-user overrides — explicit enable (true) / disable (false) that take
-    // precedence over the service + tier defaults. Previously stored on the user
-    // but never consumed, so a per-user DISABLE was silently ignored.
+    // precedence over the service + tier defaults (a per-user DISABLE included).
     if (user?.featureOverrides) {
       for (const [key, on] of Object.entries(user.featureOverrides)) {
         if (on) enabled.add(key); else enabled.delete(key);

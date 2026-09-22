@@ -26,7 +26,7 @@ interface AiProviderModelPickerProps {
 export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerProps) {
   return (
     <>
-      {/* A provider-fetch failure used to render as the plausible-looking "no
+      {/* A provider-fetch failure must not read as the plausible-looking "no
           providers configured" empty state. Shown here (not in each of the
           three tabs) so every consumer of the hook reports it identically. */}
       {ai.error && <ErrorAlert message={ai.error} className="mb-4" />}

@@ -148,7 +148,7 @@ function MoveOrganizationDialog({ org, onClose, onMoved }: {
           </ul>
 
           {blocked ? (
-            <p className="text-amber-700 dark:text-amber-400">
+            <p className="text-warning">
               {org.name} has teams, so it can&apos;t be nested. Move or delete its teams first.
             </p>
           ) : (
@@ -161,7 +161,7 @@ function MoveOrganizationDialog({ org, onClose, onMoved }: {
               {destination === 'parent' && (
                 <div className="pl-6">
                   <EligibleParentPicker value={parent} onChange={setParent} excludeOrgId={org.id} label="Destination organization" />
-                  {sameParent && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{org.name} is already a team of {parent?.name}.</p>}
+                  {sameParent && <p className="mt-1 text-xs text-warning">{org.name} is already a team of {parent?.name}.</p>}
                 </div>
               )}
               {isTeam && (

@@ -80,7 +80,7 @@ const VALID_SECRET_NAME = /^[a-zA-Z0-9/_+=.@-]+$/;
 /**
  * Secrets Manager leaf holding the org's REGISTRY credential — the
  * `registry:push`-scoped service-account key CodeBuild presents as Basic auth to
- * pipeline-image-registry (#12). Deliberately NOT `platform`: that secret holds
+ * pipeline-image-registry. Deliberately NOT `platform`: that secret holds
  * the org's full-privilege automation credential, and a build container has no
  * business being able to call the API with it.
  * Provisioned by `pipeline-manager infra store-token --scope registry:push`.
@@ -228,7 +228,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
     );
   }
 
-  // The repository comes from lookup (G30): `public/<publisher>/<name>` for a
+  // The repository comes from lookup: `public/<publisher>/<name>` for a
   // listed plugin (the read-only copy every org may pull), `org-<id>/<name>`
   // for the org's own. Never derived here from the record's owner — a listing's
   // image doesn't live in its publisher's namespace.
@@ -292,7 +292,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   // exchanges the opaque `pb_sa_…` key for a short-lived token, and a registry
   // token scoped to the org is issued.
   //
-  // This is the REGISTRY-ONLY credential (#12), not the org's full-privilege
+  // This is the REGISTRY-ONLY credential, not the org's full-privilege
   // platform one: its exchanged token carries the single `registry:push` scope
   // and no API permissions at all, so a CodeBuild job that leaks it can move
   // images inside this org's namespace and nothing else. The plugin-lookup

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The anonymous public plugin directory API (plugin-ecosystem §6a).
+ * The anonymous public plugin directory API.
  *
  * nginx maps `/api/public/*` → `/public/*` here, GET/HEAD only, with
  * `Authorization` and `Cookie` stripped — so nothing below ever sees who is
@@ -14,13 +14,13 @@
  * Off (`PUBLIC_DIRECTORY_ENABLED=false`, or no reader password) → every route
  * answers 404, which the frontend renders as "directory not available".
  *
- * Rate limited per TRUSTED client IP (G12). Server-rendered directory pages call
+ * Rate limited per TRUSTED client IP. Server-rendered directory pages call
  * this API from the frontend server, so they share its bucket — hence the
  * configurable, fairly generous default; the pages' CDN caching absorbs most of
  * that traffic.
  */
 
-import { ErrorCode, sendBadRequest, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { envInt, envBool, ErrorCode, sendBadRequest, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import {
@@ -53,20 +53,13 @@ const CATEGORIES_CACHE = 'public, max-age=300, s-maxage=300, stale-while-revalid
 /** A published version's image (and so its SBOM) never changes; yanking removes the route. */
 const SBOM_CACHE = 'public, max-age=3600, s-maxage=3600';
 
-function flagOn(name: string, def: boolean): boolean {
-  const v = (process.env[name] ?? '').trim().toLowerCase();
-  if (v === '') return def;
-  return v === 'true' || v === '1' || v === 'yes';
-}
-
 /** Whether the directory can serve right now (flag on AND the reader login is configured). */
 export function isPublicDirectoryEnabled(): boolean {
-  return flagOn('PUBLIC_DIRECTORY_ENABLED', true) && isPublicReaderConfigured();
+  return envBool('PUBLIC_DIRECTORY_ENABLED', true) && isPublicReaderConfigured();
 }
 
 function rateLimitPerMinute(): number {
-  const n = Number.parseInt(process.env.PUBLIC_DIRECTORY_RATE_LIMIT_PER_MIN ?? '', 10);
-  return Number.isFinite(n) && n > 0 ? n : 120;
+  return envInt('PUBLIC_DIRECTORY_RATE_LIMIT_PER_MIN', 120, { min: 1 });
 }
 
 const token = z.string().trim().min(1).max(MAX_SEGMENT).regex(TOKEN_RE);
@@ -104,9 +97,9 @@ function firstValues(query: Request['query']): Record<string, unknown> {
   return out;
 }
 
-/** Record a zero-result search (§6a "what people look for"). Best effort, never blocks the answer. */
+/** Record a zero-result search ( "what people look for"). Best effort, never blocks the answer. */
 function logSearchMiss(q: string, category: string | undefined): void {
-  // Normalized at write, so the maintenance sweep can fold repeats into one counted row (E17).
+  // Normalized at write, so the maintenance sweep can fold repeats into one counted row.
   void db.insert(schema.ecosystemSearchMiss)
     .values({ query: normalizeSearchQuery(q), category: category ?? null })
     .catch(() => { /* analytics only */ });
@@ -212,7 +205,7 @@ export function createPublicDirectoryRoutes(): Router {
     res.status(200).type('application/spdx+json').send(JSON.stringify(sbom));
   }, { requireOrgId: false }));
 
-  // GET /public/plugins/:publisher/:name/reviews — published reviews (§5): display names only.
+  // GET /public/plugins/:publisher/:name/reviews — published reviews: display names only.
   router.get('/plugins/:publisher/:name/reviews', withRoute(async ({ req, res }) => {
     const p = listingParams(req, res);
     if (!p) return;
@@ -221,7 +214,7 @@ export function createPublicDirectoryRoutes(): Router {
     const page = await listPublicReviews(p.publisher, p.name, parsed.data);
     if (!page) return notFound(res);
     // A viewer re-reading right after their own write (`?fresh=1`), or any
-    // credentialed request, must not get — or seed — the shared edge copy (E24).
+    // credentialed request, must not get — or seed — the shared edge copy.
     const fresh = firstValues(req.query).fresh === '1' || typeof req.headers.authorization === 'string';
     res.setHeader('Cache-Control', fresh ? REVIEWS_FRESH_CACHE : REVIEWS_CACHE);
     return sendSuccess(res, 200, page);

@@ -4,8 +4,8 @@
 /**
  * Rate-limit key selection.
  *
- * The regression these lock down: `extractClientIp` used to prefer the raw
- * `X-Forwarded-For` header over `req.ip`, taking the LEFTMOST entry. Both
+ * What these lock down: `extractClientIp` must never prefer the raw
+ * `X-Forwarded-For` header over `req.ip` (its LEFTMOST entry). Both
  * ingress configs append (`$proxy_add_x_forwarded_for`), so a client-supplied
  * value survives in position 0 — meaning a caller could vary the header per
  * request, land in a fresh bucket every time, and never trip the
@@ -215,7 +215,7 @@ describe('verifiedIsSuperAdmin', () => {
   });
 
   it('refuses an HS256 token, whatever secret signed it', () => {
-    // There is no shared secret left (#5 + #14) — and an HMAC token cannot buy a
+    // There is no shared secret left  — and an HMAC token cannot buy a
     // rate-limit bypass on either chain.
     const forged = jwt.sign({ type: 'access', isSuperAdmin: true }, 'any-shared-secret', { algorithm: 'HS256' });
     expect(verifiedIsSuperAdmin(req({ headers: { authorization: `Bearer ${forged}` } }))).toBe(false);

@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The ONE place a plugin version's deprecation is announced (W0.4).
+ * The ONE place a plugin version's deprecation is announced.
  *
  * Every path that deprecates a version — `POST /plugins/:id/deprecate` and a
  * `PUT /plugins/:id` that moves `lifecycle` to `deprecated` — calls
  * {@link onPluginDeprecated} and nothing else.
  *
- * The notice is §5b event **N14** ("Listing deprecated or unmaintained"), sent
+ * The notice is event **N14** ("Listing deprecated or unmaintained"), sent
  * to the org approvers (`plugin_installs:manage`, falling back to the root org
  * and then the owners) of every org whose pipelines use the version
  * (`pluginService.findOrgsUsingVersion`). Recipients travel as per-org RULES
@@ -18,10 +18,11 @@
  * hidden from AI selection.
  *
  * A version PUBLISHED to the ecosystem carries the deprecation over to its
- * listing versions (W8), whose installing orgs get their own N14.
+ * listing versions, whose installing orgs get their own N14.
  */
 
-import { createLogger, emitCounter, errorMessage, type EcosystemRecipientSpec } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, type EcosystemRecipientSpec } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 
 import { deprecateListedFromSource } from '../services/ecosystem/advisories.js';
 import { enqueueEcosystemNotification } from '../services/ecosystem-notifications.js';
@@ -65,7 +66,7 @@ export function renderDeprecationNotice(plugin: DeprecatedPlugin): { subject: st
  * forget (`void onPluginDeprecated(...)`).
  */
 export async function onPluginDeprecated(plugin: DeprecatedPlugin, actor: string): Promise<void> {
-  emitCounter('plugin_deprecations_total');
+  incCounter('plugin_deprecations_total');
   logger.info('Plugin version deprecated', {
     event: 'plugin.version.deprecated',
     pluginId: plugin.id,
@@ -89,10 +90,10 @@ export async function onPluginDeprecated(plugin: DeprecatedPlugin, actor: string
       }));
       await enqueueEcosystemNotification('N14', recipients, content);
     }
-    emitCounter('plugin_deprecation_notices_total');
+    incCounter('plugin_deprecation_notices_total');
     logger.info('Plugin deprecation notice sent', { pluginId: plugin.id, orgCount: orgs.length });
   } catch (err) {
-    emitCounter('plugin_deprecation_notice_failures_total');
+    incCounter('plugin_deprecation_notice_failures_total');
     logger.error('Plugin deprecation notice failed', { pluginId: plugin.id, error: errorMessage(err) });
   }
 }

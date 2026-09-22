@@ -27,13 +27,13 @@
  *     past purge — it is the post-deletion recovery artifact.
  */
 
-import { createLogger, errorMessage, SYSTEM_ORG_ID, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { cascadeDeleteOrg, type CascadeReport } from './org-cascade-service.js';
 import { organizationService } from './organization-service.js';
 import { config } from '../config/index.js';
 import { recordAuditEvent } from '../helpers/audit.js';
 import { Organization } from '../models/index.js';
-import { createLockedSweep } from '../utils/leader-lock.js';
 
 const logger = createLogger('org-purge');
 
@@ -43,7 +43,6 @@ const logger = createLogger('org-purge');
  *  can't create a near-zero lock lifetime. */
 const LOCK_KEY = 'platform:leader:org-purge';
 
-let scheduler: Scheduler | null = null;
 
 /** Outcome of one {@link purgeExpiredOrgs} pass (for logging/tests). */
 export interface PurgeSweepResult {
@@ -162,27 +161,14 @@ export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
 }
 
 /**
- * Start the periodic purge sweep. Idempotent — a second call is a no-op while
- * the scheduler is live. Runs one immediate sweep, then repeats on the
- * interval (unref'd). Returns the stop function; wire it to SIGTERM in index.ts.
+ * The purge as a background sweep (see services/background-sweeps.ts). Under
+ * the cross-pod lock so only ONE replica runs the destructive cascade per window.
  */
-export function startOrgPurgeSweep(intervalMs: number = config.organization.purgeSweepIntervalMs): () => void {
-  if (scheduler) return stopOrgPurgeSweep;
-  // Cross-pod lock so only ONE replica runs the destructive cascade.
-  scheduler = createLockedSweep({
+export function orgPurgeSweep(intervalMs: number = config.organization.purgeSweepIntervalMs): IntervalSweepDefinition {
+  return {
     name: 'org-purge-sweep',
     lockKey: LOCK_KEY,
     intervalMs,
     run: async () => { await purgeExpiredOrgs(); },
-  });
-  scheduler.start();
-  return stopOrgPurgeSweep;
-}
-
-/** Stop the periodic purge sweep. Idempotent. */
-export function stopOrgPurgeSweep(): void {
-  if (scheduler) {
-    scheduler.stop();
-    scheduler = null;
-  }
+  };
 }

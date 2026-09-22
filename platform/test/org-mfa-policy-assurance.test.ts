@@ -12,8 +12,9 @@
  * the `org_admin_aal` claim can't lag the policy.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -40,15 +41,16 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controller
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, getOrgName: async () => undefined }));
-jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
+jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false, bootstrapSuperAdminEmails: () => new Set<string>() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8 } }));
 jest.unstable_mockModule('../src/services/admin-mfa-claims.js', () => ({
   refreshAdminPolicyClaims: (...a: unknown[]) => (mockRefresh as any)(...a),
 }));
 jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({
   DEFAULT_MFA_GRACE_DAYS: 14,
   MAX_MFA_GRACE_DAYS: 90,
+  MFA_RESET_GRACE_MAX_HOURS: 168,
   resolveEffectiveMfaPolicy: async () => effective,
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -57,9 +59,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     updateOne: (...a: unknown[]) => (mockUpdateOne as any)(...a),
   },
   User: { find: () => ({ select: () => ({ lean: async () => [] }) }) },
+  // Linking stub: the org-policy service also serves the authenticator policy.
+  UserOrganization: {},
 }));
 
-const { updateMfaPolicy, isLoosening } = await import('../src/controllers/org-mfa-policy.js');
+const { updateMfaPolicy } = await import('../src/controllers/org-mfa-policy.js');
+const { isLooseningMfa: isLoosening } = await import('../src/services/org-policy-service.js');
 
 function makeRes() {
   const r: any = { _status: 0, _body: undefined };
@@ -70,7 +75,7 @@ function makeRes() {
 
 /**
  * `controller-helper` runs FOR REAL, so the caller's authority lives in the
- * FIXTURE: `canAdministerOrg` needs an admin/owner of the exact org the route
+ * FIXTURE: `canManageOrgScope` needs an admin/owner of the exact org the route
  * targets. Pass `user: null` for an anonymous caller.
  */
 const ORG_ADMIN = (aal: 1 | 2) => ({ sub: 'actor', organizationId: 'org1', role: 'admin', aal });
@@ -108,9 +113,14 @@ describe('PATCH /organization/:id/mfa-policy — directional assurance', () => {
     expect(mockUpdateOne).not.toHaveBeenCalled();
   });
 
-  it('refuses a plain MEMBER of the org with 403, and writes nothing', async () => {
-    // No `role` → `isOrgAdmin` is false → `canAdministerOrg` refuses.
-    const res = await patch({ requireMfa: true }, 2, { sub: 'member', organizationId: 'org1', aal: 2 });
+  it('admits a non-admin member whose custom Role delegates org:settings', async () => {
+    const res = await patch({ requireMfa: true }, 2, { sub: 'member', organizationId: 'org1', permissions: ['org:settings'], aal: 2 });
+    expect(res._status).toBe(200);
+    expect(mockUpdateOne).toHaveBeenCalled();
+  });
+
+  it('refuses a caller outside the org\'s scope with 403, and writes nothing', async () => {
+    const res = await patch({ requireMfa: true }, 2, { sub: 'x', organizationId: 'org-other', role: 'admin', aal: 2 });
     expect(res._status).toBe(403);
     expect(mockUpdateOne).not.toHaveBeenCalled();
   });

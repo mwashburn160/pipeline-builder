@@ -14,9 +14,8 @@ interface HelpTopicGroupProps {
 
 /**
  * One category of the Help browse view: a heading plus its topics as divided
- * rows inside a SINGLE Card. Each topic used to be its own padded Card with a
- * gap between them, so a collapsed category was mostly whitespace; one Card
- * with dividers keeps the list scannable.
+ * rows inside a SINGLE Card: a padded Card per topic would make a collapsed
+ * category mostly whitespace; one Card with dividers keeps the list scannable.
  */
 export function HelpTopicGroup({ category, topics, openFirst = false }: HelpTopicGroupProps) {
   return (

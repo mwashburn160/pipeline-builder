@@ -45,8 +45,7 @@ export function generateTestSigningKey(): TestSigningKey {
 /**
  * Sign `payload` as an ES256 JWT with `key`. `expiresIn` seconds (default 300).
  * Synchronous — `crypto.sign` is, and platform's async signer only exists
- * because KMS is a network call — so a suite can mint a token inline wherever it
- * used to call `jwt.sign`.
+ * because KMS is a network call — so a suite can mint a token inline.
  */
 export function signTestUserToken(
   payload: Record<string, unknown>,

@@ -40,7 +40,7 @@ const PASSED = { at: new Date('2026-09-01'), ok: true, protocol: 'saml' as const
 /** A stored SAML config document with a `save` spy. */
 function samlDoc(over: Record<string, unknown> = {}) {
   const doc: Record<string, unknown> = {
-    orgId: 'org-1',
+    organizationId: 'org-1',
     protocol: 'saml',
     samlEntityId: 'https://idp.test',
     samlSsoUrl: 'https://idp.test/sso',
@@ -162,7 +162,7 @@ describe('recordTestResult', () => {
     const recorded = await orgIdpService.recordTestResult('org-1', '2026-09-01T00:00:00.000Z', PASSED);
     expect(recorded).toBe(true);
     expect(mockUpdateOne).toHaveBeenCalledWith(
-      { orgId: 'org-1', updatedAt: new Date('2026-09-01T00:00:00.000Z'), protocol: 'saml' },
+      { organizationId: 'org-1', updatedAt: new Date('2026-09-01T00:00:00.000Z'), protocol: 'saml' },
       { $set: { lastTest: PASSED } },
       { timestamps: false },
     );

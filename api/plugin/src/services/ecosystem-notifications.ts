@@ -4,7 +4,7 @@
 /**
  * Plugin-ecosystem notifications: the enqueue API later waves call, and the
  * leader-locked dispatcher that flushes `ecosystem_notification_queue`
- * (docs/plans/plugin-ecosystem.md §5b).
+ * (docs/plugin-publishing.md).
  *
  * Delivery goes through platform's notify relay (`createEcosystemNotifyClient`),
  * which resolves the recipient RULES at send time, applies each user's
@@ -15,7 +15,7 @@
  *  - **immediate** events are sent at once; if platform is unreachable the
  *    notice is written to the queue (due now) and the dispatcher retries it, so
  *    a transient outage never loses a notice;
- *  - **batched** events (the §5b digest events, or any call with a `digestKey`
+ *  - **batched** events (the digest events, or any call with a `digestKey`
  *    or a delay) send the in-app copy at once — in-app is the source of truth —
  *    and queue the EMAIL. Every queued row sharing a `digest_key` that is due is
  *    coalesced into ONE email at `deliver_after` (09:00 UTC daily, Monday 09:00
@@ -69,7 +69,7 @@ export interface EcosystemNoticeContent { subject: string; text: string }
 
 export interface EnqueueOptions {
   /** Coalesce with other queued rows sharing this key into one email. Defaults
-   *  to `<event>:<recipients>` for a §5b digest event. Namespace it by event. */
+   *  to `<event>:<recipients>` for a digest event. Namespace it by event. */
   digestKey?: string;
   /** Delay the email by this much instead of the event's digest slot. */
   delayMs?: number;

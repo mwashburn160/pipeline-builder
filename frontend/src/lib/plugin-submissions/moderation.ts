@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Read the `submission` block of `GET /plugins/ecosystem/requests/:id` (W5)
+ * Read the `submission` block of `GET /plugins/ecosystem/requests/:id`
  * into the console's view. The plugin service returns the stored gate report
  * as recorded (`gateReport: { gates, facts }`) and the heuristics report
  * (`heuristics: { findings }`); both flat and nested forms are accepted.

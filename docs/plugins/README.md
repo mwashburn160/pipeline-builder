@@ -625,7 +625,7 @@ version), the same gate as editing. The plugins table shows a **Deprecated** or
 **Yanked** badge on the version (hover for the message or reason), and the
 detail view explains what the state means.
 
-**Deprecation notice.** Deprecating a version sends §5b event **N14** (in-app +
+**Deprecation notice.** Deprecating a version sends **N14** (in-app +
 email; the email respects each user's `ecosystem.upgrades.email` preference) to
 the org approvers (`plugin_installs:manage`, else the root org's, else the
 owners) of every org that uses that version: the owner org's own pipeline

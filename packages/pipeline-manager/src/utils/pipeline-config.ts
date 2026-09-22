@@ -3,8 +3,7 @@
 
 /**
  * Shared pipeline-config resolution used by both `synth` and `deploy` so the two
- * commands fetch, plugin-resolve, registry-bake, and template-preview identically
- * (they previously kept near-duplicate copies that could drift).
+ * commands fetch, plugin-resolve, registry-bake, and template-preview identically.
  */
 
 import type { ApiClient } from './api-client.js';

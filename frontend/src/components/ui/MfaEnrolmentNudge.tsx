@@ -71,7 +71,7 @@ function isSuppressed(user: User | null): boolean {
   return !!nudge.snoozedUntil && new Date(nudge.snoozedUntil).getTime() > Date.now();
 }
 
-/** Is this the bootstrap admin's enrolment-limited session (#8)? */
+/** Is this the bootstrap admin's enrolment-limited session? */
 function isEnrolmentPendingSession(): boolean {
   try {
     const token = api.getAccessToken();
@@ -124,7 +124,7 @@ export function MfaEnrolmentNudge() {
     <div
       role="status"
       aria-label="Protect your account"
-      className="border-b border-blue-300 bg-blue-50 px-4 py-2.5 text-blue-900 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-100 sm:px-6 lg:px-8"
+      className="border-b border-info-border bg-info-bg px-4 py-2.5 text-info-strong sm:px-6 lg:px-8"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <ShieldPlus className="h-4 w-4 shrink-0" aria-hidden />

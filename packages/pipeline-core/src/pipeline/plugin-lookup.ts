@@ -157,9 +157,9 @@ export class PluginLookup extends Construct {
     const cacheKey = props.alias || props.name;
     const preResolved = this._resolvedPlugins?.[cacheKey] as (Plugin & { publisher?: string | null }) | undefined;
     // The map is keyed by ALIAS, so check it actually holds THIS plugin. Two
-    // steps sharing an alias across different plugins used to get the first
-    // one's record back — the second step silently ran the wrong image and
-    // commands. The CLI refuses such a pipeline too; this covers any other
+    // steps sharing an alias across different plugins would otherwise get the
+    // first one's record back — the second step silently running the wrong
+    // image and commands. The CLI refuses such a pipeline too; this covers any other
     // caller that supplies `resolvedPlugins`.
     // Compare against the name the lookup actually TARGETED: an explicit
     // `filter.name` overrides the ref's `name` by design, and that is not a
@@ -173,7 +173,7 @@ export class PluginLookup extends Construct {
     }
     // A qualified reference must have resolved to THAT publisher's listing
     // (an unqualified one may resolve to the org's own plugin or the Official
-    // listing, §3.5).
+    // listing).
     if (preResolved && props.publisher && preResolved.publisher !== props.publisher) {
       throw new Error(
         `Plugin alias "${cacheKey}" resolves to ${preResolved.publisher ? `${preResolved.publisher}/` : 'your organization\'s '}${preResolved.name}, `

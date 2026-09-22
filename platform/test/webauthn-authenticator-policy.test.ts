@@ -71,6 +71,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
 }));
 
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 const svc = await import('../src/services/webauthn-service.js');
 const E = await import('../src/services/webauthn-errors.js');
 
@@ -98,7 +99,7 @@ async function enrol(): Promise<unknown> {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  svc._resetCeremoniesForTests();
+  _resetAllPendingStoresForTests();
   stored.length = 0;
   allowlist = [YUBIKEY, TITAN];
   mdsLoaded = true;

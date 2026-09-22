@@ -34,7 +34,7 @@ type Action =
   | { kind: 'tier'; publisher: EcosystemPublisher; tier: 'verified' | 'community' };
 
 /**
- * Ecosystem console → Publisher verification (plan §3.1, `publishers:verify`):
+ * Ecosystem console → Publisher verification (`publishers:verify`):
  * pending Verified applications (decided through the queue's review view), and
  * every publisher with its tier and suspension state. Suspending and demoting
  * to Community apply at once; lifting a suspension and awarding Verified are
@@ -65,7 +65,7 @@ export function PublisherVerificationPanel({ can }: Props) {
     return res.data.publishers;
   }, [tier, suspended, debouncedQ]);
 
-  const refresh = () => { applicationsQ.refetch(); publishersQ.refetch(); };
+  const refresh = () => { void applicationsQ.refetch(); void publishersQ.refetch(); };
 
   if (reviewing) {
     return (

@@ -17,18 +17,12 @@ import { IncidentReportingSettings } from '../src/components/settings/IncidentRe
 // Retention / Test & history); a section is only in the DOM when its tab is
 // active. `next/router` drives the deep-link; stub it (empty query) so the tab
 // stays wherever we click.
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ query: {}, replace: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ query: {}, replace: jest.fn<AnyFn>() })));
 
 /** Click a tab by its label so its section renders, then run the assertions. */
 const goTab = (name: RegExp) => fireEvent.click(screen.getByRole('tab', { name }));
 
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
 
 // StepUpModal → a simple marker so we can assert the token flow opened it.
 jest.mock('@/components/admin/StepUpModal', () => ({
@@ -131,8 +125,9 @@ describe('IncidentReportingSettings', () => {
     render(<IncidentReportingSettings readOnly={false} />);
     await waitFor(() => expect(getIncidentSettings).toHaveBeenCalled());
     goTab(/^Retention$/);
-    expect(await screen.findByText(/30 days/)).toBeInTheDocument();
-    expect((await screen.findAllByText(/180 days/)).length).toBeGreaterThanOrEqual(1);
+    // Exact text: the section description also mentions "730 days".
+    expect(await screen.findByText('30 days')).toBeInTheDocument();
+    expect(await screen.findByText('180 days')).toBeInTheDocument();
   });
 
   it('renders retention READ-ONLY (no editable inputs, no save) with an extend CTA', async () => {

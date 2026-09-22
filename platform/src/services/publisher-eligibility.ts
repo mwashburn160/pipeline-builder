@@ -3,7 +3,7 @@
 
 /**
  * The platform-held facts behind a Verified-publisher application
- * (docs/plans/plugin-ecosystem.md §3.1, §3.7): which domains the publisher's
+ * (docs/plugin-publishing.md "Trust tiers"): which domains the publisher's
  * root org has PROVEN it owns (the DNS domain verification of the OAuth
  * onboarding work) and whether its owners have a second factor. The plugin
  * service combines these with the plan feature `verified_publisher` and
@@ -12,7 +12,7 @@
  * Read-only and minimal: domain names and counts, never a member list.
  */
 
-import { hasSecondFactor } from './recovery-codes-service.js';
+import { hasAnyMfaFactor } from '../helpers/auth-factors.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { OrgDomain, UserOrganization } from '../models/index.js';
 
@@ -25,16 +25,14 @@ export interface PublisherEligibilityFacts {
   ownersWithMfa: number;
 }
 
-type Id = { toString(): string };
-
 /** Gather the Verified-eligibility facts for `orgId` (a root org). */
 export async function publisherEligibilityFacts(orgId: string): Promise<PublisherEligibilityFacts> {
   const [domains, ownerRows] = await Promise.all([
-    OrgDomain.find({ orgId, verified: true }).select('domain').lean() as unknown as Promise<Array<{ domain?: string }>>,
-    UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true, role: 'owner' }).select('userId').lean() as unknown as Promise<Array<{ userId?: Id | null }>>,
+    OrgDomain.find({ organizationId: orgId, verified: true }).select('domain').lean(),
+    UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true, role: 'owner' }).select('userId').lean(),
   ]);
   const ownerIds = [...new Set(ownerRows.map((r) => r.userId?.toString()).filter((u): u is string => !!u))];
-  const withMfa = await Promise.all(ownerIds.map((u) => hasSecondFactor(u)));
+  const withMfa = await Promise.all(ownerIds.map((u) => hasAnyMfaFactor(u)));
   return {
     verifiedDomains: [...new Set(domains.map((d) => d.domain).filter((d): d is string => !!d).map((d) => d.toLowerCase()))].sort(),
     owners: ownerIds.length,

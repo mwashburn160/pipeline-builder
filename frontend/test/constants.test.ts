@@ -6,7 +6,7 @@
  * formatError, formatJSON, safeJSONParse.
  */
 import { describe, it, expect } from '@jest/globals';
-import { formatError, formatJSON, safeJSONParse } from '../src/lib/constants';
+import { formatEnvelopeError, formatError, formatJSON, safeJSONParse } from '../src/lib/constants';
 
 // ---------------------------------------------------------------------------
 // formatError
@@ -29,6 +29,23 @@ describe('formatError', () => {
 
   it('should use custom fallback when provided', () => {
     expect(formatError(42, 'custom fallback')).toBe('custom fallback');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatEnvelopeError — an API envelope is not an Error, so formatError would
+// always fall back and hide the server's reason.
+// ---------------------------------------------------------------------------
+describe('formatEnvelopeError', () => {
+  it("returns the envelope's message", () => {
+    const res = { success: false as const, statusCode: 409, message: 'Name already taken' };
+    expect(formatError(res, 'Failed')).toBe('Failed');
+    expect(formatEnvelopeError(res, 'Failed')).toBe('Name already taken');
+  });
+
+  it('falls back when the envelope has no message', () => {
+    expect(formatEnvelopeError({ message: '' }, 'Failed')).toBe('Failed');
+    expect(formatEnvelopeError(undefined, 'Failed')).toBe('Failed');
   });
 });
 

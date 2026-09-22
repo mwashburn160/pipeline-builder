@@ -19,8 +19,8 @@
  * suite now does.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -52,23 +52,19 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
 });
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   recordReactivatePlanMissing: async () => undefined,
-  applyPlanTierChange: mockApplyPlanTierChange,
   billingServiceAuth: (_orgId: string) => 'Bearer service-token',
-  syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
-  syncEntitlements: (...args: unknown[]) => mockSyncTier(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
   // Transitively required by discount-helpers (imported by stripe-webhook for
-  // the Phase 6 invoice/cancel reconciliation). getBundleCatalog feeds the combo
+  // the invoice/cancel reconciliation). getBundleCatalog feeds the combo
   // reconcile step (combo math itself is mocked via combo-pricing below).
   getBundleCatalog: () => [],
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   calculatePeriodEnd: () => mockCalculatePeriodEnd(),
-  // Double-billing prune: no-op passthrough (nothing to prune on an interval change).
-  applyTierIncludedAddonPrune: () => [],
-  finalizePrunedAddons: (...args: unknown[]) => mockFinalizePrunedAddons(...args),
+}));
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
+  syncTierToQuotaService: (...args: unknown[]) => mockSyncTier(...args),
+  syncEntitlements: (...args: unknown[]) => mockSyncTier(...args),
 }));
 
-// prune/plan-change helpers moved to addon-prune.js (imported by stripe-webhook now).
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyPlanTierChange: mockApplyPlanTierChange,
   applyTierIncludedAddonPrune: () => [],

@@ -7,7 +7,10 @@ import { errorMessage } from './response.js';
 import type { AuditEvent } from '../types/audit-events.js';
 
 /**
- * Emit a cross-service audit event as a structured log line.
+ * Log a cross-service audit event as a structured (winston → Loki) log line.
+ *
+ * This is the short-retention OPERATOR sink. The durable, hash-chained central
+ * audit trail is a different sink: `recordAudit(event)`.
  *
  * Best-effort: if the underlying logger transport fails, the caller's
  * mutation still succeeds — we never let audit-write failure roll back
@@ -18,7 +21,7 @@ import type { AuditEvent } from '../types/audit-events.js';
  * For platform's own audit events (user.login, org.create, …), use
  * platform's `helpers/audit.ts` instead — those persist to MongoDB.
  */
-export function emitAudit(
+export function logAuditEvent(
   logger: winston.Logger,
   audit: AuditEvent,
 ): void {

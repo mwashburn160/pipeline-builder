@@ -14,7 +14,7 @@
  *   published in the JWKS); without that overlap a rotation 401s every
  *   in-flight `docker pull`/`push`.
  * - an internal SERVICE token is ES256 signed by the CALLING service with its
- *   own key (#14) and rotates by `kid` too — the retiring key stays published in
+ *   own key and rotates by `kid` too — the retiring key stays published in
  *   the shared per-service bundle for the overlap.
  *
  * And the boundary between them: a token on the wrong chain must not mint
@@ -40,7 +40,6 @@ const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 20
 process.env.IMAGE_REGISTRY_HOST = 'localhost';
 process.env.REGISTRY_TOKEN_PRIVATE_KEY = privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
 process.env.REGISTRY_TOKEN_CERTIFICATE = publicKey.export({ format: 'pem', type: 'spki' }).toString();
-
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('axios', () => ({
@@ -86,16 +85,16 @@ describe('user-token signing-key rotation', () => {
     installTestJwks([retiring]);
     const oldToken = await userToken(retiring);
 
-    // Phase 0 — before rotation.
+    // — before rotation.
     expect(await (await loadResolver())('orgname', oldToken)).toMatchObject({ orgId: 'acme', userId: 'user-1' });
 
-    // Phase 1 — overlap: platform signs with `incoming`, publishes both.
+    // — overlap: platform signs with `incoming`, publishes both.
     installTestJwks([incoming, retiring]);
     let resolve = await loadResolver();
     expect(await resolve('orgname', oldToken)).toMatchObject({ orgId: 'acme' });
     expect(await resolve('orgname', await userToken(incoming, { sub: 'user-2' }))).toMatchObject({ userId: 'user-2' });
 
-    // Phase 2 — finished: the retiring kid no longer mints registry creds.
+    // — finished: the retiring kid no longer mints registry creds.
     installTestJwks([incoming]);
     resolve = await loadResolver();
     expect(await resolve('orgname', oldToken)).toBeNull();
@@ -124,7 +123,7 @@ describe('user-token signing-key rotation', () => {
   });
 });
 
-describe('service signing-key rotation (#14)', () => {
+describe('service signing-key rotation', () => {
   it('old-signed service token: accepted while its key is published, rejected once it is dropped', async () => {
     installTestJwks([incoming]);
     const oldToken = serviceToken();

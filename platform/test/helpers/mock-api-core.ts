@@ -13,16 +13,6 @@
  */
 import { jest } from '@jest/globals';
 import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core/lib/services/remote-audit-client.js';
-import {
-  MockNotFoundError,
-  loggerMock,
-  mockErrorCode,
-  primitiveApiCoreMock,
-  withInternalServiceGate,
-  MOCK_TIER_NAMES,
-  mockIsValidTier,
-  mockQuotaTiers,
-} from '@pipeline-builder/api-core/testing';
 // Shared tier fixture — deep path is NOT intercepted by the api-core module mock
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
 // Deep-import the REAL canonical constants from side-effect-free submodules (NOT
@@ -43,6 +33,16 @@ import {
   resolveUserPermissions,
 } from '@pipeline-builder/api-core/lib/types/permissions.js';
 import { scrubAwsIdentifiers } from '@pipeline-builder/api-core/lib/utils/aws-scrub.js';
+import {
+  MockNotFoundError,
+  loggerMock,
+  mockErrorCode,
+  primitiveApiCoreMock,
+  withInternalServiceGate,
+  MOCK_TIER_NAMES,
+  mockIsValidTier,
+  mockQuotaTiers,
+} from '@pipeline-builder/api-core/testing';
 
 export { loggerMock };
 
@@ -109,9 +109,7 @@ const platformDefaults = (): Record<string, unknown> => ({
   // SSRF guards (utils/ssrf). `assertSafeUrl` is VALIDATION ONLY (create/update
   // time) and defaults to PERMISSIVE. Outbound requests go through `safeFetch`,
   // which resolves, pins the vetted IP and refuses redirects; a suite that
-  // exercises a guarded send overrides it. `isRefusedRedirect`/`SSRF_FETCH_INIT`
-  // are gone — they only existed to prop up the old assertSafeUrl-then-fetch
-  // pattern, which no longer exists.
+  // exercises a guarded send overrides it.
   assertSafeUrl: async () => undefined,
   // Permission catalog — role-authority / role-crud / organization-service
   // import these to validate/filter role-granted permissions.

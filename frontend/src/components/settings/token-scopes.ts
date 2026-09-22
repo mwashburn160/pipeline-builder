@@ -4,7 +4,7 @@
 import { PERMISSION_CATALOG, READ_ONLY_PERMISSIONS, permissionLabel } from '@pipeline-builder/api-core/permissions';
 
 /**
- * Capability scopes a credential may carry INSTEAD of its holder's roles (#12).
+ * Capability scopes a credential may carry INSTEAD of its holder's roles.
  * A scoped credential exchanges to a token with no permissions at all, so it can
  * do the one thing named here and nothing else — which is what every automation
  * that does exactly one thing should hold.

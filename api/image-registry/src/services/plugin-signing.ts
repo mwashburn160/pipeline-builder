@@ -25,6 +25,7 @@ import path from 'path';
 
 import { createLogger } from '@pipeline-builder/api-core';
 
+import { isPluginRepository, isPublicRepository, isSha256Digest } from './namespaces.js';
 import {
   deleteManifest,
   headManifest,
@@ -35,27 +36,6 @@ import { config } from '../config/index.js';
 
 const logger = createLogger('plugin-signing');
 
-/**
- * A publisher handle / plugin name as ONE registry path component (the
- * Distribution grammar: lowercase alphanumerics joined by `.`, `_`, `__` or
- * runs of `-`).
- */
-export const PUBLISHER_HANDLE_RE = /^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$/;
-const PLUGIN_NAME_PATTERN = '[a-z0-9][a-z0-9._-]*';
-/**
- * Plugin repositories that are signed: a build's private copy (`system/<name>`,
- * `org-<orgId>/<name>`), an anonymous submission's quarantined build
- * (`quarantine/<submissionId>`, plugin ecosystem §4.2 — signed so its SBOM
- * attestation can be carried into `public/community/<name>` on approval), or a
- * listed version's public copy (`public/<publisherHandle>/<name>`, §3.3).
- */
-const PLUGIN_REPO_RE = new RegExp(
-  `^(system|org-[a-z0-9]+|quarantine|public/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)/${PLUGIN_NAME_PATTERN}$`,
-);
-/** `quarantine/<submissionId>` — one lowercase path component (a submission uuid). */
-const QUARANTINE_REPO_RE = /^quarantine\/[a-z0-9][a-z0-9-]{0,127}$/;
-const PUBLIC_REPO_RE = new RegExp(`^public/([a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)/(${PLUGIN_NAME_PATTERN})$`);
-const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const MAX_STDERR_BYTES = 1024 * 1024;
 /** `verify-attestation` prints the whole signed SBOM (base64, in a DSSE envelope). */
 const MAX_STDOUT_BYTES = 96 * 1024 * 1024;
@@ -80,30 +60,6 @@ export class CosignRejectedError extends PluginSigningError {
     super(message);
     this.name = 'CosignRejectedError';
   }
-}
-
-export function isPluginRepository(repository: string): boolean {
-  return PLUGIN_REPO_RE.test(repository);
-}
-
-/** True for an anonymous submission's `quarantine/<submissionId>` repository. */
-export function isQuarantineRepository(repository: string): boolean {
-  return QUARANTINE_REPO_RE.test(repository);
-}
-
-/** True for a `public/<publisherHandle>/<name>` repository. */
-export function isPublicRepository(repository: string): boolean {
-  return PUBLIC_REPO_RE.test(repository);
-}
-
-/** `{ handle, name }` of a `public/<handle>/<name>` repository, or null. */
-export function parsePublicRepository(repository: string): { handle: string; name: string } | null {
-  const m = PUBLIC_REPO_RE.exec(repository);
-  return m ? { handle: m[1], name: m[2] } : null;
-}
-
-export function isSha256Digest(digest: string): boolean {
-  return DIGEST_RE.test(digest);
 }
 
 // -----------------------------------------------------------------------------
@@ -131,7 +87,7 @@ function kmsKeyRef(): string {
 
 /**
  * cosign signs only with its own encrypted key format, while the deploy
- * generates a plain PKCS#8 PEM (openssl, like every other key in deploy/). So
+ * generates a plain PKCS PEM (openssl, like every other key in deploy/). So
  * import the PEM once per process into a private temp dir under a random
  * password that never leaves this process.
  */
@@ -262,7 +218,7 @@ export interface SignPluginImageParams {
   annotations?: Record<string, string>;
 }
 
-/** Signed-annotation keys the public namespace carries (plugin ecosystem §3.3). */
+/** Signed-annotation keys the public namespace carries. */
 export const TRUST_ANNOTATION = 'pb.trust';
 export const PUBLISHER_ANNOTATION = 'pb.publisher';
 

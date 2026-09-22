@@ -4,6 +4,9 @@
 import { describe, it, expect } from '@jest/globals';
 
 import {
+  COMPLIANCE_CONTENT_SETS,
+  complianceFeatureForTags,
+  complianceSetsForFeatures,
   ALL_FEATURE_FLAGS,
   TIER_FEATURES,
   FEATURE_METADATA,
@@ -29,7 +32,7 @@ describe('ALL_FEATURE_FLAGS', () => {
   });
 });
 
-describe('verified_publisher (plugin ecosystem, docs/plans/plugin-ecosystem.md §3.7)', () => {
+describe('verified_publisher (plugin ecosystem, docs/plugin-publishing.md)', () => {
   it('is included from Team up (team, enterprise, unlimited) and nowhere below', () => {
     expect(TIER_FEATURES.developer).not.toContain('verified_publisher');
     expect(TIER_FEATURES.pro).not.toContain('verified_publisher');
@@ -212,5 +215,19 @@ describe('resolveUserFeatures', () => {
   it('removing a feature not in the tier via override is a no-op', () => {
     const features = resolveUserFeatures('developer', { overrides: { custom_integrations: false } });
     expect(features).toEqual([]);
+  });
+});
+
+describe('compliance content sets', () => {
+  it('derives the entitled sets from a feature set, lowest first', () => {
+    expect(complianceSetsForFeatures(['compliance_advanced', 'compliance_standard'])).toEqual(['standard', 'advanced']);
+    expect(complianceSetsForFeatures(['sso'])).toEqual([]);
+  });
+  it('resolves the feature a rule\'s set tags require (highest wins)', () => {
+    expect(complianceFeatureForTags(['set:standard'])).toBe('compliance_standard');
+    expect(complianceFeatureForTags(['set:standard', 'set:advanced'])).toBe('compliance_advanced');
+    expect(complianceFeatureForTags(['other'])).toBeNull();
+    expect(complianceFeatureForTags(null)).toBeNull();
+    expect(COMPLIANCE_CONTENT_SETS).toEqual(['standard', 'advanced']);
   });
 });

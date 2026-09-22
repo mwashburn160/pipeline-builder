@@ -110,7 +110,7 @@ export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGc
                 className="mt-0.5"
               />
               <span className="min-w-0">
-                <span className="font-medium text-gray-800 dark:text-gray-200">Dry run</span>
+                <span className="font-medium text-fg">Dry run</span>
                 <span className="block text-fg-subtle">
                   Walk the namespace and count deletion candidates without deleting anything.
                 </span>

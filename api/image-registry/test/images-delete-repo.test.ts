@@ -14,10 +14,10 @@
  * exercised exactly as in production.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, beforeAll, afterAll, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -42,11 +42,7 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
 }));
 
 // --- durable-audit mock (assert the registry.image.delete event shape) ------
-const emitImageRegistryAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitImageRegistryAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
+const recordAuditMock = jest.fn<AnyFn>();
 
 // --- api-server mock: withRoute passthrough + metric counter ---------------
 const incCounter = jest.fn<AnyFn>();
@@ -68,9 +64,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 // --- api-core mock: real-enough send helpers + utilities -------------------
-const emitAudit = jest.fn<AnyFn>();
+const logAuditEvent = jest.fn<AnyFn>();
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: recordAuditMock,
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
   sendBadRequest: (res: Res, message: string, code?: string) => res.status(400).json({ success: false, message, code }),
   sendError: (res: Res, status: number, message: string, code?: string) => res.status(status).json({ success: false, message, code }),
@@ -83,7 +80,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   runConcurrent: async <T>(items: T[], _n: number, fn: (t: T) => Promise<void>) => {
     for (const item of items) await fn(item);
   },
-  emitAudit,
+  logAuditEvent,
 }));
 
 // SUT + express imported AFTER mocks are registered (ESM linking order).
@@ -133,7 +130,7 @@ describe('DELETE /api/images/:name', () => {
     });
     expect(deleteManifest).not.toHaveBeenCalled();
     // No work done → no audit, no metric.
-    expect(emitAudit).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
     expect(incCounter).not.toHaveBeenCalled();
   });
 
@@ -155,7 +152,7 @@ describe('DELETE /api/images/:name', () => {
     // Repo-name is URL-decoded back to its `/`-containing form for every call.
     expect(deleteManifest.mock.calls.every((c) => c[0] === 'org-acme/api')).toBe(true);
     expect(incCounter).toHaveBeenCalledWith('registry_repo_delete_total');
-    expect(emitAudit).toHaveBeenCalledWith(
+    expect(logAuditEvent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         event: 'registry.repo.delete',
@@ -166,7 +163,7 @@ describe('DELETE /api/images/:name', () => {
     );
     // Durable trail: the actor is the (system-org) superadmin, but the AFFECTED
     // org is the repo's owner — so acme's admins can see their repo was pruned.
-    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.delete',
       orgId: '000000000000000000000001',
       affectedOrgId: 'acme',

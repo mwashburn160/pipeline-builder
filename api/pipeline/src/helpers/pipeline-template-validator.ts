@@ -46,12 +46,11 @@ function fieldToScopePath(field: string): string | null {
  * Every member is `unknown` and OPTIONAL on purpose. The callers are Zod-
  * validated request bodies and Drizzle rows, whose concrete types declare
  * `project: string`, `metadata: Record<string, string>` and so on. Naming those
- * types here would force every call site through `as unknown as PipelineLike`
- * — which is exactly what this used to require, and what silenced real drift:
- * a cast through `unknown` accepts a body that has NONE of these fields, so a
- * schema rename would have compiled and validated nothing. Declared this way,
- * the bodies satisfy it structurally and the casts are gone, so a rename breaks
- * the build instead. The narrowing that the validator actually depends on
+ * types here would force every call site through `as unknown as PipelineLike`,
+ * and a cast through `unknown` accepts a body that has NONE of these fields, so
+ * a schema rename would compile and validate nothing. Declared this way, the
+ * bodies satisfy it structurally with no casts, so a rename breaks the build
+ * instead. The narrowing that the validator actually depends on
  * happens below, where each field is read.
  */
 export interface PipelineLike {

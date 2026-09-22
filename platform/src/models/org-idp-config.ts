@@ -26,7 +26,7 @@
  * the OIDC token exchange. CRUD reads never return the plaintext.
  */
 
-import { Schema, model, Document } from 'mongoose';
+import { Schema, model, type HydratedDocument, Types } from 'mongoose';
 
 /** Supported IdP (SSO) providers — the OIDC-capable set. This is DELIBERATELY
  * NOT derived from `OAuthProviderName`: that union carries OAuth2 social logins
@@ -48,7 +48,7 @@ export type IdpProvider = 'generic-oidc' | 'cognito' | 'google' | 'github';
 const IDP_PROVIDERS: readonly IdpProvider[] = ['generic-oidc', 'cognito', 'google', 'github'];
 
 /**
- * Which federation protocol this org's IdP speaks (#4).
+ * Which federation protocol this org's IdP speaks.
  *
  * One config per org still holds: an org federates over OIDC **or** SAML, never
  * both at once, and this selector is what the login path dispatches on. The
@@ -61,7 +61,7 @@ export type IdpProtocol = 'oidc' | 'saml';
 export const IDP_PROTOCOLS: readonly IdpProtocol[] = ['oidc', 'saml'];
 
 /**
- * Which assertion attribute carries which identity field (#4).
+ * Which assertion attribute carries which identity field.
  *
  * SAML IdPs disagree far more than OIDC ones do: Entra sends the long
  * `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress` URIs,
@@ -74,7 +74,7 @@ export interface SamlAttributeMapping {
   email?: string;
   /** Attribute holding the display name. */
   name?: string;
-  /** Attribute holding group memberships (drives JIT Role mapping, 3a). */
+  /** Attribute holding group memberships (drives JIT Role mapping). */
   groups?: string;
 }
 
@@ -89,12 +89,11 @@ export interface IdpTestRecord {
   actorId: string;
 }
 
-export interface OrgIdpConfigDocument extends Document {
+export interface OrgIdpConfigData {
   /** Org this config applies to. One config per org max  enforced by unique index. */
-  orgId: string;
+  organizationId: Types.ObjectId;
 
-  /** OIDC | SAML. Unset on a config written before #4 means OIDC (the schema
-   *  default), which is what every existing config is. */
+  /** OIDC | SAML; the schema default is OIDC. */
   protocol: IdpProtocol;
 
   /** OIDC provider. Required for `protocol: 'oidc'`; unused for SAML, where the
@@ -159,7 +158,7 @@ export interface OrgIdpConfigDocument extends Document {
 
   /**
    * Name of the id_token claim carrying the user's GROUP memberships, for
-   * just-in-time membership + Role mapping (3a). IdPs disagree on it — Okta and
+   * just-in-time membership + Role mapping. IdPs disagree on it — Okta and
    * Keycloak emit `groups`, Cognito emits `cognito:groups`, Entra emits `roles`
    * — so it is configurable per org. Unset means the default (`groups`).
    *
@@ -209,11 +208,13 @@ export interface OrgIdpConfigDocument extends Document {
   updatedAt: Date;
 }
 
-const orgIdpConfigSchema = new Schema<OrgIdpConfigDocument>( {
-  orgId: { type: String, required: true, index: true },
+export type OrgIdpConfigDocument = HydratedDocument<OrgIdpConfigData>;
+
+const orgIdpConfigSchema = new Schema<OrgIdpConfigData>( {
+  organizationId: { type: Schema.Types.ObjectId, required: true, index: true },
   protocol: {
     type: String,
-    enum: IDP_PROTOCOLS as unknown as string[],
+    enum: [...IDP_PROTOCOLS],
     default: 'oidc',
   },
   // Provider/clientId/clientSecret are REQUIRED for OIDC and absent for SAML, so
@@ -222,7 +223,7 @@ const orgIdpConfigSchema = new Schema<OrgIdpConfigDocument>( {
   // "required when another field has a given value".
   provider: {
     type: String,
-    enum: IDP_PROVIDERS as unknown as string[],
+    enum: [...IDP_PROVIDERS],
   },
   clientId: { type: String },
   clientSecretEncrypted: { type: String },
@@ -250,7 +251,7 @@ const orgIdpConfigSchema = new Schema<OrgIdpConfigDocument>( {
     type: new Schema<IdpTestRecord>({
       at: { type: Date, required: true },
       ok: { type: Boolean, required: true },
-      protocol: { type: String, enum: IDP_PROTOCOLS as unknown as string[], required: true },
+      protocol: { type: String, enum: [...IDP_PROTOCOLS], required: true },
       reason: { type: String },
       actorId: { type: String, required: true },
     }, { _id: false }),
@@ -267,6 +268,6 @@ const orgIdpConfigSchema = new Schema<OrgIdpConfigDocument>( {
 // One config per org. A re-register flow updates the existing doc rather
 // than inserting; the route enforces this so we don't get the case of two
 // active configs racing during a sign-in attempt.
-orgIdpConfigSchema.index({ orgId: 1 }, { unique: true });
+orgIdpConfigSchema.index({ organizationId: 1 }, { unique: true });
 
-export default model<OrgIdpConfigDocument>('OrgIdpConfig', orgIdpConfigSchema);
+export default model<OrgIdpConfigData>('OrgIdpConfig', orgIdpConfigSchema);

@@ -19,7 +19,9 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
+import { featureQuotaMock } from './helpers/feature-quota-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockIsSystemAdmin = jest.fn<(req: unknown) => boolean>();
@@ -68,23 +70,21 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: mockAudit }));
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    observability: {
-      dashboardMaxName: 150,
-      dashboardMaxDescription: 1000,
-      dashboardMaxPanelTitle: 200,
-      dashboardMaxPanels: 50,
-      alertDestinationMaxLabel: 100,
-      alertDestinationMaxTarget: 500,
-      alertDeliveryTimeoutMs: 5000,
-    },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  observability: {
+    dashboardMaxName: 150,
+    dashboardMaxDescription: 1000,
+    dashboardMaxPanelTitle: 200,
+    dashboardMaxPanels: 50,
+    alertDestinationMaxLabel: 100,
+    alertDestinationMaxTarget: 500,
+    alertDeliveryTimeoutMs: 5000,
   },
 }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
-jest.unstable_mockModule('../src/middleware/quota.js', () => ({
+jest.unstable_mockModule('../src/middleware/quota.js', () => featureQuotaMock({
   reserveFeatureQuota: jest.fn(async () => ({ exceeded: false })),
   releaseFeatureQuota: jest.fn(),
 }));
@@ -128,7 +128,7 @@ jest.unstable_mockModule('../src/services/promql-rewriter.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/services/alert-relay.js', () => ({ relayWebhook: jest.fn() }));
-jest.unstable_mockModule('../src/utils/email-address.js', () => ({ isValidEmail: () => true }));
+jest.unstable_mockModule('../src/utils/email-address.js', () => ({ isValidEmail: () => true, EMAIL_PATTERN: /.+/ }));
 jest.unstable_mockModule('../src/utils/string-guards.js', () => ({ isReasonableString: () => true }));
 
 const { listDeletedDashboards, purgeDashboard } = await import('../src/controllers/dashboards.js');

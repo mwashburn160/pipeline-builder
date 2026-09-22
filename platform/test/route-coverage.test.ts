@@ -236,7 +236,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/audit/events',
     waive: 'all',
-    reason: 'INTERNAL audit ingest (#14): requireServiceAuth verifies a peer service\'s signed token and requireInternalService names which peers may post; the action is the CALLER\'S (validated against api-core isRemoteAuditAction), so no fixed action can be declared here.',
+    reason: 'INTERNAL audit ingest: requireServiceAuth verifies a peer service\'s signed token and requireInternalService names which peers may post; the action is the CALLER\'S (validated against api-core isRemoteAuditAction), so no fixed action can be declared here.',
   },
   {
     method: 'POST',
@@ -308,7 +308,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'resolveImpersonationAuthority in the controller: a platform sysadmin (any target) or an admin of a strict ANCESTOR of the target\'s org — it depends on both parties and on the org the session pins to. Every caller is step-up gated.',
   },
 
-  // -- SCIM 2.0 (3b) --------------------------------------------------------
+  // -- SCIM 2.0 --------------------------------------------------------
   {
     path: /^(GET|POST|PUT|PATCH|DELETE) \/scim\/v2\//,
     waive: 'permission',
@@ -331,17 +331,17 @@ const EXCEPTIONS: RouteCoverageException[] = [
 ];
 
 /**
- * The INTERNAL routes platform exposes (#14) and the services allowed to call
+ * The INTERNAL routes platform exposes and the services allowed to call
  * them — the same list `deploy/*​/k8s/istio-internal-routes.yaml` names, and the
  * ONE place it is written down. `findInternalRouteViolations` checks it against
  * the code in both directions.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  // compliance's notification channels + the plugin ecosystem's notices (§5b).
+  // compliance's notification channels + the plugin ecosystem's notices.
   { method: 'POST', path: '/internal/notify-email', callers: ['compliance', 'plugin'] },
-  // Whether outbound email is on — the anonymous-submission API's precondition (§4.2).
+  // Whether outbound email is on — the anonymous-submission API's precondition.
   { method: 'GET', path: '/internal/notify-email/status', callers: ['plugin'] },
-  // The plugin ecosystem's governance reads (§3.0.1 approver count, §3.7 Verified eligibility).
+  // The plugin ecosystem's governance reads (approver count, Verified eligibility).
   { method: 'GET', path: '/internal/ecosystem/publisher-eligibility/:orgId', callers: ['plugin'] },
   { method: 'GET', path: '/internal/ecosystem/approvers', callers: ['plugin'] },
   // Every non-platform service forwards its audit trail here; platform writes

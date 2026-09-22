@@ -17,10 +17,6 @@ PROFILE="pipeline-builder"
 # NOTE: no host DATA_DIR here — with the minikube docker driver the cluster's
 # persistent data lives INSIDE the VM at VM_DATA_DIR (/data), not under the host
 # deploy dir. See the VM_DATA_DIR mounts below.
-# Istio ambient mesh version. Must be ambient-GA (>= 1.24). Overridable; bump to
-# the current stable at deploy time. The installed `istioctl` binary drives the
-# install — keep it on the same minor.
-ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 # Kubernetes version for the cluster. PIN it rather than letting minikube pick
 # its built-in default: that default moves with every minikube release (upgrading
 # minikube silently jumps the local cluster a minor or two), which both breaks
@@ -64,15 +60,21 @@ VM_DATA_DIR="/data"
 
 # -- Shared deploy helpers ----------------------------------------------------
 # Sourced from deploy/bin so every target shares one implementation:
-#   common.sh          → preflight (assert required tools up front)
+#   common.sh          → preflight, ensure_istioctl, ensure_kubectl
 #   gen-env-secrets.sh → pb_gen_env_secrets (fill CHANGE_ME secrets in .env)
 #   mongo-keyfile.sh   → pb_ensure_mongo_keyfile (per-deploy replica-set keyfile)
+#   k8s-resources.sh   → the Secret/ConfigMap creators, add-on installs (KEDA,
+#                        Istio ambient) and the manifest apply phase — the same
+#                        functions ec2 and eks run, with plain kubectl here.
 # common.sh cd's to /tmp on source; every path below is absolute so that's safe.
 . "$BIN_DIR/common.sh"
 . "$BIN_DIR/gen-env-secrets.sh"
 . "$BIN_DIR/mongo-keyfile.sh"
-# Only for pb_split_app_env (the app-env ConfigMap / app-secrets Secret split);
-# this script keeps its own kube/secret/configmap helpers.
+# PB_KUBECTL/PB_NAMESPACE are consumed by the sourced k8s-resources.sh.
+# shellcheck disable=SC2034
+PB_KUBECTL="kubectl"
+# shellcheck disable=SC2034
+PB_NAMESPACE="$NAMESPACE"
 . "$BIN_DIR/k8s-resources.sh"
 
 # Fail fast with ONE actionable error if a required CLI tool is missing.
@@ -82,44 +84,7 @@ preflight kubectl minikube openssl envsubst
 
 # -- Helpers ------------------------------------------------------------------
 
-kube() { kubectl "$@" --dry-run=client -o yaml | kubectl apply -f -; }
 log()  { echo ""; echo "=== $1 ==="; }
-
-# lean_filter — with LEAN=1, drop the optional observability/admin workloads from
-# the kustomize stream (their Deployment/StatefulSet/DaemonSet/Service/PV/PVC/HPA/
-# PDB/ServiceAccount/ConfigMap docs) so no pods schedule for them. Kept: everything
-# else, incl. AuthZ/NetworkPolicy docs that merely reference them (harmless, no pod).
-# With LEAN=0 it's a pass-through (cat).
-lean_filter() {
-  if [ "$LEAN" != "1" ]; then cat; return; fi
-  awk '
-    function emit(  o,d) {
-      o = (nm ~ /^(prometheus|loki|thanos-query|thanos-store-gateway|thanos-compact|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali)(-.*)?$/)
-      d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
-      if (buf != "" && !(o && d)) printf "---\n%s", buf
-      buf=""; kd=""; nm=""
-    }
-    /^---$/ { emit(); next }
-    { buf = buf $0 "\n"; if ($1=="kind:") kd=$2; if ($0 ~ /^  name: / && nm=="") nm=$2 }
-    END { emit() }
-  ' | sed -E 's/^(  replicas:) [0-9]+/\1 1/; s/^(  (min|max)Replicas:) [0-9]+/\1 1/; s/^(  (min|max)ReplicaCount:) [0-9]+/\1 1/'
-  # ^ also collapse every workload/HPA/ScaledObject to a single replica: on an
-  #   ~8-core laptop the core stack + mesh already fills the node, so 2nd replicas
-  #   just sit Pending. (spec-level fields are 2-space; the ScaledObject `fallback`
-  #   replicas is deeper-indented and intentionally left alone.)
-}
-
-secret() {
-  local name="$1"; shift
-  kube create secret generic "$name" "$@" -n "$NAMESPACE"
-  echo "  $name"
-}
-
-configmap() {
-  local name="$1"; shift
-  kube create configmap "$name" "$@" -n "$NAMESPACE"
-  echo "  $name"
-}
 
 cleanup_docker() {
   docker rm -f "$PROFILE" 2>/dev/null || true
@@ -127,22 +92,14 @@ cleanup_docker() {
   docker network prune -f >/dev/null 2>&1 || true
 }
 
-port_forward() {
-  local name="$1" svc="$2" ports="$3"
-  kubectl port-forward "svc/$svc" "$ports" -n "$NAMESPACE" >/dev/null 2>&1 &
-  local pid=$!; sleep 1
-  if kill -0 "$pid" 2>/dev/null; then
-    echo "  $name → $ports (PID $pid)"
-  else
-    echo "  WARNING: $name port-forward failed"
-  fi
-}
-
 # -- Load .env ----------------------------------------------------------------
 
+# minikube reads ONLY its own .env. Borrowing another target's (the docker one)
+# would hand the cluster that target's settings — DEPLOY_TARGET=docker, the
+# compose-network quarantine buildkit address — and then pb_sync_env_keys below
+# would rewrite the other target's file with minikube's keys.
 ENV_FILE=""
 [ -f "$DEPLOY_DIR/.env" ] && ENV_FILE="$DEPLOY_DIR/.env"
-[ -z "$ENV_FILE" ] && [ -f "$DEPLOY_DIR/../docker/.env" ] && ENV_FILE="$(cd "$DEPLOY_DIR/../docker" && pwd)/.env"
 # Auto-seed from the example on first run instead of hard-failing (matches the
 # docker target). The example ships working local defaults; only optional keys
 # (e.g. AI provider keys) need filling in.
@@ -386,65 +343,35 @@ kubectl -n kube-system patch deploy metrics-server --type=json \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
   2>/dev/null || echo "  metrics-server patch skipped (already patched or not yet rolled out)"
 
-kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.20.2/keda-2.20.2.yaml
-kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
+pb_install_keda
 echo "  Addons + KEDA installed"
 
 # -- Istio ambient service mesh ----------------------------------------------
-# Installed BEFORE the app manifests so istio-cni + ztunnel are ready when pods
-# start (ambient enrollment is dynamic, but starting pods after the CNI is up
-# avoids a "not captured until restart" edge case). The namespace is enrolled
-# via the `istio.io/dataplane-mode: ambient` label on namespace.yaml; STRICT
-# mTLS + AuthorizationPolicies live in k8s/istio.yaml. Sidecar-less: no per-pod
-# proxy, no changes to the hardened pod securityContexts. See docs/service-mesh.md.
-# NOTE: the `minikube addons enable istio` addon is stale 1.5-era sidecar mode —
-# we use istioctl with the ambient profile instead. The Jaeger extensionProvider
-# is pre-wired (inert at L4) so a future waypoint can emit mesh traces.
+# See pb_install_istio_ambient (deploy/bin/k8s-resources.sh) for why the mesh goes
+# in before the manifests. The `minikube addons enable istio` addon is stale
+# 1.5-era sidecar mode, so istioctl with the ambient profile is used instead.
 log "Installing Istio ambient mesh ($ISTIO_VERSION)"
-# Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary). The
-# shared ensure_istioctl guarantees it — auto-installing $ISTIO_VERSION if the host
-# has none or any OTHER version (exact match); identical on every target (see common.sh).
+# Auto-installs exactly $ISTIO_VERSION if the host has none or another version.
 ensure_istioctl "$ISTIO_VERSION"
 # istiod's production default request (500m CPU / 2Gi memory) reserves a fifth of
 # a laptop node for a control plane that idles at ~5m / ~60Mi here; trim the
 # REQUEST (no limit is set, so it can still burst) so the app stack schedules.
-istioctl install --skip-confirmation \
-  --set profile=ambient \
+pb_install_istio_ambient \
   --set values.pilot.resources.requests.cpu=100m \
-  --set values.pilot.resources.requests.memory=256Mi \
-  --set "meshConfig.extensionProviders[0].name=jaeger" \
-  --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${NAMESPACE}.svc.cluster.local" \
-  --set "meshConfig.extensionProviders[0].opentelemetry.port=4317"
-kubectl wait --for=condition=Available deployment/istiod -n istio-system --timeout=180s 2>/dev/null || echo "  istiod not ready yet"
-kubectl rollout status daemonset/ztunnel -n istio-system --timeout=120s 2>/dev/null || echo "  ztunnel not ready yet"
-kubectl rollout status daemonset/istio-cni-node -n istio-system --timeout=120s 2>/dev/null || echo "  istio-cni not ready yet"
-
-# The `pb-waypoint` Gateway (k8s/istio-internal-routes.yaml) is a Kubernetes
-# Gateway API resource, and `istioctl install` does NOT ship those CRDs — without
-# them the manifest apply below dies on an unknown kind. Install the standard
-# channel once; idempotent, so a cluster that already has them is untouched.
-# Pinned rather than `latest` so a provision is reproducible.
-GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"
-if ! kubectl get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
-  echo "  installing Gateway API CRDs ($GATEWAY_API_VERSION) for the ambient waypoint"
-  kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
-fi
+  --set values.pilot.resources.requests.memory=256Mi
 echo "  Istio ambient installed (istiod + ztunnel + istio-cni in istio-system)"
 
 # -- Namespace + Secrets + ConfigMaps -----------------------------------------
 
 log "Creating namespace + secrets + configmaps"
-kube create namespace "$NAMESPACE"
+pb_kube_apply create namespace "$NAMESPACE"
 
-# app-env ConfigMap from .env. The plugin service uses a rootless buildkitd
-# sidecar (single build path — no strategy switch).
-# RESTRICTED envsubst: expand ONLY ${PLATFORM_FRONTEND_URL} (the sole intentional
+# RESTRICTED expansion: ONLY ${PLATFORM_FRONTEND_URL} (the sole intentional
 # reference, in OAUTH_CALLBACK_BASE_URL). An unrestricted envsubst would treat a
 # literal `$` in any secret (a bcrypt hash `$2b$10$…`, a password with `$`) as a
 # variable and silently blank/corrupt it — and since the same keys are ALSO
 # written to Secrets from the sourced env, the ConfigMap and Secret copies would
-# then diverge. Mirrors the restricted expansion at the kustomize step below.
-# `grep -E '^[[:space:]]*(#|$)'` is POSIX (BSD/macOS-safe; `\s` is a GNU extension).
+# then diverge. `grep -E '^[[:space:]]*(#|$)'` is POSIX (`\s` is a GNU extension).
 CLEAN_ENV=$(mktemp); trap 'rm -f "$CLEAN_ENV"' EXIT
 grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|${PLATFORM_FRONTEND_URL}|g" > "$CLEAN_ENV"
 # ASK_MODEL=1: point the ask service at the self-hosted model. Appended to the
@@ -458,168 +385,60 @@ if [ "$ASK_MODEL" = "1" ]; then
     echo "OPENAI_COMPATIBLE_MODELS=qwen2.5-coder:1.5b|Qwen 2.5 Coder"
   } >> "$CLEAN_ENV"
 fi
-# Split: non-secret settings -> app-env ConfigMap; credentials -> app-secrets
-# Secret; superuser/admin credentials -> neither (their consumers read their own
-# Secrets below by key). See pb_split_app_env in deploy/bin/k8s-resources.sh.
-APP_ENV_CFG=$(mktemp); APP_ENV_SEC=$(mktemp)
-pb_split_app_env "$CLEAN_ENV" "$APP_ENV_CFG" "$APP_ENV_SEC"
-configmap app-env --from-env-file="$APP_ENV_CFG"
-secret app-secrets --from-env-file="$APP_ENV_SEC"
-rm -f "$CLEAN_ENV" "$APP_ENV_CFG" "$APP_ENV_SEC"
+# Split into the app-env ConfigMap (settings) + app-secrets Secret (credentials);
+# superuser/admin creds go to neither (see pb_split_app_env).
+pb_app_env_resources "$CLEAN_ENV"
+rm -f "$CLEAN_ENV"
 
-# Secrets
-# The *_PREVIOUS keys always exist (empty outside a rotation) so nginx/platform
-# can secretKeyRef them unconditionally. docs/runbooks/secret-rotation.md
-# Read BY KEY only (postgres, its exporter, pgbouncer): the superuser pair for
-# init/backup and the DB_USER app-role pair for postgres-init.sql + pgbouncer's
-# userlist. App pods must never envFrom it (RLS-bypassing superuser).
-secret postgres-secret   --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD"
-secret mongodb-secret    --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
-secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
-secret pgadmin-secret    --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
-# Grafana's own admin login (nginx does not gate /grafana/).
-secret grafana-secret \
-  --from-literal=GRAFANA_ADMIN_USER="$GRAFANA_ADMIN_USER" --from-literal=GRAFANA_ADMIN_PASSWORD="$GRAFANA_ADMIN_PASSWORD"
-# Kiali session-signing key, mounted as the override-secret file Kiali reads
-# (/kiali-override-secrets/login-token-signing-key/value.txt). Kiali v2 ignores a
-# LOGIN_TOKEN_SIGNING_KEY env var, and with no key it crashloops at startup.
-secret kiali-signing-key --from-literal=value.txt="$KIALI_SIGNING_KEY"
-# MinIO: root creds (server + minio-init bootstrap) plus the per-service,
-# bucket-scoped keys. Built from .env here rather than shipped as a literal
-# Secret inside k8s/minio.yaml — which is what it used to be, and which made the
-# MINIO_*/`*_S3_*` values in .env silently inert: every workload reads THIS
-# Secret, so changing .env had no effect and pb_gen_env_secrets had nothing to
-# randomise (postgres/mongo/pgadmin above were already generated — MinIO was the
-# lone exception). Key names must match the secretKeyRef entries in
-# k8s/minio.yaml, k8s/plugin.yaml, k8s/loki.yaml, k8s/registry.yaml and
-# k8s/message.yaml.
-secret minio-secret \
-  --from-literal=root-user="$MINIO_ROOT_USER"                  --from-literal=root-password="$MINIO_ROOT_PASSWORD" \
-  --from-literal=message-access-key="$MESSAGE_S3_ACCESS_KEY"   --from-literal=message-secret-key="$MESSAGE_S3_SECRET_KEY" \
-  --from-literal=registry-access-key="$REGISTRY_S3_ACCESS_KEY" --from-literal=registry-secret-key="$REGISTRY_S3_SECRET_KEY" \
-  --from-literal=loki-access-key="$LOKI_S3_ACCESS_KEY"         --from-literal=loki-secret-key="$LOKI_S3_SECRET_KEY" \
-  --from-literal=thanos-access-key="$THANOS_S3_ACCESS_KEY"     --from-literal=thanos-secret-key="$THANOS_S3_SECRET_KEY" \
-  --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY" \
-  --from-literal=audit-heads-access-key="$AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID" --from-literal=audit-heads-secret-key="$AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY"
-
-# Ops-team Slack webhook URLs for the platform-wide critical/warning receivers,
-# mounted as FILES into alertmanager (api_url_file in alertmanager.yml) — a
-# webhook URL is a bearer credential, so it stays out of the config ConfigMap.
-# Created unconditionally (not `optional:`) so a missing value is a loud
-# FailedMount; the values were pre-flighted by pb_check_alert_delivery above.
-secret alertmanager-slack \
-  --from-literal=SLACK_CRITICAL_WEBHOOK_URL="${SLACK_CRITICAL_WEBHOOK_URL:-}" \
-  --from-literal=SLACK_WARNING_WEBHOOK_URL="${SLACK_WARNING_WEBHOOK_URL:-}"
-# Per-org alert relay bearer (REQUIRED). Mounted as a file into alertmanager
-# (credentials_file) and injected into platform's ALERT_WEBHOOK_INSTANCES.
-secret alertmanager-relay \
-  --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN="$ALERT_WEBHOOK_INSTANCE_TOKEN" \
-  --from-literal=ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS="${ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS:-}"
-
-# GHCR pull secret
-GHCR_TOKEN="${GHCR_TOKEN:-}"
-[ -z "$GHCR_TOKEN" ] && [ -f "$HOME/.npmrc" ] && GHCR_TOKEN=$(grep '//npm.pkg.github.com/:_authToken=' "$HOME/.npmrc" 2>/dev/null | sed 's/.*_authToken=//' || true)
-if [ -n "$GHCR_TOKEN" ]; then
-  GHCR_USER="${GHCR_USER:-mwashburn160}"
-  kube create secret docker-registry ghcr-secret --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" -n "$NAMESPACE"
-  kubectl patch sa default -n "$NAMESPACE" -p '{"imagePullSecrets":[{"name":"ghcr-secret"}]}'
-  echo "  ghcr-secret"
-fi
+# Application secrets + optional GHCR pull secret (shared creators — the same
+# Secret set, keys included, that ec2 and eks create).
+pb_create_app_secrets
+pb_create_ghcr_secret
 
 # -- TLS certificates --------------------------------------------------------
 
 log "Creating TLS certificates"
-# Shared, idempotent gateway-TLS generator (mkcert → self-signed fallback).
+# Shared, idempotent gateway-TLS generator (mkcert → self-signed fallback). Only
+# minikube terminates TLS at nginx; the AWS targets terminate at the ALB.
 bash "$BIN_DIR/nginx-tls.sh" "$CERT_DIR"
-kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NAMESPACE"
+pb_kube_apply create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NAMESPACE"
 # The CA that issued that cert (public half only) — the frontend server mounts
 # it as NODE_EXTRA_CA_CERTS to verify https://nginx:8443 (no image trusts a dev CA).
-kube create configmap dev-ca --from-file=dev-ca.crt="$CERT_DIR/dev-ca.crt" -n "$NAMESPACE"
+pb_kube_apply create configmap dev-ca --from-file=dev-ca.crt="$CERT_DIR/dev-ca.crt" -n "$NAMESPACE"
 
-# JWT signing keypair for image-registry's token-auth endpoint (shared generator).
+# JWT signing keypair for image-registry's token-auth endpoint (shared generator),
+# then the registry secrets (token keypair + build-svc Basic-auth creds).
 bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
-secret registry-token-secret \
-  --from-file=jwt-private.pem="$CERT_DIR/image-registry-jwt.key" \
-  --from-file=jwt-public.pem="$CERT_DIR/image-registry-jwt.crt" \
-  --from-literal=http-secret="$REGISTRY_HTTP_SECRET"
+pb_create_registry_secrets "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
 
-# Build-side credentials consumed by the image-registry proxy:
-#   IMAGE_REGISTRY_*  — Basic auth used when talking to the underlying registry.
-secret image-registry-build-svc-secret \
-  --from-literal=IMAGE_REGISTRY_USERNAME="$IMAGE_REGISTRY_USER" \
-  --from-literal=IMAGE_REGISTRY_PASSWORD="$IMAGE_REGISTRY_TOKEN"
-
-# The ES256 user-token signing key — platform is the only workload that mounts
-# it, because it is the only thing in the fleet that may mint a user token.
-# Idempotent: re-running setup never rotates it (that would log everyone out).
-bash "$BIN_DIR/token-signing-keys.sh" "$CERT_DIR"
-_token_signing_args=(--from-file=token-signing.key="$CERT_DIR/token-signing/token-signing.key")
-[ -f "$CERT_DIR/token-signing/token-signing-previous.key" ] \
-  && _token_signing_args+=(--from-file=token-signing-previous.key="$CERT_DIR/token-signing/token-signing-previous.key")
-secret token-signing-key "${_token_signing_args[@]}"
-
-# The plugin-image signing keypair, split across two Secrets because its halves
-# go to different pods: `plugin-signing-key` (PRIVATE) is mounted by
-# image-registry ONLY — it signs pushed plugin images at POST
-# /internal/plugin-signatures — and `plugin-signing-public-key` by plugin, which
-# only verifies (its pod shares a network namespace with the buildkitd that runs
-# tenant Dockerfile steps, so it must never hold the private key). The script
-# honours PLUGIN_SIGNING_MODE from the sourced .env; in kms mode it writes no
-# private key, so none is uploaded (and a stale one is removed). Idempotent:
-# re-running setup never regenerates the key (that orphans every signature).
-bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
-if [ "${PLUGIN_SIGNING_MODE:-local}" = "local" ]; then
-  secret plugin-signing-key --from-file=plugin-signing.key="$CERT_DIR/plugin-signing/plugin-signing.key"
-else
-  kubectl delete secret plugin-signing-key -n "$NAMESPACE" --ignore-not-found >/dev/null
+# The ES256 user-token signing key (platform only). Idempotent: re-running setup
+# never rotates it (that would log everyone out). Skipped under
+# TOKEN_SIGNING_MODE=kms, where the private key never leaves AWS.
+if [ "${TOKEN_SIGNING_MODE:-local}" = "local" ]; then
+  bash "$BIN_DIR/token-signing-keys.sh" "$CERT_DIR"
 fi
-secret plugin-signing-public-key --from-file=plugin-signing.pub="$CERT_DIR/plugin-signing/plugin-signing.pub"
+pb_create_token_signing_secret "$CERT_DIR/token-signing/token-signing.key" "$CERT_DIR/token-signing/token-signing-previous.key"
 
-# PER-SERVICE ES256 keys for INTERNAL service-to-service tokens (#14): one
-# `service-key-<name>` Secret per service (mounted by that service ALONE — which
-# is what stops a compromised pod signing as another) plus the public
-# `service-key-bundle` every service verifies against. Idempotent: re-running
-# setup never rotates a key (see the two-phase procedure in the script header).
+# The plugin-image signing keypair: the private half for image-registry only,
+# the public half for plugin (see pb_create_plugin_signing_secrets). Honours
+# PLUGIN_SIGNING_MODE from the sourced .env. Idempotent: re-running setup never
+# regenerates the key (that orphans every signature).
+bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
+pb_create_plugin_signing_secrets "$CERT_DIR/plugin-signing"
+
+# PER-SERVICE ES256 keys for internal service-to-service tokens — one Secret per
+# service plus the public bundle (see pb_create_service_key_secrets). Idempotent:
+# re-running setup never rotates a key.
 bash "$BIN_DIR/service-signing-keys.sh" "$CERT_DIR"
-secret service-key-bundle --from-file=bundle.json="$CERT_DIR/service-keys/bundle.json"
-for _svc_key in "$CERT_DIR"/service-keys/*.key; do
-  _svc="$(basename "$_svc_key" .key)"
-  # `<svc>-previous.key` is the retiring half of a rotation: its PUBLIC key stays
-  # in the bundle so tokens it signed still verify, but it never signs again, so
-  # it is not mounted anywhere.
-  case "$_svc" in *-previous) continue ;; esac
-  secret "service-key-$_svc" --from-file=service.key="$_svc_key"
-done
-
-# (No registry htpasswd: the registry uses token auth — nothing mounts registry-auth-secret.)
+pb_create_service_key_secrets "$CERT_DIR/service-keys"
 echo "  TLS + registry + user-token + plugin signing keys done"
 
 # -- ConfigMaps ---------------------------------------------------------------
 
 log "Creating ConfigMaps"
-# postgres-init/mongodb-init/njs/loki/thanos/alertmanager come from deploy/shared
-# (pb_shared_dir, bin/k8s-resources.sh) — one copy for every target.
-SHARED_DIR="$(pb_shared_dir)"
-configmap postgres-init   --from-file=init.sql="$SHARED_DIR/postgres-init.sql"
-configmap mongodb-init    --from-file=mongo-init.js="$SHARED_DIR/mongodb-init.js"
-secret   mongodb-keyfile  --from-file=mongodb-keyfile="$DEPLOY_DIR/mongodb-keyfile"
-configmap nginx-config    --from-file=nginx.conf="$NGINX_DIR/nginx.conf"
-configmap nginx-njs       --from-file=jwt.js="$SHARED_DIR/nginx/jwt.js" --from-file=metrics.js="$SHARED_DIR/nginx/metrics.js"
-configmap loki-config     --from-file=loki-config.yml="$SHARED_DIR/config/loki/loki-config.yml"
-configmap prometheus-config \
-  --from-file=prometheus.yml="$CONFIG_DIR/prometheus/prometheus.yml" \
-  --from-file=alert-rules.yml="$CONFIG_DIR/prometheus/alert-rules.yml"
-# Thanos object-store config, mounted by the prometheus thanos-sidecar and
-# thanos-query (prometheus.yaml / thanos-query.yaml). Was missing here — those
-# pods FailedMount on minikube — while ec2/eks create it via bin/k8s-resources.sh.
-configmap thanos-objstore --from-file=objstore.yml="$SHARED_DIR/config/thanos/objstore.yml"
-configmap alertmanager-config --from-file=alertmanager.yml="$SHARED_DIR/config/alertmanager/alertmanager.yml"
-configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml"
-# Grafana dashboards (the provider config + the dashboard JSON), mounted at
-# /etc/grafana/provisioning/dashboards by grafana.yaml.
-configmap grafana-dashboards \
-  --from-file=dashboards.yaml="$CONFIG_DIR/grafana/dashboards/dashboards.yaml" \
-  --from-file=plugin-ecosystem.json="$CONFIG_DIR/grafana/dashboards/plugin-ecosystem.json"
+# Config-file ConfigMaps + the MongoDB keyfile Secret — the same set ec2/eks
+# create; shared files come from deploy/shared, target files from this dir.
+pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 
 # -- Deploy -------------------------------------------------------------------
 
@@ -644,11 +463,9 @@ minikube ssh --profile="$PROFILE" -- "sudo sysctl -w fs.inotify.max_user_instanc
 bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
 
 log "Applying Kubernetes manifests"
-[ "$LEAN" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali)"
-# Substitute ONLY ${BUILDKIT_MEMORY_LIMIT} (sed, not envsubst — some envsubst
-# builds ignore the shell-format restriction and strip runtime $tokens like the
-# minio-init `$b` loop). lean_filter drops optional workloads when LEAN=1.
-kubectl kustomize "$K8S_DIR" | sed "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" | lean_filter | kubectl apply -f -
+# Only ${BUILDKIT_MEMORY_LIMIT} is expanded; istiod gate + apply + mesh
+# re-enrollment restart are shared with ec2/eks (pb_apply_manifests).
+pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" "$LEAN"
 
 # ASK_MODEL=1: the self-hosted Ask model. Applied separately (it is deliberately
 # NOT in kustomization.yaml) because it is the one optional workload whose 2Gi
@@ -662,10 +479,7 @@ if [ "$ASK_MODEL" = "1" ]; then
 fi
 
 log "Post-deploy fixups"
-REGISTRY_IP=$(kubectl get svc registry -n "$NAMESPACE" -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-[ -n "$REGISTRY_IP" ] && minikube ssh --profile="$PROFILE" -- \
-  "T=\$(mktemp); grep -q '\\sregistry\$' /etc/hosts && { grep -v '\\sregistry\$' /etc/hosts > \"\$T\"; echo '$REGISTRY_IP registry' >> \"\$T\"; sudo cp \"\$T\" /etc/hosts; rm -f \"\$T\"; } || echo '$REGISTRY_IP registry' | sudo tee -a /etc/hosts >/dev/null"
-echo "  registry -> ${REGISTRY_IP:-unknown}"
+pb_registry_hosts_fixup "$PROFILE"
 
 # -- Wait for pods ------------------------------------------------------------
 
@@ -705,11 +519,11 @@ sleep 1
 # 8443/8080), silently killing the gateway while the single-port forwards below
 # survived — leaving https://localhost:8443 unreachable. The HTTP→HTTPS redirect
 # on 8080 isn't needed for the API/UI (use the NodePort if you want it).
-port_forward "Nginx"          nginx            "8443:8443"
+pb_port_forward "Nginx"          nginx            "8443:8443"
 # mongo-express / pgAdmin are omitted under LEAN=1 (no service to forward to).
 if [ "$LEAN" != "1" ]; then
-  port_forward "Mongo Express"  mongo-express    "8081:8081"
-  port_forward "pgAdmin"        pgadmin          "5480:80"
+  pb_port_forward "Mongo Express"  mongo-express    "8081:8081"
+  pb_port_forward "pgAdmin"        pgadmin          "5480:80"
 fi
 # Registry UI is served via the platform frontend at /dashboard/registry
 # (sysadmin only) — no separate joxit/registry-express port-forward.

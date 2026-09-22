@@ -14,9 +14,8 @@ const post = jest.fn<(...a: any[]) => any>();
 jest.unstable_mockModule('../src/services/http-client.js', () => ({
   InternalHttpClient: jest.fn(() => ({ post })),
 }));
-jest.unstable_mockModule('../src/middleware/auth.js', () => ({
+jest.unstable_mockModule('../src/middleware/service-tokens.js', () => ({
   getServiceAuthHeader: () => 'Bearer svc',
-  SYSTEM_ORG_ID: '000000000000000000000001',
 }));
 
 const {

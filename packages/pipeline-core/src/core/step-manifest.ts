@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Step manifest (plugin-ecosystem W0.1): which plugin each CodePipeline action
+ * Step manifest: which plugin each CodePipeline action
  * of a deployed pipeline runs. CDK-free half — the shapes and helpers shared by
  * the synth (which records it, see `pipeline/step-manifest-recorder.ts`), the
  * CLI (which ships it with the registry registration) and the pipeline service
@@ -65,7 +65,7 @@ export interface PluginImageRef {
  * Only for rows the caller's org resolves as its OWN (or its parent's): the
  * plugin lookup stamps it as the record's `imageRepository`. A listed plugin's
  * repository is its listing version's `public/<publisher>/<name>` copy —
- * synth never derives a repository itself (G30).
+ * synth never derives a repository itself.
  */
 export function pluginImageRepository(plugin: PluginImageRef): string | null {
   if (plugin.buildType === 'metadata_only') return null;

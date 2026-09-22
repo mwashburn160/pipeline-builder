@@ -3,7 +3,7 @@
 
 /**
  * Catalog metadata: DETECTED from the package, then ACCEPTED OR EDITED
- * (docs/plans/plugin-ecosystem.md §3.1a, D19, G53–G56).
+ * (docs/plugin-publishing.md).
  *
  * Sources, highest priority first — the first non-empty value wins, per field:
  *
@@ -31,8 +31,11 @@
 
 import { OCI_LABELS, parseDockerfile } from './dockerfile-static.js';
 import {
-  PLUGIN_CATALOG_FIELDS, PLUGIN_SUMMARY_MAX, PluginCatalogEditsSchema, contractKeysMessage, findContractKeys, validateCatalogField,
-  type MetadataSource, type MetadataSources, type PluginCatalogEdits, type PluginCatalogField,
+  PLUGIN_CATALOG_FIELDS, PLUGIN_SUMMARY_MAX,
+  type MetadataSource, type MetadataSources, type PluginCatalogField,
+} from '../types/plugin-catalog.js';
+import {
+  PluginCatalogEditsSchema, contractKeysMessage, findContractKeys, validateCatalogField, type PluginCatalogEdits,
 } from './plugin-catalog-metadata.js';
 
 /** A source a value can be DETECTED from (`user` is only ever an edit). */
@@ -267,7 +270,7 @@ export function acceptAllCatalogMetadata(detected: DetectedField[]): ResolvedCat
 
 /**
  * Validate a catalog-edit payload (the upload's `metadata` part, already
- * JSON-decoded). Execution-contract keys are refused by name (G56) before the
+ * JSON-decoded). Execution-contract keys are refused by name before the
  * strict schema runs, so the caller learns exactly which keys can't be edited.
  */
 export function parseCatalogEdits(raw: unknown): { ok: true; value: PluginCatalogEdits } | { ok: false; error: string; contractKeys?: string[] } {

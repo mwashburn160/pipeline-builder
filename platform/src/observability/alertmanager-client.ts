@@ -2,26 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Thin Alertmanager v2 HTTP client. Mirrors the shape of prometheus-client
- * (uses Node 24 native fetch, reads ALERTMANAGER_URL at call
- * time so tests can stub the env without import-order pain).
+ * Thin Alertmanager v2 HTTP client over {@link callUpstream}, like
+ * prometheus-client (base URL read per call from `config.observability`).
  *
  * Alertmanager API reference: https://prometheus.io/docs/alerting/latest/clients/
  * — but the v2 OpenAPI is the source of truth:
  * https://github.com/prometheus/alertmanager/blob/main/api/v2/openapi.yaml
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { callUpstream } from './upstream.js';
 import { config } from '../config/index.js';
-
-const logger = createLogger('alertmanager-client');
-
-/** Default URL when env is unset — matches the in-cluster service name. */
-const DEFAULT_URL = 'http://alertmanager:9093';
-
-export type AlertmanagerError =
-  | { kind: 'upstream-4xx'; status: number; message: string }
-  | { kind: 'unreachable'; message: string };
 
 /** A single firing or resolved alert as returned by Alertmanager v2. */
 export interface Alert {
@@ -61,39 +51,17 @@ export interface SilenceCreate {
   comment: string;
 }
 
-function baseUrl(): string {
-  return process.env.ALERTMANAGER_URL || DEFAULT_URL;
-}
-
-/** Default timeout for any single Alertmanager call. Tuned to be fast — Alertmanager is
- *  in-cluster, low-latency, and a stalled call shouldn't block the entire request thread. */
-const TIMEOUT_MS = config.observability.alertmanagerTimeoutMs;
-
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const resp = await fetch(`${baseUrl()}${path}`, {
-      ...init,
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-    });
-    if (resp.status >= 400 && resp.status < 500) {
-      const body = await resp.text().catch(() => '');
-      throw { kind: 'upstream-4xx', status: resp.status, message: body || resp.statusText } as AlertmanagerError;
-    }
-    if (!resp.ok) {
-      throw { kind: 'unreachable', message: `Alertmanager returned ${resp.status}` } as AlertmanagerError;
-    }
-    return await resp.json() as T;
-  } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'kind' in err) throw err;
-    const message = errorMessage(err);
-    logger.warn('Alertmanager request failed', { path, message });
-    throw { kind: 'unreachable', message } as AlertmanagerError;
-  } finally {
-    clearTimeout(timer);
-  }
+async function fetchJson<T>(path: string, init: { method?: string; body?: string } = {}, parse: 'json' | 'none' = 'json'): Promise<T> {
+  return callUpstream<T>(`${config.observability.alertmanagerUrl}${path}`, {
+    backend: 'Alertmanager',
+    // In-cluster and low-latency: a stalled call must not hold the request.
+    timeoutMs: config.observability.alertmanagerTimeoutMs,
+    method: init.method,
+    body: init.body,
+    headers: { 'Content-Type': 'application/json' },
+    parse,
+    logContext: { path },
+  });
 }
 
 /** List active + suppressed alerts. Optionally filter to a single org via `org_id` label. */
@@ -124,5 +92,5 @@ export async function createSilence(body: SilenceCreate): Promise<{ silenceID: s
 
 /** Delete (expire) a silence by ID. Alertmanager returns 200 with no body on success. */
 export async function deleteSilence(id: string): Promise<void> {
-  await fetchJson<unknown>(`/api/v2/silence/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await fetchJson<void>(`/api/v2/silence/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'none');
 }

@@ -23,8 +23,8 @@ type Confirm =
   | { kind: 'upgrade'; install: InstallView; upgrade: InstallUpgrade };
 
 /**
- * The install affordances for one listing, from its catalog entry (§3.1 D16,
- * §3.2, §3.4): Install / Request install / Pending approval (withdraw) /
+ * The install affordances for one listing, from its catalog entry:
+ * Install / Request install / Pending approval (withdraw) /
  * Uninstall / Upgrade / "Installed automatically (Official)" with "Pin or
  * change policy", and the blocked and paused states with their reason.
  *
@@ -114,13 +114,13 @@ export function InstallControls({
       {state.kind === 'install' && (
         canInstall ? (
           <Button onClick={() => void install()} loading={busy}>
-            {state.requiresApproval ? 'Request install' : 'Install'}
+            {state.needsApproval ? 'Request install' : 'Install'}
           </Button>
         ) : (
           <p className="text-xs text-fg-subtle">Ask someone with the Install plugins permission to install it.</p>
         )
       )}
-      {state.kind === 'install' && state.requiresApproval && canInstall && (
+      {state.kind === 'install' && state.needsApproval && canInstall && (
         <p className="text-xs text-fg-subtle">Your organization requires approval for this publisher tier.</p>
       )}
 

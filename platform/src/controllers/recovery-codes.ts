@@ -11,20 +11,13 @@
 
 import { sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { withController, type ErrorMap } from '../helpers/controller-helper.js';
+import { withController } from '../helpers/controller-helper.js';
 import {
-  RECOVERY_CODES_NO_FACTOR,
   getRecoveryCodeStatus,
   regenerateRecoveryCodes as regenerate,
 } from '../services/recovery-codes-service.js';
+import { RECOVERY_CODES_ERROR_MAP } from '../services/totp-errors.js';
 
-const RECOVERY_CODES_ERROR_MAP: ErrorMap = {
-  [RECOVERY_CODES_NO_FACTOR]: {
-    status: 409,
-    message: 'Recovery codes back up a second factor — add a passkey or an authenticator app first.',
-    code: RECOVERY_CODES_NO_FACTOR,
-  },
-};
 
 /** GET /auth/recovery-codes — remaining / total / when the set was minted. */
 export const recoveryCodeStatus = withController('Recovery code status', async (req, res) => {

@@ -90,7 +90,7 @@ interface DeployPair {
  *    with a synth warning recommending explicit per-stage `environment`), or a
  *    literal `Deploy:<env>` when there are no stages to name.
  *
- * The assembled value is capped at AWS's 256-char tag-value limit (D6): the
+ * The assembled value is capped at AWS's 256-char tag-value limit: the
  * headline/production pair is kept first and trailing overflow pairs are dropped
  * with a synth warning naming them. Never returns a value longer than 256 chars.
  *
@@ -285,7 +285,7 @@ export class PipelineBuilder extends Construct {
   public readonly pipeline: CodePipeline;
   public readonly config: PipelineConfiguration;
   /**
-   * Which plugin each CodePipeline action runs (W0.1), read off the built
+   * Which plugin each CodePipeline action runs, read off the built
    * pipeline. The CLI ships it with the registry registration so event ingest
    * can attribute action outcomes to a plugin version.
    */
@@ -365,7 +365,7 @@ export class PipelineBuilder extends Construct {
       // config so the synth step, every stage step, and the source token all
       // resolve against the same snapshot (see PipelineConfiguration.getPipelineScope).
       const pipelineScope = this.config.getPipelineScope();
-      // Contract (W0.2) — see StageBuilder.resolveStep.
+      // Contract — see StageBuilder.resolveStep.
       assertPluginContract(plugin, contractScopeFromTemplateScope(pipelineScope), 'synth');
 
       const stepManifest = new StepManifestRecorder();

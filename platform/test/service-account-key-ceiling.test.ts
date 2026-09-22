@@ -12,6 +12,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Types } from 'mongoose';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const ACCOUNT_ID = new Types.ObjectId().toString();
@@ -22,7 +23,7 @@ const mockCreateForSa = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () 
 const mockSaUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { serviceAccounts: {} } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ serviceAccounts: {} }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, resolveOrgLineage: async (id: string) => ({ rootOrgId: id }) }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ isSsoEntitled: async () => ssoEntitled }));

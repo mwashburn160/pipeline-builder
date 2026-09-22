@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import type { AuditAction } from '../src/models/audit-event.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import type { AuditAction } from '../src/models/audit-event.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 // The chain HMAC key is an env/KMS secret (never the DB); pin one for the suite.

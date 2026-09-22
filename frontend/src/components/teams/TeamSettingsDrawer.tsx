@@ -129,10 +129,8 @@ function TeamIdentitySection({ team, readOnly, onRenamed }: {
  * This is the SAME flow as Settings → Single Sign-On ({@link SsoConnectionFlow}):
  * the six-step wizard (protocol + preset, SP values to copy into the IdP,
  * details or SAML metadata import, verified domains, test connection, enable +
- * "SSO required") and, once configured, the status summary. It used to be the
- * OIDC and SAML editors STACKED — both at once, though a connection is one
- * protocol — with no SP values, no metadata import, no test and no way to
- * require SSO, so what an admin learned on their own org didn't transfer here.
+ * "SSO required") and, once configured, the status summary — so what an admin
+ * learned on their own org transfers here.
  * Every write still goes through the IdP routes' strong step-up.
  */
 function TeamSsoSection({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {

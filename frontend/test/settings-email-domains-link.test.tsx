@@ -42,10 +42,7 @@ jest.mock('@/lib/api', () => ({
 
 let query: Record<string, string> = {};
 const replace = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query, pathname: '/dashboard/settings', replace, push: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query, pathname: '/dashboard/settings', replace, push: jest.fn<AnyFn>() })));
 
 import SettingsPage from '../pages/dashboard/settings';
 

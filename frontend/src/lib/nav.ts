@@ -51,8 +51,7 @@ import { ECOSYSTEM_CONSOLE_PERMISSIONS } from './ecosystem-access';
 //
 // Both the Sidebar and the Command Palette (⌘K) consume this. Keeping one
 // definition means a new page added here automatically appears in BOTH places
-// with the same role/feature gating — previously the palette had its own
-// hand-maintained copy that silently drifted (missing ~half the app).
+// with the same role/feature gating, with no second copy to drift.
 // ---------------------------------------------------------------------------
 
 export interface NavItem {
@@ -77,7 +76,7 @@ export interface NavItem {
   requiredAnyPermission?: readonly string[];
   /**
    * Show ONLY while the active org is the system org — HIDDEN elsewhere, never
-   * locked. This is a governance boundary (plan §3.0: only the system org
+   * locked. This is a governance boundary (only the system org
    * manages the plugin ecosystem), not a plan upsell: no tenant can ever earn
    * access, so there is nothing to discover and a locked row would only
    * advertise an internal surface. It also hides the row from a superadmin who
@@ -300,9 +299,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // Sysadmin roster of which orgs have SSO/IdP configured.
       { title: 'IdP / SSO', href: '/dashboard/admin/idp', icon: Fingerprint, systemAdminOnly: true },
       // "Settings", not "Platform Settings" — this item lives under the
-      // `Platform` section, so the prefix rendered as "Platform / Platform
-      // Settings". The route was renamed to match (forward-only, no redirect
-      // from the old /dashboard/admin/platform-settings path).
+      // `Platform` section, which already prefixes it.
       { title: 'Settings', href: '/dashboard/admin/settings', icon: SlidersHorizontal, systemAdminOnly: true },
       // Plugin-ecosystem governance console (moderation, publisher verification,
       // Ecosystem Manager roster). System org only, and only for Ecosystem
@@ -327,15 +324,8 @@ export const NAV_SECTIONS: NavSection[] = [
       // credentials moved out to their own entry below.
       { title: 'Profile & organization', href: '/dashboard/settings', icon: Settings },
       // ONE home for sign-in factors, sessions, access keys and the org's
-      // service accounts. `extraActivePaths` keeps it highlighted on the old
-      // service-accounts address while it forwards (the old /dashboard/tokens
-      // address is a server redirect in next.config.js and never renders).
-      {
-        title: 'Security',
-        href: '/dashboard/security',
-        icon: ShieldCheck,
-        extraActivePaths: ['/dashboard/settings/service-accounts'],
-      },
+      // service accounts.
+      { title: 'Security', href: '/dashboard/security', icon: ShieldCheck },
       // Org owner/admin SSO self-service. Gated by the dedicated `org:idp`
       // permission (split out of `org:settings`) AND the `sso` tier entitlement;
       // the page + backend re-enforce both.

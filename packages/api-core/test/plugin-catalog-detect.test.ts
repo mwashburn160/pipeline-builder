@@ -4,7 +4,7 @@
 /**
  * Tests for validation/plugin-catalog-detect — catalog metadata DETECTED from the
  * package (spec → README → the plugin's own Dockerfile labels), then ACCEPTED
- * OR EDITED (plugin-ecosystem §3.1a, D19, G53–G56).
+ * OR EDITED.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -196,7 +196,7 @@ describe('parseCatalogEdits / parseCatalogEditsPart', () => {
       .toEqual({ ok: true, value: { icon: { key: 'trivy' }, summary: 'One.', homepageUrl: null } });
   });
 
-  it('refuses execution-contract keys by name (G56)', () => {
+  it('refuses execution-contract keys by name', () => {
     const r = parseCatalogEdits({ commands: ['x'], env: {}, summary: 'ok' });
     expect(r).toMatchObject({ ok: false, contractKeys: ['commands', 'env'] });
     expect(!r.ok && r.error).toMatch(/commands, env/);

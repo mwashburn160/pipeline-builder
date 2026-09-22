@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  ErrorCode, audited, getParam, isSystemAdmin, parsePage, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess, actorId, userHasPermission,
+  envInt, ErrorCode, audited, getParam, isSystemAdmin, parsePage, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess, actorId, userHasPermission,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -11,14 +12,12 @@ import { Router, type Request } from 'express';
 
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { findFailedJob, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
-import { intFromEnv } from '../queue/env-int.js';
 import { purgeDlq } from '../queue/plugin-build-dlq.js';
 import { replayDlqJob, retryFailedJob, type Retrier } from '../queue/requeue.js';
-import { emitPluginAudit } from '../services/audit.js';
 import { callerFromRequest } from '../services/ecosystem/context.js';
 
 /**
- * The caller re-running a build (E20): the re-run gets THEIR authority, and
+ * The caller re-running a build: the re-run gets THEIR authority, and
  * `plugins:publish` is re-checked here, not inherited from the upload.
  */
 function retrierFrom(req: Request, userId: string): Retrier {
@@ -61,7 +60,7 @@ interface TriageCacheEntry {
  * polls into one scan without letting the summary go meaningfully stale. Mirrors
  * the read-quotas at-risk cache pattern.
  */
-const TRIAGE_CACHE_TTL_MS = intFromEnv('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000);
+const TRIAGE_CACHE_TTL_MS = envInt('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000, { min: 1 });
 
 /**
  * Hard cap on distinct triage cache keys. Unlike the sysadmin-only read-quotas
@@ -71,7 +70,7 @@ const TRIAGE_CACHE_TTL_MS = intFromEnv('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000);
  * stale entry forever. Sweep expired entries on write and, if still over the
  * cap, evict the oldest (Map preserves insertion order) to bound memory.
  */
-const TRIAGE_CACHE_MAX_ENTRIES = intFromEnv('PLUGIN_TRIAGE_CACHE_MAX_ENTRIES', 500);
+const TRIAGE_CACHE_MAX_ENTRIES = envInt('PLUGIN_TRIAGE_CACHE_MAX_ENTRIES', 500, { min: 1 });
 
 /** Drop expired entries, then evict oldest keys until at/under the cap. */
 function pruneTriageCache(cache: Map<string, TriageCacheEntry>, now: number): void {
@@ -90,7 +89,7 @@ function pruneTriageCache(cache: Map<string, TriageCacheEntry>, now: number): vo
  * `offset + limit` entries from every source queue (BullMQ ranges start at the
  * head of a set), so an unbounded offset would be an unbounded Redis range read.
  */
-const QUEUE_MAX_PAGE_DEPTH = intFromEnv('PLUGIN_QUEUE_MAX_PAGE_DEPTH', 5000);
+const QUEUE_MAX_PAGE_DEPTH = envInt('PLUGIN_QUEUE_MAX_PAGE_DEPTH', 5000, { min: 1 });
 
 /** Max rows per page on GET /failed and GET /dlq (parity with read routes). */
 const QUEUE_MAX_PAGE_LIMIT = 200;
@@ -126,15 +125,13 @@ function pageOf<T extends Job>(
   return { page, pagination: { ...(total !== undefined ? { total } : {}), limit, offset, hasMore } };
 }
 
-/** Resolve a build job's owning org: the top-level `orgId`, falling back to the
- *  embedded `pluginRecord.orgId` for older jobs that predate the top-level field. */
-const jobOrgId = (data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined): string | undefined =>
-  data?.orgId ?? data?.pluginRecord?.orgId;
+/** A build job's owning org. */
+const jobOrgId = (data: { orgId?: string } | undefined): string | undefined => data?.orgId;
 
 /** True when a job belongs to `orgId` (case-insensitive). Used for the
  *  non-system-admin tenant-isolation filter across the failed/DLQ endpoints. */
 const jobBelongsToOrg = (
-  data: { orgId?: string; pluginRecord?: { orgId?: string } } | undefined,
+  data: { orgId?: string } | undefined,
   orgId: string,
 ): boolean => {
   const oid = jobOrgId(data);
@@ -269,7 +266,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // plugin persist) on the caller's authority, so it is a real mutation.
     // Emitted only after the re-enqueue landed. `affectedOrgId` records the
     // job's owning org, which differs from `orgId` for a sysadmin retry.
-    emitPluginAudit({
+    recordAudit({
       action: 'plugin.build.retry',
       actorId: actorId({ userId }),
       orgId,
@@ -335,7 +332,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // Best-effort attributed audit — the purge discards ALL dead-lettered build
     // jobs cross-org, so this is a sysadmin-only destructive op. `details`
     // carries only the count (no per-job / cross-org identifiers).
-    emitPluginAudit({
+    recordAudit({
       action: 'plugin.dlq.purge',
       actorId: actorId({ userId }),
       details: { purgedCount },
@@ -345,7 +342,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   }));
 
   /**
-   * POST /dlq/:jobId/replay  re-enqueue a single DLQ job onto the main build queue.
+   * POST /dlq/:jobId/replay re-enqueue a single DLQ job onto the main build queue.
    *
    * Access: gated by `requirePermission('plugins:write')` (route middleware).
    * - System admins: can replay any job.
@@ -375,7 +372,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // Best-effort attributed audit — same rationale as the failed-build retry
     // above: a replay re-runs a build on the caller's authority. Emitted only
     // after the re-enqueue landed.
-    emitPluginAudit({
+    recordAudit({
       action: 'plugin.dlq.replay',
       actorId: actorId({ userId }),
       orgId,
@@ -393,7 +390,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   }));
 
   /**
-   * GET /triage  failed-build summary grouped by failure category, with
+   * GET /triage failed-build summary grouped by failure category, with
    * a few representative examples per group. Powers the triage dashboard.
    *
    * Access: gated by `requirePermission('plugins:write')` (route middleware) —

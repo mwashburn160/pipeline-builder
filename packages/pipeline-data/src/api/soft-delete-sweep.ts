@@ -19,7 +19,7 @@
  * per-org operation.
  */
 
-import { createLogger, createScheduler, createEnvRedisLock, closeLeaderLock, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, envBool, envInt, type Scheduler } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '../database/tenancy.js';
 
 const logger = createLogger('soft-delete-sweep');
@@ -43,7 +43,7 @@ export interface SoftDeletePurgeOptions {
 /** Kill-switch: `SOFT_DELETE_PURGE_ENABLED=false` disables all hard-purging
  *  (tombstones still accumulate + stay restorable; nothing is destroyed). */
 export function isSoftDeletePurgeEnabled(): boolean {
-  return (process.env.SOFT_DELETE_PURGE_ENABLED ?? 'true').toLowerCase() !== 'false';
+  return envBool('SOFT_DELETE_PURGE_ENABLED', true);
 }
 
 /**
@@ -128,33 +128,21 @@ export function createSoftDeletePurgeScheduler(opts: SoftDeletePurgeSchedulerOpt
     return null;
   }
 
-  const intervalMs = Math.max(1, Number.parseInt(process.env.SOFT_DELETE_PURGE_INTERVAL_HOURS ?? '6', 10) || 6) * 60 * 60 * 1000;
-  const startupDelayMs = Math.max(0, Number.parseInt(process.env.SOFT_DELETE_PURGE_STARTUP_DELAY_MS ?? '120000', 10) || 0);
-  const lockTtlMs = Math.max(1000, Number.parseInt(process.env.SOFT_DELETE_PURGE_LOCK_TTL_MS ?? '900000', 10) || 900000);
-  const lock = createEnvRedisLock();
+  const intervalMs = envInt('SOFT_DELETE_PURGE_INTERVAL_HOURS', 6, { min: 1 }) * 60 * 60 * 1000;
+  const startupDelayMs = envInt('SOFT_DELETE_PURGE_STARTUP_DELAY_MS', 120_000, { min: 0 });
+  const lockTtlMs = envInt('SOFT_DELETE_PURGE_LOCK_TTL_MS', 900_000, { min: 1000 });
 
   logger.info('Soft-delete purge scheduler starting', {
     service: opts.service,
     entities: opts.entities.map((e) => e.name),
     intervalHours: intervalMs / 3_600_000,
-    locked: !!lock,
   });
 
-  const scheduler = createScheduler({
+  return createScheduler({
     name: `soft-delete-purge:${opts.service}`,
     intervalMs,
     startupDelayMs,
     run: async () => { await runSoftDeletePurge(opts.entities, opts); },
-    ...(lock ? { lock: { redis: () => lock, key: `soft-delete-purge:${opts.service}:leader`, ttlMs: lockTtlMs } } : {}),
+    lock: { key: `soft-delete-purge:${opts.service}:leader`, ttlMs: lockTtlMs },
   });
-  if (!lock) return scheduler;
-
-  // Own the leader-lock Redis client's lifecycle: `stop()` (wired to the
-  // service's runServer onShutdown) also closes the connection so it can't keep
-  // the process from exiting cleanly. Per-cycle lock acquire/release is handled
-  // by withLeaderLock; this is just connection teardown.
-  return {
-    start: () => scheduler.start(),
-    stop: () => { scheduler.stop(); void closeLeaderLock(lock); },
-  };
 }

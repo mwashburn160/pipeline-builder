@@ -2,36 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin category vocabulary.
+ * Plugin category vocabulary and its display maps.
  *
- * Lives here, NOT in `@/lib/help`, because it is needed by `usePlugins` — which
- * `useAuth` pulls into the provider tree on every route. Importing it from the
- * help barrel dragged all thirteen generated help topics (~588 KB of source,
- * `env-variables` and `deployment` alone over 2,000 lines each) into the shared
- * bundle, including the signed-out landing page, to read a ten-element array.
+ * Deliberately NOT part of `@/lib/help`: importing the help barrel pulls every
+ * generated help topic (hundreds of KB of source) into whatever bundle reads a
+ * ten-element array, including the signed-out public directory.
  *
- * The IDs are the canonical lowercase categories shared with `plugin-spec.yaml`
- * and `report-schema.json`.
+ * The IDs come from api-core (shared with `plugin-spec.yaml` and
+ * `report-schema.json`); the display maps below are frontend-only.
  */
 
-/** Canonical lowercase category IDs matching plugin-spec.yaml and report-schema.json. */
-export const PLUGIN_CATEGORIES = [
-  'language',
-  'security',
-  'quality',
-  'monitoring',
-  'artifact',
-  'deploy',
-  'infrastructure',
-  'testing',
-  'notification',
-  'ai',
-] as const;
+import { PLUGIN_CATEGORIES, type PluginCatalogCategory } from '@pipeline-builder/api-core/plugin-catalog';
 
-export type PluginCategory = typeof PLUGIN_CATEGORIES[number];
+/** Canonical lowercase category IDs (api-core's plugin-catalog vocabulary). */
+export { PLUGIN_CATEGORIES, type PluginCatalogCategory };
 
 /** Display labels for categories in the UI. */
-export const CATEGORY_DISPLAY_NAMES: Record<PluginCategory, string> = {
+export const CATEGORY_DISPLAY_NAMES: Record<PluginCatalogCategory, string> = {
   language: 'Language',
   security: 'Security',
   quality: 'Quality',
@@ -45,7 +32,7 @@ export const CATEGORY_DISPLAY_NAMES: Record<PluginCategory, string> = {
 };
 
 /** Narrow an untrusted string (a URL segment, an API field) to a category id. */
-export function isPluginCategory(value: unknown): value is PluginCategory {
+export function isPluginCategory(value: unknown): value is PluginCatalogCategory {
   return typeof value === 'string' && (PLUGIN_CATEGORIES as readonly string[]).includes(value);
 }
 
@@ -54,7 +41,7 @@ export function isPluginCategory(value: unknown): value is PluginCategory {
  * directory's category grid and landing pages and in the Plugins help topic.
  * Deliberately free of counts: those come live from the directory's facets.
  */
-export const CATEGORY_DESCRIPTIONS: Record<PluginCategory, string> = {
+export const CATEGORY_DESCRIPTIONS: Record<PluginCatalogCategory, string> = {
   language: 'Build and test toolchains for Node, Python, Java, Go, Rust, .NET, Ruby, PHP and C/C++, pinned on shared base images.',
   security: 'Find problems before they ship: SAST, dependency (SCA) and secret scanning, container and IaC checks.',
   quality: 'Linters, formatters, type checks and coverage gates that keep a codebase consistent.',
@@ -68,7 +55,7 @@ export const CATEGORY_DESCRIPTIONS: Record<PluginCategory, string> = {
 };
 
 /** Where a category's plugins fit in a pipeline ("where it fits" on category pages). */
-export const CATEGORY_STAGES: Record<PluginCategory, string> = {
+export const CATEGORY_STAGES: Record<PluginCatalogCategory, string> = {
   language: 'Build',
   security: 'Build · Test',
   quality: 'Build · Test',

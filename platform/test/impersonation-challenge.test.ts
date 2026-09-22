@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { selectLean } from './helpers/query-chain.js';
 
 const mockSendConfirmed = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockUOFind = jest.fn<(...a: unknown[]) => unknown>();
@@ -27,7 +28,6 @@ const { resolveChallengeRoute, sendImpersonationChallenge } = await import('../s
 const { CHALLENGE_SELF_APPROVAL_FORBIDDEN } = await import('../src/services/impersonation-errors.js');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const selectLean = (doc: unknown) => ({ select: () => ({ lean: () => Promise.resolve(doc) }) });
 const base = { orgId: 'org-a', targetUserId: 'target', requesterId: 'sysadmin', reason: 'ticket #42' };
 
 beforeEach(() => {

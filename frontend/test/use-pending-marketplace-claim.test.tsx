@@ -19,10 +19,10 @@ jest.mock('@/lib/api', () => ({
 
 const success = jest.fn<AnyFn>();
 const error = jest.fn<AnyFn>();
-jest.mock('@/components/ui/Toast', () => ({ useToast: () => ({ success, error }) }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success, error })));
 
 let authState = { isAuthenticated: true, isInitialized: true };
-jest.mock('@/hooks/useAuth', () => ({ useAuth: () => authState }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => authState));
 
 beforeEach(() => {
   jest.clearAllMocks();

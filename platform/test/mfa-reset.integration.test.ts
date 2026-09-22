@@ -49,7 +49,12 @@ suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
     signing = await import('../src/services/token-signing/index.js');
     const { generateSigningKey } = await import('./helpers/signing.js');
     signing._setTokenSigningKeysForTests({ current: generateSigningKey(), retiring: [] });
-    token = await import('../src/utils/token.js');
+    token = {
+      ...(await import('../src/services/session/membership-context.js')),
+      ...(await import('../src/services/session/access-tokens.js')),
+      ...(await import('../src/services/session/refresh-sessions.js')),
+      ...(await import('../src/utils/token.js')),
+    };
     recovery = await import('../src/services/mfa-recovery.js');
     codes = await import('../src/services/recovery-codes-service.js');
     claims = await import('../src/services/admin-mfa-claims.js');
@@ -72,7 +77,7 @@ suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
   }
 
   const decode = (jwt: string) => JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
-  const load = (id: string) => m.User.findById(id).select('+tokenVersion +isSuperAdmin +refreshSessions');
+  const load = (id: string) => m.User.findById(id).select('+tokenVersion +claimsVersion +isSuperAdmin +refreshSessions');
 
   beforeEach(async () => {
     for (const model of [m.User, m.Organization, m.UserOrganization, m.WebAuthnCredential, m.UserTotp,
@@ -234,15 +239,15 @@ suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
 
     it('a policy change bumps every member of the org and its teams — except the actor', async () => {
       const before = {
-        admin1: (await load(admin1)).tokenVersion,
-        admin2: (await load(admin2)).tokenVersion,
-        member: (await load(member)).tokenVersion,
+        admin1: (await load(admin1)).claimsVersion,
+        admin2: (await load(admin2)).claimsVersion,
+        member: (await load(member)).claimsVersion,
       };
       const bumped = await claims.refreshAdminPolicyClaims(rootId, admin1);
       expect(bumped).toBe(2);
-      expect((await load(admin1)).tokenVersion).toBe(before.admin1);
-      expect((await load(admin2)).tokenVersion).toBe(before.admin2 + 1);
-      expect((await load(member)).tokenVersion).toBe(before.member + 1);
+      expect((await load(admin1)).claimsVersion).toBe(before.admin1);
+      expect((await load(admin2)).claimsVersion).toBe(before.admin2 + 1);
+      expect((await load(member)).claimsVersion).toBe(before.member + 1);
     });
   });
 });

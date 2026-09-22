@@ -11,10 +11,9 @@ import type { AddressInfo } from 'net';
 import { jest, describe, it, expect, afterAll, beforeAll } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import express from 'express';
+import { mockConfig } from './helpers/config-mock.js';
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { auth: { loginThrottle: { perAccountMax: 3, perAccountWindowMs: 60_000 } } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { loginThrottle: { perAccountMax: 3, perAccountWindowMs: 60_000 } } }));
 // No Redis in the suite: express-rate-limit falls back to its in-memory store.
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { createSharedRateLimitStore: () => undefined }));
 

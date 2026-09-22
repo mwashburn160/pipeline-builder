@@ -43,7 +43,12 @@ suite('org password + authenticator policy (real Mongo)', () => {
     process.env.MONGODB_URI = mongod.getUri();
     await mongoose.connect(process.env.MONGODB_URI);
     m = await import('../src/models/index.js');
-    token = await import('../src/utils/token.js');
+    token = {
+      ...(await import('../src/services/session/membership-context.js')),
+      ...(await import('../src/services/session/access-tokens.js')),
+      ...(await import('../src/services/session/refresh-sessions.js')),
+      ...(await import('../src/utils/token.js')),
+    };
     ({ userProfileService } = await import('../src/services/user-profile-service.js'));
     ({ userAdminService } = await import('../src/services/user-admin-service.js'));
     (await import('./helpers/signing.js')).installTestSigningKeys();

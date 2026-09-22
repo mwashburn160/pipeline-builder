@@ -144,3 +144,33 @@ describe('whenRedisReady', () => {
     await expect(whenRedisReady(client, 10)).rejects.toThrow(/not ready/);
   });
 });
+
+describe('createEnvRedisClient readiness gate', () => {
+  const saved = process.env.REDIS_URL;
+  // Nothing listens on port 1: the client never becomes ready.
+  const withUrl = async (fn: () => Promise<void>) => {
+    process.env.REDIS_URL = 'redis://127.0.0.1:1';
+    try { await fn(); } finally { if (saved === undefined) delete process.env.REDIS_URL; else process.env.REDIS_URL = saved; }
+  };
+  type Client = { get(k: string): Promise<unknown>; disconnect(): void; status?: string };
+
+  it('defers a command until the connection is ready (bounded), instead of rejecting at once', async () => {
+    await withUrl(async () => {
+      const gated = createEnvRedisClient<Client>('gate-test', { readyTimeoutMs: 150 })!;
+      const t0 = Date.now();
+      await expect(gated.get('k')).rejects.toBeDefined();
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(100);
+      gated.disconnect();
+    });
+  });
+
+  it('can be turned off', async () => {
+    await withUrl(async () => {
+      const raw = createEnvRedisClient<Client>('gate-test', { readyGate: false })!;
+      const t0 = Date.now();
+      await expect(raw.get('k')).rejects.toBeDefined();
+      expect(Date.now() - t0).toBeLessThan(100);
+      raw.disconnect();
+    });
+  });
+});

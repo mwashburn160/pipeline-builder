@@ -19,6 +19,7 @@
 import { createLogger, parsePage } from '@pipeline-builder/api-core';
 import { IMP_NOT_APPROVED, IMP_EXPIRED, IMP_NOT_FOUND, IMP_ALREADY_DECIDED, IMP_NOT_LIVE } from './impersonation-errors.js';
 import { IMPERSONATION_REQUEST_TTL_MS, IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
+import { toOrgId } from '../helpers/org-id.js';
 import {
   ImpersonationRequest,
   User,
@@ -166,7 +167,7 @@ class ImpersonationService {
     const doc = await ImpersonationRequest.create({
       requesterId: input.requesterId,
       targetUserId: input.targetUserId,
-      orgId: input.orgId,
+      ...(input.orgId ? { organizationId: toOrgId(input.orgId) } : {}),
       reason: input.reason?.slice(0, IMPERSONATION_REASON_MAX),
       status: approved ? 'approved' : 'pending',
       approvalReason: approved ? approvalReason : undefined,
@@ -307,7 +308,7 @@ class ImpersonationService {
     const request = await ImpersonationRequest.create({
       requesterId: input.requesterId,
       targetUserId: input.targetUserId,
-      orgId: input.orgId,
+      ...(input.orgId ? { organizationId: toOrgId(input.orgId) } : {}),
       reason: input.justification.slice(0, IMPERSONATION_REASON_MAX),
       breakglass: true,
       status: fourEyes ? 'pending' : 'approved',
@@ -356,7 +357,7 @@ class ImpersonationService {
   async listForCaller(
     caller: { userId: string; isSysadmin: boolean; adminOrgIds: string[] },
     view: 'to-decide' | 'mine' | 'sessions',
-    page: { limit?: number; offset?: number } = {},
+    page: { limit?: unknown; offset?: unknown } = {},
   ): Promise<{ requests: ImpersonationRequestSummary[]; total: number; limit: number; offset: number }> {
     const now = new Date();
     let filter: Record<string, unknown>;
@@ -366,7 +367,7 @@ class ImpersonationService {
         { breakglass: { $ne: true }, approverUserId: caller.userId },
       ];
       if (caller.adminOrgIds.length > 0) {
-        who.push({ breakglass: { $ne: true }, orgId: { $in: caller.adminOrgIds } });
+        who.push({ breakglass: { $ne: true }, organizationId: { $in: caller.adminOrgIds } });
       }
       if (caller.isSysadmin) who.push({ breakglass: true });
       filter = {
@@ -386,7 +387,7 @@ class ImpersonationService {
         { targetUserId: caller.userId },
         { requesterId: caller.userId },
       ];
-      if (caller.adminOrgIds.length > 0) who.push({ orgId: { $in: caller.adminOrgIds } });
+      if (caller.adminOrgIds.length > 0) who.push({ organizationId: { $in: caller.adminOrgIds } });
       filter = {
         status: 'consumed',
         consumedAt: { $gte: liveSince },
@@ -394,7 +395,7 @@ class ImpersonationService {
       };
     }
 
-    const { limit, offset } = parsePage(page as Record<string, unknown>, {
+    const { limit, offset } = parsePage(page, {
       def: LIST_DEFAULT_LIMIT,
       max: LIST_MAX_LIMIT,
     });
@@ -428,7 +429,7 @@ class ImpersonationService {
       breakglass: d.breakglass === true,
       approvalReason: d.approvalReason,
       approverMode: d.approverMode,
-      orgId: d.orgId,
+      orgId: d.organizationId ? String(d.organizationId) : undefined,
       reason: d.reason,
       requester: { id: String(d.requesterId), name: nameOf.get(String(d.requesterId)) ?? 'unknown' },
       target: { id: String(d.targetUserId), name: nameOf.get(String(d.targetUserId)) ?? 'unknown' },

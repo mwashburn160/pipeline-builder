@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Help search behaviour. The page previously filtered topics with a single
- * substring test over the whole topic, which said "2 of 18 topics" and left the
- * reader to hunt for the hit inside a 2,000-line accordion. These tests pin the
+ * Help search behaviour. A single substring test over the whole topic would
+ * say "2 of 18 topics" and leave the reader to hunt for the hit inside a
+ * 2,000-line accordion. These tests pin the
  * properties that make a result actionable: section-level hits, a snippet, and
  * a ranking that puts a title match above a body match.
  */

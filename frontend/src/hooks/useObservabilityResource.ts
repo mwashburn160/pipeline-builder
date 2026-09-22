@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useReportPanelHealth } from './useObservabilityHealth';
+import { usePolling } from './usePolling';
 
 /** Default panel refresh cadence — Prometheus scrape intervals are 15-30s
  *  so any tighter than this would mostly return identical samples. */
@@ -15,7 +16,8 @@ interface State<T> {
 }
 
 /**
- * Shared polling/abort/visibility plumbing for observability hooks.
+ * Shared polling/abort plumbing for observability hooks (the timer and the
+ * visibility handling are {@link usePolling}'s).
  *
  * The fetcher receives an AbortSignal and returns the unwrapped data envelope.
  * `cacheKey` is the stringified dependency that determines when to re-bind the
@@ -58,24 +60,21 @@ export function useObservabilityResource<T>(
     }
   }, [cacheKey]);
 
+  // A new key (range / vars): start over — empty state, an immediate read, and
+  // on the way out cancel the old key's request and drop its health entry so a
+  // removed/re-keyed panel can't keep the page-level "degraded" banner up.
   useEffect(() => {
     setState({ data: null, loading: true, error: null });
     void fetchOnce();
-    const timer = setInterval(() => void fetchOnce(), intervalMs);
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void fetchOnce();
-    };
-    document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', onVisibility);
       abortRef.current?.abort();
-      // Drop this panel's health entry so a removed/re-keyed panel can't keep the
-      // page-level "degraded" banner up after it's gone.
       reportRef.current(cacheKey, false);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cacheKey captures the relevant deps; fetchOnce is stable
-  }, [cacheKey, intervalMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- cacheKey captures the relevant deps; fetchOnce follows it
+  }, [cacheKey]);
+
+  // Refresh on the interval, and as soon as a hidden tab becomes visible again.
+  usePolling(fetchOnce, intervalMs, { immediate: false });
 
   return { ...state, refresh: fetchOnce };
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, AlertOctagon, Info, X } from 'lucide-react';
 import api from '@/lib/api';
@@ -10,6 +10,7 @@ import { usePolling } from '@/hooks/usePolling';
 import { useNotificationPrefs } from '@/lib/notification-prefs';
 import { highestPressure, type QuotaPressure, type QuotaPressureLevel } from '@/lib/quota-pressure';
 import type { OrgQuotaResponse } from '@/types';
+import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 
 const REFRESH_MS = 60_000; // 60s freshness window
 const DISMISS_KEY = 'quotaBannerDismissed';
@@ -27,19 +28,19 @@ interface BannerStyle {
 
 const STYLES: Record<Exclude<QuotaPressureLevel, 'none'>, BannerStyle> = {
   info: {
-    container: 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-300 dark:border-yellow-800 text-yellow-800 dark:text-yellow-200',
+    container: 'bg-warning-bg border-warning-border text-warning-strong',
     Icon: Info,
     cta: 'View quotas',
     href: '/dashboard/quotas',
   },
   warning: {
-    container: 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-800 text-orange-800 dark:text-orange-200',
+    container: 'bg-warning-bg border-warning-border text-warning-strong',
     Icon: AlertTriangle,
     cta: 'Upgrade tier',
     href: '/dashboard/billing',
   },
   critical: {
-    container: 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800 text-red-800 dark:text-red-200',
+    container: 'bg-danger-bg border-danger-border text-danger-strong',
     Icon: AlertOctagon,
     cta: 'Upgrade tier',
     href: '/dashboard/billing',
@@ -68,17 +69,12 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
   const [quota, setQuota] = useState<OrgQuotaResponse | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
-  // Ignore a response that lands after unmount.
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const unmountedRef = useUnmountedRef();
 
   const refresh = useCallback(async () => {
     try {
       const result = await api.getOwnQuotas();
-      if (!mountedRef.current) return;
+      if (unmountedRef.current) return;
       const q = result.data?.quota ?? null;
       setQuota(q);
       if (q) {
@@ -87,7 +83,7 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
     } catch {
       // Quota service unavailable — render nothing.
     }
-  }, []);
+  }, [unmountedRef]);
   // Background tabs skip the poll (the data would be stale anyway) and catch up
   // as soon as the tab is visible again.
   usePolling(refresh, REFRESH_MS, { pauseWhenHidden: true });

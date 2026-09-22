@@ -21,10 +21,7 @@ const toast = pageToast;
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ query: {}, pathname: '/dashboard/x', replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ query: {}, pathname: '/dashboard/x', replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() })));
 
 jest.mock('next/link', () => ({
   __esModule: true,

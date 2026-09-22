@@ -28,19 +28,18 @@
  */
 
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
-import { z } from 'zod';
 import { audit } from '../helpers/audit.js';
 import { closeBootstrapExceptionOnEnrolment } from '../helpers/bootstrap-admin.js';
-import { clientInfoOf } from '../helpers/client-info.js';
 import { withController, type ErrorMap } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
-import { deliverSessionTokens } from '../helpers/session-cookie.js';
+import { completeInteractiveSignIn } from '../helpers/sign-in.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
 import { claimMfaChallenge, restoreMfaChallenge } from '../services/mfa-challenge.js';
 import { clearMfaNudgeOnEnrolment, clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
 import { verifyRecoveryCode } from '../services/recovery-codes-service.js';
+import { issueStepUpToken, signInAuth } from '../services/session/access-tokens.js';
 import {
   TOTP_ALREADY_ENROLLED,
   TOTP_INVALID_CHALLENGE,
@@ -51,8 +50,7 @@ import {
   TOTP_SSO_ENFORCED,
 } from '../services/totp-errors.js';
 import * as totp from '../services/totp-service.js';
-import { issueStepUpToken, issueTokens, signInAuth } from '../utils/token.js';
-import { validateBody } from '../utils/validation.js';
+import { mfaVerifySchema, totpCodeSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('totp');
 
@@ -72,15 +70,6 @@ export const TOTP_ERROR_MAP: ErrorMap = {
   [TOTP_INVALID_CHALLENGE]: { status: 401, message: 'This sign-in expired. Please enter your password again.' },
 };
 
-/**
- * A code, generated or recovery, as typed. Loose on purpose — the service is
- * what decides whether six digits or a `XXXXX-XXXXX` recovery code verifies, and
- * a stricter schema here would leak WHICH kind was expected through the
- * validation error.
- */
-const codeSchema = z.object({ code: z.string().trim().min(6).max(32) });
-
-const mfaVerifySchema = codeSchema.extend({ challengeId: z.string().min(1).max(256) });
 
 /** Every verification outcome, by where it happened and how it ended — so a
  *  spike in refusals is visible without reading the audit log. */
@@ -130,7 +119,7 @@ export const enrolTotp = withController('TOTP enrol', async (req, res) => {
  */
 export const activateTotp = withController('TOTP activate', async (req, res) => {
   const userId = req.user!.sub;
-  const body = validateBody(codeSchema, req.body, res);
+  const body = validateBody(totpCodeSchema, req.body, res);
   if (!body) return;
 
   let result;
@@ -156,7 +145,7 @@ export const activateTotp = withController('TOTP activate', async (req, res) => 
   // ...and so does any "not now" / "don't ask again" they gave the
   // password-only prompt: it was a decision about an account with no factor.
   await clearMfaNudgeOnEnrolment(userId);
-  // A factor now exists, so the bootstrap-admin MFA exception (#8) closes — for
+  // A factor now exists, so the bootstrap-admin MFA exception closes — for
   // good, even if this authenticator is later removed. Awaited, not
   // fire-and-forget: the very next request may be the one that must no longer be
   // limited, and the write is a single conditional update.
@@ -181,7 +170,7 @@ export const disableTotp = withController('TOTP disable', async (req, res) => {
 /** POST /auth/step-up/totp — earn the standard step-up token with a code. */
 export const stepUpVerifyTotp = withController('TOTP step-up verify', async (req, res) => {
   const userId = req.user!.sub;
-  const body = validateBody(codeSchema, req.body, res);
+  const body = validateBody(totpCodeSchema, req.body, res);
   if (!body) return;
 
   let verification;
@@ -335,27 +324,16 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
 
   // Identical to the password path, with `mfa` added to `amr` — and `aal: 2`,
   // since a password plus an authenticator code (or a recovery code, which is
-  // the same factor's fallback) is exactly what MFA-grade means (#8).
-  const tokens = await issueTokens(user, pending.orgId ?? user.lastActiveOrgId?.toString(), {
-    kind: 'interactive',
-    // The first factor the challenge was opened after (a password, or a social
-    // provider) — plus `mfa`.
-    auth: signInAuth(pending.firstFactor ?? 'pwd', { mfa: true }),
-    client: clientInfoOf(req),
+  // the same factor's fallback) is exactly what MFA-grade means.
+  const firstFactor = pending.firstFactor ?? 'pwd';
+  await completeInteractiveSignIn(req, res, user, {
+    orgId: pending.orgId ?? user.lastActiveOrgId?.toString(),
+    auth: signInAuth(firstFactor, { mfa: true }),
+    auditDetails: { method: `${firstFactor}+${pending.recoveryOnly ? 'recovery' : 'totp'}`, via: verification.method },
+    ...(verification.method === 'recovery' && { extra: { recoveryCodesRemaining: verification.recoveryCodesRemaining } }),
   });
-
-  audit(req, 'user.login', {
-    targetType: 'user',
-    targetId: pending.userId,
-    details: { method: `${pending.firstFactor ?? 'pwd'}+${pending.recoveryOnly ? 'recovery' : 'totp'}`, via: verification.method },
-  });
-  incCounter('platform_logins_total');
   meter('login', verification.method === 'recovery' ? 'recovery' : 'success');
   logger.info('MFA sign-in completed', { userId: pending.userId, via: verification.method });
-  sendSuccess(res, 200, {
-    ...deliverSessionTokens(req, res, tokens),
-    ...(verification.method === 'recovery' && { recoveryCodesRemaining: verification.recoveryCodesRemaining }),
-  });
 }, { ...TOTP_ERROR_MAP, ...MFA_POLICY_ERROR_MAP });
 
 /** A recovery code was spent. Its own action, because burning one is a signal an

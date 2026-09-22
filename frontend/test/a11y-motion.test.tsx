@@ -4,9 +4,9 @@
 /**
  * Screen-reader + reduced-motion behaviour.
  *
- * Loading states used to be entirely silent (a bare decorative <svg>), and the
- * app honoured `prefers-reduced-motion` nowhere — framer-motion drawers/toasts
- * and CSS keyframes animated regardless. framer is handled app-wide by
+ * Loading states must not be silent (a bare decorative <svg>), and
+ * `prefers-reduced-motion` must reach framer-motion drawers/toasts and CSS
+ * keyframes alike. framer is handled app-wide by
  * <MotionConfig reducedMotion="user"> and CSS by a media block; scripted
  * smooth-scrolling needs the helper tested here.
  */

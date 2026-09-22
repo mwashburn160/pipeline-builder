@@ -9,6 +9,10 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 // 1000-row fixtures. MUST be set before the module under test is imported
 // (below) — it reads the env at load time.
 process.env.COMPLIANCE_SCAN_ENTITY_PAGE_SIZE = '2';
+// Concurrency that does NOT divide the progress interval, so the progress
+// cadence can't rely on `processed % interval === 0` landing exactly.
+process.env.COMPLIANCE_SCAN_CONCURRENCY = '3';
+process.env.COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE = '4';
 
 // Records every db.update().set(...) payload so tests can assert the terminal
 // status the executor wrote (completed vs failed) — the shared update chain is
@@ -340,6 +344,79 @@ describe('executeScan', () => {
     // Terminal state is 'failed', never a green 'completed'.
     expect(updateSets.some((s) => s.status === 'failed')).toBe(true);
     expect(updateSets.some((s) => s.status === 'completed')).toBe(false);
+  });
+
+  // Seven entities across three pages (page size 2 → 2,2,2,1) evaluated in
+  // batches of 3 → processed 3, 6, 7. With a progress interval of 4 a modulo
+  // cadence never lands on a multiple of 4 until the final batch; the
+  // since-last-write counter writes after 6 and again after the last batch.
+  it('writes progress every PROGRESS_BATCH_SIZE entities even when batches do not divide it', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+      [], // totalEntities (unguarded)
+      [{ id: 'scan-1' }], // progress after 6
+      [{ id: 'scan-1' }], // progress after 7 (last batch)
+      [{ id: 'scan-1' }], // completion
+    ];
+    selectResults = [
+      [{ id: 'p1' }, { id: 'p2' }],
+      [{ id: 'p3' }, { id: 'p4' }],
+      [{ id: 'p5' }, { id: 'p6' }],
+      [{ id: 'p7' }],
+      [], // exemptions
+    ];
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'rule-1' }]);
+    mockEvaluateRules.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesEvaluated: 1 });
+
+    await executeScan('scan-1');
+
+    const progress = updateSets
+      .filter((s) => s.status === undefined && 'processedEntities' in s)
+      .map((s) => s.processedEntities);
+    expect(progress).toEqual([6, 7]);
+    expect(updateSets.find((s) => s.status === 'completed')).toMatchObject({ processedEntities: 7, passCount: 7 });
+  });
+
+  it('detects cancellation from the guarded progress write — no per-batch status read', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+      [], // totalEntities
+      [], // first progress write matches no running row → cancelled
+    ];
+    selectResults = [
+      [{ id: 'p1' }, { id: 'p2' }],
+      [{ id: 'p3' }, { id: 'p4' }],
+      [{ id: 'p5' }, { id: 'p6' }],
+      [{ id: 'p7' }],
+      [], // exemptions
+    ];
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'rule-1' }]);
+    mockEvaluateRules.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesEvaluated: 1 });
+
+    await executeScan('scan-1');
+
+    // Stopped at the first progress write (after 6 entities); the 7th never ran.
+    expect(mockEvaluateRules).toHaveBeenCalledTimes(6);
+    // 4 entity pages + 1 exemption fetch — no status SELECTs between batches.
+    expect(dbSelect).toHaveBeenCalledTimes(5);
+    // Never stamped completed or failed over the cancellation.
+    expect(updateSets.some((s) => s.status === 'completed' || s.status === 'failed')).toBe(false);
+  });
+
+  it('counts an entity whose evaluation throws as blocked', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: 'org-1', target: 'plugin', userId: 'u', triggeredBy: 'rule-dry-run' }],
+      [],
+      [{ id: 'scan-1' }],
+      [{ id: 'scan-1' }],
+    ];
+    selectResults = [[{ id: 'p1' }], []];
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'rule-1' }]);
+    mockEvaluateRules.mockImplementation(() => { throw new Error('bad rule'); });
+
+    await executeScan('scan-1');
+
+    expect(updateSets.find((s) => s.status === 'completed')).toMatchObject({ blockCount: 1, passCount: 0 });
   });
 
   it('handles scans with target="all" by iterating both targets', async () => {

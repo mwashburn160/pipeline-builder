@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The plugin health score (plugin-ecosystem §6 W7): component scoring,
+ * The plugin health score: component scoring,
  * missing-input renormalization, the < 3 components null rule, thresholds, and
  * the publisher roll-ups.
  */

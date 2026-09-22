@@ -6,12 +6,10 @@
  *
  * The twenty-six generated topics are ~1 MB of TypeScript source — `authentication`
  * is 4,050 lines, `env-variables` 2,991, `deployment` 2,240. A static barrel put
- * all of it in whatever chunk touched this module, and for a long time that was
- * every chunk: `usePlugins` imported the barrel for a ten-element category array
- * and `useAuth` imports `usePlugins`, so the whole corpus rode the provider tree
+ * all of it in whatever chunk touched this module — through the provider tree,
  * onto the signed-out landing page.
  *
- * The category vocabulary now lives in `@/lib/plugin-categories`, and the topics
+ * The category vocabulary lives in `@/lib/plugin-categories`, and the topics
  * are reachable only through {@link loadHelpGroups} — a dynamic import webpack
  * splits into its own chunk, fetched when somebody actually opens Help.
  */

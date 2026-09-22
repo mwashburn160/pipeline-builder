@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Shapes of the PUBLIC plugin directory API (`/api/public/plugins*`,
- * docs/plans/plugin-ecosystem.md §6a). Public rows only — never tenant fields.
+ * Shapes of the PUBLIC plugin directory API (`/api/public/plugins*`).
+ * Public rows only — never tenant fields.
  */
 
 export type TrustTier = 'official' | 'verified' | 'community' | 'unverified';
@@ -36,7 +36,7 @@ export interface ListingCard {
   iconBadge: string | null;
   rating: { score: number; count: number } | null;
   installCount: number;
-  /** 0–100 health score (W7); null when fewer than three signals are known. */
+  /** 0–100 health score; null when fewer than three signals are known. */
   healthScore?: number | null;
   updatedAt: string;
   state: ListingState;
@@ -128,7 +128,7 @@ export interface ListingDetail extends ListingCard {
   /** Rating over the last two minor versions; null when too few reviews. */
   recentRating: number | null;
   activeOrgCount: number | null;
-  /** Per-signal scores behind `healthScore` (W7). */
+  /** Per-signal scores behind `healthScore`. */
   healthBreakdown?: HealthBreakdown | null;
   /** 30-day runtime success rate (0..1), null with no runs. */
   successRate30d?: number | null;

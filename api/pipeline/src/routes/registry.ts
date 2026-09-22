@@ -15,11 +15,11 @@ import {
   validateBody,
   audited,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitPipelineAudit } from '../services/audit.js';
 import {
   pipelineRegistryService,
   PR_PIPELINE_NOT_OWNED,
@@ -27,7 +27,7 @@ import {
 } from '../services/pipeline-registry-service.js';
 
 /**
- * One step-manifest entry as the CLI ships it from the synth (W0.1). Only
+ * One step-manifest entry as the CLI ships it from the synth. Only
  * `pluginId` is used to resolve the plugin — name/version/digest are
  * re-read from that row server-side (see replaceStepManifest).
  */
@@ -104,7 +104,7 @@ export function createRegistryRoutes(): Router {
       // Best-effort attributed audit — emitted only after the mapping landed.
       // `targetId` is the stable pipeline id. `details` carries display metadata
       // ONLY — never the CodePipeline ARN, which embeds the AWS account id.
-      emitPipelineAudit({
+      recordAudit({
         action: 'pipeline.registry.register',
         actorId: actorId({ userId }),
         orgId,
@@ -167,7 +167,7 @@ export function createRegistryRoutes(): Router {
     // Best-effort attributed audit — emitted only after the row was removed.
     // `targetId` is the stable pipeline id; `details` carries the registry row
     // handle (UUID) only — never the CodePipeline ARN / AWS account id.
-    emitPipelineAudit({
+    recordAudit({
       action: 'pipeline.registry.deregister',
       actorId: actorId({ userId }),
       orgId,

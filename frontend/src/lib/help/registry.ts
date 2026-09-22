@@ -5,8 +5,8 @@ import { Boxes } from 'lucide-react';
 import type { HelpTopic } from './types';
 
 /**
- * Help docs for the Registry page — the native Docker registry browser
- * that replaces the joxit `registry-express` UI. System-admin only.
+ * Help docs for the Registry page — the native Docker registry browser.
+ * System-admin only.
  */
 export const registryTopic: HelpTopic = {
   id: 'registry',

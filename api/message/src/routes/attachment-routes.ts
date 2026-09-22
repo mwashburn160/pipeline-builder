@@ -16,11 +16,12 @@ import {
   sendEntityNotFound,
   MESSAGE_ATTACHMENT_MAX_BYTES,
   isAllowedAttachmentType,
+  envInt,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import {
   withRoute,
-  incrementQuotaFromCtx,
+  meterQuotaOnSuccess,
   incCounter,
   createProtectedRoute,
   rateLimitByOrg,
@@ -66,18 +67,20 @@ function safeName(name: string): string {
  *  than message-send. Env-overridable; runs BEFORE multer (below). */
 const uploadLimiter = rateLimitByOrg({
   name: 'attachment-upload',
-  max: Math.max(1, Number.parseInt(process.env.MESSAGE_ATTACHMENT_RATE_MAX ?? '30', 10) || 30),
-  windowMs: Math.max(1000, Number.parseInt(process.env.MESSAGE_ATTACHMENT_RATE_WINDOW_MS ?? '60000', 10) || 60000),
+  max: envInt('MESSAGE_ATTACHMENT_RATE_MAX', 30, { min: 1 }),
+  windowMs: envInt('MESSAGE_ATTACHMENT_RATE_WINDOW_MS', 60000, { min: 1000 }),
   message: 'Too many attachment uploads, please slow down.',
 });
 
 export function createAttachmentRoutes(quotaService: QuotaService): Router {
   const router = Router();
+  // apiCalls metering: once per 2xx, never for service principals.
+  const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
 
   // -- Upload -----------------------------------------------------------------
   router.post(
     '/attachments',
-    // Auth + orgId + apiCalls quota (+ tenant scope) BEFORE multer, so an
+    meter, // Auth + orgId + apiCalls quota (+ tenant scope) BEFORE multer, so an
     // unauthenticated or over-quota client can't force multipart buffering of a
     // 10 MiB body. Mirrors the read routes' protection.
     ...createProtectedRoute(quotaService, 'apiCalls'),
@@ -142,7 +145,6 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
       }
 
       incCounter('message_attachments_total', { action: 'uploaded' });
-      incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
       ctx.log('COMPLETED', 'Attachment uploaded', { id: attachment.id, size: file.size });
 
       // Return metadata only — never the storage key (internal) or a blob URL.
@@ -160,7 +162,7 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
   // -- Download ---------------------------------------------------------------
   router.get(
     '/attachments/:id',
-    ...createProtectedRoute(quotaService, 'apiCalls'),
+    meter, ...createProtectedRoute(quotaService, 'apiCalls'),
     requirePermission('messages:read'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const id = getParam(req.params, 'id');
@@ -204,7 +206,6 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
         }
       }
 
-      incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
       res.setHeader('Content-Type', contentType);
       // Content-Length is only known for the original (thumbnail size isn't
       // persisted); omit it for a thumbnail and let the stream close the response.

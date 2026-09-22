@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { Config, type BillingConfig, type BundleConfig, type ComboDiscountConfig } from '@pipeline-builder/pipeline-core';
+import { getBillingConfig } from '../config/billing-config.js';
+import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
 import type { BillingInterval } from '../models/subscription.js';
 
 const logger = createLogger('combo-pricing');
@@ -11,17 +12,9 @@ const logger = createLogger('combo-pricing');
  *  (guards against a pathological config; the real catalog is a handful). */
 const EXACT_PACKING_CAP = 16;
 
-/**
- * The active combo-discount catalog (env-driven, from pipeline-core config).
- * Config-safe: `Config.get('billing')` can throw before Config is initialized
- * (e.g. in unit tests that never bootstrap it), so guard → `[]`.
- */
+/** The active combo-discount catalog (env-driven billing config). */
 export function getComboDiscounts(): readonly ComboDiscountConfig[] {
-  try {
-    return ((Config.get('billing') as BillingConfig | undefined)?.comboDiscounts ?? []).filter((c) => c.isActive);
-  } catch {
-    return [];
-  }
+  return getBillingConfig().comboDiscounts.filter((c) => c.isActive);
 }
 
 /**

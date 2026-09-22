@@ -10,7 +10,7 @@
  * in-app) is org-level configuration and lives on the Alert destinations page,
  * linked below.
  *
- * Plugin-ecosystem EMAIL opt-outs (plan §5b) live in their own card: each one
+ * Plugin-ecosystem EMAIL opt-outs live in their own card: each one
  * stops only the email for that kind of notice. In-app messages are always
  * delivered, and transactional / security notices (advisories, moderation
  * actions, approvals) ignore these — they can't be turned off.

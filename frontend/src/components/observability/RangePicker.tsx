@@ -15,8 +15,7 @@ const PRESETS: ReadonlyArray<{ key: RangeKey; label: string }> = [
 ];
 
 /**
- * Three preset time-range buttons. Custom datetime input is intentionally
- * not in v1 (see plan's Non-goals). The chosen value is meant to be
+ * Three preset time-range buttons; no custom datetime input. The chosen value is meant to be
  * URL-encoded by the page so refresh/back preserves the selection.
  */
 export function RangePicker({ value, onChange }: RangePickerProps) {

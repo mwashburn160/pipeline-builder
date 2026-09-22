@@ -5,14 +5,13 @@
  * Tests for seed-plans helper.
  *
  * Verifies that seedPlans() reconciles the plan catalog in Mongo with the
- * env-driven Config.get('billing').plans on every boot: upserting each
+ * env-driven getBillingConfig().plans on every boot: upserting each
  * configured plan (so env price/feature changes propagate), retiring plans no
  * longer in config, and invalidating the plan read-cache.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { stubModule } from '@pipeline-builder/api-core/testing';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockBulkWrite = jest.fn<AnyFn>();
@@ -57,13 +56,8 @@ const mockPlans = [
   },
 ];
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  Config: {
-    get: (section: string) => {
-      if (section === 'billing') return { plans: mockPlans };
-      return {};
-    },
-  },
+jest.unstable_mockModule('../src/config/billing-config.js', () => ({
+  getBillingConfig: () => ({ plans: mockPlans, bundles: [], comboDiscounts: [] }),
 }));
 
 const { seedPlans } = await import('../src/helpers/seed-plans.js');

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The default-version rule (plugin-ecosystem §3.4): a new major, a prerelease
+ * The default-version rule: a new major, a prerelease
  * or an older version never takes over the default; a same-major stable newer
  * version does.
  */

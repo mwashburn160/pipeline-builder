@@ -4,11 +4,13 @@
 import { randomUUID } from 'crypto';
 import { auditSpoolKey, createEnvRedisAuditSpool, type AuditSpool, type AuditSpoolEntry } from './audit-spool.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
-import { getServiceAuthHeader, setAuthzDenialAuditor, type AuthzDenialInfo } from '../middleware/auth.js';
+import { getServiceAuthHeader } from '../middleware/service-tokens.js';
+import { setAuthzDenialAuditor, type AuthzDenialInfo } from '../middleware/permission-gates.js';
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
+import { serviceEndpoint } from '../utils/service-registry.js';
 
 const logger = createLogger('remote-audit');
 
@@ -125,7 +127,7 @@ export const REMOTE_AUDIT_ACTIONS = [
   // change carries the durable trail (never the secret itself).
   'compliance.notification-preference.update',
   // Image-registry destructive ops (api/image-registry) — garbage-collection
-  // sweeps and explicit image/tag deletes (previously only a log line).
+  // sweeps and explicit image/tag deletes.
   'registry.gc',
   'registry.image.delete',
   // Cross-repo tag/image copy (api/image-registry POST /api/images/copy). A
@@ -210,7 +212,7 @@ export const REMOTE_AUDIT_ACTIONS = [
   // length, outcome), never the raw query text.
   'ask.query',
   'ask.agent.turn',
-  // Plugin ecosystem (docs/plans/plugin-ecosystem.md §5c). Governance actions
+  // Plugin ecosystem (docs/runbooks/ecosystem-moderation.md). Governance actions
   // are recorded with `orgId` = the system org; `affectedOrgId` is the
   // publisher's org (listing/version/review/advisory/publisher moderation) or
   // the installing org (installs + policy). Anonymous submissions use the
@@ -407,8 +409,8 @@ export interface RemoteAuditClientConfig {
  */
 export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): RemoteAuditClient {
   const serviceConfig: ServiceConfig = {
-    host: config.host ?? process.env.PLATFORM_SERVICE_HOST ?? 'platform',
-    port: config.port ?? parseInt(process.env.PLATFORM_SERVICE_PORT ?? '3000', 10),
+    host: config.host ?? serviceEndpoint('platform').host,
+    port: config.port ?? serviceEndpoint('platform').port,
     timeout: config.timeout ?? 3000,
   };
   // Its own breaker route class: audit ingest failing (5xx while platform's
@@ -432,12 +434,11 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
     try {
       // Minting the token is INSIDE the try on purpose. It can throw — the
       // signing key unreadable, not an EC P-256 key, or `SERVICE_NAME` not
-      // matching this client's name — and it used to sit above the `try`, so
-      // `deliver` rejected instead of resolving `false` as documented. `record`
-      // fires it with a bare `.then` and no `.catch`, so the rejection went
-      // unhandled, `runServer`'s crash handler exited, and the pod crash-looped
-      // on its first audited write or `authz.denied` event. Now a key problem is
-      // just an undeliverable event: spooled, or dropped and metered.
+      // matching this client's name. Outside the `try`, `deliver` would reject
+      // instead of resolving `false`; `record` fires it with a bare `.then`, so
+      // the rejection would go unhandled and crash-loop the pod on its first
+      // audited write. Inside, a key problem is just an undeliverable event:
+      // spooled, or dropped and metered.
       const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' });
       const headers: Record<string, string> = {
         'Authorization': authHeader,
@@ -529,7 +530,7 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
           emitCounter('audit_dropped_total', { service: serviceName });
         }
       }).catch((err) => {
-        // Belt and braces. `deliver` no longer rejects, but anything that throws
+        // Belt and braces. `deliver` never rejects, but anything that throws
         // in the continuation would otherwise become an unhandled rejection —
         // and in this process that is a crash, not a log line. An audit event
         // must never take the service down.
@@ -570,59 +571,73 @@ export function wireAuthzDenialAuditor(serviceName: string, getClient: () => Rem
 }
 
 /**
- * A service-scoped audit client: a durable-spool-backed {@link RemoteAuditClient}
- * with the service name pre-bound for emission. Replaces the per-service
- * boilerplate of `createRemoteAuditClient({ spool: createEnvRedisAuditSpool({ key }) ?? undefined })`
- * plus a hand-rolled `emit<Service>Audit` wrapper that repeats the service name.
+ * The process-wide remote-audit binding: which service this process is, and the
+ * (lazily built) client its events go through. Bound ONCE at boot by
+ * `wireServiceSecurity(serviceName)` — every stateless service calls it — so the
+ * service identity is never repeated at a call site and can never drift.
  */
-export interface ServiceAuditClient {
-  /** Emit an audit event with the service name bound. Fire-and-forget. */
-  emit(event: RemoteAuditEvent): void;
-  /** The underlying remote client — for `wireAuthzDenialAuditor` + `close()`. */
-  readonly client: RemoteAuditClient;
+interface AuditBinding {
+  serviceName: string;
+  client: RemoteAuditClient | null;
 }
 
-/**
- * Build a service's audit client: a RemoteAuditClient wired to the durable Redis
- * spool (from ambient env; null → no spool) with `serviceName` bound. Construct
- * ONCE per process — memoize behind a lazy `getAuditClient()` in the service's
- * `services/audit.ts`. Pass `config.spool` to override the env-derived spool
- * (e.g. reuse a service's existing ioredis connection).
- */
-export function createServiceAuditClient(serviceName: string, config: RemoteAuditClientConfig = {}): ServiceAuditClient {
-  const spool = config.spool ?? createEnvRedisAuditSpool({ key: auditSpoolKey(serviceName) }) ?? undefined;
-  const client = createRemoteAuditClient({ ...config, spool });
-  return {
-    emit: (event) => client.record(event, serviceName),
-    client,
-  };
-}
+let auditBinding: AuditBinding | null = null;
 
 /**
- * Lazily-constructed remote-audit accessor for a service. Every service's
- * `services/audit.ts` used to hand-roll the same module singleton (a `let audit`
- * + `svc()` that builds a {@link ServiceAuditClient} on first use, then a
- * `getAuditClient()` returning `.client` and an `emit(event)` forwarding to
- * `.emit`). This packages that pattern in ONE place so each service's audit
- * wiring is a one-liner and can't drift.
+ * Bind this process's service identity for {@link recordAudit}. Called by
+ * `wireServiceSecurity`; tests go through `bindTestAuditService`
+ * (`@pipeline-builder/api-core/testing`), which passes a spy `client`.
  *
- * Lazy on purpose: the underlying client wires an env-Redis audit spool, so
- * building it at import time would force that connection wherever the module is
- * merely imported (e.g. tests). `getAuditClient` is passed to
- * `wireAuthzDenialAuditor`; `emit` backs the per-service `emitXAudit` helpers.
- * Both stay FIRE-AND-FORGET (record never throws / is not awaited).
+ * Without `client`, the real one is built lazily on first emission: a
+ * RemoteAuditClient wired to the durable env-Redis spool (null → no spool).
+ * Lazy on purpose — building it at boot would force the spool's Redis connection
+ * wherever the service module is merely imported. Rebinding closes the previous
+ * client's spool-drain timer.
  */
-export function createRemoteAuditAccessor(serviceName: string): {
-  getAuditClient: () => RemoteAuditClient;
-  emit: (event: RemoteAuditEvent) => void;
-} {
-  let audit: ServiceAuditClient | null = null;
-  const svc = (): ServiceAuditClient => {
-    if (!audit) audit = createServiceAuditClient(serviceName);
-    return audit;
-  };
-  return {
-    getAuditClient: () => svc().client,
-    emit: (event) => svc().emit(event),
-  };
+export function bindAuditService(serviceName: string, client?: RemoteAuditClient): void {
+  auditBinding?.client?.close();
+  auditBinding = { serviceName, client: client ?? null };
+}
+
+/** Drop the binding (tests only — returns the process to the unbound state). */
+export function unbindAuditService(): void {
+  auditBinding?.client?.close();
+  auditBinding = null;
+}
+
+function boundAudit(): AuditBinding & { client: RemoteAuditClient } {
+  if (!auditBinding) {
+    throw new Error('audit not initialised: call wireServiceSecurity(serviceName) at boot before recordAudit()');
+  }
+  auditBinding.client ??= createRemoteAuditClient({
+    spool: createEnvRedisAuditSpool({ key: auditSpoolKey(auditBinding.serviceName) }) ?? undefined,
+  });
+  return auditBinding as AuditBinding & { client: RemoteAuditClient };
+}
+
+/**
+ * The bound service's RemoteAuditClient. Throws "audit not initialised" before
+ * `wireServiceSecurity` has run. Internal: callers emit through
+ * {@link recordAudit}; `wireServiceSecurity` hands this getter to the
+ * `authz.denied` sink.
+ */
+export function getBoundAuditClient(): RemoteAuditClient {
+  return boundAudit().client;
+}
+
+/**
+ * Record an event in the durable, hash-chained central audit trail (platform's
+ * `POST /audit/events` ingest), attributed to the service bound at boot.
+ *
+ * FIRE-AND-FORGET: delivery never blocks or throws — emit only AFTER the
+ * mutation succeeds, and keep `details` free of secrets/tokens, PII and AWS
+ * account ids. The ONE thing that throws is calling it before
+ * `wireServiceSecurity(serviceName)` has bound the service: that is a wiring
+ * bug, and failing loudly beats silently attributing the event to nobody.
+ *
+ * (The winston/Loki log line is a different sink: `logAuditEvent`.)
+ */
+export function recordAudit(event: RemoteAuditEvent): void {
+  const { client, serviceName } = boundAudit();
+  client.record(event, serviceName);
 }

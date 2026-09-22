@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS } from '@pipeline-builder/api-core';
-import { Schema, model, Document, Types, Model } from 'mongoose';
+import { DEFAULT_TIER, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { Schema, model, Types, Model, type HydratedDocument } from 'mongoose';
 import slugify from 'slugify';
-import { config } from '../config/index.js';
 
 /**
  * Quota usage tracking interface
@@ -39,14 +38,14 @@ export type { QuotaTier };
 /**
  * Organization document interface.
  *
- * Organizations no longer embed a `members[]` array. Membership is managed
- * through the {@link UserOrganization} junction collection, which stores
+ * Membership is not embedded here: it is managed through the {@link UserOrganization} junction collection, which stores
  * per-org roles ('owner' | 'admin' | 'member') and an `isActive` flag.
  *
  * To list members of an organization, query `UserOrganization` by `organizationId`.
  * The `owner` field here is kept as a denormalized reference to the owning user.
  */
-export interface OrganizationDocument extends Document {
+export interface OrganizationData {
+  _id: Types.ObjectId;
   name: string;
   slug: string;
   /** True for the single well-known system tenant (id = api-core SYSTEM_ORG_ID).
@@ -63,7 +62,7 @@ export interface OrganizationDocument extends Document {
   /** Stored self-approval flag. Same absent-value rule as `impersonationPolicy`. */
   allowSelfApproval?: boolean;
   /**
-   * Org policy "require MFA" (#8): every member's session scoped to this org
+   * Org policy "require MFA": every member's session scoped to this org
    * must be `aal: 2` (a passkey, password + authenticator code, or SSO through
    * an IdP marked as enforcing MFA) or it is refused AT ISSUANCE — no route ever
    * re-checks it. Absent means off; read only through
@@ -125,8 +124,7 @@ export interface OrganizationDocument extends Document {
   /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
   /**
-   * Parent organization id for the org → team hierarchy (org-team-hierarchy
-   * proposal, phase 1). `null`/absent = a **root** organization; a non-null
+   * Parent organization id for the org → team hierarchy. `null`/absent = a **root** organization; a non-null
    * value makes this org a "team" nested under its parent. Stored as a string
    * id (org `_id`s may be ObjectId or string, e.g. the well-known `'system'`
    * org), so the descendant-expansion helper matches on string ids.
@@ -218,56 +216,12 @@ export interface OrganizationDocument extends Document {
   updatedAt: Date;
 }
 
-/**
- * Get next reset date based on reset period
- * Supports: hourly, daily, weekly, monthly, or Ndays (e.g. '3days', '7days')
- */
-function getNextResetDate(resetPeriod: string): Date {
-  const now = new Date();
-
-  // Check for custom day period (e.g. '3days', '7days')
-  const dayMatch = resetPeriod.match(/^(\d+)days?$/i);
-  if (dayMatch) {
-    const days = parseInt(dayMatch[1], 10);
-    const future = new Date(now);
-    future.setDate(future.getDate() + days);
-    future.setHours(0, 0, 0, 0);
-    return future;
-  }
-
-  switch (resetPeriod) {
-    case 'hourly': {
-      return new Date(now.getTime() + 60 * 60 * 1000);
-    }
-    case 'daily': {
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(0, 0, 0, 0);
-      return tomorrow;
-    }
-    case 'weekly': {
-      const nextWeek = new Date(now);
-      nextWeek.setDate(nextWeek.getDate() + (7 - nextWeek.getDay()));
-      nextWeek.setHours(0, 0, 0, 0);
-      return nextWeek;
-    }
-    case 'monthly':
-    default: {
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
-      return nextMonth;
-    }
-  }
-}
-
-/** Get the reset period for a quota type from a tier config. */
-function getTierResetPeriod(tier: QuotaTier, type: 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls'): string {
-  return config.quota.tier[tier].resetPeriod[type];
-}
+export type OrganizationDocument = HydratedDocument<OrganizationData>;
 
 const quotaUsageSchema = new Schema<QuotaUsage>(
   {
     used: { type: Number, default: 0, min: 0 },
-    resetAt: { type: Date, default: () => getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'apiCalls')) },
+    resetAt: { type: Date, default: () => nextQuotaResetDate() },
   },
   { _id: false },
 );
@@ -287,8 +241,7 @@ const quotaUsageSchema = new Schema<QuotaUsage>(
  * `_AllPersistedKeysCovered` assertion rejects a MISSING one. Together they
  * make adding a new non-retention dimension to `QuotaTierLimits` (in api-core)
  * a real COMPILE ERROR here until it is added both to the schema block and to
- * this list — the lockstep the old (false) "missing-field compile error"
- * comment only claimed to have.
+ * this list.
  */
 type PersistedQuotaKey = Exclude<keyof QuotaTierLimits, 'eventRetentionDays' | 'doraRetentionDays'>;
 const PERSISTED_QUOTA_KEYS = [
@@ -303,7 +256,7 @@ const _persistedQuotaKeysExhaustive: _AllPersistedKeysCovered = true;
 void _persistedQuotaKeysExhaustive;
 void PERSISTED_QUOTA_KEYS;
 
-const organizationSchema = new Schema<OrganizationDocument>(
+const organizationSchema = new Schema<OrganizationData>(
   {
     _id: {
       type: Schema.Types.ObjectId,
@@ -339,7 +292,7 @@ const organizationSchema = new Schema<OrganizationDocument>(
       // Drive the Mongoose enum from api-core's `VALID_TIERS` tuple so adding
       // a tier in api-core surfaces here automatically (no string drift
       // between the type and the schema).
-      enum: VALID_TIERS as unknown as string[],
+      enum: [...VALID_TIERS],
       // Default to the operator-configured DEFAULT_QUOTA_TIER (api-core resolves
       // it from env; falls back to 'developer'). Quota defaults below track the
       // same tier so a new org's tier and seeded limits stay consistent.
@@ -368,7 +321,7 @@ const organizationSchema = new Schema<OrganizationDocument>(
     allowSelfApproval: {
       type: Boolean,
     },
-    // Org policy "require MFA" (#8). Same no-default rule as the two above:
+    // Org policy "require MFA". Same no-default rule as the two above:
     // orgs are read with `.lean()`, so a schema default would never fire for an
     // existing document. The default lives in `resolveEffectiveMfaPolicy`.
     requireMfa: {
@@ -471,7 +424,7 @@ const organizationSchema = new Schema<OrganizationDocument>(
         min: -1,
       },
       // Active plugin-ecosystem listings the org publishes (count quota;
-      // docs/plans/plugin-ecosystem.md §3.7). Raised by `listing_pack`.
+      // docs/plugin-publishing.md "Plans and limits"). Raised by `listing_pack`.
       listings: {
         type: Number,
         default: () => QUOTA_TIERS[DEFAULT_TIER].limits.listings,
@@ -489,19 +442,19 @@ const organizationSchema = new Schema<OrganizationDocument>(
     usage: {
       plugins: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'plugins')) }),
+        default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
       },
       pipelines: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'pipelines')) }),
+        default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
       },
       apiCalls: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'apiCalls')) }),
+        default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
       },
       aiCalls: {
         type: quotaUsageSchema,
-        default: () => ({ used: 0, resetAt: getNextResetDate(getTierResetPeriod(DEFAULT_TIER, 'aiCalls')) }),
+        default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
       },
     },
     aiProviderKeys: {
@@ -594,4 +547,4 @@ organizationSchema.pre<OrganizationDocument>('validate', async function () {
 
 });
 
-export default model<OrganizationDocument>('Organization', organizationSchema);
+export default model<OrganizationData>('Organization', organizationSchema);

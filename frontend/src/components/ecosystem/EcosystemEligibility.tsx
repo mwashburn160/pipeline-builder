@@ -13,7 +13,7 @@ export const VERIFIED_CHECK_LABELS: Record<VerifiedCheckId, string> = {
 };
 
 /**
- * The automatic Verified-eligibility checks (plan §3.7) — plan, a DNS-verified
+ * The automatic Verified-eligibility checks — plan, a DNS-verified
  * domain, owner MFA — as a compact badge row (`compact`) or a list with each
  * check's detail. `ok: null` means platform couldn't answer (the server treats
  * that as a refusal).
@@ -60,7 +60,7 @@ export function VerifiedEligibilityChecks({ eligibility, compact = false, title 
 }
 
 /**
- * The approver headroom warning (plan §3.0.1, §9a "Staffing"). For the
+ * The approver headroom warning. For the
  * console as a whole (`scope="console"`): below two Ecosystem Managers a
  * superadmin must be the second approver; below three there is no holiday
  * cover. For one request (`scope="request"`): how many could still decide it
@@ -96,7 +96,7 @@ export function ApproverStandingNotice({ standing, minimum = 3, scope, requiresT
   if (standing.belowMinimum) {
     return (
       <Callout variant="warning" title={`Below ${minimum} Ecosystem Managers`}>
-        {count.holders} managers can cover two-person approval today, but not an absence. The plan calls for at least
+        {count.holders} managers can cover two-person approval today, but not an absence. Keep at least
         {' '}{minimum}.
       </Callout>
     );

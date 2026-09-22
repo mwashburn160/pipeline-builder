@@ -8,8 +8,8 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -26,6 +26,7 @@ const mockRequireStepUp = jest.fn((_req: any, _res: any, next: () => void) => { 
 const mockDecrementQuota = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPluginAudit,
   requireStepUp: mockRequireStepUp,
   decrementQuota: mockDecrementQuota,
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
@@ -73,7 +74,6 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 }));
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: mockEmitPluginAudit }));
 
 
 // Imports (after mocks)

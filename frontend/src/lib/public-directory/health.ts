@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Display helpers for the plugin health score (plugin-ecosystem §6 W7). The
+ * Display helpers for the plugin health score. The
  * score is computed server-side (api-core `computeHealthScore`); these mirror
  * its component names, labels and display bands without importing server code.
  */

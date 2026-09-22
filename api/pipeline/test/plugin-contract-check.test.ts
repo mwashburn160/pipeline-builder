@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin contract enforcement at pipeline create/update (W0.2): each step's
+ * Plugin contract enforcement at pipeline create/update: each step's
  * plugin is resolved the way synth resolves it, and the pipeline's metadata /
  * vars are checked against that plugin's persisted contract.
  *
@@ -110,7 +110,7 @@ function listingSource(data: { publishers?: Row[]; listings?: Row[]; versions?: 
   }) as never;
 }
 
-describe('listed plugins (plugin ecosystem §3.5)', () => {
+describe('listed plugins', () => {
   const official = { id: 'pub-o', handle: 'pipeline-builder', tier: 'official', suspendedAt: null };
   const acme = { id: 'pub-a', handle: 'acme', tier: 'verified', suspendedAt: null };
   const version = (listingId: string, v: string, snap: Row = {}) => ({

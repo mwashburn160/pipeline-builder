@@ -16,8 +16,8 @@ interface SettingRowProps {
 
 /**
  * A settings list-row: label + description on the left, control on the right
- * (stacked on mobile, two-column on `md+`). The modern settings pattern —
- * replaces the ad-hoc label/control layouts across settings + notifications.
+ * (stacked on mobile, two-column on `md+`) — the settings and notification
+ * pages' label/control layout.
  */
 export function SettingRow({ label, description, control, children, className = '' }: SettingRowProps) {
   return (

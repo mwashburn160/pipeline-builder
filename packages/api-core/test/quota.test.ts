@@ -345,7 +345,7 @@ describe('incrementQuota (metering helper)', () => {
       expect(path).toBe('/quotas/org1/increment');
       const auth = opts.headers.Authorization;
       expect(auth).toMatch(/^Bearer /);
-      // The token is this service's OWN ES256 mint (#14) — never an HMAC token
+      // The token is this service's OWN ES256 mint — never an HMAC token
       // and never a user token. Signature verification against the per-service
       // key bundle is covered in jwt-rotation.test.ts.
       const { default: jwt } = await import('jsonwebtoken');

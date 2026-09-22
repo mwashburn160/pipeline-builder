@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomBytes } from 'node:crypto';
-import { createLogger, createMemorySseTicketStore, SSE_TICKET_TTL_MS, writeSseHeaders, type SseTicketStore, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createMemorySseTicketStore, envSseTicketCaps, SSE_TICKET_TTL_MS, writeSseHeaders, type SseTicketStore, errorMessage, envInt } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
@@ -185,18 +185,19 @@ export class SSEManager {
   private readonly nodeId = randomBytes(8).toString('hex');
 
   constructor(options: SSEManagerOptions = {}) {
-    this.maxClientsPerRequest = options.maxClientsPerRequest ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10', 10);
-    this.maxTotalClients = options.maxTotalClients ?? parseInt(process.env.SSE_MAX_TOTAL_CLIENTS || '1000', 10);
-    this.maxClientsPerOrg = options.maxClientsPerOrg ?? parseInt(process.env.SSE_MAX_CLIENTS_PER_ORG || '50', 10);
-    this.maxTotalTickets = options.maxTotalTickets ?? parseInt(process.env.SSE_MAX_TOTAL_TICKETS || '1000', 10);
-    this.maxTicketsPerOrg = options.maxTicketsPerOrg ?? parseInt(process.env.SSE_MAX_TICKETS_PER_ORG || '10', 10);
+    this.maxClientsPerRequest = options.maxClientsPerRequest ?? envInt('SSE_MAX_CLIENTS_PER_REQUEST', 10, { min: 1 });
+    this.maxTotalClients = options.maxTotalClients ?? envInt('SSE_MAX_TOTAL_CLIENTS', 1000, { min: 1 });
+    this.maxClientsPerOrg = options.maxClientsPerOrg ?? envInt('SSE_MAX_CLIENTS_PER_ORG', 50, { min: 1 });
+    const ticketCaps = envSseTicketCaps();
+    this.maxTotalTickets = options.maxTotalTickets ?? ticketCaps.maxTotal;
+    this.maxTicketsPerOrg = options.maxTicketsPerOrg ?? ticketCaps.maxPerOrg;
     this.ticketTtlMs = options.ticketTtlMs ?? SSE_TICKET_TTL_MS;
-    this.streamOwnerTtlMs = options.streamOwnerTtlMs ?? parseInt(process.env.SSE_STREAM_OWNER_TTL_MS || '3600000', 10); // 1 hour
+    this.streamOwnerTtlMs = options.streamOwnerTtlMs ?? 3_600_000; // 1 hour
     this.ticketStoreInstance = options.ticketStore;
     this.logStreamEnabled = options.logStream ?? false;
-    this.clientTimeoutMs = options.clientTimeoutMs ?? parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000', 10); // 30 minutes
+    this.clientTimeoutMs = options.clientTimeoutMs ?? envInt('SSE_CLIENT_TIMEOUT_MS', 1_800_000, { min: 1 }); // 30 minutes
 
-    const cleanupIntervalMs = options.cleanupIntervalMs ?? parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10); // 5 minutes
+    const cleanupIntervalMs = options.cleanupIntervalMs ?? envInt('SSE_CLEANUP_INTERVAL_MS', 300_000, { min: 1 }); // 5 minutes
     this.startCleanupInterval(cleanupIntervalMs);
 
     // Wire the cross-pod relay: subscribe once on startup so frames PUBLISHED by
@@ -260,8 +261,8 @@ export class SSEManager {
 
   /**
    * Publish the current live-connection count as a gauge so on-call can see SSE
-   * saturation (approach to the per-process cap) on a dashboard — previously
-   * these numbers lived only in `getStats()`/logs. Called after every add/remove/
+   * saturation (approach to the per-process cap) on a dashboard, not only in
+   * `getStats()`/logs. Called after every add/remove/
    * close/cleanup. Cheap (O(R)); metric helpers never throw.
    */
   private updateActiveGauge(): void {

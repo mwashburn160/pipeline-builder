@@ -21,8 +21,7 @@ function isHidden(): boolean {
 }
 
 /**
- * Call `fn` every `intervalMs` while mounted (modelled on
- * useObservabilityResource's polling plumbing).
+ * Call `fn` every `intervalMs` while mounted.
  *
  * `fn` is read through a ref, so passing an inline closure does not restart the
  * timer; the timer restarts only when `intervalMs`, `enabled` or

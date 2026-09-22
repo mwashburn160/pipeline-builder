@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, type Scheduler, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { eq, and, lte, sql } from 'drizzle-orm';
@@ -50,14 +50,12 @@ async function sweep(): Promise<void> {
 
 // Cross-pod leader lock so that with multiple compliance replicas only ONE pod
 // sweeps per window — without it, every replica would re-execute pending scans.
-// Backed by the shared env-configured Redis client (`createEnvRedisLock`); when
-// Redis isn't configured it returns null and the scheduler runs lock-free on
-// every pod (the conditional-claim guards in checkDueSchedules keep that safe).
-const lockClient = createEnvRedisLock();
+// Without Redis the scheduler runs lock-free on every pod (the conditional-claim
+// guards in checkDueSchedules keep that safe).
 const scheduler: Scheduler = createScheduler({
   name: 'scan-scheduler',
   intervalMs: SCHEDULER_INTERVAL_MS,
-  ...(lockClient ? { lock: { redis: () => lockClient, key: LOCK_KEY, ttlMs: LOCK_TTL_MS } } : {}),
+  lock: { key: LOCK_KEY, ttlMs: LOCK_TTL_MS },
   run: sweep,
 });
 

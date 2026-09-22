@@ -6,8 +6,7 @@ import { printWarning } from './output-utils.js';
 /**
  * Resolve the AWS region for an SDK/CLI call: explicit `--region` override →
  * `AWS_REGION` → `CDK_DEFAULT_REGION` → `us-east-1`. Single source for the
- * fallback that was previously copy-pasted across every AWS command and the
- * secrets client.
+ * fallback used by every AWS command and the secrets client.
  */
 export function resolveAwsRegion(override?: string): string {
   return override || process.env.AWS_REGION || process.env.CDK_DEFAULT_REGION || 'us-east-1';

@@ -8,10 +8,11 @@
  * reported, and every change is audited with both sides.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { selectLean } from './helpers/query-chain.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type */
 const YUBIKEY = 'cb69481e-8ff7-4039-93ec-0a2729a154a8';
@@ -41,7 +42,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controller
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, getOrgName: async (id: string) => `name-of-${id}` }));
 jest.unstable_mockModule('../src/helpers/org-policy-lineage.js', () => ({ readOrgPolicyLineage: async () => lineage }));
-jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({ resolveEffectiveMfaPolicy: async () => ({ enforced: mfaEnforced }) }));
+jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({ DEFAULT_MFA_GRACE_DAYS: 14, resolveEffectiveMfaPolicy: async () => ({ enforced: mfaEnforced }) }));
 jest.unstable_mockModule('../src/services/fido-mds.js', () => ({
   listModels: async () => [{ aaguid: YUBIKEY, description: 'YubiKey 5 Series', compromised: false }],
 }));
@@ -53,18 +54,17 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
     platformMinLength: 8,
   }),
 }));
-const chain = (v: unknown) => ({ select: () => ({ lean: async () => v }) });
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     exists: async () => ({ _id: 'org-1' }),
-    findById: () => chain(orgDoc),
+    findById: () => selectLean(orgDoc),
     updateOne: (...a: unknown[]) => (mockUpdateOne as any)(...a),
   },
-  UserOrganization: { find: () => chain([{ userId: 'u1' }, { userId: 'u2' }]) },
+  UserOrganization: { find: () => selectLean([{ userId: 'u1' }, { userId: 'u2' }]) },
   WebAuthnCredential: {
-    find: (f: { userId: unknown }) => chain(typeof f.userId === 'string' ? creds.filter((c) => c.userId === f.userId) : creds),
+    find: (f: { userId: unknown }) => selectLean(typeof f.userId === 'string' ? creds.filter((c) => c.userId === f.userId) : creds),
   },
-  User: { find: () => chain([{ _id: 'u2', username: 'sam', email: 'sam@example.com' }]) },
+  User: { find: () => selectLean([{ _id: 'u2', username: 'sam', email: 'sam@example.com' }]) },
   UserTotp: {
     distinct: async () => [],
     exists: async () => (callerHasTotp ? { _id: 't' } : null),
@@ -84,12 +84,14 @@ function makeRes() {
   res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
-// `controller-helper` runs FOR REAL: `canAdministerOrg` reads `user.role` and
-// `user.organizationId`, so the caller's authority is the FIXTURE. This is an
-// admin/owner of the exact org the routes target (`params.id`).
+// `controller-helper` runs FOR REAL: `canManageOrgScope` reads
+// `user.organizationId`, so the caller's scope is the FIXTURE. The capability
+// (`org:settings`) is the route's `requirePermission`, not re-checked here.
 const admin = { sub: 'u1', organizationId: 'org-1', role: 'admin', aal: 1 };
-/** Same org, no admin role — authenticated, but administers nothing. */
-const member = { sub: 'u1', organizationId: 'org-1', aal: 1 };
+/** Same org, no admin role, but a custom Role delegating `org:settings`. */
+const delegate = { sub: 'u1', organizationId: 'org-1', role: 'member', permissions: ['org:settings'], aal: 1 };
+/** An admin of an unrelated org. */
+const outsider = { sub: 'u9', organizationId: 'org-2', role: 'admin', aal: 1 };
 // `user` defaults to the org admin; pass `null` for an ANONYMOUS caller.
 const req = (body: Record<string, unknown> = {}, user: unknown = admin) =>
   ({ user, params: { id: 'org-1' }, body, headers: {} }) as any;
@@ -112,8 +114,8 @@ beforeEach(() => {
 });
 
 describe('password policy', () => {
-  it('refuses an org the caller does not administer', async () => {
-    const res = await run(ctrl.getPasswordPolicy, req({}, member));
+  it('refuses an org outside the caller\'s scope', async () => {
+    const res = await run(ctrl.getPasswordPolicy, req({}, outsider));
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
@@ -123,10 +125,17 @@ describe('password policy', () => {
     expect(mockUpdateOne).not.toHaveBeenCalled();
   });
 
-  it('refuses a non-admin member on the WRITE path, and writes nothing', async () => {
-    const res = await run(ctrl.updatePasswordPolicy, req({ minLength: 14 }, member));
+  it('refuses an out-of-scope caller on the WRITE path, and writes nothing', async () => {
+    const res = await run(ctrl.updatePasswordPolicy, req({ minLength: 14 }, outsider));
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('admits a non-admin whose custom Role delegates org:settings (permission union, not the coarse role)', async () => {
+    orgDoc = { passwordMinLength: 10 };
+    const res = await run(ctrl.updatePasswordPolicy, req({ minLength: 14 }, delegate));
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockUpdateOne).toHaveBeenCalled();
   });
 
   it('raising the minimum is open to a single-factor admin, and audited with both sides', async () => {

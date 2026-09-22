@@ -166,7 +166,7 @@ class EmailService {
   }
 
   /**
-   * Notify org admins that someone requested to join via domain-based join (P2b).
+   * Notify org admins that someone requested to join via domain-based join.
    * `to` is the list of admin/owner emails; no-op when empty.
    */
   async sendJoinRequestReceived(adminEmails: string[], organizationName: string, requesterEmail: string): Promise<boolean> {

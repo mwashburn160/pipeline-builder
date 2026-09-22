@@ -46,12 +46,10 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
 
   /**
    * Every read and write funnels through here, so this is the ONE place the
-   * viewer has to be stamped for per-user targeting to resolve. It replaces the
-   * viewer arguments that used to be hand-threaded through `findVisibleById` /
-   * `findThreadMessages` / `findInboxPaginated` / `getUnreadCount` — a scheme
-   * that failed open at whichever call site forgot the argument (and two did:
-   * the post-mark-read unread counts in update-message.ts counted rows targeted
-   * at OTHER users in the org). See `withViewerContext`.
+   * viewer has to be stamped for per-user targeting to resolve — rather than a
+   * viewer argument hand-threaded through each finder, which fails open at
+   * whichever call site forgets it (counting rows targeted at OTHER users in the
+   * org). See `withViewerContext`.
    */
   protected buildConditions(filter: Partial<MessageFilter>, orgId: string): SQL[] {
     return buildMessageConditions(withViewerContext(filter), orgId);
@@ -136,8 +134,8 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * stashes their storage keys. The blobs are NOT touched here.
    *
    * ORDERING — rows first, blobs after commit. Deleting blobs inside this hook
-   * (the old behavior) destroyed them BEFORE the transaction committed: if the
-   * parent DELETE or the commit then failed, the rollback resurrected the
+   * would destroy them BEFORE the transaction committed: if the parent DELETE
+   * or the commit then failed, the rollback would resurrect the
    * message + attachment rows pointing at blobs that no longer exist — an
    * unrecoverable, user-visible loss (e.g. a tombstone later restored with
    * broken attachments). With rows first, the worst case is the reverse: a blob

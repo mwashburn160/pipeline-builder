@@ -19,46 +19,12 @@
 
 import { createLogger, getParam, refuseWeakSession, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { canAdministerOrg, requireAuth, withController } from '../helpers/controller-helper.js';
-import {
-  canSelectDeniedPolicy,
-  IMPERSONATION_POLICIES,
-  MIN_SYSADMINS_FOR_DENIED,
-  resolveEffectiveImpersonationPolicy,
-  resolveImpersonationPolicy,
-} from '../helpers/impersonation-policy.js';
-import { getOrgName } from '../helpers/org-hierarchy.js';
-import { toOrgId } from '../helpers/org-id.js';
-import { Organization } from '../models/index.js';
+import { canManageOrgScope, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { canSelectDeniedPolicy, MIN_SYSADMINS_FOR_DENIED, resolveEffectiveImpersonationPolicy, resolveImpersonationPolicy } from '../helpers/impersonation-policy.js';
+import { isLooseningImpersonation, orgExists, previousResolvedAsDoc, readImpersonationPolicy, withInheritedFromName, writeImpersonationPolicy } from '../services/org-policy-service.js';
 import { updateImpersonationPolicySchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-impersonation-policy');
-
-/** A resolved policy in the stored-document shape, so a partial update can be
- *  laid over it and resolved again. */
-function previousResolvedAsDoc(p: ReturnType<typeof resolveImpersonationPolicy>) {
-  return { impersonationPolicy: p.policy, allowSelfApproval: p.allowSelfApproval };
-}
-
-/**
- * Whether moving from `from` to `to` WEAKENS the policy: a less strict mode
- * (`IMPERSONATION_POLICIES` is ordered open → consent → denied), or turning
- * self-approval on.
- */
-export function isLooseningImpersonation(
-  from: ReturnType<typeof resolveImpersonationPolicy>,
-  to: ReturnType<typeof resolveImpersonationPolicy>,
-): boolean {
-  return IMPERSONATION_POLICIES.indexOf(to.policy) < IMPERSONATION_POLICIES.indexOf(from.policy)
-    || (to.allowSelfApproval && !from.allowSelfApproval);
-}
-
-/** Add the stricter parent's display name next to `inheritedFrom`, so the UI
- *  needn't resolve an org the admin may not be able to read. */
-async function withInheritedFromName<T extends { inheritedFrom?: string }>(policy: T): Promise<T & { inheritedFromName?: string }> {
-  const inheritedFromName = policy.inheritedFrom ? await getOrgName(policy.inheritedFrom) : undefined;
-  return inheritedFromName ? { ...policy, inheritedFromName } : policy;
-}
 
 /**
  * Tenancy for both reads and writes: sysadmin, an admin of this org, or an admin
@@ -67,14 +33,13 @@ async function withInheritedFromName<T extends { inheritedFrom?: string }>(polic
  * account, and a team cannot use it to fence off its own parent.
  */
 export const getImpersonationPolicy = withController('Get impersonation policy', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) {
+  if (!(await canManageOrgScope(req, id))) {
     return sendError(res, 403, 'You can only view the policy of an organization you administer');
   }
 
-  const exists = await Organization.exists({ _id: toOrgId(id) });
-  if (!exists) return sendError(res, 404, 'Organization not found');
+  if (!(await orgExists(id))) return sendError(res, 404, 'Organization not found');
 
   // Both the org's OWN setting and the EFFECTIVE one. A team's policy can be
   // tightened by its parent (strictest wins), so returning only `own` would let
@@ -84,9 +49,9 @@ export const getImpersonationPolicy = withController('Get impersonation policy',
 });
 
 export const updateImpersonationPolicy = withController('Update impersonation policy', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canAdministerOrg(req, id))) {
+  if (!(await canManageOrgScope(req, id))) {
     return sendError(res, 403, 'You can only change the policy of an organization you administer');
   }
 
@@ -106,22 +71,15 @@ export const updateImpersonationPolicy = withController('Update impersonation po
     );
   }
 
-  const before = await Organization.findById(toOrgId(id)).select('impersonationPolicy allowSelfApproval').lean();
-  if (!before) return sendError(res, 404, 'Organization not found');
+  const previous = await readImpersonationPolicy(id);
+  if (!previous) return sendError(res, 404, 'Organization not found');
 
-  const previousResolved = resolveImpersonationPolicy(before);
-  const requested = resolveImpersonationPolicy({ ...previousResolvedAsDoc(previousResolved), ...body });
-  if (isLooseningImpersonation(previousResolved, requested) && refuseWeakSession(req, res, { minAssurance: 2 })) return;
+  const requested = resolveImpersonationPolicy({ ...previousResolvedAsDoc(previous), ...body });
+  if (isLooseningImpersonation(previous, requested) && refuseWeakSession(req, res, { minAssurance: 2 })) return;
 
-  const updated = await Organization.findByIdAndUpdate(
-    toOrgId(id),
-    { $set: body },
-    { new: true, projection: 'impersonationPolicy allowSelfApproval' },
-  ).lean();
-  if (!updated) return sendError(res, 404, 'Organization not found');
+  const current = await writeImpersonationPolicy(id, body);
+  if (!current) return sendError(res, 404, 'Organization not found');
 
-  const previous = resolveImpersonationPolicy(before);
-  const current = resolveImpersonationPolicy(updated);
   // What actually governs now. A team may have just set something its parent
   // overrides; the response says so rather than echoing a setting with no effect.
   const effective = await resolveEffectiveImpersonationPolicy(id);

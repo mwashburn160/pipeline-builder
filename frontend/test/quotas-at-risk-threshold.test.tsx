@@ -60,7 +60,7 @@ jest.mock('@/lib/api', () => {
   return { __esModule: true, default: api, api };
 });
 
-/** Two dimensions the four-kind union used to leave unlabelled. */
+/** Two dimensions outside the four original quota kinds, which must still be labelled. */
 const NEWER_KINDS = [
   { orgId: 'org-9', name: 'Beta Co', slug: 'beta', type: 'storageBytes', used: 95, limit: 100, percent: 95 },
   { orgId: 'org-9', name: 'Beta Co', slug: 'beta', type: 'idpConfigs', used: 3, limit: 3, percent: 100 },

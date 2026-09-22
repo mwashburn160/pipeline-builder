@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a37e60af4fc7263b4ee28117b86ad89120989070548a2ca56f44dffea0a48f7f
+// SOURCE-SHA256: 20e2e53f70d7efd1d80465bfedb7ac36fa7fc7b8cc6dcb89e8cddecce21dcef4
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -599,6 +599,105 @@ export const pluginPublishingTopic: HelpTopic = {
               "The community listing was submitted from a different email address."
             ]
           ]
+        }
+      ]
+    },
+    {
+      "id": "why-the-ecosystem-works-this-way",
+      "title": "Why the ecosystem works this way",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A plugin is not passive content. At pipeline runtime its image runs in the consuming organization's CodeBuild project with that organization's declared secrets, the pipeline's IAM role (often able to deploy to production) and its checked-out source. A listed plugin is therefore a software-supply-chain dependency, like an npm package or a GitHub Action, and the rules below all follow from keeping \"uploaded\" and \"trusted to run\" separate."
+        },
+        {
+          "type": "text",
+          "content": "Governance. Only the system organization decides what enters or changes the ecosystem. Its Ecosystem Manager role (built in, system-org only, assigned by superadmins, never grantable through custom roles) holds plugins:moderate and publishers:verify, so managers don't need full superadmin. The permissions are already separate, so splitting the role later is only a seed change. Tenant orgs still decide what runs in their own pipelines (their consumption policy) — that governs only their org, never the ecosystem. See the moderation runbook and Permissions."
+        },
+        {
+          "type": "text",
+          "content": "Decisions behind the rules:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Question",
+            "Answer, and why"
+          ],
+          "rows": [
+            [
+              "Must anonymous submitters verify an email?",
+              "Yes, plus a self-hosted proof-of-work puzzle. The feature is unavailable without outbound email."
+            ],
+            [
+              "Anonymous reviews?",
+              "No. Anyone may read; writing needs a signed-in person."
+            ],
+            [
+              "May Unverified or Community plugins receive secrets?",
+              "Not by default; an org's consumption policy can allow it per tier."
+            ],
+            [
+              "Paid plugins or revenue share?",
+              "Not offered; the publisher model leaves room for it."
+            ],
+            [
+              "Is every listing and version decided by the system org, even from signed-in publishers?",
+              "Yes. To keep that sustainable, low-risk updates (patch/minor from Verified publishers, every gate green, no new secrets or egress) are approved by auto-approval rules the system org owns — audited, and revocable per rule."
+            ],
+            [
+              "Do installs count against the plugins quota?",
+              "No; installs are free."
+            ],
+            [
+              "Can a self-hosted instance install from the hosted directory?",
+              "Not yet. Each instance has its own directory; the listing format is designed so sync can be added without a schema change."
+            ],
+            [
+              "How do consumers pull another org's images?",
+              "Approval copies the pinned image into the read-only public/<publisher>/<name> namespace and signs it fresh there with the tier annotation. Copying — rather than widening token grants to publishers' namespaces — makes listed versions immutable, survives the publisher's deletion, and keeps the registry's token rules simple. public/* is pullable by every authenticated identity and writable only by image-registry."
+            ],
+            [
+              "How much does a review without verified use count?",
+              "0.5, labelled \"not verified\"."
+            ],
+            [
+              "May members install directly?",
+              "Members hold plugins:install; whether that installs or files an approval request is the org's consumption policy (requireApprovalToInstall, on by default below Verified)."
+            ],
+            [
+              "May a publisher pause without approval?",
+              "Yes. Pausing only narrows their own reach (hidden from new installs; existing installs keep resolving). Unpausing is a request."
+            ],
+            [
+              "Which plans may publish, install, or be Verified?",
+              "Installing, reviewing and every safety control are on every plan. Publishing is on every plan within a listings limit (3 / 10 / 25 / 100). Verified is open to Team and Enterprise only and is earned through review, never bought; there is no paid priority review. A downgrade keeps listings listed, freezes non-security updates while over the limit, and gives Verified a 30-day grace period."
+            ],
+            [
+              "Are Official plugins installed for every org?",
+              "Yes, implicitly — a virtual install (no rows) with policy minor; majors are never automatic. Orgs can install explicitly, opt out (officialInstalls: explicit) or block listings (blockedListings); an org's own same-name plugin still wins, with a shadowing warning. Explicit rows for everything would break existing pipelines, and seeding rows at org creation would miss Official plugins added later. See Plugin Installing."
+            ],
+            [
+              "Where do listing logos come from?",
+              "Simple Icons (CC0) first, vendor press-kit marks only where the vendor's terms allow, monograms otherwise. Curated marks go only on Official listings and on Verified publishers who own the mark; Community listings upload raster icons or get a monogram. Free logo choice would enable impersonation, and SVG uploads would enable XSS."
+            ],
+            [
+              "Do routine Official catalog updates need two-person approval?",
+              "No — a seeded auto-approval rule covers gate-green patch/minor updates of existing Official listings submitted by the catalog loader service account, with no new secrets, egress, required inputs, root or vulnerabilities, capped at 1 per listing and 50 per day, and switchable off with OFFICIAL_AUTO_APPROVAL_ENABLED. New Official listings, majors and riskier updates keep two-person approval."
+            ],
+            [
+              "Where does catalog metadata come from, and who has the last word?",
+              "The package's own declarations are detected and pre-filled (spec, then README, then the plugin's own Dockerfile OCI labels — never labels inherited from its base image), and you accept or edit each field. Only descriptive fields are editable; execution-contract fields come from the spec alone, so changing one is a new version. Each field's source is shown to moderators. See Catalog metadata."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Versions are immutable once requested. A version is frozen from the moment a request references it: re-uploading it is refused (PLUGIN_VERSION_FROZEN), and approval publishes the request's pinned digest, failing closed if the stored digest differs. A yank stops a version resolving for new synths; pipelines pinned by digest keep pulling it. A public/* image is garbage-collected only when it was yanked more than 180 days ago and no deployed pipeline references it."
+        },
+        {
+          "type": "text",
+          "content": "Out of scope: running plugins anywhere but CodeBuild, importing from other ecosystems (GitHub Actions, npm), paid listings, and syncing between instances."
         }
       ]
     },

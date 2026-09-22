@@ -1398,14 +1398,14 @@ WHERE event_object_table IN ('plugins', 'pipelines', 'messages', 'pipeline_regis
 ORDER BY event_object_table, trigger_name;
 
 -- ============================================================================
--- PLUGIN ECOSYSTEM (docs/plans/plugin-ecosystem.md)
+-- PLUGIN ECOSYSTEM
 -- ============================================================================
 -- Two kinds of table live here:
 --   * ECOSYSTEM-GLOBAL (publishers, listings, listing versions, the publish
 --     request queue, reviews, advisories, anonymous submissions, …): the
 --     directory is instance-wide, so these carry NO org_id and are not tenant
 --     scoped. Writes are gated in the service layer (system-org-only approval,
---     §3.0). Their RLS stance is set in the ROW-LEVEL SECURITY section below.
+--     and approves them). Their RLS stance is set in the ROW-LEVEL SECURITY section below.
 --   * ORG-SCOPED (pipeline_step_manifests, plugin_installs,
 --     plugin_install_policies, plugin_advisory_deliveries): carry org_id and
 --     get the standard rls_org_* policies + FORCE like every other tenant table.
@@ -1419,7 +1419,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- Publisher: an org's public identity (one per root org). owner_org_id is NULL
 -- for the platform-owned `community` publisher that anonymous submissions land
 -- under. Deliberately NOT named org_id: a publisher outlives its org (the org's
--- purge marks listings `unmaintained`, §3.6; installed versions keep resolving
+-- purge marks listings `unmaintained`; installed versions keep resolving
 -- from public/*), so it is not part of the org cascade.
 CREATE TABLE IF NOT EXISTS publishers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1516,9 +1516,9 @@ CREATE TRIGGER plugin_listings_search_vector_trigger
     EXECUTE PROCEDURE plugin_listings_search_vector_update();
 
 -- A version published to a listing: the copy in the read-only public/*
--- namespace (§3.3). spec_snapshot freezes the resolved plugin record at
+-- namespace. spec_snapshot freezes the resolved plugin record at
 -- approval, so consumers keep synthesizing after the publisher org's own
--- plugins row is deleted or purged (§3.6); source_plugin_id is provenance only
+-- plugins row is deleted or purged; source_plugin_id is provenance only
 -- (no FK: the org row is soft-deleted and purged on its own schedule).
 CREATE TABLE IF NOT EXISTS plugin_listing_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1540,20 +1540,23 @@ CREATE TABLE IF NOT EXISTS plugin_listing_versions (
     vuln_critical INTEGER,
     vuln_high INTEGER,
     scanned_at TIMESTAMPTZ,
-    -- Base image config `created`, recorded at publish (W7 freshness), NULL = unknown.
+    -- Base image config `created`, recorded at publish (image freshness), NULL = unknown.
     base_image_created_at TIMESTAMPTZ,
+    -- When maintenance collected the public/* image of this long-yanked,
+    -- unreferenced version (NULL = still in the registry).
+    image_collected_at TIMESTAMPTZ,
     published_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     published_by TEXT NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS plugin_listing_version_unique
     ON plugin_listing_versions(listing_id, version);
--- GC guard + digest lookups (§3.3: a public/* image is GC'd only when yanked
+-- GC guard + digest lookups (a public/* image is GC'd only when yanked
 -- > 180 days and unreferenced).
 CREATE INDEX IF NOT EXISTS plugin_listing_version_digest_idx
     ON plugin_listing_versions(image_digest);
 
--- Security advisories (W8). Declared before the request queue, which points at
+-- Security advisories. Declared before the request queue, which points at
 -- the advisory a security-fix request remediates.
 CREATE TABLE IF NOT EXISTS plugin_advisories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1584,7 +1587,7 @@ CREATE INDEX IF NOT EXISTS plugin_advisory_listing_state_idx
 CREATE INDEX IF NOT EXISTS plugin_advisory_publisher_idx
     ON plugin_advisories(publisher_id);
 
--- Auto-approval rules (§3.0.1): enabling one needs a second approver.
+-- Auto-approval rules: enabling one needs a second approver.
 CREATE TABLE IF NOT EXISTS ecosystem_auto_approval_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
@@ -1599,7 +1602,7 @@ CREATE TABLE IF NOT EXISTS ecosystem_auto_approval_rules (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- The single queue the Ecosystem console works from (§3.1). digest is the image
+-- The single queue the Ecosystem console works from. digest is the image
 -- digest pinned at submit (G25): approval publishes exactly it, or fails closed.
 -- plugin_id has no FK for the same reason as source_plugin_id above.
 CREATE TABLE IF NOT EXISTS plugin_publish_requests (
@@ -1678,7 +1681,7 @@ CREATE TABLE IF NOT EXISTS ecosystem_collections (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Reviews (§5). author_org_id feeds the integrity rules (no self-review, per-org
+-- Reviews. author_org_id feeds the integrity rules (no self-review, per-org
 -- rate limit, verified use) and is NEVER exposed. GDPR user deletion anonymizes:
 -- author_user_id and the body go NULL, the rating stays.
 CREATE TABLE IF NOT EXISTS plugin_reviews (
@@ -1735,7 +1738,7 @@ CREATE TABLE IF NOT EXISTS plugin_review_reports (
     review_id UUID NOT NULL REFERENCES plugin_reviews(id) ON DELETE CASCADE,
     reporter_user_id TEXT NOT NULL,
     -- 'security' reports never post publicly: they hold the review and open a
-    -- private advisory draft (W8).
+    -- private advisory draft.
     category VARCHAR(20) NOT NULL DEFAULT 'abuse'
                         CHECK (category IN ('spam', 'abuse', 'off_topic', 'security')),
     reason TEXT,
@@ -1784,12 +1787,12 @@ CREATE TABLE IF NOT EXISTS plugin_stats (
     active_org_count INTEGER NOT NULL DEFAULT 0,
     success_rate_30d DOUBLE PRECISION,
     health_score DOUBLE PRECISION,
-    -- Per-component health scores + weights (W7) for the breakdown panel.
+    -- Per-component health scores + weights for the breakdown panel.
     health_breakdown JSONB,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Anonymous submissions (§4). The email is kept hashed (rate limits, claim
+-- Anonymous submissions. The email is kept hashed (rate limits, claim
 -- matching) and encrypted (takedown notices only), and purged at
 -- email_purge_after (90 days after a decision). Nothing here is ever listed.
 CREATE TABLE IF NOT EXISTS plugin_submissions (
@@ -1807,7 +1810,7 @@ CREATE TABLE IF NOT EXISTS plugin_submissions (
     name VARCHAR(255) NOT NULL,
     version VARCHAR(50) NOT NULL,
     spec JSONB NOT NULL DEFAULT '{}',
-    -- Accept-or-edit catalog values + provenance (§3.1a) and the Dockerfile, as submitted.
+    -- Accept-or-edit catalog values + provenance and the Dockerfile, as submitted.
     catalog JSONB NOT NULL DEFAULT '{"values": {}, "sources": {}}',
     dockerfile TEXT,
     artifact_key VARCHAR(1024),
@@ -1850,7 +1853,7 @@ CREATE TABLE IF NOT EXISTS ecosystem_search_misses (
 CREATE INDEX IF NOT EXISTS ecosystem_search_miss_created_idx
     ON ecosystem_search_misses(created_at);
 
--- Notification digest/batching queue (§5b). event is the N-number (N1..N29);
+-- Notification digest/batching queue. event is the N-number (N1..N29);
 -- rows sharing a digest_key are coalesced into one email at deliver_after.
 CREATE TABLE IF NOT EXISTS ecosystem_notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1874,7 +1877,7 @@ CREATE INDEX IF NOT EXISTS ecosystem_notification_digest_idx
 -- Org-scoped ecosystem tables
 -- ---------------------------------------------------------------------------
 
--- Step manifest (W0.1): which plugin each (pipeline, stage, action) runs,
+-- Step manifest: which plugin each (pipeline, stage, action) runs,
 -- recorded at synth. Event ingest joins on it to stamp pipeline_events.plugin_*.
 -- plugin_publisher is NULL for an own-org plugin.
 CREATE TABLE IF NOT EXISTS pipeline_step_manifests (
@@ -1904,7 +1907,7 @@ CREATE INDEX IF NOT EXISTS pipeline_step_manifest_plugin_idx
 CREATE INDEX IF NOT EXISTS pipeline_step_manifest_publisher_id_idx
     ON pipeline_step_manifests(plugin_publisher_id, plugin_name);
 
--- An org's install of a listing (§3.2). Official listings are installed
+-- An org's install of a listing. Official listings are installed
 -- implicitly (virtual, no row); a row here is an explicit install or override.
 CREATE TABLE IF NOT EXISTS plugin_installs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1934,8 +1937,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS plugin_install_org_listing_unique
 CREATE INDEX IF NOT EXISTS plugin_install_listing_status_idx
     ON plugin_installs(listing_id, status);
 
--- Org consumption policy (§3.2). One row per org; absent = the defaults below.
--- None of these safety controls is plan-gated (§3.7).
+-- Org consumption policy. One row per org; absent = the defaults below.
+-- None of these safety controls is plan-gated.
 CREATE TABLE IF NOT EXISTS plugin_install_policies (
     org_id VARCHAR(255) PRIMARY KEY,
     allowed_tiers TEXT[] NOT NULL DEFAULT '{official,verified}',
@@ -1986,11 +1989,11 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
--- Ecosystem seed rows (W0.8 / W1)
+-- Ecosystem seed rows
 -- ---------------------------------------------------------------------------
--- The Official catalog publisher (§3.1: tier official, owned by the system org
+-- The Official catalog publisher (tier official, owned by the system org
 -- 000000000000000000000001, the same literal the RLS policies use) and the
--- platform-owned `community` publisher anonymous submissions land under (§4,
+-- platform-owned `community` publisher anonymous submissions land under (
 -- no owner org). The plugin service re-asserts the Official row at boot, so a
 -- non-default SYSTEM_ORG_ID is corrected there. Existing rows are never touched.
 INSERT INTO publishers (handle, owner_org_id, display_name, description, tier, verified_at)
@@ -2001,7 +2004,7 @@ INSERT INTO publishers (handle, owner_org_id, display_name, description, tier)
 VALUES ('community', NULL, 'Community', 'Anonymous public submissions, reviewed by the system org.', 'unverified')
 ON CONFLICT (handle) DO NOTHING;
 
--- The two seeded auto-approval rules (§3.0.3, W1). Fixed ids so the service
+-- The two seeded auto-approval rules. Fixed ids so the service
 -- can recognise them; enabled from the start (a seed is not a manager's
 -- decision, so it needs no second approver). Every rule ALSO passes the fixed
 -- safety checks in the plugin service: signed, SBOM attested and scanned, no
@@ -2018,7 +2021,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
--- Public read path (§6a, G28)
+-- Public read path
 -- ---------------------------------------------------------------------------
 -- The anonymous directory API connects as ecosystem_public_reader (created in
 -- "Ecosystem public reader role" at the end of this file), which holds SELECT on
@@ -2061,7 +2064,7 @@ SELECT
     CASE WHEN s.active_org_count >= 5 THEN s.active_org_count END AS active_org_count,
     s.success_rate_30d,
     s.health_score,
-    -- 'listed' or 'unmaintained' (still public, shown with a banner, §3.6).
+    -- 'listed' or 'unmaintained' (still public, shown with a banner).
     l.state,
     s.health_breakdown
 FROM plugin_listings l
@@ -2621,7 +2624,7 @@ FROM pg_roles
 WHERE rolname = current_setting('pb.app_user');
 
 -- ============================================================================
--- Ecosystem public reader role (anonymous plugin directory, §6a G28)
+-- Ecosystem public reader role (anonymous plugin directory)
 -- ============================================================================
 -- The public directory API connects as ecosystem_public_reader. It may read the
 -- two public_* views and nothing else: no base-table grant, no DML, no

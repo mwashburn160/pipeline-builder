@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin-ecosystem constants (docs/plans/plugin-ecosystem.md §3.0, §3.1, §9):
+ * Plugin-ecosystem constants (docs/plugin-publishing.md):
  * the publisher handle rules, the terms version, the request-kind tables and
  * the instance flags.
  */
@@ -67,7 +67,7 @@ describe('request kinds', () => {
   });
 });
 
-describe('instance flags (§9)', () => {
+describe('instance flags', () => {
   it('OFFICIAL_AUTO_APPROVAL_ENABLED defaults on and turns off with false/0/off/no', () => {
     expect(isOfficialAutoApprovalEnabled()).toBe(true);
     for (const v of ['false', '0', 'off', 'NO']) {

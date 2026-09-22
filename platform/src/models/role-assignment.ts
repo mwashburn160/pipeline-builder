@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Schema, model, Document, Types } from 'mongoose';
+import { Schema, model, Types, type HydratedDocument } from 'mongoose';
 
 /**
  * Junction linking a PRINCIPAL to a {@link ./role}. A principal can hold several
@@ -11,7 +11,7 @@ import { Schema, model, Document, Types } from 'mongoose';
  *
  * Exactly ONE principal field is set:
  *   - `userId` — a person (the original and overwhelmingly common case);
- *   - `serviceAccountId` — an org service account (#2), which holds its Roles
+ *   - `serviceAccountId` — an org service account, which holds its Roles
  *     through this same collection rather than a parallel mechanism.
  *
  * Every user-facing query filters on `userId`, so a service account's
@@ -23,8 +23,8 @@ import { Schema, model, Document, Types } from 'mongoose';
  *
  * - `manual` — a person granted it (the Role-membership API, an invitation's
  *   role, the built-in Admin/Member floors). NEVER removed by an automated sync.
- * - `jit`    — derived from an IdP group mapping at SSO sign-in (3a; SCIM reuses
- *   it in 3b). Owned by the sync: when the group stops mapping to the Role, the
+ * - `jit`    — derived from an IdP group mapping at SSO sign-in (SCIM reuses
+ *   it). Owned by the sync: when the group stops mapping to the Role, the
  *   row goes away with it.
  *
  * The distinction is the whole reason the field exists — a sync that could not
@@ -34,7 +34,7 @@ import { Schema, model, Document, Types } from 'mongoose';
 export const ROLE_ASSIGNMENT_SOURCES = ['manual', 'jit'] as const;
 export type RoleAssignmentSource = typeof ROLE_ASSIGNMENT_SOURCES[number];
 
-export interface RoleAssignmentDocument extends Document {
+export interface RoleAssignmentData {
   userId?: Types.ObjectId | null;
   serviceAccountId?: Types.ObjectId | null;
   roleId: Types.ObjectId;
@@ -44,13 +44,15 @@ export interface RoleAssignmentDocument extends Document {
   source: RoleAssignmentSource;
 }
 
-const roleAssignmentSchema = new Schema<RoleAssignmentDocument>(
+export type RoleAssignmentDocument = HydratedDocument<RoleAssignmentData>;
+
+const roleAssignmentSchema = new Schema<RoleAssignmentData>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     serviceAccountId: { type: Schema.Types.ObjectId, ref: 'ServiceAccount', default: null, index: true },
     roleId: { type: Schema.Types.ObjectId, ref: 'Role', required: true, index: true },
     organizationId: { type: Schema.Types.ObjectId, required: true },
-    source: { type: String, enum: ROLE_ASSIGNMENT_SOURCES as unknown as string[], default: 'manual' },
+    source: { type: String, enum: [...ROLE_ASSIGNMENT_SOURCES], default: 'manual' },
   },
   { timestamps: true, collection: 'role_assignments' },
 );
@@ -72,4 +74,4 @@ roleAssignmentSchema.index(
 roleAssignmentSchema.index({ organizationId: 1, userId: 1 });
 roleAssignmentSchema.index({ organizationId: 1, serviceAccountId: 1 });
 
-export default model<RoleAssignmentDocument>('RoleAssignment', roleAssignmentSchema);
+export default model<RoleAssignmentData>('RoleAssignment', roleAssignmentSchema);

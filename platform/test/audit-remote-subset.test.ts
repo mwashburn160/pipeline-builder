@@ -2,36 +2,34 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect } from '@jest/globals';
-// REAL api-core (not the shared mock) — this test's whole point is to compare the
-// package's actual remote allow-list against platform's actual action union.
 import { REMOTE_AUDIT_ACTIONS, isRemoteAuditAction } from '@pipeline-builder/api-core';
+import { mockConfig } from './helpers/config-mock.js';
+// REAL api-core (not the shared mock) — this compares the package's actual
+// remote allow-list against platform's own list.
 
 // The AuditEvent model transitively imports the real `config` (which requires
 // prod secrets under jest's NODE_ENV=test). We only need the static
 // ALL_AUDIT_ACTIONS array + a Schema.index no-op, so stub config's single use.
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { audit: { retentionDays: 90 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ audit: { retentionDays: 90 } }));
 
 const { ALL_AUDIT_ACTIONS } = await import('../src/models/audit-event.js');
+const { PLATFORM_AUDIT_ACTIONS } = await import('../src/constants/audit-actions.js');
 
 /**
- * DRIFT GUARD. Platform's `POST /audit/events` ingest validates incoming actions
- * against api-core's `REMOTE_AUDIT_ACTIONS` (the remote subset) rather than the
- * full platform union. If a member of that subset were NOT also a member of
- * platform's `ALL_AUDIT_ACTIONS`, a legitimate remote emit would be silently
- * 400-dropped at ingest. This test fails CI on such a divergence instead.
+ * The full action set is platform's own list plus api-core's remote list. The
+ * two must stay DISJOINT: an action in both would be accepted by the
+ * `POST /audit/events` ingest, letting any service forge a platform-authority
+ * event.
  */
-describe('remote audit-action subset ⊆ platform audit-action union', () => {
-  it('every REMOTE_AUDIT_ACTIONS member exists in platform ALL_AUDIT_ACTIONS', () => {
-    const platformActions = new Set<string>(ALL_AUDIT_ACTIONS as readonly string[]);
-    const missing = (REMOTE_AUDIT_ACTIONS as readonly string[]).filter((a) => !platformActions.has(a));
-    expect(missing).toEqual([]);
+describe('platform-only audit actions are not remote-emittable', () => {
+  it('no PLATFORM_AUDIT_ACTIONS member is in REMOTE_AUDIT_ACTIONS', () => {
+    const remote = new Set<string>(REMOTE_AUDIT_ACTIONS as readonly string[]);
+    expect((PLATFORM_AUDIT_ACTIONS as readonly string[]).filter((a) => remote.has(a))).toEqual([]);
+    expect(isRemoteAuditAction('admin.superadmin.grant')).toBe(false);
   });
 
-  it('isRemoteAuditAction accepts a remote action and rejects a platform-only one', () => {
-    expect(isRemoteAuditAction('pipeline.create')).toBe(true);
-    // A platform-authority action that must never be forgeable via the ingest.
-    expect(isRemoteAuditAction('admin.superadmin.grant')).toBe(false);
+  it('the combined list is exactly the two, with no duplicates', () => {
+    expect(ALL_AUDIT_ACTIONS.length).toBe(PLATFORM_AUDIT_ACTIONS.length + REMOTE_AUDIT_ACTIONS.length);
+    expect(new Set(ALL_AUDIT_ACTIONS).size).toBe(ALL_AUDIT_ACTIONS.length);
   });
 });

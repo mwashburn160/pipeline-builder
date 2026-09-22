@@ -3,18 +3,25 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_EXPIRED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from './invitation-errors.js';
+import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from './invitation-errors.js';
 import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { seatCapacityAvailable, seatCapacityStillWithinCap } from '../helpers/seats.js';
-import { Invitation, type InvitationDocument, Organization, type OrganizationDocument, User, type UserDocument, UserOrganization } from '../models/index.js';
+import { seatCapacityAvailable, seatCapacityStillWithinCap, withSeatGuard } from '../helpers/seats.js';
+import { Invitation, type InvitationDocument, type InvitationStatus, Organization, type OrganizationDocument, User, type UserDocument, UserOrganization } from '../models/index.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { emailService } from '../utils/email.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
 const logger = createLogger('invitation-service');
+
+/** The refusal for an invitation that is no longer pending, by its status. */
+const INVITATION_STATUS_ERROR: Record<Exclude<InvitationStatus, 'pending'>, string> = {
+  accepted: INV_ACCEPTED,
+  expired: INV_EXPIRED,
+  revoked: INV_REVOKED,
+};
 
 interface SendInvitationInput {
   orgId: string;
@@ -59,7 +66,7 @@ class InvitationService {
   private async validateToken(token: string, session: mongoose.ClientSession): Promise<InvitationDocument> {
     const invitation = await Invitation.findOne({ token }).session(session);
     if (!invitation) throw new Error(INV_NOT_FOUND);
-    if (invitation.status !== 'pending') throw new Error(`INV_${invitation.status.toUpperCase()}`);
+    if (invitation.status !== 'pending') throw new Error(INVITATION_STATUS_ERROR[invitation.status]);
     if (invitation.isExpired()) {
       invitation.status = 'expired';
       await invitation.save({ session });
@@ -201,33 +208,23 @@ class InvitationService {
       }
 
       // Seat-limit enforcement — pooled at the account ROOT (a pending invite
-      // reserves a seat). The helper resolves root + subtree and the root's
-      // seat limit internally; `-1` (unlimited) short-circuits.
-      if (!(await seatCapacityAvailable(input.orgId, 1, session))) {
-        throw new Error(INV_SEAT_LIMIT);
-      }
+      // always reserves a seat, so there is no already-seated shortcut).
+      const created = await withSeatGuard({ orgId: input.orgId, session, errorCode: INV_SEAT_LIMIT }, async () => {
+        const data: Record<string, unknown> = {
+          email: input.email.toLowerCase(),
+          organizationId: toOrgId(input.orgId),
+          invitedBy: input.inviterId,
+          role: input.role,
+          expiresAt: getExpirationDate(),
+          invitationType: input.invitationType,
+        };
+        if (input.allowedOAuthProviders && input.invitationType !== 'email') {
+          data.allowedOAuthProviders = input.allowedOAuthProviders;
+        }
 
-      const data: Record<string, unknown> = {
-        email: input.email.toLowerCase(),
-        organizationId: toOrgId(input.orgId),
-        invitedBy: input.inviterId,
-        role: input.role,
-        expiresAt: getExpirationDate(),
-        invitationType: input.invitationType,
-      };
-      if (input.allowedOAuthProviders && input.invitationType !== 'email') {
-        data.allowedOAuthProviders = input.allowedOAuthProviders;
-      }
-
-      const [created] = await Invitation.create([data], { session });
-
-      // Post-write seat re-check — pairs with the pre-write `seatCapacityAvailable`
-      // above. Two concurrent invites can both clear the pre-check, so re-verify
-      // against the freshly-written state and roll back the loser. Mirrors every
-      // other seat-consuming path (members/user-admin/domain-join).
-      if (!(await seatCapacityStillWithinCap(input.orgId, session))) {
-        throw new Error(INV_SEAT_LIMIT);
-      }
+        const [invite] = await Invitation.create([data], { session });
+        return invite;
+      });
 
       const inviter = await User.findById(input.inviterId).session(session);
       if (!inviter) throw new Error(INV_INVITER_NOT_FOUND);

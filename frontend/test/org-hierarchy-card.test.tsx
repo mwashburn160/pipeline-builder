@@ -16,11 +16,11 @@ import { OrgOperationsCard } from '../src/components/admin/org-detail/OrgOperati
 import type { OrganizationDetail } from '../src/lib/api/domains/organizations';
 
 const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
 jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn<AnyFn>() } }));
 jest.mock('@/hooks/useDebounce', () => ({ __esModule: true, useDebounce: (v: unknown) => v }));
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push: jest.fn<AnyFn>(), asPath: '/dashboard' }) }));
-jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: jest.fn<AnyFn>() }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push: jest.fn<AnyFn>(), asPath: '/dashboard' })));
+jest.mock('@/lib/download', () => ({ __esModule: true, triggerBlobDownload: jest.fn<AnyFn>() }));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
   StepUpModal: ({ action, onConfirmed }: { action: string; onConfirmed: (t: string) => void }) => (

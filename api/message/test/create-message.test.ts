@@ -35,12 +35,9 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 }));
 
 // Remote-audit spy: route handlers emit attributed `message.*` events via
-// getAuditClient().record. Mock the module so tests can assert on the emitted
+// api-core `recordAudit`, overridden in the api-core mock so tests can assert on the emitted
 // event and that NO message body reaches the trail.
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: mockAuditRecord }),
-}));
 
 // Cross-tenant send gate. The real helper resolves the account root over HTTP;
 // the suite mocks it so tests control reachability directly. Default policy
@@ -81,7 +78,7 @@ jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ ...routeApiCoreOverrides(), recordAudit: mockAuditRecord }));
 // `incCounter` is a spy (not the default no-op) so the shared persist-tail
 // suite at the bottom can assert the domain metric actually fires on EVERY
 // send route — the step a fourth route is most likely to forget.
@@ -252,7 +249,7 @@ describe('POST /messages (create)', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  // Tenant-boundary guard (#20): '*' is a BROADCAST recipient reserved for
+  // Tenant-boundary guard: '*' is a BROADCAST recipient reserved for
   // announcements. A conversation must never target '*' for ANY caller — a
   // '*'-recipient conversation lands in every org's inbox (an un-audited
   // broadcast) and the reachability gate can't catch it (sysadmins/service
@@ -732,7 +729,7 @@ describe('POST /messages/:id/reply', () => {
     );
   });
 
-  // #23: a reply is ALWAYS a conversation, even when the root is an announcement.
+  // A reply is ALWAYS a conversation, even when the root is an announcement.
   // Copying rootMessage.messageType persisted `announcement`-typed rows authored
   // by non-sysadmins (a member replying to a broadcast), polluting messageType
   // filters + the announcements feed. Replies must persist as `conversation`.
@@ -897,11 +894,10 @@ describe('Remote audit emissions (create)', () => {
           recipientScope: 'org-wide',
         }),
       }),
-      'message',
     );
 
     // No message body/content may reach the audit trail.
-    const [event] = mockAuditRecord.mock.calls[0] as [any, string];
+    const [event] = mockAuditRecord.mock.calls[0] as [any];
     expect(JSON.stringify(event)).not.toContain('SECRET announcement body');
     expect(event.details).not.toHaveProperty('content');
   });

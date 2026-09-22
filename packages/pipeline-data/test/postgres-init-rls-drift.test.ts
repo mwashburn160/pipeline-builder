@@ -6,7 +6,8 @@
  * `deploy/shared/postgres-init.sql`, consumed by all four targets (docker,
  * minikube, ec2, eks) — RLS policies are security-relevant and a per-target
  * copy that silently diverges is how a tenant-isolation gap ships to one
- * environment only. The first case fails if a per-target copy reappears.
+ * environment only. That one-copy rule itself is a deploy contract
+ * (test/deploy-contracts, bringup-contract.test.ts).
  *
  * It also pins the messaging RLS RECIPIENT carve-out: `messages` /
  * `message_attachments` need a dedicated policy so a recipient org can read a
@@ -15,32 +16,18 @@
  * the carve-out, would reintroduce the latent block — this test fails loudly if so.
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { describe, it, expect } from '@jest/globals';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const INIT_FILE = 'deploy/shared/postgres-init.sql';
-const TARGETS = ['deploy/local/docker', 'deploy/local/minikube', 'deploy/aws/ec2', 'deploy/aws/eks'];
 
 const read = (rel: string) => readFileSync(resolve(REPO_ROOT, rel), 'utf8');
 
 describe('postgres-init.sql RLS drift-guard', () => {
   const docker = read(INIT_FILE);
-
-  it('has one shared copy and every target consumes it (no per-target copies)', () => {
-    for (const target of TARGETS) {
-      expect({ target, perTargetCopy: existsSync(resolve(REPO_ROOT, target, 'postgres-init.sql')) })
-        .toEqual({ target, perTargetCopy: false });
-    }
-    // docker mounts it by relative path; the kubectl targets build the
-    // `postgres-init` ConfigMap from pb_shared_dir.
-    expect(read('deploy/local/docker/docker-compose.yml'))
-      .toContain("'../../shared/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'");
-    expect(read('deploy/bin/k8s-resources.sh')).toContain('--from-file=init.sql="$_shared/postgres-init.sql"');
-    expect(read('deploy/local/minikube/bin/setup.sh')).toContain('--from-file=init.sql="$SHARED_DIR/postgres-init.sql"');
-  });
 
   it('messages has a dedicated RLS policy with the recipient + broadcast carve-outs', () => {
     // Recipient org can read a message addressed to it…

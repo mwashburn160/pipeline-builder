@@ -40,7 +40,7 @@ interface ListState {
 const EMPTY: ListState = { reviews: [], total: 0, nextCursor: null, loading: true, error: null };
 
 /**
- * The Reviews tab's list and write surface (plan §5).
+ * The Reviews tab's list and write surface.
  *
  * The first page (default sort, all ratings) is server-rendered from the
  * anonymous public API — so the reviews are in the HTML crawlers and no-JS
@@ -112,7 +112,7 @@ export function ReviewsSection({ listing, initial }: { listing: ListingDetail; i
     setReported(new Set(state.data?.reportedReviewIds ?? []));
   }, [state.data]);
 
-  const afterOwnChange = () => { state.refetch(); setReloadTick((t) => t + 1); };
+  const afterOwnChange = () => { void state.refetch(); setReloadTick((t) => t + 1); };
   const versions = listing.versions.filter((v) => !v.yanked).map((v) => v.version);
   const viewerState = signedIn ? state.data : null;
 

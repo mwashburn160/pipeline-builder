@@ -30,7 +30,7 @@ export function availablePluginConditions(orgId: string): SQL[] {
   ];
 }
 
-/** A listed plugin the org's references resolve right now (plugin ecosystem §3.2, §3.5). */
+/** A listed plugin the org's references resolve right now (see docs/plugin-installing.md). */
 export interface ResolvableListing {
   publisher: string;
   tier: string;
@@ -41,13 +41,13 @@ export interface ResolvableListing {
   category: string;
   spec: Record<string, unknown>;
   deprecated: boolean;
-  /** Publisher-paused (no new installs; existing installs still resolve) — D14. */
+  /** Publisher-paused (no new installs; existing installs still resolve). */
   paused: boolean;
-  /** The listing is `unmaintained` (still public, shown with a banner — §3.6). */
+  /** The listing is `unmaintained` (still public, shown with a banner). */
   unmaintained: boolean;
   /** Bayesian rating (plugin_stats), null until someone rated it. */
   ratingBayes: number | null;
-  /** 0–100 health score (W7), null until the stats sweep has enough data. */
+  /** 0–100 health score, null until the stats sweep has enough data. */
   healthScore: number | null;
 }
 
@@ -119,7 +119,7 @@ export async function findExistingPluginNames(names: string[], orgId: string): P
 
 /**
  * The subset of `names` that are LISTED by any publisher (live listings): an
- * auto-created placeholder must never take such a name (G17) — the listing
+ * auto-created placeholder must never take such a name — the listing
  * is the plugin, and the org should install it instead.
  */
 export async function findListedNames(names: string[]): Promise<Map<string, string[]>> {

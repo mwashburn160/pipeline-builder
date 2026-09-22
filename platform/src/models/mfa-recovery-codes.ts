@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, Types, type HydratedDocument } from 'mongoose';
 
 /**
  * One account's MFA RECOVERY CODES — a single set per person, whatever their
@@ -26,8 +26,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
  *
  * Removed with the user in `services/user-cascade.ts`.
  */
-export interface MfaRecoveryCodesDocument extends Document {
-  _id: Types.ObjectId;
+export interface MfaRecoveryCodesData {
   userId: Types.ObjectId;
   codes: Array<{ hash: string; usedAt?: Date | null }>;
   generatedAt: Date;
@@ -35,7 +34,9 @@ export interface MfaRecoveryCodesDocument extends Document {
   lockedUntil?: Date | null;
 }
 
-const mfaRecoveryCodesSchema = new Schema<MfaRecoveryCodesDocument>(
+export type MfaRecoveryCodesDocument = HydratedDocument<MfaRecoveryCodesData>;
+
+const mfaRecoveryCodesSchema = new Schema<MfaRecoveryCodesData>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true, index: true },
     codes: {
@@ -51,4 +52,4 @@ const mfaRecoveryCodesSchema = new Schema<MfaRecoveryCodesDocument>(
   { timestamps: false },
 );
 
-export default mongoose.model<MfaRecoveryCodesDocument>('MfaRecoveryCodes', mfaRecoveryCodesSchema);
+export default mongoose.model<MfaRecoveryCodesData>('MfaRecoveryCodes', mfaRecoveryCodesSchema);

@@ -2,18 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery, API_URL } from '../util';
+import { buildQuery } from '../util';
 import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier, QuotaType } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 
 /**
  * One quota dimension an org is at/over the threshold on.
  *
- * `type` is the FULL `QuotaType` union. It used to be spelled out here as the
- * four original dimensions, but the quota service's at-risk scans iterate
- * `VALID_QUOTA_TYPES` (api/quota/src/routes/read-quotas.ts) — so `storageBytes`,
- * `dashboards`, `alertRules`, `alertDestinations` and `idpConfigs` come back too
- * and used to arrive as a type the UI had no label for.
+ * `type` is the FULL `QuotaType` union: the quota service's at-risk scans
+ * iterate `VALID_QUOTA_TYPES` (api/quota/src/routes/read-quotas.ts), so every
+ * dimension can come back.
  */
 export interface AtRiskDimension {
   orgId: string;
@@ -186,13 +184,10 @@ export function adminApi(core: ApiCore) {
     // ============================================
     /** Fetch the templated namespace YAML as a downloadable string. */
     getOrgNamespaceYaml: async (orgId: string, stepUpToken?: string): Promise<string> => {
-      await core.ensureFreshToken();
-      const res = await fetch(`${API_URL}/api/admin/orgs/${orgId}/k8s-namespace.yaml`, {
-        headers: { ...core.authHeaders(), ...core.stepUpHeader(stepUpToken) } as Record<string, string>,
-        credentials: 'same-origin',
+      return core.requestText(`/api/admin/orgs/${orgId}/k8s-namespace.yaml`, {
+        headers: core.stepUpHeader(stepUpToken),
+        errorMessage: 'Failed to fetch namespace YAML',
       });
-      if (!res.ok) throw new Error(`Failed to fetch namespace YAML: ${res.status} ${res.statusText}`);
-      return res.text();
     },
 
     // ============================================

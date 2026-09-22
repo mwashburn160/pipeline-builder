@@ -8,8 +8,8 @@ import { buildPreviewCard } from '@/lib/ecosystem';
 type PreviewInput = Parameters<typeof buildPreviewCard>[0];
 
 /**
- * Live preview of the public directory card a listing will render as (plan
- * §3.1a step 3): the directory's own `ListingCardView`, fed the effective
+ * Live preview of the public directory card a listing will render as: the
+ * directory's own `ListingCardView`, fed the effective
  * values, so the icon, tier badge and summary are exactly what installers will
  * see. `inert` — the card's link points at a page that doesn't exist yet.
  */

@@ -3,8 +3,8 @@
 
 /**
  * Server-side renderer for UNTRUSTED markdown — plugin READMEs, security
- * advisories, reviews and review replies (docs/plans/plugin-ecosystem.md §6a
- * "Markdown safety", G6).
+ * advisories, reviews and review replies (docs/plugin-publishing.md
+ * "Markdown safety").
  *
  * Import it through its own subpath, never the package root:
  *   import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';

@@ -386,10 +386,3 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
   await deviceCodes.put(key, next, remainingMs);
   return { outcome: 'authorization_pending', record: next };
 }
-
-/** Test-only: drop the process-local fallback state of both stores. */
-export function _resetDeviceStoresForTests(): void {
-  deviceCodes._resetForTests();
-  deviceDecisions._resetForTests();
-  userCodeIndex._resetForTests();
-}

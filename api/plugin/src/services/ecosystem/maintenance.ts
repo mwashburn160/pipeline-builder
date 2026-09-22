@@ -2,42 +2,43 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The ecosystem's background upkeep (docs/plans/plugin-ecosystem.md §3.3, §3.7),
+ * The ecosystem's background upkeep (docs/runbooks/ecosystem-moderation.md),
  * one leader-locked scheduler:
  *
- *  - PLAN EFFECTS (§3.7 "Downgrade"): a Verified publisher whose org drops below
- *    Team (no `verified_publisher`) gets a 30-day grace period (N29, reminders
- *    at 14 and 3 days); when it lapses the tier returns to Community
+ * - PLAN EFFECTS: a Verified publisher whose org drops below Team (no
+ * `verified_publisher`) gets a 30-day grace period (reminders at 14 and 3
+ * days); when it lapses the tier returns to Community
  *    (`publisher.tier.change`, `reason: plan_downgrade`) and every image is
- *    re-signed. A publisher over its `listings` limit is told once (N29); its
+ * re-signed. A publisher over its `listings` limit is told once; its
  *    listings stay listed and the request routes refuse non-security updates.
  *  - the RE-SIGN job queue (resign.ts);
- *  - N22 MODERATION SLA-BREACH notices (sla.ts), each request announced once;
- *  - the N21 ADVISORY FAN-OUT retry (advisories.ts): an advisory published in
- *    the last day whose fan-out didn't reach every installing org (an outage
+ * - MODERATION SLA-BREACH notices (sla.ts), each request announced once;
+ * - the ADVISORY FAN-OUT retry (advisories.ts): an advisory published in the
+ * last day whose fan-out didn't reach every installing org (an outage
  *    mid-send) is finished here — every 15 minutes, which with the immediate
- *    send keeps delivery inside the 15-minute target (§10);
- *  - ANONYMOUS SUBMISSIONS (§4, E4): undecided submissions past their 30 days
- *    expire (artifacts deleted), and submitter emails are purged 90 days after
- *    the decision;
- *  - the SEARCH-MISS retention sweep (search-misses.ts).
+ * send keeps delivery inside a 15-minute target;
+ * - ANONYMOUS SUBMISSIONS: undecided submissions past their 30 days expire
+ * (artifacts deleted), and submitter emails are purged 90 days after the
+ * decision;
+ *  - the SEARCH-MISS retention sweep (search-misses.ts);
+ * - PUBLIC IMAGE collection (image-gc.ts): long-yanked, unreferenced
+ * `public/*` digests are deleted from the registry.
  */
 
 import {
   createLogger,
   createScheduler,
   errorMessage,
-  getQuotaServiceAuthHeader,
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
-  TIER_FEATURES,
   type LockRedis,
   type Scheduler,
 } from '@pipeline-builder/api-core';
 import type { Publisher } from '@pipeline-builder/pipeline-data';
 
 import { retryAdvisoryFanOut } from './advisories.js';
-import { ecosystemDeps } from './context.js';
+import { ecosystemAudit } from './audit.js';
+import { collectYankedPublicImages } from './image-gc.js';
 import { notifyPlanEffect } from './notify.js';
 import { listingsQuota } from './publishers.js';
 import { enqueueResign, runResignJobs, signedAs } from './resign.js';
@@ -45,14 +46,14 @@ import { sweepSearchMisses } from './search-misses.js';
 import { notifySlaBreaches } from './sla.js';
 import { atomically, publishers, settings } from './store.js';
 import { expireSubmissions, purgeSubmitterEmails } from './submissions.js';
-import { emitPluginAudit } from '../audit.js';
+import { DAY_MS } from './util.js';
+import { planIncludesVerified } from './verified-eligibility.js';
 
 const logger = createLogger('ecosystem-maintenance');
 
-const DAY_MS = 24 * 3_600_000;
-/** The Verified grace period after a downgrade below Team (§3.7). */
+/** The Verified grace period after a downgrade below Team. */
 export const VERIFIED_GRACE_DAYS = 30;
-/** Grace reminders, in days left (N29). */
+/** Grace reminders, in days left. */
 export const GRACE_REMINDER_DAYS = [14, 3] as const;
 
 const reminderKey = (id: string) => `grace-reminders:${id}`;
@@ -60,14 +61,14 @@ const overLimitKey = (id: string) => `over-listings-limit:${id}`;
 
 /**
  * Whether the org's plan makes it eligible for Verified. Reads the tier FAIL
- * CLOSED (E4): an unreadable tier throws, so the pass skips this publisher —
+ * CLOSED: an unreadable tier throws, so the pass skips this publisher —
  * it never starts (or ends) a grace period on the fallback DEFAULT_TIER an
  * outage would otherwise report.
  */
 async function verifiedEligibleOrg(orgId: string): Promise<boolean> {
-  const tier = await ecosystemDeps().quotaService.getTierStrict(orgId, getQuotaServiceAuthHeader(orgId));
-  if (tier === null) throw new Error(`The plan tier of ${orgId} could not be read; skipping its Verified upkeep this pass`);
-  return (TIER_FEATURES[tier] ?? []).includes('verified_publisher');
+  const eligible = await planIncludesVerified(orgId);
+  if (eligible === null) throw new Error(`The plan tier of ${orgId} could not be read; skipping its Verified upkeep this pass`);
+  return eligible;
 }
 
 /** One Verified publisher's grace bookkeeping. Returns what happened (for tests/logs). */
@@ -95,13 +96,12 @@ export async function checkVerifiedGrace(p: Publisher, now: Date = new Date()): 
     await atomically(async () => {
       await publishers.update(p.id, { tier: 'community', verifiedAt: null, verifiedGraceUntil: null });
       await settings.remove(reminderKey(p.id));
-      // Lookup keeps accepting the Verified signature until every image is re-signed (E1).
+      // Lookup keeps accepting the Verified signature until every image is re-signed.
       await enqueueResign('publisher', p.id, 'plan_downgrade', SYSTEM_ACTOR_ID, signedAs(p));
     });
-    emitPluginAudit({
+    ecosystemAudit({
       action: 'publisher.tier.change',
-      actorId: SYSTEM_ACTOR_ID,
-      orgId: SYSTEM_ORG_ID,
+      actor: SYSTEM_ACTOR_ID,
       affectedOrgId: orgId,
       targetType: 'publisher',
       targetId: p.id,
@@ -124,7 +124,7 @@ export async function checkListingsLimit(p: Publisher): Promise<'ok' | 'over' | 
   const orgId = p.ownerOrgId!;
   const quota = await listingsQuota(orgId, p.id);
   // An unreadable quota (the service's fail-open sentinel) is not "unlimited":
-  // neither flag nor clear anything on it (E4).
+  // neither flag nor clear anything on it.
   if (quota.failOpen) return 'skipped';
   const over = quota.limit !== -1 && quota.used > quota.limit;
   const flagged = (await settings.get<boolean>(overLimitKey(p.id))) === true;
@@ -144,7 +144,7 @@ export async function checkListingsLimit(p: Publisher): Promise<'ok' | 'over' | 
   return over ? 'already_over' : 'ok';
 }
 
-/** One maintenance pass over every tenant publisher, then the re-sign queue, the SLA-breach notices, the advisory fan-out retry and submission upkeep. */
+/** One maintenance pass over every tenant publisher, then the re-sign queue, the SLA-breach notices, the advisory fan-out retry, submission upkeep, the search-miss sweep and public-image collection. */
 export async function runEcosystemMaintenance(now: Date = new Date(), signal?: AbortSignal): Promise<{
   publishers: number;
   failures: number;
@@ -153,8 +153,10 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
   advisoryOrgsNotified: number;
   submissionsExpired: number;
   submitterEmailsPurged: number;
-  /** Search-miss rows pruned past retention or folded into their group (E17). */
+  /** Search-miss rows pruned past retention or folded into their group. */
   searchMissesPruned: number;
+  /** Long-yanked, unreferenced public images deleted from the registry. */
+  publicImagesCollected: number;
 }> {
   let failures = 0;
   const tenants = (await publishers.list()).filter((p) => p.ownerOrgId && p.ownerOrgId !== SYSTEM_ORG_ID && !p.suspendedAt);
@@ -169,52 +171,43 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
       logger.warn('Publisher upkeep failed', { publisher: p.handle, error: errorMessage(err) });
     }
   }
-  // The re-sign queue is one step among the others: its failure (a database
-  // blip listing the jobs) must not skip the SLA notices or submission upkeep.
-  let resign = { resigned: 0, failed: 0, completed: 0 };
-  const empty = { publishers: tenants.length, failures, resigned: 0, slaBreachesNotified: 0, advisoryOrgsNotified: 0, submissionsExpired: 0, submitterEmailsPurged: 0, searchMissesPruned: 0 };
-  if (signal?.aborted) return empty;
-  try {
-    resign = await runResignJobs(undefined, signal);
-  } catch (err) {
-    failures++;
-    logger.warn('Re-sign pass failed', { error: errorMessage(err) });
-  }
-  if (signal?.aborted) return { ...empty, failures, resigned: resign.resigned };
-  let slaBreachesNotified = 0;
-  try {
-    slaBreachesNotified = await notifySlaBreaches(now);
-  } catch (err) {
-    failures++;
-    logger.warn('SLA-breach check failed', { error: errorMessage(err) });
-  }
-  let advisoryOrgsNotified = 0;
-  try {
-    advisoryOrgsNotified = await retryAdvisoryFanOut(now);
-  } catch (err) {
-    failures++;
-    logger.warn('Advisory fan-out retry failed', { error: errorMessage(err) });
-  }
-  let submissionsExpired = 0;
-  let submitterEmailsPurged = 0;
-  try {
-    submissionsExpired = await expireSubmissions(now);
-    submitterEmailsPurged = await purgeSubmitterEmails(now);
-  } catch (err) {
-    failures++;
-    logger.warn('Submission upkeep failed', { error: errorMessage(err) });
-  }
-  let searchMissesPruned = 0;
-  try {
-    const swept = await sweepSearchMisses(now);
-    searchMissesPruned = swept.pruned + swept.folded;
-  } catch (err) {
-    failures++;
-    logger.warn('Search-miss retention sweep failed', { error: errorMessage(err) });
-  }
-  return {
-    publishers: tenants.length, failures, resigned: resign.resigned, slaBreachesNotified, advisoryOrgsNotified, submissionsExpired, submitterEmailsPurged, searchMissesPruned,
+
+  /**
+   * Run one step unless the lease was lost. A step's failure (a database blip,
+   * a registry outage) is counted and logged, never allowed to skip the others.
+   */
+  const step = async (failed: string, fn: () => Promise<void>): Promise<void> => {
+    if (signal?.aborted) return;
+    try {
+      await fn();
+    } catch (err) {
+      failures++;
+      logger.warn(failed, { error: errorMessage(err) });
+    }
   };
+
+  const out = {
+    resigned: 0,
+    slaBreachesNotified: 0,
+    advisoryOrgsNotified: 0,
+    submissionsExpired: 0,
+    submitterEmailsPurged: 0,
+    searchMissesPruned: 0,
+    publicImagesCollected: 0,
+  };
+  await step('Re-sign pass failed', async () => { out.resigned = (await runResignJobs(undefined, signal)).resigned; });
+  await step('SLA-breach check failed', async () => { out.slaBreachesNotified = await notifySlaBreaches(now); });
+  await step('Advisory fan-out retry failed', async () => { out.advisoryOrgsNotified = await retryAdvisoryFanOut(now); });
+  await step('Submission upkeep failed', async () => {
+    out.submissionsExpired = await expireSubmissions(now);
+    out.submitterEmailsPurged = await purgeSubmitterEmails(now);
+  });
+  await step('Search-miss retention sweep failed', async () => {
+    const swept = await sweepSearchMisses(now);
+    out.searchMissesPruned = swept.pruned + swept.folded;
+  });
+  await step('Public image collection failed', async () => { out.publicImagesCollected = await collectYankedPublicImages(now, signal); });
+  return { publishers: tenants.length, failures, ...out };
 }
 
 /** Build (not start) the scheduler: every 15 minutes, leader-locked on the shared Redis. */

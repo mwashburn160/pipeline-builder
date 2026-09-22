@@ -152,7 +152,7 @@ export function OrgPicker({
             </button>
           ))}
           {search.loading && <div className="px-3 py-2 text-fg-muted" role="status">Searching…</div>}
-          {!search.loading && search.error && <div className="px-3 py-2 text-red-600 dark:text-red-400">{search.error}</div>}
+          {!search.loading && search.error && <div className="px-3 py-2 text-danger">{search.error}</div>}
           {!search.loading && !search.error && search.options.length === 0 && (
             <div className="px-3 py-2 text-fg-muted">No matching organizations.</div>
           )}
@@ -250,7 +250,7 @@ export function OrgMultiPicker({ value, onChange, disabled, className = '', 'ari
             );
           })}
           {search.loading && <div className="px-3 py-2 text-fg-muted" role="status">Searching…</div>}
-          {!search.loading && search.error && <div className="px-3 py-2 text-red-600 dark:text-red-400">{search.error}</div>}
+          {!search.loading && search.error && <div className="px-3 py-2 text-danger">{search.error}</div>}
         </div>
       )}
     </div>

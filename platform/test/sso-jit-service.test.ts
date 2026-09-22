@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Just-in-time SSO provisioning (3a, services/sso-jit-service.ts).
+ * Just-in-time SSO provisioning (services/sso-jit-service.ts).
  *
  * Every rule the plan names, one test each:
  *   - seats: the pooled check the invitation path runs, and the sign-in REFUSED
@@ -18,6 +18,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { seatsMock } from './helpers/seats-mock.js';
 
 const mockIsSsoEntitled = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockResolveMappedRoles = jest.fn<(...a: unknown[]) => Promise<{ roleIds: string[]; matchedGroups: string[] }>>();
@@ -54,7 +55,6 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
 
 jest.unstable_mockModule('../src/services/idp-group-mapping-service.js', () => ({
   idpGroupMappingService: { resolveMappedRoles: (...a: unknown[]) => mockResolveMappedRoles(...a) },
-  MAX_MAPPINGS_PER_ORG: 100,
 }));
 
 jest.unstable_mockModule('../src/services/mapped-roles.js', () => ({
@@ -65,7 +65,7 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   recomputeUserOrgRole: (...a: unknown[]) => mockRecompute(...a),
 }));
 
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({
+jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
   seatCapacityAvailable: (...a: unknown[]) => mockSeatCapacityAvailable(...a),
   seatCapacityStillWithinCap: (...a: unknown[]) => mockSeatStillWithinCap(...a),
   userHasSeatInAccount: (...a: unknown[]) => mockUserHasSeat(...a),

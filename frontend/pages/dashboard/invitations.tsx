@@ -461,8 +461,8 @@ export default function InvitationsPage() {
 
           {sendResult && (
             <div className={`rounded-lg px-3 py-2 text-sm mb-2 ${sendResult.failed === 0
-              ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-              : 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'}`}
+              ? 'bg-success-bg text-success-strong'
+              : 'bg-warning-bg text-warning-strong'}`}
             >
               Sent <strong>{sendResult.sent}</strong>, failed <strong>{sendResult.failed}</strong>.
               {sendResult.errors.length > 0 && (

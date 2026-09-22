@@ -7,20 +7,20 @@
  * Platform's own audit events (user.login, org.create, …) live in MongoDB
  * via the AuditEvent model — that's a separate persistence path scoped to
  * the platform service. The events below are emitted by other services
- * (image-registry, etc.) via the `emitAudit` helper as structured log
+ * (image-registry, etc.) via the `logAuditEvent` helper as structured log
  * lines with `eventCategory: 'audit'`, scraped by Loki for queryable
  * audit history.
  *
  * Add a new event:
  *   1. Extend the union type below.
- *   2. Document it in `docs/audit-events.md` (or wherever the audit-events
- *      doc lives) including any payload-specific fields.
- *   3. Emit via `emitAudit(logger, 'event.name', { … })` from the route.
+ *   2. Document it in `docs/audit-events.md`, including any payload-specific
+ *      fields.
+ *   3. Emit via `logAuditEvent(logger, { event: 'event.name', … })` from the route.
  */
 
 /**
- * Correlation context shared by every cross-service audit event. Optional so
- * existing emit sites compile unchanged; when populated, these let an operator
+ * Correlation context shared by every cross-service audit event. Optional;
+ * when populated, these let an operator
  * pivot a Loki audit line to the originating HTTP request (`requestId`) or the
  * end-to-end distributed trace (`traceId`) — and line them up with platform's
  * MongoDB audit events, which carry the same two fields.

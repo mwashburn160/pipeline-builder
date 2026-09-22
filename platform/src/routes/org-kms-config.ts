@@ -29,7 +29,7 @@ const router: Router = Router({ mergeParams: true });
 // authority. Superadmins bypass `requirePermission` via `hasPermission`.
 router.get('/', requireAuth, requirePermission('org:kms'), getOrgKmsConfig);
 // Mutations re-encrypt every per-org secret under a new CMK — gate on step-up so
-// a stolen session can't rotate the wrapping key, and on assurance (#8) so the
+// a stolen session can't rotate the wrapping key, and on assurance so the
 // session itself is MFA-grade. Pointing an org at an attacker-controlled CMK is
 // as close to "read every secret this org has" as a single write gets, so the
 // step-up must be earned by a SECOND FACTOR (passkey or authenticator code), not

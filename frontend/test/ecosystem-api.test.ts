@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The plugin-ecosystem API domain (plan W1): every method hits the contract's
+ * The plugin-ecosystem API domain: every method hits the contract's
  * path with the right verb and body, and the step-up-gated console writes carry
  * the `X-Step-Up-Token` header.
  */

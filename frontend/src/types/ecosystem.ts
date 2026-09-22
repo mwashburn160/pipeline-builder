@@ -2,23 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin-ecosystem types (docs/plans/plugin-ecosystem.md §3.0, §3.1, §3.1a):
+ * Plugin-ecosystem types:
  * publishers, listings, publish requests and the Ecosystem console's queue,
- * review diff and auto-approval rules. Mirrors the plugin service's W1 API.
+ * review diff and auto-approval rules. Mirrors the plugin service's ecosystem API.
  */
 
-import type { PluginCatalogEdits, PluginCatalogField, PluginMetadataSource } from './index';
+import type { PluginCatalogEdits, PluginCatalogField, MetadataSource } from './index';
 import type { SubmissionModerationView } from './plugin-submissions';
 import type { HealthBreakdown } from '@/lib/public-directory/types';
 
-export type PublisherTier = 'official' | 'verified' | 'community' | 'unverified';
-export type EcosystemListingState = 'listed' | 'unmaintained' | 'suspended' | 'transferred';
-export type PublishRequestKind = 'new_listing' | 'new_version' | 'listing_update' | 'yank' | 'unpause'
-  | 'transfer' | 'claim' | 'profile_change' | 'verify' | 'moderation' | 'advisory'
-  /** An anonymous community submission that passed every automated gate (W5). Server-created only. */
-  | 'submission';
-export type PublishRequestStatus = 'pending' | 'pending_second_approval' | 'approved' | 'rejected' | 'withdrawn';
-export type PublishRequestLane = 'standard' | 'security';
+import type {
+  AdvisorySeverity, AdvisorySource, AdvisoryState, ListingState, PublisherTier, PublishRequestKind, PublishRequestLane,
+  PublishRequestStatus,
+} from '@pipeline-builder/api-core';
+
+export type {
+  AdvisorySeverity, AdvisorySource, AdvisoryState, ListingState, PublisherTier, PublishRequestKind, PublishRequestLane,
+  PublishRequestStatus,
+};
 
 export interface Publisher {
   id: string;
@@ -34,7 +35,7 @@ export interface Publisher {
   suspendedAt: string | null;
   suspendReason: string | null;
   ownerOrgId: string | null;
-  /** W7 roll-ups: install-weighted mean health of its live listings, and the run-weighted 30-day success rate. */
+  /** Roll-ups: install-weighted mean health of its live listings, and the run-weighted 30-day success rate. */
   healthScore?: number | null;
   successRate30d?: number | null;
   createdAt: string;
@@ -53,11 +54,11 @@ export interface ListingVersionView {
   vulnCritical: number | null;
   vulnHigh: number | null;
   scannedAt?: string | null;
-  /** The base image's `created` time, recorded at publish (W7 freshness). */
+  /** The base image's `created` time, recorded at publish (the health score's freshness signal). */
   baseImageCreatedAt?: string | null;
   publishedAt: string;
   changelog: string | null;
-  /** Deprecated (W8): still resolves, with a warning carrying the message. */
+  /** Deprecated: still resolves, with a warning carrying the message. */
   deprecatedAt: string | null;
   deprecationMessage: string | null;
 }
@@ -76,7 +77,7 @@ export interface ListingView {
   sourceUrl: string | null;
   icon: { key: string; badge?: string } | null;
   keywords: string[];
-  state: EcosystemListingState;
+  state: ListingState;
   pausedAt: string | null;
   featured: boolean;
   latestVersion: string | null;
@@ -84,16 +85,16 @@ export interface ListingView {
   updatedAt: string;
   versions?: ListingVersionView[];
   openRequests?: number;
-  /** 0–100 health score (W7) and its per-signal breakdown, where the view carries stats. */
+  /** 0–100 health score and its per-signal breakdown, where the view carries stats. */
   healthScore?: number | null;
   healthBreakdown?: HealthBreakdown | null;
 }
 
-/** One listing on the publisher Insights tab (GET /plugins/publisher/insights, W7). */
+/** One listing on the publisher Insights tab (GET /plugins/publisher/insights). */
 export interface PublisherListingInsight {
   listingId: string;
   name: string;
-  state: EcosystemListingState;
+  state: ListingState;
   paused: boolean;
   latestVersion: string | null;
   installCount: number;
@@ -127,7 +128,7 @@ export interface PublishRequestPayload {
   version?: string;
   metadata?: {
     values?: Partial<Record<PluginCatalogField, unknown>>;
-    sources?: Partial<Record<PluginCatalogField, PluginMetadataSource>>;
+    sources?: Partial<Record<PluginCatalogField, MetadataSource>>;
   };
   breaking?: boolean;
   bootstrap?: boolean;
@@ -143,13 +144,13 @@ export interface PublishRequestPayload {
   /** A Verified application's eligibility, as checked when it was submitted. */
   eligibility?: VerifiedEligibility;
   action?: 'unyank' | 'unsuspend_publisher' | 'relist' | 'tier_verified';
-  /** `advisory` requests (W8): the draft being published. */
+  /** `advisory` requests: the draft being published. */
   advisoryId?: string;
   severity?: AdvisorySeverity;
   summary?: string;
   affectedRange?: string;
   submitter?: { principalType: 'user' | 'service_account'; name?: string };
-  /** `submission` requests (W5): the quarantined submission, and whether it creates the listing. */
+  /** `submission` requests: the quarantined submission, and whether it creates the listing. */
   submissionId?: string;
   newListing?: boolean;
   [key: string]: unknown;
@@ -214,7 +215,7 @@ export interface PublishGate {
 export interface DraftMetadataField {
   field: PluginCatalogField;
   value: unknown;
-  source: PluginMetadataSource | null;
+  source: MetadataSource | null;
   /** The live listing's value (new_version only). */
   current?: unknown;
   /** new_version: the detected value differs from the live listing. */
@@ -261,7 +262,7 @@ export type PublishRequestBody =
     listingId: string;
     metadata: PluginCatalogEdits;
     /** Provenance of ACCEPTED detected values; omitted fields default to `user` (edited). */
-    sources?: Partial<Record<PluginCatalogField, PluginMetadataSource>>;
+    sources?: Partial<Record<PluginCatalogField, MetadataSource>>;
   }
   | { kind: 'yank'; listingId: string; version: string; reason: string }
   | { kind: 'unpause'; listingId: string; version?: string; reason?: string }
@@ -272,12 +273,9 @@ export type PublishRequestBody =
   | { kind: 'advisory'; listingId: string; advisory: AdvisoryInput };
 
 // ---------------------------------------------------------------------------
-// Security advisories (W8, plan §3.2 `blockOnAdvisory`, §5b N20/N21)
+// Security advisories (an org's consumption policy can block on them: `blockOnAdvisory`)
 // ---------------------------------------------------------------------------
 
-export type AdvisorySeverity = 'critical' | 'high' | 'medium' | 'low';
-export type AdvisoryState = 'draft' | 'published' | 'withdrawn';
-export type AdvisorySource = 'publisher' | 'moderator' | 'cve_rescan' | 'review';
 
 /** The editable fields of an advisory (a publisher's request, or a moderator's draft). */
 export interface AdvisoryInput {
@@ -344,7 +342,7 @@ export interface ReviewDiff {
     field: PluginCatalogField;
     value: unknown;
     previous: unknown;
-    source: PluginMetadataSource | null;
+    source: MetadataSource | null;
     changed: boolean;
     userEdited: boolean;
     isLink: boolean;
@@ -394,7 +392,7 @@ export interface ResignJob {
   createdAt: string;
 }
 
-/** One automatic Verified-eligibility check (plan §3.7). `ok: null` = platform couldn't answer. */
+/** One automatic Verified-eligibility check. `ok: null` = platform couldn't answer. */
 export type VerifiedCheckId = 'plan' | 'domain' | 'owner_mfa';
 export interface VerifiedCheck {
   id: VerifiedCheckId;
@@ -420,7 +418,7 @@ export interface ApproverCount {
   superadmins: number;
 }
 
-/** An approver count with the plan's floors applied (§3.0.1). `count: null` = unknown. */
+/** An approver count with the staffing floors applied. `count: null` = unknown. */
 export interface ApproverStanding {
   permission: 'plugins:moderate' | 'publishers:verify';
   count: ApproverCount | null;
@@ -446,13 +444,13 @@ export interface EcosystemRequestDetail {
   /** A LIVE re-check of an open Verified application (null for other kinds). */
   eligibility: VerifiedEligibility | null;
   /**
-   * `submission` requests (W5): the gate report, heuristics, quarantine image
+   * `submission` requests: the gate report, heuristics, quarantine image
    * and scans. Read through `normalizeSubmissionModeration`, which also takes
    * the server's raw `{ gateReport: { gates, facts }, heuristics: { findings } }`.
    */
   submission?: SubmissionModerationView | Record<string, unknown> | null;
   /**
-   * `claim` requests on a `community` listing (W5, E10): does the claimer's
+   * `claim` requests on a `community` listing: does the claimer's
    * verified email match the listing's approving submission? null = not a
    * community listing / unknown.
    */
@@ -486,7 +484,7 @@ export interface EcosystemOverview {
   /** The service account the Official catalog loader submits as. */
   officialLoaderAccount?: string;
   /** Trust re-sign jobs (tier / listing-state changes re-annotating images). */
-  resignJobs?: ResignJob[];  /** Review moderation queue sizes (W4). */
+  resignJobs?: ResignJob[];  /** Review moderation queue sizes. */
   reviews: { held: number; reported: number };
 }
 

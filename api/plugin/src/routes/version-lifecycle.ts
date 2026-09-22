@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Version lifecycle that DOES something (plugin-ecosystem W0.4):
+ * Version lifecycle that DOES something:
  *
  * - `POST /plugins/:id/deprecate` — mark a version deprecated (or clear it with
  *   `{ deprecated: false }`). It keeps resolving, but `/plugins/lookup` and
@@ -12,13 +12,14 @@
  *   `latest` and the default skip it; an exact pin still finds it, with a
  *   warning carrying the reason. Yanking the default promotes the next one. A
  *   version published to the ecosystem is yanked by the system org on request
- *   (409 here).
+ * (409 here).
  *
  * Expects auth + orgId + tenant scope and `plugins:write` from the parent mount.
  */
 
 import {
   ErrorCode, actorId, audited, getParam, requireVisibilityWriteAccess, sendBadRequest, sendEntityNotFound, sendSuccess, validateBody,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -26,7 +27,6 @@ import { z } from 'zod';
 
 import { onPluginDeprecated } from '../helpers/deprecation-notice.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
-import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const DeprecateBodySchema = z.object({
@@ -62,7 +62,7 @@ export function createVersionLifecycleRoutes(): Router {
     if (deprecated && !wasDeprecated) void onPluginDeprecated(updated, actorId({ userId }));
     ctx.log('COMPLETED', deprecated ? 'Plugin version deprecated' : 'Plugin version un-deprecated', { id, name: updated.name });
 
-    emitPluginAudit({
+    recordAudit({
       action: 'plugin.version.deprecate',
       actorId: actorId({ userId }),
       orgId,
@@ -90,7 +90,7 @@ export function createVersionLifecycleRoutes(): Router {
 
     ctx.log('COMPLETED', 'Plugin version yanked', { id, name: yanked.name, promotedId: promoted?.id });
 
-    emitPluginAudit({
+    recordAudit({
       action: 'plugin.version.yank',
       actorId: actorId({ userId }),
       orgId,

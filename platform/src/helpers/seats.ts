@@ -9,7 +9,7 @@ import { Invitation, Organization, UserOrganization } from '../models/index.js';
 /**
  * Whether an org's account has room for `addCount` more member(s).
  *
- * Seats POOL AT THE ROOT (docs/org-team-hierarchy.md §5.2): the limit is the
+ * Seats POOL AT THE ROOT (docs/billing-bundles.md "Pooling across teams"): the limit is the
  * ROOT org's `quotas.seats`, and usage is the LIVE count of **distinct active
  * humans** across the whole subtree (a person on several teams is ONE seat)
  * plus pending invites (each reserves a seat until accepted/expired). A limit
@@ -61,7 +61,7 @@ export async function seatCapacityAvailable(
 }
 
 /**
- * Post-write seat re-check for the transactional reservation pattern (G5).
+ * Post-write seat re-check for the transactional reservation pattern.
  *
  * Call this AFTER inserting the membership / pending-invite row, still inside the
  * SAME `withMongoTransaction` and threading the same `session`. It recounts pooled
@@ -85,8 +85,7 @@ export async function seatCapacityAvailable(
  * reflects the other's commit; a same-document retry). Fully closing the race would
  * need a single serialization point every writer contends on — e.g. a per-account
  * seat-counter document bumped in each transaction so concurrent writers
- * write-conflict and one retries — i.e. a schema change, deliberately left out of
- * scope here (see project memory: no risky schema redesign). Consistent with the
+ * write-conflict and one retries — i.e. a schema change. Consistent with the
  * documented "over-count errs toward blocking early" stance, the residual error is
  * a small overshoot, not a hard failure.
  */
@@ -103,10 +102,6 @@ export async function seatCapacityStillWithinCap(
  * already active anywhere in the account consumes NO new seat when added/
  * reactivated/assigned elsewhere. Callers use the result to decide whether a
  * seat-capacity check even applies (and to gate the post-write re-check).
- *
- * Extracted so the subtree-resolve + membership-exists pre-flight — previously
- * copy-pasted across addMember / activateMember / the sysadmin org-assign path —
- * lives in one place and can't drift.
  */
 export async function userHasSeatInAccount(
   userId: Types.ObjectId | string,
@@ -117,6 +112,41 @@ export async function userHasSeatInAccount(
   return !!(await UserOrganization.exists({
     userId, organizationId: { $in: subtreeIds }, isActive: true,
   }).session(session ?? null));
+}
+
+export interface SeatGuardOptions {
+  /** The person taking the seat. When set and they already hold one in the
+   *  account, no new seat is consumed and neither check runs. Omit for a write
+   *  that always reserves a new seat (a pending invite). */
+  userId?: Types.ObjectId | string;
+  /** Any org in the account; seats are resolved at its root. */
+  orgId: string;
+  session?: ClientSession | null;
+  /** Thrown (as `new Error(errorCode)`) when the account is at its cap. */
+  errorCode?: string;
+  /** Builds the error to throw instead, for callers with a structured refusal. */
+  refuse?: () => Promise<Error> | Error;
+  /** False when this write takes no seat at all (e.g. an inactive SCIM create). Default true. */
+  consumesSeat?: boolean;
+}
+
+/**
+ * Run a seat-taking write under the pooled seat cap: the pre-write capacity
+ * check, the write, then the post-write re-check inside the SAME transaction
+ * (see {@link seatCapacityStillWithinCap}) — throwing `errorCode` from either so
+ * the surrounding transaction aborts and rolls the write back. A person who
+ * already holds a seat in the account consumes no new one, so both checks are
+ * skipped for them.
+ */
+export async function withSeatGuard<T>(opts: SeatGuardOptions, insert: () => Promise<T>): Promise<T> {
+  const session = opts.session ?? null;
+  const refusal = async (): Promise<Error> => (opts.refuse ? opts.refuse() : new Error(opts.errorCode));
+  const consumes = opts.consumesSeat !== false
+    && !(opts.userId !== undefined && await userHasSeatInAccount(opts.userId, opts.orgId, session));
+  if (consumes && !(await seatCapacityAvailable(opts.orgId, 1, session))) throw await refusal();
+  const result = await insert();
+  if (consumes && !(await seatCapacityStillWithinCap(opts.orgId, session))) throw await refusal();
+  return result;
 }
 
 /**

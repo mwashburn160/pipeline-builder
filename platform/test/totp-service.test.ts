@@ -126,7 +126,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findById: (id: string) => chainable(users[String(id)] ?? null),
   },
   MfaRecoveryCodes: recovery.model,
-  WebAuthnCredential: { countDocuments: async () => passkeys },
+  WebAuthnCredential: { countDocuments: async () => passkeys, exists: async () => (passkeys > 0 ? { _id: 'p' } : null) },
 }));
 
 // SSO enforcement pulls in the org/IdP/entitlement graph; only the ANSWER matters here.
@@ -149,6 +149,7 @@ jest.unstable_mockModule('../src/helpers/sign-in-methods.js', () => ({
 }));
 
 const totp = await import('../src/services/totp-service.js');
+const { hasActiveTotp } = await import('../src/helpers/auth-factors.js');
 const recoveryService = await import('../src/services/recovery-codes-service.js');
 const errors = await import('../src/services/totp-errors.js');
 const { totpCodeForStep, timeStepAt, hashRecoveryCode } = await import('../src/utils/totp.js');
@@ -207,11 +208,11 @@ describe('enrolment', () => {
 
   it('is not a factor until a code confirms it', async () => {
     await totp.beginEnrolment(USER);
-    expect(await totp.hasActiveTotp(USER)).toBe(false);
+    expect(await hasActiveTotp(USER)).toBe(false);
     expect((await totp.getStatus(USER))).toMatchObject({ enabled: false, pending: true });
 
     await totp.activate(USER, await currentCode());
-    expect(await totp.hasActiveTotp(USER)).toBe(true);
+    expect(await hasActiveTotp(USER)).toBe(true);
     expect((await totp.getStatus(USER))).toMatchObject({ enabled: true, pending: false });
   });
 
@@ -321,7 +322,7 @@ describe('recovery codes', () => {
   });
 
   it('cannot be regenerated without a second factor', async () => {
-    await expect(recoveryService.regenerateRecoveryCodes(USER)).rejects.toThrow(recoveryService.RECOVERY_CODES_NO_FACTOR);
+    await expect(recoveryService.regenerateRecoveryCodes(USER)).rejects.toThrow('RECOVERY_CODES_NO_FACTOR');
   });
 
   it('are counted in the status view', async () => {
@@ -404,7 +405,7 @@ describe('disable', () => {
     const codes = await enrolAndActivate();
     await totp.disable(USER);
     expect(docs).toHaveLength(0);
-    expect(await totp.hasActiveTotp(USER)).toBe(false);
+    expect(await hasActiveTotp(USER)).toBe(false);
     expect(recovery.of(USER)).toBeUndefined();
     await expect(totp.verifyCode(USER, codes[0])).rejects.toThrow(errors.TOTP_NOT_ENROLLED);
   });
@@ -421,7 +422,7 @@ describe('disable', () => {
     mockRetains.mockReturnValue(false);
     await expect(totp.disable(USER)).rejects.toThrow(errors.TOTP_LAST_SIGN_IN_METHOD);
     // Nothing destroyed on the refused path.
-    expect(await totp.hasActiveTotp(USER)).toBe(true);
+    expect(await hasActiveTotp(USER)).toBe(true);
   });
 
   it('refuses when there is nothing enrolled', async () => {

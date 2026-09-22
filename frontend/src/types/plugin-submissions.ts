@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Anonymous public plugin submissions (docs/plans/plugin-ecosystem.md §4, W5).
+ * Anonymous public plugin submissions.
  * Mirrors the plugin service's `/public/plugin-submissions` API, which nginx
  * exposes as `/api/public/plugin-submissions`. No endpoint ever returns the
  * submitter's email.
@@ -10,18 +10,13 @@
 
 import type { PluginInspectField } from './index';
 
+import type { SubmissionStatus } from '@pipeline-builder/api-core';
+
 /**
  * A submission's lifecycle. `pending_review` covers both "automated gates
  * running" and "waiting for a moderator".
  */
-export type SubmissionStatus =
-  | 'pending_verification'
-  | 'pending_review'
-  | 'gate_failed'
-  | 'approved'
-  | 'rejected'
-  | 'expired'
-  | 'claimed';
+export type { SubmissionStatus };
 
 /** `GET /public/plugin-submissions/challenge`: a proof-of-work puzzle. */
 export interface SubmissionChallenge {
@@ -72,13 +67,13 @@ export interface SubmissionLintIssue {
 export interface SubmissionInspectResult {
   /** The spec summary. `smokeTest`: is one declared (null = not reported). */
   plugin: { name: string; version: string; pluginType: string | null; buildType: string | null; smokeTest: boolean | null };
-  /** Every descriptive catalog field with where its value came from (§3.1a). */
+  /** Every descriptive catalog field with where its value came from. */
   fields: PluginInspectField[];
   lint: SubmissionLintIssue[];
   /** A preview of the heuristics gate (no excerpts). A `high` finding fails the submission. */
   heuristics: HeuristicFinding[];
   /**
-   * The name check (E9). Inspect never sees the email, so a name already used
+   * The name check. Inspect never sees the email, so a name already used
    * by a community listing reads as taken here and is judged again at submit.
    */
   nameCheck: SubmissionGate | null;
@@ -112,7 +107,7 @@ export interface SubmissionStatusView {
 
 /**
  * What the Ecosystem console shows for a `submission` request, beside the
- * normal §3.0.2 review diff (`GET /plugins/ecosystem/requests/:id` → `submission`).
+ * normal review diff (`GET /plugins/ecosystem/requests/:id` → `submission`).
  */
 export interface SubmissionModerationView {
   id: string;

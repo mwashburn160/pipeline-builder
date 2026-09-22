@@ -2,27 +2,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The publisher dashboard's Insights tab (docs/plans/plugin-ecosystem.md §6
- * W7): per listing, what the publisher needs to run it — installs, how many
+ * The publisher dashboard's Insights tab (docs/plugin-publishing.md
+ * ): per listing, what the publisher needs to run it — installs, how many
  * orgs actually ran it (k-anonymous: below {@link K_ANONYMITY} it reads "<5",
- * never the exact small number, G15), the 30-day success rate, the rating trend
+ * never the exact small number), the 30-day success rate, the rating trend
  * (monthly average of published reviews over the last 12 months), open review
  * reports, open (published) advisories and the health score with its breakdown.
  *
  * Read-only, and only ever about the caller org's OWN publisher. Security
  * review reports are excluded from the report count: they route privately to
- * the advisory path (W8), and their existence is not the publisher's to see
+ * the advisory path, and their existence is not the publisher's to see
  * until a moderator acts.
  */
 
 import type { PluginReview, PluginReviewReport, PluginStats, Publisher } from '@pipeline-builder/pipeline-data';
 
-import { advisoryStore } from './advisories.js';
+import { advisoryStore } from './advisories-store.js';
 import type { Caller } from './context.js';
 import { listingStats, reports, reviews } from './reviews-store.js';
 import { listings, publishers } from './store.js';
+import { roundTo } from './util.js';
 
-/** Adoption counts below this are shown as "<5" (§5 G15). */
+/** Adoption counts below this are shown as "<5". */
 export const K_ANONYMITY = 5;
 /** Months in the rating trend. */
 export const RATING_TREND_MONTHS = 12;
@@ -63,7 +64,7 @@ export function monthlyRatingTrend(
   }
   return keys.map((month) => {
     const b = buckets.get(month)!;
-    return { month, average: b.count === 0 ? null : Math.round((b.sum / b.count) * 100) / 100, count: b.count };
+    return { month, average: b.count === 0 ? null : roundTo(b.sum / b.count, 2), count: b.count };
   });
 }
 
@@ -102,7 +103,7 @@ export async function publisherInsights(caller: Caller, now: Date = new Date()) 
   const ids = rows.map((l) => l.id);
   const [statsRows, allReviews, advisories] = await Promise.all([
     listingStats.byListings(ids),
-    Promise.all(ids.map((id) => reviews.forListing(id))).then((r) => r.flat()),
+    reviews.forListings(ids),
     advisoryStore.list({ publisherId: publisher.id, states: ['published'] }),
   ]);
   const statsBy = new Map<string, PluginStats>(statsRows.map((s) => [s.listingId, s]));
@@ -126,7 +127,7 @@ export async function publisherInsights(caller: Caller, now: Date = new Date()) 
         healthScore: s?.healthScore === null || s?.healthScore === undefined ? null : Math.round(s.healthScore),
         healthBreakdown: s?.healthBreakdown ?? null,
         rating: s && s.ratingCount > 0 && s.ratingBayes !== null
-          ? { score: Math.round(s.ratingBayes * 100) / 100, count: s.ratingCount }
+          ? { score: roundTo(s.ratingBayes, 2), count: s.ratingCount }
           : null,
         ratingTrend: monthlyRatingTrend(published, now),
         openReviewReports: openReports.get(l.id) ?? 0,

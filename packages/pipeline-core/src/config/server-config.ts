@@ -1,11 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, envBool, envInt, serviceEndpoint, type InternalService } from '@pipeline-builder/api-core';
 import { CoreConstants } from './app-config.js';
 import type { ServerConfig, AuthConfig, RateLimitConfig } from './config-types.js';
 
 const log = createLogger('server-config');
+
+/** `{ <key>Host, <key>Port }` for one sibling service, from the shared registry. */
+function endpoint<K extends string>(service: InternalService, key: K): Record<`${K}Host`, string> & Record<`${K}Port`, number> {
+  const { host, port } = serviceEndpoint(service);
+  return { [`${key}Host`]: host, [`${key}Port`]: port } as Record<`${K}Host`, string> & Record<`${K}Port`, number>;
+}
 
 /**
  * Load server configuration from environment variables.
@@ -21,44 +27,40 @@ const log = createLogger('server-config');
  */
 export function loadServerConfig(): ServerConfig {
   return {
-    port: parseInt(process.env.PORT || '3000', 10),
+    port: envInt('PORT', 3_000),
     cors: {
-      credentials: process.env.CORS_CREDENTIALS !== 'false',
+      credentials: envBool('CORS_CREDENTIALS', true),
       origin: process.env.CORS_ORIGIN
         ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
         : [process.env.PLATFORM_BASE_URL || CoreConstants.DEFAULT_PLATFORM_URL],
     },
-    trustProxy: parseInt(process.env.TRUST_PROXY || '1', 10),
+    trustProxy: envInt('TRUST_PROXY', 1),
     platformUrl: process.env.PLATFORM_BASE_URL || CoreConstants.DEFAULT_PLATFORM_URL,
 
     httpClient: {
-      timeout: parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10),
-      maxRetries: parseInt(process.env.HTTP_CLIENT_MAX_RETRIES || '2', 10),
-      retryDelayMs: parseInt(process.env.HTTP_CLIENT_RETRY_DELAY_MS || '200', 10),
+      timeout: envInt('HTTP_CLIENT_TIMEOUT', 5_000),
+      maxRetries: envInt('HTTP_CLIENT_MAX_RETRIES', 2),
+      retryDelayMs: envInt('HTTP_CLIENT_RETRY_DELAY_MS', 200),
     },
 
     sse: {
-      maxClientsPerRequest: parseInt(process.env.SSE_MAX_CLIENTS_PER_REQUEST || '10', 10),
-      clientTimeoutMs: parseInt(process.env.SSE_CLIENT_TIMEOUT_MS || '1800000', 10),
-      cleanupIntervalMs: parseInt(process.env.SSE_CLEANUP_INTERVAL_MS || '300000', 10),
+      maxClientsPerRequest: envInt('SSE_MAX_CLIENTS_PER_REQUEST', 10),
+      clientTimeoutMs: envInt('SSE_CLIENT_TIMEOUT_MS', 1_800_000),
+      cleanupIntervalMs: envInt('SSE_CLEANUP_INTERVAL_MS', 300_000),
     },
 
     services: {
-      pluginHost: process.env.PLUGIN_SERVICE_HOST || 'plugin',
-      pluginPort: parseInt(process.env.PLUGIN_SERVICE_PORT || '3000', 10),
-      pipelineHost: process.env.PIPELINE_SERVICE_HOST || 'pipeline',
-      pipelinePort: parseInt(process.env.PIPELINE_SERVICE_PORT || '3000', 10),
-      messageHost: process.env.MESSAGE_SERVICE_HOST || 'message',
-      messagePort: parseInt(process.env.MESSAGE_SERVICE_PORT || '3000', 10),
-      platformHost: process.env.PLATFORM_SERVICE_HOST || 'platform',
-      platformPort: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
-      complianceHost: process.env.COMPLIANCE_SERVICE_HOST || 'compliance',
-      compliancePort: parseInt(process.env.COMPLIANCE_SERVICE_PORT || '3000', 10),
-      billingHost: process.env.BILLING_SERVICE_HOST || 'billing',
-      billingPort: parseInt(process.env.BILLING_SERVICE_PORT || '3000', 10),
-      billingTimeout: parseInt(process.env.BILLING_SERVICE_TIMEOUT || '5000', 10),
-      imageRegistryHost: process.env.IMAGE_REGISTRY_SERVICE_HOST || 'image-registry',
-      imageRegistryPort: parseInt(process.env.IMAGE_REGISTRY_SERVICE_PORT || '3000', 10),
+      ...endpoint('plugin', 'plugin'),
+      ...endpoint('pipeline', 'pipeline'),
+      ...endpoint('message', 'message'),
+      ...endpoint('platform', 'platform'),
+      ...endpoint('compliance', 'compliance'),
+      ...endpoint('billing', 'billing'),
+      ...endpoint('image-registry', 'imageRegistry'),
+      ...endpoint('quota', 'quota'),
+      ...endpoint('reporting', 'reporting'),
+      ...endpoint('ask', 'ask'),
+      billingTimeout: envInt('BILLING_SERVICE_TIMEOUT', 5000, { min: 1 }),
     },
   };
 }
@@ -77,11 +79,11 @@ export function loadServerConfig(): ServerConfig {
 export function loadAuthConfig(): AuthConfig {
   return {
     jwt: {
-      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '7200', 10),
-      saltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '12', 10),
+      expiresIn: envInt('JWT_EXPIRES_IN', 7_200),
+      saltRounds: envInt('BCRYPT_SALT_ROUNDS', 12),
     },
     refreshToken: {
-      expiresIn: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN || '2592000', 10),
+      expiresIn: envInt('REFRESH_TOKEN_EXPIRES_IN', 2_592_000),
     },
   };
 }
@@ -97,8 +99,8 @@ export function loadAuthConfig(): AuthConfig {
  */
 export function loadRateLimitConfig(): RateLimitConfig {
   return {
-    max: parseInt(process.env.LIMITER_MAX || '100', 10),
-    windowMs: parseInt(process.env.LIMITER_WINDOWMS || '900000', 10),
+    max: envInt('LIMITER_MAX', 100),
+    windowMs: envInt('LIMITER_WINDOWMS', 900_000),
   };
 }
 
@@ -143,7 +145,7 @@ export function validateServerConfig(config: ServerConfig): void {
  *
  * No SECRET is validated any more: there is none left. User tokens are ES256
  * signed by platform (whose signing key is validated at platform's boot, where
- * it is loaded) and internal service tokens are ES256 signed per service (#14),
+ * it is loaded) and internal service tokens are ES256 signed per service,
  * whose key and bundle `createApp` requires at startup.
  *
  * @param config - Auth configuration to validate

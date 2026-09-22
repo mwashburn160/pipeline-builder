@@ -18,7 +18,7 @@ import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import { applyCatalogEdits, formatListingsQuota } from '@/lib/ecosystem';
-import type { PluginCatalogEdits, PluginCatalogField, PluginMetadataSource } from '@/types';
+import type { PluginCatalogEdits, PluginCatalogField, MetadataSource } from '@/types';
 import type { PublishDraft, PublishGate } from '@/types/ecosystem';
 import { ListingCardPreview } from './ListingCardPreview';
 import { ListingUpdateOffer } from './ListingUpdateOffer';
@@ -61,8 +61,8 @@ export function describePublishError(err: unknown): { message: string; gates?: P
 export function acceptedOfferSources(
   draft: Pick<PublishDraft, 'metadata' | 'listingUpdateOffer'>,
   offerEdits: PluginCatalogEdits,
-): Partial<Record<PluginCatalogField, PluginMetadataSource>> {
-  const out: Partial<Record<PluginCatalogField, PluginMetadataSource>> = {};
+): Partial<Record<PluginCatalogField, MetadataSource>> {
+  const out: Partial<Record<PluginCatalogField, MetadataSource>> = {};
   for (const offered of draft.listingUpdateOffer) {
     if (!Object.prototype.hasOwnProperty.call(offerEdits, offered.field)) continue;
     const accepted = JSON.stringify(offerEdits[offered.field] ?? null) === JSON.stringify(offered.value ?? null);
@@ -94,7 +94,7 @@ interface Props {
 
 /**
  * Submit a `new_listing` or `new_version` request for one of the org's plugin
- * versions (plan §3.1, §3.1a). The server's draft decides which, lists the
+ * versions. The server's draft decides which, lists the
  * gates (a failing gate blocks submit) and pre-fills the catalog fields:
  *
  *  - new listing: the accept-or-edit field list plus a live directory-card

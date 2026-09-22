@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -31,19 +32,23 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({ seedDefaultRoles: jest.fn() }));
 jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertNotLastPrivilegedMember: jest.fn() }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: {} } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: {} }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({ withMongoTransaction: (fn: (s: unknown) => unknown) => fn({}) }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn(),
   signServiceAccountToken: jest.fn(),
-  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
   issueTokens: jest.fn(),
   renewSessionTokens: jest.fn(),
 }));
@@ -119,7 +124,7 @@ describe('userProfileService preferences', () => {
     expect(view.notifications).toEqual({ muteQuotaWarnings: true, ecosystem: { reviewsEmail: true, upgradesEmail: true, installsEmail: true, moderationDigestEmail: true } });
   });
 
-  it('sets individual ecosystem email opt-outs (plugin-ecosystem §5b); only an explicit false opts out', async () => {
+  it('sets individual ecosystem email opt-outs; only an explicit false opts out', async () => {
     mockFindOneAndUpdate.mockReturnValue(lean({ notifications: { ecosystem: { reviewsEmail: false } } }));
     const view = await userProfileService.updatePreferences('u1', 'org-1', { notifications: { ecosystem: { reviewsEmail: false, upgradesEmail: true } } });
     expect(mockFindOneAndUpdate).toHaveBeenCalledWith(

@@ -79,7 +79,7 @@ export function SsoStatusSummary({
           <dd>
             {config.lastTest
               ? (
-                <span className={config.lastTest.ok ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}>
+                <span className={config.lastTest.ok ? 'text-success' : 'text-danger'}>
                   {config.lastTest.ok ? 'Succeeded' : `Failed (${config.lastTest.reason ?? 'error'})`} · {formatDateTime(config.lastTest.at)}
                 </span>
               )

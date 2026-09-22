@@ -21,7 +21,7 @@ function cdkActionKey(stepId: string): string {
 
 /**
  * Collects (step → resolved plugin) pairs while the stages are built, then
- * reads the finished CodePipeline to emit the step manifest (W0.1). Only
+ * reads the finished CodePipeline to emit the step manifest. Only
  * plugins that were really resolved are recorded — the synth-time
  * `fallback()` / `bootstrap()` placeholders name no `plugins` row.
  */

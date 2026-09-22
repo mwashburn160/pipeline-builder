@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery, API_URL } from '../util';
+import { buildQuery } from '../util';
 import { ApiError } from '../errors';
 import type { ApiResponse, Message, MessageAttachment, MessageType, MessagePriority } from '@/types';
 
@@ -183,21 +183,15 @@ export function messagesApi(core: ApiCore) {
     /** Upload one attachment (multipart). Returns its metadata + id; include the
      *  id in a subsequent sendMessage/replyToMessage `attachmentIds`. */
     uploadAttachment: async (file: File, options?: { signal?: AbortSignal }) => {
-      await core.ensureFreshToken();
       const formData = new FormData();
       formData.append('file', file);
-      const response = await fetch(`${API_URL}/api/messages/attachments`, {
+      return core.request<ApiResponse<{ attachment: MessageAttachment }>>('/api/messages/attachments', {
         method: 'POST',
-        headers: core.authHeaders(),
         body: formData,
-        credentials: 'same-origin',
         signal: options?.signal,
+        timeoutMs: null,
+        errorMessage: 'Upload failed',
       });
-      const data = await response.json().catch(() => ({ message: 'Upload failed', success: false }));
-      if (response.status >= 400) {
-        throw new ApiError(data.message || 'Upload failed', response.status, data.code);
-      }
-      return data as ApiResponse<{ attachment: MessageAttachment }>;
     },
 
     /** List a message's attachment metadata. */
@@ -210,15 +204,8 @@ export function messagesApi(core: ApiCore) {
      *  Pass `thumb` for the downscaled preview (server falls back to the original
      *  when no thumbnail exists). */
     fetchAttachmentBlob: async (id: string, opts?: { thumb?: boolean }): Promise<Blob> => {
-      await core.ensureFreshToken();
       const q = opts?.thumb ? '?thumb=1' : '';
-      const response = await fetch(`${API_URL}/api/messages/attachments/${id}${q}`, {
-        headers: core.authHeaders(),
-        credentials: 'same-origin',
-      });
-      if (response.status >= 400) {
-        throw new ApiError('Attachment download failed', response.status);
-      }
+      const response = await core.requestRaw(`/api/messages/attachments/${id}${q}`, { errorMessage: 'Attachment download failed' });
       return response.blob();
     },
 

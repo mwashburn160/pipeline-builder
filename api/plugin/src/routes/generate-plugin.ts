@@ -59,13 +59,13 @@ function parentOrgIdOf(req: Request): string | undefined {
 export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
-  // -- GET /providers  list configured AI providers --------------------------
+  // -- GET /providers list configured AI providers --------------------------
   router.get('/providers', requireFeature('ai_generation'), requirePermission('plugins:read'), withRoute(async ({ res }) => {
     const providers = getAvailableProviders();
     return sendSuccess(res, 200, { providers });
   }));
 
-  // -- POST /generate  generate plugin config from natural language ----------
+  // -- POST /generate generate plugin config from natural language ----------
   router.post('/generate', requireFeature('ai_generation'), requirePermission('plugins:write'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
@@ -125,7 +125,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
     }
   }));
 
-  // -- POST /generate/stream  stream plugin config as SSE events -------------
+  // -- POST /generate/stream stream plugin config as SSE events -------------
   router.post('/generate/stream', requireFeature('ai_generation'), requirePermission('plugins:write'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
@@ -168,7 +168,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         providerContacted = true;
         if (sse.aborted()) break;
         try {
-          res.write(`data: ${JSON.stringify({ type: 'partial', data: partialObject })}\n\n`);
+          sse.send({ type: 'partial', data: partialObject });
         } catch (serializeError) {
           logger.warn('Failed to serialize partial object', { requestId: ctx.requestId, error: errorMessage(serializeError) });
         }
@@ -179,7 +179,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         const finalOutput = await result.output;
         if (finalOutput) {
           const { dockerfile, ...config } = finalOutput;
-          res.write(`data: ${JSON.stringify({
+          sse.send({
             type: 'done',
             data: {
               config: {
@@ -192,9 +192,9 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
               dockerfileViolations: dockerfileViolations(dockerfile),
               similarPlugins,
             },
-          })}\n\n`);
+          });
         }
-        res.write('data: [DONE]\n\n');
+        sse.done();
         // Quota policy: a COMPLETED stream keeps the reserved `aiCalls` slot even
         // when `finalOutput` is empty/unparseable — the provider round-trip (and
         // its external $ cost) was already incurred. An ABORT (client

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The upload's `publishRequest=true` (plugin ecosystem §3.1): refused up front
+ * The upload's `publishRequest=true`: refused up front
  * without `plugins:publish` or a `public` version; for an image-less plugin the
  * request is submitted right after the deploy; for an image plugin the caller
  * is snapshotted into the build job so the worker submits it after the build.
@@ -59,7 +59,6 @@ jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/build-strategy.js', () => ({ getBuildStrategy: () => ({ producesImage: producesImage.value }) }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: jest.fn(async () => 'developer') }));
-jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: jest.fn() }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(async () => undefined), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'org-1/req-1.zip',
 }));

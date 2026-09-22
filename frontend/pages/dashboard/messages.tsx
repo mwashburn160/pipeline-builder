@@ -154,7 +154,7 @@ export default function MessagesPage() {
     [orgNameById],
   );
 
-  // Recent recipients (#1) — distinct counterparty orgs from the loaded inbox,
+  // Recent recipients — distinct counterparty orgs from the loaded inbox,
   // most-recent first, for a one-tap quick-pick in compose. Excludes broadcasts
   // and the caller's own org; labels resolve to names (id fallback).
   const recentRecipients = useMemo(() => {
@@ -238,8 +238,8 @@ export default function MessagesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `openMessage` is stable per org; the id pair is what drives a (re)load
   }, [isReady, linkedId, selectedId]);
 
-  // Deleting used to fire straight from the row/thread trash icon with no
-  // prompt and no undo. Both call sites now stage the id and confirm here.
+  // Deleting has no undo, so both the row and the thread trash icon stage the
+  // id and confirm here.
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const pendingSubject = messages.find((m) => m.id === pendingDelete)?.subject;
@@ -268,7 +268,7 @@ export default function MessagesPage() {
     }
   }, []);
 
-  // Cross-org directory search (#8) backing the compose recipient combobox —
+  // Cross-org directory search backing the compose recipient combobox —
   // SYSADMIN ONLY, since only sysadmins may message an org they don't belong to
   // (the send-reachability gate is bypassed for isSystemAdmin). Reuses the
   // sysadmin org roster (GET /api/organizations, supports `search`); best-effort.

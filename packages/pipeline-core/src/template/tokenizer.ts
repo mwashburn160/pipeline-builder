@@ -14,11 +14,17 @@
  *
  * `{{{{` is the escape sequence for a literal `{{`; the `}}` that closes it is
  * then literal too, so `{{{{ .X }}` renders `{{ .X }}`.
+ *
+ * Dependency-free: the frontend imports it through the
+ * `@pipeline-builder/pipeline-core/template` subpath so its inline validation
+ * accepts and rejects exactly what synth does.
  */
 
 export const MAX_FIELD_SIZE_BYTES = 4 * 1024;
 export const MAX_PATH_DEPTH = 5;
 export const MAX_IDENTIFIER_LENGTH = 64;
+
+const utf8 = new TextEncoder();
 
 export interface SourcePosition {
   line: number;
@@ -61,7 +67,8 @@ export class TokenizerError extends Error {
 export function tokenize(source: string): Token[] {
   // Byte count, not `.length` (UTF-16 code units): the cap is stated in bytes,
   // and multi-byte characters (emoji, non-ASCII) would otherwise be undercounted.
-  if (Buffer.byteLength(source, 'utf8') > MAX_FIELD_SIZE_BYTES) {
+  // TextEncoder rather than Buffer: the browser imports this module too.
+  if (utf8.encode(source).byteLength > MAX_FIELD_SIZE_BYTES) {
     throw new TokenizerError(
       `Field exceeds max size of ${MAX_FIELD_SIZE_BYTES} bytes`,
       { line: 1, col: 1 },
@@ -105,11 +112,9 @@ export function tokenize(source: string): Token[] {
 
   // How many escaped `{{{{` are still waiting for their closing `}}`. The escape
   // exists so plugin commands can carry Go / Helm / GitHub-style templates
-  // (`docker inspect -f '{{{{.State.Status}}'` → `{{.State.Status}}`), but any
-  // `}}` outside an expression used to throw — so the escape could only ever
-  // produce an UNCLOSED `{{`, and every real use of it was rejected at upload
-  // and at synth. A `}}` that closes an escaped open is literal text; an
-  // unmatched one is still an error, which keeps catching `{ x }}` typos.
+  // (`docker inspect -f '{{{{.State.Status}}'` → `{{.State.Status}}`), so the
+  // `}}` that closes an escaped open is literal text. An unmatched `}}` is
+  // still an error, which keeps catching `{ x }}` typos.
   let escapedOpen = 0;
 
   while (i < source.length) {

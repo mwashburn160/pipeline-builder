@@ -122,11 +122,10 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
   const metaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-buildmeta-'));
   const metadataFile = path.join(metaDir, 'metadata.json');
 
-  // EVERYTHING after the credential exists on disk belongs inside the try.
-  // `patchDockerfile` used to run between `writeAuthConfig` and the `try`, so a
-  // throw from it (an unreadable or malformed Dockerfile — attacker-influenced
-  // input, since the context is the uploaded plugin) skipped the `finally` and
-  // left the registry auth config behind on the build host.
+  // EVERYTHING after the credential exists on disk belongs inside the try, so
+  // the `finally` removes it on every outcome — including a throw from
+  // `patchDockerfile` on an unreadable or malformed (attacker-influenced)
+  // Dockerfile.
   try {
     patchDockerfile(req.contextDir, req.dockerfile);
 
@@ -200,7 +199,7 @@ export async function loadAndPush( tarPath: string, name: string, version: strin
 }
 
 // -----------------------------------------------------------------------------
-// Quarantine builds (anonymous submissions, plugin-ecosystem §4.2, E5)
+// Quarantine builds (anonymous submissions)
 // -----------------------------------------------------------------------------
 
 /** An anonymous submission's build: always a Dockerfile build, into `quarantine/<submissionId>`. */
@@ -262,7 +261,7 @@ export async function buildAndPushQuarantine(req: QuarantineBuildRequest, opts: 
 }
 
 /**
- * The server-side smoke test (E5): a second, NO-PUSH build on the quarantine
+ * The server-side smoke test: a second, NO-PUSH build on the quarantine
  * buildkitd — `FROM <image@digest>` + `RUN --network=none bash -c <smokeTest>`.
  * Resolves when the command exits 0; throws (a `BuildProcessError`) otherwise.
  */

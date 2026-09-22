@@ -220,7 +220,7 @@ export function TagTable({
                       onClick={() => onCopy(tag)}
                       title="Copy or promote this tag to another repo"
                       aria-label={`Copy ${tag}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-fg-muted hover:text-brand-strong hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-fg-muted hover:text-brand-strong hover:bg-info-bg rounded"
                     >
                       <Copy className="w-3.5 h-3.5" />
                       <span>Copy</span>
@@ -229,7 +229,7 @@ export function TagTable({
                       onClick={() => onDelete(tag)}
                       title="Delete this tag (manifest deletion is by digest)"
                       aria-label={`Delete ${tag}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 ml-1 text-xs text-fg-muted hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 ml-1 text-xs text-fg-muted hover:text-danger hover:bg-danger-bg rounded"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Delete</span>

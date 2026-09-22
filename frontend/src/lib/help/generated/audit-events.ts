@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fdcc8fc9c8c4bfd67acfb607084cfb6f1bf6cf7aea213f85689007aac4e082f4
+// SOURCE-SHA256: 068319ea60a422d3ec3a34a49ebabdd5a2156c4f0cdc37025c27419309c57d8c
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -208,7 +208,7 @@ export const auditEventsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Non-platform services deliver events through RemoteAuditClient, which is best-effort and fire-and-forget — a failed audit never blocks or fails the originating mutation. Three properties make it safe and durable:"
+          "content": "Non-platform services emit with api-core's ONE call, recordAudit(event). The service identity is bound once at boot by wireServiceSecurity(serviceName) (every service calls it), so no call site names its service; calling recordAudit before that binding throws \"audit not initialised\" rather than sending an unattributed event. Delivery goes through RemoteAuditClient, which is best-effort and fire-and-forget — a failed audit never blocks or fails the originating mutation. Three properties make it safe and durable:"
         },
         {
           "type": "list",
@@ -494,7 +494,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The ecosystem actions above (see docs/plans/plugin-ecosystem.md §5c) follow these rules:"
+          "content": "The ecosystem actions above follow these rules:"
         },
         {
           "type": "list",
@@ -580,7 +580,7 @@ export const auditEventsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Independently of the Mongo trail, image-registry emits eventCategory: 'audit' structured log lines (via emitAudit in packages/api-core/src/utils/audit.ts) that the log aggregator (Loki, in the default deploy) routes into a dedicated stream. The event-name union is packages/api-core/src/types/audit-events.ts."
+          "content": "Independently of the Mongo trail, image-registry emits eventCategory: 'audit' structured log lines (via logAuditEvent(logger, event) in packages/api-core/src/utils/audit.ts) that the log aggregator (Loki, in the default deploy) routes into a dedicated stream. The event-name union is packages/api-core/src/types/audit-events.ts."
         },
         {
           "type": "text",
@@ -612,7 +612,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The cross-service emitAudit lines described above also land in Loki with service_name, eventCategory, event, actor, and pluginName promoted to labels, searchable in Grafana (Explore → Loki). They carry no org label, so they are not a tenant-scoped surface. Deep-link to a filtered Audit Activity view via the registry's buildAuditLogLink helper (frontend/src/lib/registry-audit-link.ts)."
+          "content": "The cross-service logAuditEvent lines described above also land in Loki with service_name, eventCategory, event, actor, and pluginName promoted to labels, searchable in Grafana (Explore → Loki). They carry no org label, so they are not a tenant-scoped surface. Deep-link to a filtered Audit Activity view via the registry's buildAuditLogLink helper (frontend/src/lib/registry-audit-link.ts)."
         },
         {
           "type": "text",
@@ -796,7 +796,7 @@ export const auditEventsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Emit it via the service's getAuditClient().record({ action, actorId, orgId, targetId, details }, '<service>') after the mutation succeeds.",
+            "Emit it with recordAudit({ action, actorId, orgId, targetId, details }) (from @pipeline-builder/api-core) after the mutation succeeds — no service argument; the service is the one bound by wireServiceSecurity. In tests, pass a spy as apiCoreMock({ recordAudit: spy }), or call bindTestAuditService(serviceName) from @pipeline-builder/api-core/testing when the suite runs the real api-core.",
             "Declare it on the route with api-core's audited('new.action') middleware (see"
           ]
         },

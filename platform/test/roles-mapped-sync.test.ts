@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * MANUAL vs MAPPED Role separation (3a, `syncMappedRoles` in mapped-roles).
+ * MANUAL vs MAPPED Role separation (`syncMappedRoles` in mapped-roles).
  *
  * The one invariant this function exists for: a sync owns only the assignments
  * IT created (`source: 'jit'`). A Role an admin granted by hand — including the
@@ -101,7 +101,7 @@ describe('syncMappedRoles', () => {
     expect(assignmentDeleteMany).not.toHaveBeenCalled();
   });
 
-  it('treats an assignment with NO source (pre-3a, or the Member floor) as manual', async () => {
+  it('treats an assignment with NO source (the Member floor) as manual', async () => {
     assignmentFind.mockReturnValue(query([{ roleId: 'legacy' }]));
     const out = await syncMappedRoles(ORG, 'u1', [], SESSION);
 

@@ -4,24 +4,26 @@
 /**
  * Plugin-ecosystem constants shared by the plugin service (publishers, the
  * publish-request queue, auto-approval) and its callers
- * (docs/plans/plugin-ecosystem.md §3.0, §3.1, §3.0.3, §9). Dependency-free so
+ * (docs/plugin-publishing.md). Dependency-free so
  * the frontend and the CLI can import it too.
  */
+
+import { isBillingEnabled } from './quota-tiers.js';
 
 /**
  * The name of the system-org SERVICE ACCOUNT the Official catalog loader
  * (`deploy/bin/load-plugins.sh`, driven by `init-platform.sh`) runs as. Only a
  * request submitted by this identity, from the system org, can ride the
- * bootstrap exception or the Official catalog auto-approval rule (§3.0.3) —
- * never a person, which keeps "a superadmin uploads and approves alone" closed
- * (G27). Service-account names are unique per org and only system-org admins
+ * bootstrap exception or the Official catalog auto-approval rule —
+ * never a person, which keeps "a superadmin uploads and approves alone" closed.
+ * Service-account names are unique per org and only system-org admins
  * can create one there.
  */
 export const OFFICIAL_CATALOG_LOADER_ACCOUNT = 'official-catalog-loader';
 
 /** The publisher terms version in force when the operator sets none. Bumping it
  *  (`PUBLISHER_TERMS_VERSION`) makes every publisher re-accept before its next
- *  request; existing listings are unaffected (§3.1). */
+ *  request; existing listings are unaffected. */
 export const DEFAULT_PUBLISHER_TERMS_VERSION = '2026-09-21';
 
 /** The publisher terms version in force on this instance. */
@@ -32,7 +34,7 @@ export function publisherTermsVersion(): string {
 
 /**
  * A publisher handle: one lowercase registry path component, because it names
- * the `public/<handle>/<name>` repository (§3.3) — letters, digits and single
+ * the `public/<handle>/<name>` repository — letters, digits and single
  * hyphens between them, 2–39 characters.
  */
 export const PUBLISHER_HANDLE_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -83,10 +85,10 @@ export const PUBLISH_PERMISSION_REQUEST_KINDS: readonly string[] = [
 /** Kinds DECIDED with `publishers:verify` (the rest need `plugins:moderate`). */
 export const VERIFY_REQUEST_KINDS: readonly string[] = ['transfer', 'claim', 'profile_change', 'verify'];
 
-/** Kinds whose decision requires a step-up (§5a: suspend/yank/takedown, and every `publishers:verify` decision). */
+/** Kinds whose decision requires a step-up (suspend/yank/takedown, and every `publishers:verify` decision). */
 export const STEP_UP_REQUEST_KINDS: readonly string[] = ['yank', 'transfer', 'claim', 'profile_change', 'verify', 'moderation'];
 
-/** Moderation-queue SLA per lane, in hours (§9a: 2 business days ≈ 48 h; security lane 4 h). */
+/** Moderation-queue SLA per lane, in hours (2 business days ≈ 48 h; security lane 4 h). */
 export const REQUEST_SLA_HOURS = { standard: 48, security: 4 } as const;
 
 function flag(name: string, dflt: boolean): boolean {
@@ -96,7 +98,7 @@ function flag(name: string, dflt: boolean): boolean {
 }
 
 /**
- * `OFFICIAL_AUTO_APPROVAL_ENABLED` (§9, default ON): when off, the seeded
+ * `OFFICIAL_AUTO_APPROVAL_ENABLED` (default ON): when off, the seeded
  * Official catalog auto-approval rule never fires and every Official update
  * waits for two-person approval.
  */
@@ -105,18 +107,17 @@ export function isOfficialAutoApprovalEnabled(): boolean {
 }
 
 /**
- * `PLUGIN_PUBLISHING_ENABLED` (§9): whether TENANT orgs may submit publish
+ * `PLUGIN_PUBLISHING_ENABLED`: whether TENANT orgs may submit publish
  * requests. Defaults on for the hosted instance (billing on) and off for a
  * self-hosted one (billing off). The system org's Official catalog is never
  * affected — it is the instance's own catalog.
  */
 export function isPluginPublishingEnabled(): boolean {
-  const billingOn = (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false';
-  return flag('PLUGIN_PUBLISHING_ENABLED', billingOn);
+  return flag('PLUGIN_PUBLISHING_ENABLED', isBillingEnabled());
 }
 
 /**
- * `ANONYMOUS_SUBMISSIONS_ENABLED` (§4, §9, default OFF): whether the
+ * `ANONYMOUS_SUBMISSIONS_ENABLED` (default OFF): whether the
  * not-logged-in plugin submission API is served. Even when on, submissions
  * stay unavailable while outbound email is not configured (the magic link is
  * the submitter's only verification) — the plugin service checks that too.
@@ -126,7 +127,7 @@ export function isAnonymousSubmissionsEnabled(): boolean {
 }
 
 /**
- * `PLUGIN_REVIEWS_ENABLED` (§9, default ON): when off, reviews are READ-ONLY —
+ * `PLUGIN_REVIEWS_ENABLED` (default ON): when off, reviews are READ-ONLY —
  * writing, editing, voting, reporting and replying answer
  * `PLUGIN_REVIEWS_DISABLED`; moderation keeps working.
  */

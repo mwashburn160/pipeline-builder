@@ -3,8 +3,7 @@
 
 /**
  * Tests for validation/plugin-heuristics — the malware heuristics the
- * anonymous-submission gate and the CLI pre-flight run (plugin-ecosystem
- * §4.2 gate 4, E8).
+ * anonymous-submission gate and the CLI pre-flight run.
  */
 
 import { describe, it, expect } from '@jest/globals';

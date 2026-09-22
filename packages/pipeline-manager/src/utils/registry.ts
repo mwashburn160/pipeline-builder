@@ -77,7 +77,7 @@ export interface RegistryPayload {
   organization: string;
   stackName: string;
   /**
-   * Which plugin each CodePipeline action runs, as the synth recorded it (W0.1).
+   * Which plugin each CodePipeline action runs, as the synth recorded it.
    * Present only on a registration that follows a deploy; the platform then
    * replaces the pipeline's step manifest with it. Absent (a manual `pipeline
    * register`) leaves the stored manifest untouched.

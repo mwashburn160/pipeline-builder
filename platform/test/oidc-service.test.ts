@@ -19,6 +19,7 @@
 import crypto from 'crypto';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // oidc-service now performs its outbound calls through api-core's SSRF-safe
@@ -28,9 +29,7 @@ const mockSafeFetch = jest.fn<(url: string, opts?: Record<string, unknown>) => P
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   safeFetch: (url: string, opts?: Record<string, unknown>) => mockSafeFetch(url, opts),
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { oauth: { callbackBaseUrl: 'https://app.test', oidcDocCacheTtlMs: 3_600_000 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ oauth: { callbackBaseUrl: 'https://app.test', oidcDocCacheTtlMs: 3_600_000 } }));
 
 const {
   buildAuthorizeUrl,
@@ -74,7 +73,7 @@ function exchange(c: typeof cfg & { groupsClaim?: string }, code: string, nonce:
 
 /** A `SafeFetchResponse` double. Note `json()` is SYNCHRONOUS on that shape
  *  (the body is already buffered under the transport's size cap), unlike the
- *  `Response.json()` promise the old global-`fetch` stub returned. */
+ *  `Response.json()` promise of a global `fetch`. */
 function okJson(body: unknown) {
   return { ok: true, status: 200, redirected: false, headers: {}, body: Buffer.alloc(0), text: () => JSON.stringify(body), json: () => body };
 }

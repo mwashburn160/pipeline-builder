@@ -39,8 +39,8 @@ type Pending =
  * and "Sign out everywhere", which ends all of them at once.
  *
  * CONFIRMATION RULE. Revoking is step-up gated server-side, so ONE dialog states
- * the consequence and takes the factor; the ConfirmDialog that used to precede
- * it asked the same question twice. The session making the request is labelled
+ * the consequence and takes the factor — no second confirm asking the same
+ * question. The session making the request is labelled
  * "This device" and can't revoke itself (sign out instead), matching the
  * backend's refusal.
  *

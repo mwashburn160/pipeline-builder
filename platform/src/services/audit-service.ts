@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { appendAuditEvent } from '../helpers/audit-chain.js';
-import AuditEvent, { type AuditAction, type AuditEventDocument } from '../models/audit-event.js';
+import { paginationMeta, type PaginationMeta } from '../helpers/pagination.js';
+import AuditEvent, { type AuditAction, type StoredAuditEvent } from '../models/audit-event.js';
 import { escapeRegex } from '../utils/regex.js';
 
 export interface AuditFilter {
@@ -82,8 +83,8 @@ export interface AuditCreateInput {
 }
 
 export interface PaginatedAuditResult {
-  events: AuditEventDocument[];
-  pagination: { total: number; offset: number; limit: number; hasMore: boolean };
+  events: StoredAuditEvent[];
+  pagination: PaginationMeta;
 }
 
 /**
@@ -159,8 +160,8 @@ class AuditService {
     ]);
 
     return {
-      events: events as AuditEventDocument[],
-      pagination: { total, offset, limit, hasMore: offset + limit < total },
+      events,
+      pagination: paginationMeta(total, offset, limit),
     };
   }
 
@@ -174,7 +175,7 @@ class AuditService {
    * sink, bootstrap super-admin grants) is tamper-evidence hash-chained via the
    * same single write path as the `audit()` helper.
    */
-  async createEvent(input: AuditCreateInput): Promise<AuditEventDocument> {
+  async createEvent(input: AuditCreateInput): Promise<StoredAuditEvent> {
     return appendAuditEvent(input);
   }
 }

@@ -61,9 +61,9 @@ metadata:
   namespace: pipeline-builder
 spec:
   # ONE package-mirror allow-list for both build paths: the quarantine builder
-  # gets exactly the FQDNs a tenant build gets, and nothing more. The in-cluster
-  # rule that used to live here is split out (plugin-internal-egress-allow), so
-  # sharing this list never opens the namespace to anonymous code.
+  # gets exactly the FQDNs a tenant build gets, and nothing more. In-cluster
+  # egress is a separate rule (plugin-internal-egress-allow), so sharing this
+  # list never opens the namespace to anonymous code.
   endpointSelector:
     matchExpressions:
       - key: app

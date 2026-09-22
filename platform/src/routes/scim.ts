@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SCIM 2.0 routes (3b), mounted at `/scim/v2` — so an identity provider is
+ * SCIM 2.0 routes, mounted at `/scim/v2` — so an identity provider is
  * configured with `https://<host>/api/scim/v2` (nginx strips the `/api`).
  *
  * There is NO org id in any path: the org is the one the presenting

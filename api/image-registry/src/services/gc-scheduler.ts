@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler } from '@pipeline-builder/api-core';
+import { envInt, createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler } from '@pipeline-builder/api-core';
 import { listRepositoriesUnderPrefix } from './registry-client.js';
 import { runQuarantineGc, runRegistryGc } from './registry-gc.js';
 import { computeStorageUsage, invalidateStorageCache } from './storage-usage.js';
@@ -44,21 +44,21 @@ interface SchedulerOptions {
  * Read scheduler config from env. Defaults err on the side of
  * conservative (off + 30d retention) so an operator has to opt in.
  *
- *   REGISTRY_GC_ENABLED         (default false)
- *   REGISTRY_GC_INTERVAL_HOURS  (default 24)
- *   REGISTRY_GC_MAX_AGE_DAYS    (default 30)
+ *   REGISTRY_GC_ENABLED (default false)
+ *   REGISTRY_GC_INTERVAL_HOURS (default 24)
+ *   REGISTRY_GC_MAX_AGE_DAYS (default 30)
  *   REGISTRY_GC_STARTUP_DELAY_MS (default 300000 — 5 min, gives the registry
  *                                  time to settle before we hammer it)
- *   REGISTRY_GC_LOCK_TTL_MS     (default 900000 — 15 min; leader-lock TTL,
+ *   REGISTRY_GC_LOCK_TTL_MS (default 900000 — 15 min; leader-lock TTL,
  *                                  generous so a long sweep doesn't lapse it)
  */
 function readConfig(): SchedulerOptions {
   return {
     enabled: process.env.REGISTRY_GC_ENABLED === 'true',
-    intervalMs: parseInt(process.env.REGISTRY_GC_INTERVAL_HOURS ?? '24', 10) * 60 * 60 * 1000,
-    maxAgeDays: parseInt(process.env.REGISTRY_GC_MAX_AGE_DAYS ?? '30', 10),
-    startupDelayMs: parseInt(process.env.REGISTRY_GC_STARTUP_DELAY_MS ?? '300000', 10),
-    lockTtlMs: parseInt(process.env.REGISTRY_GC_LOCK_TTL_MS ?? '900000', 10),
+    intervalMs: envInt('REGISTRY_GC_INTERVAL_HOURS', 24, { min: 1 }) * 60 * 60 * 1000,
+    maxAgeDays: envInt('REGISTRY_GC_MAX_AGE_DAYS', 30, { min: 1 }),
+    startupDelayMs: envInt('REGISTRY_GC_STARTUP_DELAY_MS', 300_000, { min: 0 }),
+    lockTtlMs: envInt('REGISTRY_GC_LOCK_TTL_MS', 900_000, { min: 1 }),
   };
 }
 
@@ -86,7 +86,7 @@ async function sweepOnce(maxAgeDays: number): Promise<void> {
     orgPrefixes.add(r.slice(0, slash + 1));
   }
 
-  // Refresh the `public/*` footprint gauge (plugin ecosystem §9a). The public
+  // Refresh the `public/*` footprint gauge. The public
   // namespace itself is NOT swept — see isAgeGcExempt in registry-gc.ts.
   try {
     await computeStorageUsage('public/', { force: true });
@@ -180,10 +180,10 @@ export function stopGcScheduler(): void {
 
 /**
  * Start the ALWAYS-ON quarantine sweep (anonymous plugin submissions, plugin
- * ecosystem §4.2 / W5): every 6h, delete `quarantine/*` repos older than 30
+ * ecosystem): every 6h, delete `quarantine/*` repos older than 30
  * days (runQuarantineGc). Unlike the org sweep this is not opt-in — quarantined
  * builds are disposable by definition and the 30-day bound is a retention
- * promise (plan §8), not an operator preference. The plugin service deletes a
+ * promise, not an operator preference. The plugin service deletes a
  * submission's repo as soon as it is decided (DELETE /internal/quarantine/:id);
  * this is the backstop. Idempotent; stops on SIGTERM.
  */

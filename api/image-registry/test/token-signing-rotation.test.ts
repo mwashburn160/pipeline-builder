@@ -167,11 +167,11 @@ const mint = async (svc: { authorizeAndIssue: Function }) => (await (svc.authori
 
 describe('registry token signing-key rotation', () => {
   it('a token minted under the OLD key verifies during the overlap and is REJECTED once the bundle is trimmed', async () => {
-    // Phase 0 — steady state on the old key.
+    // — steady state on the old key.
     const oldToken = await mint(await loadTokenService(OLD_KEY, OLD_CERT));
     expect(() => registryVerify(oldToken, OLD_CERT)).not.toThrow();
 
-    // Phase 1 — overlap: new key signing, bundle trusts BOTH certs.
+    // — overlap: new key signing, bundle trusts BOTH certs.
     const overlapBundle = `${NEW_CERT}${OLD_CERT}`;
     const svc = await loadTokenService(NEW_KEY, overlapBundle);
     const newToken = await mint(svc);
@@ -182,7 +182,7 @@ describe('registry token signing-key rotation', () => {
     const leaf = JSON.parse(Buffer.from(newToken.split('.')[0], 'base64url').toString()) as { x5c: string[] };
     expect(new X509Certificate(Buffer.from(leaf.x5c[0], 'base64')).raw.equals(certsIn(NEW_CERT)[0].raw)).toBe(true);
 
-    // Phase 2 — rotation finished: bundle trimmed to the new cert only.
+    // — rotation finished: bundle trimmed to the new cert only.
     expect(() => registryVerify(newToken, NEW_CERT)).not.toThrow();
     expect(() => registryVerify(oldToken, NEW_CERT)).toThrow(/not in the registry root bundle/);
   });

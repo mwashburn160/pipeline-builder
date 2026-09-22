@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin-ecosystem GOVERNANCE (plan §3.0 "Enforcement", §8 checklist):
+ * Plugin-ecosystem GOVERNANCE ( "Enforcement", checklist):
  * only the system org manages or approves the ecosystem. Built from the REAL
  * route table (`mountRoutes`), this fails when
  *
@@ -11,7 +11,7 @@
  *  - any route that DECIDES, admits, expands or changes ecosystem state (by the
  *    audit actions it declares) is reachable by a tenant-held permission;
  *  - the tenant ecosystem routes are anything but the enumerated request and
- *    restrict set (§3.0 "What tenant orgs keep").
+ *    restrict set ( "What tenant orgs keep").
  */
 
 import { mkdtempSync } from 'node:fs';
@@ -30,13 +30,13 @@ const GOVERNANCE_ACTIONS = [
   'plugin.version.yank', 'plugin.version.unyank',
   'publisher.tier.change', 'publisher.verify.approve', 'publisher.verify.reject', 'publisher.suspend', 'publisher.unsuspend',
   'publisher.transfer.approve', 'publisher.transfer.reject', 'publisher.profile-change.approve', 'publisher.profile-change.reject',
-  // Only the system org publishes, edits or withdraws an advisory (W8); tenants only submit drafts (plugin.advisory.create).
+  // Only the system org publishes, edits or withdraws an advisory; tenants only submit drafts (plugin.advisory.create).
   'plugin.advisory.publish', 'plugin.advisory.update', 'plugin.advisory.withdraw',
-  // Only a system-org decision moves an anonymous submission out of quarantine (§4).
+  // Only a system-org decision moves an anonymous submission out of quarantine.
   'plugin.submission.approve', 'plugin.submission.reject', 'plugin.submission.claim',
 ];
 
-/** The tenant REQUEST / RESTRICT routes (§3.0): each only submits a request or narrows the caller's own reach. */
+/** The tenant REQUEST / RESTRICT routes: each only submits a request or narrows the caller's own reach. */
 const TENANT_ECOSYSTEM_ROUTES = new Set([
   'GET /plugins/publisher',
   'POST /plugins/publisher',
@@ -60,7 +60,7 @@ const TENANT_ECOSYSTEM_ROUTES = new Set([
  * the ecosystem, each with its reason.
  */
 const ORG_LOCAL_CARVE_OUTS: Record<string, string> = {
-  'POST /plugins/:id/yank': 'W0.4 yank of the org\'s OWN unlisted version (plugins:write); a LISTED version is refused with PLUGIN_VERSION_FROZEN and can only be yanked by the system org.',
+  'POST /plugins/:id/yank': 'Yank of the org\'s OWN unlisted version (plugins:write); a LISTED version is refused with PLUGIN_VERSION_FROZEN and can only be yanked by the system org.',
 };
 
 let table: RouteTableEntry[];
@@ -79,7 +79,7 @@ beforeAll(async () => {
 const key = (e: RouteTableEntry) => `${e.method} ${e.path}`;
 const perms = (e: RouteTableEntry) => e.permissions.flatMap((g) => g.permissions);
 
-describe('plugin ecosystem governance (§3.0)', () => {
+describe('plugin ecosystem governance', () => {
   it('serves the console', () => {
     expect(table.filter((e) => e.path.startsWith('/plugins/ecosystem/')).length).toBeGreaterThanOrEqual(20);
   });
@@ -103,7 +103,7 @@ describe('plugin ecosystem governance (§3.0)', () => {
     for (const k of Object.keys(ORG_LOCAL_CARVE_OUTS)) expect(table.map(key)).toContain(k);
   });
 
-  it('lets the anonymous submission API only submit and verify — never decide or publish (§4)', () => {
+  it('lets the anonymous submission API only submit and verify — never decide or publish', () => {
     const anon = table.filter((e) => e.path.startsWith('/public/plugin-submissions'));
     expect(anon.map(key).sort()).toEqual([
       'GET /public/plugin-submissions/challenge',
@@ -146,7 +146,7 @@ describe('plugin ecosystem governance (§3.0)', () => {
       .map(key)
       .sort();
     // Decisions step up per request KIND (stepUpForSensitiveRequest); reserved names are not destructive;
-    // review moderation only hides or restores user content (§5a asks no step-up for it).
+    // review moderation only hides or restores user content (so it asks no step-up).
     expect(unguarded).toEqual([
       'DELETE /plugins/ecosystem/reserved-names/:name',
       'POST /plugins/ecosystem/requests/:id/approve',

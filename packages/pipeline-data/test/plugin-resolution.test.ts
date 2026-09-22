@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The listing resolver (plugin ecosystem §3.1, §3.2, §3.4, §3.5, D16): the
+ * The listing resolver: the
  * consumption-policy merge and validation, advisory ranges, install ranges,
  * version choice, the install mode for an org, whole-reference resolution over
  * an in-memory data source, the org's catalog standing, and the drizzle data
@@ -12,6 +12,7 @@
 import { describe, it, expect } from '@jest/globals';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
+import type { CrudTx } from '../src/api/crud-service.js';
 
 import {
   advisoriesCovering,
@@ -115,6 +116,7 @@ function version(v: string, over: Partial<PluginListingVersion> = {}): PluginLis
     vulnHigh: 0,
     scannedAt: T0,
     baseImageCreatedAt: null,
+    imageCollectedAt: null,
     publishedAt: T0,
     publishedBy: 'system',
     ...over,
@@ -638,7 +640,7 @@ describe('drizzleListingSource', () => {
 
   it('reads each table with bound parameters', async () => {
     const { tx, queries } = stubTx([{ id: 'x' }]);
-    const src = drizzleListingSource(tx);
+    const src = drizzleListingSource(tx as unknown as CrudTx);
     expect(await src.publisherByHandle('acme')).toEqual({ id: 'x' });
     expect(await src.listingByName('p', 'lint')).toEqual({ id: 'x' });
     await src.publishersByIds(['p']);
@@ -659,7 +661,7 @@ describe('drizzleListingSource', () => {
 
   it('short-circuits empty id lists and returns null for missing rows', async () => {
     const { tx, queries } = stubTx([]);
-    const src = drizzleListingSource(tx);
+    const src = drizzleListingSource(tx as unknown as CrudTx);
     expect(await src.publisherByHandle('x')).toBeNull();
     expect(await src.listingByName('p', 'x')).toBeNull();
     queries.length = 0;

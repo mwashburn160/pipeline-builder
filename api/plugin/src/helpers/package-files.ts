@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Read an extracted plugin package's files for the malware heuristics
- * (plugin-ecosystem §4.2, E8). Bounded: at most {@link MAX_PACKAGE_FILES}
+ * Read an extracted plugin package's files for the malware heuristics.
+ * Bounded: at most {@link MAX_PACKAGE_FILES}
  * files, each capped at {@link HEURISTICS_MAX_FILE_BYTES} + 1 bytes (enough for
  * the scanner to see it is oversized and skip it without reading it all), and
  * only regular files — zip-extract never writes anything else, but the walk

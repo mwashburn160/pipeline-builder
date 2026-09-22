@@ -163,3 +163,18 @@ export function derToJoseSignature(der: Buffer, coordinateBytes = 32): Buffer {
   const s = readInt();
   return Buffer.concat([r, s]);
 }
+
+/** base64url of a JSON value, the JWS way (no padding, URL alphabet). */
+function b64uJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), 'utf-8').toString('base64url');
+}
+
+/** The JWS signing input for an ES256 JWT: `base64url(header).base64url(body)`. */
+export function encodeJwsSigningInput(kid: string, body: object): string {
+  return `${b64uJson({ alg: USER_TOKEN_ALGORITHM, typ: 'JWT', kid })}.${b64uJson(body)}`;
+}
+
+/** A compact JWT from its signing input and its IEEE-P1363 signature. */
+export function compactJws(signingInput: string, signature: Buffer): string {
+  return `${signingInput}.${signature.toString('base64url')}`;
+}

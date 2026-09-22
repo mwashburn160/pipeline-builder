@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for helpers/vuln-scan (W0.6): grype invocation over the signed SBOM,
+ * Tests for helpers/vuln-scan: grype invocation over the signed SBOM,
  * report parsing and severity counting, fail-closed error paths, the
  * serialized vulnerability-DB refresh, and `crane config` USER inspection.
  * Child processes are mocked at `build-process.run`.

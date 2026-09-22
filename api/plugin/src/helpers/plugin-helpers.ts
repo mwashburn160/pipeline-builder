@@ -102,8 +102,8 @@ export interface PluginRecordData extends PluginDocFields {
 }
 
 /**
- * The spec's execution-contract fields persisted with every version (W0.2):
- * validated at upload, stored verbatim, never editable (G56). Built by
+ * The spec's execution-contract fields persisted with every version:
+ * validated at upload, stored verbatim, never editable. Built by
  * `specContractFields` (plugin-spec.ts).
  */
 export interface PluginContractFields {
@@ -116,7 +116,7 @@ export interface PluginContractFields {
 }
 
 /**
- * The descriptive catalog columns (§3.1a) other than description / category /
+ * The descriptive catalog columns other than description / category /
  * keywords (which sit on the record itself): detected from the package, then
  * accepted or edited. Built by `catalogColumns` (catalog-metadata.ts).
  */
@@ -178,7 +178,7 @@ export interface PluginBuildJobData {
   reservedResetAt?: string;
   /**
    * Set when the upload asked for a publish request (`publishRequest=true`,
-   * plugin ecosystem §3.1): once the version is deployed the worker submits a
+   * ): once the version is deployed the worker submits a
    * new-listing / new-version request AS this caller (snapshotted at upload).
    */
   publish?: { caller: PublishCaller };

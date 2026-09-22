@@ -12,11 +12,12 @@
  */
 
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 
 const mockSetGauge = jest.fn();
 const count = (n: number) => jest.fn(async () => n);
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { scraperIntervalMs: 60_000 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: { scraperIntervalMs: 60_000 } }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ setGauge: mockSetGauge }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { countDocuments: count(7) },

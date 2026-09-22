@@ -35,16 +35,17 @@ import { ApiError } from '@/lib/api/errors';
 import type { AdminBillingSummary, AdminSubscriptionUpdate } from '@/lib/api/domains/billing';
 import type { Plan, Subscription, SubscriptionStatus, BillingInterval } from '@/types';
 
-/** Editable subscription statuses (mirrors AdminSubscriptionUpdateSchema — note the
- *  provider-only `unpaid` is intentionally excluded, it isn't admin-settable). */
-const STATUS_OPTIONS = ['active', 'canceled', 'past_due', 'trialing', 'incomplete'] as const;
-type EditableStatus = typeof STATUS_OPTIONS[number];
+/** Every subscription status, all admin-settable (AdminSubscriptionUpdateSchema).
+ *  The Record keys make the list exhaustive over the wire vocabulary. */
+const STATUS_OPTIONS = Object.keys({
+  active: 1, canceled: 1, past_due: 1, trialing: 1, incomplete: 1,
+} satisfies Record<SubscriptionStatus, 1>) as SubscriptionStatus[];
 const INTERVAL_OPTIONS: BillingInterval[] = ['monthly', 'annual'];
 
 type ByOrgRow = AdminBillingSummary['byOrg'][number];
 
 const BY_ORG_COLUMNS: Column<ByOrgRow>[] = [
-  { id: 'account', header: 'Account', cellClassName: 'font-mono text-xs text-gray-800 dark:text-gray-200 break-all', render: (o) => o.orgId },
+  { id: 'account', header: 'Account', cellClassName: 'font-mono text-xs text-fg break-all', render: (o) => o.orgId },
   { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.grossBilledCents) },
   { id: 'discounts', header: 'Discounts', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.discountsCents) },
   { id: 'credits', header: 'Credits', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => formatCents(o.creditsCents) },
@@ -141,7 +142,7 @@ export default function BillingAdminPage() {
   const applyRange = () => {
     const next = { from: from.trim(), to: to.trim() };
     // Re-applying the same range is an explicit refresh.
-    if (next.from === range.from && next.to === range.to) summaryQ.refetch();
+    if (next.from === range.from && next.to === range.to) void summaryQ.refetch();
     else setRange(next);
   };
   const loadSummary = summaryQ.refetch;
@@ -172,11 +173,7 @@ export default function BillingAdminPage() {
     // push + tier resync server-side, so don't send it when untouched.
     const body: AdminSubscriptionUpdate = {};
     if (editPlanId && editPlanId !== editSub.planId) body.planId = editPlanId;
-    // Only send an admin-settable status (the select can surface a provider-only
-    // `unpaid` for display, which the API would reject).
-    if (editStatus !== editSub.status && (STATUS_OPTIONS as readonly string[]).includes(editStatus)) {
-      body.status = editStatus as EditableStatus;
-    }
+    if (editStatus !== editSub.status) body.status = editStatus;
     if (editInterval !== editSub.interval) body.interval = editInterval;
     if (editCancelAtPeriodEnd !== editSub.cancelAtPeriodEnd) body.cancelAtPeriodEnd = editCancelAtPeriodEnd;
 
@@ -199,7 +196,7 @@ export default function BillingAdminPage() {
     if (result !== null) {
       setEditSub(null);
       list.refresh();
-      loadSummary();
+      void loadSummary();
       toast.success('Subscription updated');
     }
   };
@@ -218,7 +215,7 @@ export default function BillingAdminPage() {
       if (!res.success) throw new Error(res.message || 'Purge failed');
       toast.success(`Purged ${res.data?.deleted ?? 0} subscription(s) and ${res.data?.events ?? 0} event(s)`);
       list.refresh();
-      loadSummary();
+      void loadSummary();
     } catch (err) {
       list.setError(formatError(err, 'Failed to purge org subscription'));
     }
@@ -444,9 +441,6 @@ export default function BillingAdminPage() {
                   className="text-sm capitalize"
                   disabled={editForm.loading}
                 >
-                  {/* Surface a provider-only status (e.g. `unpaid`) that isn't admin-settable so the
-                      picker reflects reality; selecting a settable value is what the API accepts. */}
-                  {!(STATUS_OPTIONS as readonly string[]).includes(editStatus) && <option value={editStatus}>{editStatus} (current)</option>}
                   {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </Select>
               </div>
@@ -471,7 +465,7 @@ export default function BillingAdminPage() {
               <span>Cancel at period end</span>
             </label>
           </div>
-          {editForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{editForm.error}</p>}
+          {editForm.error && <p className="text-sm text-danger mt-3">{editForm.error}</p>}
         </Modal>
       )}
 

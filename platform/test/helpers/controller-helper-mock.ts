@@ -8,7 +8,7 @@
  * `withController` plus whichever gate they wanted to drive. Because
  * `unstable_mockModule` swaps the ENTIRE namespace, every gate the stub did not
  * list silently became `undefined`, and every gate it DID list stopped enforcing
- * anything. Nine tenancy/authz gates (`requireAuth`, `requireSystemAdmin`,
+ * anything. Nine tenancy/authz gates (`ensureAuthenticated`, `requireSystemAdmin`,
  * `requireOrgMembership`, `requireAuthContext`, `requireAdminContext`,
  * `requireMemberManagementScope`, `canAdministerOrg`, `canManageOrgScope`,
  * `canAccessOrg`) were therefore NOT under test in the suites that look like they

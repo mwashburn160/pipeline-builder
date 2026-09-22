@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Zero-result directory searches (§6a "what people look for"), kept bounded
- * (E17): the directory records each miss with its query NORMALIZED, and the
+ * Zero-result directory searches ( "what people look for"), kept bounded:
+ * the directory records each miss with its query NORMALIZED, and the
  * maintenance pass folds repeats of one (query, category) into a single row
  * counting `hits` (its `created_at` the latest occurrence), then drops rows not
  * seen for {@link SEARCH_MISS_RETENTION_DAYS} days. An anonymous caller can add

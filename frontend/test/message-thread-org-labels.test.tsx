@@ -30,10 +30,7 @@ jest.mock('@/lib/api', () => ({
     uploadAttachment: jest.fn<AnyFn>(),
   },
 }));
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ organizations: [{ id: 'org-1', name: 'Acme' }] }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ organizations: [{ id: 'org-1', name: 'Acme' }] })));
 
 if (typeof Element.prototype.scrollIntoView !== 'function') {
   Element.prototype.scrollIntoView = function scrollIntoView() {};

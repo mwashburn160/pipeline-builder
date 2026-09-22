@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for routes/public-directory — the anonymous directory API
- * (plugin-ecosystem §6a). The queries themselves (pipeline-data) and cosign
+ * Tests for routes/public-directory — the anonymous directory API.
+ * The queries themselves (pipeline-data) and cosign
  * (supply-chain) are stubbed; these pin the HTTP contract: off → 404, strict
  * query validation, malformed paths → 404 (not 400), cache headers, the
  * zero-result log, and how SBOM failures map to status codes.
@@ -244,7 +244,7 @@ describe('GET /public/plugins/:publisher/:name/reviews', () => {
     expect(mockReviews).toHaveBeenCalledWith('acme', 'trivy', { sort: 'recent', rating: 4, limit: 5, cursor: 'eyJvIjoxMH0' });
   });
 
-  it('a fresh re-read (?fresh=1, or a credentialed request) is never cacheable (E24)', async () => {
+  it('a fresh re-read (?fresh=1, or a credentialed request) is never cacheable', async () => {
     mockReviews.mockResolvedValue(PAGE);
     const fresh = await fetch(`${base}/plugins/acme/trivy/reviews?fresh=1`);
     expect(fresh.headers.get('cache-control')).toBe('private, no-store');

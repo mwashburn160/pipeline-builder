@@ -90,7 +90,7 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
         )}
 
         {!scanning && tagCount > 0 && (
-          <div className="p-3 text-sm border border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-900 dark:text-orange-200 rounded">
+          <div className="p-3 text-sm border border-warning-border bg-warning-bg text-warning-strong rounded">
             <div className="font-medium mb-1">
               All {tagCount} tag{tagCount === 1 ? '' : 's'} in this repository will be deleted and stop resolving immediately:
             </div>

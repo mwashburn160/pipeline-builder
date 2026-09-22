@@ -29,7 +29,7 @@ interface Props {
 export const RESERVED_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,254}$/;
 
 /**
- * Ecosystem console → Reserved names (plan §3.0 "reserved names", §3.1): the
+ * Ecosystem console → Reserved names: the
  * handles and listing names nobody may claim — a vendor's brand, a confusable.
  * A name reserved FOR a publisher is claimable by that publisher only; one
  * reserved for nobody refuses everyone, and a claim comes to the queue.
@@ -74,7 +74,7 @@ export function ReservedNamesPanel({ can }: Props) {
       setName('');
       setReason('');
       setPublisherId('');
-      namesQ.refetch();
+      void namesQ.refetch();
     } catch (err) {
       setError(formatError(err, 'Failed to reserve the name'));
     } finally {
@@ -86,7 +86,7 @@ export function ReservedNamesPanel({ can }: Props) {
     if (!removing) return;
     await api.deleteReservedName(removing.name);
     toast.success(`${removing.name} is no longer reserved`);
-    namesQ.refetch();
+    void namesQ.refetch();
   };
 
   return (

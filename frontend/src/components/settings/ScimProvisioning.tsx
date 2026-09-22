@@ -18,7 +18,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
-import { useLoadable } from '@/hooks/useLoadable';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { ServiceAccount } from '@/lib/api/domains/organizations';
@@ -63,6 +63,8 @@ interface ScimKey {
  * Gated on `service_accounts:manage` by the page (issuing a key IS issuing a
  * machine credential); every write is step-up gated, like every other key mint.
  */
+const NO_ACCOUNTS: ServiceAccount[] = [];
+
 export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly: boolean }) {
   const toast = useToast();
 
@@ -71,7 +73,11 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
     if (!res.success || !res.data) throw new Error('Failed to load SCIM credentials');
     return res.data.serviceAccounts;
   }, [orgId]);
-  const { data: accounts, loading, error, reload } = useLoadable<ServiceAccount[]>(load, [], 'Failed to load SCIM credentials');
+  const { data: accountsLoaded, loading, error: errorFailure, refetch: reload } = useFetch<ServiceAccount[]>(() => load(), [load], {
+    onError: (err) => toast.error(formatError(err, 'Failed to load SCIM credentials')),
+  });
+  const accounts = accountsLoaded ?? NO_ACCOUNTS;
+  const error = errorFailure ? formatError(errorFailure, 'Failed to load SCIM credentials') : null;
 
   const [busy, setBusy] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);

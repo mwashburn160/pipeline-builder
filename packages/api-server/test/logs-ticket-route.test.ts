@@ -5,7 +5,7 @@
  * Integration test for the ticket-gated SSE logs endpoints wired in
  * app-factory: `POST /logs/ticket` (mint) and `GET /logs/:requestId` (stream).
  *
- * Locks in the Wave 2b security fix: the log stream is no longer world-readable.
+ * The log stream is ticket-gated, never world-readable.
  * A ticket must be minted by an authenticated caller (bound to their org) and
  * then presented on the stream; an anonymous stream subscribe is a 401.
  */

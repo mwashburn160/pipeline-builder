@@ -7,7 +7,7 @@ import { OFFICIAL_PUBLISHER_HANDLE } from '@/lib/plugin-installs';
 /**
  * An own-org plugin whose name shadows an Official listing: unqualified
  * references (`plugin: { name }`) resolve to the org's plugin, not the Official
- * one (§3.1). Shown on the plugin list/detail and next to the pipeline editor's
+ * one. Shown on the plugin list/detail and next to the pipeline editor's
  * picker; `compact` is the one-line inline form.
  */
 export function ShadowingNotice({

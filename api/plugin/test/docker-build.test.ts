@@ -9,10 +9,10 @@
  * config writing, Dockerfile patching, and validation.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { EventEmitter } from 'events';
 import { Readable } from 'stream';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -325,7 +325,7 @@ describe('buildAndPush', () => {
   });
 });
 
-// F8 — build log streaming + failure summary.
+// — build log streaming + failure summary.
 describe('build log streaming + failure summary', () => {
   beforeEach(() => {
     jest.clearAllMocks();

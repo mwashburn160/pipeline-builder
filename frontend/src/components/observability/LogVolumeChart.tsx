@@ -72,14 +72,14 @@ export function LogVolumeChart({ data, loading, error, onSelectBucket }: LogVolu
   }
   if (error && buckets.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center rounded border border-dashed border-gray-200 text-xs text-fg-muted dark:border-gray-700">
+      <div className="flex h-24 items-center justify-center rounded border border-dashed border-default text-xs text-fg-muted">
         Log volume could not be loaded
       </div>
     );
   }
   if (buckets.length === 0) {
     return (
-      <div className="flex h-24 items-center justify-center rounded border border-dashed border-gray-200 text-xs text-fg-muted dark:border-gray-700">
+      <div className="flex h-24 items-center justify-center rounded border border-dashed border-default text-xs text-fg-muted">
         No log volume in this window
       </div>
     );

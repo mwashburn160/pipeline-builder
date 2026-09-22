@@ -10,6 +10,12 @@
  *   jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
  *   jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
  *   jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
+ *   jest.mock('next/router', () => require('./helpers/pageMocks').routerModule());
+ *   jest.mock('next/head', () => require('./helpers/pageMocks').headModule());
+ *   jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ user })));
+ *
+ * The module helpers that take a `read` callback call it on every hook call,
+ * so a test can keep the value in its own variable and reassign it per case.
  *
  * and import the same instances for assertions / per-test state:
  *
@@ -23,8 +29,7 @@ import type { ReactNode } from 'react';
 
 // `jest` comes from `@jest/globals` — a real, self-typed module — so this helper
 // type-checks anywhere, including under `next build` (which checks non-test
-// files without jest's globals). It used to hand-declare a minimal `jest` and a
-// `MockFn` interface for exactly that reason; the real types are richer.
+// files without jest's globals).
 
 /** DashboardLayout reduced to a passthrough that still renders the page's header actions. */
 export function dashboardLayoutModule() {
@@ -39,8 +44,9 @@ export function dashboardLayoutModule() {
 /** One toast spy object per test file; `clearMocks` resets the calls between tests. */
 export const pageToast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), info: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>() };
 
-export function toastModule() {
-  return { __esModule: true, useToast: () => pageToast };
+/** `read` supplies a test's own toast spies (read on every `useToast()` call). */
+export function toastModule(read: () => unknown = () => pageToast) {
+  return { __esModule: true, useToast: () => read() };
 }
 
 /** The subset of `useAuthGuard()` page tests read. Extra keys pass through. */
@@ -85,8 +91,88 @@ export function mockAuthGuard(overrides: Partial<PageAuthGuard> = {}): PageAuthG
   return current;
 }
 
-export function authGuardModule() {
-  return { __esModule: true, useAuthGuard: () => current };
+/** `read` supplies a test's own guard value instead of {@link mockAuthGuard}'s. */
+export function authGuardModule(read: () => unknown = () => current) {
+  return { __esModule: true, useAuthGuard: () => read() };
+}
+
+// ---------------------------------------------------------------------------
+// next/router, next/head, useAuth
+
+/** The `next/router` fields components read. Extra keys pass through. */
+export interface PageRouter {
+  pathname: string;
+  asPath: string;
+  query: Record<string, string | string[] | undefined>;
+  isReady: boolean;
+  push: jest.Mock<AnyFn>;
+  replace: jest.Mock<AnyFn>;
+  back: jest.Mock<AnyFn>;
+  prefetch: jest.Mock<AnyFn>;
+  events: { on: jest.Mock<AnyFn>; off: jest.Mock<AnyFn>; emit: jest.Mock<AnyFn> };
+  [key: string]: unknown;
+}
+
+const routerDefaults = (): PageRouter => ({
+  pathname: '/',
+  asPath: '/',
+  query: {},
+  isReady: true,
+  push: jest.fn<AnyFn>(async () => true),
+  replace: jest.fn<AnyFn>(async () => true),
+  back: jest.fn<AnyFn>(),
+  prefetch: jest.fn<AnyFn>(async () => undefined),
+  events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>(), emit: jest.fn<AnyFn>() },
+});
+
+let currentRouter: PageRouter = routerDefaults();
+/** Fallbacks for fields a `routerModule(read)` value leaves out. Built once, so
+ *  `push` & co. keep their identity across renders. */
+const routerBase: PageRouter = routerDefaults();
+
+/**
+ * Set what the mocked `useRouter()` returns (defaults: a ready router at `/`
+ * with jest.fn navigation). Returns the live object, so a test can change a
+ * field (`router.query = { tab: 'keys' }`) before rendering.
+ */
+export function mockRouter(overrides: Partial<PageRouter> = {}): PageRouter {
+  currentRouter = { ...routerDefaults(), ...overrides };
+  return currentRouter;
+}
+
+/**
+ * `next/router` with `useRouter()` returning {@link mockRouter}'s value, or —
+ * with `read` — the test's own fields over the defaults.
+ */
+export function routerModule(read?: () => Partial<PageRouter>) {
+  // One live view per distinct `read()` value: a test that hands back the same
+  // object every call gets a STABLE router (components memoize on it), and a
+  // field it mutates later (`mockRouter.query = …`) is seen at once.
+  const views = new WeakMap<object, PageRouter>();
+  const useRouter = () => {
+    if (!read) return currentRouter;
+    const fields = read();
+    let router = views.get(fields);
+    if (!router) {
+      router = new Proxy(fields, {
+        get: (target, key) => (key in target ? Reflect.get(target, key) : Reflect.get(routerBase, key)),
+        has: (target, key) => key in target || key in routerBase,
+      }) as PageRouter;
+      views.set(fields, router);
+    }
+    return router;
+  };
+  return { __esModule: true, useRouter };
+}
+
+/** `next/head` rendering its children in place. */
+export function headModule() {
+  return { __esModule: true, default: ({ children }: { children: ReactNode }) => <>{children}</> };
+}
+
+/** `@/hooks/useAuth` whose `useAuth()` returns `read()` on every call. */
+export function authModule(read: () => unknown) {
+  return { __esModule: true, useAuth: () => read() };
 }
 
 // ---------------------------------------------------------------------------

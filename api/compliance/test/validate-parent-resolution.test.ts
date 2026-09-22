@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * #8 — the live validate path resolves the caller org's parent for
+ * The live validate path resolves the caller org's parent for
  * parent-`propagateToChildren` enforcement. It PREFERS the JWT claim
  * (`parentOrganizationId`, the interactive-member fast path) but falls back to
  * the org-hierarchy client when the claim is absent — a SERVICE-token caller
@@ -81,7 +81,7 @@ beforeEach(() => {
   resolveParentMock.mockResolvedValue(undefined);
 });
 
-describe('#8 parent-org resolution in validate', () => {
+describe('parent-org resolution in validate', () => {
   it('uses the JWT parentOrganizationId when present (no hierarchy lookup)', async () => {
     await validate({ sub: 'u-1', parentOrganizationId: 'root-1' });
     expect(resolveParentMock).not.toHaveBeenCalled();

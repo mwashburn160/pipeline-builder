@@ -11,7 +11,7 @@
  * SECRET_ENCRYPTION_KEY is a hard requirement at platform boot — there
  * is no clear-text fallback here; reads of a non-encrypted value throw.
  *
- * One document, two protocols (#4): `protocol` selects OIDC or SAML, and the
+ * One document, two protocols: `protocol` selects OIDC or SAML, and the
  * per-protocol completeness rule (`assertProtocolComplete`) is enforced on the
  * RESULTING document, so a half-entered protocol switch is refused rather than
  * saved and discovered at somebody's next sign-in. A SAML config carries no
@@ -29,11 +29,13 @@ import {
 import type { OidcLoginConfig } from './oidc-service.js';
 import type { SamlLoginConfig } from './saml-service.js';
 import { providerSupportsGroups } from '../helpers/idp-claims.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { isCustomGoogleDiscoveryUrl, isReservedDiscoveryUrl, isReservedIssuer } from '../helpers/reserved-issuers.js';
 import OrgIdpConfig, {
   type IdpProtocol,
   type IdpProvider,
   type IdpTestRecord,
+  type OrgIdpConfigData,
   type OrgIdpConfigDocument,
   type SamlAttributeMapping,
 } from '../models/org-idp-config.js';
@@ -44,7 +46,7 @@ const logger = createLogger('org-idp-service');
 /** What the API returns. Never includes the secret  clients see a hint only. */
 export interface OrgIdpConfigDto {
   orgId: string;
-  /** Which protocol this org federates over (#4). */
+  /** Which protocol this org federates over. */
   protocol: IdpProtocol;
   /** OIDC only — absent on a SAML config. */
   provider?: IdpProvider;
@@ -71,7 +73,7 @@ export interface OrgIdpConfigDto {
   region?: string;
   /** AWS Cognito user-pool id — present only for `provider: 'cognito'`. */
   userPoolId?: string;
-  /** id_token claim carrying group memberships for JIT Role mapping (3a).
+  /** id_token claim carrying group memberships for JIT Role mapping.
    *  Absent = the `groups` default; never set for Google (no group claims). */
   groupsClaim?: string;
   allowedEmailDomains: string[];
@@ -199,7 +201,7 @@ function normalizeSamlAttributes(attrs?: SamlAttributeMapping): SamlAttributeMap
  * which is what makes a protocol switch fail loudly instead of leaving an org
  * with SAML selected and no IdP to talk to.
  */
-function assertProtocolComplete(doc: Pick<OrgIdpConfigDocument,
+function assertProtocolComplete(doc: Pick<OrgIdpConfigData,
 'protocol' | 'provider' | 'clientId' | 'clientSecretEncrypted' | 'samlEntityId' | 'samlSsoUrl' | 'samlCertificates'>): void {
   if (doc.protocol === 'saml') {
     if (!doc.samlEntityId || !doc.samlSsoUrl || (doc.samlCertificates ?? []).length === 0) {
@@ -218,7 +220,7 @@ function assertProtocolComplete(doc: Pick<OrgIdpConfigDocument,
  * RESULTING document, like {@link assertProtocolComplete}, so a patch that only
  * moves the provider onto `google` over a stale custom discoveryUrl is caught.
  */
-function assertNoReservedIssuer(doc: Pick<OrgIdpConfigDocument, 'protocol' | 'provider' | 'discoveryUrl' | 'samlEntityId'>): void {
+function assertNoReservedIssuer(doc: Pick<OrgIdpConfigData, 'protocol' | 'provider' | 'discoveryUrl' | 'samlEntityId'>): void {
   if (doc.protocol === 'saml') {
     if (isReservedIssuer(doc.samlEntityId)) throw new Error(IDP_RESERVED_ISSUER);
     return;
@@ -289,7 +291,7 @@ function testRecordDto(test: IdpTestRecord | undefined): OrgIdpConfigDto['lastTe
 function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
   const protocol = doc.protocol ?? 'oidc';
   return {
-    orgId: doc.orgId,
+    orgId: String(doc.organizationId),
     protocol,
     provider: doc.provider,
     clientId: doc.clientId,
@@ -316,13 +318,13 @@ function toDto(doc: OrgIdpConfigDocument): OrgIdpConfigDto {
 export class OrgIdpService {
   /** List every configured IdP (sysadmin only  across all orgs). */
   async listAll(): Promise<OrgIdpConfigDto[]> {
-    const docs = await OrgIdpConfig.find({}).sort({ orgId: 1 });
+    const docs = await OrgIdpConfig.find({}).sort({ organizationId: 1 });
     return docs.map(toDto);
   }
 
   /** Read the config for a specific org (sysadmin only). */
   async findByOrg(orgId: string): Promise<OrgIdpConfigDto | null> {
-    const doc = await OrgIdpConfig.findOne({ orgId });
+    const doc = await OrgIdpConfig.findOne({ organizationId: orgId });
     return doc ? toDto(doc): null;
   }
 
@@ -333,11 +335,11 @@ export class OrgIdpService {
    * the body omits them: the OIDC editor and the SAML editor are separate
    * surfaces on one settings page, so neither may wipe the other's connection
    * just by saving. `clientSecret` keeps its existing write-only semantics
-   * (omitted = keep, which `controllers/org-idp-ops.ts` implements by
+   * (omitted = keep, which `helpers/org-idp-ops.ts` implements by
    * re-injecting the stored plaintext before validation).
    */
   async upsert(actor: string, input: OrgIdpConfigCreate): Promise<OrgIdpConfigDto> {
-    const existing = await OrgIdpConfig.findOne({ orgId: input.orgId });
+    const existing = await OrgIdpConfig.findOne({ organizationId: input.orgId });
     if (existing) {
       const before = { fingerprint: connectionFingerprint(existing), ssoRequired: !!existing.ssoRequired };
       if (input.protocol !== undefined) existing.protocol = input.protocol;
@@ -377,7 +379,7 @@ export class OrgIdpService {
     }
     const protocol: IdpProtocol = input.protocol ?? 'oidc';
     const draft = {
-      orgId: input.orgId,
+      organizationId: toOrgId(input.orgId),
       protocol,
       provider: input.provider,
       clientId: input.clientId,
@@ -398,8 +400,8 @@ export class OrgIdpService {
       createdBy: actor,
       updatedBy: actor,
     };
-    assertProtocolComplete(draft as unknown as OrgIdpConfigDocument);
-    assertNoReservedIssuer(draft as unknown as OrgIdpConfigDocument);
+    assertProtocolComplete(draft);
+    assertNoReservedIssuer(draft);
     const created = await OrgIdpConfig.create(draft);
     logger.info('OrgIdpConfig created', { orgId: input.orgId, protocol, provider: input.provider });
     return toDto(created);
@@ -408,7 +410,7 @@ export class OrgIdpService {
   /** Patch  only fields provided are updated. clientSecret omitted leaves
    * the existing encrypted blob untouched. */
   async patch(orgId: string, actor: string, input: OrgIdpConfigUpdate): Promise<OrgIdpConfigDto | null> {
-    const existing = await OrgIdpConfig.findOne({ orgId });
+    const existing = await OrgIdpConfig.findOne({ organizationId: orgId });
     if (!existing) return null;
     const before = { fingerprint: connectionFingerprint(existing), ssoRequired: !!existing.ssoRequired };
 
@@ -460,7 +462,7 @@ export class OrgIdpService {
    */
   async recordTestResult(orgId: string, testedUpdatedAt: string, record: IdpTestRecord): Promise<boolean> {
     const res = await OrgIdpConfig.updateOne(
-      { orgId, updatedAt: new Date(testedUpdatedAt), protocol: record.protocol },
+      { organizationId: orgId, updatedAt: new Date(testedUpdatedAt), protocol: record.protocol },
       // `timestamps: false` — recording a test is not an edit of the connection,
       // and bumping `updatedAt` would invalidate the very guard above.
       { $set: { lastTest: record } },
@@ -473,7 +475,7 @@ export class OrgIdpService {
    * soft-delete would serve. The audit event in the controller records
    * the action; the row itself isn't useful tombstoned. */
   async delete(orgId: string): Promise<boolean> {
-    const res = await OrgIdpConfig.deleteOne({ orgId });
+    const res = await OrgIdpConfig.deleteOne({ organizationId: orgId });
     return (res.deletedCount ?? 0) > 0;
   }
 
@@ -486,16 +488,16 @@ export class OrgIdpService {
    * Returns null when the org has no config.
    */
   async getLoginConfig(orgId: string): Promise<(OidcLoginConfig & { enabled: boolean; protocol: IdpProtocol }) | null> {
-    const doc = await OrgIdpConfig.findOne({ orgId });
+    const doc = await OrgIdpConfig.findOne({ organizationId: orgId });
     if (!doc) return null;
     // A SAML config carries no client secret — decrypting is skipped rather than
     // throwing on an absent blob. `protocol` tells the enforcement layer which
     // of the two shapes it is actually holding.
     const clientSecret = doc.clientSecretEncrypted
-      ? await unwrapEncrypted(doc.clientSecretEncrypted, doc.orgId, 'org-idp.clientSecret')
+      ? await unwrapEncrypted(doc.clientSecretEncrypted, String(doc.organizationId), 'org-idp.clientSecret')
       : '';
     return {
-      orgId: doc.orgId,
+      orgId: String(doc.organizationId),
       protocol: doc.protocol ?? 'oidc',
       provider: doc.provider ?? 'generic-oidc',
       clientId: doc.clientId ?? '',
@@ -510,7 +512,7 @@ export class OrgIdpService {
   }
 
   /**
-   * INTERNAL LOGIN PATH ONLY — the SAML half of {@link getLoginConfig} (#4).
+   * INTERNAL LOGIN PATH ONLY — the SAML half of {@link getLoginConfig}.
    *
    * Nothing here is secret (an IdP's entity id, endpoint and signing
    * certificates are all public by design), which is why the SAML settings API
@@ -519,10 +521,10 @@ export class OrgIdpService {
    * honour it; null when the org has no config.
    */
   async getSamlLoginConfig(orgId: string): Promise<(SamlLoginConfig & { enabled: boolean; protocol: IdpProtocol }) | null> {
-    const doc = await OrgIdpConfig.findOne({ orgId });
+    const doc = await OrgIdpConfig.findOne({ organizationId: orgId });
     if (!doc) return null;
     return {
-      orgId: doc.orgId,
+      orgId: String(doc.organizationId),
       protocol: doc.protocol ?? 'oidc',
       entityId: doc.samlEntityId ?? '',
       ssoUrl: doc.samlSsoUrl ?? '',
@@ -558,10 +560,10 @@ export class OrgIdpService {
     const needle = domain.toLowerCase();
     const docs = await OrgIdpConfig.find({
       enabled: true,
-      $or: [{ orgId: { $in: [...ownerOrgIds] } }, { allowedEmailDomains: needle }],
-    }).select('orgId protocol provider ssoRequired allowedEmailDomains').lean();
+      $or: [{ organizationId: { $in: [...ownerOrgIds] } }, { allowedEmailDomains: needle }],
+    }).select('organizationId protocol provider ssoRequired allowedEmailDomains').lean();
     return docs.map((d) => ({
-      orgId: String(d.orgId),
+      orgId: String(d.organizationId),
       protocol: d.protocol ?? 'oidc',
       ...(d.provider ? { provider: d.provider } : {}),
       ssoRequired: !!d.ssoRequired,

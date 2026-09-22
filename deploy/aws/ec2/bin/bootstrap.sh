@@ -252,10 +252,8 @@ chown minikube:minikube "$PIPELINE_ROOT" "$PIPELINE_DATA_DIR"
 # write site. Takes a few seconds on a fresh tree.
 chown -R minikube:minikube "$INSTALL_DIR"
 
-# Plugin build artifacts. Lives on the persistent volume; previously this
-# was a symlink from $INSTALL_DIR/deploy/plugins to a path on /mnt/data,
-# but with $INSTALL_DIR itself now living on the EBS volume the symlink is
-# redundant — point consumers at PLUGIN_ARTIFACTS_DIR via env instead.
+# Plugin build artifacts. Lives on the persistent volume ($INSTALL_DIR is on
+# the EBS volume too); consumers find it through PLUGIN_ARTIFACTS_DIR.
 PLUGIN_ARTIFACTS_DIR="$PIPELINE_DATA_DIR/plugin-artifacts"
 mkdir -p "$PLUGIN_ARTIFACTS_DIR"
 chown -R minikube:minikube "$PLUGIN_ARTIFACTS_DIR"
@@ -463,10 +461,10 @@ echo ""
 echo "========================================"
 echo "Phase 11: Install backup timer (disabled — review before enabling)"
 echo "========================================"
-# Per-target script lives under the target's own bin/ now. The ec2 backup.sh is
-# the port-forward-enabled variant: it stands up short-lived kubectl port-forwards
-# to the in-cluster datastores, rewrites the connection env, dumps, and tears them
-# down — so the in-cluster names in .env don't need to be host-reachable.
+# The ec2 backup.sh wraps deploy/bin/backup.sh --connect k8s: it stands up
+# short-lived kubectl port-forwards to the in-cluster datastores, rewrites the
+# connection env, dumps, and tears them down — so the in-cluster names in .env
+# don't need to be host-reachable.
 BACKUP_SH="${INSTALL_DIR}/deploy/aws/ec2/bin/backup.sh"
 if [ -f "$BACKUP_SH" ]; then
   # --- Install backup client prereqs (best-effort; never fail the provision) ---

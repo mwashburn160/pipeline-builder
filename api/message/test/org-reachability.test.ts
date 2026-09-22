@@ -12,7 +12,7 @@
  * decided with NO network call; a cross-org recipient resolves both roots and a
  * lookup failure DENIES (a transport error must never open a cross-tenant path).
  *
- * The conversation-`*` broadcast guard (#20) is a route-level check (a
+ * The conversation-`*` broadcast guard is a route-level check (a
  * conversation can never target '*'), tested in routes.test.ts — '*' never
  * reaches this helper.
  */

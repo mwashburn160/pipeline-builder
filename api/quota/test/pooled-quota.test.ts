@@ -10,8 +10,8 @@
  *   teams do (it used to short-circuit to its own usage only).
  * - A TEAM reads/enforces the root's limit against the whole subtree's usage.
  */
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const emitCounter = jest.fn<AnyFn>();

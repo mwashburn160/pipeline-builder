@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   type AIProviderInfo,
   ASK_AGENT_PROVIDER_ID,
@@ -10,6 +10,9 @@ import {
   askAgentModelId,
 } from '@/lib/ai-constants';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
+
+const NO_PROVIDERS: AIProviderInfo[] = [];
 
 /** Return type of the {@link useAIProviders} hook. */
 export interface UseAIProvidersResult {
@@ -62,14 +65,56 @@ function askAgentEntry(res: ProvidersResponse): AIProviderInfo | null {
   return models.length > 0 ? { id: ASK_AGENT_PROVIDER_ID, name: 'Ask agent', source: 'agent', models } : null;
 }
 
+type OrgAIConfigResponse = Awaited<ReturnType<typeof api.getOrgAIConfig>>;
+
+/**
+ * Merge the provider sources into the picker's list: server-configured first
+ * (they win over an org key for the same id), then org-configured, then every
+ * other known provider as unconfigured (needs a custom key) — configured ones
+ * first, then alphabetical. "Ask agent" (when offered) leads the list and so
+ * becomes the default selection. Each source is `null` when it wasn't asked for
+ * or its request failed.
+ */
+export function mergeAIProviders(
+  server: ProvidersResponse | null,
+  org: OrgAIConfigResponse | null,
+  ask: ProvidersResponse | null,
+): AIProviderInfo[] {
+  const serverProviders: AIProviderInfo[] = (server?.data?.providers ?? []).map((p) => ({ ...p, source: 'server' as const }));
+
+  const orgProviders: AIProviderInfo[] = [];
+  for (const [id, status] of Object.entries(org?.data?.providers ?? {})) {
+    if (status.configured) {
+      orgProviders.push({ id, name: AI_PROVIDER_NAMES[id] ?? id, source: 'org', models: ORG_PROVIDER_MODELS[id] ?? [] });
+    }
+  }
+
+  const serverIds = new Set(serverProviders.map((p) => p.id));
+  const merged = [...serverProviders, ...orgProviders.filter((p) => !serverIds.has(p.id))];
+
+  const configuredIds = new Set(merged.map((p) => p.id));
+  for (const [id, name] of Object.entries(AI_PROVIDER_NAMES)) {
+    if (!configuredIds.has(id)) merged.push({ id, name, source: 'none', models: ORG_PROVIDER_MODELS[id] ?? [] });
+  }
+
+  merged.sort((a, b) => {
+    const aConfigured = a.source !== 'none' ? 0 : 1;
+    const bConfigured = b.source !== 'none' ? 0 : 1;
+    if (aConfigured !== bConfigured) return aConfigured - bConfigured;
+    return a.name.localeCompare(b.name);
+  });
+
+  const agent = ask ? askAgentEntry(ask) : null;
+  if (agent) merged.unshift(agent);
+  return merged;
+}
+
 /**
  * Fetch and merge server + org AI providers, manage selection state.
  *
- * Always shows all known providers in the dropdown. Configured providers
- * (server/org) are listed first, followed by unconfigured ones that require
- * a custom API key. When an unconfigured provider is selected, the API key
- * override section auto-expands. With `askAgent`, the "Ask agent" entry leads
- * the list and is selected by default.
+ * Always shows all known providers in the dropdown (see {@link mergeAIProviders}).
+ * When an unconfigured provider is selected, the API key override section
+ * auto-expands.
  *
  * @param fetchServerProviders - Function to fetch server-configured providers
  *   (different endpoint per service: pipeline vs plugin)
@@ -80,118 +125,41 @@ export function useAIProviders(
   fetchServerProviders: () => Promise<ProvidersResponse>,
   options: UseAIProvidersOptions = {},
 ): UseAIProvidersResult {
-  const [providers, setProviders] = useState<AIProviderInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedProvider, setSelectedProviderState] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [customApiKey, setCustomApiKey] = useState('');
   const [showKeyOverride, setShowKeyOverride] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [serverResponse, orgResponse, askResponse] = await Promise.allSettled([
-          fetchServerProviders(),
-          api.getOrgAIConfig(),
-          options.askAgent ? api.getAskProviders() : Promise.resolve(null),
-        ]);
-
-        if (cancelled) return;
-
-        // Server providers (from env vars)
-        const serverProviders: AIProviderInfo[] =
-          serverResponse.status === 'fulfilled'
-            ? (serverResponse.value.data?.providers ?? []).map((p) => ({
-                ...p,
-                source: 'server' as const,
-              }))
-            : [];
-
-        // Org providers (from saved keys)
-        const orgProviders: AIProviderInfo[] = [];
-        if (orgResponse.status === 'fulfilled' && orgResponse.value.data?.providers) {
-          const orgConfig = orgResponse.value.data.providers;
-          for (const [id, status] of Object.entries(orgConfig)) {
-            if (status.configured) {
-              orgProviders.push({
-                id,
-                name: AI_PROVIDER_NAMES[id] ?? id,
-                source: 'org',
-                models: ORG_PROVIDER_MODELS[id] ?? [],
-              });
-            }
-          }
-        }
-
-        // Merge: server providers take priority, add org-only providers
-        const serverIds = new Set(serverProviders.map((p) => p.id));
-        const merged = [
-          ...serverProviders,
-          ...orgProviders.filter((p) => !serverIds.has(p.id)),
-        ];
-
-        // Add unconfigured providers from the full catalog
-        const configuredIds = new Set(merged.map((p) => p.id));
-        for (const [id, name] of Object.entries(AI_PROVIDER_NAMES)) {
-          if (!configuredIds.has(id)) {
-            merged.push({
-              id,
-              name,
-              source: 'none',
-              models: ORG_PROVIDER_MODELS[id] ?? [],
-            });
-          }
-        }
-
-        // Sort: configured providers first, then unconfigured alphabetically
-        merged.sort((a, b) => {
-          const aConfigured = a.source !== 'none' ? 0 : 1;
-          const bConfigured = b.source !== 'none' ? 0 : 1;
-          if (aConfigured !== bConfigured) return aConfigured - bConfigured;
-          return a.name.localeCompare(b.name);
-        });
-
-        // "Ask agent" leads the list (and so becomes the default selection).
-        const agent = askResponse.status === 'fulfilled' && askResponse.value ? askAgentEntry(askResponse.value) : null;
-        if (agent) merged.unshift(agent);
-
-        // Surface a genuine fetch failure. `Promise.allSettled` never rejects,
-        // so the `catch` below could only fire on a synchronous throw in the
-        // merge code — which meant a 500 from the providers endpoint rendered
-        // as the plausible-looking "no providers configured, enter your own API
-        // key" empty state, and `error` was permanently unreachable.
-        //
-        // Deliberately NOT fatal: the catalog below still lists every provider,
-        // so a user with their own key can proceed. The banner just stops the
-        // outage from masquerading as a configuration state.
-        const rejected = [serverResponse, orgResponse, askResponse].filter((r) => r.status === 'rejected');
-        if (rejected.length > 0) {
-          setError('Could not load configured AI providers — showing the full catalog. Your saved keys may be unavailable.');
-        }
-
-        setProviders(merged);
-        if (merged.length > 0) {
-          setSelectedProviderState(merged[0].id);
-          if (merged[0].models.length > 0) {
-            setSelectedModel(merged[0].models[0].id);
-          }
-          // Auto-expand API key field if first provider is unconfigured
-          if (merged[0].source === 'none') {
-            setShowKeyOverride(true);
-          }
-        }
-      } catch {
-        if (!cancelled) setError('Failed to load AI providers');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time fetch on mount; no deps needed
-  }, []);
-
+  // One read on mount. A failed source is NOT fatal: the catalog still lists
+  // every provider, so a user with their own key can proceed — the error only
+  // stops an outage from masquerading as "no providers configured".
+  const { data, loading, error: loadError } = useFetch(async () => {
+    const [server, org, ask] = await Promise.allSettled([
+      fetchServerProviders(),
+      api.getOrgAIConfig(),
+      options.askAgent ? api.getAskProviders() : Promise.resolve(null),
+    ]);
+    const value = <T,>(r: PromiseSettledResult<T>): T | null => (r.status === 'fulfilled' ? r.value : null);
+    return {
+      providers: mergeAIProviders(value(server), value(org), value(ask)),
+      degraded: [server, org, ask].some((r) => r.status === 'rejected'),
+    };
+  }, [], {
+    // Default selection: the first provider and its first model.
+    onSuccess: ({ providers: merged }) => {
+      const first = merged[0];
+      if (!first) return;
+      setSelectedProviderState(first.id);
+      if (first.models.length > 0) setSelectedModel(first.models[0].id);
+      if (first.source === 'none') setShowKeyOverride(true);
+    },
+  });
+  const providers = data?.providers ?? NO_PROVIDERS;
+  const error = loadError
+    ? 'Failed to load AI providers'
+    : data?.degraded
+      ? 'Could not load configured AI providers — showing the full catalog. Your saved keys may be unavailable.'
+      : null;
   /** Update provider selection and reset model to first available. */
   const setSelectedProvider = (providerId: string) => {
     setSelectedProviderState(providerId);

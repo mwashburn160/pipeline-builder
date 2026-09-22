@@ -3,7 +3,7 @@
 
 /**
  * Data access for installs and the org consumption policy
- * (docs/plans/plugin-ecosystem.md §3.2), and the {@link ListingDataSource} the
+ * (docs/plugin-publishing.md), and the {@link ListingDataSource} the
  * shared resolver (pipeline-data `plugin-resolution.ts`) reads through.
  *
  * Runs ELEVATED like the rest of the ecosystem store (see store.ts): the
@@ -14,6 +14,7 @@
  */
 
 import {
+  executeRows,
   OFFICIAL_PUBLISHER_HANDLE,
   schema,
   type ListingDataSource,
@@ -30,8 +31,8 @@ import {
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import { elevated } from './store.js';
+import { ACTIVE_LISTING_STATES, first } from './util.js';
 
-const first = <T>(rows: T[]): T | null => rows[0] ?? null;
 const P = () => schema.publisher;
 const L = () => schema.pluginListing;
 const V = () => schema.pluginListingVersion;
@@ -50,7 +51,7 @@ export const listingSource: ListingDataSource = {
   liveListings: (filter = {}) => {
     if ((filter.ids && filter.ids.length === 0) || (filter.names && filter.names.length === 0)) return Promise.resolve([]);
     return elevated(async (tx) => tx.select().from(L()).where(and(
-      inArray(L().state, ['listed', 'unmaintained']),
+      inArray(L().state, [...ACTIVE_LISTING_STATES]),
       ...(filter.ids ? [inArray(L().id, filter.ids)] : []),
       ...(filter.names ? [inArray(L().name, filter.names)] : []),
     )) as Promise<PluginListing[]>);
@@ -113,27 +114,24 @@ export const policyRows = {
     }),
 };
 
-type Rows<T> = { rows?: T[] } | T[];
-const rowsOf = <T>(res: Rows<T>): T[] => (Array.isArray(res) ? res : res.rows ?? []);
-
 /**
- * Orgs that use an Official listing through the IMPLICIT install (D16): a LIVE
- * pipeline's deployed step manifest records it (E8 — manifests only, no scan
+ * Orgs that use an Official listing through the IMPLICIT install: a LIVE
+ * pipeline's deployed step manifest records it (manifests only, no scan
  * of every pipeline definition's jsonb; a deleted pipeline never counts),
- * matched on the Official publisher's ID (E12). With `version`, only uses of
+ * matched on the Official publisher's ID. With `version`, only uses of
  * that exact version. Runs ACROSS orgs: the result must only ever address
  * those orgs themselves, never be shown to the publisher.
  */
 export async function implicitOfficialUsers(name: string, version?: string): Promise<string[]> {
   return elevated(async (tx) => {
-    const deployed = rowsOf(await tx.execute<{ org_id: string }>(sql`
+    const deployed = await executeRows<{ org_id: string }>(tx, sql`
       SELECT DISTINCT lower(m.org_id) AS org_id
         FROM pipeline_step_manifests m
         JOIN pipelines pl ON pl.id = m.pipeline_id AND pl.deleted_at IS NULL
         JOIN publishers pub ON pub.id = m.plugin_publisher_id AND pub.handle = ${OFFICIAL_PUBLISHER_HANDLE}
        WHERE m.plugin_name = ${name}
          ${version ? sql`AND m.plugin_version = ${version}` : sql``}
-    `) as Rows<{ org_id: string }>);
+    `);
     return [...new Set(deployed.map((r) => r.org_id).filter((o): o is string => !!o).map((o) => o.toLowerCase()))].sort();
   });
 }
@@ -145,7 +143,7 @@ export interface OwnPluginName { id: string; name: string; orgId: string; visibi
  * Live plugin rows named any of `names` that an UNQUALIFIED reference from
  * `orgId` would resolve before the Official listing: the org's own (a member's
  * private draft only for its author) and, for a team, its parent's `public`
- * ones (the resolution order of plan §3.5).
+ * ones (the resolution order of).
  */
 export async function ownPluginsNamed(names: string[], scope: { orgId: string; parentOrgId?: string; userId?: string }): Promise<OwnPluginName[]> {
   if (names.length === 0) return [];

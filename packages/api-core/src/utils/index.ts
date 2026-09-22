@@ -23,12 +23,15 @@ export {
   sendBadRequest,
   sendInternalError,
   parsePaginationParams,
+  parseSort,
+  type PaginationParams,
+  type SortParams,
 } from './response.js';
 export {
   getParam,
-  getOrgId,
   parseQueryInt,
   parseQueryString,
+  parseOptionalDate,
   parsePositiveInt,
   parseQueryIntClamped,
   parsePage,
@@ -53,6 +56,8 @@ export {
   isJwksDocument,
   publicJwkFrom,
   derToJoseSignature,
+  encodeJwsSigningInput,
+  compactJws,
 } from './jwk.js';
 export type {
   PublicJwk,
@@ -98,12 +103,13 @@ export {
 } from './sensitive-patterns.js';
 export {
   isPrivateAddress,
-  resolveSafeTarget,
   assertSafeUrl,
   safeFetch,
   type SafeFetchResponse,
 } from './ssrf.js';
 export * from './env.js';
+export * from './service-registry.js';
+export * from './retention.js';
 export * from './compliance-attributes.js';
 export {
   leadingZeroBits,

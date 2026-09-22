@@ -102,7 +102,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  incrementQuotaFromCtx: jest.fn<AnyFn>(),
+  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -120,7 +120,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 }));
 
 const { isSystemAdmin, sendBadRequest, validateQuery } = await import('@pipeline-builder/api-core');
-const { incrementQuotaFromCtx } = await import('@pipeline-builder/api-server');
 const { createReadPipelineRoutes } = await import('../src/routes/read-pipelines.js');
 
 // Helpers
@@ -276,12 +275,9 @@ describe('GET /pipelines (list)', () => {
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
-  it('increments quota after successful response', async () => {
-    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
-
-    await handler(mockReq(), mockRes());
-
-    expect(incrementQuotaFromCtx).toHaveBeenCalledWith(mockQuotaService, expect.objectContaining({ orgId: 'org-1' }), 'apiCalls');
+  it('meters apiCalls on success (meterQuotaOnSuccess on the route)', () => {
+    const layer = (router as any).stack.find((l: any) => l.route?.path === '/' && l.route?.methods.get);
+    expect(layer.route.stack.some((l: any) => l.handle.meters === 'apiCalls')).toBe(true);
   });
 });
 

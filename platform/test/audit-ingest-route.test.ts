@@ -36,7 +36,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 // requireServiceAuth stub — authenticate as a non-sysadmin service token for
 // org-1. `principalType: 'service'` is what makes it a service principal, and the
 // `service:<name>` subject is what `requireInternalService` reads to decide
-// whether pipeline is one of the callers this ingest admits (#14).
+// whether pipeline is one of the callers this ingest admits.
 jest.unstable_mockModule('../src/middleware/index.js', () => ({
   requireServiceAuth: (req: any, _res: unknown, next: () => void) => {
     req.user = req.user ?? SERVICE_PRINCIPAL;

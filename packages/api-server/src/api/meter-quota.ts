@@ -14,11 +14,10 @@ const logger = createLogger('meter-quota');
  *
  * The complement to {@link checkQuota}: `checkQuota` only GATES (reads current
  * usage and 429s when over) — it never increments, so a service that mounts it
- * but never calls `incrementQuota` checks against a counter that its own traffic
- * never moves (the metering gap this fixes for the compliance service). Mount
- * this ALONGSIDE the auth/org chain to close the loop with one line instead of
- * threading `quotaService` + a manual `incrementQuotaFromCtx` through every
- * route factory and handler.
+ * but never increments checks against a counter its own traffic never moves.
+ * This is THE apiCalls metering convention: put it on each metered route (or
+ * mount it ahead of a service's whole surface) rather than incrementing by hand
+ * in handlers.
  *
  * Fire-and-forget + fail-safe by construction:
  * - runs in a `finish` listener, so it never blocks or fails the response;
@@ -31,8 +30,8 @@ const logger = createLogger('meter-quota');
  *   (e.g. a peer calling compliance `validate`) must not burn a tenant's quota —
  *   the originating service already meters the user action that triggered it.
  *
- * Do NOT combine this with a handler that already calls `incrementQuotaFromCtx`
- * for the same quota type on the same route — that double-counts.
+ * Mount it once per route: a second meter for the same quota type on the same
+ * request double-counts.
  *
  * @param quotaService - Quota service client
  * @param quotaType - Which quota to meter (e.g. 'apiCalls')

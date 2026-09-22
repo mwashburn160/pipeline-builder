@@ -21,21 +21,21 @@
  * create/update/delete (org admins own their notification surface).
  */
 
-import { assertSafeUrl, createLogger, errorMessage, sendError, sendQuotaReserveDenied, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { assertSafeUrl, createLogger, errorMessage, safeEqual, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
-import { releaseFeatureQuota, reserveFeatureQuota } from '../middleware/quota.js';
+import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
 import { isValidEmail } from '../utils/email-address.js';
-import { isReasonableString } from '../utils/string-guards.js';
+import { createAlertDestinationSchema, updateAlertDestinationSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('alert-destinations-controller');
 
-/** UI label and Slack/webhook URL length caps (see config.observability). */
-const { alertDestinationMaxLabel: MAX_LABEL, alertDestinationMaxTarget: MAX_TARGET } = config.observability;
+/** Slack/webhook URL length cap (see config.observability). */
+const { alertDestinationMaxTarget: MAX_TARGET } = config.observability;
 
 
 /** Validate channel/target combos. Slack URLs must start with the canonical
@@ -94,11 +94,6 @@ async function checkWebhookTargetSafe(channel: string | undefined, target: strin
   }
 }
 
-/** Accepted destination channels. `in-app` needs no target; the rest do. */
-function isValidChannel(c: unknown): c is 'slack' | 'webhook' | 'in-app' | 'email' {
-  return c === 'slack' || c === 'webhook' || c === 'in-app' || c === 'email';
-}
-
 /** GET /api/observability/alert-destinations — list this org's destinations. */
 export const listAlertDestinations = withController('List alert destinations', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
@@ -147,41 +142,21 @@ export const createAlertDestination = withController('Create alert destination',
   // Static `observability:write` gate now enforced at the route
   // (`requirePermission('observability:write')`), auditable in the route table.
 
-  const body = req.body as { channel?: unknown; target?: unknown; label?: unknown; minSeverity?: unknown; enabled?: unknown };
-
-  if (!isValidChannel(body.channel)) {
-    return sendError(res, 400, 'channel must be slack, webhook, in-app, or email');
-  }
-  if (!isReasonableString(body.label, MAX_LABEL)) {
-    return sendError(res, 400, `label is required (max ${MAX_LABEL} chars)`);
-  }
-  const target = typeof body.target === 'string' ? body.target : '';
-  if (body.channel !== 'in-app') {
-    const err = validateChannelTarget(body.channel, target);
+  const body = validateBody(createAlertDestinationSchema, req.body, res);
+  if (!body) return;
+  const { channel, label, target, minSeverity, enabled } = body;
+  if (channel !== 'in-app') {
+    const err = validateChannelTarget(channel, target);
     if (err) return sendError(res, 400, err);
-    const ssrfErr = await checkWebhookTargetSafe(body.channel, target);
+    const ssrfErr = await checkWebhookTargetSafe(channel, target);
     if (ssrfErr) return sendError(res, 400, ssrfErr);
-  }
-  if (body.minSeverity !== undefined && body.minSeverity !== 'warning' && body.minSeverity !== 'critical') {
-    return sendError(res, 400, 'minSeverity must be warning or critical');
   }
 
   // Per-org cap on alert destinations. Reserve atomically before insert so
   // two concurrent creates at the limit can't both succeed.
-  const reservation = await reserveFeatureQuota(orgId, 'alertDestinations');
-  if (reservation.exceeded) {
-    return sendQuotaReserveDenied(res, 'alertDestinations', reservation);
-  }
-
-  try {
+  await withFeatureQuota(res, orgId, 'alertDestinations', async () => {
     const created = await alertDestinationService.create(
-      {
-        channel: body.channel,
-        target,
-        label: body.label,
-        minSeverity: (body.minSeverity as 'warning' | 'critical' | undefined),
-        enabled: typeof body.enabled === 'boolean' ? body.enabled : true,
-      },
+      { channel, target, label, minSeverity, enabled: enabled ?? true },
       { orgId, userId },
     );
 
@@ -191,12 +166,7 @@ export const createAlertDestination = withController('Create alert destination',
       details: { channel: created.channel, label: created.label, minSeverity: created.minSeverity },
     });
     sendSuccess(res, 201, { destination: toApiDestination(created) });
-  } catch (err) {
-    // Roll back the reserved slot on any failure — keeps the counter accurate
-    // when the DB write fails after the quota service already committed.
-    releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger), reservation);
-    throw err;
-  }
+  });
 });
 
 /** PUT /api/observability/alert-destinations/:id — update. */
@@ -208,19 +178,13 @@ export const updateAlertDestination = withController('Update alert destination',
   // Static `observability:write` gate now enforced at the route.
 
   const id = req.params.id as string;
-  const body = req.body as { channel?: unknown; target?: unknown; label?: unknown; minSeverity?: unknown; enabled?: unknown };
+  const body = validateBody(updateAlertDestinationSchema, req.body, res);
+  if (!body) return;
 
-  if (body.channel !== undefined && !isValidChannel(body.channel)) {
-    return sendError(res, 400, 'channel must be slack, webhook, in-app, or email');
-  }
-  if (body.label !== undefined && !isReasonableString(body.label, MAX_LABEL)) {
-    return sendError(res, 400, `label must be <= ${MAX_LABEL} chars`);
-  }
   if (body.target !== undefined && body.target !== '') {
-    if (typeof body.target !== 'string') return sendError(res, 400, 'target must be a string');
     // Validate against the new channel if supplied, otherwise look up the existing channel.
     let channel: string;
-    if (typeof body.channel === 'string') {
+    if (body.channel !== undefined) {
       channel = body.channel;
     } else {
       const existing = await alertDestinationService.findById(id, orgId);
@@ -231,7 +195,7 @@ export const updateAlertDestination = withController('Update alert destination',
     if (err) return sendError(res, 400, err);
     const ssrfErr = await checkWebhookTargetSafe(channel, body.target);
     if (ssrfErr) return sendError(res, 400, ssrfErr);
-  } else if (typeof body.channel === 'string') {
+  } else if (body.channel !== undefined) {
     // Channel changed but no new target supplied — re-validate the STORED target
     // against the new channel's rules, else a webhook target (e.g. an internal
     // URL) could be relabeled as slack/email and bypass the channel allowlist.
@@ -242,21 +206,8 @@ export const updateAlertDestination = withController('Update alert destination',
     const ssrfErr = await checkWebhookTargetSafe(body.channel, existing.target);
     if (ssrfErr) return sendError(res, 400, ssrfErr);
   }
-  if (body.minSeverity !== undefined && body.minSeverity !== 'warning' && body.minSeverity !== 'critical') {
-    return sendError(res, 400, 'minSeverity must be warning or critical');
-  }
 
-  const updated = await alertDestinationService.update(
-    id,
-    {
-      channel: body.channel as 'slack' | 'webhook' | 'in-app' | 'email' | undefined,
-      target: typeof body.target === 'string' ? body.target : undefined,
-      label: typeof body.label === 'string' ? body.label : undefined,
-      minSeverity: body.minSeverity as 'warning' | 'critical' | undefined,
-      enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
-    },
-    { orgId, userId },
-  );
+  const updated = await alertDestinationService.update(id, body, { orgId, userId });
   if (!updated) return sendError(res, 404, 'Destination not found');
 
   audit(req, 'alert.destination.update', { targetType: 'alert-destination', targetId: id });
@@ -295,23 +246,16 @@ export const restoreAlertDestination = withController('Restore alert destination
 
   // Restore re-adds a live row → re-reserve the feature slot delete released, so
   // delete→restore→create can't drift an org past its alertDestinations cap.
-  const reservation = await reserveFeatureQuota(orgId, 'alertDestinations');
-  if (reservation.exceeded) {
-    return sendQuotaReserveDenied(res, 'alertDestinations', reservation);
-  }
-
-  try {
+  await withFeatureQuota(res, orgId, 'alertDestinations', async () => {
     const ok = await alertDestinationService.restore(id, { orgId, userId });
     if (!ok) {
-      releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger), reservation);
-      return sendError(res, 404, 'Destination not found');
+      sendError(res, 404, 'Destination not found');
+      return false;
     }
     audit(req, 'alert.destination.restore', { targetType: 'alert-destination', targetId: id });
     sendSuccess(res, 200, undefined, 'Destination restored');
-  } catch (err) {
-    releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger), reservation);
-    throw err;
-  }
+    return true;
+  });
 });
 
 /**
@@ -393,22 +337,6 @@ export const testAlertDestination = withController('Test alert destination', asy
 });
 
 /**
- * Constant-time token compare to avoid leaking the token via timing. The XOR /
- * bitwise-OR accumulation is the standard formulation — eslint's no-bitwise
- * rule would force a slower / non-constant-time variant, so we suppress it just
- * here.
- */
-function tokenMatches(provided: string, expected: string): boolean {
-  if (provided.length !== expected.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < expected.length; i++) {
-    // eslint-disable-next-line no-bitwise
-    mismatch |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
-  }
-  return mismatch === 0;
-}
-
-/**
  * POST /api/observability/alert-webhook — Alertmanager webhook relay.
  *
  * Auth: shared-secret `ALERT_WEBHOOK_TOKEN` env (sent as Bearer token from
@@ -443,8 +371,8 @@ export const alertWebhook = withController('Alertmanager webhook relay', async (
   // Current token, or — during a rotation (ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)
   // — the outgoing one. Both are compared (no short-circuit) so timing doesn't
   // reveal which matched.
-  const matchesCurrent = tokenMatches(provided, instance.token);
-  const matchesPrevious = instance.previousToken ? tokenMatches(provided, instance.previousToken) : false;
+  const matchesCurrent = safeEqual(provided, instance.token);
+  const matchesPrevious = instance.previousToken ? safeEqual(provided, instance.previousToken) : false;
   if (!matchesCurrent && !matchesPrevious) return sendError(res, 401, 'Unauthorized');
 
   // Minimal validation of the Alertmanager payload shape.

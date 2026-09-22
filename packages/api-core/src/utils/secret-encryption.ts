@@ -131,8 +131,7 @@ export class EnvKeyProvider implements KeyProvider {
  */
 /**
  * KMS-decrypt a base64 ciphertext into a 32-byte key. Shared by both KMS key
- * providers (single-master + per-org), which previously copy-pasted this
- * dynamic-import + Decrypt + empty/length guards. `@aws-sdk/client-kms` is
+ * providers (single-master + per-org). `@aws-sdk/client-kms` is
  * dynamically imported so EnvKeyProvider-only envs never load the SDK.
  */
 async function kmsDecrypt32(keyId: string, ciphertextB64: string, region?: string, endpoint?: string): Promise<Buffer> {
@@ -324,13 +323,13 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
    * RESOLVED — either it has a per-org master (use it) or it provably has no
    * per-org config (the fallback is then the right answer).
    *
-   * For an UNRESOLVED org this THROWS rather than guessing. It used to fall
-   * through to the fallback, which silently encrypted that org's secrets under
-   * the SHARED master and — because `kidFor` also returned undefined, so the
-   * both-kids-present mismatch guard could never fire — left them permanently
-   * undecryptable once the org warmed: `decipher.final()` then threw an opaque
-   * auth-tag error with no diagnostic. Failing loud here matches
-   * `KmsKeyProvider.deriveKey`, which has always refused to work cold.
+   * For an UNRESOLVED org this THROWS rather than guessing. Falling through to
+   * the fallback would silently encrypt that org's secrets under the SHARED
+   * master and — because `kidFor` also returns undefined, so the
+   * both-kids-present mismatch guard could never fire — leave them permanently
+   * undecryptable once the org warmed (`decipher.final()` throws an opaque
+   * auth-tag error with no diagnostic). Failing loud here matches
+   * `KmsKeyProvider.deriveKey`, which refuses to work cold.
    *
    * `encryptSecret`/`decryptSecret` are async and await `deriveKeyAsync`, so
    * they resolve the org first and never hit this path; it is the backstop for

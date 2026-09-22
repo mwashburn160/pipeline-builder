@@ -1,7 +1,7 @@
 {
   "title": "Plugin ecosystem",
   "uid": "plugin-ecosystem",
-  "description": "Moderation queue, SLAs, decisions, auto-approvals, re-sign jobs and notices (docs/plans/plugin-ecosystem.md \u00a79a; runbook docs/runbooks/ecosystem-moderation.md).",
+  "description": "Moderation queue, SLAs, decisions, auto-approvals, re-sign jobs and notices (runbook docs/runbooks/ecosystem-moderation.md).",
   "tags": [
     "pipeline-builder",
     "plugin-ecosystem"

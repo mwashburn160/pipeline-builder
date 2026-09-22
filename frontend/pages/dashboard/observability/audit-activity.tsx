@@ -2,19 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * audit-activity.tsx is now a redirect shim.
+ * Resolver for the stable "Audit activity" address.
  *
- * The page that USED to live here was the static replacement for Grafana's
- * Explore audit-log surface. That functionality migrated to the DB-stored
- * `Audit Activity` dashboard (seeded under org_id='system'), and the
- * DB-stored renderer honours the URL-param filters (`?event=`, `?actor=`,
- * `?requestId=`) that deep-links such as `buildAuditLogLink` produce, and offers
- * a filter form for them on the dashboard itself.
- *
- * Keeping this file as a shim — rather than deleting it outright — preserves
- * existing deep-links (registry-audit-link, bookmarks) without requiring the
- * helper itself to look up the dashboard id at link-build time. One redirect
- * per click is cheap; rewriting every helper isn't.
+ * The audit view is the DB-stored `Audit activity` dashboard seeded under
+ * org_id='system', whose id is generated at seed time — so no link can name it
+ * statically. Links (the nav entry, `buildAuditLogLink`) point here instead;
+ * this page looks the dashboard up by name and replaces itself with it,
+ * passing the audit filters (`?event=`, `?actor=`, `?requestId=`, `?range=`)
+ * through, which the dashboard renderer reads directly.
  */
 
 import { useEffect } from 'react';
@@ -33,7 +28,7 @@ import { formatError } from '@/lib/constants';
  * platform/src/services/dashboard-seeder.ts. */
 const TARGET_DASHBOARD_NAME = 'Audit activity';
 
-export default function AuditActivityRedirect() {
+export default function AuditActivityResolver() {
   // Admin-only (declared in page-access), matching the audit-log viewer at
   // /dashboard/audit. The Audit Activity panels read the MongoDB audit trail
   // scoped to the caller's org (a sysadmin sees every org), and the
@@ -46,7 +41,7 @@ export default function AuditActivityRedirect() {
   const { data: targetId, error, refetch } = useFetch(
     async (signal) => {
       if (!ready) return null;
-      const res = await api.listDashboards(signal);
+      const res = await api.listDashboards({ signal });
       const match = res.data?.dashboards.find((d) => d.name === TARGET_DASHBOARD_NAME);
       if (!match) {
         throw new Error(`Could not find the seeded "${TARGET_DASHBOARD_NAME}" dashboard. Has the platform service finished its cold-start seed? Check Postgres.`);

@@ -15,6 +15,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { seatsMock } from './helpers/seats-mock.js';
 
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockSave = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
@@ -42,7 +43,7 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
   loadActiveOrgInfo: (...a: unknown[]) => mockLoadActiveOrgInfo(...a),
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishSessionSlotRevocation: async () => true,
   publishAccessKeyRevocation: async () => true,

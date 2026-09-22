@@ -15,8 +15,9 @@
  * then under-grants, which is safe).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const limits = (seats: number, plugins: number) => ({
@@ -55,9 +56,7 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { quota: { tier: { developer: {}, pro: {}, team: {}, enterprise: {} } } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ quota: { tier: { developer: {}, pro: {}, team: {}, enterprise: {} } } }));
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
@@ -103,7 +102,7 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishUsersRevocation: mockPublishUsersRevocation,
 }));
 
-const { setTier, setSeatLimit } = await import('../src/services/organization-quota.js');
+const { setTier, setSeatLimit, tierBaseQuotaSet } = await import('../src/services/organization-quota.js');
 
 /** A Mongoose-shaped org doc for setTier (awaited directly by findById). */
 function makeOrgDoc(initial: { _id: string; tier?: string; parentOrgId?: string; quotas?: unknown }) {
@@ -466,5 +465,23 @@ describe('setSeatLimit — root-only', () => {
     await expect(setSeatLimit('team-7', 5, ['sso'])).rejects.toThrow(ORG_SEAT_LIMIT_NOT_ROOT);
     expect(mockOrgUpdateOne).not.toHaveBeenCalled();
     expect(mockOrgUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('tierBaseQuotaSet', () => {
+  it('keeps the larger of the tier base and the current seats (purchased capacity survives)', () => {
+    const base = tierBaseQuotaSet('team', undefined).seats;
+    expect(tierBaseQuotaSet('team', base + 7).seats).toBe(base + 7);
+    expect(tierBaseQuotaSet('team', 1).seats).toBe(base);
+  });
+
+  it('treats current unlimited seats (-1) as outranking any finite base', () => {
+    expect(tierBaseQuotaSet('developer', -1).seats).toBe(-1);
+  });
+
+  it('never carries the billing-owned retention dims', () => {
+    const quotas = tierBaseQuotaSet('enterprise', undefined) as unknown as Record<string, unknown>;
+    expect(quotas.eventRetentionDays).toBeUndefined();
+    expect(quotas.doraRetentionDays).toBeUndefined();
   });
 });

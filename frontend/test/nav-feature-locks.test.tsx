@@ -25,7 +25,7 @@ import type { User } from '../src/types';
 let features: string[] = [];
 /** An org admin who may configure SSO (`org:idp`) but whose plan has no `sso`. */
 const mockViewer = { id: 'u1', username: 'dana', permissions: ['org:idp', 'members:manage'] };
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ isReadOnly: false, user: mockViewer }) }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ isReadOnly: false, user: mockViewer })));
 jest.mock('@/hooks/useBillingEnabled', () => ({ __esModule: true, useBillingEnabled: () => true }));
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,
@@ -44,7 +44,7 @@ jest.mock('@/lib/query-cache', () => ({
 }));
 
 const push = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ push, query: {}, pathname: '/dashboard' }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push, query: {}, pathname: '/dashboard' })));
 
 import { Sidebar } from '../src/components/ui/Sidebar';
 import { CommandPalette } from '../src/components/ui/CommandPalette';

@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 
 // Mock external dependencies — must be set up before importing the service
 const mockFind = jest.fn<AnyFn>();
@@ -15,6 +15,8 @@ const mockSuperUpdateMany = jest.fn<(...a: any[]) => Promise<any[]>>();
 // the default-version rule and the in-use count must be exercised against the
 // actual comparison, not a stub. (semver-range imports drizzle-orm, which this
 // suite mocks below — importing it first binds the real one.)
+// The real raw-result reader (a pure function), loaded before the module mock.
+const realPgResult = await import('@pipeline-builder/pipeline-data/lib/database/pg-result.js');
 const realSemver = await import('@pipeline-builder/pipeline-data/lib/api/semver-range.js');
 const mockPluginResolutionOrderBy = jest.fn((..._a: any[]) => ['resolution-order']);
 // api-core is never mocked in this suite, so the real system-org id is safe to load first.
@@ -36,6 +38,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   }
 
   return stubModule('@pipeline-builder/pipeline-data', {
+    executeRows: realPgResult.executeRows,
     CrudService: MockCrudService,
     buildPluginConditions: jest.fn(() => []),
     withViewerContext: <T>(filter: T): T => filter,
@@ -92,7 +95,7 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   inArray: jest.fn((col: any, vals: any[]) => ({ col, vals, op: 'inArray' })),
 }));
 
-// Installing orgs of a row's listing versions (W2) — the fan-out has its own suite.
+// Installing orgs of a row's listing versions — the fan-out has its own suite.
 const mockInstallingOrgs = jest.fn(async (..._args: unknown[]): Promise<Array<{ orgId: string; install: null }>> => []);
 const mockVersionsBySource = jest.fn(async (..._args: unknown[]): Promise<any[]> => []);
 const mockListingById = jest.fn(async (..._args: any[]): Promise<any> => null);
@@ -100,17 +103,24 @@ const mockPublisherById = jest.fn(async (): Promise<any> => null);
 jest.unstable_mockModule('../src/services/ecosystem/install-notify.js', () => ({ installingOrgs: mockInstallingOrgs }));
 jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
   versions: { bySourcePlugins: mockVersionsBySource },
-  listings: { byId: mockListingById },
-  publishers: { byId: mockPublisherById },
+  // The real lookup's shape over the per-id mocks.
+  listingsWithPublishers: async (ids: string[]) => {
+    const out = new Map<string, { listing: any; publisher: any }>();
+    for (const id of new Set(ids)) {
+      const listing = await mockListingById(id);
+      if (listing) out.set(id, { listing, publisher: await (mockPublisherById as any)(listing.publisherId) });
+    }
+    return out;
+  },
 }));
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-const { PluginService, toComplianceAttributes } = await import('../src/services/plugin-service.js');
+const { PluginService } = await import('../src/services/plugin-service.js');
 const pipelineDataMock = await import('@pipeline-builder/pipeline-data') as unknown as { withTenantTx: jest.Mock };
 // api-core is NOT mocked — use the real in-process event emitter to capture the
 // event the service emits to the compliance subscriber.
-const { entityEvents } = await import('@pipeline-builder/api-core');
+const { entityEvents, toComplianceAttributes } = await import('@pipeline-builder/api-core');
 
 // Tests
 
@@ -218,6 +228,38 @@ describe('PluginService', () => {
       await service.deployVersion({ ...data, version: '1.0.1' }, 'user-B', member);
       expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }));
       expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ version: '1.0.1', isDefault: true }));
+    });
+
+    it('invalidates and emits the entity event only AFTER the deploy transaction commits (created, then updated)', async () => {
+      const order: string[] = [];
+      const inner = pipelineDataMock.withTenantTx.getMockImplementation()!;
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => {
+        const out = await (inner as any)(cb);
+        order.push('commit');
+        return out;
+      });
+      const invalidate = jest.spyOn(service as any, 'invalidateAndEmit');
+      invalidate.mockImplementation(async (type: unknown) => { order.push(`event:${String(type)}`); });
+      await service.deployVersion(data, 'user-1', member);
+      existingRows = [{ version: '1.0.0', visibility: 'org', createdBy: 'user-1', deletedAt: null }];
+      await service.deployVersion(data, 'user-1', member);
+      expect(order).toEqual(['commit', 'event:created', 'commit', 'event:updated']);
+    });
+
+    it('drops every org\'s cached copy of the demoted default', async () => {
+      let call = 0;
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn(async () => []),
+        select: jest.fn(() => {
+          const rows = call++ === 0 ? [] : [{ id: 'd-1', version: '1.0.0', visibility: 'public', createdBy: 'user-A', deletedAt: null }];
+          return { from: () => ({ where: () => Object.assign(Promise.resolve(rows), { for: async () => rows }) }) };
+        }),
+        update: jest.fn(() => ({ set: mockUpdateSet })),
+        insert: jest.fn(() => ({ values: mockValues })),
+      }));
+      const ids = jest.spyOn(service as any, 'invalidateIds');
+      await service.deployVersion({ ...data, version: '1.0.1' }, 'user-B', { isSystemAdmin: false, canPublish: true });
+      expect(ids).toHaveBeenCalledWith(['d-1']);
     });
 
     it('allows the author (private), a publisher (public), a member (org), and a system admin', async () => {
@@ -460,7 +502,7 @@ describe('PluginService', () => {
 
 
   // ---------------------------------------------------------------------------
-  // W0.3 / W0.4 / W0.5 — resolution order, delete safety, lifecycle
+  // — resolution order, delete safety, lifecycle
   // ---------------------------------------------------------------------------
 
   describe('findFirstOrderBy — the shared lookup ranking', () => {
@@ -471,7 +513,7 @@ describe('PluginService', () => {
     });
   });
 
-  describe('deleteVersion — delete safety (W0.5)', () => {
+  describe('deleteVersion — delete safety', () => {
     const row = { id: 'p-1', orgId: 'org-1', name: 'trivy', version: '1.0.0', isDefault: false, frozenAt: null, quotaResetAt: null } as any;
     let deleteSpy: jest.Mock<(...a: any[]) => Promise<any>>;
 
@@ -652,7 +694,7 @@ describe('PluginService', () => {
     });
   });
 
-  describe('setDeprecated (W0.4)', () => {
+  describe('setDeprecated', () => {
     const captureSet = () => {
       const set = jest.fn((_v: any) => ({ where: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) })) }));
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ update: jest.fn(() => ({ set })) }));
@@ -688,7 +730,7 @@ describe('PluginService', () => {
     });
   });
 
-  describe('yankVersion / promoteNextDefault (W0.4)', () => {
+  describe('yankVersion / promoteNextDefault', () => {
     it('refuses to yank a version published to the ecosystem', async () => {
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ execute: jest.fn(async () => ({ rows: [{ x: 1 }] })) }));
       await expect(service.yankVersion({ id: 'p-1', isDefault: false } as any, 'org-1', 'u-1', 'why'))
@@ -733,7 +775,7 @@ describe('PluginService', () => {
     });
   });
 
-  describe('deployVersion — catalog metadata on re-upload (§3.1a)', () => {
+  describe('deployVersion — catalog metadata on re-upload', () => {
     it('replaces summary / displayName / documentationUrl / provenance / quota snapshot on the conflict branch', async () => {
       const onConflict = jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) }));
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({

@@ -8,10 +8,10 @@
  * unhandled axios error.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, beforeAll, afterAll, beforeEach, describe, it, expect } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -51,7 +51,7 @@ type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
   sendError: (res: Res, status: number, message: string, code?: string) => res.status(status).json({ success: false, message, code }),
-  emitAudit: () => {},
+  logAuditEvent: () => {},
   sendBadRequest: (res: Res, message: string, code?: string) => res.status(400).json({ success: false, message, code }),
   sendEntityNotFound: (res: Res, entity: string) => res.status(404).json({ success: false, message: `${entity} not found` }),
   getParam: (params: Record<string, string>, key: string) => params[key],

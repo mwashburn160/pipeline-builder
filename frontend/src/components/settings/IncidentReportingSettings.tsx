@@ -23,7 +23,6 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
-import { useLoadable } from '@/hooks/useLoadable';
 import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
@@ -114,7 +113,7 @@ function providerGuide(key: ProviderKey, genericUrl: string, alertmanagerUrl: st
 }
 
 /**
- * Org-admin "Incident reporting" settings panel (Phase 5b). Sets up + configures
+ * Org-admin "Incident reporting" settings panel. Sets up + configures
  * the PagerDuty / Datadog / Alertmanager → DORA incident webhook: the endpoint
  * URLs (incl. the native Alertmanager adapter), the self-serve `reporting:ingest`
  * webhook token (reuses the PAT issuance — copy-once, step-up gated), provider
@@ -139,9 +138,10 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
   const loadSettings = useCallback(async (): Promise<IncidentSettings | null> => {
     return (await api.getIncidentSettings()) ?? null;
   }, []);
-  const { data: settings, loading: settingsLoading, reload: reloadSettings } = useLoadable<IncidentSettings | null>(
-    loadSettings, null, 'Failed to load incident settings',
-  );
+  const { data: settingsLoaded, loading: settingsLoading, refetch: reloadSettings } = useFetch<IncidentSettings | null>(() => loadSettings(), [loadSettings], {
+    onError: (err) => toast.error(formatError(err, 'Failed to load incident settings')),
+  });
+  const settings = settingsLoaded ?? null;
   const [windowInput, setWindowInput] = useState('');
   const [savingWindow, setSavingWindow] = useState(false);
   const effectiveWindow = settings?.incidentWindowHours ?? settings?.defaultWindowHours ?? 24;
@@ -162,7 +162,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
     }
   };
 
-  // ── Per-org retention windows (Phase 7) — READ-ONLY ──
+  // ── Per-org retention windows — READ-ONLY ──
   // Retention is billing-owned: the effective value is (override ?? default),
   // written only by the billing→reporting retention sync when a retention /
   // DORA-History pack is purchased. `-1` means unlimited. Admins raise it by
@@ -381,7 +381,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
       )}
 
       {activeTab === 'retention' && (
-      /* Retention (Phase 7) — READ-ONLY (billing-owned) */
+      /* Retention — READ-ONLY (billing-owned) */
       <SectionCard
         icon={Archive}
         title="Retention"

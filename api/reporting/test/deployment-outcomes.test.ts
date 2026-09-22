@@ -5,7 +5,7 @@
  * Tests for POST /reports/deployments/:executionId/outcome — the post-deploy
  * mark failed/restored write that feeds DORA post-deploy CFR + real MTTR.
  *
- * api#5 anti-forgery: `at` is bounded to `[now − doraRetention, now]` and a
+ * Anti-forgery: `at` is bounded to `[now − doraRetention, now]` and a
  * supplied `environment` must be a REAL observed deploy env for the org, so a
  * user can't manufacture a phantom environment card.
  */
@@ -39,7 +39,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     recordDeploymentOutcome: (...a: unknown[]) => mockRecordOutcome(...a),
-    getIncidentSettings: (...a: unknown[]) => mockGetSettings(...a),
+    getReportingSettings: (...a: unknown[]) => mockGetSettings(...a),
     getReportEnvironments: (...a: unknown[]) => mockGetEnvironments(...a),
   },
 }));

@@ -18,7 +18,7 @@ import {
 
 const { dim, green, red, yellow } = pico;
 
-/** Fields a version needs before a publish request is accepted (§3.1 gates). */
+/** Fields a version needs before a publish request is accepted (the publish gates). */
 export const PUBLISH_REQUIRED_FIELDS: ReadonlySet<PluginCatalogField> = new Set(['license', 'readme']);
 
 export interface ValidationReport {
@@ -29,7 +29,7 @@ export interface ValidationReport {
   lint: PluginLintFinding[];
   /** The catalog fields as the server will detect them. */
   fields: DetectedField[];
-  /** The malware heuristics the anonymous-submission gate runs (plugin-ecosystem §4.2, E8): `high` fails, `medium` warns. */
+  /** The malware heuristics the anonymous-submission gate runs: `high` fails, `medium` warns. */
   heuristics: HeuristicFinding[];
 }
 
@@ -113,7 +113,7 @@ interface ValidatePluginOptions {
  * Register `plugin validate` — the upload's own checks against a LOCAL plugin
  * directory (the server's Zod spec/config schemas and template contract, shared
  * from api-core), plus a report of every catalog field: its detected value, its
- * source, and whether it would be empty or invalid (§3.1a). `--lint` adds the
+ * source, and whether it would be empty or invalid. `--lint` adds the
  * catalog's Dockerfile rules (test-plugins.sh). Exits non-zero on any problem,
  * any invalid detected catalog value or any lint error (CI-friendly).
  *

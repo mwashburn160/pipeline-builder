@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Unit tests for the REAL checkEntitlementOvercap (docs/billing-bundles.md §8):
+ * Unit tests for the REAL checkEntitlementOvercap (docs/billing-bundles.md):
  * whether an add-on change would drop a COUNT quota's cap below current pooled
  * usage. Guards seats (platform) + plugins/pipelines/listings (quota); fails OPEN
  * when a usage read errors. Base tier limits come from the api-core mock
@@ -10,8 +10,8 @@
  * those base limits, so we drive overages purely via the mocked usage reads.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -48,19 +48,19 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const get = (section: string) => {
     if (section === 'server') return { services: { billingTimeout: 5000 } };
-    return {}; // 'billing' → no bundles ⇒ empty catalog ⇒ effective = base tier limits
+    return {};
   };
-  // effectiveEntitlements now lives in pipeline-core; pull in the REAL leaf impl
-  // (depends only on the mocked api-core getTierLimits, so base caps stay 10/50/5).
-  const { effectiveEntitlements } = await import(
-    '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
-  );
   return stubModule('@pipeline-builder/pipeline-core', {
     Config: { get, getAny: get },
-    effectiveEntitlements,
     CoreConstants: { IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000, IDEMPOTENCY_TTL_MS: 300_000, IDEMPOTENCY_MAX_STORE_SIZE: 10_000 },
   });
 });
+
+// No bundles ⇒ empty catalog ⇒ effective = base tier limits (the real
+// effectiveEntitlements runs against the mocked api-core getTierLimits).
+jest.unstable_mockModule('../src/config/billing-config.js', () => ({
+  getBillingConfig: () => ({ plans: [], bundles: [], comboDiscounts: [] }),
+}));
 
 jest.unstable_mockModule('../src/config.js', () => ({
   config: {
@@ -71,16 +71,13 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 jest.unstable_mockModule('../src/models/billing-event.js', () => ({ BillingEvent: { create: jest.fn<AnyFn>() } }));
 
-// billing-helpers now imports the provider factory + service audit client; stub
-// both so no real Stripe/AWS SDK is loaded for this over-cap unit suite.
+// Stub the provider factory so no real Stripe/AWS SDK is
+// loaded for this over-cap unit suite.
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({ syncAddons: jest.fn<AnyFn>() }),
 }));
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
-const { checkEntitlementOvercap } = await import('../src/helpers/billing-helpers.js');
+const { checkEntitlementOvercap } = await import('../src/helpers/entitlement-sync.js');
 
 beforeEach(() => {
   jest.clearAllMocks();

@@ -103,7 +103,7 @@ commands:
     await expect(parsePluginZip(zipPath)).rejects.toThrow('name, version, and commands are required');
   });
 
-  it('refuses a name or version outside the plugin-spec shape on EVERY upload (E15)', async () => {
+  it('refuses a name or version outside the plugin-spec shape on EVERY upload', async () => {
     const spec = (name: string, version: string) => `name: ${name}\nversion: ${version}\ncommands:\n  - echo hi\n`;
     await expect(parsePluginZip(buildZip({ 'plugin-spec.yaml': spec('"lint\\r\\nBcc: x"', '"1.0.0"') }))).rejects.toThrow(/name must match/);
     await expect(parsePluginZip(buildZip({ 'plugin-spec.yaml': spec('Lint', '"1.0.0"') }))).rejects.toThrow(/name must match/);

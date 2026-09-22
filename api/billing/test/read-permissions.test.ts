@@ -26,8 +26,8 @@
  * the handler, exactly as express would.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -86,29 +86,23 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   bundlesEnabled: (...a: unknown[]) => mockBundlesEnabled(...(a as [])),
   bundleSelfServiceAllowed: () => true,
   getBundleCatalog: () => [],
-  // Double-billing prune wiring — this suite only asserts read-route gating, so
-  // both are no-ops (prune returns [], the finalizer + provider removal do nothing).
-  applyTierIncludedAddonPrune: () => [],
-  applyPlanTierChange: () => async () => undefined,
   billingServiceAuth: () => 'Bearer service-token',
-  finalizePrunedAddons: async () => undefined,
-  syncProviderAddons: async () => undefined,
-  effectiveEntitlements: () => ({ limits: {} }),
-  buildSubscriptionResponse: () => ({}),
-  checkEntitlementOvercap: async () => [],
   createBillingEvent: async () => undefined,
-  syncEntitlements: async () => undefined,
   calculatePeriodEnd: () => new Date(),
-  // Routes widen their lookups to the non-terminal set; the real constant must
-  // be present so the `$in` filters aren't `undefined`.
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
+}));
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
+  checkEntitlementOvercap: async () => [],
+  syncEntitlements: async () => undefined,
+}));
+jest.unstable_mockModule('../src/helpers/subscription-response.js', () => ({
+  buildSubscriptionResponse: () => ({}),
 }));
 
-// prune/plan-change helpers moved to addon-prune.js (imported by the routes now).
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyTierIncludedAddonPrune: () => [],
   applyPlanTierChange: () => async () => undefined,
   finalizePrunedAddons: async () => undefined,
+  syncProviderAddons: async () => undefined,
 }));
 
 // addons (real) imports combo-pricing, which loads the real pipeline-core config

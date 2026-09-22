@@ -856,7 +856,7 @@ spec:
             ports: ["3000"]
 ---
 # =============================================================================
-# Quarantine builder (anonymous plugin submissions, plugin-ecosystem §4.2 / W5)
+# Quarantine builder (anonymous plugin submissions)
 # =============================================================================
 # plugin-quarantine-builder (k8s/plugin-quarantine-builder.yaml, its own SA with
 # no token) accepts builds from the plugin service ONLY. Its outbound mesh hops
@@ -885,10 +885,10 @@ spec:
             ports: ["1234"]
 ---
 # =============================================================================
-# Observability backends (D3) — these used to have NO AuthorizationPolicy, which
-# under ambient means "any mesh identity may connect": a plugin build pod could
-# read every tenant's Loki stream with a guessed X-Scope-OrgID, query Prometheus
-# or post alerts to Alertmanager. Each now admits exactly its real callers.
+# Observability backends — without an AuthorizationPolicy, ambient lets any mesh
+# identity connect: a plugin build pod could read every tenant's Loki stream with
+# a guessed X-Scope-OrgID, query Prometheus or post alerts to Alertmanager. Each
+# admits exactly its real callers.
 # =============================================================================
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy

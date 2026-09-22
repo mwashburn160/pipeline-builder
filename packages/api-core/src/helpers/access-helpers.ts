@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Request, Response } from 'express';
-import { isSystemAdmin, userHasPermission } from '../middleware/auth.js';
+import { isSystemAdmin, userHasPermission } from '../middleware/permission-gates.js';
 import { ErrorCode } from '../types/error-codes.js';
 import type { Permission } from '../types/permissions.js';
 import type { Visibility } from '../types/visibility.js';
@@ -68,11 +68,9 @@ export type VisibilityWriteVerdict = 'ok' | 'needs-publish' | 'not-author';
 /**
  * The visibility write rule as a PREDICATE, with no response side-effect.
  *
- * Extracted so BULK routes can apply the identical rule per row instead of
- * re-deriving it. They used to reject anything not `private`, which contradicted
- * this gate: `resolveVisibility` defaults pipelines and plugins to `org`, and
- * this function happily allows an `org` write with plain `:write` — so a bulk
- * delete/update 403'd the default case that single-row delete/update allowed.
+ * Extracted so BULK routes apply the identical rule per row instead of
+ * re-deriving it — a bulk rule that disagreed would 403 cases single-row
+ * delete/update allow (an `org` row with plain `:write`, the default rung).
  *
  *   - `private` → author only
  *   - `org`     → any member of the org
@@ -120,7 +118,7 @@ export function checkVisibilityWriteAccess(
  * rather than a second code path.
  *
  * Permission-based (not coarse-role-based): a bespoke custom Role can be granted
- * publish rights and is no longer forced private by its `member` label. Built-in
+ * publish rights regardless of its `member` label. Built-in
  * Admin/Owner bundles carry the publish permissions; the built-in Member bundle
  * does not, so members top out at `org`.
  */

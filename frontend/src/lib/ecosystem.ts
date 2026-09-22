@@ -4,7 +4,7 @@
 /**
  * Shared vocabulary for the plugin-ecosystem screens (the tenant Publisher page
  * and the system org's Ecosystem console): labels, badge colours, and the
- * card-preview builder the publish form uses (plan §3.1a step 3).
+ * card-preview builder the publish form uses.
  */
 
 import { PLUGIN_ICONS } from '@/generated/plugin-icons';
@@ -12,7 +12,7 @@ import { PROJECT_REPO_URL } from '@/lib/public-directory/links';
 import type { ListingCard } from '@/lib/public-directory/types';
 import type { PluginCatalogEdits, PluginCatalogField, PluginIcon } from '@/types';
 import type {
-  EcosystemListingState, ListingsQuota, PublisherTier, PublishRequestKind, PublishRequestStatus,
+  ListingState, ListingsQuota, PublisherTier, PublishRequestKind, PublishRequestStatus,
 } from '@/types/ecosystem';
 
 type BadgeColor = 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
@@ -51,14 +51,14 @@ export const REQUEST_STATUS_COLORS: Record<PublishRequestStatus, BadgeColor> = {
   withdrawn: 'gray',
 };
 
-export const LISTING_STATE_LABELS: Record<EcosystemListingState, string> = {
+export const LISTING_STATE_LABELS: Record<ListingState, string> = {
   listed: 'Listed',
   unmaintained: 'Unmaintained',
   suspended: 'Suspended',
   transferred: 'Transferred',
 };
 
-export const LISTING_STATE_COLORS: Record<EcosystemListingState, BadgeColor> = {
+export const LISTING_STATE_COLORS: Record<ListingState, BadgeColor> = {
   listed: 'green',
   unmaintained: 'yellow',
   suspended: 'red',
@@ -111,7 +111,7 @@ function iconKeyOf(value: unknown): { key: string | null; badge: string | null }
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 /**
- * The directory card the listing WOULD render as (plan §3.1a step 3), built
+ * The directory card the listing WOULD render as, built
  * from the effective catalog values — the same `ListingCard` shape the public
  * directory's card renders, so the preview can't drift from the real thing.
  * An icon key the curated manifest doesn't know falls back to the monogram,

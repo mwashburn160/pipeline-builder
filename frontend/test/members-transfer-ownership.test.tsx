@@ -7,8 +7,8 @@
  * Destructive (the acting owner is demoted and loses owner-only controls) AND
  * step-up gated, so the house rule applies: ONE dialog that states what is lost
  * and takes the factor, never a confirm modal in front of a step-up modal. The
- * pair is what this file pins — it used to render `TransferOwnershipModal` and
- * then `StepUpModal`, asking the same person the same question twice.
+ * pair is what this file pins — never `TransferOwnershipModal` and then
+ * `StepUpModal`, asking the same person the same question twice.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -23,13 +23,10 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 const mockRouter = { query: {}, pathname: '/dashboard/members', asPath: '/dashboard/members', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 const refreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ user: { organizationId: 'org-1' }, organizations: [], refreshUser, switchOrganization: jest.fn<AnyFn>() }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ user: { organizationId: 'org-1' }, organizations: [], refreshUser, switchOrganization: jest.fn<AnyFn>() })));
 
 // Renders `title` + `details`: with no confirm dialog in front of it, this is
 // the only place the cost of the action can be stated.

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Pure W2 helpers: the install action a catalog entry offers, the rekeyed
+ * Pure install helpers: the install action a catalog entry offers, the rekeyed
  * plugin-usage key, the consumption-policy form's draft logic, and the
  * pipeline-editor picker's grouping / shadowing / selection.
  */
@@ -17,8 +17,8 @@ import { POLICY, catalogEntry, installView, officialEntry } from './helpers/plug
 
 describe('installActionState', () => {
   it('offers Install, or Request install when approval is needed', () => {
-    expect(installActionState(catalogEntry())).toEqual({ kind: 'install', requiresApproval: false });
-    expect(installActionState(catalogEntry({ requiresApproval: true }))).toEqual({ kind: 'install', requiresApproval: true });
+    expect(installActionState(catalogEntry())).toEqual({ kind: 'install', needsApproval: false });
+    expect(installActionState(catalogEntry({ needsApproval: true }))).toEqual({ kind: 'install', needsApproval: true });
   });
 
   it('reads the install first: pending, denied, implicit, installed', () => {

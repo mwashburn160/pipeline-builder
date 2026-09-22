@@ -1,18 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, audited, createLogger, errorMessage, validateBody, requirePermission, actorId } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, audited, createLogger, errorMessage, validateBody, requirePermission, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { RULE_TEMPLATES } from '../data/rule-templates.js';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('compliance-templates');
 
 /**
- * Feature #9: Rule templates — starter rules that orgs can adopt.
+ * Rule templates — starter rules that orgs can adopt.
  */
 
 const ApplyTemplatesSchema = z.object({
@@ -66,7 +65,7 @@ export function createTemplateRoutes(): Router {
         // Best-effort attributed audit — one event per template ACTUALLY
         // applied (a rule was minted), never per requested id. targetId is the
         // new rule; details names the source template only.
-        emitComplianceAudit({
+        recordAudit({
           action: 'compliance.template.apply',
           actorId: actorId({ userId }),
           orgId,

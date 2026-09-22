@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, parsePaginationParams, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, MAX_PAGE_LIMIT, parsePage, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { canAccessOrg, requireOrgScope, requireAuth, getAdminContext, withController } from '../helpers/controller-helper.js';
+import { canAccessOrg, requireOrgScope, ensureAuthenticated, getAdminContext, withController } from '../helpers/controller-helper.js';
+import { paginationMeta } from '../helpers/pagination.js';
 import { orgMembersService, type RoleAssignmentActor } from '../services/index.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
 import { RL_ASSIGN_EXCEEDS_CEILING } from '../services/roles-errors.js';
@@ -23,7 +24,7 @@ function assignmentActor(req: Parameters<Parameters<typeof withController>[1]>[0
 
 /** GET /organization/:id/members */
 export const getOrganizationMembers = withController('Get members', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   // Own org (any member), a team you manage (parent-org admin), or sysadmin.
@@ -34,7 +35,7 @@ export const getOrganizationMembers = withController('Get members', async (req, 
   // Bound the roster: parse limit/offset + optional search/role, and push them
   // into the DB query (service-side, never in-memory) so a large org doesn't
   // ship its whole membership. Mirrors the paginated list endpoints' shape.
-  const { offset, limit } = parsePaginationParams(req.query);
+  const { offset, limit } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
   const search = typeof req.query.search === 'string' ? req.query.search : undefined;
   const roleRaw = typeof req.query.role === 'string' ? req.query.role : undefined;
   const role = roleRaw === 'owner' || roleRaw === 'admin' || roleRaw === 'member' ? roleRaw : undefined;
@@ -56,7 +57,7 @@ export const getOrganizationMembers = withController('Get members', async (req, 
     organizationName,
     ownerId,
     members,
-    pagination: { total, offset: off, limit: lim, hasMore: off + lim < total },
+    pagination: paginationMeta(total, off, lim),
   });
 });
 
@@ -70,7 +71,7 @@ export const getOrganizationMembers = withController('Get members', async (req, 
  * message service's signed token) or an org-admin who can access the org.
  */
 export const checkOrganizationMembership = withController('Check membership', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = getParam(req.params, 'id')!;
   const userId = getParam(req.params, 'userId')!;
@@ -84,7 +85,7 @@ export const checkOrganizationMembership = withController('Check membership', as
 
 /** POST /organization/:id/members */
 export const addMemberToOrganization = withController('Add member', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const admin = getAdminContext(req);
@@ -113,7 +114,7 @@ export const addMemberToOrganization = withController('Add member', async (req, 
 /** GET /organization/:id/member/:memberId/teams — descendant teams annotated
  *  with whether the member belongs to each (manage-teams view). */
 export const getMemberTeams = withController('Get member teams', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const memberId = req.params.memberId as string;
@@ -129,7 +130,7 @@ export const getMemberTeams = withController('Get member teams', async (req, res
 /** GET /organization/:id/teams — descendant team roster (no member context),
  *  for the "also add to teams" picker. */
 export const getOrganizationTeams = withController('Get org teams', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   if (!(await canAccessOrg(req, id))) {
@@ -143,7 +144,7 @@ export const getOrganizationTeams = withController('Get org teams', async (req, 
 /** POST /organization/:id/members/bulk-add — add one user to several teams in
  *  the org's subtree at once. */
 export const bulkAddMemberToTeams = withController('Bulk add member to teams', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const admin = getAdminContext(req);
@@ -175,7 +176,7 @@ export const bulkAddMemberToTeams = withController('Bulk add member to teams', a
 
 /** DELETE /organization/:id/members/:userId */
 export const removeMemberFromOrganization = withController('Remove member', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const userId = req.params.userId as string;
@@ -196,7 +197,7 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
 
 /** PATCH /organization/:id/transfer-owner */
 export const transferOrganizationOwnership = withController('Transfer ownership', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const body = validateBody(transferOwnershipSchema, req.body, res);
@@ -226,7 +227,7 @@ export const transferOrganizationOwnership = withController('Transfer ownership'
 
 /** PATCH /organization/:id/members/:userId/deactivate */
 export const deactivateMember = withController('Deactivate member', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const userId = req.params.userId as string;
@@ -245,7 +246,7 @@ export const deactivateMember = withController('Deactivate member', async (req, 
 
 /** PATCH /organization/:id/members/:userId/activate */
 export const activateMember = withController('Activate member', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   const id = req.params.id as string;
   const userId = req.params.userId as string;

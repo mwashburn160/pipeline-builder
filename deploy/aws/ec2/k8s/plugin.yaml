@@ -81,9 +81,9 @@ spec:
         # no SYS_ADMIN, no privileged mode, no CA-trust shell wrapper. buildkitd
         # uses the system CA bundle baked into moby/buildkit:rootless directly.
         - name: buildkitd
-          # v0.32.1 (was v0.16.0): newer runc reaper no longer wedges in a hot
-          # "container not running" retry loop when a build container is killed
-          # mid-flight, which previously zombified the pod (Init:ContainerStatusUnknown).
+          # >= v0.32: older runc reapers wedge in a hot "container not running"
+          # retry loop when a build container is killed mid-flight, zombifying
+          # the pod (Init:ContainerStatusUnknown).
           image: moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88  # moby/buildkit:v0.32.1-rootless
           restartPolicy: Always
           args:
@@ -250,7 +250,7 @@ spec:
             - name: GRYPE_DB_CACHE_DIR
               value: "/var/cache/grype"
           volumeMounts:
-            # This pod's OWN internal-token signing key (#14) and the PUBLIC
+            # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
             # is what stops a compromised service signing as another — while the
             # bundle is public and identical everywhere. Both from
@@ -444,9 +444,7 @@ spec:
 # instead of Docker Hub. Mounted by the buildkitd sidecar in the plugin
 # pod (see initContainers above).
 #
-# Previously lived in buildkitd-per-tier.yaml; moved here when the stale
-# standalone buildkitd-developer/pro/unlimited Deployments were retired
-# and the in-pod sidecar became the sole buildkitd in the cluster.
+# The in-pod sidecar is the only tenant buildkitd in the cluster.
 apiVersion: v1
 kind: ConfigMap
 metadata:

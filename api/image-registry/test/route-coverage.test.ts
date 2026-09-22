@@ -57,7 +57,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/internal/quarantine/:submissionId/credential',
     waive: 'audit',
-    reason: 'Mints the short-lived, registry-only credential ONE anonymous submission build pushes with (E21). It changes no durable state and grants nothing beyond `quarantine/<submissionId>` (+ base-image pulls); the submission gate run it serves is audited by the plugin service, and the quarantine repo\'s deletion by registry.gc. Plugin-only via requireInternalService.',
+    reason: 'Mints the short-lived, registry-only credential ONE anonymous submission build pushes with. It changes no durable state and grants nothing beyond `quarantine/<submissionId>` (+ base-image pulls); the submission gate run it serves is audited by the plugin service, and the quarantine repo\'s deletion by registry.gc. Plugin-only via requireInternalService.',
   },
   {
     method: 'POST',
@@ -78,7 +78,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/internal/plugin-signatures', callers: ['plugin'] },
-  // Plugin-ecosystem public/* publications (§3.3): the plugin service drives the
+  // Plugin-ecosystem public/* publications: the plugin service drives the
   // copy + fresh sign on approval, the tier re-sign job, yank, GC and verification.
   { method: 'POST', path: '/internal/plugin-publications', callers: ['plugin'] },
   { method: 'POST', path: '/internal/plugin-publications/resign', callers: ['plugin'] },
@@ -87,10 +87,10 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/internal/plugin-publications/gc', callers: ['plugin'] },
   { method: 'GET', path: '/internal/plugin-publications/verify', callers: ['plugin'] },
   { method: 'POST', path: '/internal/plugin-publications/verify-cache/invalidate', callers: ['plugin'] },
-  // Anonymous submissions (§4.2 / W5): the plugin service drops a decided or
+  // Anonymous submissions: the plugin service drops a decided or
   // expired submission's quarantined build.
   { method: 'DELETE', path: '/internal/quarantine/:submissionId', callers: ['plugin'] },
-  // …and mints the registry-only credential its quarantine build pushes with (E21).
+  // …and mints the registry-only credential its quarantine build pushes with.
   { method: 'POST', path: '/internal/quarantine/:submissionId/credential', callers: ['plugin'] },
 ];
 
@@ -116,7 +116,7 @@ describe('image-registry route coverage', () => {
     expect(violations).toEqual([]);
   });
 
-  // Plugin-ecosystem governance (plan §3.0): every route gated on a
+  // Plugin-ecosystem governance: every route gated on a
   // system-org-only permission (plugins:moderate, publishers:verify) must also
   // run requireSystemOrg and demand aal2 — use requireEcosystemPermission. No
   // exception list: passes today, bites the day a governance route lacks it.

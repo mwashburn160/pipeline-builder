@@ -10,8 +10,7 @@ const router: Router = Router();
 
 /**
  * `/internal/ecosystem/*` — platform reads for the plugin ecosystem's
- * governance (docs/plans/plugin-ecosystem.md §3.0.1, §3.7). INTERNAL routes
- * (#14): only the `plugin` service's signed token reaches them; the mesh policy
+ * governance (docs/runbooks/ecosystem-moderation.md). INTERNAL routes: only the `plugin` service's signed token reaches them; the mesh policy
  * on the Istio targets names the same caller, and compose relies on this gate.
  */
 const pluginOnly = [requireServiceAuth, requireInternalService({ callers: ['plugin'] })];

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * #7 — a PUBLISHED rule created/updated with a `set:<x>` tag whose `<x>` is not a
+ * A PUBLISHED rule created/updated with a `set:<x>` tag whose `<x>` is not a
  * KNOWN content set is rejected (`InvalidSetTagError` → 400 at the route). This
  * prevents a typo'd `set:advance` from being invisible to the entitlement gate
  * (enforced free-to-all AND absent from any paid library). Org-scoped rules are
@@ -75,7 +75,7 @@ jest.unstable_mockModule('../src/helpers/rule-change-notifier.js', () => ({
 
 const { ComplianceRuleService, InvalidSetTagError } = await import('../src/services/compliance-rule-service.js');
 
-describe('#7 set-tag validation on published rules', () => {
+describe('set-tag validation on published rules', () => {
   let svc: InstanceType<typeof ComplianceRuleService>;
   beforeEach(() => {
     jest.clearAllMocks();

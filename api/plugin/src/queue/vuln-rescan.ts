@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Nightly vulnerability rescan (W0.6).
+ * Nightly vulnerability rescan.
  *
  * New CVEs are published against packages that were clean when the image was
  * built, so a build-time scan goes stale. Once per `PLUGIN_RESCAN_INTERVAL_MS`
@@ -11,7 +11,7 @@
  * `vuln*`/`scannedAt` (and filling `runAsRoot` where unknown), plus the
  * `plugin_listing_versions` rows published from it. A version whose critical or
  * high count grows goes to {@link onNewCriticalOrHigh}; a LISTED version whose
- * count grows past its own stored facts gets a private advisory draft (W8,
+ * count grows past its own stored facts gets a private advisory draft (
  * `openRescanDraft`: deduplicated per listing version and CVE set, N20).
  *
  * Scheduling: every pod ticks hourly (or at the interval, if shorter); one pod
@@ -27,14 +27,13 @@
  * still says when that was) and is counted in the progress metrics.
  */
 
-import { createLogger, createScheduler, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
+import { envInt, createLogger, createScheduler, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, gt, isNotNull, isNull, or } from 'drizzle-orm';
 
 import { getHealthRedisConnection } from './connections.js';
-import { intFromEnv } from './env-int.js';
 import type { RegistryInfo } from '../helpers/registry-auth.js';
 import {
   hasNewCriticalOrHigh,
@@ -60,7 +59,7 @@ export function isRescanEnabled(): boolean {
 }
 
 function rescanIntervalMs(): number {
-  return intFromEnv('PLUGIN_RESCAN_INTERVAL_MS', 24 * 60 * 60 * 1000);
+  return envInt('PLUGIN_RESCAN_INTERVAL_MS', 24 * 60 * 60 * 1000, { min: 1 });
 }
 
 /** The Redis surface the rescan's bookkeeping needs (ioredis satisfies it). */
@@ -87,7 +86,7 @@ export interface RescanPassResult {
   rescanned: number;
   failed: number;
   newCriticalOrHigh: number;
-  /** Private advisory drafts opened for listed versions (W8). */
+  /** Private advisory drafts opened for listed versions. */
   advisoryDrafts: number;
   catalog: VulnCounts;
 }
@@ -179,7 +178,7 @@ async function rescanOne(row: RescanRow, registry: RegistryInfo, catalog: VulnCo
     }, before, scan);
   }
 
-  // W8: a LISTED version compared against ITS OWN stored facts (the listing
+  // a LISTED version compared against ITS OWN stored facts (the listing
   // copy can lag the org row, e.g. after an earlier failed sync).
   let drafts = 0;
   for (const lv of priors) {
@@ -289,9 +288,9 @@ export async function runRescanTick(
 /**
  * Build (not start) the leader-locked rescan scheduler, or `null` when
  * `PLUGIN_RESCAN_ENABLED=false`. Env:
- *   PLUGIN_RESCAN_INTERVAL_MS        (default 86400000 — 24 h between passes)
- *   PLUGIN_RESCAN_LOCK_TTL_MS        (default 21600000 — 6 h; must outlast a pass)
- *   PLUGIN_RESCAN_STARTUP_DELAY_MS   (default 120000)
+ *   PLUGIN_RESCAN_INTERVAL_MS (default 86400000 — 24 h between passes)
+ *   PLUGIN_RESCAN_LOCK_TTL_MS (default 21600000 — 6 h; must outlast a pass)
+ *   PLUGIN_RESCAN_STARTUP_DELAY_MS (default 120000)
  */
 export function createVulnRescanScheduler(redis: () => ReturnType<typeof getHealthRedisConnection> = getHealthRedisConnection): Scheduler | null {
   if (!isRescanEnabled()) {
@@ -302,8 +301,8 @@ export function createVulnRescanScheduler(redis: () => ReturnType<typeof getHeal
   return createScheduler({
     name: 'vuln-rescan',
     intervalMs: Math.min(intervalMs, 60 * 60 * 1000),
-    startupDelayMs: intFromEnv('PLUGIN_RESCAN_STARTUP_DELAY_MS', 120_000),
-    lock: { redis, key: LOCK_KEY, ttlMs: intFromEnv('PLUGIN_RESCAN_LOCK_TTL_MS', 6 * 60 * 60 * 1000) },
+    startupDelayMs: envInt('PLUGIN_RESCAN_STARTUP_DELAY_MS', 120_000, { min: 1 }),
+    lock: { redis, key: LOCK_KEY, ttlMs: envInt('PLUGIN_RESCAN_LOCK_TTL_MS', 6 * 60 * 60 * 1000, { min: 1 }) },
     run: async () => { await runRescanTick(redis()); },
   });
 }

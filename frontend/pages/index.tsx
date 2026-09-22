@@ -34,7 +34,7 @@ export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl
   // Guests see the landing page; while auth initializes, or for an authenticated
   // user about to be redirected, show the loader. A sign-in SUBMISSION does not
   // count as loading: the card must stay mounted to show an MFA prompt, a
-  // forced password change, or the error — it used to unmount on every submit.
+  // forced password change, or the error.
   const showLanding = isInitialized && !isLoading && (isSubmitting || !isAuthenticated);
 
   return (

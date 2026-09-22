@@ -59,9 +59,7 @@ const illustrationColors: Record<IllustrationType, { bg: string; icon: string; r
 /**
  * Minimal text-only empty state.
  *
- * Renders the exact `<div>` + class string that was previously hand-rolled
- * across the compliance components, so migrating a call site produces
- * byte-identical DOM. For a richer icon/illustration empty state, use
+ * The compliance components' plain-text empty state. For a richer icon/illustration empty state, use
  * {@link EmptyState} instead.
  */
 export function TextEmptyState({ children }: { children: React.ReactNode }) {
@@ -97,10 +95,9 @@ export function EmptyState({
   // every list in the app. The reduced-motion block in globals.css collapses it
   // like every other animation there.
   return (
-    // No decorative blobs. Two blurred radial gradients used to sit behind the
-    // glyph (a blue one above, an amber one bottom-left); they were the loudest
-    // thing on an otherwise empty screen, and in dark mode they read as smudges.
-    // The state is now type-led: glyph, title, one line, one action.
+    // No decorative blobs: on an otherwise empty screen they are the loudest
+    // thing, and in dark mode they read as smudges. The state is type-led:
+    // glyph, title, one line, one action.
     <div className={`empty-state-reveal text-center py-14 ${className}`}>
       {Icon && (
         <div

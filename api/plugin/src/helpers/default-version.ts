@@ -3,8 +3,8 @@
 
 /**
  * Which uploaded version becomes a plugin's DEFAULT — the version a pipeline
- * gets when it names the plugin without a version spec (plugin-ecosystem §3.4,
- * W0.3). One pure rule, applied both by the unlocked upload pre-check
+ * gets when it names the plugin without a version spec (
+ * ). One pure rule, applied both by the unlocked upload pre-check
  * (`assertDeployable`) and under the deploy lock (`deployVersion`), so the two
  * can't disagree.
  *
@@ -20,6 +20,9 @@
  */
 
 import { compareSemverParts, parseSemver } from '@pipeline-builder/pipeline-data';
+
+/** The version a plugin whose spec names none is stored under (every upload path and the deploy). */
+export const DEFAULT_PLUGIN_VERSION = '0.0.0';
 
 export function shouldBecomeDefault(
   version: string,

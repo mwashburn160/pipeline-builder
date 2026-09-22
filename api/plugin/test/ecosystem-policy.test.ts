@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The pure rules of the publish-request queue (plugin ecosystem §3.0–§3.4):
+ * The pure rules of the publish-request queue:
  * version bumps, contract deltas, submit gates, who decides, two-person
  * approval, and auto-approval rule evaluation / widening.
  */
@@ -137,7 +137,7 @@ describe('decision rules', () => {
   });
 });
 
-describe('evaluateAutoRule (§3.0.3)', () => {
+describe('evaluateAutoRule', () => {
   const official = {
     requestKinds: ['new_version', 'listing_update'],
     publisherTiers: ['official' as const],
@@ -214,7 +214,7 @@ describe('evaluateAutoRule (§3.0.3)', () => {
   });
 });
 
-describe('widensRule (§3.0.1: enabling or widening needs a second approver)', () => {
+describe('widensRule (enabling or widening needs a second approver)', () => {
   const base = { requestKinds: ['new_version'], publisherTiers: ['verified' as const], bumps: ['patch' as const], submitterServiceAccount: 'x', textOnlyListingUpdates: true, maxPerDay: 10, maxPerListingPerDay: 1, instanceFlag: 'F' };
   it.each([
     ['more kinds', { requestKinds: ['new_version', 'listing_update'] }],

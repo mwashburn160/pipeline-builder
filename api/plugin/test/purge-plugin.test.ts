@@ -13,8 +13,8 @@
  * `purgeById` on a mocked service.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -35,6 +35,7 @@ const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?:
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPluginAudit,
   loadAndPurge,
   sendSuccess,
 }));
@@ -67,10 +68,6 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 }));
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPluginAudit: mockEmitPluginAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 const { createPurgePluginRoutes } = await import('../src/routes/purge-plugin.js');
 

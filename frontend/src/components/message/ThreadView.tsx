@@ -61,8 +61,8 @@ interface ThreadViewProps {
 function PriorityBadge({ priority }: { priority: string }) {
   if (priority === 'normal') return null;
   const colors = priority === 'urgent'
-    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-    : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
+    ? 'bg-danger-bg text-danger'
+    : 'bg-warning-bg text-warning';
   const Icon = priority === 'urgent' ? AlertOctagon : AlertTriangle;
 
   return (
@@ -88,10 +88,10 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
    * row the message service returns), with the page's `resolveOrgName` map as a
    * client backfill — it is also what maps the system support org to the support
    * alias instead of its literal name, "system". Both are best-effort, so a
-   * lookup that genuinely fails used to fall through to the raw org UUID as
-   * visible text: meaningless to the reader, and in the middle of a conversation
-   * it reads as a rendering bug. The last resort is now honest generic copy, with
-   * the id kept in `title` so support can still identify the org.
+   * lookup that genuinely fails must not show the raw org UUID as visible text —
+   * meaningless to the reader, and mid-conversation it reads as a rendering bug.
+   * The last resort is honest generic copy, with the id kept in `title` so
+   * support can still identify the org.
    */
   const orgLabel = (orgId: string | null | undefined, serverName?: string | null): string => {
     if (!orgId) return 'another organization';
@@ -388,12 +388,11 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                     isMine
                       ? 'bg-brand text-white'
                       : 'bg-surface-muted text-fg'
-                  } ${isSending ? 'opacity-70' : ''} ${isFailed ? 'ring-2 ring-red-400 dark:ring-red-500' : ''}`}
+                  } ${isSending ? 'opacity-70' : ''} ${isFailed ? 'ring-2 ring-danger-border' : ''}`}
                 >
                   <div className={`flex items-center gap-2 text-xs mb-1 ${isMine ? 'text-blue-100' : 'text-fg-muted'}`}>
-                    {/* Same resolution chain as the header — this used to be a
-                        bare `msg.orgName || msg.orgId`, which printed a raw UUID
-                        inside the bubble whenever the name lookup came back empty. */}
+                    {/* Same resolution chain as the header, so an empty name lookup
+                        never prints a raw UUID inside the bubble. */}
                     <span title={msg.orgId}>{msg.createdBy} ({orgLabel(msg.orgId, msg.orgName)})</span>
                     {canEdit && !isEditing && (
                       <button
@@ -444,7 +443,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
                   </div>
                 </div>
                 {isFailed && (
-                  <div className="flex items-center gap-2 mt-1 text-xs text-red-500 dark:text-red-400">
+                  <div className="flex items-center gap-2 mt-1 text-xs text-danger">
                     <span>Failed to send</span>
                     <button onClick={() => handleRetry(msg)} className="inline-flex items-center gap-1 font-medium hover:underline">
                       <RefreshCw className="w-3 h-3" /> Retry
@@ -478,7 +477,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             ))}
           </ul>
         )}
-        {uploadError && <p className="mb-2 text-xs text-red-500 dark:text-red-400">{uploadError}</p>}
+        {uploadError && <p className="mb-2 text-xs text-danger">{uploadError}</p>}
         {!canWrite && (
           <p className="mb-2 text-xs text-fg-muted">
             You can read this conversation, but replying and attaching files need the

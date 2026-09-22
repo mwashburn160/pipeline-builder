@@ -39,9 +39,7 @@ const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record
 
 /**
  * Per-tier quota limits, shared by the `QUOTA_TIERS` export and `getTierLimits`
- * below so they can't drift. pipeline-core's `config/entitlements.ts` imports
- * `getTierLimits` at module load (it derives seat lines / effective entitlements
- * from a tier's limits), so the transitively-loaded graph needs it.
+ * below so they can't drift.
  */
 const TIER_LIMITS: Record<string, Record<string, number>> = {
   developer: { seats: 1, plugins: 50, pipelines: 5, apiCalls: 25000, aiCalls: 50 },
@@ -67,17 +65,14 @@ const apiServerDefaults = (): Record<string, unknown> => ({
   // app-factory the env-backed one; link-time stubs for the transitive graph.
   createMemorySseTicketStore: () => ({}),
   createEnvSseTicketStore: () => ({}),
-  // pipeline-core's billing-config imports QUOTA_TIERS at module load (derives
-  // marketing copy from each tier's limits), so the transitively-loaded graph
-  // needs an entry for EVERY tier.
+  // Tier fixtures for the transitively-loaded graph: an entry for EVERY tier.
   QUOTA_TIERS: mockQuotaTiers(TIER_LIMITS),
   // Mirrors api-core: returns a tier's limits, defaulting unknown tiers to developer.
   getTierLimits: (tier: string) => TIER_LIMITS[tier] ?? TIER_LIMITS.developer,
   DEFAULT_TIER: 'developer',
   VALID_TIERS: [...MOCK_TIER_NAMES],
   STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
-  // billing-config also derives marketed feature copy from the enforced entitlement
-  // set + labels, so the transitively-loaded graph needs these too (ESM linking).
+  // Feature entitlements + labels, mirroring api-core (ESM linking).
   TIER_FEATURES,
   FEATURE_METADATA,
   isValidTier: mockIsValidTier,

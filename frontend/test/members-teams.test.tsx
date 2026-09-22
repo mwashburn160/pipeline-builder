@@ -19,15 +19,12 @@ jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks'
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 const mockRouter = { query: {}, pathname: '/dashboard/members', asPath: '/dashboard/members', isReady: true, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() };
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => mockRouter }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 const refreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const switchOrganization = jest.fn<AnyFn>();
 let mockOrganizations: UserOrgMembership[] = [];
-jest.mock('@/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({ user: { organizationId: 'org-1' }, organizations: mockOrganizations, refreshUser, switchOrganization }),
-}));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ user: { organizationId: 'org-1' }, organizations: mockOrganizations, refreshUser, switchOrganization })));
 
 // Renders `title` + `details` too: a destructive step-up action is ONE dialog
 // that states what is lost and takes the factor, so the cost copy has to be
@@ -49,7 +46,7 @@ jest.mock('@/components/teams/TeamSettingsDrawer', () => ({
   TeamSettingsDrawer: ({ team }: { team: { orgId: string } }) => <div data-testid="team-drawer">{team.orgId}</div>,
 }));
 const triggerBlobDownload = jest.fn<AnyFn>();
-jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a) }));
+jest.mock('@/lib/download', () => ({ __esModule: true, triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a) }));
 
 /** Every api method resolves to an empty success unless a test overrides it. */
 const mockApi: Record<string, jest.Mock<AnyFn>> = {};
@@ -99,9 +96,8 @@ describe('Create Team gate', () => {
   });
 
   it('keeps the tier-ineligible disabled state, with the reason VISIBLE', async () => {
-    // The reason used to live only in `title=`: invisible on touch, unread by
-    // screen readers, and with no way to act on it. It is now text next to the
-    // control, tied to it by aria-describedby, and it links to Billing.
+    // Not only a `title=` (invisible on touch, unread by screen readers, with no
+    // way to act on it): the reason is text next to the control, tied to it by aria-describedby, and it links to Billing.
     mockOrganizations = [root({ tier: 'pro', childOrgCount: 0 })];
     render(<MembersPage />);
     const btn = await screen.findByRole('button', { name: /create team/i });
@@ -141,7 +137,7 @@ describe('Create Team gate', () => {
 describe('TeamsCard empty state', () => {
   it('offers the create control its copy promises', async () => {
     // Reached when every live team is deleted but still restorable: the card
-    // renders, and its "create a new one" sentence used to point at nothing.
+    // renders, and its "create a new one" sentence must point at something.
     mockOrganizations = [root({ childOrgCount: 0 })];
     mockApi.getOrganizationTeams = jest.fn<AnyFn>().mockResolvedValue({ success: true, data: { teams: [] } });
     mockApi.listDeletedTeams = jest.fn<AnyFn>().mockResolvedValue({
@@ -192,8 +188,7 @@ describe('Teams row actions', () => {
 
     // The house rule (see StepUpModal's doc comment and the "Delete your
     // account" flow on Settings): a destructive step-up action does NOT confirm
-    // and then re-prompt. This used to show a ConfirmDialog whose Confirm opened
-    // a second, separate step-up dialog.
+    // and then re-prompt with a second, separate step-up dialog.
     const dialogs = await screen.findAllByRole('dialog');
     expect(dialogs).toHaveLength(1);
     const confirm = screen.getByRole('dialog', { name: /delete team platform\?/i });

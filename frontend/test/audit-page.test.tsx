@@ -25,10 +25,7 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 // settled state back with a shallow `router.replace`, so the mock needs both.
 let routerQuery: Record<string, string> = {};
 const routerReplace = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: routerQuery, pathname: '/dashboard/audit', replace: (...a: unknown[]) => routerReplace(...a) }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: routerQuery, pathname: '/dashboard/audit', replace: (...a: unknown[]) => routerReplace(...a) })));
 
 // DashboardLayout drags in providers — reduce it to a passthrough wrapper.
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());

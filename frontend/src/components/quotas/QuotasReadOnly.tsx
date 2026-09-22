@@ -5,15 +5,17 @@ import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
+import { RetryError } from '@/components/ui/RetryError';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import type { OrgQuotaResponse, QuotaType } from '@/types';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { fmtNum } from '@/lib/format';
 import { QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
+import { getTierMeta } from '@/lib/tiers';
 import { QuotaCard } from './QuotaCard';
 import { CurrentTierPanel } from './CurrentTierPanel';
-import { AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_PRESETS, pillClassFor, POOLING_TITLE, poolingExplanation } from './constants';
+import { AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_PRESETS, POOLING_TITLE, poolingExplanation } from './constants';
 
 /** One at-risk quota dimension for the caller's own org (from `getOrgAtRisk`). */
 export interface AtRiskDimension {
@@ -44,7 +46,7 @@ export function QuotasReadOnly({
   orgData: OrgQuotaResponse | null;
   loading: boolean;
   /** Set when the quota fetch failed — renders a retryable error instead of a
-   *  blank page (previously the non-admin view showed nothing on failure). */
+   *  blank page. */
   loadError?: string | null;
   /** Re-run the quota fetch. */
   onRetry?: () => void;
@@ -72,7 +74,7 @@ export function QuotasReadOnly({
       title="Quotas"
       subtitle="Usage limits and consumption"
       titleExtra={orgData ? (
-        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${pillClassFor(tier)}`}>
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getTierMeta(tier).pillClass}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${tierPreset.color}`} />
           {tierPreset.label}
         </span>
@@ -80,9 +82,9 @@ export function QuotasReadOnly({
     >
       <div className="page-section max-w-4xl">
         {(atRisk.length > 0 || atRiskThreshold >= 100) && (
-          <div className="mb-6 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
+          <div className="mb-6 rounded-lg border border-warning-border bg-warning-bg p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-100 inline-flex items-center gap-1.5">
+              <h3 className="text-sm font-semibold text-warning-strong inline-flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4" aria-hidden="true" />
                 {atRiskThreshold >= 100 ? 'Limits you have used up' : 'Approaching your limits'}
               </h3>
@@ -102,9 +104,9 @@ export function QuotasReadOnly({
               )}
             </div>
             {atRisk.length === 0 && (
-              <p className="text-sm text-amber-800 dark:text-amber-200">Nothing is used up yet.</p>
+              <p className="text-sm text-warning-strong">Nothing is used up yet.</p>
             )}
-            <ul className="space-y-1 text-sm text-amber-800 dark:text-amber-200">
+            <ul className="space-y-1 text-sm text-warning-strong">
               {atRisk.map((d) => (
                 <li key={d.type} className="flex items-baseline justify-between gap-2">
                   <span>{QUOTA_TYPE_LABEL[d.type] ?? d.type}</span>
@@ -116,7 +118,7 @@ export function QuotasReadOnly({
               ))}
             </ul>
             {!activeOrgIsTeam && canManageBilling && (
-              <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">
+              <p className="mt-3 text-sm text-warning-strong">
                 <Link href="/dashboard/billing" className="action-link font-medium">Upgrade your plan</Link>{' '}
                 to raise these limits before you hit them.
               </p>
@@ -126,8 +128,8 @@ export function QuotasReadOnly({
         {/* One pooling explanation, one wording — see `poolingExplanation`. */}
         {activeOrgIsTeam && (
           <div className="mb-6 rounded-lg border border-info-border bg-info-bg p-4">
-            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">{POOLING_TITLE}</h3>
-            <p className="text-sm text-blue-800 dark:text-blue-200">
+            <h3 className="text-sm font-semibold text-info-strong mb-1">{POOLING_TITLE}</h3>
+            <p className="text-sm text-info-strong">
               This is a team. {poolingExplanation('team', orgData?.pool?.rootOrgName || undefined)}{' '}
               The limits are managed by an admin at the root organization.
             </p>
@@ -135,19 +137,16 @@ export function QuotasReadOnly({
         )}
         {activeOrgHasTeams && !activeOrgIsTeam && (
           <div className="mb-6 rounded-lg border border-info-border bg-info-bg p-4">
-            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">{POOLING_TITLE}</h3>
-            <p className="text-sm text-blue-800 dark:text-blue-200">
+            <h3 className="text-sm font-semibold text-info-strong mb-1">{POOLING_TITLE}</h3>
+            <p className="text-sm text-info-strong">
               {poolingExplanation('root', orgData?.name, orgData?.pool ? orgData.pool.orgCount - 1 : undefined)}
             </p>
           </div>
         )}
         {!loading && loadError && !orgData && (
-          <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300" role="alert">
-            <span>{loadError}</span>
-            {onRetry && (
-              <Button variant="ghost" size="sm" onClick={onRetry} className="underline hover:no-underline">Retry</Button>
-            )}
-          </div>
+          onRetry
+            ? <RetryError message={loadError} onRetry={onRetry} className="mb-6" />
+            : <ErrorAlert message={loadError} className="mb-6" />
         )}
         {!loading && orgData && <CurrentTierPanel tier={tier} />}
         {loading ? (

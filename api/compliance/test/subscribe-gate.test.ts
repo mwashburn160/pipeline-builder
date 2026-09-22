@@ -15,17 +15,18 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const subscribeMock = jest.fn(async (..._args: unknown[]) => ({ id: 'sub-1', isActive: false }));
 const findPublishedByIdMock = jest.fn<(id: string) => Promise<unknown>>(async () => null);
-const emitComplianceAuditMock = jest.fn<AnyFn>();
+const recordAuditMock = jest.fn<AnyFn>();
 const recordMock = jest.fn<AnyFn>();
 
 // api-core's REAL authorization gates and `authz.denied` sink, imported from
 // their module files (the package-specifier mock below does not intercept these
 // paths), so the route's inline gates and denial audit are exercised for real.
-const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/auth.js');
+const { requireFeature, requirePermission } = await import('@pipeline-builder/api-core/lib/middleware/permission-gates.js');
 const { wireAuthzDenialAuditor } = await import('@pipeline-builder/api-core/lib/services/remote-audit-client.js');
 wireAuthzDenialAuditor('compliance', () => ({ record: recordMock }) as any);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   validateBody: (req: any, schema: any) => {
@@ -67,16 +68,9 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: { findPublishedById: (...a: unknown[]) => findPublishedByIdMock(...(a as [string])) },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-}));
 
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: { subscribe: (...args: unknown[]) => subscribeMock(...args) },
-  CS_RULE_NOT_FOUND: 'CS_RULE_NOT_FOUND',
-  CS_SUBSCRIPTION_NOT_FOUND: 'CS_SUBSCRIPTION_NOT_FOUND',
-  CS_NOT_PUBLISHED: 'CS_NOT_PUBLISHED',
-  CS_SYSTEM_ORG: 'CS_SYSTEM_ORG',
 }));
 
 const { createSubscriptionRoutes } = await import('../src/routes/subscriptions.js');
@@ -145,7 +139,7 @@ describe('POST / subscribe — entitlement gate', () => {
     const { status } = await call({ sub: 'u-1', features: ['compliance_standard'] });
     expect(status).toHaveBeenCalledWith(201);
     expect(subscribeMock).toHaveBeenCalledWith('org-a', RULE_ID, 'u-1');
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.rule.toggle', targetId: RULE_ID, details: { subscribed: true, set: 'standard' },
     }));
   });
@@ -177,6 +171,6 @@ describe('POST / subscribe — entitlement gate', () => {
     expect(status).toHaveBeenCalledWith(201);
     expect(subscribeMock).toHaveBeenCalled();
     // No set-tag → no toggle audit.
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });

@@ -16,7 +16,7 @@ import { requireAuth } from '../middleware/index.js';
 const router: Router = Router({ mergeParams: true });
 
 /**
- * ASSURANCE (#8). Every route below that MINTS an impersonation session demands
+ * ASSURANCE. Every route below that MINTS an impersonation session demands
  * two things that a stolen browser session cannot supply on its own:
  *
  *   - `requireAssurance({ minAssurance: 2 })` — the operator's whole SESSION must

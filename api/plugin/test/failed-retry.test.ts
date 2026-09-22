@@ -13,14 +13,14 @@
  * - Successful retry returns the new job id.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const findFailed = jest.fn<AnyFn>();
 const retryHelper = jest.fn<AnyFn>();
-/** The retrier each retry was run as (E20). */
+/** The retrier each retry was run as. */
 const retriers: unknown[] = [];
 
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
@@ -167,7 +167,7 @@ describe('POST /failed/:jobId/retry', () => {
     }));
   });
 
-  it('re-runs as the RETRYING caller, re-checking plugins:publish (E20)', async () => {
+  it('re-runs as the RETRYING caller, re-checking plugins:publish', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     findFailed.mockResolvedValue({ id: 'j-9', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
     retriers.length = 0;
@@ -204,22 +204,9 @@ describe('POST /failed/:jobId/retry', () => {
     expect(retryHelper).not.toHaveBeenCalled();
   });
 
-  it('falls back to pluginRecord.orgId for older jobs without top-level orgId', async () => {
+  it('rejects a job with no top-level orgId for a non-system admin (the plugin record is not an owner)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
-    findFailed.mockResolvedValue({ id: 'j-old', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
-    const handler = getRetryHandler();
-    const { res, json } = makeRes();
-    await handler({
-      __orgId: 'org-a',
-      user: { role: 'admin', organizationId: 'org-a' },
-      params: { jobId: 'j-old' },
-    } as any, res);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
-  });
-
-  it('rejects when both orgId fields are missing for non-system admin', async () => {
-    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
-    findFailed.mockResolvedValue({ id: 'j-orphan', data: {} });
+    findFailed.mockResolvedValue({ id: 'j-orphan', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
     const handler = getRetryHandler();
     const { res, json } = makeRes();
     await handler({

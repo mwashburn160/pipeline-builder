@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Version-lifecycle controls (plugin-ecosystem W0.4): the Deprecated / Yanked
+ * Version-lifecycle controls : the Deprecated / Yanked
  * badges, which actions a row offers, and the confirm dialog that calls
  * `POST /plugins/:id/deprecate` and `POST /plugins/:id/yank`.
  */

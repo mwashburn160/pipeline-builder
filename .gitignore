@@ -60,4 +60,5 @@ plugin.zip
 !/.vscode/settings.json
 !/.github/workflows/release.yml
 !/.github/workflows/test.yml
+!/deploy/shared/services.txt
 !/.projenrc.ts

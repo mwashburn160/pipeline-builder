@@ -148,7 +148,7 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     includedFrom: 'Team',
     controls: [],
     unlocks: 'applying for the Verified badge on your plugin-ecosystem publisher',
-    note: 'Eligibility only, and not yet checked by any route: the ecosystem publisher routes (docs/plans/plugin-ecosystem.md §3.7) will gate the Verified application on it. Reclassify to `handler`/`route` and add the control when they land.',
+    note: 'Eligibility only, and not yet checked by any route: the ecosystem publisher routes will gate the Verified application on it. Reclassify to `handler`/`route` and add the control when they land.',
   },
   custom_integrations: {
     enforcement: 'entitlement-only',
@@ -164,8 +164,8 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
  * Deep link to the place a viewer can actually acquire the entitlement, which
  * depends on {@link FeatureGateSpec.acquiredVia}: the add-on card for a bundle
  * feature (`?highlight=` scrolls to it), the Plans tab for a tier feature. The
- * distinction matters — `?highlight=sso` used to point at an add-on that no
- * longer exists, which silently degraded to "here is the add-on grid, good luck".
+ * distinction matters — highlighting an add-on that doesn't exist silently
+ * degrades to "here is the add-on grid, good luck".
  *
  * Only offer it to a viewer who can OPEN that page — see {@link featureUpsellAdvice}.
  */

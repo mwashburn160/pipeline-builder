@@ -11,7 +11,7 @@
  *   signed by `services/token-signing`, verified here against the in-memory
  *   public keys (no JWKS round-trip to itself). Rotation is by `kid`.
  * - **Internal service tokens** (`principalType: 'service'`) — ES256 signed by
- *   the CALLING service with its own key (#14), verified against the per-service
+ *   the CALLING service with its own key, verified against the per-service
  *   public bundle every service mounts.
  *
  * Both chains are ES256 now, so a token is routed by **who owns its `kid`**, not

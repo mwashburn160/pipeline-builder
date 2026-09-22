@@ -7,16 +7,12 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // createScheduler is exercised in api-core's own tests; here stub it to a
 // no-op start/stop so the lifecycle wrappers are safe + idempotent to call.
-// `createEnvRedisLock` returns null (no Redis in tests) so the scheduler is built
-// lock-free; `createScheduler` is stubbed to a no-op start/stop so the lifecycle
-// wrappers are safe + idempotent to call.
 // The sweep the scheduler would run each tick — captured so a test can drive it.
 let sweep: (() => Promise<void>) | undefined;
 const callOrder: string[] = [];
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createScheduler: (opts: { run: () => Promise<void> }) => { sweep = opts.run; return { start: jest.fn(), stop: jest.fn() }; },
-  createEnvRedisLock: () => null,
 }));
 
 // Provide minimal Config + db + schema so the module loads.

@@ -333,7 +333,7 @@ async function grantUsageCredit(subscription: SubscriptionDocument, discountId: 
   incCounter('billing_credit_applied_total', {});
 }
 
-// ─── Lifecycle: source-of-truth reconciliation (Phase 6) ────────────
+// ─── Lifecycle: source-of-truth reconciliation ─────────────────────
 
 /** Invoice fields the discount reconciler reads (Stripe is source of truth). */
 export interface InvoiceLike {

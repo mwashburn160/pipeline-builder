@@ -18,7 +18,7 @@ const logger = createLogger('similar-plugin-lookup');
 const CANDIDATE_LIMIT = 1000;
 
 /**
- * Health score (W7) per plugin row id, for rows published to a listing (the
+ * Health score per plugin row id, for rows published to a listing (the
  * listed version's `source_plugin_id`). Loaded lazily so this module doesn't
  * pull the ecosystem store in; overridable in tests.
  */
@@ -45,7 +45,7 @@ export function setSimilarPluginHealthLookupForTests(fn: typeof healthLookup): v
 
 /**
  * The plugins in the caller's visible catalog most similar to `prompt` — the
- * AI generator's "similar plugins already exist" hint (plugin-ecosystem W6).
+ * AI generator's "similar plugins already exist" hint.
  *
  * Visibility is the shared plugin read ladder (`buildPluginConditions` with the
  * request's viewer stamped, own org + parent + system catalog) inside

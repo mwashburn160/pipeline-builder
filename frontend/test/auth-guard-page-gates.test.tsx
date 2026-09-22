@@ -19,15 +19,10 @@ import type { User } from '../src/types';
 import { declaredPagePaths, resolvePageGate, isOpenGate } from '../src/lib/page-access';
 
 let pathname = '/dashboard';
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ pathname, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ pathname, replace: jest.fn<AnyFn>(), push: jest.fn<AnyFn>() })));
 
 let user: Partial<User> | null = null;
-jest.mock('../src/hooks/useAuth', () => ({
-  __esModule: true,
-  useAuth: () => ({
+jest.mock('../src/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({
     user,
     isAuthenticated: true,
     isInitialized: true,
@@ -35,8 +30,7 @@ jest.mock('../src/hooks/useAuth', () => ({
     isReadOnly: false,
     logout: jest.fn<AnyFn>(),
     refreshUser: jest.fn<AnyFn>(),
-  }),
-}));
+  })));
 
 import { useAuthGuard } from '../src/hooks/useAuthGuard';
 

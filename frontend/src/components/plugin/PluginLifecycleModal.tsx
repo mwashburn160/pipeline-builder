@@ -27,7 +27,7 @@ export function isDeprecated(p: Pick<PluginSummary, 'deprecatedAt'>): boolean {
 }
 
 /**
- * The actions a writer may take on a version's lifecycle (W0.4): a yanked
+ * The actions a writer may take on a version's lifecycle: a yanked
  * version is final here, so it offers none; otherwise deprecate or clear it,
  * and yank.
  */
@@ -131,7 +131,7 @@ export function PluginLifecycleModal({ plugin, action, onClose, onDone }: {
           />
         </FormField>
       )}
-      {action === 'undeprecate' && error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {action === 'undeprecate' && error && <p role="alert" className="text-sm text-danger">{error}</p>}
     </ConfirmDialog>
   );
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isSystemOrgId } from '@pipeline-builder/api-core';
+import { COMPLIANCE_CONTENT_SETS, createLogger, ForbiddenError, isSystemOrgId, ValidationError } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, drizzleCount, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import type { RuleScope } from '@pipeline-builder/pipeline-data';
 import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
@@ -20,25 +20,39 @@ function onTx<T>(tx: SubscriptionTx | undefined, fn: (t: SubscriptionTx) => Prom
 }
 
 /**
- * Typed error codes thrown by this service. Routes map these to HTTP responses
- * via a code-keyed table (see routes/subscriptions.ts), so rewording a
- * user-facing message never silently turns a 4xx into a 500. Mirrors the
- * `RL_*` (roles-service) / `PR_*` (pipeline-registry) convention.
+ * Typed errors thrown by this service. They are AppErrors, so `withRoute`
+ * answers each with its own status + message and a reworded message can never
+ * degrade a 4xx into a 500.
  */
-export const CS_RULE_NOT_FOUND = 'CS_RULE_NOT_FOUND';
-export const CS_SUBSCRIPTION_NOT_FOUND = 'CS_SUBSCRIPTION_NOT_FOUND';
-export const CS_NOT_PUBLISHED = 'CS_NOT_PUBLISHED';
-export const CS_SYSTEM_ORG = 'CS_SYSTEM_ORG';
+export class SubscriptionRuleNotFoundError extends ValidationError {
+  constructor() {
+    super('Rule not found');
+    this.name = 'SubscriptionRuleNotFoundError';
+  }
+}
 
-/**
- * Curated compliance content sets whose published rules are entitlement-gated.
- * Each set `x` corresponds to published rules tagged `set:<x>` and to the
- * `compliance_<x>` billing feature flag. Kept here (not the route) so the
- * bulk-reconcile method and the subscribe-gate agree on the exact set names.
- */
-export const KNOWN_CONTENT_SETS = ['standard', 'advanced'] as const;
+export class SubscriptionNotFoundError extends ValidationError {
+  constructor() {
+    super('Subscription not found');
+    this.name = 'SubscriptionNotFoundError';
+  }
+}
 
-const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(KNOWN_CONTENT_SETS);
+export class RuleNotPublishedError extends ValidationError {
+  constructor() {
+    super('Only published rules can be subscribed to');
+    this.name = 'RuleNotPublishedError';
+  }
+}
+
+export class SystemOrgSubscriptionError extends ForbiddenError {
+  constructor() {
+    super('System org cannot manage rule subscriptions');
+    this.name = 'SystemOrgSubscriptionError';
+  }
+}
+
+const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(COMPLIANCE_CONTENT_SETS);
 
 /** Coerce a jsonb `tags` column (unknown at the type level) to a string[]. */
 function tagsOf(tags: unknown): string[] {
@@ -90,7 +104,7 @@ export class ComplianceRuleSubscriptionService {
    */
   async subscribe(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
     if (isSystemOrgId(orgId)) {
-      throw new Error(CS_SYSTEM_ORG);
+      throw new SystemOrgSubscriptionError();
     }
 
     const sub = await withTenantTx(async (tx) => {
@@ -106,8 +120,8 @@ export class ComplianceRuleSubscriptionService {
           isNull(schema.complianceRule.deletedAt),
         ));
 
-      if (!rule) throw new Error(CS_RULE_NOT_FOUND);
-      if (rule.scope !== 'published') throw new Error(CS_NOT_PUBLISHED);
+      if (!rule) throw new SubscriptionRuleNotFoundError();
+      if (rule.scope !== 'published') throw new RuleNotPublishedError();
 
       // Atomic upsert: insert (inactive) or re-subscribe on conflict
       const [result] = await tx
@@ -138,7 +152,7 @@ export class ComplianceRuleSubscriptionService {
    */
   async setActive(orgId: string, ruleId: string, isActive: boolean, userId: string): Promise<ComplianceRuleSubscription> {
     if (isSystemOrgId(orgId)) {
-      throw new Error(CS_SYSTEM_ORG);
+      throw new SystemOrgSubscriptionError();
     }
 
     const updated = await withTenantTx(async (tx) => {
@@ -151,7 +165,7 @@ export class ComplianceRuleSubscriptionService {
           isNull(schema.complianceRuleSubscription.unsubscribedAt),
         ));
 
-      if (!existing) throw new Error(CS_SUBSCRIPTION_NOT_FOUND);
+      if (!existing) throw new SubscriptionNotFoundError();
 
       const [row] = await tx
         .update(schema.complianceRuleSubscription)
@@ -171,7 +185,7 @@ export class ComplianceRuleSubscriptionService {
    */
   async unsubscribe(orgId: string, ruleId: string, userId: string): Promise<void> {
     if (isSystemOrgId(orgId)) {
-      throw new Error(CS_SYSTEM_ORG);
+      throw new SystemOrgSubscriptionError();
     }
 
     await withTenantTx(async (tx) => {
@@ -184,7 +198,7 @@ export class ComplianceRuleSubscriptionService {
           isNull(schema.complianceRuleSubscription.unsubscribedAt),
         ));
 
-      if (!existing) throw new Error(CS_SUBSCRIPTION_NOT_FOUND);
+      if (!existing) throw new SubscriptionNotFoundError();
 
       await tx
         .update(schema.complianceRuleSubscription)
@@ -302,7 +316,7 @@ export class ComplianceRuleSubscriptionService {
    */
   async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string, inTx?: SubscriptionTx): Promise<string[]> {
     if (isSystemOrgId(orgId)) {
-      throw new Error(CS_SYSTEM_ORG);
+      throw new SystemOrgSubscriptionError();
     }
 
     // Single batch update instead of N individual queries. With `inTx` the caller
@@ -326,7 +340,7 @@ export class ComplianceRuleSubscriptionService {
   /** Pin a subscription to a specific rule version snapshot. */
   async pinVersion(orgId: string, ruleId: string, userId: string): Promise<ComplianceRuleSubscription> {
     if (isSystemOrgId(orgId)) {
-      throw new Error(CS_SYSTEM_ORG);
+      throw new SystemOrgSubscriptionError();
     }
 
     const updated = await withTenantTx(async (tx) => {
@@ -339,14 +353,14 @@ export class ComplianceRuleSubscriptionService {
           eq(schema.complianceRuleSubscription.ruleId, ruleId),
           isNull(schema.complianceRuleSubscription.unsubscribedAt),
         ));
-      if (!sub) throw new Error(CS_SUBSCRIPTION_NOT_FOUND);
+      if (!sub) throw new SubscriptionNotFoundError();
 
       // Fetch current rule state as snapshot
       const [rule] = await tx
         .select()
         .from(schema.complianceRule)
         .where(eq(schema.complianceRule.id, ruleId));
-      if (!rule) throw new Error(CS_RULE_NOT_FOUND);
+      if (!rule) throw new SubscriptionRuleNotFoundError();
 
       // Snapshot the entire rule row so any field the engine cares about
       // (effectiveFrom/Until, priority, tags, target, etc.) survives even
@@ -382,7 +396,7 @@ export class ComplianceRuleSubscriptionService {
       ))
       .returning());
 
-    if (!updated) throw new Error(CS_SUBSCRIPTION_NOT_FOUND);
+    if (!updated) throw new SubscriptionNotFoundError();
     await invalidateRulesFor(orgId);
     return updated;
   }
@@ -442,7 +456,7 @@ export class ComplianceRuleSubscriptionService {
    * `subscribe` would, and the rules cache is invalidated once for the batch.
    */
   async bulkSubscribeActive(orgId: string, ruleIds: string[], userId: string, inTx?: SubscriptionTx): Promise<void> {
-    if (isSystemOrgId(orgId)) throw new Error(CS_SYSTEM_ORG);
+    if (isSystemOrgId(orgId)) throw new SystemOrgSubscriptionError();
     if (ruleIds.length === 0) return;
 
     const now = new Date();
@@ -545,7 +559,7 @@ export class ComplianceRuleSubscriptionService {
       const activated: string[] = [];
       const deactivated: string[] = [];
 
-      for (const set of KNOWN_CONTENT_SETS) {
+      for (const set of COMPLIANCE_CONTENT_SETS) {
         const ruleIds = await this.findPublishedRuleIdsBySetTag(`set:${set}`, tx);
         if (ruleIds.length === 0) continue;
 

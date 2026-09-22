@@ -36,9 +36,8 @@ const MAX_EXPIRES_DAYS = 365;
  * platform's /auth/token/exchange for a 5-minute token, so revoking it takes
  * effect everywhere within five minutes.
  *
- * Creating one is step-up gated server-side, which used to mean the CLI had to
- * hold a password (it POSTed it twice — sign-in, then step-up). It no longer
- * has one: the device flow asks for the step-up IN THE BROWSER, where the
+ * Creating one is step-up gated server-side, yet the CLI holds no password: the
+ * device flow asks for the step-up IN THE BROWSER, where the
  * account's real factors live, and the approved poll returns both the session
  * and a short-lived step-up token. The key binds to the user's active org; pass
  * `--org` to switch first (which persists as the active org).

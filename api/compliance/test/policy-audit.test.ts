@@ -15,11 +15,12 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const createMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const updateMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const deleteMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const emitComplianceAuditMock = jest.fn();
+const recordAuditMock = jest.fn();
 
 let validatePasses = true;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p[k],
   isSystemAdmin: () => true,
   validateBody: (req: any) =>
@@ -39,10 +40,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
-}));
 
 jest.unstable_mockModule('../src/services/policy-service.js', () => ({
   compliancePolicyService: {
@@ -88,7 +85,7 @@ describe('POST / — create emits compliance.policy.create', () => {
     await handler({ __orgId: 'org-a', body: { name: 'Baseline', isTemplate: false }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(201);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.policy.create',
       actorId: 'u-1',
       targetType: 'policy',
@@ -104,7 +101,7 @@ describe('POST / — create emits compliance.policy.create', () => {
     await handler({ __orgId: 'org-a', body: {}, user: USER } as any, res);
     expect(status).toHaveBeenCalledWith(400);
     expect(createMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -117,7 +114,7 @@ describe('PUT /:id — update emits compliance.policy.update', () => {
     await handler({ __orgId: 'org-a', params: { id: POLICY_ID }, body: { name: 'Baseline v2' }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.policy.update',
       targetId: POLICY_ID,
       details: { name: 'Baseline v2', version: '2.0.0', isActive: true },
@@ -130,7 +127,7 @@ describe('PUT /:id — update emits compliance.policy.update', () => {
     const { res, status } = makeRes();
     await handler({ __orgId: 'org-a', params: { id: POLICY_ID }, body: { name: 'x' }, user: USER } as any, res);
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -143,7 +140,7 @@ describe('DELETE /:id — delete emits compliance.policy.delete', () => {
     await handler({ __orgId: 'org-a', params: { id: POLICY_ID }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.policy.delete',
       targetId: POLICY_ID,
       details: { name: 'Gone' },
@@ -156,6 +153,6 @@ describe('DELETE /:id — delete emits compliance.policy.delete', () => {
     const { res, status } = makeRes();
     await handler({ __orgId: 'org-a', params: { id: POLICY_ID }, user: USER } as any, res);
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });

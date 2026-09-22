@@ -49,8 +49,7 @@ const DEFAULT_ROLES: BuiltinRoleSpec[] = [
   { name: 'Member', grantsRole: 'member' },
 ];
 const SUPERADMINS_ROLE: BuiltinRoleSpec = { name: 'Super Admin', grantsRole: 'superadmin' };
-/** The system org's ecosystem-governance Role (docs/plans/plugin-ecosystem.md
- *  §5a.1): the coarse `member` grant (no admin over the system org, never
+/** The system org's ecosystem-governance Role (docs/permissions.md): the coarse `member` grant (no admin over the system org, never
  *  `isSuperAdmin`) plus api-core `ECOSYSTEM_MANAGER_PERMISSIONS`. Assignable
  *  only by a platform superadmin; the org creator is NOT added to it. */
 export const ECOSYSTEM_MANAGER_ROLE_NAME = 'Ecosystem Manager';
@@ -143,7 +142,7 @@ export async function recomputeUserOrgRole(
   const roleGrant: 'admin' | 'member' = (isSuperadmin || grants.has('admin')) ? 'admin' : 'member';
 
   // Track whether this recompute actually flips an effective privilege, so we
-  // only invalidate the user's tokens when something real changed (G1).
+  // only invalidate the user's tokens when something real changed.
   let privilegeChanged = false;
 
   const membership = await UserOrganization.findOne({ userId, organizationId }).session(session ?? null);
@@ -167,7 +166,7 @@ export async function recomputeUserOrgRole(
     }
   }
 
-  // G1: a real privilege change must take effect immediately, not at token
+  // A real privilege change must take effect immediately, not at token
   // expiry. Bumping claimsVersion makes every service reject the user's existing
   // ACCESS tokens; their refresh token stays valid (it carries only the hard
   // tokenVersion), so the next refresh reissues a JWT carrying the new

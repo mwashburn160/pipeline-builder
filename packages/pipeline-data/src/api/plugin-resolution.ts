@@ -3,7 +3,7 @@
 
 /**
  * Resolving a plugin reference to an ecosystem LISTING version through the
- * org's install (docs/plans/plugin-ecosystem.md §3.1, §3.2, §3.4, §3.5, D16).
+ * org's install (docs/plugin-installing.md).
  *
  * One implementation shared by every place that answers "which listed version
  * does this org's reference run?": the plugin service's `/plugins/lookup` (what
@@ -15,22 +15,23 @@
  *
  * The model:
  *  - An org resolves a listing only through an INSTALL: an explicit
- *    `plugin_installs` row (its own, or — for a team — its root org's, G33), or
+ *    `plugin_installs` row (its own, or — for a team — its root org's), or
  *    for the Official publisher the IMPLICIT install every org has unless its
- *    consumption policy says `officialInstalls: explicit` (D16). An explicit
+ *    consumption policy says `officialInstalls: explicit`. An explicit
  *    install overrides the implicit one.
- *  - The org's CONSUMPTION POLICY (§3.2) is applied at every resolution: allowed
+ *  - The org's CONSUMPTION POLICY is applied at every resolution: allowed
  *    tiers, blocked listings, advisory blocking; secrets are withheld from tiers
  *    the policy doesn't trust with them. A team's policy is merged with its root
  *    org's and can only be stricter.
  *  - Version choice: the install's range (pinned / `~` / `^` / non-breaking
  *    latest; implicit = the lowest live major), narrowed by the reference's own
- *    version spec. Yanked versions never resolve for a listing (§3.4); a paused
+ *    version spec. Yanked versions never resolve for a listing; a paused
  *    version is skipped unless the install already resolved to it or the
  *    reference pins it exactly; advisory-blocked versions are skipped.
  */
 
 import { and, eq, inArray } from 'drizzle-orm';
+import type { CrudTx } from './crud-service.js';
 import {
   compareSemver, isVersionRange, parseSemver, parseVersionSpec, satisfiesVersionSpec,
 } from './semver-range.js';
@@ -53,7 +54,7 @@ import {
 } from '../database/drizzle-schema.js';
 
 // -----------------------------------------------------------------------------
-// Consumption policy (§3.2)
+// Consumption policy
 // -----------------------------------------------------------------------------
 
 /** An org's consumption policy, as the resolver applies it. */
@@ -106,7 +107,7 @@ export function policyOf(row: Partial<PluginInstallPolicy> | null | undefined): 
 }
 
 /**
- * A team's policy under its root org's (G33): each field takes the STRICTER of
+ * A team's policy under its root org's: each field takes the STRICTER of
  * the two, so a team can narrow what its root allows but never widen it.
  */
 export function mergeConsumptionPolicies(root: ConsumptionPolicy, team: ConsumptionPolicy): ConsumptionPolicy {
@@ -337,7 +338,7 @@ export function blockingAdvisories(
 // Installs and version choice
 // -----------------------------------------------------------------------------
 
-/** How the org reaches a listing: an explicit install row, or the implicit Official one (D16). */
+/** How the org reaches a listing: an explicit install row, or the implicit Official one. */
 export type InstallMode =
   | { kind: 'explicit'; install: PluginInstall; inherited: boolean }
   | { kind: 'implicit' };
@@ -377,7 +378,7 @@ export function installAdmits(
       if (!isStable(version)) return false;
       if (base === null) return true;
       if (compareSemver(version, base) < 0) return false;
-      // Never cross a version the publisher marked breaking (§3.2).
+      // Never cross a version the publisher marked breaking.
       return !versions.some((v) => v.breaking && compareSemver(v.version, base) > 0 && compareSemver(v.version, version) <= 0);
     }
     default:
@@ -500,7 +501,7 @@ function advisoryRefusal(ref: string, version: string, blocking: ReadonlyArray<P
 /** The org (and, for a team, its root org) a resolution runs for. */
 export interface ResolutionScope {
   orgId: string;
-  /** The root org when the caller is a team (G33). */
+  /** The root org when the caller is a team. */
   rootOrgId?: string;
 }
 
@@ -569,20 +570,14 @@ export interface ListingDataSource {
   policiesForOrgs(orgIds: string[]): Promise<PluginInstallPolicy[]>;
 }
 
-type DrizzleTx = {
-  select: (...args: never[]) => unknown;
-};
-
 /**
  * A {@link ListingDataSource} over a drizzle transaction. The caller owns the
  * transaction's scope: it must be able to read the ecosystem tables (app-role
  * RLS) and the install rows of the org AND its root org (a team's reads of its
  * root's rows need an elevated scope, like parent-org plugin reads).
  */
-export function drizzleListingSource(tx: DrizzleTx): ListingDataSource {
-  // drizzle's builder types don't survive the structural tx type; one cast here.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = tx as any;
+export function drizzleListingSource(tx: CrudTx): ListingDataSource {
+  const db = tx;
   const P = schema.publisher;
   const L = schema.pluginListing;
   const V = schema.pluginListingVersion;

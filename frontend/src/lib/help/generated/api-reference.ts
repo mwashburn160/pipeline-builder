@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6803ca86de6744fdbd472dc796b58195167f4fa4c03b2e5b724c299949a8631b
+// SOURCE-SHA256: 8c3358b3677895f9ee8708cd2c2d3c930da2080c4531ddc0c054e33266a445b5
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -474,7 +474,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/plugins/catalog",
-              "The in-app catalog: every listing with the org's install state, resolved version, requiresApproval, blocked, the pipeline reference and shadowedBy; ?q=&category=&installed= (plugins:read)"
+              "The in-app catalog: every listing with the org's install state, resolved version, needsApproval, blocked, the pipeline reference and shadowedBy; ?q=&category=&installed= (plugins:read)"
             ],
             [
               "GET",

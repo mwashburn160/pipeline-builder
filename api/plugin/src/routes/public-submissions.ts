@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The anonymous plugin submission API (docs/plans/plugin-ecosystem.md §4, E2),
+ * The anonymous plugin submission API (docs/plugin-publishing.md),
  * mounted at `/public/plugin-submissions`; nginx exposes it as
  * `/api/public/plugin-submissions` with credentials stripped. No caller
  * identity by design:
  *
- *  - GET  /challenge            — a proof-of-work challenge
- *  - POST /inspect              — dry-run detection of a zip (PoW; stores nothing)
- *  - POST /                     — submit a zip into quarantine (PoW, email, terms) → N1
- *  - POST /verify               — the magic link (single use) → gates run
- *  - GET  /status?token=        — the submitter's view (status token only)
+ *  - GET /challenge — a proof-of-work challenge
+ *  - POST /inspect — dry-run detection of a zip (PoW; stores nothing)
+ *  - POST / — submit a zip into quarantine (PoW, email, terms) → N1
+ *  - POST /verify — the magic link (single use) → gates run
+ *  - GET /status?token= — the submitter's view (status token only)
  *
  * Every route: 404 `SUBMISSIONS_DISABLED` unless the path is available
  * (flag + secrets + outbound email), rate limited per TRUSTED client IP,
@@ -29,9 +29,9 @@ import multer from 'multer';
 
 import { bodyOf, ecosystemRoute } from './ecosystem-route.js';
 import { EcosystemError } from '../services/ecosystem/context.js';
-import {
-  assertSubmissionsAvailable, createSubmission, inspectSubmission, issueChallenge, submissionConfig, submissionStatus, verifySubmission,
-} from '../services/ecosystem/submissions.js';
+import { assertSubmissionsAvailable, submissionConfig } from '../services/ecosystem/submission-config.js';
+import { issueChallenge } from '../services/ecosystem/submission-guards.js';
+import { createSubmission, inspectSubmission, submissionStatus, verifySubmission } from '../services/ecosystem/submissions.js';
 
 const UPLOAD_DEST = process.env.PLUGIN_UPLOAD_DIR || '/opt/pipeline/pipeline-data/plugins-data';
 

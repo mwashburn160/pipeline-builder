@@ -47,7 +47,7 @@ export default function PipelineConfigSection({
 }: PipelineConfigSectionProps) {
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 uppercase tracking-wide">
+      <h3 className="text-sm font-semibold text-fg uppercase tracking-wide">
         Pipeline Configuration
       </h3>
 

@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/Badge';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 
 /**
- * The Deprecated / Yanked pills (W0.4), each titled with the publisher's
+ * The Deprecated / Yanked pills, each titled with the publisher's
  * message or reason. Yanked wins: a yanked version's deprecation is moot.
  */
 export function PluginLifecycleBadges({ plugin }: { plugin: Pick<PluginSummary, 'yankedAt' | 'yankReason' | 'deprecatedAt' | 'deprecationMessage'> }) {

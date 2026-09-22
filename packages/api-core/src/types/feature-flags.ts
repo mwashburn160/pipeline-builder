@@ -33,7 +33,7 @@ export type FeatureFlag =
   | 'compliance_standard'
   | 'compliance_advanced'
   // Plugin ecosystem: the org's publisher is ELIGIBLE to apply for Verified
-  // status (docs/plans/plugin-ecosystem.md §3.7). Eligibility only — the badge
+  // status (docs/plugin-publishing.md). Eligibility only — the badge
   // is awarded (and withdrawn) by system-org review, never bought. Team and up;
   // no add-on bundle sells it.
   | 'verified_publisher';
@@ -178,4 +178,37 @@ export function resolveUserFeatures(
 
   // Return in canonical order
   return ALL_FEATURE_FLAGS.filter(f => features.has(f));
+}
+
+/**
+ * Curated compliance content sets and the feature flag each one is sold under.
+ * A set `x` is the published rules tagged `set:<x>`; an org holding the flag is
+ * entitled to them. Ordered from the lowest entitlement to the highest.
+ */
+export const COMPLIANCE_SET_FEATURES = {
+  standard: 'compliance_standard',
+  advanced: 'compliance_advanced',
+} as const satisfies Record<string, FeatureFlag>;
+
+export type ComplianceContentSet = keyof typeof COMPLIANCE_SET_FEATURES;
+
+/** Every curated set name, lowest entitlement first. */
+export const COMPLIANCE_CONTENT_SETS = Object.keys(COMPLIANCE_SET_FEATURES) as ComplianceContentSet[];
+
+/** The curated sets an effective feature set entitles (stable order). */
+export function complianceSetsForFeatures(features: readonly string[]): ComplianceContentSet[] {
+  return COMPLIANCE_CONTENT_SETS.filter((set) => features.includes(COMPLIANCE_SET_FEATURES[set]));
+}
+
+/**
+ * The feature a published rule's `set:<x>` tags require, or `null` for an
+ * untagged (baseline) rule. The highest entitlement wins when a rule carries
+ * several. Accepts a raw jsonb `tags` value.
+ */
+export function complianceFeatureForTags(tags: unknown): FeatureFlag | null {
+  const t = Array.isArray(tags) ? tags : [];
+  for (const set of [...COMPLIANCE_CONTENT_SETS].reverse()) {
+    if (t.includes(`set:${set}`)) return COMPLIANCE_SET_FEATURES[set];
+  }
+  return null;
 }

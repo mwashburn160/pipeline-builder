@@ -33,7 +33,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  reportingService: { getIncidentSettings: (...a: unknown[]) => mockGetSettings(...a) },
+  reportingService: { getReportingSettings: (...a: unknown[]) => mockGetSettings(...a) },
 }));
 
 const { createRetentionRoutes } = await import('../src/routes/retention.js');

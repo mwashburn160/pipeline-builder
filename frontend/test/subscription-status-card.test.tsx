@@ -7,7 +7,7 @@
  *     (reachable at any time, not only after a purchase 402s). Gated on
  *     `canChangePlan` so a read-only viewer isn't shown a dead-end control.
  *   - A dunning banner + "Update payment method" CTA when the subscription is
- *     past_due / unpaid, reserving the alarm styling for those states.
+ *     past_due, reserving the alarm styling for those states.
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
@@ -65,11 +65,6 @@ describe('SubscriptionStatusCard — dunning / past-due CTA', () => {
     const cta = screen.getByRole('button', { name: /update payment method/i });
     fireEvent.click(cta);
     expect(onManageBilling).toHaveBeenCalledTimes(1);
-  });
-
-  it('also treats "unpaid" as a dunning state', () => {
-    render(<SubscriptionStatusCard {...baseProps} subscription={makeSub({ status: 'unpaid' })} />);
-    expect(screen.getByText(/payment failed/i)).toBeInTheDocument();
   });
 
   it('does not show the dunning banner for an active subscription', () => {

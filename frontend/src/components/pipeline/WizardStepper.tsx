@@ -66,7 +66,7 @@ export default function WizardStepper({ steps, currentStep, onStepClick, stepSta
                     : status === 'error'
                     ? 'bg-red-500 text-white'
                     : 'bg-surface-muted text-fg-muted'
-                } ${isClickable ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 dark:hover:ring-blue-700' : 'cursor-default'}`}
+                } ${isClickable ? 'cursor-pointer hover:ring-2 hover:ring-info-border' : 'cursor-default'}`}
               >
                 {isCompleted && status === 'valid' ? (
                   <Check className="w-4 h-4" />

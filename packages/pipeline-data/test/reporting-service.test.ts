@@ -41,8 +41,8 @@ jest.unstable_mockModule('../src/database/tenancy.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const { ReportingService, resolveEventRetentionDays, resolveDoraRetentionDays, retentionCutoff } =
-  await import('../src/api/reporting-service.js');
+const { ReportingService } = await import('../src/api/reporting-service.js');
+const { resolveEventRetentionDays, resolveDoraRetentionDays, retentionCutoff } = await import('../src/api/reporting/retention.js');
 type ReportingService = InstanceType<typeof ReportingService>;
 
 describe('ReportingService', () => {
@@ -214,7 +214,7 @@ describe('ReportingService', () => {
       // New Phase-4 lead-time columns persist (as Date / int, not scrubbed).
       expect(row.commitTimestamp).toEqual(new Date('2026-07-02T00:00:00Z'));
       expect(row.commitCount).toBe(3);
-      // Phase 3b: one metric emitted for the terminal deploy-stage event, with
+      // one metric emitted for the terminal deploy-stage event, with
       // the registry-resolved org (never the caller's claimed org).
       expect(metrics).toEqual([
         { pipelineId: 'pl-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' },
@@ -428,7 +428,7 @@ describe('ReportingService', () => {
     const TO = '2026-07-11T00:00:00Z'; // 10-day window
 
     /** Queue the five scan results in the order getDoraMetrics reads them:
-     *  0=deploy, 1=outcomes, 2=mttr, 3=coverage, 4=incidents (Phase 5). */
+     *  0=deploy, 1=outcomes, 2=mttr, 3=coverage, 4=incidents. */
     function wireScans(deploy: unknown[], outcomes: unknown[], mttr: unknown[], coverage: unknown[], incidents: unknown[] = []) {
       mockExecute
         .mockResolvedValueOnce({ rows: deploy })
@@ -568,11 +568,11 @@ describe('ReportingService', () => {
     });
   });
 
-  // Phase 5 — webhook-ingested incidents correlate to the most recent successful
+  // webhook-ingested incidents correlate to the most recent successful
   // deploy → automated post-deploy CFR + real MTTR. These golden fixtures prove
   // the JS correlation math: window boundary, dedup vs a manual outcome on the
   // same deploy, and the incident-precedence recovery time.
-  describe('getDoraMetrics — incident correlation (Phase 5)', () => {
+  describe('getDoraMetrics — incident correlation', () => {
     const FROM = '2026-07-01T00:00:00Z';
     const TO = '2026-07-11T00:00:00Z';
 
@@ -656,7 +656,7 @@ describe('ReportingService', () => {
     it('dedups an incident against a manual failed outcome on the SAME deploy (counts once)', async () => {
       wireScans(
         [prodDeploy],
-        // Manual failed outcome on exec-A (Phase 2).
+        // Manual failed outcome on exec-A.
         [{ environment: 'production', outcome: 'failed', execution_id: 'exec-A' }],
         // Manual failed also surfaces in the production MTTR scan for exec-A.
         [{ outcome: 'failed', execution_id: 'exec-A', restored_at: '2026-07-02T05:00:00Z', deployed_at: null }],
@@ -691,7 +691,7 @@ describe('ReportingService', () => {
       expect(sql).toContain('i.opened_at');
     });
 
-    // Phase 5b — a per-org correlation-window override (threaded via
+    // a per-org correlation-window override (threaded via
     // DoraOptions.incidentWindowHours) changes which deploy an incident attributes
     // to. Same fixture, two windows: default 24h correlates; a 1h override does not.
     it('respects a per-org incident window override in correlation', async () => {
@@ -713,8 +713,8 @@ describe('ReportingService', () => {
     });
   });
 
-  // DORA compute survey fixes: per-execution DF (D1), lead-time via the PIPELINE
-  // event's commit ts (D2), correlation look-back to `from − windowHours`, MTTR
+  // DORA compute survey fixes: per-execution DF, lead-time via the PIPELINE
+  // event's commit ts, correlation look-back to `from − windowHours`, MTTR
   // right-censoring at `to`, cache-key window inclusion, and exact band edges.
   describe('getDoraMetrics — compute survey fixes', () => {
     const FROM = '2026-07-01T00:00:00Z';
@@ -730,10 +730,10 @@ describe('ReportingService', () => {
         .mockResolvedValueOnce({ rows: incidents });
     }
 
-    // D1 — the deploy scan groups per (environment, execution), so two deploy
+    // the deploy scan groups per (environment, execution), so two deploy
     // STAGE rows of ONE execution collapse to a SINGLE deployment row. Proven at
     // the SQL layer (JS receives post-grouping rows); one grouped row → 1 deploy.
-    it('D1: deploy scan groups per (env, execution), not per stage', async () => {
+    it('deploy scan groups per (env, execution), not per stage', async () => {
       mockExecute.mockResolvedValue({ rows: [] });
       await service.getDoraMetrics('acme', FROM, TO);
       const { sql } = dialect.sqlToQuery(mockExecute.mock.calls[0]?.[0] as SQL);
@@ -741,7 +741,7 @@ describe('ReportingService', () => {
       expect(sql).not.toContain('stage_name');
     });
 
-    it('D1: one per-execution deploy row (two stages already rolled up) counts as 1 deployment', async () => {
+    it('one per-execution deploy row (two stages already rolled up) counts as 1 deployment', async () => {
       wireScans(
         [{ environment: 'production', execution_id: 'exec-1', status: 'SUCCEEDED', completed_at: '2026-07-02T00:00:00Z', commit_ts: null, in_window: true }],
         [], [], [{ registered: 1, deploying: 1 }],
@@ -751,10 +751,10 @@ describe('ReportingService', () => {
       expect(result.environments[0].changeFailureRate.attempts).toBe(1);
     });
 
-    // D2 — commit time rides the PIPELINE/source event (environment IS NULL), so
+    // commit time rides the PIPELINE/source event (environment IS NULL), so
     // the deploy scan joins the execution's EARLIEST commit across ALL its events
     // via a dedicated exec_commits CTE (not the STAGE row's own commit column).
-    it('D2: commit time joins the execution\'s earliest commit via exec_commits (any event type)', async () => {
+    it('commit time joins the execution\'s earliest commit via exec_commits (any event type)', async () => {
       mockExecute.mockResolvedValue({ rows: [] });
       await service.getDoraMetrics('acme', FROM, TO);
       const { sql } = dialect.sqlToQuery(mockExecute.mock.calls[0]?.[0] as SQL);
@@ -768,7 +768,7 @@ describe('ReportingService', () => {
       expect(sql).not.toContain("c.event_type = 'STAGE'");
     });
 
-    it('D2: lead time derives from the joined commit_ts on the per-execution row', async () => {
+    it('lead time derives from the joined commit_ts on the per-execution row', async () => {
       wireScans(
         // commit_ts came from the PIPELINE event (joined in SQL); completed 1h later.
         [{ environment: 'production', execution_id: 'exec-1', status: 'SUCCEEDED', completed_at: '2026-07-02T01:00:00Z', commit_ts: '2026-07-02T00:00:00Z', in_window: true }],
@@ -879,12 +879,12 @@ describe('ReportingService', () => {
     });
   });
 
-  // Phase 5b — per-org DORA settings (incident correlation window), the incidents
+  // per-org DORA settings (incident correlation window), the incidents
   // list, and the wiring-test dry-run correlation.
-  describe('incident settings + list + test correlation (Phase 5b)', () => {
-    it('getIncidentSettings returns the stored override + env default', async () => {
+  describe('incident settings + list + test correlation', () => {
+    it('getReportingSettings returns the stored override + env default', async () => {
       mockExecute.mockResolvedValueOnce({ rows: [{ incident_window_hours: 6, event_retention_days: null, dora_retention_days: null }] });
-      const s = await service.getIncidentSettings('acme');
+      const s = await service.getReportingSettings('acme');
       expect(s).toEqual({
         incidentWindowHours: 6,
         defaultWindowHours: 24,
@@ -895,9 +895,9 @@ describe('ReportingService', () => {
       });
     });
 
-    it('getIncidentSettings returns null override when no row is stored', async () => {
+    it('getReportingSettings returns null override when no row is stored', async () => {
       mockExecute.mockResolvedValueOnce({ rows: [] });
-      const s = await service.getIncidentSettings('acme');
+      const s = await service.getReportingSettings('acme');
       expect(s).toEqual({
         incidentWindowHours: null,
         defaultWindowHours: 24,
@@ -908,19 +908,19 @@ describe('ReportingService', () => {
       });
     });
 
-    it('getIncidentSettings reads RETENTION from the account root for a team (incident window stays the team\'s)', async () => {
+    it('getReportingSettings reads RETENTION from the account root for a team (incident window stays the team\'s)', async () => {
       mockExecute
         .mockResolvedValueOnce({ rows: [{ incident_window_hours: 6, event_retention_days: null, dora_retention_days: null }] }) // team row
         .mockResolvedValueOnce({ rows: [{ event_retention_days: 120, dora_retention_days: 545 }] }); // root row
-      const s = await service.getIncidentSettings('team-1', 'root-1');
+      const s = await service.getReportingSettings('team-1', 'root-1');
       expect(s).toMatchObject({ incidentWindowHours: 6, eventRetentionDays: 120, doraRetentionDays: 545 });
       expect(mockExecute).toHaveBeenCalledTimes(2);
       expect(new PgDialect().sqlToQuery(mockExecute.mock.calls[1][0] as SQL).params).toContain('root-1');
     });
 
-    it('getIncidentSettings surfaces stored retention overrides (Phase 7)', async () => {
+    it('getReportingSettings surfaces stored retention overrides', async () => {
       mockExecute.mockResolvedValueOnce({ rows: [{ incident_window_hours: null, event_retention_days: 30, dora_retention_days: 180 }] });
-      const s = await service.getIncidentSettings('acme');
+      const s = await service.getReportingSettings('acme');
       expect(s).toMatchObject({ eventRetentionDays: 30, doraRetentionDays: 180 });
     });
 
@@ -942,7 +942,7 @@ describe('ReportingService', () => {
       expect(conflictArg.set).not.toHaveProperty('doraRetentionDays');
     });
 
-    it('setReportingSettings updates only retention columns when only retention is provided (Phase 7)', async () => {
+    it('setReportingSettings updates only retention columns when only retention is provided', async () => {
       const values = jest.fn<(...a: unknown[]) => unknown>();
       const onConflictDoUpdate = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
       values.mockReturnValue({ onConflictDoUpdate });
@@ -958,7 +958,7 @@ describe('ReportingService', () => {
 
     it('listIncidents resolves the window then LATERAL-correlates each incident', async () => {
       mockExecute
-        .mockResolvedValueOnce({ rows: [] }) // getIncidentSettings → default window
+        .mockResolvedValueOnce({ rows: [] }) // getReportingSettings → default window
         .mockResolvedValueOnce({
           rows: [
             { incidentId: 'i1', environment: 'production', severity: 'critical', openedAt: '2026-07-02T02:00:00Z', resolvedAt: '2026-07-02T03:00:00Z', createdAt: '2026-07-02T02:00:01Z', resolved: true, correlatedExecutionId: 'exec-A', deployCompletedAt: '2026-07-02T00:00:00Z' },
@@ -1004,8 +1004,8 @@ describe('ReportingService', () => {
     });
   });
 
-  // Phase 6 — per-pipeline build health (standard reporting, every tier).
-  describe('getBuildHealth (Phase 6)', () => {
+  // per-pipeline build health (standard reporting, every tier).
+  describe('getBuildHealth', () => {
     it('shapes per-stage rows and sums totals across stages', async () => {
       mockExecute.mockResolvedValue({
         rows: [
@@ -1042,7 +1042,7 @@ describe('ReportingService', () => {
     });
   });
 
-  describe('recordIncident (Phase 5 upsert)', () => {
+  describe('recordIncident', () => {
     it('upserts on (org_id, incident_id) and refreshes resolved_at', async () => {
       const values = jest.fn<(...a: unknown[]) => unknown>();
       const onConflictDoUpdate = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
@@ -1141,11 +1141,11 @@ describe('ReportingService', () => {
       const { sql } = rendered(0);
       expect(sql).toContain("e.event_type = 'STAGE'");
       expect(sql).toContain('e.environment IS NOT NULL');
-      // D2: commit time joins the execution's earliest commit (any event), not
+      // commit time joins the execution's earliest commit (any event), not
       // the deploy STAGE row — projected from the exec_commits CTE (alias `c`).
       expect(sql).toContain('commit_timestamp');
       expect(sql).toContain('exec_commits');
-      // D1: per-execution grouping — one deployment per (env, execution), NOT per stage.
+      // per-execution grouping — one deployment per (env, execution), NOT per stage.
       expect(sql).toContain('GROUP BY e.environment, e.execution_id');
       expect(sql).not.toContain('e.stage_name');
       // No run-basis PIPELINE roll-up any more.
@@ -1218,7 +1218,7 @@ describe('ReportingService', () => {
       expect(sql).toContain("e.event_type = 'STAGE'");
       expect(sql).toContain('e.environment IS NOT NULL');
       expect(sql).toContain('DATE_TRUNC');
-      // D1: per-execution grouping in the trend CTE, not per stage.
+      // per-execution grouping in the trend CTE, not per stage.
       expect(sql).toContain('GROUP BY e.environment, e.execution_id');
       expect(sql).not.toContain('e.stage_name');
       expect(sql).not.toContain("e.event_type = 'PIPELINE'");
@@ -1443,9 +1443,9 @@ describe('ReportingService', () => {
   });
 });
 
-// Phase 7 — reporting retention: the resolve/cutoff age logic (standard vs DORA
+// reporting retention: the resolve/cutoff age logic (standard vs DORA
 // split, per-org override vs env default, boundary) + the batched per-org sweep.
-describe('reporting retention (Phase 7)', () => {
+describe('reporting retention', () => {
   let service: ReportingService;
   beforeEach(() => { jest.clearAllMocks(); service = new ReportingService(); });
 
@@ -1472,7 +1472,7 @@ describe('reporting retention (Phase 7)', () => {
       expect(resolveDoraRetentionDays(9999)).toBe(730); // above max → clamped
     });
 
-    it('passes the -1 unlimited sentinel through (Phase 8) instead of falling back to the default', () => {
+    it('passes the -1 unlimited sentinel through instead of falling back to the default', () => {
       expect(resolveEventRetentionDays(-1)).toBe(-1);
       expect(resolveDoraRetentionDays(-1)).toBe(-1);
       // -1 is the ONLY negative that survives; -2 is still out-of-range → default.

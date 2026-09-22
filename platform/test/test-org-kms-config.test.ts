@@ -11,8 +11,8 @@
  * misconfiguration BEFORE a PUT triggers a real rotation.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { z } from 'zod';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -102,12 +102,10 @@ const { testOrgKmsConfig } = await import('../src/controllers/org-kms-config.js'
  * The route is `requireSystemAdmin`-gated and that gate now runs FOR REAL (see
  * helpers/controller-helper-mock.ts). Authority is therefore expressed in the
  * REQUEST — api-core's `isSystemAdmin` reads the JWT's `isSuperAdmin` claim —
- * rather than by stubbing the gate, which is what the deleted
- * `mockRequireSystemAdmin` used to do (and which meant the gate itself was
- * never actually under test).
+ * rather than by stubbing the gate, so the gate itself is under test.
  */
 const SYSADMIN = { sub: 'sa-1', isSuperAdmin: true };
-/** A signed-in org admin: passes `requireAuth`, fails `isSystemAdmin`. */
+/** A signed-in org admin: passes `ensureAuthenticated`, fails `isSystemAdmin`. */
 const ORG_ADMIN = { sub: 'a-1', organizationId: 'o1', role: 'admin' };
 
 /** Request fixture; `user` defaults to the platform admin the route requires. */

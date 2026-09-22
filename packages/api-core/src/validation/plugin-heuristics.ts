@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Malware heuristics over a plugin PACKAGE's source (docs/plans/plugin-ecosystem.md
- * §4.2 gate 4, E8): the Dockerfile, the spec and every other text file in the
+ * Malware heuristics over a plugin PACKAGE's source (docs/plugin-publishing.md,
+ * the automated submission gate): the Dockerfile, the spec and every other text file in the
  * zip. A plugin runs inside a customer's CodeBuild with the customer's keys, so
  * the patterns looked for are the ones that abuse exactly that:
  *

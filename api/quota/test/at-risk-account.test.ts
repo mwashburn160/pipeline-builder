@@ -19,8 +19,8 @@
  * still 403s at the tenancy guard, before the read gate is reached.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -39,6 +39,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
+  isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
   isSystemAdmin: jest.fn(),
   requireSystemAdmin: jest.fn(),
   // read-quotas uses `requireAuth as RequestHandler` (a middleware directly),
@@ -58,11 +59,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId ?? req.params?.orgId });
   },
-}));
-
-jest.unstable_mockModule('../src/helpers/quota-helpers.js', () => ({
-  isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
-
 }));
 
 // NOTE: authorize-org.js is intentionally NOT mocked — we test the real guard.

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Thin Loki HTTP client, mirroring `prometheus-client.ts` (native `fetch`, env
- * read at call time, the same categorized error union so the controller's
+ * Thin Loki HTTP client over {@link callUpstream}, like `prometheus-client.ts`
+ * (base URL read per call, the same categorized error union so the controller's
  * degraded-on-unreachable path works unchanged on a LEAN deploy).
  *
  * Two things this client owns that Prometheus' does not:
@@ -11,23 +11,15 @@
  *  - **The tenant header.** Every call takes a resolved `X-Scope-OrgID` from
  *    `log-query.ts`. Loki enforces it, which is why tenancy here is physical
  *    rather than a filter we have to remember to append.
- *  - **Masking (L4).** Every line is passed through `maskLine` on the way out,
+ *  - **Masking.** Every line is passed through `maskLine` on the way out,
  *    covering history written before ingest-time masking shipped. Read-time
  *    masking is NOT the guarantee (a searcher can still confirm a guess from a
  *    hit) — see `packages/api-core/src/utils/sensitive-patterns.ts`.
  */
 
-import { createLogger, errorMessage, maskLine } from '@pipeline-builder/api-core';
-
-const logger = createLogger('loki-client');
-
-/** Default Loki URL when env is unset — matches the in-cluster service name. */
-const DEFAULT_URL = 'http://loki:3100';
-
-/** Same shape as PromError so the controller can treat both backends alike. */
-export type LokiError =
-  | { kind: 'upstream-4xx'; status: number; message: string }
-  | { kind: 'unreachable'; message: string };
+import { maskLine } from '@pipeline-builder/api-core';
+import { callUpstream, upstreamRejected } from './upstream.js';
+import { config } from '../config/index.js';
 
 /** One log line as the API returns it. */
 export interface LokiEntry {
@@ -64,7 +56,7 @@ interface LokiEnvelope<T> {
 }
 
 function lokiUrl(): string {
-  const base = process.env.LOKI_URL || DEFAULT_URL;
+  const base = config.observability.lokiUrl;
   return base.endsWith('/') ? base : `${base}/`;
 }
 
@@ -80,37 +72,15 @@ async function callLoki<T>(
   const url = new URL(path, lokiUrl());
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), {
-      headers: { 'X-Scope-OrgID': tenants },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    const e: LokiError = { kind: 'unreachable', message: errorMessage(err) };
-    // Never log the tenant list at info level — it is a list of customer ids.
-    logger.warn('Loki unreachable', { path, error: e.message });
-    throw e;
-  }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    const e: LokiError = {
-      kind: 'upstream-4xx',
-      status: res.status,
-      message: text.slice(0, 300) || `Loki returned ${res.status}`,
-    };
-    logger.warn('Loki rejected query', { status: res.status, message: e.message });
-    throw e;
-  }
-
-  const env = (await res.json()) as LokiEnvelope<T>;
+  const env = await callUpstream<LokiEnvelope<T>>(url.toString(), {
+    backend: 'Loki',
+    timeoutMs,
+    headers: { 'X-Scope-OrgID': tenants },
+    // Never log the tenant list — it is a list of customer ids.
+    logContext: { path },
+  });
   if (env.status !== 'success' || env.data === undefined) {
-    throw {
-      kind: 'upstream-4xx',
-      status: res.status,
-      message: env.error || env.message || 'Loki returned a non-success envelope',
-    } satisfies LokiError;
+    throw upstreamRejected(200, env.error || env.message || 'Loki returned a non-success envelope');
   }
   return env.data.result;
 }

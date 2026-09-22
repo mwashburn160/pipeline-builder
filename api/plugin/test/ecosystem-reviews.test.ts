@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Reviews and ratings (plugin ecosystem §5, §5a, §5b N15–N19, §5c, G15, G16)
+ * Reviews and ratings ( N15–N19)
  * against the in-memory database: writing, editing and deleting a review;
  * self-promotion, the per-org daily cap, the reviews flag and machine
  * credentials; the anomaly holds (link filter, bursts of unverified reviews,
- * reports, security reports and the W8 advisory hook); "helpful" votes; the
+ * reports, security reports and the advisory hook); "helpful" votes; the
  * publisher's reply; the viewer's state; the moderation queue; and the
  * plugin_stats upkeep (the weighted Bayesian score, recent-versions rating,
  * install counts and k-anonymous adoption) including the in-app catalog.
@@ -21,7 +21,6 @@ const h = setupEcosystemHarness();
 const reviewsSvc = await import('../src/services/ecosystem/reviews.js');
 const moderation = await import('../src/services/ecosystem/review-moderation.js');
 const stats = await import('../src/services/ecosystem/stats.js');
-const hooks = await import('../src/services/ecosystem/review-hooks.js');
 const installs = await import('../src/services/ecosystem/installs.js');
 await wireEcosystemHarness(h);
 
@@ -37,7 +36,6 @@ beforeEach(() => {
   verified.mockReset();
   verified.mockResolvedValue(false);
   reviewsSvc.setVerifiedUseProbeForTests(verified);
-  hooks.setReviewSecurityReportHandler(null);
 });
 
 afterEach(() => {
@@ -323,13 +321,11 @@ describe('reportReview', () => {
     await rejects(reviewsSvc.reportReview(REVIEWER({ userId: 'u-1' }), review.id, { category: 'spam' }), 'NOT_FOUND');
   });
 
-  it('a SECURITY report holds at once, notifies privately (N19) and opens the advisory draft through the W8 hook', async () => {
-    const { review, listing, acme } = await published();
-    const handler = jest.fn(async (_r: unknown) => undefined);
-    hooks.setReviewSecurityReportHandler(handler);
+  it('a SECURITY report holds at once, notifies privately (N19) and opens the private advisory draft', async () => {
+    const { review } = await published();
     await reviewsSvc.reportReview(REVIEWER({ userId: 'u-sec', orgId: 'org-s' }), review.id, { category: 'security', reason: 'token leaks in logs' });
     expect(review).toMatchObject({ status: 'held', holdReason: 'security' });
-    expect(lastAudit()).toMatchObject({ action: 'plugin.review.hold', details: { reason: 'security', trigger: 'security_report' } });
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.review.hold', details: expect.objectContaining({ reason: 'security', trigger: 'security_report' }) }));
     const [n19] = notices('N19');
     expect(n19![1]).toEqual([
       { kind: 'org_permission', orgId: 'org-acme', permission: 'publishers:manage' },
@@ -338,17 +334,9 @@ describe('reportReview', () => {
     expect(n19![3]).toEqual({ immediate: true, mandatory: true });
     expect((n19![2] as { text: string }).text).toContain('token leaks in logs');
     expect(notices('N17')).toHaveLength(0);
-    expect(handler).toHaveBeenCalledWith(expect.objectContaining({
-      reviewId: review.id,
-      listingId: listing.id,
-      publisherId: acme.id,
-      publisherOrgId: 'org-acme',
-      publisherHandle: 'acme',
-      listingName: 'lint',
-      version: '1.2.0',
-      details: 'token leaks in logs',
-      reportedBy: { userId: 'u-sec', orgId: 'org-s' },
-    }));
+    expect(db.tables.plugin_advisories).toEqual([expect.objectContaining({ source: 'review', affectedRange: '1.2.0' })]);
+    const draft = db.tables.plugin_publish_requests!.find((r) => r.kind === 'advisory')!;
+    expect(draft.payload).toMatchObject({ reviewId: review.id, reportDetails: 'token leaks in logs' });
   });
 
   it('a security report on an already-held review still notifies and dispatches; a missing or failing handler never fails the report', async () => {
@@ -356,19 +344,11 @@ describe('reportReview', () => {
     expect(await reviewsSvc.reportReview(REVIEWER({ userId: 'u-1' }), review.id, { category: 'security' })).toEqual({ reported: true });
     expect(review.holdReason).toBe('burst');
     expect(notices('N19')).toHaveLength(1);
-    hooks.setReviewSecurityReportHandler(async () => { throw new Error('advisories down'); });
+    db.failNextInsert('plugin_advisories', new Error('advisories down'));
+    db.tables.plugin_publish_requests = [];
+    db.tables.plugin_advisories = [];
     expect(await reviewsSvc.reportReview(REVIEWER({ userId: 'u-2' }), review.id, { category: 'security' })).toEqual({ reported: true });
-  });
-});
-
-describe('dispatchReviewSecurityReport', () => {
-  const report = { reviewId: 'r', reportId: 'p', listingId: 'l', publisherId: 'pub', publisherOrgId: null, publisherHandle: 'a', listingName: 'b', version: null, details: null, reportedBy: { userId: 'u', orgId: 'o' }, reportedAt: new Date() };
-  it('reports its outcome', async () => {
-    expect(await hooks.dispatchReviewSecurityReport(report)).toBe('unhandled');
-    hooks.setReviewSecurityReportHandler(async () => undefined);
-    expect(await hooks.dispatchReviewSecurityReport(report)).toBe('handled');
-    hooks.setReviewSecurityReportHandler(async () => { throw new Error('x'); });
-    expect(await hooks.dispatchReviewSecurityReport(report)).toBe('failed');
+    expect(db.tables.plugin_advisories).toEqual([]);
   });
 });
 

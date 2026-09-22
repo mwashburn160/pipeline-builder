@@ -39,15 +39,16 @@ const workspacePackages: string[] = [];
 /**
  * `pnpm-workspace.yaml` contents for the root project's `pnpmOptions`.
  *
- * Cast because the pnpm 11 keys (`allowBuilds`, `verifyDepsBeforeRun`,
- * `minimumReleaseAge*`) are absent from projen's typed schema; projen writes
- * them through verbatim.
+ * Cast because the newer pnpm workspace keys (`allowBuilds`,
+ * `verifyDepsBeforeRun`, `minimumReleaseAge*`) are absent from projen's typed
+ * schema; projen writes them through verbatim. The pnpm version itself is
+ * pinned by the root package.json `packageManager` field.
  */
 export const pnpmWorkspaceYamlOptions = {
   // Each subproject's path relative to the root (see setWorkspacePackages).
   packages: workspacePackages,
-  // pnpm 11 blocks dependency build/postinstall scripts unless each is
-  // explicitly approved here (else `ERR_PNPM_IGNORED_BUILDS` fails install).
+  // pnpm blocks dependency build/postinstall scripts unless each is explicitly
+  // approved here (else `ERR_PNPM_IGNORED_BUILDS` fails install).
   // These have legitimate native/codegen build steps the toolchain relies on.
   allowBuilds: {
     '@scarf/scarf': true,
@@ -60,11 +61,11 @@ export const pnpmWorkspaceYamlOptions = {
     sharp: true,
     'unrs-resolver': true,
   },
-  // pnpm 11 otherwise auto-installs before every `pnpm run/exec/nx`. In CI that
-  // pre-run install reconciles node_modules in prod mode — pruning devDeps (incl.
-  // `nx`) → `Command "nx" not found` in the docker:verify job. Deps are installed
-  // explicitly in the bootstrap step, so this pre-run check is redundant + harmful.
-  // (This is a pnpm-workspace.yaml setting — `.npmrc` is ignored for it in pnpm 11.)
+  // Explicitly off: when on, pnpm installs before every `pnpm run/exec/nx`, and
+  // in CI that pre-run install reconciles node_modules in prod mode — pruning
+  // devDeps (incl. `nx`) → `Command "nx" not found` in the docker:verify job.
+  // Deps are installed explicitly in the bootstrap step. (A pnpm-workspace.yaml
+  // setting; `.npmrc` is not consulted for it.)
   verifyDepsBeforeRun: false,
   // Supply-chain quarantine: refuse to install a registry package version
   // younger than 1440 min (24h). Most compromised-release / typosquat

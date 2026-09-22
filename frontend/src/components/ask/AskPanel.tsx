@@ -364,7 +364,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                         </div>
                       </details>
                       {m.proposalStatus === 'created' ? (
-                        <div className="mt-2 inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                        <div className="mt-2 inline-flex items-center gap-1 text-xs text-success">
                           <Check className="w-3.5 h-3.5" />{' '}
                           <Link href={meta.href} onClick={onClose} className="underline hover:text-brand">{meta.createdText}</Link>
                         </div>
@@ -388,7 +388,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                         </div>
                       )}
                       {m.proposalStatus === 'error' && (
-                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">{m.proposalError}</p>
+                        <p className="mt-1 text-xs text-danger">{m.proposalError}</p>
                       )}
                     </div>
                   );
@@ -398,7 +398,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
           ))}
 
           {error && (
-            <div className="flex items-start gap-2 text-sm text-red-600 dark:text-red-400">
+            <div className="flex items-start gap-2 text-sm text-danger">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>{error}</span>
             </div>

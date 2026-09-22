@@ -12,10 +12,12 @@
  * them to read tenant secrets back in plaintext.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
+import { featureQuotaMock } from './helpers/feature-quota-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockListAll = jest.fn<AnyFn>();
 const mockIsSystemAdmin = jest.fn<AnyFn>();
@@ -26,7 +28,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   sendQuotaReserveDenied: jest.fn<AnyFn>(),
-  // The write gate now uses userHasPermission; these tests drive admin-ness via
+  // The write gate uses userHasPermission; these tests drive admin-ness via
   // mockIsSystemAdmin, so bridge it (plus honor an explicit permissions claim).
   userHasPermission: (req: any, perm: string) => mockIsSystemAdmin(req) || (req.user?.permissions ?? []).includes(perm),
 }));
@@ -78,11 +80,11 @@ jest.unstable_mockModule('../src/services/alert-destination-service.js', () => (
 }));
 
 jest.unstable_mockModule('../src/services/alert-relay.js', () => ({ relayWebhook: jest.fn<AnyFn>() }));
-jest.unstable_mockModule('../src/middleware/quota.js', () => ({
+jest.unstable_mockModule('../src/middleware/quota.js', () => featureQuotaMock({
   reserveFeatureQuota: jest.fn<AnyFn>(),
   releaseFeatureQuota: jest.fn<AnyFn>(),
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertDestinationMaxLabel: 100, alertDestinationMaxTarget: 2048 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: { alertDestinationMaxLabel: 100, alertDestinationMaxTarget: 2048 } }));
 
 const { listAllAlertDestinations } = await import('../src/controllers/alert-destinations.js');
 

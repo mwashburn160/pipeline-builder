@@ -67,6 +67,23 @@ describe('useServerPagination', () => {
     expect(lastCall.filters).toEqual({ q: 'b' });
   });
 
+  it('a filter change from a later page issues ONE request, at offset 0', async () => {
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue(buildResult([], 100));
+    const { result, rerender } = renderHook(
+      ({ filters }: { filters: Filters }) => useServerPagination<Row, Filters>(fetcher, filters, 20),
+      { initialProps: { filters: { q: 'a' } } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.setOffset(40));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    fetcher.mockClear();
+    rerender({ filters: { q: 'b' } });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]![0]).toMatchObject({ offset: 0, filters: { q: 'b' } });
+  });
+
   it('setOffset triggers a re-fetch with the new offset', async () => {
     const fetcher = jest
       .fn<AnyFn>()

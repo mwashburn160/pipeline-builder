@@ -32,17 +32,18 @@ import crypto from 'crypto';
 import { createLogger, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
-import { canAdministerOrg, isOrgAdmin, withController } from '../helpers/controller-helper.js';
+import { canAdministerOrg, ensureAuthenticated, isOrgAdmin, withController } from '../helpers/controller-helper.js';
 import { isTenantAdminOf, resolveImpersonationAuthority } from '../helpers/impersonation-authority.js';
 import { resolveChallengeRoute, sendImpersonationChallenge } from '../helpers/impersonation-challenge.js';
 import { notifyOrgOfBreakglass, notifyRequesterOfDecision, notifyTeamOfAncestorImpersonation } from '../helpers/impersonation-notify.js';
 import { resolveEffectiveImpersonationPolicy } from '../helpers/impersonation-policy.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { paginationMeta } from '../helpers/pagination.js';
 import { publishImpersonationSessionRevocation } from '../helpers/session-revocation.js';
 import { ImpersonationRequest, User, UserOrganization, type ImpersonationApproverMode } from '../models/index.js';
 import { decideInitialApproval, impersonationService } from '../services/impersonation-service.js';
-import { authFromClaims, issueImpersonationToken } from '../utils/token.js';
+import { authFromClaims, issueImpersonationToken } from '../services/session/access-tokens.js';
 
 const logger = createLogger('impersonate');
 
@@ -51,7 +52,7 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   // within their own subtree. Authority is resolved below, once the target's
   // pinned org is known — it depends on BOTH parties, so it cannot be a
   // route-level middleware the way the old sysadmin-only check was.
-  if (!req.user) return sendError(res, 401, 'Authentication required');
+  if (!ensureAuthenticated(req, res)) return;
   // Disallow impersonating from within an impersonation session — keeps
   // the audit trail straightforward (always requester → user, never chained).
   if (req.user?.impersonatorId) {
@@ -282,7 +283,7 @@ async function redeemAndIssue(
  * admin permission), or an admin of the org the session is pinned to.
  */
 export const decideImpersonationRequest = withController('Decide impersonation request', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Authentication required');
+  if (!ensureAuthenticated(req, res)) return;
   const requestId = String(req.params.id);
   const approve = req.body?.approve === true;
 
@@ -308,7 +309,7 @@ export const decideImpersonationRequest = withController('Decide impersonation r
     // org. NOT `canAdministerOrg` — it short-circuits true for any sysadmin, which
     // would let a platform operator consent on the tenant's behalf.
     const isNamedApprover = request.approverUserId != null && String(request.approverUserId) === actorId;
-    const isTenantAdmin = request.orgId != null && await isTenantAdminOf(req, String(request.orgId));
+    const isTenantAdmin = request.organizationId != null && await isTenantAdminOf(req, String(request.organizationId));
     if (!isNamedApprover && !isTenantAdmin) {
       return sendError(res, 403, 'Forbidden: you were not asked to decide this request');
     }
@@ -324,7 +325,7 @@ export const decideImpersonationRequest = withController('Decide impersonation r
   audit(req, approve ? 'admin.impersonate.approve' : 'admin.impersonate.deny', {
     targetType: 'user',
     targetId: String(request.targetUserId),
-    affectedOrgId: request.orgId != null ? String(request.orgId) : undefined,
+    affectedOrgId: request.organizationId ? String(request.organizationId) : undefined,
     details: { requestId },
   });
 
@@ -353,7 +354,7 @@ export const decideImpersonationRequest = withController('Decide impersonation r
  * session rather than walking away from a live token.
  */
 export const revokeImpersonationSession = withController('Revoke impersonation session', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Authentication required');
+  if (!ensureAuthenticated(req, res)) return;
   const requestId = String(req.params.id);
 
   const request = await ImpersonationRequest.findById(requestId).lean();
@@ -363,7 +364,7 @@ export const revokeImpersonationSession = withController('Revoke impersonation s
   const isSubject = String(request.targetUserId) === actorId;
   const isRequester = String(request.requesterId) === actorId;
   const isDecider = request.decidedBy != null && String(request.decidedBy) === actorId;
-  const isOrgAdminHere = request.orgId != null && await canAdministerOrg(req, String(request.orgId));
+  const isOrgAdminHere = request.organizationId != null && await canAdministerOrg(req, String(request.organizationId));
   if (!isSubject && !isRequester && !isDecider && !isOrgAdminHere) {
     return sendError(res, 403, 'Forbidden');
   }
@@ -385,7 +386,7 @@ export const revokeImpersonationSession = withController('Revoke impersonation s
   audit(req, 'admin.impersonate.revoke', {
     targetType: 'user',
     targetId: String(request.targetUserId),
-    affectedOrgId: request.orgId != null ? String(request.orgId) : undefined,
+    affectedOrgId: request.organizationId ? String(request.organizationId) : undefined,
     details: { requestId, revokedEverywhere },
   });
   logger.info('Impersonation session revoked', { requestId, actorId, revokedEverywhere });
@@ -408,7 +409,7 @@ export const revokeImpersonationSession = withController('Revoke impersonation s
  * them to ask.
  */
 export const redeemImpersonationRequest = withController('Redeem impersonation request', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Authentication required');
+  if (!ensureAuthenticated(req, res)) return;
   if (req.user.impersonatorId) {
     return sendError(res, 400, 'Cannot impersonate from within an impersonation session');
   }
@@ -428,7 +429,7 @@ export const redeemImpersonationRequest = withController('Redeem impersonation r
     return sendError(res, 400, 'Cannot impersonate another sysadmin');
   }
 
-  const orgId = request.orgId != null ? String(request.orgId) : undefined;
+  const orgId = request.organizationId ? String(request.organizationId) : undefined;
   if (request.breakglass) {
     // Emergency access is sysadmin-only to request; it stays sysadmin-only to redeem.
     if (!isSystemAdmin(req)) {
@@ -478,7 +479,7 @@ export const BREAKGLASS_JUSTIFICATION_MIN = 20;
  * to be.
  */
 export const breakglassImpersonation = withController('Break-glass impersonation', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Authentication required');
+  if (!ensureAuthenticated(req, res)) return;
   if (!isSystemAdmin(req)) return sendError(res, 403, 'Forbidden: emergency access is sysadmin only');
   if (req.user.impersonatorId) {
     return sendError(res, 400, 'Cannot impersonate from within an impersonation session');
@@ -572,7 +573,7 @@ type ListView = typeof LIST_VIEWS[number];
  * decide and revoke; see `impersonationService.listForCaller`.
  */
 export const listImpersonationRequests = withController('List impersonation requests', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Authentication required');
+  if (!ensureAuthenticated(req, res)) return;
   const view = String(req.query.view ?? '') as ListView;
   if (!(LIST_VIEWS as readonly string[]).includes(view)) {
     return sendError(res, 400, `view must be one of: ${LIST_VIEWS.join(', ')}`);
@@ -585,15 +586,13 @@ export const listImpersonationRequests = withController('List impersonation requ
   const activeOrgId = req.user.organizationId;
   const adminOrgIds = isOrgAdmin(req) && activeOrgId ? await expandOrgScope(activeOrgId) : [];
 
-  const limit = parseInt(String(req.query.limit), 10);
-  const offset = parseInt(String(req.query.offset), 10);
   const page = await impersonationService.listForCaller(
     { userId: req.user.sub, isSysadmin: isSystemAdmin(req), adminOrgIds },
     view,
-    { limit: Number.isNaN(limit) ? undefined : limit, offset: Number.isNaN(offset) ? undefined : offset },
+    { limit: req.query.limit, offset: req.query.offset },
   );
   sendSuccess(res, 200, {
     requests: page.requests,
-    pagination: { total: page.total, offset: page.offset, limit: page.limit, hasMore: page.offset + page.limit < page.total },
+    pagination: paginationMeta(page.total, page.offset, page.limit),
   });
 });

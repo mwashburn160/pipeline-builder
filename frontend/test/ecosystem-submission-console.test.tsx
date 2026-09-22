@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Ecosystem console → Publish queue, `submission` requests (plan §4.2 item 5, W5):
+ * Ecosystem console → Publish queue, `submission` requests:
  *  - the kind is labelled "Community submission" in rows, the filter and the detail;
  *  - the detail shows the gate report, EVERY heuristics finding (medium ones
  *    too), the quarantine image and SBOM / scan downloads, beside the normal
@@ -14,10 +14,10 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { PublishQueuePanel } from '../src/components/ecosystem/PublishQueuePanel';
-import { triggerBlobDownload } from '../src/lib/csv-export';
+import { triggerBlobDownload } from '../src/lib/download';
 
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
-jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: jest.fn() }));
+jest.mock('@/lib/download', () => ({ __esModule: true, triggerBlobDownload: jest.fn() }));
 
 const api = {
   getEcosystemOverview: jest.fn<AnyFn>(),
@@ -139,7 +139,7 @@ describe('Publish queue — community submissions', () => {
     await waitFor(() => expect(triggerBlobDownload).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(within(section).getByRole('button', { name: 'Vulnerability scan' })).toBeEnabled());
 
-    // The normal §3.0.2 review diff is still there, against 1.1.0.
+    // The normal review diff is still there, against 1.1.0.
     expect(within(detail).getByTestId('review-diff')).toHaveTextContent('1.1.0');
     expect(within(detail).getByTestId('review-dockerfile')).toBeInTheDocument();
     expect(within(detail).getByTestId('review-sbom')).toHaveTextContent('eslint@9.0.0');
@@ -209,7 +209,7 @@ describe('Publish queue — community submissions', () => {
   });
 });
 
-describe('Publish queue — claims on community listings (E10)', () => {
+describe('Publish queue — claims on community listings', () => {
   const claim = { ...submissionItem, id: 'r-claim', kind: 'claim', requiresTwoPerson: false, payload: { target: { listingId: 'l-1' } }, listingName: 'eslint-runner', version: null };
 
   it('an email mismatch warns and makes the approval note a required justification', async () => {

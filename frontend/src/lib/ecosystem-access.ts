@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Who may see the plugin-ecosystem console (plan §3.0 / §5a.1).
+ * Who may see the plugin-ecosystem console.
  *
  * Only the SYSTEM org manages or approves anything in the ecosystem, and only
  * its Ecosystem Managers (holders of `plugins:moderate` / `publishers:verify`)

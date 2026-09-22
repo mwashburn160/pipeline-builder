@@ -41,7 +41,7 @@ const SYSTEM_ORG_ID = '000000000000000000000001';
 suite('Required MFA and the bootstrap exception (real Mongo replica set)', () => {
   let replSet: { getUri: () => string; stop: () => Promise<boolean> };
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  let mongoose: any, m: any, token: any, bootstrap: any, mfaPolicy: any, signing: any, recover: any;
+  let mongoose: any, m: any, token: any, bootstrap: any, factors: any, mfaPolicy: any, signing: any, recover: any;
 
   beforeAll(async () => {
     const { MongoMemoryReplSet } = await import('mongodb-memory-server');
@@ -58,8 +58,14 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
     const { generateSigningKey } = await import('./helpers/signing.js');
     signing._setTokenSigningKeysForTests({ current: generateSigningKey(), retiring: [] });
 
-    token = await import('../src/utils/token.js');
+    token = {
+      ...(await import('../src/services/session/membership-context.js')),
+      ...(await import('../src/services/session/access-tokens.js')),
+      ...(await import('../src/services/session/refresh-sessions.js')),
+      ...(await import('../src/utils/token.js')),
+    };
     bootstrap = await import('../src/helpers/bootstrap-admin.js');
+    factors = await import('../src/helpers/auth-factors.js');
     mfaPolicy = await import('../src/helpers/mfa-policy.js');
     // The SERVICE, not the script: the script's entry point ends in
     // `process.exit`, so importing it would take the test runner with it.
@@ -274,9 +280,9 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
 
     it('sees an ACTIVATED authenticator app as a factor, but not a half-finished enrolment', async () => {
       await m.UserTotp.create({ userId, secret: 'enc', recoveryCodes: [] });
-      expect(await bootstrap.hasAnyMfaFactor(userId)).toBe(false);
+      expect(await factors.hasAnyMfaFactor(userId)).toBe(false);
       await m.UserTotp.updateOne({ userId }, { $set: { activatedAt: new Date() } });
-      expect(await bootstrap.hasAnyMfaFactor(userId)).toBe(true);
+      expect(await factors.hasAnyMfaFactor(userId)).toBe(true);
     });
   });
 

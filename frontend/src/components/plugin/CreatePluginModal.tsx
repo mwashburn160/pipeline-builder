@@ -19,6 +19,7 @@ import api from '@/lib/api';
 import { PLUGIN_BUILD_TIMEOUT_MS } from '@/lib/constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import type { PluginCatalogEdits, Visibility } from '@/types';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
 /** Props for the CreatePluginModal component. */
 interface CreatePluginModalProps {
@@ -53,12 +54,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   const [success, setSuccess] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Guards the sync-upload close timer so it can't call onClose() after unmount.
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  const autoClose = useAutoCloseTimer();
   const fileInputId = useId();
 
   // SSE build progress — driven by the requestId returned from the 202
@@ -145,7 +141,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
         setCatalogEdits({});
         if (fileInputRef.current) fileInputRef.current.value = '';
         onCreated();
-        setTimeout(() => { if (mountedRef.current) onClose(); }, 2000);
+        autoClose.schedule(onClose, 2000);
       }
     }
   };
@@ -259,8 +255,8 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
               <p className="text-xs font-medium text-fg-muted mb-2">Build log</p>
               {events.map((event, i) => (
                 <div key={i} className={`text-xs font-mono py-0.5 ${
-                  event.type === 'ERROR' ? 'text-red-600 dark:text-red-400' :
-                  event.type === 'COMPLETED' ? 'text-green-600 dark:text-green-400' :
+                  event.type === 'ERROR' ? 'text-danger' :
+                  event.type === 'COMPLETED' ? 'text-success' :
                   'text-fg-muted'
                 }`}>
                   {event.message}
@@ -284,7 +280,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
                   <div className="space-y-1 text-center">
                     <Upload className="mx-auto h-12 w-12 text-fg-subtle" />
                     <div className="flex text-sm text-fg-muted">
-                      <label htmlFor={fileInputId} className="relative cursor-pointer rounded-md font-medium text-brand hover:text-blue-500 dark:hover:text-blue-300 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                      <label htmlFor={fileInputId} className="relative cursor-pointer rounded-md font-medium text-brand hover:text-info focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
                         <span>Select a file</span>
                         <input id={fileInputId} name="file-upload" type="file" className="sr-only" ref={fileInputRef} accept=".zip,.tar.gz,.tgz" onChange={handleFileSelect} disabled={uploadDisabled} />
                       </label>
@@ -295,7 +291,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
                 </div>
                 {file && (
                   <p className="mt-2 text-sm text-fg-muted">
-                    Selected: <span className="font-medium text-gray-900 dark:text-gray-200">{file.name}</span>
+                    Selected: <span className="font-medium text-fg">{file.name}</span>
                     <span className="text-fg-subtle ml-2">({formatBytes(file.size)})</span>
                   </p>
                 )}
@@ -305,7 +301,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
                 <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={uploadDisabled} />
               </FormField>
 
-              {/* Catalog details (§3.1a): detected from the package, accepted or
+              {/* Catalog details: detected from the package, accepted or
                   edited. Re-keyed per file so a new pick re-inspects cleanly. */}
               {file && (
                 <CatalogDetailsStep

@@ -14,6 +14,8 @@
  * formula executes. We prefix any such cell with a leading apostrophe
  * so the spreadsheet renders it as literal text.
  */
+import { triggerBlobDownload } from './download';
+
 
 function escapeCsvCell(s: string): string {
   return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
@@ -30,26 +32,6 @@ function toCsvRow(values: ReadonlyArray<unknown>): string {
     // CR is just data and the cell still starts with `x`.
     return /[,"\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
   }).join(',');
-}
-
-/**
- * Trigger a browser download of `blob` saved as `filename`. Handles the
- * object-URL lifecycle (create → click → revoke) so callers don't each
- * re-implement (and occasionally leak) the anchor dance.
- */
-export function triggerBlobDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  // Deferred, as MessageAttachments already does: revoking synchronously after
-  // `click()` can cancel the download before the browser has read the blob,
-  // which showed up as an occasional empty or failed file on the large exports
-  // (the streamed log export, the org YAML export).
-  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 /**

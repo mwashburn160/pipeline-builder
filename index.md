@@ -5,17 +5,21 @@ description: Self-hosted, self-service AWS CodePipelines. Developers ship compli
 permalink: /
 ---
 
+<!-- GENERATED from README.md by scripts/gen-readme-index.mjs. Edit README.md, then regenerate. -->
+
 # Self-Service CI/CD for AWS
 
 **Golden paths for developers, guardrails for platform teams.**
+
+[**View on GitHub**](https://github.com/mwashburn160/pipeline-builder) · [**Documentation**]({{ '/docs/' | relative_url }}) · [**Plugin Catalog**]({{ '/docs/plugins/' | relative_url }}) · [**API Reference**]({{ '/docs/api-reference.html' | relative_url }})
+
+## Overview
 
 Pipeline Builder is a **self-hosted, self-service CI/CD platform for AWS**. Developers get a production-ready AWS CodePipeline in minutes from the dashboard, the CLI, the REST API, a CDK construct, or a single AI prompt. Platform and security teams stay in control through policy-as-code compliance, governed golden-path templates, and a signed, moderated plugin ecosystem.
 
 Every pipeline is synthesized as **native AWS CodePipeline + CodeBuild in your own AWS account**. There is no proprietary runner and no lock-in: if you remove Pipeline Builder, your pipelines keep running.
 
-[**View on GitHub**](https://github.com/mwashburn160/pipeline-builder) · [**Documentation**]({{ '/docs/' | relative_url }}) · [**Plugin Catalog**]({{ '/docs/plugins/' | relative_url }}) · [**API Reference**]({{ '/docs/api-reference.html' | relative_url }})
-
----
+It is multi-tenant from the ground up. Every pipeline, plugin, secret, quota, log line, and bill belongs to an organization, and organizations can nest teams, bring their own SSO, and see each other only through deliberate, audited sharing.
 
 ## Highlights
 
@@ -24,18 +28,16 @@ Every pipeline is synthesized as **native AWS CodePipeline + CodeBuild in your o
 - **A plugin ecosystem, not just a catalog.** 119 Official plugins sit in a public, searchable directory, alongside listings from Verified, Community, and Unverified publishers. Orgs install plugins with version and trust policies, and users rate and review them. Every listing and version is approved by two people.
 - **Supply chain you can verify.** Every plugin image is built by rootless BuildKit, carries an SBOM, is cosign-signed with its trust tier, and is pinned by digest. A nightly CVE rescan drives security advisories.
 - **Plugin quarantine.** Anonymous submissions are optional and off by default. Each one lands in quarantine storage, is built on an isolated BuildKit with no credentials, runs a smoke test with no network, and must pass fail-closed gates (CVE scan, license, lint, malware and credential-access heuristics, look-alike names) plus human moderation before it's listed.
-- **Governance before the fact.** 18-operator policy-as-code blocks non-compliant pipelines and plugins at creation, with curated SOC 2 / PCI / CIS rule libraries available.
+- **Governance before the fact.** 18-operator policy-as-code blocks non-compliant pipelines and plugins at creation (HTTP 403), with curated SOC 2 / PCI / CIS rule libraries available.
 - **Modern identity.** Passkeys, TOTP, SSO over OIDC or SAML 2.0, SCIM provisioning, scoped personal access keys, service accounts, and CLI sign-in by device authorization.
-- **Evidence by default.** The audit trail is hash-chained and verifiable. Each org's logs are isolated as their own tenant. DORA metrics use measured lead times.
-- **Runs anywhere you do.** Deploy to a laptop, a single EC2 host, or EKS Auto Mode. Every target runs the same Istio ambient mesh with strict mTLS.
+- **Evidence by default.** The audit trail is hash-chained, tamper-evident, and verifiable. Each org's logs are isolated as their own Loki tenant. DORA metrics use measured lead times.
+- **Runs anywhere you do.** Deploy to a laptop with Docker or minikube, to a single EC2 host, or to EKS Auto Mode. Every target runs the same Istio ambient mesh with strict mTLS.
 
-## At a glance
+## At a Glance
 
 | 119 | 5 | 14 | 18 | 4 | 4 |
 |:---:|:-:|:--:|:--:|:-:|:-:|
 | **Official plugins** in 10 categories | **interfaces** to build pipelines | **AI models** across 5 providers | **compliance operators** | **plugin trust tiers** | **deploy targets**, from laptop to EKS |
-
----
 
 ## Why Pipeline Builder
 
@@ -63,19 +65,9 @@ Every pipeline is synthesized as **native AWS CodePipeline + CodeBuild in your o
 | **REST API** | Platform automation | Full CRUD plus AI generation endpoints |
 | **CDK construct** | Infrastructure-as-code teams | Deploy the `PipelineBuilder` construct from any CDK app |
 
-**Golden-path templates.** Platform teams publish governed starters with declared inputs. A developer picks one, sets the project and target repository, and gets a pipeline that still passes compliance and quota checks. One template targets any repo:
+**Golden-path templates.** Platform teams publish governed starters with declared inputs. A developer picks one, sets the project and target repository, and gets a pipeline that still passes compliance and quota checks. Templates can be saved from an existing pipeline, authored from scratch, or imported.
 
-{% raw %}
-```json
-{
-  "name": "node-service",
-  "inputs": [{ "name": "repoUrl", "label": "Repository URL", "type": "string", "required": true }],
-  "props": { "synth": { "source": { "repositoryUrl": "{{ vars.repoUrl }}" } }, "stages": [] }
-}
-```
-{% endraw %}
-
-**Synth-time templating.** A small {% raw %}`{{ .. }}`{% endraw %} language for pipeline configs and plugin specs is resolved once, at synthesis, with no runtime evaluation and no shell-out. It supports path lookups, `| default:` fallbacks, type coercion, and plugin contracts that are validated at upload. See [Template Syntax]({{ '/docs/templates.html' | relative_url }}).
+**Synth-time templating.** A small {% raw %}`{{ .. }}`{% endraw %} language for pipeline configs and plugin specs is resolved once, at synthesis, with no runtime evaluation and no shell-out. It supports path lookups, `| default:` fallbacks, type coercion, self-references with cycle detection, and plugin contracts (`requiredMetadata`, `metadataTypes`) that are validated at upload. See [Template Syntax]({{ '/docs/templates.html' | relative_url }}).
 
 ### AI that proposes, you decide
 
@@ -88,8 +80,8 @@ Every pipeline is synthesized as **native AWS CodePipeline + CodeBuild in your o
 | Amazon Bedrock | Claude Sonnet 4.5, Amazon Nova Pro, Amazon Nova Lite |
 
 - **Pipeline generation** from a Git URL or natural language. It draws on the plugins your org can actually use and prefers your own, Official, and Verified plugins.
-- **Plugin generation** writes a Dockerfile and spec checked against the catalog's lint rules.
-- **Ask**, an in-app assistant grounded in the docs and your org's data. Anything it drafts is created only when you confirm, through your own session.
+- **Plugin generation** writes a Dockerfile and spec checked against the same lint rules the catalog enforces.
+- **Ask**, an in-app assistant grounded in the docs and your org's data. Its tools can only read or propose. Anything it drafts is created only when you confirm, through your own session.
 
 ### Plugin ecosystem
 
@@ -166,44 +158,46 @@ flowchart LR
 | Notification | 5 | Slack, Teams, PagerDuty, email, GitHub status |
 | AI | 1 | Dockerfile generation (multi-provider) |
 
-See [Installing Plugins]({{ '/docs/plugin-installing.html' | relative_url }}) and [Publishing Plugins]({{ '/docs/plugin-publishing.html' | relative_url }}).
+See [Installing Plugins]({{ '/docs/plugin-installing.html' | relative_url }}), [Publishing Plugins]({{ '/docs/plugin-publishing.html' | relative_url }}), and the [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}).
 
 ### Policy-as-code compliance
 
 Validate plugins and pipelines **before** they exist, not in a quarterly audit.
 
-- **18 operators** plus computed fields (`$count`, `$length`, `$keys`, `$lines`) and cross-field conditions
-- **Three severities**: `warning` is advisory; `error` and `critical` block creation with HTTP 403
-- **Rule catalog and inheritance.** Subscribe to recommended rules rule by rule; parent orgs push rules down to teams
-- **Curated add-ons**: **Standard** (CI/CD best practices), **Advanced** (SOC 2 / PCI / CIS), or the **Suite**; authoring your own rules stays free
-- **Exemptions, scheduled scans, and evidence**, with notifications by inbox, email, or signed webhook
+- **18 operators**: equality, comparison, contains, set membership, regex, presence, not-empty, count, and length. Computed fields (`$count`, `$length`, `$keys`, `$lines`) and cross-field conditions are also available.
+- **Three severities**: `warning` is advisory; `error` and `critical` block creation with HTTP 403.
+- **Rule catalog and inheritance.** The system org publishes recommended rules that orgs subscribe to rule by rule. Parent orgs push rules down to their teams.
+- **Curated add-ons**: **Standard** covers CI/CD best practices, **Advanced** covers SOC 2 / PCI / CIS, and the **Suite** bundles both. Authoring your own rules stays free.
+- **Exemptions, bulk and scheduled scans, and evidence** for audits, plus notifications through the in-app inbox, email, or an HMAC-signed webhook, sent immediately or as digests.
 
 See [Compliance]({{ '/docs/compliance.html' | relative_url }}).
 
 ### Organizations, access, and identity
 
-- **Organizations and teams.** An organization is the isolation boundary. Teams nest one level under a parent, which is opt-in. Visibility, compliance, pooled quotas, and analytics roll across the hierarchy.
-- **RBAC.** Roles are sets of fine-grained `resource:action` permissions. Custom roles are supported, reads and writes are both enforced, and privilege changes revoke live sessions.
-- **Sign-in.** Email and password with breached-password checks, six social providers, and per-org SSO over **OIDC or SAML 2.0**, with just-in-time membership, group → role mapping, and **SCIM 2.0**.
-- **Strong authentication.** **Passkeys** and **TOTP**, with assurance levels for sensitive admin actions, two-person MFA reset, and consent-gated support impersonation.
-- **Machine access.** Personal access keys scoped to a subset of your permissions, service accounts, JWKS-published signing keys, and CLI device sign-in.
-- **Plans and billing.** Developer, Pro, Team, and Enterprise tiers with stackable add-on bundles, coupons, and credits, via Stripe or AWS Marketplace.
+- **Organizations and teams.** An organization is the isolation boundary. Teams nest one level under a parent, which is opt-in. Parents administer their teams, and visibility, compliance, pooled quotas, and analytics roll across the hierarchy.
+- **RBAC.** Roles are sets of fine-grained `resource:action` permissions. Built-in Admin and Member roles can be extended with custom roles. Reads and writes are both enforced, and privilege changes revoke live sessions.
+- **Sign-in.** Email and password (with a breached-password check and org password policies), six social providers, and per-org SSO over **OIDC or SAML 2.0**. SSO supports just-in-time membership, IdP group → role mapping, and **SCIM 2.0** provisioning.
+- **Strong authentication.** **Passkeys (WebAuthn)** and **TOTP**, with assurance levels that sensitive admin actions require. Resetting a lost MFA factor needs two people. Impersonation for support requires the user's consent.
+- **Machine access.** Personal access keys limited to a subset of your permissions, service accounts, per-service internal keys, ES256-signed tokens published over JWKS, and CLI sign-in by device authorization.
+- **Plans and billing.** Four tiers (Developer, Pro, Team, Enterprise) with seat and resource quotas, stackable add-on bundles, coupons and usage credits, and Stripe or AWS Marketplace billing. With billing disabled, everything is unlimited.
+- **Isolated secrets.** Each org's secrets live under its own AWS Secrets Manager path. They are injected at build time and never baked into images.
 
 See [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) and [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}).
 
 ### Observe and improve
 
-- **Execution analytics.** Success rates, p50/p90/p99 durations, failure heatmaps, and per-org cost. The ingestion Lambda runs in your account and **never forwards your AWS account number or pipeline ARNs**.
-- **DORA metrics.** Deployment frequency, change failure rate, MTTR fed by an incident webhook, and **measured** commit-to-deploy lead time, with performance bands and trends. See [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}).
-- **Developer portal.** Catalog ownership, *My Services*, and an A–F maturity scorecard per pipeline. See [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}).
-- **Per-org logs.** Each org is its own log tenant, with masking at ingest and gated export. See [Logs]({{ '/docs/observability-logs.html' | relative_url }}).
-- **Tamper-evident audit.** A per-tenant hash chain you can check with `/audit/verify`, and a durable spool that survives outages. See [Audit Events]({{ '/docs/audit-events.html' | relative_url }}).
+- **Execution analytics.** CodePipeline and CodeBuild events flow through EventBridge and give success rates, p50/p90/p99 durations, stage failure heatmaps, error categories, and per-org cost attribution. The ingestion Lambda runs in your account and **never forwards your AWS account number or pipeline ARNs**.
+- **DORA metrics.** Deployment frequency, change failure rate, MTTR fed by an incident webhook for PagerDuty, Datadog, or Alertmanager, and **measured** commit-to-deploy lead time, with performance bands and trends.
+- **Developer portal.** Catalog ownership, a *My Services* view, and a per-pipeline maturity scorecard that grades compliance posture and DORA from A to F.
+- **Per-org logs.** A Loki-backed log explorer in which each org is its own tenant, with masking at ingest and permission-gated export.
+- **Tamper-evident audit.** Every privileged action goes into a per-tenant hash chain that you can check with `/audit/verify`. A durable spool keeps the security log intact through outages.
 
 ### Built for production
 
-- **Zero-trust internals.** Short-lived signed service tokens, plus an **Istio ambient mesh** enforcing STRICT mTLS and identity-based authorization on every target. See [Service Mesh]({{ '/docs/service-mesh.html' | relative_url }}).
-- **Data safety.** Per-tenant row-level security in Postgres, restorable soft deletes, and documented backups with RPO/RTO targets.
-- **Operable.** `/health`, `/ready`, `/warmup`, and `/metrics` on every service; Prometheus, Thanos, Grafana, Alertmanager, Jaeger, and Kiali included.
+- **Zero-trust internals.** Service-to-service calls use short-lived signed tokens and the same auth middleware as user requests. Underneath, an **Istio ambient mesh** enforces STRICT mTLS and identity-based authorization on every target.
+- **Data safety.** Postgres enforces row-level security per tenant. Soft-deleted pipelines and plugins can be restored within a retention window, and backups are documented with RPO/RTO targets.
+- **Operable.** Every service exposes `/health`, `/ready`, `/warmup`, and `/metrics`. The platform ships with Prometheus, Thanos, Grafana dashboards, Alertmanager rules, Jaeger tracing, and Kiali.
+- **Redis high availability** with Sentinel on the AWS targets, and graceful degradation when a dependency is down.
 
 ---
 
@@ -253,85 +247,118 @@ flowchart TB
 |---------|---------|
 | **Platform** | Identity (passwords, OAuth, SSO, passkeys, TOTP, SCIM), organizations and teams, RBAC, audit trail, log access |
 | **Pipeline** | Pipeline CRUD, AI generation, templates, CDK synthesis |
-| **Plugin** | Plugin builds (rootless BuildKit) and the plugin ecosystem: publishers, listings, installs, reviews, advisories, public directory |
+| **Plugin** | Plugin builds (rootless BuildKit), the plugin ecosystem (publishers, listings, installs, reviews, advisories, public directory), AI plugin generation |
 | **Image Registry** | Plugin images with token auth, signing and SBOM attestation, per-org storage quotas, garbage collection |
 | **Compliance** | Per-org rule enforcement, rule catalog and subscriptions, scans, exemptions |
 | **Reporting** | Execution analytics, DORA metrics, incidents, via EventBridge |
 | **Ask** | Grounded in-app AI assistant (read and propose only) |
-| **Quota / Billing / Message** | Pooled resource limits, subscriptions and bundles, announcements, conversations, and attachments |
+| **Quota / Billing / Message** | Resource limits pooled across teams, subscriptions and bundles, announcements, conversations, and attachments |
 
-See [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) for end-to-end request → build → deploy diagrams.
+For end-to-end flows (plugin build, publish, pipeline create, synth, execution), see [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}). For the business case, see [Organization Benefits]({{ '/docs/organization-benefits.html' | relative_url }}).
 
 ---
 
-## Get started
+## Quick Start
 
-**Recommended: install with the CLI.** `pipeline-manager infra provision` picks the target, checks prerequisites, can fetch missing single-binary tools and generate the local `.env`, and builds the exact, validated command to run.
+**Recommended: install with the CLI.** `pipeline-manager infra provision` picks the target and checks prerequisites. It can fetch missing single-binary tools (`yq`, `kubectl`, `minikube`), generate the local `.env` with secrets, and build the exact, validated command to run. With an AI key set, it can also parse a natural-language goal and diagnose failures.
 
 ```bash
 npm install -g @pipeline-builder/pipeline-manager
 pipeline-manager infra provision --target docker              # show the plan, then ask to confirm
 pipeline-manager infra provision --target docker --yes        # non-interactive (for CI)
 pipeline-manager infra provision --target docker --json       # print the plan as JSON, run nothing
-# or: pipeline-manager infra provision --prompt "deploy to EKS in us-east-1 with email"
+# or describe the goal: pipeline-manager infra provision --prompt "deploy to EKS in us-east-1 with email"
 ```
 
-Prefer to run it directly? The full stack runs locally with Docker, from prebuilt public images with no registry login:
+> **`--init <mode>`** controls post-deploy initialization. The default, **`auto`**, has the deploy initialize the platform itself: on EC2 at first boot, on EKS in `setup.sh`'s final phase, and on `local`/`minikube` through `infra provision`. Use **`--init manual`** to run `init-platform` yourself (for example, to set real admin credentials) or **`--init skip`** to do nothing. See the [AWS deployment guide]({{ '/docs/aws-deployment.html#ai-assisted-install-infra-provision' | relative_url }}).
+
+Prefer to run it directly? Every target ships a `bin/setup.sh`:
 
 ```bash
 git clone https://github.com/mwashburn160/pipeline-builder.git && cd pipeline-builder
+
 (cd deploy/local/docker && ./bin/setup.sh)     # 1. pull images and start the stack
 ./deploy/bin/init-platform.sh docker           # 2. register the admin and load plugins
 ```
 
-Then open **https://localhost:8443** and sign in as `admin@internal` / `Pipeline-Builder-Dev-2026!`. Change this password immediately on anything beyond your laptop.
+> **Minikube instead of Docker?** Run `(cd deploy/local/minikube && ./bin/setup.sh)`, then `./deploy/bin/init-platform.sh minikube`. On an ~8-core laptop use **`LEAN=1`**, because the full stack plus the Istio mesh won't fit in 8 vCPU. LEAN drops the optional observability and admin services and runs single replicas. For more disk, use **`DISK_SIZE=60g`** (default 30g; applies only when the cluster is created). For a clean restart, run `minikube delete --profile=pipeline-builder`.
+
+Then open **https://localhost:8443** and sign in as the default local admin, `admin@internal` / `Pipeline-Builder-Dev-2026!`. **Change this password immediately** on any environment reachable beyond your laptop.
+
+> The first load uses a **self-signed certificate**. If the page is blank with `ERR_CERT_AUTHORITY_INVALID` errors for JS chunks, trust `deploy/local/docker/certs/nginx-tls.crt` (see [Troubleshooting](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/local/docker/README.md#troubleshooting)).
+>
+> **Prerequisites:** Docker only. The local stack pulls prebuilt public images, so no registry login is needed. Node.js >= 24.14 and pnpm >= 10.33 are needed only to build from source or use the CLI.
+
+---
+
+## Deployment Options
 
 | Target | Best for | Cost |
 |--------|----------|------|
-| **Local (Docker Compose)** | Development | Free |
-| **Minikube** | Local Kubernetes | Free |
-| **[EC2]({{ '/docs/aws-deployment.html' | relative_url }}#ec2)** | Dev / staging | ~$140–265/mo |
-| **[EKS (Auto Mode)]({{ '/docs/aws-deployment.html' | relative_url }}#eks)** | Production | ~$150–400/mo |
+| **[Local (Docker Compose)](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/docker/)** | Development | Free |
+| **[Minikube](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/minikube/)** | Local Kubernetes | Free |
+| **[EC2]({{ '/docs/aws-deployment.html#ec2' | relative_url }})** | Dev / staging | ~$140–265/mo |
+| **[EKS (Auto Mode)]({{ '/docs/aws-deployment.html#eks' | relative_url }})** | Production | ~$150–400/mo |
+
+---
+
+## Development
+
+Building from source (not needed just to *run* the platform):
+
+```bash
+pnpm install          # Node.js >= 24.14, pnpm >= 10.33
+pnpm build            # compile, test, and lint every package
+```
+
+| Path | Contains |
+|------|----------|
+| `packages/` | Shared libraries: `api-core`, `api-server`, `ai-core`, `pipeline-data`, `pipeline-core`, `pipeline-events`, `pipeline-manager` (the CLI) |
+| `api/` | Backend services: pipeline, plugin, image-registry, compliance, reporting, ask, quota, billing, message |
+| `platform/` | Identity, organizations, users, audit, and the observability proxy |
+| `frontend/` | Next.js dashboard and public plugin directory |
+| `deploy/` | Per-target install (`local/docker`, `local/minikube`, `aws/ec2`, `aws/eks`) and the plugin catalog (`deploy/plugins`) |
+| `docs/` | Documentation |
+
+> **This repo is [projen](https://projen.io)-managed.** `package.json`, `tsconfig.json`, and the CI workflows are **generated**. Edit `.projenrc.ts` / `projenrc/` and re-run `pnpm dlx projen`, or your change is overwritten on the next synth.
 
 ---
 
 ## Documentation
 
-Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative_url }})**, or read the source on **[GitHub](https://github.com/mwashburn160/pipeline-builder)**.
+The full docs hub is **[docs/]({{ '/docs/' | relative_url }})**, grouped by task. For a term, see the **[Content Index]({{ '/docs/content-index.html' | relative_url }})** (A–Z).
 
 ### Start here
 
-| Guide | Description |
-|-------|-------------|
-| [Documentation hub]({{ '/docs/' | relative_url }}) | The full index, grouped: Build · Govern · Operate · Reference |
+| Document | Description |
+|----------|-------------|
 | [Onboarding a New Organization]({{ '/docs/onboarding.html' | relative_url }}) | First admin: login → org → members → access key → `store-token` → `setup-events` → first pipeline |
-| [Content Index]({{ '/docs/content-index.html' | relative_url }}) | A–Z keyword and topic index |
-| [Pipeline Manager CLI]({{ '/docs/pipeline-manager.html' | relative_url }}) | Provision the platform, build and deploy pipelines, author plugins |
-| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | Deploy to EC2 or EKS: modes, post-deploy setup, teardown |
+| [Pipeline Manager CLI]({{ '/docs/pipeline-manager.html' | relative_url }}) | Provision the platform, build and deploy pipelines, author plugins, run audits |
+| [AWS Deployment]({{ '/docs/aws-deployment.html' | relative_url }}) | Deploy to EC2 or EKS: modes, post-deploy setup, reporting, teardown |
 
 ### Build
 
-| Guide | Description |
-|-------|-------------|
-| [Developer Guide]({{ '/docs/developer-guide.html' | relative_url }}) | Five ways to create a pipeline, plus patterns for 7 languages |
+| Document | Description |
+|----------|-------------|
+| [Developer Guide]({{ '/docs/developer-guide.html' | relative_url }}) | Five ways to create a pipeline, plus cut-and-paste patterns for 7 languages |
 | [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct: sources, stages, VPC, IAM, secrets |
-| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | Synth-time interpolation and golden-path templates |
-| [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | Typed CodePipeline, CodeBuild, networking, and IAM keys |
+| [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | {% raw %}`{{ .. }}`{% endraw %} synth-time interpolation and golden-path templates |
+| [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | Typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
 | [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 119 Official plugins across 10 categories |
-| [Installing Plugins]({{ '/docs/plugin-installing.html' | relative_url }}) | Trust tiers, installs, version policies, reviews |
-| [Publishing Plugins]({{ '/docs/plugin-publishing.html' | relative_url }}) | Publisher profiles, publish requests, catalog metadata |
-| [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}) | Catalog ownership, My Services, golden paths, scorecards |
-| [Samples]({{ '/docs/samples.html' | relative_url }}) | Ready-to-load pipeline configs for 7 languages, plus CDK patterns |
+| [Installing Plugins]({{ '/docs/plugin-installing.html' | relative_url }}) | Trust tiers, installs, version policies, consumption policy, reviews |
+| [Publishing Plugins]({{ '/docs/plugin-publishing.html' | relative_url }}) | Publisher profiles, publish requests, catalog metadata, pausing |
+| [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}) | Catalog ownership, My Services, golden-path templates, maturity scorecards |
+| [Samples]({{ '/docs/samples.html' | relative_url }}) | Ready-to-load pipeline templates for 7 languages, plus CDK patterns |
 
 ### Govern
 
-| Guide | Description |
-|-------|-------------|
+| Document | Description |
+|----------|-------------|
 | [Organization Benefits]({{ '/docs/organization-benefits.html' | relative_url }}) | What orgs gain from standardizing on the platform |
-| [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in roles, assurance tiers, impersonation |
-| [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine: validation, enforcement, add-ons, audit |
-| [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}) | Passwords, OAuth, OIDC and SAML SSO, SCIM, passkeys, TOTP |
-| [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Hash-chained trail, verification, action catalog |
+| [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in roles, assurance tiers, session invalidation, impersonation |
+| [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine: validation, enforcement, add-ons, audit trail |
+| [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}) | Passwords, OAuth, OIDC and SAML SSO, SCIM, passkeys, TOTP, device sign-in |
+| [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Hash-chained trail, `/audit/verify`, action catalog |
 | [Logs]({{ '/docs/observability-logs.html' | relative_url }}) | Per-org application logs: search, masking, export |
 | [Billing Providers]({{ '/docs/billing-providers.html' | relative_url }}) | Stripe and AWS Marketplace setup |
 | [Billing Add-on Bundles]({{ '/docs/billing-bundles.html' | relative_url }}) | Stackable add-ons that raise pooled caps and unlock features |
@@ -339,18 +366,24 @@ Browse the full docs at **[{{ '/docs/' | relative_url }}]({{ '/docs/' | relative
 
 ### Operate
 
-| Guide | Description |
-|-------|-------------|
+| Document | Description |
+|----------|-------------|
 | [Deploy Operations]({{ '/docs/deploy-operations.html' | relative_url }}) | Preflight, secret rotation, backups and DR, teardown |
 | [Service Mesh]({{ '/docs/service-mesh.html' | relative_url }}) | Istio ambient: STRICT mTLS and identity-based authorization |
 | [Environment Variables]({{ '/docs/environment-variables.html' | relative_url }}) | Every configuration variable, by subsystem |
-| [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, lead time |
-| [Incident Webhook]({{ '/docs/incidents-webhook.html' | relative_url }}) | Connect PagerDuty, Datadog, or Alertmanager for CFR and MTTR |
+| [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, measured lead time |
+| [Incident Webhook]({{ '/docs/incidents-webhook.html' | relative_url }}) | Connect PagerDuty, Datadog, or Alertmanager for change failure rate and MTTR |
 
 ### Reference
 
-| Guide | Description |
-|-------|-------------|
-| [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints for pipelines, plugins, compliance, reporting, and AI |
-| [Error Handling]({{ '/docs/error-handling.html' | relative_url }}) | Error-to-HTTP convention |
+| Document | Description |
+|----------|-------------|
+| [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints, query parameters, curl examples |
 | [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) | End-to-end flow diagrams (request → build → deploy) |
+| [Error Handling]({{ '/docs/error-handling.html' | relative_url }}) | Error-to-HTTP convention |
+
+---
+
+## License
+
+Apache License 2.0. See [LICENSE](https://github.com/mwashburn160/pipeline-builder/blob/main/LICENSE).

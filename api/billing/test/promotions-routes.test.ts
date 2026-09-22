@@ -16,6 +16,7 @@ const mockSendError = jest.fn();
 const mockAuditRecord = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockAuditRecord,
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   requireAuth: (_opts?: unknown) => (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -33,7 +34,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
     routeFn({ req, res, ctx: { log: jest.fn() }, orgId: req.user?.organizationId || '', userId: req.user?.sub || '' }),
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: mockAuditRecord }) }));
 
 // Engine — fully mocked; the route is what's under test here.
 let promoEnabled = true;
@@ -94,7 +94,7 @@ describe('POST /admin/promotions (mint)', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith({}, 201, expect.objectContaining({
       promotion: expect.objectContaining({ name: 'Signup credit', value: 5000, unit: 'dollar' }),
     }));
-    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.promotion.create' }), 'billing');
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.promotion.create' }));
   });
 
   it('rejects an invalid body (missing name) with 400', async () => {
@@ -145,7 +145,7 @@ describe('POST /admin/promotions/:id/grant', () => {
 
     expect(mockGrant).toHaveBeenCalledTimes(1);
     expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, { result: { promotionId: 'promo_1', granted: true, cents: 5000 } });
-    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.promotion.grant' }), 'billing');
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.promotion.grant' }));
   });
 
   it('404s when the target org has no subscription', async () => {
@@ -166,7 +166,7 @@ describe('POST /admin/promotions/:id/activate', () => {
 
     expect(mockBatch).toHaveBeenCalledTimes(1);
     expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, expect.objectContaining({ result: expect.objectContaining({ granted: 2 }) }));
-    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.promotion.activate' }), 'billing');
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.promotion.activate' }));
   });
 
   it('409s when the promotion is inactive', async () => {

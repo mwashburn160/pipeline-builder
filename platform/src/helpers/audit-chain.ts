@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHmac, randomUUID } from 'crypto';
-import { createLogger, scrubAwsIdentifiers, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, scrubAwsIdentifiers, errorMessage, stableStringify } from '@pipeline-builder/api-core';
 import { requireAuditChainHmacKey } from '../config/audit-chain-key.js';
 import AuditChainHead from '../models/audit-chain-head.js';
-import AuditEvent, { type AuditEventDocument } from '../models/audit-event.js';
+import AuditEvent, { type AuditEventDocument, type StoredAuditEvent } from '../models/audit-event.js';
 import type { AuditCreateInput } from '../services/audit-service.js';
 
 const logger = createLogger('audit-chain');
@@ -69,23 +69,6 @@ export function hashErrorSentinel(): string {
 /** Whether a stored `hash` is an un-verifiable-hash marker rather than a digest. */
 function isHashErrorSentinel(hash: unknown): boolean {
   return typeof hash === 'string' && (hash === HASH_ERROR_SENTINEL || hash.startsWith(`${HASH_ERROR_SENTINEL}:`));
-}
-
-/**
- * Deterministic JSON serialization with recursively sorted object keys.
- * - `undefined` / `null` → `null` (so absent fields hash identically).
- * - `Date` → its ISO string (Mongo round-trips these as `Date`).
- * - object keys are sorted; `undefined`-valued keys are dropped (JSON semantics).
- * This is what makes a stored row's hash reproducible on the verify path.
- */
-function stableStringify(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
-  if (value instanceof Date) return JSON.stringify(value.toISOString());
-  if (typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
 }
 
 /**
@@ -162,9 +145,6 @@ export function computeAuditHash(f: AuditHashFields): string {
   });
   return auditHmac('event', canonical);
 }
-
-/** Stable serialization shared with the head exporter's signature. */
-export { stableStringify };
 
 /**
  * Mongo filter selecting exactly one chain. Because the stored `affectedOrgId`
@@ -272,7 +252,7 @@ async function repairHead(chainKey: string): Promise<void> {
  * persistence failure REJECTS — callers decide what durability they need
  * (`audit()` spools; the ingest returns 5xx so the remote client spools).
  */
-export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEventDocument> {
+export async function appendAuditEvent(input: AuditCreateInput): Promise<StoredAuditEvent> {
   const affectedOrgId = input.affectedOrgId ?? input.orgId;
   const chainKey = affectedOrgId ?? GENESIS_CHAIN_KEY;
 
@@ -318,7 +298,7 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
             logger.info('Audit ingest deduped on Idempotency-Key; not re-chaining', {
               chainKey, idempotencyKey: scrubbedInput.idempotencyKey,
             });
-            return existing as unknown as AuditEventDocument;
+            return existing;
           }
         }
         // Chain-slot collision: another writer took `seq`. Bring the head up to

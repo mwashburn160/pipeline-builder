@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect } from '@jest/globals';
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    app: { frontendUrl: 'https://app.example.com' },
-    email: { fromName: 'Pipeline Builder' },
-  },
+import { mockConfig } from './helpers/config-mock.js';
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  app: { frontendUrl: 'https://app.example.com' },
+  email: { fromName: 'Pipeline Builder' },
 }));
 
 jest.unstable_mockModule('fs', () => {

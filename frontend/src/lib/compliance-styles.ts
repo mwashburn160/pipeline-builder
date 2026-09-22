@@ -11,49 +11,47 @@ import type { ExemptionStatus, RuleSeverity, ScanStatus } from '../types/complia
 
 /** Severity badge with icon, color, and background classes. */
 export const SEVERITY_CONFIG: Record<RuleSeverity, { icon: typeof AlertCircle; color: string; bg: string }> = {
-  critical: { icon: AlertCircle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-100 dark:bg-red-900/30' },
-  error: { icon: AlertTriangle, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-100 dark:bg-orange-900/30' },
-  warning: { icon: Info, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-100 dark:bg-yellow-900/30' },
+  critical: { icon: AlertCircle, color: 'text-danger-strong', bg: 'bg-danger-bg' },
+  error: { icon: AlertTriangle, color: 'text-danger', bg: 'bg-danger-bg' },
+  warning: { icon: Info, color: 'text-warning', bg: 'bg-warning-bg' },
 };
 
 /** Severity badge classes (combined bg + text). */
 export const SEVERITY_BADGE: Record<RuleSeverity, string> = {
-  warning: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
-  error: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
-  critical: 'bg-red-200 dark:bg-red-900/50 text-red-800 dark:text-red-300',
+  warning: 'bg-warning-bg text-warning',
+  error: 'bg-danger-bg text-danger',
+  critical: 'bg-danger-bg text-danger-strong ring-1 ring-danger-border',
 };
 
 /** Scan status badge with icon, color, and background classes. */
 export const SCAN_STATUS_CONFIG: Record<ScanStatus, { icon: typeof CheckCircle; color: string; bg: string }> = {
-  pending: { icon: Clock, color: 'text-warning', bg: 'bg-yellow-100 dark:bg-yellow-900/30' },
+  pending: { icon: Clock, color: 'text-warning', bg: 'bg-warning-bg' },
   running: { icon: Loader2, color: 'text-brand', bg: 'bg-info-bg' },
-  completed: { icon: CheckCircle, color: 'text-success', bg: 'bg-green-100 dark:bg-green-900/30' },
-  failed: { icon: XCircle, color: 'text-danger', bg: 'bg-red-100 dark:bg-red-900/30' },
+  completed: { icon: CheckCircle, color: 'text-success', bg: 'bg-success-bg' },
+  failed: { icon: XCircle, color: 'text-danger', bg: 'bg-danger-bg' },
   cancelled: { icon: Square, color: 'text-fg-muted', bg: 'bg-surface-muted' },
 };
 
 /** Exemption status badge classes. */
 export const EXEMPTION_STATUS_STYLES: Record<ExemptionStatus, { bg: string; text: string }> = {
-  pending: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400' },
-  approved: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400' },
-  rejected: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400' },
+  pending: { bg: 'bg-warning-bg', text: 'text-warning' },
+  approved: { bg: 'bg-success-bg', text: 'text-success' },
+  rejected: { bg: 'bg-danger-bg', text: 'text-danger' },
   expired: { bg: 'bg-surface-muted', text: 'text-fg-muted' },
 };
 
 /** Compliance check result badge classes (pass/warn/block). */
 export const RESULT_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  pass: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Pass' },
-  warn: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Warn' },
-  block: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Block' },
+  pass: { bg: 'bg-success-bg', text: 'text-success', label: 'Pass' },
+  warn: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Warn' },
+  block: { bg: 'bg-danger-bg', text: 'text-danger', label: 'Block' },
 };
 
 /**
  * Human copy for a compliance audit entry's `action` — the five verbs the
  * `compliance_audit_log.action` column stores (upload | deploy | create |
  * update | scan), paired with the `target` (plugin | pipeline) that gives them
- * meaning. Both dashboards printed the bare code in a `<code>` block, so an org
- * admin's "recent violations" list read `upload`, which is a database value, not
- * a sentence.
+ * meaning — the bare code (`upload`) is a database value, not a sentence.
  *
  * An unknown action degrades to the raw code rather than being dropped — a new
  * backend verb must still show up in the feed while this map catches up.

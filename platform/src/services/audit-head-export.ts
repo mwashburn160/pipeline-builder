@@ -27,10 +27,9 @@
  * credentials can't forge a head. Verify rejects a head whose signature fails.
  */
 
-import { timingSafeEqual } from 'crypto';
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, safeEqual, stableStringify } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
-import { auditHmac, PublishedHeadInvalidError, stableStringify, verifyAuditChain, type AuditChainVerifyResult, type PublishedHead } from '../helpers/audit-chain.js';
+import { auditHmac, PublishedHeadInvalidError, verifyAuditChain, type AuditChainVerifyResult, type PublishedHead } from '../helpers/audit-chain.js';
 import AuditChainHead from '../models/audit-chain-head.js';
 import { s3GetObject, s3PutObject, type S3Target } from '../utils/s3-sigv4.js';
 
@@ -142,11 +141,6 @@ export async function exportAuditChainHeads(
   return result;
 }
 
-function sigEquals(expected: string, got: string): boolean {
-  const a = Buffer.from(expected, 'utf-8');
-  const b = Buffer.from(got, 'utf-8');
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 /**
  * Read + signature-verify a chain's latest published head. Returns null when
@@ -174,7 +168,7 @@ export async function fetchPublishedHead(
     || payload.chainKey !== chainKey
     || typeof payload.seq !== 'number'
     || typeof payload.hash !== 'string'
-    || !sigEquals(signHead(payload), sig)
+    || !safeEqual(signHead(payload), sig)
   ) {
     throw new PublishedHeadInvalidError('published head signature does not verify');
   }

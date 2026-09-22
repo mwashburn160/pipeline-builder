@@ -3,6 +3,7 @@
 
 import {
   actorId,
+  AppError,
   audited,
   ErrorCode,
   requireInternalService,
@@ -11,19 +12,15 @@ import {
   sendSuccess,
   SYSTEM_ORG_ID,
   validateBody,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
-import { type RequestHandler, type Response, type Router } from 'express';
+import { type RequestHandler, type Router } from 'express';
 import { z } from 'zod';
 
-import { repoOwnerOrgId } from './images/repo-access.js';
-import { emitImageRegistryAudit } from '../services/audit.js';
+import { inQuarantineNamespace, isPluginRepository, isPublicRepository, isQuarantineRepository, PUBLISHER_HANDLE_RE } from '../services/namespaces.js';
 import {
-  isPluginRepository,
-  isPublicRepository,
-  isQuarantineRepository,
   PluginSigningError,
-  PUBLISHER_HANDLE_RE,
 } from '../services/plugin-signing.js';
 import { publicationOwner } from '../services/public-publications.js';
 import {
@@ -31,12 +28,10 @@ import {
   invalidateVerifyCache,
   PublicationConflictError,
   PublicationMetrics,
-  PublicationNotFoundError,
   publishPublicImage,
   reportResignProgress,
   resignPublicImageOp,
   retagPublicVersion,
-  SourceVerificationError,
   TRUST_TIERS,
   verifyPublication,
   yankPublicVersion,
@@ -56,12 +51,11 @@ const orgId = z.string().regex(/^[a-z0-9][a-z0-9-]*$/i, 'publisherOrgId must be 
 const publicRepository = z.string().refine(isPublicRepository, 'imageRepository must be public/<publisherHandle>/<name>');
 
 const PublishSchema = z.object({
-  // `quarantine/<submissionId>` is an approved anonymous submission (plugin
-  // ecosystem §4.2 / W5). Its owner is the system org (repoOwnerOrgId), so the
-  // org check below admits only a system-org token for it — and the route is
-  // plugin-only — i.e. only the plugin service executing a moderation approval.
+  // `quarantine/<submissionId>` is an approved anonymous submission; like every
+  // source it is published only by the plugin service executing a moderation
+  // approval (a system-org token on a plugin-only route).
   sourceRepository: z.string().refine(
-    (r) => isPluginRepository(r) && !isPublicRepository(r) && (!r.startsWith('quarantine/') || isQuarantineRepository(r)),
+    (r) => isPluginRepository(r) && !isPublicRepository(r) && (!inQuarantineNamespace(r) || isQuarantineRepository(r)),
     'sourceRepository must be org-<orgId>/<name>, system/<name> or quarantine/<submissionId>',
   ),
   digest,
@@ -98,40 +92,55 @@ function callerOrg(user: { organizationId?: string } | undefined): string {
   return user?.organizationId?.toLowerCase() || SYSTEM_ORG_ID;
 }
 
-/** Map the publishing service's typed failures onto HTTP. Returns true when handled. */
-function sendPublicationError(res: Response, err: unknown): boolean {
-  if (err instanceof PublicationConflictError) {
-    sendError(res, 409, err.message, ErrorCode.CONFLICT);
-    return true;
+/**
+ * Run one publication operation, counting a failure under `metric` (a
+ * conflict as `conflict`). The publishing errors are AppErrors the route
+ * wrapper answers (409 / 404); a signing-tool failure answers 502.
+ */
+async function counted<T>(metric: string, fn: () => Promise<T>, onError?: (err: Error) => void): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    incCounter(metric, { outcome: err instanceof PublicationConflictError ? 'conflict' : 'failure' });
+    onError?.(err as Error);
+    if (err instanceof PluginSigningError) throw new AppError(502, ErrorCode.SERVICE_UNAVAILABLE, err.message);
+    throw err;
   }
-  if (err instanceof PublicationNotFoundError) {
-    sendError(res, 404, err.message, ErrorCode.NOT_FOUND);
-    return true;
-  }
-  if (err instanceof SourceVerificationError) {
-    sendError(res, 409, err.message, ErrorCode.IMAGE_VERIFICATION_FAILED);
-    return true;
-  }
-  if (err instanceof PluginSigningError) {
-    sendError(res, 502, err.message, ErrorCode.SERVICE_UNAVAILABLE);
-    return true;
-  }
-  return false;
+}
+
+/** Audit one successful publication change against a `public/*` repository. */
+function auditPublication(
+  action: 'registry.image.publish' | 'registry.image.resign' | 'registry.image.yank' | 'registry.image.gc',
+  callerOrgId: string,
+  affectedOrgId: string | null | undefined,
+  repo: string,
+  details: Record<string, unknown>,
+): void {
+  recordAudit({
+    action,
+    actorId: actorId({}),
+    orgId: callerOrgId,
+    ...(affectedOrgId && { affectedOrgId }),
+    outcome: 'success',
+    targetType: 'registry-image',
+    targetId: repo,
+    details,
+  });
 }
 
 /**
- * The public plugin namespace (plugin ecosystem §3.3). Every route is the
+ * The public plugin namespace (docs/plugin-publishing.md). Every route is the
  * plugin service's alone: it decides WHAT is published, re-signed, yanked or
  * collected (approval, tier, step-manifest references); this service does the
  * registry side with the management identity — the only identity that may
  * write `public/*`.
  *
- *  - POST /internal/plugin-publications                        — copy + fresh sign + SBOM attest + tag
- *  - POST /internal/plugin-publications/resign                 — re-sign with new annotations
- *  - POST /internal/plugin-publications/yank                   — remove a version tag (content stays)
- *  - POST /internal/plugin-publications/retag                  — put a yanked version's tag back (unyank)
- *  - POST /internal/plugin-publications/gc                     — delete one cleared, untagged digest
- *  - GET  /internal/plugin-publications/verify                 — signature + tier/publisher annotations
+ *  - POST /internal/plugin-publications — copy + fresh sign + SBOM attest + tag
+ *  - POST /internal/plugin-publications/resign — re-sign with new annotations
+ *  - POST /internal/plugin-publications/yank — remove a version tag (content stays)
+ *  - POST /internal/plugin-publications/retag — put a yanked version's tag back (unyank)
+ *  - POST /internal/plugin-publications/gc — delete one cleared, untagged digest
+ *  - GET /internal/plugin-publications/verify — signature + tier/publisher annotations
  *  - POST /internal/plugin-publications/verify-cache/invalidate
  */
 export function registerPublicationRoutes(router: Router): void {
@@ -142,44 +151,26 @@ export function registerPublicationRoutes(router: Router): void {
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
 
-    // Publishing is a system-org decision (approval) about the SOURCE org's
-    // image: the service token must be minted for one of those two orgs.
+    // Publishing is a system-org decision (an approval): the plugin service
+    // mints its token for the system org, so no other org's token may publish.
     const org = callerOrg(req.user);
-    if (org !== SYSTEM_ORG_ID && org !== repoOwnerOrgId(body.sourceRepository)) {
+    if (org !== SYSTEM_ORG_ID) {
       return sendError(res, 403, `Forbidden: the requesting org may not publish from "${body.sourceRepository}".`, ErrorCode.ORG_MISMATCH);
     }
 
-    let result;
-    try {
-      result = await publishPublicImage(body);
-    } catch (err) {
-      incCounter(PublicationMetrics.PUBLISH, { outcome: err instanceof PublicationConflictError ? 'conflict' : 'failure' });
-      if (sendPublicationError(res, err)) {
-        ctx.log('ERROR', 'Plugin publication failed', { source: body.sourceRepository, digest: body.digest, error: (err as Error).message });
-        return;
-      }
-      throw err;
-    }
+    const result = await counted(PublicationMetrics.PUBLISH, () => publishPublicImage(body), (err) =>
+      ctx.log('ERROR', 'Plugin publication failed', { source: body.sourceRepository, digest: body.digest, error: err.message }));
 
     incCounter(PublicationMetrics.PUBLISH, { outcome: result.alreadyPublished ? 'republished' : 'success' });
     ctx.log('COMPLETED', 'Published plugin image', { target: result.imageRepository, digest: result.digest, version: body.version });
-    emitImageRegistryAudit({
-      action: 'registry.image.publish',
-      actorId: actorId({}),
-      orgId: org,
-      ...(body.publisherOrgId && { affectedOrgId: body.publisherOrgId }),
-      outcome: 'success',
-      targetType: 'registry-image',
-      targetId: result.imageRepository,
-      details: {
-        repo: result.imageRepository,
-        source: body.sourceRepository,
-        digest: result.digest,
-        version: body.version,
-        tier: body.tier,
-        publisher: body.publisherHandle,
-        alreadyPublished: result.alreadyPublished,
-      },
+    auditPublication('registry.image.publish', org, body.publisherOrgId, result.imageRepository, {
+      repo: result.imageRepository,
+      source: body.sourceRepository,
+      digest: result.digest,
+      version: body.version,
+      tier: body.tier,
+      publisher: body.publisherHandle,
+      alreadyPublished: result.alreadyPublished,
     });
     return sendSuccess(res, 200, { imageRepository: result.imageRepository, digest: result.digest });
   }));
@@ -190,11 +181,7 @@ export function registerPublicationRoutes(router: Router): void {
     const body = v.value;
 
     try {
-      await resignPublicImageOp(body);
-    } catch (err) {
-      incCounter(PublicationMetrics.RESIGN, { outcome: 'failure' });
-      if (sendPublicationError(res, err)) return;
-      throw err;
+      await counted(PublicationMetrics.RESIGN, () => resignPublicImageOp(body));
     } finally {
       // Report progress whether this image succeeded or not — a stalled job is
       // one whose progress timestamp stops moving, not one that hit an error.
@@ -204,16 +191,8 @@ export function registerPublicationRoutes(router: Router): void {
     incCounter(PublicationMetrics.RESIGN, { outcome: 'success' });
     ctx.log('COMPLETED', 'Re-signed public plugin image', { repo: body.imageRepository, digest: body.digest, tier: body.tier });
     const affected = body.publisherOrgId ?? await publicationOwner(body.imageRepository).catch(() => null);
-    emitImageRegistryAudit({
-      action: 'registry.image.resign',
-      actorId: actorId({}),
-      orgId: callerOrg(req.user),
-      ...(affected && { affectedOrgId: affected }),
-      outcome: 'success',
-      targetType: 'registry-image',
-      targetId: body.imageRepository,
-      details: { repo: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle },
-    });
+    auditPublication('registry.image.resign', callerOrg(req.user), affected, body.imageRepository,
+      { repo: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle });
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle });
   }));
 
@@ -222,29 +201,14 @@ export function registerPublicationRoutes(router: Router): void {
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
 
-    let result;
-    try {
-      result = await yankPublicVersion(body.imageRepository, body.version, body.digest);
-    } catch (err) {
-      incCounter(PublicationMetrics.YANK, { outcome: err instanceof PublicationConflictError ? 'conflict' : 'failure' });
-      if (sendPublicationError(res, err)) return;
-      throw err;
-    }
+    const result = await counted(PublicationMetrics.YANK, () => yankPublicVersion(body.imageRepository, body.version, body.digest));
 
     incCounter(PublicationMetrics.YANK, { outcome: result.alreadyYanked ? 'already_yanked' : 'success' });
     ctx.log('COMPLETED', 'Yanked public plugin version', { ...body, alreadyYanked: result.alreadyYanked });
     if (!result.alreadyYanked) {
       const affected = await publicationOwner(body.imageRepository).catch(() => null);
-      emitImageRegistryAudit({
-        action: 'registry.image.yank',
-        actorId: actorId({}),
-        orgId: callerOrg(req.user),
-        ...(affected && { affectedOrgId: affected }),
-        outcome: 'success',
-        targetType: 'registry-image',
-        targetId: body.imageRepository,
-        details: { repo: body.imageRepository, version: body.version, digest: body.digest },
-      });
+      auditPublication('registry.image.yank', callerOrg(req.user), affected, body.imageRepository,
+        { repo: body.imageRepository, version: body.version, digest: body.digest });
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, version: body.version, digest: body.digest, yanked: true });
   }));
@@ -254,29 +218,14 @@ export function registerPublicationRoutes(router: Router): void {
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
 
-    let result;
-    try {
-      result = await retagPublicVersion(body.imageRepository, body.version, body.digest);
-    } catch (err) {
-      incCounter(PublicationMetrics.PUBLISH, { outcome: err instanceof PublicationConflictError ? 'conflict' : 'failure' });
-      if (sendPublicationError(res, err)) return;
-      throw err;
-    }
+    const result = await counted(PublicationMetrics.PUBLISH, () => retagPublicVersion(body.imageRepository, body.version, body.digest));
 
     incCounter(PublicationMetrics.PUBLISH, { outcome: result.alreadyTagged ? 'republished' : 'retagged' });
     ctx.log('COMPLETED', 'Re-tagged public plugin version', { ...body, alreadyTagged: result.alreadyTagged });
     if (!result.alreadyTagged) {
       const affected = await publicationOwner(body.imageRepository).catch(() => null);
-      emitImageRegistryAudit({
-        action: 'registry.image.publish',
-        actorId: actorId({}),
-        orgId: callerOrg(req.user),
-        ...(affected && { affectedOrgId: affected }),
-        outcome: 'success',
-        targetType: 'registry-image',
-        targetId: body.imageRepository,
-        details: { repo: body.imageRepository, version: body.version, digest: body.digest, retag: true },
-      });
+      auditPublication('registry.image.publish', callerOrg(req.user), affected, body.imageRepository,
+        { repo: body.imageRepository, version: body.version, digest: body.digest, retag: true });
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, version: body.version, digest: body.digest, tagged: true });
   }));
@@ -288,28 +237,12 @@ export function registerPublicationRoutes(router: Router): void {
     // Look the owner up BEFORE the delete — the audit names the org it affected.
     const affected = await publicationOwner(body.imageRepository).catch(() => null);
 
-    let result;
-    try {
-      result = await gcPublicImage(body.imageRepository, body.digest);
-    } catch (err) {
-      incCounter(PublicationMetrics.GC, { outcome: err instanceof PublicationConflictError ? 'conflict' : 'failure' });
-      if (sendPublicationError(res, err)) return;
-      throw err;
-    }
+    const result = await counted(PublicationMetrics.GC, () => gcPublicImage(body.imageRepository, body.digest));
 
     incCounter(PublicationMetrics.GC, { outcome: result.deleted ? 'success' : 'already_deleted' });
     ctx.log('COMPLETED', 'Collected public plugin image', { ...body, deleted: result.deleted });
     if (result.deleted) {
-      emitImageRegistryAudit({
-        action: 'registry.image.gc',
-        actorId: actorId({}),
-        orgId: callerOrg(req.user),
-        ...(affected && { affectedOrgId: affected }),
-        outcome: 'success',
-        targetType: 'registry-image',
-        targetId: body.imageRepository,
-        details: { repo: body.imageRepository, digest: body.digest },
-      });
+      auditPublication('registry.image.gc', callerOrg(req.user), affected, body.imageRepository, { repo: body.imageRepository, digest: body.digest });
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, deleted: result.deleted });
   }));
@@ -325,7 +258,7 @@ export function registerPublicationRoutes(router: Router): void {
     try {
       return sendSuccess(res, 200, await verifyPublication(imageRepository, d));
     } catch (err) {
-      if (sendPublicationError(res, err)) return;
+      if (err instanceof PluginSigningError) throw new AppError(502, ErrorCode.SERVICE_UNAVAILABLE, err.message);
       throw err;
     }
   }));

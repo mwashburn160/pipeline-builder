@@ -208,7 +208,7 @@ export default function DashboardPage() {
   const [deleting, setDeleting] = useState(false);
 
   const { data: dashboard, loading, error, refetch } = useFetch<DashboardWithPanels | null>(
-    async (signal) => (ready ? (await api.getDashboard(id, signal)).data?.dashboard ?? null : null),
+    async (signal) => (ready ? (await api.getDashboard(id, { signal })).data?.dashboard ?? null : null),
     [ready, id],
   );
 

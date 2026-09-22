@@ -125,7 +125,7 @@ export function DoraReport({
               Deployment-scoped{dora.filters.environment ? ` · ${dora.filters.environment}` : ''}
             </span>
           </div>
-          {/* Retention truncation (D4): the backend floors the window start at the
+          {/* Retention truncation: the backend floors the window start at the
               DORA retention horizon, so a wider request silently returns less.
               Surface it + a deep-link to extend history via a pack. */}
           {isTruncated(requestedFrom, dora.window.from) && (
@@ -166,7 +166,7 @@ export function DoraReport({
                     <span className="block text-fg-subtle">
                       {`${headlineEnv.changeFailureRate.deployTimeFailures} deploy-time · ${headlineEnv.changeFailureRate.postDeployFailures} post-deploy`}
                     </span>
-                    {/* CFR source hint (Phase 5b): post-deploy failures are sourced
+                    {/* CFR source hint: post-deploy failures are sourced
                         automatically from the incident webhook, or manually from the
                         mark-failed control below. Deep-link to configure the webhook. */}
                     <span className="block text-2xs text-fg-subtle">

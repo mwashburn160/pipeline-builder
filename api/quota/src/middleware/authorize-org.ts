@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemAdmin, normalizeOrgId, requireInternalService, requireSystemAdmin as requireSystemAdminGate, sendError, ErrorCode, getParam, createLogger, recordAuthzDenial, tagRouteGate } from '@pipeline-builder/api-core';
+import { INTERNAL_SERVICES, isSystemAdmin, normalizeOrgId, requireInternalService, requireSystemAdmin as requireSystemAdminGate, sendError, ErrorCode, getParam, createLogger, recordAuthzDenial, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 
 const logger = createLogger('authorize-org');
@@ -96,7 +96,7 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
 
 /**
  * Gate the internal usage-counter endpoints (`POST /quotas/:orgId/increment`
- * and `/decrement`) to internal service callers (#14). `authorizeOrg()` alone
+ * and `/decrement`) to internal service callers. `authorizeOrg()` alone
  * admits any same-org member, which would let a member inflate or roll back
  * their own counters and defeat the caps — and a system admin is no more
  * entitled to move a tenant's usage counters than a member is, so that path is
@@ -110,9 +110,4 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
  *
  * Use after `requireAuth` + `authorizeOrg()`.
  */
-export const requireInternalCaller = requireInternalService({
-  callers: [
-    'ask', 'billing', 'compliance', 'image-registry', 'message',
-    'pipeline', 'platform', 'plugin', 'quota', 'reporting',
-  ],
-});
+export const requireInternalCaller = requireInternalService({ callers: INTERNAL_SERVICES });

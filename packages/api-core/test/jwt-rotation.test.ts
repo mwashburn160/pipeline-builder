@@ -52,10 +52,10 @@ function createMockRes(): Response & { _status: number; _json: any } {
   return res as unknown as Response & { _status: number; _json: any };
 }
 
-/** Load a fresh auth module so its module-scoped SERVICE-secret cache reflects env. */
+/** Load a fresh service-token module so its module-scoped key state reflects env. */
 async function loadAuth() {
   jest.resetModules();
-  return import('../src/middleware/auth.js');
+  return import('../src/middleware/service-tokens.js');
 }
 
 function bearer(token: string): Request {
@@ -190,7 +190,7 @@ describe('user-token rotation by kid', () => {
   });
 });
 
-describe('service-token rotation — per-service keys (#14)', () => {
+describe('service-token rotation — per-service keys', () => {
   let keys: TestServiceKeysHandle;
 
   beforeEach(() => { keys = installTestServiceKeys(['billing', 'billing-next', 'compliance']); });

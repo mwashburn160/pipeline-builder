@@ -27,14 +27,14 @@ import { useImageDetail } from '@/hooks/useImageDetail';
 import { usePolling } from '@/hooks/usePolling';
 import { useTagsWithMetadata } from '@/hooks/useTagsWithMetadata';
 import { api, ApiError } from '@/lib/api';
+import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 
 type HealthState = 'checking' | 'ok' | 'error';
 
 const RECENT_ACTIONS_MAX = 20;
 
 /**
- * Docker registry browser (sysadmin only). Replaces the joxit
- * `registry-express` UI: lists repos with namespace grouping, drills into
+ * Docker registry browser (sysadmin only): lists repos with namespace grouping, drills into
  * tags, shows the manifest summary + raw JSON, and supports cross-repo
  * tag-copy (incl. multi-arch promotions) + tag deletion.
  *
@@ -119,19 +119,14 @@ export default function RegistryPage() {
 
   // Health badge: ping on mount + every 60s while the tab is visible. usePolling
   // pauses when hidden and re-pings on visibility regain so the badge reflects
-  // truth shortly after the operator refocuses. `mountedRef` drops results that
-  // land after unmount.
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  // truth shortly after the operator refocuses.
+  const unmountedRef = useUnmountedRef();
   usePolling(async () => {
     try {
       await api.listImages({ limit: 1 });
-      if (mountedRef.current) setHealth('ok');
+      if (!unmountedRef.current) setHealth('ok');
     } catch {
-      if (mountedRef.current) setHealth('error');
+      if (!unmountedRef.current) setHealth('error');
     }
   }, 60_000);
 
@@ -371,7 +366,7 @@ export default function RegistryPage() {
           </div>
         )}
         {health === 'error' && (
-          <div className="px-4 py-2 text-xs border-b border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300">
+          <div className="px-4 py-2 text-xs border-b border-danger-border bg-danger-bg text-danger-strong">
             Registry health check failed. Some panes below may show their own error — the shared cause is registry connectivity.
           </div>
         )}

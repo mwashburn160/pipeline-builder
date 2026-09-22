@@ -20,8 +20,8 @@ const { bold, cyan, dim, green } = pico;
  * Signs in with the OAuth 2.0 device authorization grant (RFC 8628): the CLI
  * shows a short code, the person approves it in a browser, and the CLI receives
  * an ordinary session. There is no password flag and no way to hand the CLI a
- * refresh token — both used to end up in shell history, `ps` output and CI logs,
- * and both skipped the SSO / step-up / MFA the browser already enforces.
+ * refresh token — both end up in shell history, `ps` output and CI logs, and
+ * both skip the SSO / step-up / MFA the browser already enforces.
  *
  * The session is written to the credential store (`~/.pipeline-manager/
  * credentials.json`, owner-only), so subsequent commands authenticate with no

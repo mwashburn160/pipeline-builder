@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The re-sign job (docs/plans/plugin-ecosystem.md §3.3, G34): a publisher tier
+ * The re-sign job (docs/plugin-publishing.md): a publisher tier
  * change, suspension, unsuspension, handle change or ownership transfer
  * re-signs every published image of the affected publisher (or listing) with
  * the new `pb.trust` / `pb.publisher` annotations, then invalidates the lookup
@@ -12,13 +12,13 @@
  * Jobs are rows in `ecosystem_settings` (`resign-job:<scope>:<id>`) holding
  * the SCOPE, the ids already done, and the GRACE: the annotations images
  * carried before the change(s), which lookup still accepts until the job
- * finishes (E1) — otherwise every install of a re-tiered/renamed/transferred
+ * finishes — otherwise every install of a re-tiered/renamed/transferred
  * publisher stops resolving until its last image is re-signed. The annotations
  * are always computed from the CURRENT publisher state when an image is signed,
  * so a later change supersedes an earlier job (its `done` list restarts, its
  * grace list is APPENDED to); a crash resumes where it stopped.
  *
- * Concurrency (E2): every enqueue stamps a fresh `generation`; a runner writes
+ * Concurrency: every enqueue stamps a fresh `generation`; a runner writes
  * back (or deletes) a job only under a row lock and only when the stored
  * generation is still the one it ran, merging `done` rather than overwriting —
  * so a change landing mid-run is never lost. An enqueue KICKS a run at once
@@ -28,7 +28,8 @@
 
 import { randomUUID } from 'crypto';
 
-import { emitCounter, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import type { Publisher } from '@pipeline-builder/pipeline-data';
 
 import { invalidateVerifyCache, resignImage, type TrustTier } from './registry.js';
@@ -57,7 +58,7 @@ export interface ResignJob {
   generation: string;
   /** Listing-version ids already re-signed under this generation. */
   done: string[];
-  /** The annotations lookup still accepts until the job completes (E1 grace). */
+  /** The annotations lookup still accepts until the job completes (a grace period). */
   previous: SignedAs[];
 }
 
@@ -136,7 +137,7 @@ export async function enqueueResign(
     };
     await settings.put(jobKey(scope, id), job, requestedBy);
   });
-  emitCounter('ecosystem_resign_jobs_enqueued_total', { scope, reason });
+  incCounter('ecosystem_resign_jobs_enqueued_total', { scope, reason });
   if (!inTransaction()) kickResignJobs();
 }
 
@@ -147,7 +148,7 @@ export async function pendingResignJobs(): Promise<ResignJob[]> {
 
 /**
  * The superseded annotations lookup still accepts for a listing of this
- * publisher (E1): the grace lists of an open publisher job and an open listing
+ * publisher: the grace lists of an open publisher job and an open listing
  * job. Empty when nothing is being re-signed.
  */
 export async function resignGrace(publisherId: string, listingId: string): Promise<SignedAs[]> {
@@ -164,7 +165,7 @@ export async function resignGrace(publisherId: string, listingId: string): Promi
 
 /**
  * Write a job's progress back — or remove it when `finished` — but only while
- * the stored row is still the SAME generation (E2). A newer enqueue replaced
+ * the stored row is still the SAME generation. A newer enqueue replaced
  * it mid-run: its restarted `done` list and appended grace win, and this run's
  * work is simply redone under the new annotations. Returns whether it applied.
  */
@@ -200,13 +201,14 @@ export async function runResignJobs(budget = 200, signal?: AbortSignal): Promise
     const targets = (await versions.forListings(listingRows.map((l) => l.id)))
       .filter((v) => v.imageDigest && v.imageRepository);
     const total = targets.length;
+    const pubs = new Map((await publishers.byIds([...new Set(listingRows.map((l) => l.publisherId))])).map((p) => [p.id, p]));
     let stopped = false;
     for (const v of targets) {
       if (job.done.includes(v.id)) continue;
       // Out of budget, or the scheduler's leader lease was lost: save progress and stop.
       if (budget <= 0 || signal?.aborted) { stopped = true; break; }
       const listing = listingRows.find((l) => l.id === v.listingId)!;
-      const publisher = await publishers.byId(listing.publisherId);
+      const publisher = pubs.get(listing.publisherId);
       if (!publisher) { job.done.push(v.id); continue; }
       try {
         await resignImage({
@@ -220,10 +222,10 @@ export async function runResignJobs(budget = 200, signal?: AbortSignal): Promise
         job.done.push(v.id);
         out.resigned++;
         budget--;
-        emitCounter('ecosystem_resign_images_total', { scope: job.scope });
+        incCounter('ecosystem_resign_images_total', { scope: job.scope });
       } catch (err) {
         out.failed++;
-        emitCounter('ecosystem_resign_failures_total', { scope: job.scope });
+        incCounter('ecosystem_resign_failures_total', { scope: job.scope });
         logger.warn('Re-sign failed; the job resumes on the next pass', { scope: job.scope, id: job.id, version: v.id, error: errorMessage(err) });
         stopped = true;
         break;
@@ -242,7 +244,7 @@ export async function runResignJobs(budget = 200, signal?: AbortSignal): Promise
       continue;
     }
     out.completed++;
-    emitCounter('ecosystem_resign_jobs_completed_total', { scope: job.scope });
+    incCounter('ecosystem_resign_jobs_completed_total', { scope: job.scope });
     logger.info('Re-sign job complete', { scope: job.scope, id: job.id, reason: job.reason, images: total });
   }
   return out;

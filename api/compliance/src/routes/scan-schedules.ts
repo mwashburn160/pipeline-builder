@@ -13,12 +13,12 @@ import {
   validateBody,
   requirePermission,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { CRON_VALIDATION_HINT, isValidCronExpression } from '../helpers/scan-scheduler.js';
-import { emitComplianceAudit } from '../services/audit.js';
 import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service.js';
 
 /**
@@ -71,7 +71,7 @@ export function createScanScheduleRoutes(): Router {
     ctx.log('COMPLETED', 'Created scan schedule', { scheduleId: schedule.id, cronExpression });
 
     // Best-effort attributed audit — the schedule create succeeded.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.scan-schedule.create',
       actorId: actorId({ userId }),
       orgId,
@@ -103,7 +103,7 @@ export function createScanScheduleRoutes(): Router {
     ctx.log('COMPLETED', 'Updated scan schedule', { scheduleId: id });
 
     // Best-effort attributed audit — the schedule update succeeded.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.scan-schedule.update',
       actorId: actorId({ userId }),
       orgId,
@@ -132,7 +132,7 @@ export function createScanScheduleRoutes(): Router {
 
     // Best-effort attributed audit — there's no separate toggle action, so an
     // active-state flip is modelled as a schedule update carrying the new state.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.scan-schedule.update',
       actorId: actorId({ userId }),
       orgId,
@@ -155,7 +155,7 @@ export function createScanScheduleRoutes(): Router {
     ctx.log('COMPLETED', 'Deleted scan schedule', { scheduleId: id });
 
     // Best-effort attributed audit — the schedule delete succeeded.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.scan-schedule.delete',
       actorId: actorId({ userId }),
       orgId,

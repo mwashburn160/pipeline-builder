@@ -3,7 +3,7 @@
 
 /**
  * What the build worker establishes about a freshly pushed, signed image
- * before the version is persisted (W0.6): its vulnerability scan (grype over
+ * before the version is persisted: its vulnerability scan (grype over
  * the signed SBOM), whether it runs as root, and — with those real facts — the
  * post-build compliance check the upload deferred.
  */

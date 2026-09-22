@@ -14,22 +14,24 @@ import {
   createLogger,
   errorMessage,
   getParam,
-  parseQueryInt,
-  parseQueryIntClamped,
   parseQueryString,
   validateBody,
   actorId,
+  parsePage,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/addon-prune.js';
-import { billingServiceAuth, buildSubscriptionResponse, createBillingEvent, MANAGEABLE_SUBSCRIPTION_STATUSES, recordReactivatePlanMissing, syncEntitlements, syncProviderAddons } from '../helpers/billing-helpers.js';
+import { applyPlanTierChange, applyTierIncludedAddonPrune, syncProviderAddons } from '../helpers/addon-prune.js';
+import { billingServiceAuth, createBillingEvent, recordReactivatePlanMissing } from '../helpers/billing-helpers.js';
+import { syncEntitlements } from '../helpers/entitlement-sync.js';
+import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
 import { BillingEvent } from '../models/billing-event.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
-import { getAuditClient } from '../services/audit.js';
 import { AdminSubscriptionUpdateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-admin-subscriptions');
@@ -94,8 +96,7 @@ export function createAdminSubscriptionRoutes(): Router {
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const limit = parseQueryIntClamped(req.query.limit, 50, 200);
-      const offset = parseQueryInt(req.query.offset, 0);
+      const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
       const status = parseQueryString(req.query.status);
 
       const filter: Record<string, unknown> = {};
@@ -223,13 +224,13 @@ export function createAdminSubscriptionRoutes(): Router {
           // Fire-and-forget: the sysadmin acts on ANOTHER org, so actorId = the
           // sysadmin and affectedOrgId = the target org. Details are an explicit
           // tier/plan-id whitelist — no card/payment secret or AWS account id can leak.
-          getAuditClient().record({
+          recordAudit({
             action: 'billing.tier.override',
             actorId: actorId({ userId }),
             affectedOrgId: orgId,
             targetId: subscriptionId,
             details: { toTier: newTier, fromPlanId: oldPlanId, toPlanId: planId },
-          }, 'billing');
+          });
         });
       }
 
@@ -416,13 +417,13 @@ export function createAdminSubscriptionRoutes(): Router {
       // AWS account id leaks. `billable` holds the org's live (non-terminal)
       // subscription(s) loaded before deletion, each carrying its own id + plan.
       for (const sub of billable) {
-        getAuditClient().record({
+        recordAudit({
           action: 'billing.subscription.delete',
           actorId: actorId({ userId }),
           orgId: targetOrgId,
           targetId: sub._id?.toString(),
           details: { planId: sub.planId, orgId: targetOrgId },
-        }, 'billing');
+        });
       }
 
       logger.info('Subscription cascade complete', {
@@ -445,8 +446,7 @@ export function createAdminSubscriptionRoutes(): Router {
     requireAuth(AUTH_OPTS) as RequestHandler,
     requireSystemAdmin as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const limit = parseQueryIntClamped(req.query.limit, 50, 200);
-      const offset = parseQueryInt(req.query.offset, 0);
+      const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
       const orgId = parseQueryString(req.query.orgId);
 
       const filter: Record<string, unknown> = {};
@@ -472,8 +472,7 @@ export function createAdminSubscriptionRoutes(): Router {
     requireAuth(AUTH_OPTS) as RequestHandler,
     requirePermission('billing:read') as RequestHandler,
     withRoute(async ({ req, res, orgId }) => {
-      const limit = parseQueryIntClamped(req.query.limit, 50, 200);
-      const offset = parseQueryInt(req.query.offset, 0);
+      const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
       const [events, total] = await Promise.all([
         BillingEvent.find({ orgId }).sort({ createdAt: -1 }).skip(offset).limit(limit).lean(),
         BillingEvent.countDocuments({ orgId }),

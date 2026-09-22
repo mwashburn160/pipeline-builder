@@ -58,7 +58,11 @@ const mockPurgeOrgBlobs = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
 // -- Real api-core middleware (file-level imports, not the heavy barrel) -------
 jest.unstable_mockModule('@pipeline-builder/api-core', async () => {
-  const auth = await import(pkg('api-core/lib/middleware/auth.js'));
+  const auth = {
+    ...await import(pkg('api-core/lib/middleware/auth.js')),
+    ...await import(pkg('api-core/lib/middleware/permission-gates.js')),
+    ...await import(pkg('api-core/lib/middleware/service-tokens.js')),
+  };
   const stepUp = await import(pkg('api-core/lib/middleware/step-up.js'));
   const response = await import(pkg('api-core/lib/utils/response.js'));
   const errorCodes = await import(pkg('api-core/lib/types/error-codes.js'));
@@ -142,7 +146,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', async () => {
       }
     },
     incCounter: () => undefined,
-    incrementQuotaFromCtx: jest.fn<AnyFn>(),
+    meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
     rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   });
 });
@@ -172,9 +176,6 @@ jest.unstable_mockModule('../src/services/attachment-storage.js', () => ({
   generateThumbnail: jest.fn<AnyFn>(),
   thumbnailSiblingOf: jest.fn<AnyFn>(),
   thumbnailContentType: jest.fn<AnyFn>(),
-}));
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 jest.unstable_mockModule('../src/helpers/org-names.js', () => ({
   enrichOneWithOrgNames: async <T>(m: T) => m,
@@ -213,9 +214,9 @@ beforeEach(() => {
 });
 
 /**
- * Minimal HS256 JWT signer. Nothing in the fleet accepts an HMAC token any more
- * (#5 moved user tokens to platform's ES256 key, #14 moved internal service
- * tokens to per-service ES256 keys) — this exists ONLY to mint the forgeries the
+ * Minimal HS256 JWT signer. Nothing in the fleet accepts an HMAC token (user
+ * tokens are signed with platform's ES256 key, internal service tokens with
+ * per-service ES256 keys) — this exists ONLY to mint the forgeries the
  * cases below assert are refused.
  */
 function signHs256Jwt(claims: Record<string, unknown>, ttlSeconds: number): string {
@@ -234,7 +235,7 @@ const signingKey: TestSigningKey = generateTestSigningKey();
 installTestJwks([signingKey]);
 
 /**
- * Real per-service key files (#14): `platform` is the only caller the internal
+ * Real per-service key files: `platform` is the only caller the internal
  * routes admit, `compliance` is a real peer that holds a valid key of its own
  * and must still be turned away.
  */
@@ -280,7 +281,7 @@ function stepUpToken(sub = 'user-1'): string {
 
 /**
  * A token from `platform`, minted with platform's OWN key exactly as its process
- * would (#14). The internal routes admit `platform` and nobody else, and the
+ * would. The internal routes admit `platform` and nobody else, and the
  * name is bound to the signing key — which `serviceTokenFrom('compliance')`
  * below is used to prove.
  */
@@ -388,17 +389,18 @@ describe('internal routes + idempotency: each request passes one chain', () => {
     expect(mockPurgeOrgBlobs).toHaveBeenCalledWith('org-9');
   });
 
-  it('REFUSES another service on an internal route, end to end (#14)', async () => {
-    // `compliance` holds a perfectly valid key of its own — it is just not one
-    // of the callers these routes admit, and the name is bound to the key it
-    // signed with, so it cannot claim to be platform either.
-    const res = await call('POST', '/messages/internal/notify', { authorization: `Bearer ${serviceToken('compliance')}` },
-      { recipientOrgId: 'org-1', subject: 'Join request', content: 'someone wants in' });
+  it('REFUSES another service on an internal route, end to end', async () => {
+    // `compliance` holds a perfectly valid key of its own (and may send system
+    // notifications) — but the org-purge cascade admits platform alone, and the
+    // name is bound to the key it signed with, so it cannot claim to be platform.
+    const res = await call('DELETE', '/messages/internal/org/org-9/attachments', {
+      'authorization': `Bearer ${serviceToken('compliance')}`, 'idempotency-key': `k-${uniq()}`,
+    });
     expect(res.status).toBe(403);
-    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockPurgeOrgBlobs).not.toHaveBeenCalled();
   });
 
-  it('REFUSES a SUPERADMIN user token on an internal route, end to end (#14)', async () => {
+  it('REFUSES a SUPERADMIN user token on an internal route, end to end', async () => {
     const res = await call('DELETE', '/messages/internal/org/org-9/attachments', {
       authorization: `Bearer ${await signUserJwt({
         ...USER_CLAIMS,
@@ -415,8 +417,8 @@ describe('internal routes + idempotency: each request passes one chain', () => {
   });
 
   it('REJECTS an HS256 token that claims to be a user — end to end, through the real middleware', async () => {
-    // Before #5 every service held the one shared secret, so any of them could
-    // forge a platform-admin session for itself. The token below is shaped
+    // A shared HMAC secret would let any service forge a platform-admin session
+    // for itself. The token below is shaped
     // exactly like a real access token; the whole request chain must refuse it.
     const forged = signHs256Jwt({
       ...USER_CLAIMS,

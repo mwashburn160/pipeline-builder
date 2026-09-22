@@ -10,6 +10,7 @@ import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda'
 import { errorMessage } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import { APP_VERSION, validateNumber } from '../config/cli.constants.js';
+import type { ApiClient } from '../utils/api-client.js';
 import { auditLog } from '../utils/audit-log.js';
 import { resolveAwsRegion } from '../utils/aws-env.js';
 import { upsertSecret, getSecretArn, getSecretValue } from '../utils/aws-secrets.js';
@@ -18,7 +19,7 @@ import { toEventBridgeCron } from '../utils/cron.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { ensurePlatformToken, scopeSecretLeaf, secretNameForOrg } from '../utils/platform-secret.js';
-import { provisionServiceAccountKey, revokeServiceAccountKey } from '../utils/service-account.js';
+import { provisionServiceAccountKey, revokeServiceAccountKey, type ProvisionedKey } from '../utils/service-account.js';
 
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,7 +35,7 @@ const DEFAULT_RENEW_CRON = '0 0 * * *';
  *
  * A scoped key exchanges to a token with no permissions and no admin flags at
  * all — only the one capability — so it is the shape every automation that does
- * exactly one thing should hold (#12). The unscoped `platform` credential is the
+ * exactly one thing should hold. The unscoped `platform` credential is the
  * remaining full-privilege one: synth/deploy callbacks and the plugin-lookup
  * Lambda call the ordinary API surface, which no single scope covers.
  */
@@ -101,7 +102,7 @@ async function deployRenewSchedule(opts: {
     `RenewDays=${opts.days}`,
     `ScheduleExpression=${scheduleExpression}`,
     `NameSuffix=${nameSuffix}`,
-    // Recorded for provenance only — the rotator no longer installs the CLI at
+    // Recorded for provenance only — the rotator does not install the CLI at
     // runtime (it speaks to the platform directly), but knowing which CLI
     // deployed a stack is worth keeping.
     `PipelineManagerVersion=${APP_VERSION}`,
@@ -153,13 +154,152 @@ async function previousKeyId(
   }
 }
 
+/** What a dry run reports it WOULD provision. */
+export interface StoreTokenPlan {
+  serviceAccount: string;
+  roles: string;
+  scope: string;
+  secretName: string;
+  region: string;
+  expiresInDays: number;
+}
+
+/** Print the dry-run plan (JSON or human). Stays entirely offline. */
+export function printDryRunPlan(plan: StoreTokenPlan, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify({ success: true, dryRun: true, ...plan }, null, 2));
+    return;
+  }
+  console.log('');
+  printSection('Dry Run — No Changes Made');
+  printKeyValue({
+    'Service Account': plan.serviceAccount,
+    'Roles': plan.roles,
+    'Key Scope': plan.scope,
+    'Secret Name': plan.secretName,
+    'Region': plan.region,
+    'Expires In': `${plan.expiresInDays} days`,
+  });
+  printSuccess('Dry run complete — no account, key or secret was created');
+}
+
+/**
+ * The Secrets Manager payload: `{ username: orgId, password: <pb_sa_ key>, ...metadata }`.
+ * - username/password satisfy CodeBuild's `secretsManagerCredentials` (HTTP
+ *   Basic, sent to pipeline-image-registry's /token endpoint, which exchanges
+ *   the opaque key like every other service does).
+ * - `password` is the canonical field: the plugin-lookup Lambda, the events
+ *   Lambda and `--store-tokens` all read it.
+ * - keyId / serviceAccountId are what the rotation Lambda needs to retire the
+ *   key it replaces.
+ */
+export function buildSecretValue(provisioned: ProvisionedKey, platformUrl: string, expiresInSeconds: number): string {
+  return JSON.stringify({
+    username: provisioned.organizationId,
+    password: provisioned.key,
+    platformUrl,
+    organizationId: provisioned.organizationId,
+    serviceAccountId: provisioned.serviceAccountId,
+    serviceAccountName: provisioned.serviceAccountName,
+    keyId: provisioned.keyId,
+    scope: provisioned.scope,
+    expiresIn: expiresInSeconds,
+    expiresAt: provisioned.expiresAt,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * Retire the credential this run replaced — AFTER the new one is stored, never
+ * before. A failure here leaves a superfluous key that expires on its own;
+ * doing it in the other order would leave the secret naming a revoked key if
+ * the write failed.
+ */
+export async function retirePreviousKey(
+  client: ApiClient,
+  password: string,
+  provisioned: ProvisionedKey,
+  previous: { keyId?: string; serviceAccountId?: string },
+): Promise<void> {
+  if (!previous.keyId || previous.serviceAccountId !== provisioned.serviceAccountId) return;
+  try {
+    await revokeServiceAccountKey(
+      client, password, provisioned.organizationId, provisioned.serviceAccountId, previous.keyId,
+    );
+    printSuccess(`Retired the previous key (${previous.keyId})`);
+  } catch (err) {
+    printWarning(
+      `Stored the new key, but could not revoke the previous one (${previous.keyId}): `
+      + `${errorMessage(err)}. It expires on its own; revoke it from `
+      + 'Settings → Service accounts if you want it gone now.',
+    );
+  }
+}
+
+/** Print the stored key's summary (JSON or human) plus the next steps. */
+export function printStoredKey(r: {
+  json: boolean;
+  secretName: string;
+  arn: string | undefined;
+  region: string;
+  accountName: string;
+  provisioned: ProvisionedKey;
+  days: number;
+  scheduleExpression: string | undefined;
+}): void {
+  const { secretName, arn, region, accountName, provisioned, days, scheduleExpression } = r;
+  if (r.json) {
+    console.log(JSON.stringify({
+      success: true,
+      secretName,
+      secretArn: arn,
+      region,
+      serviceAccount: accountName,
+      serviceAccountId: provisioned.serviceAccountId,
+      keyId: provisioned.keyId,
+      scope: provisioned.scope,
+      expiresInDays: days,
+      expiresAt: provisioned.expiresAt,
+      schedule: scheduleExpression ?? null,
+    }, null, 2));
+  } else {
+    console.log('');
+    printSection('Key Stored');
+
+    printKeyValue({
+      'Secret Name': secretName,
+      'Secret ARN': arn,
+      'Region': region,
+      'Service Account': accountName,
+      'Key Scope': provisioned.scope ?? '(none — full platform credential)',
+      'Key Id': provisioned.keyId,
+      'Expires In': `${days} days`,
+      'Renew By': provisioned.expiresAt,
+      'Auto-Rotate': scheduleExpression ? `✓ ${scheduleExpression}` : 'off (pass --schedule to enable)',
+      'Status': '✓ Stored',
+    });
+
+    console.log('');
+    printSuccess('Key stored. To use with synth/deploy:');
+    printInfo(`  export PLATFORM_SECRET_NAME=${secretName}`);
+    printInfo('  pipeline-manager pipeline synth --id <pipeline-id> --store-tokens');
+    console.log('');
+    if (scheduleExpression) {
+      printInfo(`Auto-rotation is active (${scheduleExpression}); the secret is replaced before ${provisioned.expiresAt}.`);
+    } else {
+      printInfo(`Rotate before ${provisioned.expiresAt} with: pipeline-manager infra store-token --days ${days}`);
+      printInfo('  (or pass --schedule to install a daily auto-rotation stack)');
+    }
+  }
+}
+
 /**
  * Registers the `store-token` command with the CLI program.
  *
  * Provisions the org's machine identity — a SERVICE ACCOUNT and one `pb_sa_…`
  * key — and stores the key in AWS Secrets Manager for CDK deployments,
  * CodeBuild's registry credentials, the plugin-lookup Lambda and the event
- * ingestion Lambda (#12 / #N2). Nothing stored is tied to a person's session any
+ * ingestion Lambda. Nothing stored is tied to a person's session any
  * more: the account outlives its creator, takes no seat, and every audit row it
  * produces names the account.
  *
@@ -245,29 +385,14 @@ export function storeToken(program: Command): void {
         if (options.dryRun) {
           // Dry run stays entirely OFFLINE — it must not create an account or
           // burn a key just to show what it would do.
-          const plan = {
+          printDryRunPlan({
             serviceAccount: accountName,
             roles: scope ? 'none (scoped, least privilege)' : 'org admin',
             scope: scope ?? '(none — full platform credential)',
             secretName: process.env.PLATFORM_SECRET_NAME || `${secretNameForOrg('<orgId>', scope ? scopeSecretLeaf(scope) : 'platform')}`,
             region,
             expiresInDays: days,
-          };
-          if (options.json) {
-            console.log(JSON.stringify({ success: true, dryRun: true, ...plan }, null, 2));
-          } else {
-            console.log('');
-            printSection('Dry Run — No Changes Made');
-            printKeyValue({
-              'Service Account': plan.serviceAccount,
-              'Roles': plan.roles,
-              'Key Scope': plan.scope,
-              'Secret Name': plan.secretName,
-              'Region': plan.region,
-              'Expires In': `${days} days`,
-            });
-            printSuccess('Dry run complete — no account, key or secret was created');
-          }
+          }, !!options.json);
           return;
         }
 
@@ -314,28 +439,7 @@ export function storeToken(program: Command): void {
         // retired after the new one is safely stored.
         const previous = await previousKeyId(secretName, aws);
 
-        // Schema: { username: orgId, password: <pb_sa_ key>, ...metadata }
-        // - username/password satisfy CodeBuild's `secretsManagerCredentials`
-        //   (HTTP Basic, sent to pipeline-image-registry's /token endpoint, which
-        //   exchanges the opaque key like every other service does)
-        // - `password` stays the canonical field: the plugin-lookup Lambda, the
-        //   events Lambda and `--store-tokens` all read it. Only its VALUE changed,
-        //   from a machine-session JWT to an opaque service-account key.
-        // - keyId / serviceAccountId are what the rotation Lambda needs to retire
-        //   the key it replaces.
-        const secretValue = JSON.stringify({
-          username: provisioned.organizationId,
-          password: provisioned.key,
-          platformUrl: client.getBaseUrl(),
-          organizationId: provisioned.organizationId,
-          serviceAccountId: provisioned.serviceAccountId,
-          serviceAccountName: provisioned.serviceAccountName,
-          keyId: provisioned.keyId,
-          scope: provisioned.scope,
-          expiresIn: expiresInSeconds,
-          expiresAt: provisioned.expiresAt,
-          createdAt: new Date().toISOString(),
-        });
+        const secretValue = buildSecretValue(provisioned, client.getBaseUrl(), expiresInSeconds);
 
         printSection('Store Key');
 
@@ -344,24 +448,7 @@ export function storeToken(program: Command): void {
 
         const arn = await getSecretArn(secretName, aws);
 
-        // Retire the credential this run replaced — AFTER the new one is stored,
-        // never before. A failure here leaves a superfluous key that expires on
-        // its own; doing it in the other order would leave the secret naming a
-        // revoked key if the write failed.
-        if (previous.keyId && previous.serviceAccountId === provisioned.serviceAccountId) {
-          try {
-            await revokeServiceAccountKey(
-              client, password!, provisioned.organizationId, provisioned.serviceAccountId, previous.keyId,
-            );
-            printSuccess(`Retired the previous key (${previous.keyId})`);
-          } catch (err) {
-            printWarning(
-              `Stored the new key, but could not revoke the previous one (${previous.keyId}): `
-              + `${errorMessage(err)}. It expires on its own; revoke it from `
-              + 'Settings → Service accounts if you want it gone now.',
-            );
-          }
-        }
+        await retirePreviousKey(client, password!, provisioned, previous);
 
         // Optionally install the once-a-day rotation stack so this key never lapses.
         let scheduleExpression: string | undefined;
@@ -376,49 +463,16 @@ export function storeToken(program: Command): void {
           });
         }
 
-        if (options.json) {
-          console.log(JSON.stringify({
-            success: true,
-            secretName,
-            secretArn: arn,
-            region,
-            serviceAccount: accountName,
-            serviceAccountId: provisioned.serviceAccountId,
-            keyId: provisioned.keyId,
-            scope: provisioned.scope,
-            expiresInDays: days,
-            expiresAt: provisioned.expiresAt,
-            schedule: scheduleExpression ?? null,
-          }, null, 2));
-        } else {
-          console.log('');
-          printSection('Key Stored');
-
-          printKeyValue({
-            'Secret Name': secretName,
-            'Secret ARN': arn,
-            'Region': region,
-            'Service Account': accountName,
-            'Key Scope': provisioned.scope ?? '(none — full platform credential)',
-            'Key Id': provisioned.keyId,
-            'Expires In': `${days} days`,
-            'Renew By': provisioned.expiresAt,
-            'Auto-Rotate': scheduleExpression ? `✓ ${scheduleExpression}` : 'off (pass --schedule to enable)',
-            'Status': '✓ Stored',
-          });
-
-          console.log('');
-          printSuccess('Key stored. To use with synth/deploy:');
-          printInfo(`  export PLATFORM_SECRET_NAME=${secretName}`);
-          printInfo('  pipeline-manager pipeline synth --id <pipeline-id> --store-tokens');
-          console.log('');
-          if (scheduleExpression) {
-            printInfo(`Auto-rotation is active (${scheduleExpression}); the secret is replaced before ${provisioned.expiresAt}.`);
-          } else {
-            printInfo(`Rotate before ${provisioned.expiresAt} with: pipeline-manager infra store-token --days ${days}`);
-            printInfo('  (or pass --schedule to install a daily auto-rotation stack)');
-          }
-        }
+        printStoredKey({
+          json: !!options.json,
+          secretName,
+          arn,
+          region,
+          accountName,
+          provisioned,
+          days,
+          scheduleExpression,
+        });
 
       } catch (error) {
         handleError(error, ERROR_CODES.API_REQUEST, {

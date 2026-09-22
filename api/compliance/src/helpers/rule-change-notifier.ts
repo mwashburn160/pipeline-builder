@@ -8,7 +8,7 @@ import { subscriptionService, type ComplianceRuleSubscription } from '../service
 const logger = createLogger('rule-change-notifier');
 
 /**
- * Feature #8: Notify subscriber orgs when a published rule is modified or deleted.
+ * Notify subscriber orgs when a published rule is modified or deleted.
  * Fire-and-forget: errors are logged but never thrown.
  *
  * Routed through the shared in-app channel for consistency with the block

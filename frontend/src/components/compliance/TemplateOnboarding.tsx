@@ -41,8 +41,8 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
       if (res.success && res.data) {
         setTemplates(res.data.templates);
         // Opt-in by default: org admin must explicitly tick what they want before
-        // Apply enrolls them. Previously every template was pre-selected, which
-        // made it easy to accept the entire system catalog with one click.
+        // Apply enrolls them — pre-selecting every template would make it easy
+        // to accept the entire system catalog with one click.
       } else {
         setError(res.message || 'Failed to load rule templates');
       }
@@ -122,7 +122,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
               className={`text-left p-4 rounded-lg border-2 transition-colors ${
                 selected
                   ? 'border-blue-500 bg-info-bg'
-                  : 'border-default bg-surface hover:border-gray-300 dark:hover:border-gray-600'
+                  : 'border-default bg-surface hover:border-default'
               }`}
             >
               <div className="flex items-start justify-between">

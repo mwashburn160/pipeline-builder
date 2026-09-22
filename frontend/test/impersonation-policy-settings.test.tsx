@@ -17,7 +17,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ImpersonationPolicySettings } from '../src/components/settings/ImpersonationPolicySettings';
 
 const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
-jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
 
 // StepUpModal stand-in: confirming yields a token, so the save path is testable.
 jest.mock('@/components/admin/StepUpModal', () => ({

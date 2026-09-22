@@ -19,7 +19,7 @@ export function useObservabilityQuery(key: string, range: RangeKey) {
 
   const fetcher = useCallback(
     async (signal: AbortSignal): Promise<ObservabilityQueryResponse | undefined> => {
-      const res = await api.observabilityQuery(key, range, signal);
+      const res = await api.observabilityQuery(key, range, { signal });
       return res.data;
     },
     [key, range],

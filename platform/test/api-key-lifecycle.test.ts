@@ -34,8 +34,8 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Types } from 'mongoose';
-import type { SessionAuth } from '../src/utils/token.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import type { SessionAuth } from '../src/services/session/access-tokens.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -140,12 +140,16 @@ const User: any = {
 };
 
 jest.unstable_mockModule('../src/models/index.js', () => ({ PersonalAccessToken, User }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
-  enforceOrgAssurance: jest.fn(async (_u: unknown, _m: unknown, auth: unknown) => auth),
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
   membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
+  enforceOrgAssurance: jest.fn(async (_u: unknown, _m: unknown, auth: unknown) => auth),
   signApiKeyToken: jest.fn(async () => 'jwt'),
   signServiceAccountToken: jest.fn(async () => 'jwt'),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
 }));
 
 const mockPublishKeyRevocation = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);

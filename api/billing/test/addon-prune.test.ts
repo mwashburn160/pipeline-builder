@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for billing-helpers.pruneTierIncludedFeatureAddons — the double-billing
+ * Tests for addon-prune.pruneTierIncludedFeatureAddons — the double-billing
  * fix (docs/billing-bundles.md).
  *
  * A PURE-FEATURE add-on bundle (empty quota `grants`) whose granted feature is
@@ -21,8 +21,8 @@
  * a mocked pipeline-core Config.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -45,15 +45,16 @@ const CATALOG = [
 // addon_pruned rows.
 const mockSafePut = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({ statusCode: 200 });
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockAuditRecord,
   createSafeClient: () => ({ put: mockSafePut, get: jest.fn<AnyFn>() }),
 }));
 
-// billing-helpers loads incCounter from api-server; capture it so the provider
+// addon-prune loads incCounter from api-server; capture it so the provider
 // add-on sync-failure metric can be asserted.
 const mockIncCounter = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
-// billing-helpers imports the Mongoose models at module load — stub them so no
+// The helpers import the Mongoose models at module load — stub them so no
 // real mongoose/connection is pulled in (the prune helper touches neither).
 const mockBillingEventCreate = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/models/billing-event.js', () => ({
@@ -66,7 +67,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { updateOne: (...args: unknown[]) => mockSubscriptionUpdateOne(...args) },
 }));
 
-// billing-helpers now imports the provider factory + service audit client (for the
+// addon-prune imports the provider factory + api-core `recordAudit` (for the
 // auto-prune provider line-item removal + central trail). Stub both with spies so
 // finalizePrunedAddons can be asserted without loading the real Stripe/AWS SDKs.
 const mockSyncAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
@@ -74,23 +75,24 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({ syncAddons: mockSyncAddons }),
 }));
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: mockAuditRecord }),
-}));
 
-// getBundleCatalog reads Config.get('billing').bundles; effectiveEntitlements is
-// imported at module top-level (unused by the prune helper) so a stub suffices.
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  Config: { get: (section: string) => (section === 'billing' ? { bundles: CATALOG } : {}) },
-  effectiveEntitlements: () => ({ limits: {}, features: [] }),
+// getBundleCatalog reads the billing config's bundles.
+jest.unstable_mockModule('../src/config/billing-config.js', () => ({
+  getBillingConfig: () => ({ plans: [], bundles: CATALOG, comboDiscounts: [] }),
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
   config: { quotaService: { host: 'q', port: 1 }, platformService: { host: 'p', port: 1 } },
 }));
 
-const { pruneTierIncludedFeatureAddons, getBundleCatalog, syncProviderAddons } = await import('../src/helpers/billing-helpers.js');
-const { applyTierIncludedAddonPrune, applyPlanTierChange, finalizePrunedAddons } = await import('../src/helpers/addon-prune.js');
+const { getBundleCatalog } = await import('../src/helpers/billing-helpers.js');
+const {
+  applyTierIncludedAddonPrune,
+  applyPlanTierChange,
+  finalizePrunedAddons,
+  pruneTierIncludedFeatureAddons,
+  syncProviderAddons,
+} = await import('../src/helpers/addon-prune.js');
 
 describe('pruneTierIncludedFeatureAddons', () => {
   const catalog = getBundleCatalog();
@@ -232,7 +234,6 @@ describe('finalizePrunedAddons', () => {
         targetId: 'advanced_reporting',
         details: expect.objectContaining({ reason: 'addon_pruned' }),
       }),
-      'billing',
     );
     // Provider line-item removal fires with the REDUCED list (the removal path).
     expect(mockSyncAddons).toHaveBeenCalledWith('ext-1', reduced, 'monthly');
@@ -264,7 +265,6 @@ describe('finalizePrunedAddons', () => {
 
     expect(mockAuditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'billing.addon.prune', actorId: 'system', details: expect.objectContaining({ reason: 'addon_pruned' }) }),
-      'billing',
     );
     // The local billing_events row carries no actorId on system paths.
     expect(mockBillingEventCreate).toHaveBeenCalledWith(expect.objectContaining({ actorId: undefined }));
@@ -356,7 +356,6 @@ describe('applyPlanTierChange', () => {
     // the reduced set (the pure-feature bundle dropped, the quota pack kept).
     expect(mockAuditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'billing.addon.prune', targetId: 'advanced_reporting' }),
-      'billing',
     );
     expect(mockSyncAddons).toHaveBeenCalledWith('ext-1', [{ bundleId: 'seat_pack', quantity: 2 }], 'monthly');
   });

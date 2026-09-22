@@ -44,14 +44,11 @@ export const THUMB_MAX_DIM = Math.max(48, envInt('MESSAGE_THUMBNAIL_MAX_DIM', 32
  * The thumbnail sibling of a full storage key (`…/<file>` → `…/thumb`), and the
  * ONE way any caller names a thumbnail.
  *
- * There used to be a second spelling, `thumbnailKeyFor(orgId, attachmentId)`,
- * and the two disagreed. A blob's path segment is a uuid minted locally for the
- * storage key, NOT the attachment row's id, which the database assigns on
- * insert. Upload and purge both derived the thumbnail from the storage key;
- * only the download derived it from the row id — so every thumbnail was written
- * and deleted at one path and looked for at another, and `?thumb=1` silently
- * served the full-size original for every image ever uploaded. Deriving it from
- * the storage key everywhere makes the disagreement unexpressible.
+ * A blob's path segment is a uuid minted locally for the storage key, NOT the
+ * attachment row's id (which the database assigns on insert), so a thumbnail
+ * named from the row id would be looked for at a path it was never written to
+ * and `?thumb=1` would silently serve the full-size original. Deriving it from
+ * the storage key everywhere — upload, download and purge — keeps them in step.
  */
 export function thumbnailSiblingOf(storageKey: string): string {
   const i = storageKey.lastIndexOf('/');

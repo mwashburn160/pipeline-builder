@@ -56,21 +56,23 @@ const ACTIONS = {
     setupBuildx: 'docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069', // v4
 } as const;
 
-/** Projects that are built as Docker images and pushed to registry */
-const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'compliance', 'quota', 'message', 'pipeline', 'plugin', 'image-registry', 'ask'] as const;
-
-/**
- * Projects that are published as npm packages. Used by the release workflow
- * to decide whether to run `pnpm publish` at all — only triggers when at
- * least one of these is in the affected set.
- *
- * Includes `ai-core` and `pipeline-events`: the published `pipeline-manager`
- * CLI hard-depends on `ai-core`, and `setup-events` does `npm install
- * @pipeline-builder/pipeline-events` at runtime — so both must publish in
- * lockstep (they were previously private, which left `pipeline-manager` pinning
- * versions that were never published → ETARGET on `npx pipeline-manager`).
- */
-const LIBRARY_PROJECTS = ['api-core', 'ai-core', 'api-server', 'pipeline-core', 'pipeline-data', 'pipeline-events', 'pipeline-manager'] as const;
+export interface WorkflowOptions {
+    /** PNPM version to use in CI/CD workflows. */
+    readonly pnpmVersion: string;
+    /**
+     * Projects built as Docker images and pushed to the registry — derived in
+     * .projenrc.ts from the projects that get docker scripts.
+     */
+    readonly imageProjects: readonly string[];
+    /**
+     * Projects published to npm (bare names, no scope) — derived in .projenrc.ts
+     * from the projects given a publishConfig. The release runs `pnpm publish`
+     * only when one of them is affected. It includes `ai-core` and
+     * `pipeline-events` because the published CLI hard-depends on the first and
+     * `setup-events` installs the second at runtime, so both ship in lockstep.
+     */
+    readonly libraryProjects: readonly string[];
+}
 
 /**
  * GitHub Actions workflow component for automated releases.
@@ -81,22 +83,26 @@ const LIBRARY_PROJECTS = ['api-core', 'ai-core', 'api-server', 'pipeline-core', 
  * @example
  * ```typescript
  * // In .projenrc.ts
- * new Workflow(root, { pnpmVersion: '10.25.0' });
+ * new Workflow(root, { pnpmVersion: '10.25.0', imageProjects, libraryProjects });
  * ```
  */
 export class Workflow extends Component {
     /** PNPM version to use in CI/CD workflow */
     private readonly pnpmVersion: string;
+    private readonly imageProjects: readonly string[];
+    private readonly libraryProjects: readonly string[];
 
     /**
      * Creates the release workflow configuration.
      *
      * @param root - The root TypeScript project
-     * @param options - Configuration options including PNPM version
+     * @param options - PNPM version and the image / library project lists
      */
-    constructor(root: TypeScriptProject, options: { pnpmVersion: string }) {
+    constructor(root: TypeScriptProject, options: WorkflowOptions) {
         super(root);
         this.pnpmVersion = options.pnpmVersion;
+        this.imageProjects = options.imageProjects;
+        this.libraryProjects = options.libraryProjects;
 
         // Create the release workflow file
         const workflow = new GithubWorkflow(root.github!, 'release');
@@ -182,7 +188,7 @@ export class Workflow extends Component {
                     id: 'affected',
                     name: 'Affected projects and images',
                     env: {
-                        IMAGE_PROJECTS: JSON.stringify(IMAGE_PROJECTS),
+                        IMAGE_PROJECTS: JSON.stringify(this.imageProjects),
                     },
                     // AFFECTED_IMAGES = nx's transitively-affected set ∩ image
                     // projects. This covers BOTH triggers we want:
@@ -241,7 +247,7 @@ export class Workflow extends Component {
                 actions: JobPermission.READ,
                 contents: JobPermission.WRITE,
                 packages: JobPermission.READ,
-                // pnpm 11 attempts npm OIDC ("trusted publishing") and needs an
+                // `pnpm publish` attempts npm OIDC ("trusted publishing") and needs an
                 // id-token; without this it warns (ERR_PNPM_ID_TOKEN_GITHUB_WORKFLOW_INCORRECT_PERMISSIONS)
                 // before falling back to NPM_TOKEN.
                 idToken: JobPermission.WRITE,
@@ -303,7 +309,7 @@ export class Workflow extends Component {
                     id: 'check',
                     name: 'Compute affected library packages',
                     env: {
-                        LIBRARY_PROJECTS: JSON.stringify(LIBRARY_PROJECTS),
+                        LIBRARY_PROJECTS: JSON.stringify(this.libraryProjects),
                     },
                     // nx emits scoped names (`@pipeline-builder/pipeline-core`)
                     // while LIBRARY_PROJECTS uses bare names — strip the scope
@@ -826,12 +832,17 @@ export class Workflow extends Component {
     }
 
     /**
-     * Deploy contract gate — runs when anything under deploy/ (or the contract
-     * tests themselves) changed. Nx does not see deploy/ as part of any
-     * project's build unless a project declares it as an input, so a manifest-
-     * only change would otherwise merge with none of its drift guards run:
-     * the network-policy/mesh contracts, env contract, rule tests, rendered
-     * kustomizations, compose config and shellcheck.
+     * Deploy gate — the ONE CI job for the deploy/ tree. Runs when anything
+     * under deploy/ (or the contract suites, the generators, the workflows, or
+     * the masking patterns promtail is generated from) changed:
+     *   - the deploy-contracts suites (manifests, compose, env, shell tooling,
+     *     per-target config copies);
+     *   - every k8s target rendered with kustomize, and compose config;
+     *   - the generated files (.env.example ×4, promtail masking, index.md)
+     *     against their generators;
+     *   - the observability configs against their pinned images
+     *     (validate-configs.sh: loki / amtool / promtool incl. rule tests);
+     *   - shellcheck over every deploy script.
      *
      * @returns Job configuration object
      */
@@ -849,13 +860,13 @@ export class Workflow extends Component {
                 {
                     id: 'changes',
                     name: 'Detect deploy changes',
-                    run: `${Workflow.DIFF_BASE}; if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- deploy/ platform/test/deploy-*.test.ts .github/workflows/; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi`,
+                    run: `${Workflow.DIFF_BASE}; if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- deploy/ test/deploy-contracts/ scripts/ .github/workflows/ README.md index.md packages/api-core/src/utils/sensitive-patterns.ts; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi`,
                     env: Workflow.DIFF_BASE_ENV,
                 },
                 {
                     name: 'Deploy contract tests',
                     if: changed,
-                    run: 'cd platform && NODE_OPTIONS=--experimental-vm-modules npx jest --coverage=false --ci test/deploy-',
+                    run: 'cd test/deploy-contracts && NODE_OPTIONS=--experimental-vm-modules npx jest --coverage=false --ci',
                 },
                 {
                     name: 'Render every k8s target',
@@ -866,6 +877,17 @@ export class Workflow extends Component {
                     name: 'Validate docker-compose',
                     if: changed,
                     run: 'cp deploy/local/docker/.env.example "$RUNNER_TEMP/pb.env" && docker compose --env-file "$RUNNER_TEMP/pb.env" -f deploy/local/docker/docker-compose.yml config -q',
+                },
+                {
+                    // gen-promtail-masking reads api-core's BUILT patterns.
+                    name: 'Generated files are current',
+                    if: changed,
+                    run: 'node scripts/gen-env-examples.mjs --check && node scripts/gen-readme-index.mjs --check && npx nx run @pipeline-builder/api-core:post-compile && node scripts/gen-promtail-masking.mjs --check',
+                },
+                {
+                    name: 'Validate observability configs',
+                    if: changed,
+                    run: 'deploy/bin/validate-configs.sh',
                 },
                 {
                     name: 'Shellcheck deploy scripts',

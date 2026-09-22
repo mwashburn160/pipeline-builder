@@ -18,6 +18,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
@@ -55,23 +56,25 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
 jest.unstable_mockModule('../src/services/role-crud.js', () => ({
   assertNotLastPrivilegedMember: jest.fn(),
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { auth: {} },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: {} }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => unknown) => fn({ id: 'sess' }),
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn(),
   signServiceAccountToken: jest.fn(),
-  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -130,8 +133,7 @@ describe('UserProfileService.revokeAllSessions — matches logout', () => {
 
     const returned = await userProfileService.revokeAllSessions('user-1');
 
-    // The authoritative write clears the refresh-token hash (the previously-missing
-    // half) AND bumps the version — exactly what auth logout does.
+    // The authoritative write clears the refresh-token hash AND bumps the version — exactly what auth logout does.
     expect(mockUserFindOneAndUpdate).toHaveBeenCalledTimes(1);
     expect(mockUserFindOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'user-1' },

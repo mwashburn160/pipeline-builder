@@ -90,7 +90,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
     const isDirty = pristineRef.current !== serializedState;
     useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
     const { plugins } = usePlugins();
-    // After W2 the Official catalog is not in `GET /plugins`: listings (installed
+    // The Official catalog is not in `GET /plugins`: listings (installed
     // or implicit Official) come from the catalog, for artifact-key output dirs.
     const { entries: catalog } = usePluginCatalog();
     const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));

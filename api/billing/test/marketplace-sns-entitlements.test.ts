@@ -21,8 +21,8 @@
  * network + crypto).
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -76,16 +76,13 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
 });
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   recordReactivatePlanMissing: (...a: unknown[]) => mockRecordReactivate(...a),
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
-  applyPlanTierChange: mockApplyPlanTierChange,
   calculatePeriodEnd: (...a: unknown[]) => mockCalculatePeriodEnd(...a),
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
+}));
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
   syncEntitlements: (...a: unknown[]) => mockSyncEntitlements(...a),
-  applyTierIncludedAddonPrune: (...a: unknown[]) => mockApplyTierIncludedAddonPrune(...(a as [{ addons?: Array<{ bundleId: string; quantity: number }> }])),
-  finalizePrunedAddons: (...a: unknown[]) => mockFinalizePrunedAddons(...a),
 }));
 
-// prune/plan-change helpers moved to addon-prune.js (imported by marketplace route now).
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyPlanTierChange: mockApplyPlanTierChange,
   applyTierIncludedAddonPrune: (...a: unknown[]) => mockApplyTierIncludedAddonPrune(...(a as [{ addons?: Array<{ bundleId: string; quantity: number }> }])),

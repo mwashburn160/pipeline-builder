@@ -9,11 +9,10 @@
 
 import crypto from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 
 const breachSettings = { mode: 'hibp' as 'hibp' | 'off', rangeUrl: 'https://hibp.test/range/', timeoutMs: 50 };
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { auth: { passwordMinLength: 8, passwordBreachCheck: breachSettings } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8, passwordBreachCheck: breachSettings } }));
 const mockIncCounter = jest.fn();
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: mockIncCounter }));
 

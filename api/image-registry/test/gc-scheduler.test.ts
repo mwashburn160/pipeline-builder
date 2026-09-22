@@ -119,7 +119,7 @@ describe('startGcScheduler leader lock', () => {
   });
 });
 
-// Anonymous-submission builds (`quarantine/*`, plugin ecosystem §4.2) are
+// Anonymous-submission builds (`quarantine/*`) are
 // removed 30 days after their build whether or not the operator opted in to the
 // org sweep: the 30-day bound is a retention promise, not a preference.
 describe('startQuarantineGcScheduler', () => {

@@ -3,7 +3,7 @@
 
 /**
  * Tests for the public-namespace parts of services/plugin-signing (plugin
- * ecosystem §3.3): fresh annotated signatures in `public/*` (the previous
+ * ecosystem): fresh annotated signatures in `public/*` (the previous
  * signature REPLACED, never stacked), SBOM re-attestation with `--replace`,
  * annotation-only re-signing, reading a source's SIGNED SBOM, signature
  * verification + its output parsing, and the verification key derived from the
@@ -70,16 +70,13 @@ const {
   verifyPluginSignature,
   extractSpdxPredicate,
   parseVerifyOutput,
-  isPluginRepository,
-  isPublicRepository,
-  parsePublicRepository,
   PluginSigningError,
   CosignRejectedError,
   TRUST_ANNOTATION,
   PUBLISHER_ANNOTATION,
-  PUBLISHER_HANDLE_RE,
   _resetPluginSigningState,
 } = await import('../src/services/plugin-signing.js');
+const { isPluginRepository, isPublicRepository, parsePublicRepository, PUBLISHER_HANDLE_RE } = await import('../src/services/namespaces.js');
 
 const HEX = 'f'.repeat(64);
 const DIGEST = `sha256:${HEX}`;

@@ -3,7 +3,7 @@
 
 import type { RedisCacheClient } from './cache-service.js';
 import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from './env-redis.js';
-import type { CredentialRevocationRefs, SessionRevocationState, TokenRevocationStore } from '../middleware/auth.js';
+import type { CredentialRevocationRefs, SessionRevocationState, TokenRevocationStore } from '../middleware/revocation.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';

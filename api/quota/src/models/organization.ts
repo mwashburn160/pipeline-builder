@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { VALID_TIERS, type QuotaTier } from '@pipeline-builder/api-core';
+import { VALID_QUOTA_TYPES, VALID_TIERS, type QuotaTier, type QuotaType, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 import { config } from '../config.js';
-import { getNextResetDate } from '../helpers/quota-helpers.js';
 
 // Types
 
@@ -13,48 +12,25 @@ interface QuotaUsage {
   resetAt: Date;
 }
 
-export interface QuotaLimits {
-  plugins: number;
-  pipelines: number;
-  apiCalls: number;
-  aiCalls: number;
-  /** Aggregate registry storage cap in bytes. -1 means unlimited. */
-  storageBytes: number;
-  /** Count caps on the user-editable feature tables (close DoS spam). */
-  dashboards: number;
-  alertRules: number;
-  alertDestinations: number;
-  idpConfigs: number;
-  /** Active plugin-ecosystem listings (count quota). */
-  listings: number;
-}
+/** Per-type limits, one per `VALID_QUOTA_TYPES` member. -1 means unlimited;
+ *  `storageBytes` is the aggregate registry storage cap in bytes. */
+export type QuotaLimits = Record<QuotaType, number>;
 
-export interface QuotaUsageTracking {
-  plugins: QuotaUsage;
-  pipelines: QuotaUsage;
-  apiCalls: QuotaUsage;
-  aiCalls: QuotaUsage;
-  /**
-   * Present for schema parity with the other quota types, but NOT a live
-   * counter: nothing increments/decrements it. Registry storage is measured
-   * live by the image-registry (`computeStorageUsage` in its storage-usage.ts,
-   * cached ~60s) and compared at token-issuance time against the org's
-   * `quotas.storageBytes` LIMIT, which it reads via `GET /quotas/:orgId/storageBytes`.
-   * Pooling therefore carves out only the USAGE half for storageBytes — the
-   * limit is pooled like every other dimension, because a team's own limit is
-   * -1 and the push gate reads that as unlimited.
-   */
-  storageBytes: QuotaUsage;
-  /** Per-feature-table counters — incremented on create, decremented on
-   *  soft-delete in the platform service. */
-  dashboards: QuotaUsage;
-  alertRules: QuotaUsage;
-  alertDestinations: QuotaUsage;
-  idpConfigs: QuotaUsage;
-  /** Active plugin-ecosystem listings — incremented when a listing is
-   *  published, decremented when it is unlisted. */
-  listings: QuotaUsage;
-}
+/**
+ * Per-type usage counters, one per `VALID_QUOTA_TYPES` member.
+ *
+ * `storageBytes` is present for schema parity but is NOT a live counter:
+ * nothing increments/decrements it. Registry storage is measured live by the
+ * image-registry (`computeStorageUsage` in its storage-usage.ts, cached ~60s)
+ * and compared at token-issuance time against the org's `quotas.storageBytes`
+ * LIMIT, which it reads via `GET /quotas/:orgId/storageBytes`. Pooling therefore
+ * carves out only the USAGE half for storageBytes — the limit is pooled like
+ * every other dimension, because a team's own limit is -1 and the push gate
+ * reads that as unlimited. The feature-table counters (dashboards, alertRules,
+ * alertDestinations, idpConfigs) are incremented on create and decremented on
+ * soft-delete by the platform service; `listings` on publish / unlist.
+ */
+export type QuotaUsageTracking = Record<QuotaType, QuotaUsage>;
 
 export interface OrganizationDocument extends Document {
   name: string;
@@ -102,12 +78,12 @@ export interface OrganizationDocument extends Document {
 
 const quotaUsageSchema = new Schema<QuotaUsage>( {
   used: { type: Number, default: 0 },
-  resetAt: { type: Date, default: () => getNextResetDate(config.quota.resetDays) },
+  resetAt: { type: Date, default: () => nextQuotaResetDate(config.quota.resetDays) },
 },
 { _id: false },
 );
 
-const defaultUsage = () => ({ used: 0, resetAt: getNextResetDate(config.quota.resetDays) });
+const defaultUsage = () => ({ used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) });
 
 const organizationSchema = new Schema<OrganizationDocument>( {
   // Mixed to match the shared `organizations` collection, whose docs are written
@@ -123,30 +99,12 @@ const organizationSchema = new Schema<OrganizationDocument>( {
   deletedAt: { type: Date, default: null },
   // Enum derived from api-core's VALID_TIERS so a new tier surfaces here automatically.
   tier: { type: String, enum: [...VALID_TIERS], default: 'developer' },
-  quotas: {
-    plugins: { type: Number, default: config.quota.defaults.plugins },
-    pipelines: { type: Number, default: config.quota.defaults.pipelines },
-    apiCalls: { type: Number, default: config.quota.defaults.apiCalls },
-    aiCalls: { type: Number, default: config.quota.defaults.aiCalls },
-    storageBytes: { type: Number, default: config.quota.defaults.storageBytes },
-    dashboards: { type: Number, default: config.quota.defaults.dashboards },
-    alertRules: { type: Number, default: config.quota.defaults.alertRules },
-    alertDestinations: { type: Number, default: config.quota.defaults.alertDestinations },
-    idpConfigs: { type: Number, default: config.quota.defaults.idpConfigs },
-    listings: { type: Number, default: config.quota.defaults.listings },
-  },
-  usage: {
-    plugins: { type: quotaUsageSchema, default: defaultUsage },
-    pipelines: { type: quotaUsageSchema, default: defaultUsage },
-    apiCalls: { type: quotaUsageSchema, default: defaultUsage },
-    aiCalls: { type: quotaUsageSchema, default: defaultUsage },
-    storageBytes: { type: quotaUsageSchema, default: defaultUsage },
-    dashboards: { type: quotaUsageSchema, default: defaultUsage },
-    alertRules: { type: quotaUsageSchema, default: defaultUsage },
-    alertDestinations: { type: quotaUsageSchema, default: defaultUsage },
-    idpConfigs: { type: quotaUsageSchema, default: defaultUsage },
-    listings: { type: quotaUsageSchema, default: defaultUsage },
-  },
+  quotas: Object.fromEntries(
+    VALID_QUOTA_TYPES.map((t) => [t, { type: Number, default: config.quota.defaults[t] }]),
+  ),
+  usage: Object.fromEntries(
+    VALID_QUOTA_TYPES.map((t) => [t, { type: quotaUsageSchema, default: defaultUsage }]),
+  ),
 },
 { collection: 'organizations' },
 );

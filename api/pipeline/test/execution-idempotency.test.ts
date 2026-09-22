@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for the short server-side execution idempotency window (D1). The window
+ * Tests for the short server-side execution idempotency window. The window
  * refuses a second CodePipeline trigger for the same (orgId, pipelineId) inside a
  * short TTL so a double-submit can't launch two runs. Backed by an atomic Redis
  * `SET … NX`; fails OPEN when Redis is unconfigured/unreachable.

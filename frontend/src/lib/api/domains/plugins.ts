@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery, API_URL } from '../util';
+import { buildQuery } from '../util';
 import { ApiError } from '../errors';
 import type {
   ApiResponse, Criticality, EntityLink, Lifecycle, OwnerType, Plugin, PluginCatalogEdits, PluginInspectResult, QueueStatus, Visibility,
@@ -32,7 +32,7 @@ export const PLUGIN_LIST_FIELDS = [
   'id', 'orgId', 'name', 'description', 'keywords', 'category', 'version', 'pluginType', 'computeType',
   'timeout', 'failureBehavior', 'visibility', 'isDefault', 'isActive', 'createdBy', 'createdAt', 'updatedAt',
   'buildType', 'imageDigest', 'imageSource',
-  // Version lifecycle (W0.4): the Deprecated / Yanked badges and their actions.
+  // Version lifecycle: the Deprecated / Yanked badges and their actions.
   'deprecatedAt', 'deprecationMessage', 'yankedAt', 'yankReason',
 ] as const satisfies ReadonlyArray<keyof Plugin>;
 
@@ -81,46 +81,32 @@ export function pluginsApi(core: ApiCore) {
      * The plugin image's SPDX JSON SBOM as a file (`GET /plugins/:id/sbom`). The
      * server reads it from the image's SIGNED attestation, so a successful
      * download also proves the attestation verified; a 409
-     * `IMAGE_VERIFICATION_FAILED` means it did not. A raw fetch (the body is a
-     * file, not JSON), so failures are rebuilt from the error envelope here.
+     * `IMAGE_VERIFICATION_FAILED` means it did not. The server names the file
+     * `<name>-<version>.spdx.json`.
      */
     downloadPluginSbom: async (id: string): Promise<{ blob: Blob; filename: string }> => {
-      await core.ensureFreshToken();
-      const res = await fetch(`${API_URL}/api/plugins/${encodeURIComponent(id)}/sbom`, {
-        headers: core.authHeaders() as Record<string, string>,
-        credentials: 'same-origin',
+      return core.requestBlob(`/api/plugins/${encodeURIComponent(id)}/sbom`, 'sbom.spdx.json', {
+        errorMessage: 'SBOM download failed',
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { code?: string; message?: string };
-        throw new ApiError(data.message || 'SBOM download failed', res.status, data.code);
-      }
-      // Prefer the server's `<name>-<version>.spdx.json` over rebuilding one.
-      const disposition = res.headers.get('Content-Disposition') ?? '';
-      const match = /filename="([^"]+)"/.exec(disposition);
-      return { blob: await res.blob(), filename: match?.[1] ?? 'sbom.spdx.json' };
     },
 
     /**
      * Dry-run parse of a plugin package (`POST /plugins/inspect`): every
      * descriptive catalog field with its detected value, source and — when the
      * detected value failed validation — the reason. Builds and stores nothing.
-     * Multipart like the upload, so a raw fetch; errors rebuilt from the envelope.
+     * Multipart like the upload; no timeout, the package can be large.
      */
     inspectPlugin: async (file: File, options?: { signal?: AbortSignal }): Promise<PluginInspectResult> => {
-      await core.ensureFreshToken();
       const formData = new FormData();
       formData.append('plugin', file);
-      const response = await fetch(`${API_URL}/api/plugins/inspect`, {
+      const data = await core.request<{ message?: string; code?: string; data?: PluginInspectResult }>('/api/plugins/inspect', {
         method: 'POST',
-        headers: core.authHeaders(),
         body: formData,
-        credentials: 'same-origin',
         signal: options?.signal,
+        timeoutMs: null,
+        errorMessage: 'Could not read the plugin package',
       });
-      const data = await response.json().catch(() => ({})) as { message?: string; code?: string; data?: PluginInspectResult };
-      if (response.status >= 400 || !data.data?.fields) {
-        throw new ApiError(data.message || 'Could not read the plugin package', response.status >= 400 ? response.status : 500, data.code);
-      }
+      if (!data.data?.fields) throw new ApiError(data.message || 'Could not read the plugin package', 500, data.code);
       return data.data;
     },
 
@@ -135,40 +121,23 @@ export function pluginsApi(core: ApiCore) {
       visibility: Visibility,
       options?: { signal?: AbortSignal; catalogEdits?: PluginCatalogEdits },
     ) => {
-      await core.ensureFreshToken();
-
       const formData = new FormData();
       formData.append('plugin', file);
       formData.append('visibility', visibility);
       const edits = options?.catalogEdits;
       if (edits && Object.keys(edits).length > 0) formData.append('metadata', JSON.stringify(edits));
 
-      const response = await fetch(`${API_URL}/api/plugins/upload`, {
-        method: 'POST',
-        headers: core.authHeaders(),
-        body: formData,
-        credentials: 'same-origin',
-        signal: options?.signal,
-      });
-
-      const data = await response.json().catch(() => ({
-        message: 'Upload failed',
-        success: false,
-      }));
-
-      // Success/failure is decided by the REAL HTTP status, never a body
-      // `statusCode` field — a proxy or error page may omit/lie about it.
-      const statusCode = response.status;
-
-      if (statusCode >= 400) {
-        throw new ApiError(data.message || 'Upload failed', statusCode, data.code);
-      }
-
-      return data as ApiResponse<{
+      return core.request<ApiResponse<{
         requestId?: string;
         pluginName?: string;
         version?: string;
-      }>;
+      }>>('/api/plugins/upload', {
+        method: 'POST',
+        body: formData,
+        signal: options?.signal,
+        timeoutMs: null,
+        errorMessage: 'Upload failed',
+      });
     },
 
     getQueueStatus: async () => {

@@ -27,9 +27,6 @@
  * - replaceNonAlphanumeric, extractMetadataEnv — string and metadata utilities
  * - resolveFailureBehavior, wrapCommandsForFailureBehavior — a step's failureBehavior, as CodeBuild runs it
  *
- * **Re-exports from api-core**
- * - ErrorCode, createLogger
- *
  * The Postgres/Drizzle data layer (db, schema, CrudService, query builders,
  * filter/compliance types, etc.) is NOT re-exported here — import those
  * directly from `@pipeline-builder/pipeline-data`.
@@ -38,23 +35,63 @@
 // Configuration
 export * from './config/app-config.js';
 export * from './config/config-types.js';
-export * from './config/entitlements.js';
 export * from './config/service-client.js';
 export { parsePlatformBaseUrl } from './config/infrastructure-config.js';
 
 // Core types (public surface)
-export * from './core/pipeline-types.js';
+export { ComputeType, PluginType, type MetaDataType, type Visibility, TriggerType, MetadataKeys, type MetadataKey, CDK_METADATA_PREFIX } from './core/pipeline-types.js';
 export * from './core/role-types.js';
 export * from './core/security-group-types.js';
-export * from './core/id-generator.js';
 export { replaceNonAlphanumeric, extractMetadataEnv, resolveFailureBehavior, wrapCommandsForFailureBehavior, STEP_BOOTSTRAP_CMD } from './core/metadata-helpers.js';
 export * from './core/step-manifest.js';
-export * from './core/plugin-contract.js';
+export {
+  type ContractValueType,
+  type PluginContract,
+  type ContractScope,
+  type ContractIssue,
+  type ContractScopeProps,
+  pipelineScopeMetadata,
+  pipelineContractScope,
+  contractScopeFromTemplateScope,
+  isContractValueOfType,
+  checkPluginContract,
+  type PluginStepRef,
+  collectPluginSteps,
+  pluginLookupFilter,
+  pluginArtifactAlias,
+  type PluginRefIdentity,
+  sanitizePublisher,
+} from './core/plugin-contract.js';
+export { unwrapLookup } from './core/plugin-lookup-envelope.js';
 
 // Plugin domain type (the synth-time authoring types live in the `/cdk` entry)
 export * from './pipeline/plugin-spec.js';
 
 // Template engine — synth-time scripting for pipeline config + plugin specs
-export * from './template/index.js';
+export {
+  tokenize,
+  hasTemplate,
+  MAX_FIELD_SIZE_BYTES,
+  MAX_PATH_DEPTH,
+  type Token,
+  type LiteralToken,
+  type ExprToken,
+  type SourcePosition,
+  resolve,
+  dependencies,
+  type Scope,
+  type EvalError,
+  type WalkEntry,
+  type FieldPredicate,
+  type TopoNode,
+  type TopoResult,
+  validateTemplates,
+  detectCycles,
+  allowedScopeRoots,
+  type TemplateError,
+  type TemplateValidationResult,
+  type ResolveResult,
+  resolveSelfReferencing,
+} from './template/index.js';
 // A plugin's `{{ … }}` resolution against a pipeline scope (synth, `plugin test`)
 export { resolvePluginTemplates, isPluginTemplatableField } from './template/plugin-resolver.js';

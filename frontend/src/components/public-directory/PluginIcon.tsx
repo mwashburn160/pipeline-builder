@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin icons for the public directory (docs/plans/plugin-ecosystem.md §6a.1).
+ * Plugin icons for the public directory.
  *
  * - `vendor`: a curated SVG resolved by `iconKey` from the build-time manifest,
  *   drawn as a CSS `mask-image` filled with the brand colour — or the theme's

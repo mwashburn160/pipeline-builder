@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -28,7 +29,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemOrgId: () => false,
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { billing: { enabled: false }, compliance: { enabled: false } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ billing: { enabled: false }, compliance: { enabled: false } }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 // controllers/auth now imports SSO login enforcement, which pulls in the org-idp /
 // secret-blob / entitlement chain. This suite tests switchOrg, not SSO — mock the
@@ -48,15 +49,19 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   // resolved to via createEvent (no req.user on that route); unused here.
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn(),
   signServiceAccountToken: jest.fn(),
-  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  findRefreshSession: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: (...a: unknown[]) => mockRenewSessionTokens(...a),
   hashRefreshToken: (t: string) => `h:${t}`,
@@ -65,8 +70,8 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (_schema: unknown, body: unknown) => body, registerSchema: {}, loginSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
 }));
 
+const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');
 const { switchOrg, refresh, logout } = await import('../src/controllers/auth.js');
-const { __resetRefreshGraceForTests } = await import('../src/helpers/refresh-grace.js');
 
 /** A plain membership in the destination org. */
 const MEMBER = { role: 'member', via: 'membership', permissionOrgIds: ['org-to'] };
@@ -82,7 +87,7 @@ function makeRes() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  __resetRefreshGraceForTests();
+  _resetAllPendingStoresForTests();
   mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' });
   mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a2', refreshToken: 'r2' });
 });

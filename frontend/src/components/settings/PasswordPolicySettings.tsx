@@ -59,7 +59,7 @@ export function PasswordPolicySettings({ orgId, readOnly }: { orgId: string; rea
       const res = await api.updatePasswordPolicy(orgId, { minLength: next }, stepUpToken);
       if (res.success) {
         toast.success(res.message || 'Password policy saved');
-        read.refetch();
+        void read.refetch();
       }
       setError(null);
     } catch (e) {
@@ -111,7 +111,7 @@ export function PasswordPolicySettings({ orgId, readOnly }: { orgId: string; rea
             />
           </FormField>
           {invalid && (
-            <p className="text-xs text-red-600 dark:text-red-400">
+            <p className="text-xs text-danger">
               Enter a whole number from {policy.platformMinLength} to {policy.maxLength}.
             </p>
           )}

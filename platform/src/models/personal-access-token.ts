@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { API_KEY_PREFIXES, type ApiKeyPrefix, type AssuranceLevel, type AuthMethod } from '@pipeline-builder/api-core';
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, Types, type HydratedDocument } from 'mongoose';
 
 /**
  * A named, individually-revocable access key (`pb_pat_…` or `pb_sa_…`).
@@ -20,7 +20,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
  * user-facing query filters on `userId`, so a service-account key never shows up
  * on someone's personal keys page.
  */
-export interface PersonalAccessTokenDocument extends Document {
+export interface PersonalAccessTokenData {
   /** Owner when this is a PERSONAL key (`pb_pat`). Unset for `pb_sa` keys. */
   userId?: Types.ObjectId | null;
   /** Owner when this is a SERVICE-ACCOUNT key (`pb_sa`). Unset for `pb_pat`. */
@@ -46,7 +46,7 @@ export interface PersonalAccessTokenDocument extends Document {
    */
   permissions?: string[] | null;
   /** Org the key was minted against (the org its exchanged tokens are scoped to). */
-  organizationId?: string | null;
+  organizationId?: Types.ObjectId | null;
   /**
    * Optional IP allowlist, enforced at EXCHANGE time (the one place platform
    * sees the presenting client). Entries are exact IPv4/IPv6 addresses or CIDR
@@ -85,7 +85,9 @@ export interface PersonalAccessTokenDocument extends Document {
   revokedAt?: Date | null;
 }
 
-const personalAccessTokenSchema = new Schema<PersonalAccessTokenDocument>(
+export type PersonalAccessTokenDocument = HydratedDocument<PersonalAccessTokenData>;
+
+const personalAccessTokenSchema = new Schema<PersonalAccessTokenData>(
   {
     // Exactly one owner is set (see the interface docs). Neither is `required`
     // at the schema level because which one applies depends on the key kind;
@@ -93,7 +95,7 @@ const personalAccessTokenSchema = new Schema<PersonalAccessTokenDocument>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     serviceAccountId: { type: Schema.Types.ObjectId, ref: 'ServiceAccount', default: null, index: true },
     keyHash: { type: String, required: true, unique: true, index: true },
-    prefix: { type: String, required: true, enum: API_KEY_PREFIXES as unknown as string[] },
+    prefix: { type: String, required: true, enum: [...API_KEY_PREFIXES] },
     last4: { type: String, required: true, maxlength: 8 },
     name: { type: String, required: true, trim: true, maxlength: 100 },
     scope: { type: String, default: null },
@@ -101,7 +103,7 @@ const personalAccessTokenSchema = new Schema<PersonalAccessTokenDocument>(
     // a key that authenticates but may do nothing — and must not be confused
     // with "no subset", which means full access.
     permissions: { type: [String], default: undefined },
-    organizationId: { type: String, default: null },
+    organizationId: { type: Schema.Types.ObjectId, default: null },
     ipAllowlist: { type: [String], default: undefined },
     createdUserAgent: { type: String, default: null, maxlength: 128 },
     createdIp: { type: String, default: null, maxlength: 64 },
@@ -120,4 +122,4 @@ const personalAccessTokenSchema = new Schema<PersonalAccessTokenDocument>(
   { timestamps: { createdAt: true, updatedAt: false } },
 );
 
-export default mongoose.model<PersonalAccessTokenDocument>('PersonalAccessToken', personalAccessTokenSchema);
+export default mongoose.model<PersonalAccessTokenData>('PersonalAccessToken', personalAccessTokenSchema);

@@ -8,8 +8,8 @@
  * those are tested separately in authorize-org.test.ts.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -99,6 +99,7 @@ jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
 }));
 
 const mockFind = jest.fn<AnyFn>();
+const mockCountDocuments = jest.fn<AnyFn>(async () => 0);
 const mockFindById = jest.fn<AnyFn>();
 
 /**
@@ -113,6 +114,7 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: {
     find: mockFind,
     findById: mockFindById,
+    countDocuments: () => mockCountDocuments(),
   },
 }));
 
@@ -263,6 +265,8 @@ describe('GET /quotas/all (system admin)', () => {
       lean: jest.fn<AnyFn>().mockResolvedValue(orgs),
     };
     mockFind.mockReturnValue(query);
+    // `total` is the whole collection, not the page length.
+    mockCountDocuments.mockResolvedValueOnce(57);
 
     const req = mockReq({ user: { organizationId: 'admin-org' } });
     const res = mockRes();
@@ -270,7 +274,7 @@ describe('GET /quotas/all (system admin)', () => {
 
     expect(mockSendSuccess).toHaveBeenCalledWith(
       res, 200,
-      expect.objectContaining({ organizations: expect.any(Array), total: 2 }),
+      expect.objectContaining({ organizations: expect.any(Array), total: 57 }),
     );
   });
 

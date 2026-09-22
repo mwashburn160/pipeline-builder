@@ -178,7 +178,7 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
                       onClick={(e) => { e.stopPropagation(); onDelete(r.name); }}
                       title={`Delete repository ${r.name}`}
                       aria-label={`Delete repository ${r.name}`}
-                      className="absolute right-1.5 p-1 rounded text-fg-subtle opacity-0 group-hover/repo:opacity-100 focus:opacity-100 hover:text-danger hover:bg-red-50 dark:hover:bg-red-900/30 transition-opacity"
+                      className="absolute right-1.5 p-1 rounded text-fg-subtle opacity-0 group-hover/repo:opacity-100 focus:opacity-100 hover:text-danger hover:bg-danger-bg transition-opacity"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

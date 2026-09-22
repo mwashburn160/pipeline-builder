@@ -4,13 +4,15 @@
 import type { Response } from 'express';
 
 import { createSafeClient, type RequestOptions } from './http-client.js';
-import { getServiceAuthHeader } from '../middleware/auth.js';
+import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import type { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage, sendError, sendQuotaExceeded } from '../utils/response.js';
+import { serviceEndpoint } from '../utils/service-registry.js';
+import { envBool } from '../utils/env.js';
 
 /**
  * Retry options for quota calls — fail fast (a slow quota service must not stall the request).
@@ -44,7 +46,7 @@ const logger = createLogger('quota');
 // fail-open with QUOTA_RESERVE_FAIL_OPEN=true. Both outcomes emit a counter
 // (`quota_fail_closed_total` / `quota_fail_open_total`) tagged with the reason.
 // `check` (a cheap read gate) stays fail-open; `increment` is fire-and-forget.
-const QUOTA_RESERVE_FAIL_OPEN = process.env.QUOTA_RESERVE_FAIL_OPEN === 'true';
+const QUOTA_RESERVE_FAIL_OPEN = envBool('QUOTA_RESERVE_FAIL_OPEN', false);
 
 /**
  * Service-principal `Authorization` header for a quota call made on behalf of
@@ -114,10 +116,6 @@ export interface QuotaService {
    * steal capacity from the new period.
    */
   decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, resetAtSnapshot?: string, requestId?: string): Promise<void>;
-  /** Update quota limits. Returns true on success. */
-  updateLimits(orgId: string, limits: Partial<Record<QuotaType, number>>, authHeader: string, requestId?: string): Promise<boolean>;
-  /** Reset quota usage. Returns true on success. */
-  reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean>;
   /**
    * Get the org's quota `QuotaTier`. Used by the plugin-build queue partitioning
    * to route a build to the right per-tier queue. Fail-open returns `DEFAULT_TIER`
@@ -218,8 +216,8 @@ function buildHeaders(orgId: string, authHeader?: string, requestId?: string): R
  */
 export function createQuotaService(config: QuotaServiceConfig = {}): QuotaService {
   const serviceConfig: ServiceConfig = {
-    host: config.host ?? process.env.QUOTA_SERVICE_HOST ?? 'quota',
-    port: config.port ?? parseInt(process.env.QUOTA_SERVICE_PORT ?? '3000', 10),
+    host: config.host ?? serviceEndpoint('quota').host,
+    port: config.port ?? serviceEndpoint('quota').port,
     timeout: config.timeout ?? 5000,
   };
 
@@ -340,26 +338,6 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       }
     },
 
-    async updateLimits( orgId: string,
-      limits: Partial<Record<QuotaType, number>>,
-      authHeader: string,
-      requestId?: string,
-    ): Promise<boolean> {
-      const path = `/quotas/${encodeURIComponent(orgId)}`;
-
-      const response = await client.put(path, limits, { headers: buildHeaders(orgId, authHeader, requestId) });
-
-      if (!response || response.statusCode !== 200) {
-        logger.warn('Failed to update quota limits', {
-          orgId, limits, statusCode: response?.statusCode,
-        });
-        return false;
-      }
-
-      logger.info('Quota limits updated', { orgId, limits });
-      return true;
-    },
-
     async getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier> {
       const read = await readTier(orgId, authHeader, requestId);
       if (read.tier) return read.tier;
@@ -376,23 +354,6 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       logger.warn('QUOTA_FAIL_CLOSED: tier could not be confirmed', { orgId, statusCode: read.statusCode, reason: read.reason });
       emitCounter('quota_fail_closed_total', { operation: 'tier', reason: read.reason, quotaType: 'tier' });
       return null;
-    },
-
-    async reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean> {
-      const path = `/quotas/${encodeURIComponent(orgId)}/reset`;
-
-      const body = quotaType ? { quotaType }: {};
-      const response = await client.post(path, body, { headers: buildHeaders(orgId, authHeader ?? '', requestId) });
-
-      if (!response || response.statusCode !== 200) {
-        logger.warn('Failed to reset quota', {
-          orgId, quotaType, statusCode: response?.statusCode,
-        });
-        return false;
-      }
-
-      logger.info('Quota reset', { orgId, quotaType: quotaType ?? 'all' });
-      return true;
     },
   };
 }

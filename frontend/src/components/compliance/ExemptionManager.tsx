@@ -73,7 +73,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
     10,
   );
 
-  // Surface fetch errors as toasts (replaces the old try/catch inside the fetcher).
+  // Surface fetch errors as toasts.
   useEffect(() => {
     if (fetchError) toastRef.current.error(fetchError.message || 'Failed to load exemptions');
   }, [fetchError]);
@@ -165,11 +165,10 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         return;
       }
 
-      // entityType is VALIDATED, not coerced. Anything other than the exact
-      // string `pipeline` used to become `'plugin'`, so a row saying `Pipeline`
-      // or `pipeline ` (cells are not trimmed) created a PLUGIN exemption
-      // carrying the pipeline's id — reported as created, and never exempting
-      // the pipeline it was meant for. Trim and case-fold, and refuse the file
+      // entityType is VALIDATED, not coerced: coercing anything but the exact
+      // string `pipeline` to `'plugin'` would turn a row saying `Pipeline` or
+      // `pipeline ` (cells are not trimmed) into a PLUGIN exemption carrying the
+      // pipeline's id — reported as created, and never exempting the pipeline. Trim and case-fold, and refuse the file
       // rather than guess.
       const badType: number[] = [];
       const parsedExemptions = parsed.rows
@@ -226,7 +225,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ShieldOff className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+          <ShieldOff className="h-5 w-5 text-warning" />
           <h2 className="text-lg font-semibold text-fg">Exemptions</h2>
         </div>
         <div className="flex gap-2">
@@ -347,7 +346,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                   )}
                 </div>
                 {ex.status === 'rejected' && ex.rejectionReason && (
-                  <div className="mt-2 text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/10 rounded px-2 py-1">
+                  <div className="mt-2 text-xs text-danger bg-danger-bg rounded px-2 py-1">
                     Rejection reason: {ex.rejectionReason}
                   </div>
                 )}

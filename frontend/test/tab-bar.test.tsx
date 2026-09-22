@@ -5,9 +5,9 @@
  * TabBar follows the WAI-ARIA tabs pattern for in-page tabs, and stays a nav of
  * links for page-to-page tabs.
  *
- * In-page tabs used to be buttons with `aria-current="page"` — which announces
+ * In-page tabs are not buttons with `aria-current="page"` — that announces
  * "current page" for something that isn't a page, gives no "tab 2 of 4", and
- * put every tab in the Tab order. Now: one tablist, `aria-selected`, a single
+ * puts every tab in the Tab order. Instead: one tablist, `aria-selected`, a single
  * tab stop that follows the selection, arrow/Home/End to move, and an optional
  * tab→panel id pair.
  */

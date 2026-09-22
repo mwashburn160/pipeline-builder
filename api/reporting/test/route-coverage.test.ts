@@ -87,7 +87,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
 ];
 
 /**
- * The INTERNAL routes this service exposes (#14) and the services allowed to
+ * The INTERNAL routes this service exposes and the services allowed to
  * call them — the same list `deploy/*​/k8s/istio-internal-routes.yaml` names, and
  * the ONE place it is written down. `findInternalRouteViolations` checks it
  * against the code in both directions.

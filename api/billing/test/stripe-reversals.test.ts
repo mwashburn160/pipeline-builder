@@ -25,16 +25,14 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 const mockCreateBillingEvent = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   recordReactivatePlanMissing: async () => undefined,
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
   createBillingEvent: (...a: unknown[]) => mockCreateBillingEvent(...a),
-  applyPlanTierChange: () => async () => undefined,
-  applyTierIncludedAddonPrune: () => [],
-  syncEntitlements: async () => true,
   calculatePeriodEnd: () => new Date('2026-09-01'),
   billingServiceAuth: () => 'Bearer svc',
 }));
 
-// prune/plan-change helpers moved to addon-prune.js (imported by stripe-webhook now).
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
+  syncEntitlements: async () => true,
+}));
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyPlanTierChange: () => async () => undefined,
   applyTierIncludedAddonPrune: () => [],

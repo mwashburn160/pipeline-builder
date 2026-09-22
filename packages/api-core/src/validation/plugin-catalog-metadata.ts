@@ -4,7 +4,7 @@
 /**
  * Plugin CATALOG metadata: the descriptive fields a plugin version shows in the
  * catalog, detected from the package and then accepted or edited by the user
- * (docs/plans/plugin-ecosystem.md §3.1a, D19, G53–G56).
+ * (docs/plugin-publishing.md).
  *
  * ONE validator for both paths: a value detected from the package (spec,
  * README, the plugin's own Dockerfile labels) and a value typed into a form or
@@ -18,37 +18,19 @@
  */
 
 import { z } from 'zod';
-
-// -----------------------------------------------------------------------------
-// Limits
-// -----------------------------------------------------------------------------
-
-/** Card one-liner cap (G53). */
-export const PLUGIN_SUMMARY_MAX = 160;
-/** `description` cap, characters. */
-export const PLUGIN_DESCRIPTION_MAX = 2000;
-/** `displayName` cap, characters. */
-export const PLUGIN_DISPLAY_NAME_MAX = 100;
-/** Max keywords, and max characters per keyword. */
-export const PLUGIN_KEYWORDS_MAX = 10;
-export const PLUGIN_KEYWORD_MAX_LENGTH = 32;
-/** README.md cap, bytes (UTF-8). */
-export const PLUGIN_README_MAX_BYTES = 64 * 1024;
-/** `changelog` cap, bytes (UTF-8). */
-export const PLUGIN_CHANGELOG_MAX_BYTES = 32 * 1024;
-/** Project URL cap, characters. */
-export const PLUGIN_URL_MAX = 2048;
-
-// -----------------------------------------------------------------------------
-// Vocabularies
-// -----------------------------------------------------------------------------
-
-/** Canonical plugin categories (the directory's category grid, `plugin-spec.yaml`). */
-export const PLUGIN_CATEGORIES = [
-  'language', 'security', 'quality', 'monitoring', 'artifact',
-  'deploy', 'infrastructure', 'testing', 'notification', 'ai',
-] as const;
-export type PluginCatalogCategory = typeof PLUGIN_CATEGORIES[number];
+import {
+  PLUGIN_CATALOG_FIELDS,
+  PLUGIN_CATEGORIES,
+  PLUGIN_CHANGELOG_MAX_BYTES,
+  PLUGIN_DESCRIPTION_MAX,
+  PLUGIN_DISPLAY_NAME_MAX,
+  PLUGIN_KEYWORD_MAX_LENGTH,
+  PLUGIN_KEYWORDS_MAX,
+  PLUGIN_README_MAX_BYTES,
+  PLUGIN_SUMMARY_MAX,
+  PLUGIN_URL_MAX,
+  type PluginCatalogField,
+} from '../types/plugin-catalog.js';
 
 /**
  * Accepted SPDX license identifiers — a compact allowlist of the ids that
@@ -105,7 +87,7 @@ export function projectUrlProblem(raw: string): string | null {
   return null;
 }
 
-/** Curated icon / badge key (§6a.1): a file name under `deploy/plugins/_icons/`. */
+/** Curated icon / badge key: a file name under `deploy/plugins/_icons/`. */
 export const ICON_KEY_PATTERN = /^[a-z0-9-]+$/;
 
 // -----------------------------------------------------------------------------
@@ -136,7 +118,7 @@ export const PluginIconSchema = z.preprocess(
 const text = (max: number) => z.string().trim().min(1, 'must not be empty').max(max, `must be at most ${max} characters`);
 
 /**
- * Per-field validators for every DESCRIPTIVE field (§3.1a). A detected value
+ * Per-field validators for every DESCRIPTIVE field. A detected value
  * and a user-typed value both go through these.
  */
 export const PLUGIN_CATALOG_FIELD_SCHEMAS = {
@@ -158,23 +140,7 @@ export const PLUGIN_CATALOG_FIELD_SCHEMAS = {
   readme: z.string().refine((v) => utf8Bytes(v) <= PLUGIN_README_MAX_BYTES, {
     message: `must be at most ${PLUGIN_README_MAX_BYTES} bytes`,
   }),
-} as const;
-
-/** Every descriptive (editable) catalog field, in display order. */
-export const PLUGIN_CATALOG_FIELDS = [
-  'displayName', 'summary', 'description', 'category', 'keywords', 'license',
-  'homepageUrl', 'sourceUrl', 'documentationUrl', 'icon', 'changelog', 'readme',
-] as const satisfies ReadonlyArray<keyof typeof PLUGIN_CATALOG_FIELD_SCHEMAS>;
-export type PluginCatalogField = typeof PLUGIN_CATALOG_FIELDS[number];
-
-/** The link fields — a user-edited link is highlighted in review (G36). */
-export const PLUGIN_CATALOG_LINK_FIELDS: ReadonlyArray<PluginCatalogField> = ['homepageUrl', 'sourceUrl', 'documentationUrl'];
-
-/** Where a catalog field's value came from (stored per version in `metadata_sources`). */
-export const METADATA_SOURCES = ['spec', 'readme', 'dockerfile', 'derived', 'user'] as const;
-export type MetadataSource = typeof METADATA_SOURCES[number];
-/** Per-field provenance of a version's catalog metadata. */
-export type MetadataSources = Partial<Record<PluginCatalogField, MetadataSource>>;
+} as const satisfies Record<PluginCatalogField, z.ZodType>;
 
 /**
  * Catalog EDITS (the upload's `metadata` part, a `PUT /plugins/:id` body's
@@ -203,12 +169,12 @@ export function validateCatalogField<F extends PluginCatalogField>(
 }
 
 // -----------------------------------------------------------------------------
-// Execution contract (never editable, G56)
+// Execution contract (never editable)
 // -----------------------------------------------------------------------------
 
 /**
  * Keys that describe WHAT RUNS. They come only from the spec: changing one is a
- * new version, a new digest and a review diff (§3.0.2, §3.4). A metadata edit
+ * new version, a new digest and a review diff. A metadata edit
  * naming any of them is refused with 400 — the refusal is the API's, not just
  * the UI's. `name`/`version` key the pushed image and are immutable too.
  */

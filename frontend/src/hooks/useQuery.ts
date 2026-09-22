@@ -69,10 +69,9 @@ export function useQuery<T>(
     const cached = peekQuery<T>(key);
     if (shownKeyRef.current !== key) {
       // A DIFFERENT query. Show its cache if it has one, and otherwise nothing —
-      // never the previous key's answer. The old code only repainted on a cache
-      // hit, so a miss left the previous date range's rows (and the stat cards
-      // computed from them) on screen while the new range loaded, and if that
-      // request failed, its error sat next to the old range's data. Same-key
+      // never the previous key's answer, whose rows (and the stat cards computed
+      // from them) would otherwise sit on screen while the new range loads, next
+      // to its error if that request fails. Same-key
       // re-runs (refetch, invalidation) still keep what is shown while they load.
       shownKeyRef.current = key;
       setData(cached ?? null);

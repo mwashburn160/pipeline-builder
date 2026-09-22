@@ -19,7 +19,8 @@ import type { AnyFn } from './helpers/mock-fn';
 // Must be a top-level import: @testing-library/react registers its own
 // beforeAll/afterEach, and jest rejects hooks defined inside a test body.
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { usePlugins, clearPluginCache } from '../src/hooks/usePlugins';
+import { usePlugins } from '../src/hooks/usePlugins';
+import { clearQueryCache } from '../src/lib/query-cache';
 
 const listPlugins = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.mock('@/lib/api', () => ({
@@ -120,11 +121,10 @@ describe('error-reporter egress', () => {
 
 describe('usePlugins cache invalidation', () => {
   it('REGRESSION: an in-flight fetch does NOT refill the cache after a clear', async () => {
-    // `clearPluginCache` runs on org switch, logout and session expiry, but it
-    // could not cancel a request already in flight — whose closure then wrote
-    // the PREVIOUS tenant's plugins back into the cache, where they were served
-    // for the full TTL.
-    clearPluginCache(); // start from a known-empty cache
+    // The identity-boundary reset (`clearQueryCache`, run on org switch, logout
+    // and session expiry) must also discard a request already in flight, or its
+    // answer lands the PREVIOUS tenant's plugins in the cache for the full TTL.
+    clearQueryCache(); // start from a known-empty cache
     let release!: (v: unknown) => void;
     const inFlight = new Promise((r) => { release = r; });
     listPlugins.mockReturnValueOnce(inFlight as Promise<unknown>);
@@ -132,19 +132,21 @@ describe('usePlugins cache invalidation', () => {
     const first = renderHook(() => usePlugins(true));
     await waitFor(() => expect(listPlugins).toHaveBeenCalledTimes(1));
 
-    // Identity changes while tenant A's request is still outstanding.
-    act(() => { clearPluginCache(); });
+    // Identity changes while tenant A's request is still outstanding: the
+    // mounted reader re-reads under the new identity.
+    listPlugins.mockResolvedValueOnce({ data: { plugins: [] } });
+    act(() => { clearQueryCache(); });
     await act(async () => {
       release({ data: { plugins: [{ id: 'tenant-a-plugin', name: 'A' }] } });
       await inFlight;
     });
-    first.unmount();
-
-    // A fresh consumer must NOT be served tenant A's list from cache — the
-    // stale write must have been discarded, forcing a new request.
-    listPlugins.mockResolvedValueOnce({ data: { plugins: [] } });
-    renderHook(() => usePlugins(true));
     await waitFor(() => expect(listPlugins).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(first.result.current.isLoading).toBe(false));
+    expect(first.result.current.plugins).toEqual([]);
+
+    // A fresh consumer is served the new identity's answer, never tenant A's.
+    const second = renderHook(() => usePlugins(true));
+    expect(second.result.current.plugins).toEqual([]);
   });
 });
 

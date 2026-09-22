@@ -16,12 +16,9 @@ const mockSelect = jest.fn<AnyFn>();
 const mockDelete = jest.fn<AnyFn>();
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitPipelineAudit: mockEmitPipelineAudit,
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPipelineAudit,
   sendSuccess: jest.fn<AnyFn>(),
   sendBadRequest: jest.fn<AnyFn>(),
   sendError: jest.fn<AnyFn>(),
@@ -52,7 +49,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
-/** The listing data source the manifest's listed-version check reads (W2). */
+/** The listing data source the manifest's listed-version check reads. */
 const mockListingSource = {
   liveListings: jest.fn(async (): Promise<unknown[]> => []),
   publishersByIds: jest.fn(async (): Promise<unknown[]> => []),
@@ -446,7 +443,7 @@ describe('POST /pipelines/registry', () => {
     });
   });
 
-  // W0.1 step manifest: a post-deploy registration carries the synth's
+  // Step manifest: a post-deploy registration carries the synth's
   // (stage, action) → plugin map and REPLACES the stored one in the same tx.
   describe('step manifest', () => {
     const DIGEST = `sha256:${'a'.repeat(64)}`;

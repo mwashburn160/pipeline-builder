@@ -37,6 +37,8 @@ import {
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
+import { envInt } from '../utils/env.js';
+import { serviceEndpoint } from '../utils/service-registry.js';
 
 const logger = createLogger('jwks-cache');
 
@@ -224,7 +226,7 @@ export class JwksCache {
  */
 async function fetchPlatformJwks(): Promise<JwksDocument> {
   const absolute = process.env.PLATFORM_JWKS_URL;
-  const timeout = parseInt(process.env.JWKS_FETCH_TIMEOUT_MS || '3000', 10);
+  const timeout = envInt('JWKS_FETCH_TIMEOUT_MS', 3000, { min: 1 });
   if (absolute) return fetchJwksFromUrl(absolute, timeout);
 
   // Loaded LAZILY, on the first fetch. A static import would put the HTTP client
@@ -233,8 +235,7 @@ async function fetchPlatformJwks(): Promise<JwksDocument> {
   // keeps partial `http-client.js` mocks in the service suites working.
   const { InternalHttpClient } = await import('./http-client.js');
   const client = new InternalHttpClient({
-    host: process.env.PLATFORM_SERVICE_HOST || 'platform',
-    port: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
+    ...serviceEndpoint('platform'),
     timeout,
   });
   const res = await client.get<unknown>(JWKS_PATH, { idempotent: true });

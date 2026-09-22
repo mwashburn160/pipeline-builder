@@ -59,12 +59,17 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
-  // Reset offset when filters change. Stable comparison via JSON so the
-  // dep array stays a single string and doesn't pick up object identity.
+  // Reset the offset when the filters change — DURING render, so the fetch
+  // effect sees the new filters and offset 0 together and issues one request.
+  // (Resetting in a separate effect would first fetch the new filters at the
+  // stale offset.) Compared by JSON so object identity
+  // doesn't count as a change.
   const filterKey = JSON.stringify(filters);
-  useEffect(() => {
-    setPagination((p) => (p.offset === 0 ? p : { ...p, offset: 0 }));
-  }, [filterKey]);
+  const [shownFilterKey, setShownFilterKey] = useState(filterKey);
+  if (shownFilterKey !== filterKey) {
+    setShownFilterKey(filterKey);
+    if (pagination.offset !== 0) setPagination((p) => ({ ...p, offset: 0 }));
+  }
 
   useEffect(() => {
     return runCancellableFetch(

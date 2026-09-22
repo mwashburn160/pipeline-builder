@@ -201,8 +201,8 @@ describe('AddonGrid — unsubscribed preview', () => {
 });
 
 describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
-  // A plain capacity pack: stackable, no volume tiers. It used to render a bare
-  // ±1 stepper that showed neither the resulting total nor a pack's cap.
+  // A plain capacity pack: stackable, no volume tiers. Its stepper must show the
+  // resulting total and the pack's cap, not a bare ±1.
   const pluginPack = {
     id: 'plugin_pack', name: 'Plugin Pack (+25)', description: '25 additional plugins.',
     grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, stackable: true,

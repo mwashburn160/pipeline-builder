@@ -5,8 +5,8 @@
  * Tests for subscription lifecycle background checker.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -18,16 +18,9 @@ const mockPushComplianceSets = jest.fn<(...args: unknown[]) => Promise<boolean>>
 // The EFFECTIVE feature set (tier ∪ bundles) the compliance drift leg derives its
 // expected sets from. Default: no compliance features (⇒ expected sets []).
 const mockEffectiveFeatureSet = jest.fn<(...args: unknown[]) => string[]>().mockReturnValue([]);
-// Real, pure derivation — standard/advanced from the effective feature flags.
-const realDeriveComplianceSets = (features: readonly string[]): string[] => {
-  const sets: string[] = [];
-  if (features.includes('compliance_standard')) sets.push('standard');
-  if (features.includes('compliance_advanced')) sets.push('advanced');
-  return sets;
-};
 
 // EXPECTED entitlements the drift pass compares against. effectiveEntitlements is
-// mocked (billing-helpers) so tests drive the expected side deterministically.
+// mocked so tests drive the expected side deterministically.
 const EXPECTED_LIMITS: Record<string, number> = {
   plugins: 50,
   pipelines: 5,
@@ -86,6 +79,12 @@ const mockCreateScheduler = jest.fn((opts: { run: () => Promise<void> }) => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  // Delivery rides the message service's internal notify route; report it the
+  // way the real sender does (true only on a 2xx).
+  sendSystemNotification: async (n: unknown, opts: unknown) => {
+    const r = await mockMessagePost('/messages/internal/notify', n, opts) as { statusCode: number } | null;
+    return !!r && r.statusCode >= 200 && r.statusCode < 300;
+  },
   createSafeClient: () => {
     safeClientsCreated++;
     return {
@@ -118,20 +117,22 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   // The cron + entitlement-drift reader mint their service token via this helper.
   billingServiceAuth: (_orgId: string) => 'Bearer test-service-token',
-  syncEntitlements: (...args: unknown[]) => mockSyncEntitlements(...args),
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
-  // Re-driven by the provider add-on sync reconciler (Tier-4b).
-  syncProviderAddons: (...args: unknown[]) => mockSyncProviderAddons(...args),
-  // Consumed by the drift pass (EXPECTED side) + the real entitlement-drift
-  // read helper (timeout). effectiveEntitlements is a spy so tests drive expected.
-  effectiveEntitlements: (...args: unknown[]) => mockEffectiveEntitlements(...args),
   getBundleCatalog: () => [],
+  // The real downstream client reads the outbound timeout from here.
   getBillingTimeout: () => 5000,
+}));
+
+// Re-driven by the provider add-on sync reconciler.
+jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
+  syncProviderAddons: (...args: unknown[]) => mockSyncProviderAddons(...args),
+}));
+
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
+  syncEntitlements: (...args: unknown[]) => mockSyncEntitlements(...args),
   // Compliance-set drift leg: the expected-set derivation + the surgical re-push.
   effectiveFeatureSet: (...args: unknown[]) => mockEffectiveFeatureSet(...args),
-  deriveComplianceSets: (features: readonly string[]) => realDeriveComplianceSets(features),
   pushComplianceSetsToCompliance: (...args: unknown[]) => mockPushComplianceSets(...args),
-  clampRetentionDays: (v: number) => (v === -1 ? -1 : Math.min(v, 730)),
   // Faithful to the real derivation: plan tier + add-ons while manageable and not
   // grace-downgraded, else the developer baseline; null on a dangling plan.
   currentSubscriptionEntitlement: async (sub: { status: string; planId: string; addons?: unknown[]; metadata?: Record<string, unknown> }) => {
@@ -141,6 +142,11 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
     const plan = await mockPlanFindById(sub.planId) as { tier: string } | null;
     return plan ? { tier: plan.tier, addons: [...(sub.addons ?? [])] } : null;
   },
+}));
+
+// The drift pass's EXPECTED side: effectiveEntitlements is a spy so tests drive it.
+jest.unstable_mockModule('../src/config/entitlements.js', () => ({
+  effectiveEntitlements: (...args: unknown[]) => mockEffectiveEntitlements(...args),
 }));
 
 const mockFind = jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]);
@@ -651,7 +657,7 @@ describe('Subscription Lifecycle Checker', () => {
         { '_id': upcomingSub._id, 'metadata.lastRenewalReminder': { $ne: expect.any(String) } },
         { $set: { 'metadata.lastRenewalReminder': expect.any(String) } },
       );
-      expect(mockMessagePost).toHaveBeenCalledWith('/messages', expect.objectContaining({ recipientOrgId: 'org-3' }), expect.anything());
+      expect(mockMessagePost).toHaveBeenCalledWith('/messages/internal/notify', expect.objectContaining({ recipientOrgId: 'org-3' }), expect.anything());
       expect(mockUpdateOne).not.toHaveBeenCalledWith(expect.objectContaining({ 'metadata.lastRenewalReminder': expect.any(String) }), expect.anything());
     });
 

@@ -1,32 +1,23 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError } from '@pipeline-builder/api-core';
 import { withRoute, type WithRouteOptions } from '@pipeline-builder/api-server';
 import type { Request, RequestHandler, Response } from 'express';
 
-import { callerFromRequest, EcosystemError, type Caller } from '../services/ecosystem/context.js';
+import { callerFromRequest, type Caller } from '../services/ecosystem/context.js';
 
 /**
  * `withRoute` for the ecosystem routes: hands the handler the acting
- * {@link Caller}, and answers an {@link EcosystemError} with its code AND its
- * structured `details` (the failing gates, the quota standing) — the generic
- * AppError mapping would drop them.
+ * {@link Caller}. An `EcosystemError` answers with its code and its
+ * structured `details` (the failing gates, the quota standing) through the
+ * generic AppError mapping.
  */
 export function ecosystemRoute(
   handler: (args: { req: Request; res: Response; caller: Caller }) => Promise<void>,
   options: WithRouteOptions = {},
 ): RequestHandler {
   return withRoute(async ({ req, res }) => {
-    try {
-      await handler({ req, res, caller: callerFromRequest(req) });
-    } catch (err) {
-      if (err instanceof EcosystemError) {
-        sendError(res, err.statusCode, err.message, err.code, err.details);
-        return;
-      }
-      throw err;
-    }
+    await handler({ req, res, caller: callerFromRequest(req) });
   }, options) as RequestHandler;
 }
 

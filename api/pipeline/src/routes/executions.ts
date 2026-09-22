@@ -12,12 +12,12 @@ import {
   validateBody,
   audited,
   actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute, checkQuota, incrementQuotaFromCtx, incCounter } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute, checkQuota, meterQuotaOnSuccess, incCounter } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitPipelineAudit } from '../services/audit.js';
 import { executionIdempotency } from '../services/execution-idempotency.js';
 import {
   pipelineExecutionService,
@@ -60,13 +60,15 @@ function awsDetail(err: unknown): Record<string, unknown> | undefined {
  */
 export function createExecutionRoutes(quotaService: QuotaService): Router {
   const router = Router();
+  // apiCalls metering: once per 2xx, never for service principals.
+  const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
 
   // Auth + orgId, then require the write permission. Shared by both POST routes.
   const writeGuards = [...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write')];
 
   router.post(
     '/:pipelineId/executions',
-    ...writeGuards,
+    meter, ...writeGuards,
     audited('pipeline.execution.start'),
     // Meter the trigger like the other quota'd routes: 429 when the org is over
     // its apiCalls budget BEFORE any AWS call. Increment happens on success below.
@@ -93,10 +95,9 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         incCounter('pipeline_executions_total', { outcome: 'started' });
 
         // Meter the successful trigger against the org's apiCalls budget.
-        incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
 
         // Best-effort attributed audit — the AWS CodePipeline start succeeded.
-        emitPipelineAudit({
+        recordAudit({
           action: 'pipeline.execution.start',
           actorId: actorId({ userId }),
           orgId,
@@ -154,7 +155,7 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
       incCounter('pipeline_executions_total', { outcome: 'stopped' });
 
       // Best-effort attributed audit — the AWS CodePipeline stop succeeded.
-      emitPipelineAudit({
+      recordAudit({
         action: 'pipeline.execution.cancel',
         actorId: actorId({ userId }),
         orgId,

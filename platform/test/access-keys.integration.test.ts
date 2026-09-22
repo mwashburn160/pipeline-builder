@@ -46,7 +46,12 @@ suite('access keys (real Mongo)', () => {
     await mongoose.connect(process.env.MONGODB_URI);
     m = await import('../src/models/index.js');
     ({ apiKeyService } = await import('../src/services/api-key-service.js'));
-    token = await import('../src/utils/token.js');
+    token = {
+      ...(await import('../src/services/session/membership-context.js')),
+      ...(await import('../src/services/session/access-tokens.js')),
+      ...(await import('../src/services/session/refresh-sessions.js')),
+      ...(await import('../src/utils/token.js')),
+    };
     apiKeyUtils = await import('@pipeline-builder/api-core');
     // Platform signs every user token with ES256; install an in-memory key so
     // an exchanged key token can be minted (and verified) here.

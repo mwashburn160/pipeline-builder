@@ -152,22 +152,8 @@ function displayStartupInfo(options: CliOptions): void {
   }
 }
 
-/**
- * Register all CLI commands
- */
-function registerCommands(): void {
-  printDebug('Registering commands');
-
-  // Configure program
-  program
-    .name(APP_NAME)
-    .description(APP_DESCRIPTION)
-    .version(APP_VERSION, '-v, --version', 'Show CLI version')
-    .option('--debug', 'Enable debug output with stack traces', false)
-    .option('--verbose', 'Show detailed information', false)
-    .option('--quiet', 'Minimal output (errors only)', false)
-    .option('--no-color', 'Disable colored output', false)
-    .addHelpText('after', `
+/** Top-level `--help` epilogue: command groups, auth, env vars, examples, exit codes. */
+const HELP_TEXT = `
 Command groups:
   auth      Authenticate and manage credentials (login, pat)
   pipeline  Create, inspect, and deploy pipelines (create, list, get, register, synth, deploy)
@@ -208,21 +194,14 @@ Exit codes (0 = success; failures use a standard code by error type):
   6 not-found · 7 network · 8 config · 9 file-system · 10 timeout
 
 Run '${APP_NAME} <group> --help' to see a group's subcommands.
-`);
+`;
 
-  // Fail-fast preflight: before ANY command's action runs, verify the local
-  // tools that command needs. Commander skips this for --help/--version and for
-  // help output, so those always work; API-only commands declare no requirements
-  // and pass through untouched.
-  program.hook('preAction', (_thisCommand, actionCommand) => preflightCommandTools(actionCommand));
-
-  // Top-level meta commands (no namespace).
-  version(program);
-  status(program); // Show environment and connectivity status
-
-  // Task namespaces — commands are grouped by the job the user is doing, not by
-  // implementation. Each parent is a subcommand container; the leaf verb lives in
-  // the command file (e.g. `.command('list')`), so `pipeline list` reads as a task.
+/**
+ * Task namespaces — commands are grouped by the job the user is doing, not by
+ * implementation. Each parent is a subcommand container; the leaf verb lives in
+ * the command file (e.g. `.command('list')`), so `pipeline list` reads as a task.
+ */
+function registerTaskNamespaces(): void {
   printDebug('Registering task namespaces');
 
   // auth — authenticate and manage credentials
@@ -272,6 +251,99 @@ Run '${APP_NAME} <group> --help' to see a group's subcommands.
   // org — organization data operations
   const org = program.command('org').description('Organization data operations');
   orgExport(org); // org export — GDPR portability export
+}
+
+/** Print shell completions for `shell` (bash, zsh or fish). */
+function printCompletions(shell: string): void {
+  // Walk commander's registered tree so completions never drift from the actual
+  // surface. `topLevel` is the first-word set (namespaces + meta commands);
+  // `subs` maps each namespace to its leaf verbs for second-word completion.
+  const topLevel = program.commands.map(c => c.name()).sort();
+  const subs: Record<string, string[]> = {};
+  for (const c of program.commands) {
+    if (c.commands.length > 0) subs[c.name()] = c.commands.map(s => s.name()).sort();
+  }
+  const topLevelStr = topLevel.join(' ');
+  switch (shell) {
+    case 'bash': {
+      // Two-level: complete the group at word 1, its subcommands at word 2.
+      const cases = Object.entries(subs)
+        .map(([ns, leaves]) => `      ${ns}) COMPREPLY=($(compgen -W "${leaves.join(' ')}" -- "\${cur}"));;`)
+        .join('\n');
+      console.log(`# pipeline-manager bash completions
+_pipeline_manager_completions() {
+  local cur="\${COMP_WORDS[COMP_CWORD]}"
+  if [ "\${COMP_CWORD}" -eq 1 ]; then
+COMPREPLY=($(compgen -W "${topLevelStr}" -- "\${cur}"))
+return
+  fi
+  case "\${COMP_WORDS[1]}" in
+${cases}
+  esac
+}
+complete -F _pipeline_manager_completions pipeline-manager`);
+      break;
+    }
+    case 'zsh': {
+      const cases = Object.entries(subs)
+        .map(([ns, leaves]) => `        ${ns}) _values 'subcommand' ${leaves.join(' ')};;`)
+        .join('\n');
+      console.log(`# pipeline-manager zsh completions
+_pipeline_manager() {
+  if (( CURRENT == 2 )); then
+_values 'command' ${topLevel.join(' ')}
+return
+  fi
+  case "\${words[2]}" in
+${cases}
+  esac
+}
+compdef _pipeline_manager pipeline-manager`);
+      break;
+    }
+    case 'fish': {
+      const lines = [
+        `complete -c pipeline-manager -n '__fish_use_subcommand' -a '${topLevelStr}'`,
+        ...Object.entries(subs).map(([ns, leaves]) =>
+          `complete -c pipeline-manager -n '__fish_seen_subcommand_from ${ns}' -a '${leaves.join(' ')}'`),
+      ];
+      console.log(`# pipeline-manager fish completions\n${lines.join('\n')}`);
+      break;
+    }
+    default:
+      console.error(`Unknown shell: ${shell}. Use bash, zsh, or fish.`);
+      process.exit(1);
+  }
+}
+
+/**
+ * Register all CLI commands
+ */
+function registerCommands(): void {
+  printDebug('Registering commands');
+
+  // Configure program
+  program
+    .name(APP_NAME)
+    .description(APP_DESCRIPTION)
+    .version(APP_VERSION, '-v, --version', 'Show CLI version')
+    .option('--debug', 'Enable debug output with stack traces', false)
+    .option('--verbose', 'Show detailed information', false)
+    .option('--quiet', 'Minimal output (errors only)', false)
+    .option('--no-color', 'Disable colored output', false)
+    .addHelpText('after', HELP_TEXT);
+
+  // Fail-fast preflight: before ANY command's action runs, verify the local
+  // tools that command needs. Commander skips this for --help/--version and for
+  // help output, so those always work; API-only commands declare no requirements
+  // and pass through untouched.
+  program.hook('preAction', (_thisCommand, actionCommand) => preflightCommandTools(actionCommand));
+
+  // Top-level meta commands (no namespace).
+  version(program);
+  status(program); // Show environment and connectivity status
+
+  registerTaskNamespaces();
 
   // Shell completions
   printDebug('Registering completions command');
@@ -280,65 +352,7 @@ Run '${APP_NAME} <group> --help' to see a group's subcommands.
     .description('Generate shell completions (bash, zsh, fish)')
     .argument('<shell>', 'Shell type: bash, zsh, or fish')
     .action((shell: string) => {
-      // Walk commander's registered tree so completions never drift from the actual
-      // surface. `topLevel` is the first-word set (namespaces + meta commands);
-      // `subs` maps each namespace to its leaf verbs for second-word completion.
-      const topLevel = program.commands.map(c => c.name()).sort();
-      const subs: Record<string, string[]> = {};
-      for (const c of program.commands) {
-        if (c.commands.length > 0) subs[c.name()] = c.commands.map(s => s.name()).sort();
-      }
-      const topLevelStr = topLevel.join(' ');
-      switch (shell) {
-        case 'bash': {
-          // Two-level: complete the group at word 1, its subcommands at word 2.
-          const cases = Object.entries(subs)
-            .map(([ns, leaves]) => `      ${ns}) COMPREPLY=($(compgen -W "${leaves.join(' ')}" -- "\${cur}"));;`)
-            .join('\n');
-          console.log(`# pipeline-manager bash completions
-_pipeline_manager_completions() {
-  local cur="\${COMP_WORDS[COMP_CWORD]}"
-  if [ "\${COMP_CWORD}" -eq 1 ]; then
-    COMPREPLY=($(compgen -W "${topLevelStr}" -- "\${cur}"))
-    return
-  fi
-  case "\${COMP_WORDS[1]}" in
-${cases}
-  esac
-}
-complete -F _pipeline_manager_completions pipeline-manager`);
-          break;
-        }
-        case 'zsh': {
-          const cases = Object.entries(subs)
-            .map(([ns, leaves]) => `        ${ns}) _values 'subcommand' ${leaves.join(' ')};;`)
-            .join('\n');
-          console.log(`# pipeline-manager zsh completions
-_pipeline_manager() {
-  if (( CURRENT == 2 )); then
-    _values 'command' ${topLevel.join(' ')}
-    return
-  fi
-  case "\${words[2]}" in
-${cases}
-  esac
-}
-compdef _pipeline_manager pipeline-manager`);
-          break;
-        }
-        case 'fish': {
-          const lines = [
-            `complete -c pipeline-manager -n '__fish_use_subcommand' -a '${topLevelStr}'`,
-            ...Object.entries(subs).map(([ns, leaves]) =>
-              `complete -c pipeline-manager -n '__fish_seen_subcommand_from ${ns}' -a '${leaves.join(' ')}'`),
-          ];
-          console.log(`# pipeline-manager fish completions\n${lines.join('\n')}`);
-          break;
-        }
-        default:
-          console.error(`Unknown shell: ${shell}. Use bash, zsh, or fish.`);
-          process.exit(1);
-      }
+      printCompletions(shell);
     });
 
   printDebug('All commands registered successfully');

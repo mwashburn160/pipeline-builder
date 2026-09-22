@@ -22,15 +22,15 @@
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { TOTP_INVALID_CODE, TOTP_LOCKED_OUT } from './totp-errors.js';
+import { RECOVERY_CODES_NO_FACTOR, TOTP_INVALID_CODE } from './totp-errors.js';
 import { config } from '../config/index.js';
-import { MfaRecoveryCodes, UserTotp, WebAuthnCredential } from '../models/index.js';
+import { assertNotLocked, recordFailure as recordAttemptFailure } from '../helpers/attempt-lockout.js';
+import { hasAnyMfaFactor } from '../helpers/auth-factors.js';
+import { MfaRecoveryCodes } from '../models/index.js';
 import { RECOVERY_CODE_COUNT, generateRecoveryCode, hashRecoveryCode } from '../utils/totp.js';
 
 const logger = createLogger('recovery-codes');
 
-/** `POST /auth/recovery-codes` on an account that has no second factor. */
-export const RECOVERY_CODES_NO_FACTOR = 'RECOVERY_CODES_NO_FACTOR';
 
 /** What the settings page shows (never a code). */
 export interface RecoveryCodeStatus {
@@ -39,26 +39,14 @@ export interface RecoveryCodeStatus {
   generatedAt: Date | null;
 }
 
-type StoredSet = { codes?: Array<{ hash: string; usedAt?: Date | null }>; generatedAt?: Date; lockedUntil?: Date | null };
-
 function mint(): { codes: string[]; entries: Array<{ hash: string; usedAt: null }> } {
   const codes = Array.from({ length: RECOVERY_CODE_COUNT }, generateRecoveryCode);
   return { codes, entries: codes.map((c) => ({ hash: hashRecoveryCode(c), usedAt: null })) };
 }
 
-/** Whether the account holds a second factor: a passkey or a CONFIRMED
- *  authenticator-app enrolment. */
-export async function hasSecondFactor(userId: string): Promise<boolean> {
-  const [passkeys, totp] = await Promise.all([
-    WebAuthnCredential.countDocuments({ userId }),
-    UserTotp.exists({ userId, activatedAt: { $ne: null } }),
-  ]);
-  return passkeys > 0 || !!totp;
-}
-
 /** The status view. No set reads as zero of zero. */
 export async function getRecoveryCodeStatus(userId: string): Promise<RecoveryCodeStatus> {
-  const doc = await MfaRecoveryCodes.findOne({ userId }).select('+codes').lean() as StoredSet | null;
+  const doc = await MfaRecoveryCodes.findOne({ userId }).select('+codes').lean();
   const codes = doc?.codes ?? [];
   return {
     remaining: codes.filter((c) => !c.usedAt).length,
@@ -98,7 +86,7 @@ export async function issueRecoveryCodesIfAbsent(userId: string): Promise<string
  * the account has no second factor to back up.
  */
 export async function regenerateRecoveryCodes(userId: string): Promise<{ recoveryCodes: string[] }> {
-  if (!(await hasSecondFactor(userId))) throw new Error(RECOVERY_CODES_NO_FACTOR);
+  if (!(await hasAnyMfaFactor(userId))) throw new Error(RECOVERY_CODES_NO_FACTOR);
   const { codes, entries } = mint();
   await MfaRecoveryCodes.updateOne(
     { userId },
@@ -119,7 +107,7 @@ export async function spendRecoveryCode(userId: string, code: string): Promise<n
     { userId, codes: { $elemMatch: { hash, usedAt: null } } },
     { $set: { 'codes.$.usedAt': new Date() } },
     { new: true, projection: { codes: 1 } },
-  ).select('+codes').lean() as StoredSet | null;
+  ).select('+codes').lean();
   if (!updated) return null;
   return (updated.codes ?? []).filter((c) => !c.usedAt).length;
 }
@@ -131,9 +119,9 @@ export async function spendRecoveryCode(userId: string, code: string): Promise<n
  * sentinels the authenticator path uses, so the sign-in answers identically.
  */
 export async function verifyRecoveryCode(userId: string, code: string): Promise<number> {
-  const doc = await MfaRecoveryCodes.findOne({ userId }).select('lockedUntil').lean() as StoredSet | null;
+  const doc = await MfaRecoveryCodes.findOne({ userId }).select('lockedUntil').lean();
   if (!doc) throw new Error(TOTP_INVALID_CODE);
-  if (doc.lockedUntil && new Date(doc.lockedUntil).getTime() > Date.now()) throw new Error(TOTP_LOCKED_OUT);
+  assertNotLocked(doc);
 
   const remaining = await spendRecoveryCode(userId, code);
   if (remaining !== null) {
@@ -144,21 +132,10 @@ export async function verifyRecoveryCode(userId: string, code: string): Promise<
   throw new Error(TOTP_INVALID_CODE);
 }
 
-/** Count a failed recovery-only attempt; lock once the run reaches the limit
- *  (the authenticator app's limits, so both legs bound guessing alike). */
-async function recordFailure(userId: string): Promise<void> {
-  const { maxFailures, lockoutMs } = config.auth.totp;
-  const updated = await MfaRecoveryCodes.findOneAndUpdate(
-    { userId },
-    { $inc: { failedAttempts: 1 } },
-    { new: true, projection: { failedAttempts: 1 } },
-  ).lean() as { failedAttempts?: number } | null;
-  if (!updated || (updated.failedAttempts ?? 0) < maxFailures) return;
-  await MfaRecoveryCodes.updateOne(
-    { userId },
-    { $set: { lockedUntil: new Date(Date.now() + lockoutMs), failedAttempts: 0 } },
-  );
-  logger.warn('Recovery-code sign-in locked out after repeated failures', { userId, lockoutMs });
+/** Count a failed recovery-only attempt (the authenticator app's limits, so
+ *  both legs bound guessing alike). */
+function recordFailure(userId: string): Promise<void> {
+  return recordAttemptFailure(MfaRecoveryCodes, userId, 'Recovery-code sign-in', config.auth.totp);
 }
 
 /** Delete the set. Returns whether one existed. */
@@ -170,6 +147,6 @@ export async function removeRecoveryCodes(userId: string): Promise<boolean> {
 /** Drop the set once the account has no second factor left (called after a
  *  factor is removed). Returns whether it was dropped. */
 export async function removeRecoveryCodesIfNoFactor(userId: string): Promise<boolean> {
-  if (await hasSecondFactor(userId)) return false;
+  if (await hasAnyMfaFactor(userId)) return false;
   return removeRecoveryCodes(userId);
 }

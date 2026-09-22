@@ -4,9 +4,8 @@
 /**
  * Secret-redaction for compliance-event `attributes`.
  *
- * Shared by the plugin AND pipeline services (previously a byte-identical copy
- * in each — a security-critical function that must not drift: a future "also
- * redact `credentials`" fix has to protect BOTH services). Both feed entity
+ * Shared by the plugin AND pipeline services — a security-critical function
+ * that must not drift: an "also redact `credentials`" fix has to protect BOTH. Both feed entity
  * attributes to the compliance engine over Redis, and neither may leak plaintext
  * secrets there.
  *

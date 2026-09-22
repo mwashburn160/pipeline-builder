@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * GROUP-claim extraction for just-in-time provisioning (3a).
+ * GROUP-claim extraction for just-in-time provisioning.
  *
  * Kept dependency-free (no models, no config) so both ends can use it: the OIDC
  * engine reads groups off a validated `id_token`, and the SCIM group endpoints
- * (3b) normalize the group names they are handed through the SAME rules, so a
+ * normalize the group names they are handed through the SAME rules, so a
  * group spelled `Engineering` by one protocol and `engineering` by the other
  * resolves to one mapping.
  */

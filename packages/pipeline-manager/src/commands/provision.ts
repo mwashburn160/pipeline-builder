@@ -5,14 +5,14 @@ import { readFileSync, existsSync } from 'fs';
 import * as path from 'node:path';
 import * as readline from 'node:readline/promises';
 import { Command } from 'commander';
-import { diagnoseFailure, isAiConfigured, parseGoal } from '../agent/ai.js';
+import { diagnoseFailure, isAiConfigured, parseGoal, type AiOptions } from '../agent/ai.js';
 import { bootstrapCommand, resolveBootstrap, type BootstrapSpec } from '../agent/bootstrap.js';
 import { createEnvFile, envFileMissing } from '../agent/env-file.js';
 import { entrypointExists, executionBlocked, runScript } from '../agent/executor.js';
 import { deriveHealthUrl, waitHealthy, ensureMinikubeGateway } from '../agent/health.js';
 import { checkHostPorts, discoverHostPorts, stackRunning } from '../agent/ports.js';
 import { resolvePostSteps, type PostStep, type SkippedStep } from '../agent/post-steps.js';
-import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied } from '../agent/prereqs.js';
+import { checkPrereqs, gitAvailable, gitSupportsSparseCheckout, prereqsSatisfied, type PrereqCheck } from '../agent/prereqs.js';
 import {
   assembleCommand,
   isTargetId,
@@ -21,6 +21,7 @@ import {
   TARGETS,
   TARGET_IDS,
   teardownCommand,
+  type AssembleResult,
   type TargetId,
   type TargetSpec,
 } from '../agent/targets.js';
@@ -327,7 +328,7 @@ export async function runPostSteps(
  * Sparse-clone the platform repo (when --repo, or accepted via the interactive
  * offer), repoint cwd into it, and verify the deploy entrypoint exists. Owns the
  * cwd/bootstrapped state. Sets exitCode on a hard failure (clone error / missing
- * entrypoint), matching the old inline behavior; a plain decline leaves exitCode
+ * entrypoint); a plain decline leaves exitCode
  * untouched. Returns ok:false when the caller must abort.
  */
 export async function bootstrapAndLocate(
@@ -469,6 +470,187 @@ function redactSecrets(text: string, spec: TargetSpec, params: Record<string, un
 }
 
 /**
+ * Assemble deploy params from explicit flags (flags always win over the NL
+ * parse, which only fills gaps).
+ */
+export function buildParams(options: Record<string, unknown>, selfInit: boolean): Record<string, unknown> {
+  return {
+    region: options.region,
+    domain: options.domain,
+    hostedZoneId: options.hostedZoneId,
+    deployMode: options.deployMode,
+    keyPair: options.keyPair,
+    instanceType: options.instanceType,
+    // ec2 LEAN mode (boolean) → assembleCommand emits `--lean`, which setup.sh
+    // forwards to the CFN `Lean` param. Only ec2's spec lists it; other targets ignore it.
+    lean: options.lean === true,
+    // Deploy-time resource identity: ec2 emits --stack-name (key stackName), eks emits
+    // --cluster-name (key clusterName). Both also drive teardown. Undefined → defaults.
+    stackName: options.stackName,
+    clusterName: options.clusterName,
+    ghcrToken: options.ghcrToken,
+    // email/noEmail are coerced AFTER the NL merge below — parseGoal can return
+    // `email`, so pre-coercing here (never-undefined) would let the merge's
+    // `=== undefined` guard silently drop an AI-parsed email choice. Left out of
+    // this literal on purpose; resolved a few lines down.
+    emailFrom: options.emailFrom,
+    emailFromName: options.emailFromName,
+    alertEmail: options.alertEmail,
+    noCreateSesIdentity: options.skipSesIdentity,
+    // The AWS deploys self-init by default (ec2 on first boot, eks in setup.sh's final
+    // phase), so we emit the load-bearing `--no-auto-init` when the mode is NOT auto
+    // (manual/skip = "don't let the deploy init itself"). `--auto-init` (a no-op reaffirm)
+    // is never emitted. Only ec2/eks carry these flags in their spec; other targets ignore it.
+    noAutoInit: !selfInit,
+  };
+}
+
+/**
+ * `--diagnose <file>`: explain a deploy failure with the configured model. A
+ * read-only inspection mode — the caller returns afterwards whether or not a
+ * target was given, so it never falls through into a (possibly --yes) deploy.
+ */
+export async function runDiagnose(file: string, json: boolean, aiOpts: AiOptions, executionId: string): Promise<void> {
+  let failureText: string;
+  try {
+    failureText = readFileSync(file, 'utf-8');
+  } catch {
+    printError(`Cannot read --diagnose file: ${file}`);
+    process.exitCode = 1;
+    return;
+  }
+  const diagnosis = isAiConfigured(aiOpts) ? await diagnoseFailure(failureText, aiOpts) : null;
+  // With --json, the diagnosis IS the machine-readable output — emit it
+  // alone (don't also print text, which would corrupt the JSON stream).
+  if (json) {
+    console.log(JSON.stringify({ success: true, executionId, diagnosis }, null, 2));
+    return;
+  }
+  if (diagnosis) {
+    printSection('Failure diagnosis');
+    printInfo(diagnosis);
+  } else {
+    printWarning('Diagnosis unavailable (no AI key configured or the model could not be reached).');
+  }
+}
+
+/** Print the provision plan (shown before the gated execution). */
+export function printPlan(p: {
+  spec: TargetSpec;
+  target: TargetId;
+  prereqs: PrereqCheck[];
+  missing: AssembleResult['missing'];
+  bootstrap: BootstrapSpec;
+  bootstrapCmd: string | null;
+  sparsePaths: string[];
+  command: string;
+  postSteps: PostStep[];
+  skippedSteps: SkippedStep[];
+}): void {
+  const { spec, target, prereqs, missing, bootstrap, bootstrapCmd, sparsePaths, command, postSteps, skippedSteps } = p;
+  printSection(`Provision plan — ${spec.label}`);
+  printKeyValue({ 'Target': target, 'Best for': spec.bestFor, 'Cost': spec.cost });
+
+  printSection('Prerequisites');
+  for (const c of prereqs) printInfo(`${c.ok ? '✓' : '✗'} ${c.name} — ${c.detail}`);
+  if (!prereqsSatisfied(prereqs)) printWarning('Resolve the failing prerequisites above before deploying.');
+
+  if (missing.length > 0) {
+    printSection('Missing required inputs');
+    for (const m of missing) printInfo(`  --${m.flag}  (${m.description})`);
+  }
+
+  if (bootstrapCmd) {
+    printSection('Bootstrap (sparse git clone, runs first)');
+    printInfo(`Clone ${bootstrap.repo} @ ${bootstrap.ref} → ${bootstrap.workdir}; folders: ${sparsePaths.join(', ')}`);
+    printInfo(bootstrapCmd);
+  }
+
+  printSection('Command to run');
+  printInfo(command);
+
+  if (postSteps.length > 0 || skippedSteps.length > 0) {
+    printSection('Post-install steps');
+    for (const s of postSteps) printInfo(`• ${s.label}\n    ${s.command}`);
+    for (const s of skippedSteps) printWarning(`Skipped ${s.id}: ${s.reason}`);
+  }
+}
+
+/**
+ * Plugins were picked interactively: re-check the plugin-specific prereqs that
+ * were deliberately not hard-required up front (e.g. yq for minikube plugin
+ * builds). Offer to fetch any fetchable one; warn (don't block — the platform
+ * still deploys) if it can't be resolved, so the later plugin build doesn't
+ * fail opaquely.
+ */
+async function recheckPluginPrereqs(target: TargetId, wantBootstrap: boolean, prereqs: PrereqCheck[], yes: boolean): Promise<void> {
+  const pluginPrereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: true });
+  const pluginGaps = pluginPrereqs.filter((c) => !c.ok && c.required && !prereqs.some((p) => p.name === c.name));
+  for (const c of pluginGaps) {
+    if (isFetchable(c.name) && await confirm(`\n${c.name} is needed to build plugins but isn't installed — fetch the static binary into ${TOOLS_DIR}?`, yes)) {
+      printInfo(`Fetching ${c.name}…`);
+      if (!fetchTool(c.name)) printWarning(`Couldn't fetch ${c.name} — install it before the plugin build runs.`);
+    } else {
+      printWarning(`${c.name} missing — the plugin load/build step may fail. ${c.detail}`);
+    }
+  }
+}
+
+/**
+ * local/minikube's setup.sh REQUIRES a `.env` and aborts without it — create
+ * it from .env.example with generated secrets so the deploy is non-interactive.
+ * ec2 and eks don't need a local `.env`: ec2 bootstraps its secrets on the
+ * instance, and eks's setup.sh creates the k8s secrets itself.
+ */
+export async function ensureLocalEnvFile(target: TargetId, spec: TargetSpec, cwd: string, yes: boolean): Promise<void> {
+  if ((target !== 'docker' && target !== 'minikube') || !envFileMissing(cwd, spec.dir)) return;
+  if (await confirm(`\n${spec.dir}/.env not found — create it from .env.example (generates secrets; edit later for optional integrations like OAuth)?`, yes)) {
+    const n = createEnvFile(cwd, spec.dir);
+    printSuccess(`Created ${spec.dir}/.env — ${n} secret(s) generated.`);
+  } else {
+    printWarning('Continuing without .env — setup.sh will abort if it stays missing.');
+  }
+}
+
+/**
+ * Any missing required prereq that's a single static binary (e.g. yq) can be
+ * fetched into the tools cache instead of a system install — no brew/apt.
+ * Offer it, then re-check (the cache dir is already on PATH). Returns the
+ * (possibly refreshed) prereq list.
+ */
+export async function offerToolFetch(prereqs: PrereqCheck[], yes: boolean, recheck: () => PrereqCheck[]): Promise<PrereqCheck[]> {
+  const fetchable = prereqs.filter((c) => !c.ok && c.required && isFetchable(c.name));
+  if (fetchable.length === 0) return prereqs;
+  const names = fetchable.map((c) => c.name).join(', ');
+  if (!(await confirm(`\n${names} not installed — fetch the official static binary into ${TOOLS_DIR} (no system install)?`, yes))) return prereqs;
+  for (const c of fetchable) {
+    printInfo(`Fetching ${c.name}…`);
+    if (!fetchTool(c.name)) printWarning(`Couldn't fetch ${c.name} — install it manually and re-run.`);
+  }
+  return recheck();
+}
+
+/** Verify health after the deploy (CREATE_COMPLETE != serving). */
+async function verifyHealth(target: TargetId, url: string): Promise<void> {
+  printSection('Verifying health');
+  // Minikube reaches the gateway via a kubectl port-forward that setup.sh
+  // backgrounds and that can die/fail to bind — (re)start it before polling
+  // so we don't sit at the gate on a dead forward while the pods are fine.
+  if (target === 'minikube') {
+    await ensureMinikubeGateway(url, { onInfo: (m) => printInfo(m) });
+  }
+  printInfo(`Polling ${url}/health …`);
+  // Fresh EKS legitimately needs longer than the 300s default: Karpenter provisions
+  // nodes, ~10 services cold-pull images, the ALB provisions (~2-3 min), and the
+  // Route 53 alias propagates. Give it 15 min before surfacing the not-reachable note.
+  const healthTimeoutMs = target === 'eks' ? 900_000 : undefined;
+  const health = await waitHealthy(url, { timeoutMs: healthTimeoutMs, onTick: (m) => printInfo(m) });
+  // Green only when fully ready; a "health OK but /ready never came" proceed-
+  // anyway state is healthy:true but degraded → warn so it doesn't read as done.
+  (health.healthy && health.ready ? printSuccess : printWarning)(`${health.url} — ${health.detail}`);
+}
+
+/**
  * Registers the `provision` command — an AI-assisted installer for the Pipeline
  * Builder PLATFORM (local/minikube/EC2/EKS). It prints the assembled plan
  * (prereq checks, NL-goal parsing, command assembly) and then DEPLOYS, gated by
@@ -530,8 +712,7 @@ export function provision(program: Command): void {
       const executionId = printCommandHeader('Provision');
 
       try {
-        // Resolve the single post-deploy init mode (auto|manual|skip) from --init or its
-        // deprecated aliases. Two internal signals derive from it: whether init happens at
+        // Resolve the single post-deploy init mode (auto|manual|skip) from --init. Two internal signals derive from it: whether init happens at
         // all, and whether the DEPLOY self-runs it (vs. we surface it).
         const initMode = resolveInitMode(options);
         if (initMode === null) {
@@ -543,35 +724,7 @@ export function provision(program: Command): void {
         const selfInit = initMode === 'auto'; // auto → the deploy initializes itself
 
         // 1. Assemble params from explicit flags (flags always win over NL parse).
-        const params: Record<string, unknown> = {
-          region: options.region,
-          domain: options.domain,
-          hostedZoneId: options.hostedZoneId,
-          deployMode: options.deployMode,
-          keyPair: options.keyPair,
-          instanceType: options.instanceType,
-          // ec2 LEAN mode (boolean) → assembleCommand emits `--lean`, which setup.sh
-          // forwards to the CFN `Lean` param. Only ec2's spec lists it; other targets ignore it.
-          lean: options.lean === true,
-          // Deploy-time resource identity: ec2 emits --stack-name (key stackName), eks emits
-          // --cluster-name (key clusterName). Both also drive teardown. Undefined → defaults.
-          stackName: options.stackName,
-          clusterName: options.clusterName,
-          ghcrToken: options.ghcrToken,
-          // email/noEmail are coerced AFTER the NL merge below — parseGoal can return
-          // `email`, so pre-coercing here (never-undefined) would let the merge's
-          // `=== undefined` guard silently drop an AI-parsed email choice. Left out of
-          // this literal on purpose; resolved a few lines down.
-          emailFrom: options.emailFrom,
-          emailFromName: options.emailFromName,
-          alertEmail: options.alertEmail,
-          noCreateSesIdentity: options.skipSesIdentity,
-          // The AWS deploys self-init by default (ec2 on first boot, eks in setup.sh's final
-          // phase), so we emit the load-bearing `--no-auto-init` when the mode is NOT auto
-          // (manual/skip = "don't let the deploy init itself"). `--auto-init` (a no-op reaffirm)
-          // is never emitted. Only ec2/eks carry these flags in their spec; other targets ignore it.
-          noAutoInit: !selfInit,
-        };
+        const params = buildParams(options, selfInit);
         const aiOpts = { provider: options.aiProvider, model: options.model };
 
         // Bootstrap (sparse clone) + post-install selections.
@@ -628,29 +781,7 @@ export function provision(program: Command): void {
 
         // 3. Optional failure diagnosis (independent of a deploy plan).
         if (options.diagnose) {
-          let failureText: string;
-          try {
-            failureText = readFileSync(options.diagnose, 'utf-8');
-          } catch {
-            printError(`Cannot read --diagnose file: ${options.diagnose}`);
-            process.exitCode = 1;
-            return;
-          }
-          const diagnosis = isAiConfigured(aiOpts) ? await diagnoseFailure(failureText, aiOpts) : null;
-          // With --json, the diagnosis IS the machine-readable output — emit it
-          // alone (don't also print text, which would corrupt the JSON stream).
-          if (options.json) {
-            console.log(JSON.stringify({ success: true, executionId, diagnosis }, null, 2));
-            return;
-          }
-          if (diagnosis) {
-            printSection('Failure diagnosis');
-            printInfo(diagnosis);
-          } else {
-            printWarning('Diagnosis unavailable (no AI key configured or the model could not be reached).');
-          }
-          // --diagnose is a read-only inspection mode: return whether or not a target was
-          // given, so it never falls through into a (possibly --yes) deploy.
+          await runDiagnose(options.diagnose, options.json === true, aiOpts, executionId);
           return;
         }
 
@@ -739,47 +870,10 @@ export function provision(program: Command): void {
         }
 
         // 5. Print the plan (shown before the gated execution below).
-        printSection(`Provision plan — ${spec.label}`);
-        printKeyValue({ 'Target': target, 'Best for': spec.bestFor, 'Cost': spec.cost });
+        printPlan({ spec, target, prereqs, missing, bootstrap, bootstrapCmd, sparsePaths, command, postSteps, skippedSteps });
 
-        printSection('Prerequisites');
-        for (const c of prereqs) printInfo(`${c.ok ? '✓' : '✗'} ${c.name} — ${c.detail}`);
-        if (!prereqsSatisfied(prereqs)) printWarning('Resolve the failing prerequisites above before deploying.');
-
-        if (missing.length > 0) {
-          printSection('Missing required inputs');
-          for (const m of missing) printInfo(`  --${m.flag}  (${m.description})`);
-        }
-
-        if (bootstrapCmd) {
-          printSection('Bootstrap (sparse git clone, runs first)');
-          printInfo(`Clone ${bootstrap.repo} @ ${bootstrap.ref} → ${bootstrap.workdir}; folders: ${sparsePaths.join(', ')}`);
-          printInfo(bootstrapCmd);
-        }
-
-        printSection('Command to run');
-        printInfo(command);
-
-        if (postSteps.length > 0 || skippedSteps.length > 0) {
-          printSection('Post-install steps');
-          for (const s of postSteps) printInfo(`• ${s.label}\n    ${s.command}`);
-          for (const s of skippedSteps) printWarning(`Skipped ${s.id}: ${s.reason}`);
-        }
-
-        // 6. Any missing required prereq that's a single static binary (e.g. yq)
-        // can be fetched into the tools cache instead of a system install — no
-        // brew/apt. Offer it, then re-check (the cache dir is already on PATH).
-        const fetchable = prereqs.filter((c) => !c.ok && c.required && isFetchable(c.name));
-        if (fetchable.length > 0) {
-          const names = fetchable.map((c) => c.name).join(', ');
-          if (await confirm(`\n${names} not installed — fetch the official static binary into ${TOOLS_DIR} (no system install)?`, options.yes)) {
-            for (const c of fetchable) {
-              printInfo(`Fetching ${c.name}…`);
-              if (!fetchTool(c.name)) printWarning(`Couldn't fetch ${c.name} — install it manually and re-run.`);
-            }
-            prereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') });
-          }
-        }
+        // 6. Offer to fetch any missing single-binary prereq (see offerToolFetch).
+        prereqs = await offerToolFetch(prereqs, options.yes, () => checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: enabledLoadIds.includes('plugins') }));
 
         // 7b. Gated execution. Check prereqs / required inputs first — this also
         // catches a missing `git` when bootstrapping.
@@ -829,36 +923,12 @@ export function provision(program: Command): void {
           enabledLoadIds = loaded.enabledLoadIds;
           postSteps = loaded.steps;
           skippedSteps = loaded.skipped;
-          // Now that plugins may have been picked, re-check the plugin-specific prereqs we
-          // deliberately didn't hard-require up front (e.g. yq for minikube plugin builds).
-          // Offer to fetch any fetchable one; warn (don't block — the platform still deploys)
-          // if it can't be resolved, so the later plugin build doesn't fail opaquely.
           if (enabledLoadIds.includes('plugins')) {
-            const pluginPrereqs = checkPrereqs(target, { bootstrap: wantBootstrap, withPlugins: true });
-            const pluginGaps = pluginPrereqs.filter((c) => !c.ok && c.required && !prereqs.some((p) => p.name === c.name));
-            for (const c of pluginGaps) {
-              if (isFetchable(c.name) && await confirm(`\n${c.name} is needed to build plugins but isn't installed — fetch the static binary into ${TOOLS_DIR}?`, options.yes)) {
-                printInfo(`Fetching ${c.name}…`);
-                if (!fetchTool(c.name)) printWarning(`Couldn't fetch ${c.name} — install it before the plugin build runs.`);
-              } else {
-                printWarning(`${c.name} missing — the plugin load/build step may fail. ${c.detail}`);
-              }
-            }
+            await recheckPluginPrereqs(target, wantBootstrap, prereqs, options.yes);
           }
         }
-        // local/minikube's setup.sh REQUIRES a `.env` and aborts without it — create
-        // it from .env.example with generated secrets so the deploy is non-interactive.
-        // ec2 and eks don't have provision generate a local `.env`: ec2 bootstraps its
-        // secrets on the instance, and eks's setup.sh creates the k8s secrets itself
-        // (a deploy/aws/eks/.env.example + secret step is a setup.sh TODO).
-        if ((target === 'docker' || target === 'minikube') && envFileMissing(cwd, spec.dir)) {
-          if (await confirm(`\n${spec.dir}/.env not found — create it from .env.example (generates secrets; edit later for optional integrations like OAuth)?`, options.yes)) {
-            const n = createEnvFile(cwd, spec.dir);
-            printSuccess(`Created ${spec.dir}/.env — ${n} secret(s) generated.`);
-          } else {
-            printWarning('Continuing without .env — setup.sh will abort if it stays missing.');
-          }
-        }
+        await ensureLocalEnvFile(target, spec, cwd, options.yes);
+
         // 7c. Run the deploy with a bounded auto-fix + retry loop (see runDeployWithRetry).
         const { succeeded, runParams } = await runDeployWithRetry(spec, url, cwd, params, aiOpts, options);
         if (!succeeded) { process.exitCode = 1; return; }
@@ -874,24 +944,7 @@ export function provision(program: Command): void {
         }
 
         // 7e. Verify health (CREATE_COMPLETE != serving).
-        if (url) {
-          printSection('Verifying health');
-          // Minikube reaches the gateway via a kubectl port-forward that setup.sh
-          // backgrounds and that can die/fail to bind — (re)start it before polling
-          // so we don't sit at the gate on a dead forward while the pods are fine.
-          if (target === 'minikube') {
-            await ensureMinikubeGateway(url, { onInfo: (m) => printInfo(m) });
-          }
-          printInfo(`Polling ${url}/health …`);
-          // Fresh EKS legitimately needs longer than the 300s default: Karpenter provisions
-          // nodes, ~10 services cold-pull images, the ALB provisions (~2-3 min), and the
-          // Route 53 alias propagates. Give it 15 min before surfacing the not-reachable note.
-          const healthTimeoutMs = target === 'eks' ? 900_000 : undefined;
-          const health = await waitHealthy(url, { timeoutMs: healthTimeoutMs, onTick: (m) => printInfo(m) });
-          // Green only when fully ready; a "health OK but /ready never came" proceed-
-          // anyway state is healthy:true but degraded → warn so it doesn't read as done.
-          (health.healthy && health.ready ? printSuccess : printWarning)(`${health.url} — ${health.detail}`);
-        }
+        if (url) await verifyHealth(target, url);
 
         // 7f. Post-install steps (register + opt-in loads, smoke test, events, custom).
         // See runPostSteps — it surfaces register + the events bundle as manual in-VPC

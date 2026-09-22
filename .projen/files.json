@@ -12,6 +12,7 @@
     ".projen/files.json",
     ".projen/tasks.json",
     ".vscode/settings.json",
+    "deploy/shared/services.txt",
     "LICENSE",
     "nx.json",
     "projenrc/tsconfig.json",

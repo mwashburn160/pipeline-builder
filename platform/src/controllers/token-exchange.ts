@@ -7,6 +7,7 @@ import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
 import { apiKeyService } from '../services/index.js';
+import { ACCESS_KEY_BODY_CODES, keyRevokeSchema, keyRotateSchema, tokenExchangeSchema, validateBody } from '../utils/validation.js';
 
 /**
  * POST /auth/token/exchange
@@ -26,8 +27,9 @@ import { apiKeyService } from '../services/index.js';
  * away".
  */
 export const exchangeToken = withController('Exchange access key', async (req, res) => {
-  const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
-  if (!key) return sendError(res, 400, 'key is required', 'INVALID_ACCESS_KEY');
+  const body = validateBody(tokenExchangeSchema, req.body, res, ACCESS_KEY_BODY_CODES);
+  if (!body) return;
+  const { key } = body;
 
   // `req.ip` (Express `trust proxy`-aware) is the address a service-account
   // key's IP allowlist is checked against: the presenting client for a direct
@@ -110,17 +112,9 @@ function attributeToAccount(
  * the UI behind step-up, and self-rotation would be a step-up bypass.
  */
 export const rotateKey = withController('Rotate access key', async (req, res) => {
-  const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
-  if (!key) return sendError(res, 400, 'key is required', 'INVALID_ACCESS_KEY');
-
-  const name = typeof req.body?.name === 'string' && req.body.name.trim() ? req.body.name.trim().slice(0, 100) : undefined;
-  let expiresInSeconds: number | undefined;
-  if (req.body?.expiresIn !== undefined) {
-    expiresInSeconds = parseInt(req.body.expiresIn, 10);
-    if (!Number.isFinite(expiresInSeconds)) {
-      return sendError(res, 400, 'expiresIn must be a positive integer (seconds)', 'INVALID_EXPIRES_IN');
-    }
-  }
+  const body = validateBody(keyRotateSchema, req.body, res, ACCESS_KEY_BODY_CODES);
+  if (!body) return;
+  const { key, name, expiresIn: expiresInSeconds } = body;
 
   const result = await apiKeyService.rotateServiceAccountKey(
     key, { ...(name ? { name } : {}), ...(expiresInSeconds !== undefined ? { expiresInSeconds } : {}) }, req.ip,
@@ -181,10 +175,9 @@ export const rotateKey = withController('Rotate access key', async (req, res) =>
  * and a retrying rotator must not see a spurious failure.
  */
 export const revokeKey = withController('Revoke sibling access key', async (req, res) => {
-  const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
-  const keyId = typeof req.body?.keyId === 'string' ? req.body.keyId.trim() : '';
-  if (!key) return sendError(res, 400, 'key is required', 'INVALID_ACCESS_KEY');
-  if (!keyId) return sendError(res, 400, 'keyId is required', 'INVALID_KEY_ID');
+  const body = validateBody(keyRevokeSchema, req.body, res, ACCESS_KEY_BODY_CODES);
+  if (!body) return;
+  const { key, keyId } = body;
 
   const result = await apiKeyService.revokeSiblingKey(key, keyId, req.ip);
 

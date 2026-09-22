@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, parsePaginationParams, errorMessage } from '@pipeline-builder/api-core';
+import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, MAX_PAGE_LIMIT, parsePage, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { requireAdminContext, requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
@@ -9,16 +9,6 @@ import { verifyAuditChainAnchored } from '../services/audit-head-export.js';
 import { auditService, type AuditFilter } from '../services/audit-service.js';
 
 const logger = createLogger('audit-controller');
-
-/** Parse an optional ISO date query param; returns undefined if absent, or null
- *  if malformed (caller answers a malformed value with a 400). Mirrors the
- *  billing-summary `parseOptionalDate` pattern. */
-function parseOptionalDate(raw: unknown): Date | undefined | null {
-  const s = parseQueryString(raw);
-  if (!s) return undefined;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
 
 /** A date with no time part (`<input type="date">`). */
 const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -75,7 +65,7 @@ export const listAuditEvents = withController('List audit events', async (req, r
   if (from === null || to === null) {
     return sendError(res, 400, 'from/to must be ISO dates');
   }
-  const { offset, limit: limitNum } = parsePaginationParams(req.query);
+  const { offset, limit: limitNum } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
 
   const filter: AuditFilter = {};
 

@@ -2,28 +2,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock config and models before importing
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect } from '@jest/globals';
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    auth: {
-      passwordMinLength: 8,
-      jwt: {
-        secret: 'test-jwt-secret',
-        expiresIn: 7200,
-        algorithm: 'HS256',
-        saltRounds: 12,
-      },
-      refreshToken: {
-        secret: 'test-refresh-secret',
-        expiresIn: 2592000,
-      },
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import jwt from 'jsonwebtoken';
+import { mockConfig } from './helpers/config-mock.js';
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  auth: {
+    passwordMinLength: 8,
+    jwt: {
+      secret: 'test-jwt-secret',
+      expiresIn: 7200,
+      algorithm: 'HS256',
+      saltRounds: 12,
+    },
+    refreshToken: {
+      secret: 'test-refresh-secret',
+      expiresIn: 2592000,
     },
   },
 }));
 
 // Chainable `find(...).session(...).select(...).lean()` that resolves to [] —
-// getUserRolePermissions short-circuits on no assignments, so tokens resolve
+// rolePermissionsFor short-circuits on no assignments, so tokens resolve
 // to the role's base permission bundle with no group grants in these tests.
 const emptyFindChain = () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) });
 
@@ -60,16 +60,9 @@ jest.unstable_mockModule('crypto', () => {
   return { ...mocked, default: mocked };
 });
 
-import jwt from 'jsonwebtoken';
-const {
-  MAX_REFRESH_SESSIONS,
-  MAX_MACHINE_SESSIONS,
-  hashRefreshToken,
-  issueTokens,
-  signInAuth,
-  verifyAccessToken,
-  verifyRefreshToken,
-} = await import('../src/utils/token.js');
+const { signInAuth } = await import('../src/services/session/access-tokens.js');
+const { MAX_REFRESH_SESSIONS, MAX_MACHINE_SESSIONS, hashRefreshToken, issueTokens } = await import('../src/services/session/refresh-sessions.js');
+const { verifyAccessToken, verifyRefreshToken } = await import('../src/utils/token.js');
 
 // Platform is the only minter of user tokens, so the real token module needs a
 // loaded ES256 signing key. Generated in memory — no PEM on disk, no KMS.
@@ -277,7 +270,7 @@ describe('token utilities', () => {
     });
   });
 
-  describe('identity claims (#7)', () => {
+  describe('identity claims', () => {
     it('stamps principalType / token_use / amr / aal / auth_time on a session token', async () => {
       const auth = signInAuth('sso');
       const { accessToken } = await issueTokens(mockUser(), undefined, { kind: 'interactive', auth });

@@ -63,16 +63,12 @@ export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps)
   // org-governance config, so a regular member must not create/change/delete them.
   // ONE protected layer per resource; every gate is PER ROUTE inside the routers
   // (reads: `compliance:read`; mutations: `compliance:write`, plus `requireStepUp`
-  // on restore/purge). A shared `rulesRouter.use(requirePermission(...))` used to
-  // supply the write gate, but a router-level gate runs for every request that
-  // reaches the prefix, so it depended on mount order to stay off the reads —
-  // and made the route table read as if the mutations were ungated.
-  // Previously each verb was also a SEPARATE `createProtectedRoute()` layer on the
-  // same prefix, so a write request re-ran the protected chain — the read layer
-  // reserved the Idempotency-Key as `pending`, then the write layer saw `pending`
-  // and 409'd before the handler ran (keyed rule/policy writes never executed;
-  // auth/quota also ran twice). Combining into one router runs the protected chain
-  // exactly once.
+  // on restore/purge). No router-level `use(requirePermission(...))`: it would run
+  // for every request reaching the prefix, depending on mount order to stay off
+  // the reads, and make the route table read as if the mutations were ungated.
+  // One router (not a `createProtectedRoute()` layer per verb) so the protected
+  // chain runs exactly once — a second layer would see the Idempotency-Key the
+  // first reserved as `pending` and 409 before the handler ran.
   const rulesRouter = Router();
   rulesRouter.use(createReadRuleRoutes());
   rulesRouter.use(createCreateRuleRoutes());
@@ -111,8 +107,8 @@ export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps)
   // Policy CRUD routes — mutations require an org admin/owner (governance config),
   // reads are open to any org member holding `compliance:read`. Single router (see
   // rules above): one protected chain, per-route gates inside the routers. This
-  // also brings policy writes under the same `apiCalls` quota + idempotency the
-  // reads use (previously policy writes ran on the un-metered auth-only chain).
+  // also keeps policy writes under the same `apiCalls` quota + idempotency the
+  // reads use.
   const policiesRouter = Router();
   policiesRouter.use(createReadPolicyRoutes());
   policiesRouter.use(createCreatePolicyRoutes());
@@ -130,7 +126,7 @@ export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps)
   // Internal entity event receiver. The route itself runs `requireAuth` +
   // `requireInternalService({ callers: ['pipeline', 'plugin'] })`, so only those
   // two services' own signed tokens reach it — no user token, and no other
-  // service (#14).
+  // service.
   app.use('/compliance/events/entity', createEntityEventRoutes());
 
   // Internal billing → compliance entitlement sync (curated content sets). Bare

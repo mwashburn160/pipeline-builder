@@ -1,16 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
 import { History, ArrowLeft, Loader2 } from 'lucide-react';
 import { TextEmptyState } from '@/components/ui/EmptyState';
+import { RetryError } from '@/components/ui/RetryError';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import type { ComplianceRuleHistoryEntry } from '@/types/compliance';
 import { formatDateTime } from '@/lib/format';
 
 const CHANGE_STYLES: Record<string, { bg: string; text: string }> = {
-  created: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400' },
+  created: { bg: 'bg-success-bg', text: 'text-success' },
   updated: { bg: 'bg-info-bg', text: 'text-info-strong' },
-  deleted: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400' },
+  deleted: { bg: 'bg-danger-bg', text: 'text-danger' },
   restored: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400' },
 };
 
@@ -21,36 +22,19 @@ interface RuleHistoryProps {
 }
 
 export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryProps) {
-  const [history, setHistory] = useState<ComplianceRuleHistoryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // Stale-response guard: a rapid rule switch (or unmount) must not let an
-  // older in-flight response overwrite the current rule's history. Each fetch
-  // captures a generation number; setState is skipped if a newer fetch (or the
-  // effect cleanup) has since bumped it.
-  const genRef = useRef(0);
-
-  const fetchHistory = useCallback(async () => {
-    const gen = ++genRef.current;
-    setLoading(true);
-    setError(null);
+  // A rule switch supersedes the in-flight read, so an older response can't
+  // overwrite the current rule's history.
+  const { data, loading, error, refetch } = useFetch<ComplianceRuleHistoryEntry[]>(async () => {
+    let res: Awaited<ReturnType<typeof api.getComplianceRuleHistory>>;
     try {
-      const res = await api.getComplianceRuleHistory(ruleId);
-      if (gen !== genRef.current) return;
-      if (res.success && res.data) setHistory(res.data.history);
-      else setError(res.message || 'Failed to load rule history');
+      res = await api.getComplianceRuleHistory(ruleId);
     } catch {
-      if (gen !== genRef.current) return;
-      setError('Failed to load rule history');
+      throw new Error('Failed to load rule history');
     }
-    if (gen === genRef.current) setLoading(false);
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load rule history');
+    return res.data.history;
   }, [ruleId]);
-
-  useEffect(() => {
-    void fetchHistory();
-    return () => { genRef.current++; };
-  }, [fetchHistory]);
+  const history = data ?? [];
 
   return (
     <div className="space-y-4">
@@ -68,12 +52,7 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
         </h2>
       </div>
 
-      {error && !loading && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-          <span>{error}</span>
-          <button onClick={fetchHistory} className="underline hover:no-underline">Retry</button>
-        </div>
-      )}
+      {error && !loading && <RetryError message={error.message} onRetry={() => void refetch()} />}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">

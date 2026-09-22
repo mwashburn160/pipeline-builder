@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { featureQuotaMock } from './helpers/feature-quota-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 // Real-shaped response helpers: these tests assert on the status code the ops
 // produce, so the send* helpers must actually write to the res double.
@@ -41,7 +42,7 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ unverifie
 
 const reserveFeatureQuota = jest.fn<(orgId: string, f: string) => Promise<unknown>>();
 const releaseFeatureQuota = jest.fn();
-jest.unstable_mockModule('../src/middleware/quota.js', () => ({ reserveFeatureQuota, releaseFeatureQuota }));
+jest.unstable_mockModule('../src/middleware/quota.js', () => featureQuotaMock({ reserveFeatureQuota, releaseFeatureQuota }));
 
 // `utils/validation.js` pulls in the config module, which (correctly) refuses to
 // load without its secrets outside development — jest sets NODE_ENV=test, so the
@@ -51,7 +52,7 @@ process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
 process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
 
 const { upsertOrgIdp, patchOrgIdp, deleteOrgIdp, readOrgIdp } =
-  await import('../src/controllers/org-idp-ops.js');
+  await import('../src/helpers/org-idp-ops.js');
 
 /** A valid full IdP body MINUS the client secret — the shape the UI submits on
  *  an edit, since the secret field is write-only and comes back blank. */
@@ -90,7 +91,7 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
   it('REGRESSION: preserves the stored client secret when the body omits it', async () => {
     // The IdP form is WRITE-ONLY for the secret (never sent back on read), so an
     // edit that changes any other field arrives without it. Both surfaces must
-    // re-inject the stored value; only one of them used to.
+    // re-inject the stored value.
     findByOrg.mockResolvedValue(EXISTING);
     getLoginConfig.mockResolvedValue({ clientSecret: 'stored-secret' });
 

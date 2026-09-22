@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Plugin contract enforcement (W0.2): the pure checks the pipeline service
+ * Plugin contract enforcement: the pure checks the pipeline service
  * runs at create/update, and the synth-time guard in StageBuilder.
  */
 

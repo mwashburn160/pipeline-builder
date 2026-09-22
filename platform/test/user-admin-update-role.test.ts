@@ -16,6 +16,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { seatsMock } from './helpers/seats-mock.js';
 
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockUoFindOne = jest.fn<(...a: unknown[]) => unknown>();
@@ -31,7 +32,7 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
   loadActiveOrgInfo: jest.fn(async () => ({ organizationName: 'Acme', activeOrgRole: 'admin', tier: 'developer' })),
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/utils/regex.js', () => ({ escapeRegex: (s: string) => s }));
 
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
@@ -80,7 +81,7 @@ const userFindByIdResolving = (doc: unknown) => ({ select: () => ({ session: () 
 /** `UserOrganization.findOne(...)` → `.session(...)` resolving to `doc`. */
 const uoFindOneResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc) });
 
-const orgAdminOpts = { scopeOrgId: 'org-1', actor: { isSuperAdmin: false, isOrgAdmin: true, permissions: [] }, passwordMinLength: 8 };
+const orgAdminOpts = { scopeOrgId: 'org-1', actor: { isSuperAdmin: false, isOrgAdmin: true, permissions: [] } };
 
 beforeEach(() => {
   jest.clearAllMocks();

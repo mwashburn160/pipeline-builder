@@ -20,12 +20,9 @@ import { authApi } from '../src/lib/api/domains/auth';
 import type { ApiCore } from '../src/lib/api/core';
 
 let mockQuery: Record<string, string> = {};
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({ isReady: true, query: mockQuery, replace: jest.fn<AnyFn>() }),
-}));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: mockQuery, replace: jest.fn<AnyFn>() })));
 const mockRefreshUser = jest.fn<AnyFn>();
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => ({ refreshUser: mockRefreshUser }) }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: mockRefreshUser })));
 jest.mock('framer-motion', () => ({
   __esModule: true,
   motion: new Proxy({}, { get: () => ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }),

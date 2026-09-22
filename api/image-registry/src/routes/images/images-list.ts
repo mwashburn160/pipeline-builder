@@ -15,7 +15,8 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { canReadRepo } from './repo-access.js';
-import { COPY_PARALLEL_BLOBS, isCosignCompanionTag } from './shared.js';
+import { isCosignCompanionTag } from '../../services/cosign-tags.js';
+import { COPY_PARALLEL_BLOBS } from '../../services/manifest-copy.js';
 import {
   listRepositories,
   listTags,
@@ -25,9 +26,9 @@ import {
 
 /**
  * Register the read-only listing/fetch routes (each gated on `registry:read`):
- *  - GET /                              (list repositories)
- *  - GET /:name/tags                    (list tags)
- *  - GET /:name/manifests/:reference    (fetch manifest)
+ *  - GET / (list repositories)
+ *  - GET /:name/tags (list tags)
+ *  - GET /:name/manifests/:reference (fetch manifest)
  */
 export function registerListRoutes(router: Router): void {
   const read = requirePermission('registry:read') as RequestHandler;

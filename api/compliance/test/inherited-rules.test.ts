@@ -23,9 +23,10 @@ const isInheritedRuleMock = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const findAllEnforcedMock = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
 const findPaginatedMock = jest.fn<(...a: unknown[]) => Promise<Record<string, unknown>>>();
 const resolveOrgNameMock = jest.fn<(id: string) => Promise<string | undefined>>();
-const emitComplianceAuditMock = jest.fn<AnyFn>();
+const recordAuditMock = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p[k],
   isSystemAdmin: () => false,
   validateBody: (req: any) => ({ ok: true, value: req.body }),
@@ -46,10 +47,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
   resolveOrgName: (id: string) => resolveOrgNameMock(id),
@@ -107,7 +104,7 @@ describe.each([
     expect(isInheritedRuleMock).toHaveBeenCalledWith(RULE_ID, 'root-1');
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith({ message: INHERITED_RULE_MESSAGE, code: 'INSUFFICIENT_PERMISSIONS' });
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('team caller, rule not the parent\'s either → plain 404', async () => {

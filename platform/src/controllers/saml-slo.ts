@@ -34,6 +34,7 @@ import type { Request } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
+import { toOrgId } from '../helpers/org-id.js';
 import { getSamlConfigForLogout } from '../helpers/sso-enforcement.js';
 import SamlSession from '../models/saml-session.js';
 import { incCounter } from '../observability/metrics.js';
@@ -41,7 +42,6 @@ import { authService } from '../services/index.js';
 import {
   SAML_ERROR_MAP,
   type SamlLogoutBinding,
-  type SamlSessionRef,
   buildSamlLogoutRequestUrl,
   buildSamlLogoutResponseUrl,
   samlLandingUrl,
@@ -49,52 +49,6 @@ import {
 } from '../services/saml-service.js';
 
 const logger = createLogger('saml-slo');
-
-/** The `sid` claim of an access token this deployment just minted. */
-function sessionIdOf(accessToken: string): string | undefined {
-  try {
-    const payload = JSON.parse(Buffer.from(accessToken.split('.')[1] ?? '', 'base64url').toString('utf8')) as { sid?: unknown };
-    return typeof payload.sid === 'string' ? payload.sid : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Record the IdP's handle on a SAML sign-in against the session slot it opened.
- * Best-effort: a failure here costs only the ability to single-log-out that one
- * session, so it is logged, never allowed to fail the sign-in.
- */
-export async function recordSamlSession(input: {
-  userId: string;
-  orgId: string;
-  accessToken: string;
-  issuer: string;
-  session: SamlSessionRef;
-}): Promise<void> {
-  const sessionId = sessionIdOf(input.accessToken);
-  if (!sessionId) return;
-  try {
-    await SamlSession.updateOne(
-      { userId: input.userId, sessionId },
-      {
-        $set: {
-          orgId: input.orgId,
-          issuer: input.issuer,
-          nameID: input.session.nameID,
-          nameIDFormat: input.session.nameIDFormat,
-          sessionIndex: input.session.sessionIndex,
-          expiresAt: new Date(Date.now() + config.auth.refreshToken.expiresIn * 1000),
-        },
-      },
-      { upsert: true },
-    );
-  } catch (err) {
-    logger.warn('Could not record the SAML session for single logout', {
-      orgId: input.orgId, error: errorMessage(err),
-    });
-  }
-}
 
 /**
  * POST /auth/sso/logout — the SP-initiated LogoutRequest for the CALLER'S OWN
@@ -118,21 +72,21 @@ export const startSsoLogout = withController('Start SSO logout', async (req, res
 
   let redirectUrl: string | null = null;
   try {
-    const cfg = await getSamlConfigForLogout(row.orgId);
+    const cfg = await getSamlConfigForLogout(String(row.organizationId));
     // Only the IdP that issued the session can end it; a connection that has
     // since been repointed at another IdP gets no LogoutRequest.
     if (cfg.sloUrl && cfg.entityId === row.issuer) {
       redirectUrl = await buildSamlLogoutRequestUrl(cfg, row, '');
     }
   } catch (err) {
-    logger.warn('SP-initiated SAML logout unavailable', { orgId: row.orgId, error: errorMessage(err) });
+    logger.warn('SP-initiated SAML logout unavailable', { orgId: String(row.organizationId), error: errorMessage(err) });
   }
 
   if (redirectUrl) {
     audit(req, 'sso.saml.logout', {
       targetType: 'user',
       targetId: userId,
-      affectedOrgId: row.orgId,
+      affectedOrgId: String(row.organizationId),
       details: { direction: 'sp', stage: 'request' },
     });
     incCounter('platform_saml_slo_total', { direction: 'sp', result: 'request' });
@@ -254,7 +208,7 @@ export const handleSamlSlo = withController('SAML SLO', async (req, res) => {
   // IdP-initiated: revoke every session of that NameID (and SessionIndex, when
   // named) that this IdP's sign-ins opened in THIS org.
   const filter = {
-    orgId,
+    organizationId: toOrgId(orgId),
     issuer: cfg.entityId,
     nameID: verified.session.nameID,
     ...(verified.session.sessionIndex ? { sessionIndex: verified.session.sessionIndex } : {}),

@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, audited, validateBody, requirePermission, ErrorCode, actorId } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, audited, validateBody, requirePermission, ErrorCode, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { emitComplianceAudit } from '../services/audit.js';
 import {
   getNotificationPreference,
   upsertNotificationPreference,
@@ -96,7 +95,7 @@ export function createNotificationPreferenceRoutes(): Router {
     // notices go (recipients + the outbound webhook) is security-relevant
     // config, so a change is recorded. WHICH fields changed only — never the
     // webhook secret, and never the URL's credentials: just its host.
-    emitComplianceAudit({
+    recordAudit({
       action: 'compliance.notification-preference.update',
       actorId: actorId({ userId }),
       orgId,

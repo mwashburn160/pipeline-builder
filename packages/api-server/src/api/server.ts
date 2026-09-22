@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { buildRouteTable, createLogger, errorMessage, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable } from '@pipeline-builder/api-core';
+import { buildRouteTable, createLogger, errorMessage, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable, sleep, envInt } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
@@ -12,7 +12,6 @@ import { SSEManager } from '../http/sse-connection-manager.js';
 
 const logger = createLogger('server');
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Dependency-supervisor cadence. Initial connect retries with capped backoff;
 // once connected, re-checks at a steady interval so a later outage flips the
@@ -20,7 +19,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 // ever exiting / restarting the process.
 const READY_RETRY_BASE_MS = 1000;
 const READY_RETRY_MAX_MS = 10000;
-const READY_MONITOR_INTERVAL_MS = parseInt(process.env.READINESS_MONITOR_INTERVAL_MS || '15000', 10);
+const READY_MONITOR_INTERVAL_MS = envInt('READINESS_MONITOR_INTERVAL_MS', 15_000, { min: 1 });
 
 /**
  * Establish and continuously monitor the service's datastore dependency,
@@ -177,7 +176,7 @@ export async function startServer(
   // Validate auth configuration at server startup (not during CDK synthesis)
   Config.validateAuth();
   // Fail fast if this service has no internal signing key of its own, or no
-  // public bundle to verify its peers with (#14). Without them it would mint
+  // public bundle to verify its peers with. Without them it would mint
   // tokens on an EPHEMERAL in-process key that no peer accepts, and reject every
   // peer's token — i.e. silently lose all service-to-service traffic. Checked
   // HERE rather than in `createApp` because it is a property of the running
@@ -241,8 +240,8 @@ export async function startServer(
     }
 
     // Arm the force-exit BEFORE awaiting anything: a hung onShutdown (a stuck
-    // queue close, a Redis quit that never answers) used to block forever with
-    // the timer never started, so the pod ignored SIGTERM until SIGKILL.
+    // queue close, a Redis quit that never answers) would otherwise block forever
+    // with the timer never started, so the pod would ignore SIGTERM until SIGKILL.
     setTimeout(() => {
       logger.error('Forced shutdown after timeout');
       process.exit(1);

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireInternalService, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireInternalService, SYSTEM_ORG_ID, MESSAGE_PRIORITIES, type MessagePriority } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, type MessageInsert } from '@pipeline-builder/pipeline-data';
@@ -15,17 +15,21 @@ const logger = createLogger('internal-notify');
 const SUBJECT_MAX = 500; // matches the `subject` varchar(500) column
 const CONTENT_MAX = 10000; // sane bound for a notification body (content is TEXT)
 
+/** Services allowed to author system notifications. */
+const NOTIFY_CALLERS = ['platform', 'billing', 'compliance'] as const;
+
 /**
  * Internal notification route (service-to-service only).
  *
- * Lets a trusted platform service drop a SYSTEM-authored in-app message into a
+ * Lets a trusted service drop a SYSTEM-authored in-app message into a
  * recipient org's inbox (optionally targeted to one user) and push the SSE ping,
- * WITHOUT a user session. Used by the domain-based-join flow to notify org
- * admins of a new join request and the requester of the decision.
+ * WITHOUT a user session. Callers use api-core's `sendSystemNotification`:
+ * platform (domain-join, impersonation, SCIM notices), billing (renewal
+ * reminders) and compliance (the in-app notification channel).
  *
  * Gated by `requireAuth` + `requireInternalService` — a signed service token
- * from `platform` (the only caller: the domain-join flow), never a user session,
- * mirroring the internal org-purge route. The mesh policy on the targets that
+ * from one of those callers, never a user session, mirroring the internal
+ * org-purge route. The mesh policy on the targets that
  * run Istio names the same caller; compose has no mesh, so this gate is the
  * whole enforcement there.
  *
@@ -42,8 +46,8 @@ const CONTENT_MAX = 10000; // sane bound for a notification body (content is TEX
 export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
-  router.post('/internal/notify', requireAuth, requireInternalService({ callers: ['platform'] }), async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { recipientOrgId?: string; recipientUserId?: string; subject?: string; content?: string };
+  router.post('/internal/notify', requireAuth, requireInternalService({ callers: NOTIFY_CALLERS }), async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { recipientOrgId?: string; recipientUserId?: string; subject?: string; content?: string; priority?: string };
     const recipientUserId = body.recipientUserId;
     const subject = body.subject?.trim();
     const content = body.content?.trim();
@@ -59,6 +63,9 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
     if (subject.length > SUBJECT_MAX || content.length > CONTENT_MAX) {
       return sendBadRequest(res, 'subject or content exceeds the maximum length', ErrorCode.VALIDATION_ERROR);
     }
+    if (body.priority !== undefined && !(MESSAGE_PRIORITIES as readonly string[]).includes(body.priority)) {
+      return sendBadRequest(res, `priority must be one of: ${MESSAGE_PRIORITIES.join(', ')}`, ErrorCode.VALIDATION_ERROR);
+    }
 
     try {
       const data: MessageInsert = {
@@ -69,6 +76,7 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
         channel: 'notifications',
         subject,
         content,
+        ...(body.priority ? { priority: body.priority as MessagePriority } : {}),
         createdBy: 'system',
         updatedBy: 'system',
       };

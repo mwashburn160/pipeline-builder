@@ -179,7 +179,7 @@ describe('POST /reports/events', () => {
     expect(mockIngestEvents).toHaveBeenCalled();
   });
 
-  // Phase 3b: the route passes an onMetric hook into ingestEvents that fans each
+  // The route passes an onMetric hook into ingestEvents that fans each
   // registered terminal deploy/stage outcome into Prometheus counters.
   it('fans a terminal deploy-stage metric into pipeline_stage_result_total + pipeline_deploy_result_total', async () => {
     mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {

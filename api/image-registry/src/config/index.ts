@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readFileSync } from 'fs';
+import { envInt } from '@pipeline-builder/api-core';
 
 /**
  * Resolve an env-supplied secret material to its raw value. The convention
@@ -63,7 +64,7 @@ export interface AppConfig {
   // plugin-lookup Lambda) are verified against platform's PUBLISHED ES256 keys
   // via api-core's JWKS cache — see `services/auth-resolver.ts`. There is no
   // verification material to configure here any more. Internal SERVICE tokens
-  // are verified against the per-service public bundle (#14) — this service
+  // are verified against the per-service public bundle — this service
   // holds only its OWN signing key, and no key here can mint a platform token.
 
   /**
@@ -85,8 +86,8 @@ export interface AppConfig {
    * rather than hold the key itself, because the plugin pod shares its network
    * namespace with untrusted tenant builds (see api/plugin supply-chain.ts).
    *
-   * - `local` — EC P-256 PKCS#8 PEM on disk (env: `PLUGIN_SIGNING_KEY_FILE`).
-   * - `kms`   — an AWS KMS `ECC_NIST_P256` `SIGN_VERIFY` key, BY ALIAS
+   * - `local` — EC P-256 PKCS PEM on disk (env: `PLUGIN_SIGNING_KEY_FILE`).
+   * - `kms` — an AWS KMS `ECC_NIST_P256` `SIGN_VERIFY` key, BY ALIAS
    *             (env: `PLUGIN_SIGNING_KMS_KEY_ID`); an ARN embeds the account id.
    */
   readonly pluginSigning: {
@@ -104,11 +105,11 @@ export function loadConfig(): AppConfig {
   }
 
   return {
-    port: parseInt(process.env.PORT || '3000', 10),
+    port: envInt('PORT', 3000, { min: 1, max: 65535 }),
 
     registry: {
       host: process.env.IMAGE_REGISTRY_HOST,
-      port: parseInt(process.env.IMAGE_REGISTRY_PORT || '5000', 10),
+      port: envInt('IMAGE_REGISTRY_PORT', 5000, { min: 1, max: 65535 }),
       http: process.env.IMAGE_REGISTRY_HTTP === 'true',
       insecure: process.env.IMAGE_REGISTRY_INSECURE === 'true',
     },
@@ -118,19 +119,19 @@ export function loadConfig(): AppConfig {
       certificatePem: resolveSecretValue('REGISTRY_TOKEN_CERTIFICATE'),
       issuer: process.env.REGISTRY_TOKEN_ISSUER || 'platform',
       service: process.env.REGISTRY_TOKEN_SERVICE || 'pipeline-image-registry',
-      expiresInSeconds: parseInt(process.env.REGISTRY_TOKEN_EXPIRES_IN || '300', 10),
+      expiresInSeconds: envInt('REGISTRY_TOKEN_EXPIRES_IN', 300, { min: 1 }),
     },
 
     platformService: {
       host: process.env.PLATFORM_SERVICE_HOST || 'platform',
-      port: parseInt(process.env.PLATFORM_SERVICE_PORT || '3000', 10),
+      port: envInt('PLATFORM_SERVICE_PORT', 3000, { min: 1, max: 65535 }),
     },
 
     pluginSigning: {
       mode: process.env.PLUGIN_SIGNING_MODE === 'kms' ? 'kms' : 'local',
       keyFile: process.env.PLUGIN_SIGNING_KEY_FILE || '/etc/pipeline-builder/plugin-signing/plugin-signing.key',
       kmsKeyId: process.env.PLUGIN_SIGNING_KMS_KEY_ID || '',
-      timeoutMs: parseInt(process.env.PLUGIN_SIGNING_TIMEOUT_MS || '120000', 10),
+      timeoutMs: envInt('PLUGIN_SIGNING_TIMEOUT_MS', 120_000, { min: 1 }),
     },
   };
 }

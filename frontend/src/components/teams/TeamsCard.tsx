@@ -14,7 +14,7 @@ import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import { formatDateMedium } from '@/lib/format';
-import { triggerBlobDownload } from '@/lib/csv-export';
+import { triggerBlobDownload } from '@/lib/download';
 import type { DeletedTeam, OrgTeamRef } from '@/lib/api/domains/organizations';
 
 /** Ties the disabled create control to the sentence that says why. */
@@ -59,8 +59,8 @@ export function TeamsCard({
   onAddMember: (team: OrgTeamRef) => void;
   onChanged: () => Promise<void>;
   /** Starts the create-team flow. Passed only when this viewer may create one
-   *  (root org + `org:settings`) — the empty state used to tell people to
-   *  "create a new one" and then offer nothing to click. */
+   *  (root org + `org:settings`), so an empty state that says "create a new
+   *  one" also offers something to click. */
   onCreateTeam?: () => void;
   /** Why creating is unavailable (e.g. the tier can't parent teams). Rendered
    *  as visible text beside the disabled control, not just as a tooltip. */
@@ -71,8 +71,8 @@ export function TeamsCard({
   // Deleting a team is destructive AND step-up gated, so it is ONE dialog that
   // states what is lost and takes the factor (the rule settings.tsx documents
   // for "Delete your account" and StepUpModal's own doc comment spells out).
-  // This used to open a ConfirmDialog and then a StepUpModal for a single
-  // delete: two modals asking the same person the same question.
+  // One modal per delete — never a confirm followed by a step-up asking the
+  // same person the same question.
   const [pendingDelete, setPendingDelete] = useState<OrgTeamRef | null>(null);
   const [pendingRestore, setPendingRestore] = useState<DeletedTeam | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -296,8 +296,8 @@ function TeamRowMenu({ team, exporting, onExport, onDelete }: {
           <button type="button" role="menuitem" onClick={run(onExport)} disabled={exporting} className={`${item} text-fg disabled:opacity-60`}>
             <Download className="w-3.5 h-3.5 text-fg-subtle" /> {exporting ? 'Exporting…' : 'Export data'}
           </button>
-          <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
-          <button type="button" role="menuitem" onClick={run(onDelete)} className={`${item} text-red-600 dark:text-red-400`}>
+          <div className="my-1 border-t border-default" />
+          <button type="button" role="menuitem" onClick={run(onDelete)} className={`${item} text-danger`}>
             <Trash2 className="w-3.5 h-3.5" /> Delete team
           </button>
         </div>

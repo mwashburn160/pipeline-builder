@@ -13,7 +13,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 const exportOrganization = jest.fn<AnyFn>(async () => '{"org":{}}');
 jest.mock('@/lib/api', () => ({ __esModule: true, default: { exportOrganization: (...a: unknown[]) => exportOrganization(...a) } }));
 const triggerBlobDownload = jest.fn<AnyFn>();
-jest.mock('@/lib/csv-export', () => ({ __esModule: true, triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a) }));
+jest.mock('@/lib/download', () => ({ __esModule: true, triggerBlobDownload: (...a: unknown[]) => triggerBlobDownload(...a) }));
 
 import { OrgDataExport } from '../src/components/settings/OrgDataExport';
 

@@ -6,8 +6,8 @@
  * devices / stored machine credentials), the current-session marker, and the
  * single-dialog revoke. Revoking is step-up gated on the backend, so ONE dialog
  * states the consequence and takes the factor, and its token must reach
- * `api.revokeSession`. "Sign out everywhere" lives here too — it used to be on
- * a second, contradictory sessions view on the API Tokens page.
+ * `api.revokeSession`. "Sign out everywhere" lives here too — the one sessions
+ * view, so there is no second, contradictory one.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -15,13 +15,9 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { SessionsSection } from '../src/components/settings/SessionsSection';
 
-// One STABLE toast object: `useLoadable` treats it as a `reload` dependency, so a
-// fresh object per render would refetch in a loop.
+// One toast spy object, shared by every render (the real `useToast` memoizes).
 const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
-jest.mock('@/components/ui/Toast', () => ({
-  __esModule: true,
-  useToast: () => toast,
-}));
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
 
 // StepUpModal → immediately "confirms" with a fixed token so the gated call
 // runs. Its `title`/`details` are recorded: the point of the single dialog is

@@ -3,14 +3,9 @@
 
 export {
   VisibilitySchema,
-  SortOrderSchema,
   MAX_PAGE_LIMIT,
   DEFAULT_PAGE_LIMIT,
-  PaginationSchema,
-  BooleanQuerySchema,
-  UUIDSchema,
   UUIDPrefixSchema,
-  BaseFilterSchema,
 } from './common-schemas.js';
 export * from './pipeline-schemas.js';
 export {
@@ -26,19 +21,9 @@ export {
   validateCatalogField,
   findContractKeys,
   contractKeysMessage,
-  PLUGIN_SUMMARY_MAX,
-  PLUGIN_README_MAX_BYTES,
-  PLUGIN_CHANGELOG_MAX_BYTES,
-  PLUGIN_CATEGORIES,
   SPDX_LICENSE_IDS,
   URL_SHORTENER_HOSTS,
   ICON_KEY_PATTERN,
-  PLUGIN_CATALOG_FIELDS,
-  type PluginCatalogField,
-  PLUGIN_CATALOG_LINK_FIELDS,
-  METADATA_SOURCES,
-  type MetadataSource,
-  type MetadataSources,
   PluginCatalogEditsSchema,
   type PluginCatalogEdits,
   PLUGIN_CONTRACT_FIELDS,
@@ -48,7 +33,6 @@ export {
   MessageTypeSchema,
   MessagePrioritySchema,
   MessageFilterSchema,
-  MESSAGE_ATTACHMENT_MAX_MB,
   MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_ATTACHMENT_ALLOWED_MIME,
   MessageCreateSchema,
@@ -104,7 +88,7 @@ export {
   type PluginTemplateEngine,
   type PluginTemplateIssue,
 } from './plugin-template-contract.js';
-export * from './plugin-lint.js';
+export { lintPluginDockerfile, lintPluginSpec, type PluginLintFinding } from './plugin-lint.js';
 export * from './plugin-base-images.js';
 export {
   shannonEntropy,
@@ -117,4 +101,4 @@ export {
   HEURISTICS_MAX_FILE_BYTES,
   HEURISTICS_MAX_FINDINGS,
 } from './plugin-heuristics.js';
-export * from './plugin-name-confusable.js';
+export { findConfusableName } from './plugin-name-confusable.js';

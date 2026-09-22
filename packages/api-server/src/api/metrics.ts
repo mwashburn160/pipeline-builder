@@ -62,7 +62,7 @@ const httpRequestsTotal = new Counter({
  * under control. Cardinality of `org_id * method * route * status_code`
  * grows multiplicatively; with N orgs * 50 routes * 5 status_codes that's
  * 250×N series. We sample 1-in-N requests (configurable via
- * `HTTP_METRICS_ORG_SAMPLE_RATE`, default 1.0 = every request).
+ * `HTTP_METRICS_ORG_SAMPLE_RATE`, default 0 = off).
  *
  * Operators answer "what's org X's p99?" via separate per-org histograms
  * scraped at a lower rate, OR via Loki LogQL queries against the
@@ -87,10 +87,10 @@ const httpRequestsByOrgTotal = new Counter({
  * Parsed once at module load — operators tune by restarting the service.
  *
  * Defaults to 0 (OFF). `org_id` is an UNBOUNDED, tenant-identifying label and
- * prom-client counters never expire, so at the old default of 1.0 every service
- * accumulated a series per (org × route × status) for the process lifetime, and
- * `/metrics` — which is not auth-gated — enumerated every tenant id along with
- * its request volume and error rate to anyone who could reach the port.
+ * prom-client counters never expire, so at 1.0 every service accumulates a
+ * series per (org × route × status) for the process lifetime, and `/metrics` —
+ * which is not auth-gated — enumerates every tenant id along with its request
+ * volume and error rate to anyone who can reach the port.
  *
  * Turn it on deliberately (and ideally with a sample rate well under 1.0, plus
  * `METRICS_SCRAPE_TOKEN` set) when you actually want per-org noisy-neighbour

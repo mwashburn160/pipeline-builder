@@ -70,8 +70,8 @@ export function CreateOrgModal({
           {activeOrg?.tier ? ` (${activeOrg.tier})` : ''} and its quotas are pooled under the parent organization.
         </p>
       </div>
-      {form.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{form.error}</p>}
-      {form.success && <p className="text-sm text-green-600 dark:text-green-400 mt-3">{form.success}</p>}
+      {form.error && <p className="text-sm text-danger mt-3">{form.error}</p>}
+      {form.success && <p className="text-sm text-success mt-3">{form.success}</p>}
     </Modal>
   );
 }

@@ -42,7 +42,7 @@ export const SYSTEM_ACTOR_ID = 'system';
 
 /**
  * The actor id written for an UNAUTHENTICATED actor: an anonymous public plugin
- * submission (docs/plans/plugin-ecosystem.md §4, §5c — the event carries
+ * submission (docs/plugin-publishing.md — the event carries
  * `details.submissionId` for correlation and is recorded against the system
  * org; the submitter's email, hashed or otherwise, never appears in the audit
  * trail) and platform's pre-auth `device.authorize.start` (a device-login code
@@ -54,10 +54,9 @@ export const ANONYMOUS_ACTOR_ID = 'anonymous';
 /**
  * The actor id to stamp on an audit event, from a route context.
  *
- * Route handlers used to reach back into `req.user.sub` themselves, with
- * fallbacks that disagreed across services (`?? ''`, `?? userId ?? 'system'`,
- * `?? 'system'`) — so the same unattributable write landed in the trail under
- * three different actors depending on which route wrote it.
+ * One resolver so every route agrees on the fallback: per-route
+ * `req.user.sub ?? …` fallbacks disagree, and the same unattributable write
+ * would land in the trail under different actors depending on the route.
  *
  * `rc.userId` is already the normalized identity `withRoute` resolved (JWT
  * `sub`, else the `x-user-id` hop header — see {@link getIdentity}), so this is
@@ -110,8 +109,8 @@ export function getIdentity(req: HttpRequest): RequestIdentity {
   //     runs before `requireAuth`, which recomputes this from the JWT).
   // For a USER or SERVICE-ACCOUNT principal the JWT is the ONLY authority.
   // Platform can mint a user token with no `organizationId` (a person between
-  // orgs, mid-invite, mid-onboarding), and the old `user?.organizationId ||
-  // header` fallback let such a token name any tenant it liked — a value that
+  // orgs, mid-invite, mid-onboarding); a `user?.organizationId || header`
+  // fallback would let such a token name any tenant it liked — a value that
   // flows straight into the RLS tenant GUC. Absent ⇒ undefined ⇒ the route's
   // `requireOrgId` refuses the call, which is the correct answer.
   const principalType = user?.principalType;
@@ -120,9 +119,8 @@ export function getIdentity(req: HttpRequest): RequestIdentity {
   const rawOrgId = user?.organizationId || (mayUseHeaderOrg ? headerOrgId : undefined);
   // Normalized ONCE here (see normalizeOrgId) so the RLS GUC (`identityScope`
   // reads this `identity.orgId`) and the app-layer WHERE clauses (route-wrapper
-  // / app-factory, which historically re-lowercased) always agree on tenant. A
-  // mismatch — GUC set to `Acme` while WHERE queries `acme` — would, under
-  // owner-bypass RLS, silently scope reads to the wrong (or no) tenant.
+  // / app-factory) always agree on tenant. A mismatch — GUC set to `Acme` while
+  // WHERE queries `acme` — would silently return no rows.
   const orgId = normalizeOrgId(rawOrgId);
   return {
     orgId,

@@ -18,12 +18,13 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const createMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const updateMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const deleteMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const emitComplianceAuditMock = jest.fn();
+const recordAuditMock = jest.fn();
 
 // Toggle validateBody between the success and the validation-failure path.
 let validatePasses = true;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p[k],
   isSystemAdmin: () => true,
   validateBody: (req: any) =>
@@ -43,10 +44,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
-}));
 
 class InvalidRuleRegexError extends Error {}
 class InvalidSetTagError extends Error {}
@@ -96,8 +93,8 @@ describe('POST / — create emits compliance.rule.create', () => {
     await handler({ __orgId: 'org-a', body: { name: 'No latest tag', scope: 'org' }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(201);
-    expect(emitComplianceAuditMock).toHaveBeenCalledTimes(1);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledTimes(1);
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.rule.create',
       actorId: 'u-1',
       orgId: 'org-a',
@@ -116,7 +113,7 @@ describe('POST / — create emits compliance.rule.create', () => {
 
     expect(status).toHaveBeenCalledWith(400);
     expect(createMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -129,7 +126,7 @@ describe('PUT /:id — update emits compliance.rule.update', () => {
     await handler({ __orgId: 'org-a', params: { id: RULE_ID }, body: { name: 'Updated' }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.rule.update',
       targetId: RULE_ID,
       details: { name: 'Updated', target: 'pipeline', scope: 'org' },
@@ -144,7 +141,7 @@ describe('PUT /:id — update emits compliance.rule.update', () => {
     await handler({ __orgId: 'org-a', params: { id: RULE_ID }, body: { name: 'x' }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('does not emit when validation fails', async () => {
@@ -156,7 +153,7 @@ describe('PUT /:id — update emits compliance.rule.update', () => {
 
     expect(status).toHaveBeenCalledWith(400);
     expect(updateMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 
@@ -169,7 +166,7 @@ describe('DELETE /:id — delete emits compliance.rule.delete', () => {
     await handler({ __orgId: 'org-a', params: { id: RULE_ID }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.rule.delete',
       targetId: RULE_ID,
       details: { name: 'Gone' },
@@ -184,6 +181,6 @@ describe('DELETE /:id — delete emits compliance.rule.delete', () => {
     await handler({ __orgId: 'org-a', params: { id: RULE_ID }, user: USER } as any, res);
 
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });

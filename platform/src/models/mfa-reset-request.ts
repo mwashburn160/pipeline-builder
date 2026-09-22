@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import mongoose, { Schema, Document, Types } from 'mongoose';
+import mongoose, { Schema, Types, type HydratedDocument } from 'mongoose';
 
 /**
- * A TWO-PERSON request to reset one member's second factors (#8 recovery).
+ * A TWO-PERSON request to reset one member's second factors.
  *
  * An org admin/owner REQUESTS it (with a reason); a DIFFERENT admin/owner of
  * that org or of an ancestor — or a platform sysadmin — APPROVES or DENIES it.
@@ -23,10 +23,9 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
 export const MFA_RESET_REQUEST_STATUSES = ['pending', 'approved', 'denied', 'expired'] as const;
 export type MfaResetRequestStatus = typeof MFA_RESET_REQUEST_STATUSES[number];
 
-export interface MfaResetRequestDocument extends Document {
-  _id: Types.ObjectId;
+export interface MfaResetRequestData {
   /** The org whose admins may act on the request (the requester's authority). */
-  organizationId: string;
+  organizationId: Types.ObjectId;
   /** The member whose factors would be removed. */
   targetUserId: Types.ObjectId;
   targetEmail: string;
@@ -51,9 +50,11 @@ export interface MfaResetRequestDocument extends Document {
   };
 }
 
-const mfaResetRequestSchema = new Schema<MfaResetRequestDocument>(
+export type MfaResetRequestDocument = HydratedDocument<MfaResetRequestData>;
+
+const mfaResetRequestSchema = new Schema<MfaResetRequestData>(
   {
-    organizationId: { type: String, required: true, index: true },
+    organizationId: { type: Schema.Types.ObjectId, required: true, index: true },
     targetUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     targetEmail: { type: String, required: true },
     requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -87,4 +88,4 @@ mfaResetRequestSchema.index(
   { unique: true, partialFilterExpression: { status: 'pending' } },
 );
 
-export default mongoose.model<MfaResetRequestDocument>('MfaResetRequest', mfaResetRequestSchema);
+export default mongoose.model<MfaResetRequestData>('MfaResetRequest', mfaResetRequestSchema);

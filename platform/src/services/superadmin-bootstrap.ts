@@ -31,6 +31,7 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { auditService } from './audit-service.js';
 import { grantPlatformAdmin } from './platform-admin-roles.js';
+import { bootstrapSuperAdminEmails, isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { User } from '../models/index.js';
 
 const logger = createLogger('superadmin-bootstrap');
@@ -43,11 +44,7 @@ const logger = createLogger('superadmin-bootstrap');
  * warm boot where every listed user is already a sysadmin).
  */
 export async function bootstrapSuperAdmins(): Promise<number> {
-  const raw = process.env.BOOTSTRAP_SUPERADMIN_EMAILS || '';
-  const emails = raw
-    .split(',')
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
+  const emails = [...bootstrapSuperAdminEmails()];
   if (emails.length === 0) return 0;
 
   // Pull the state of every targeted user so we can drive the grant per-user and
@@ -55,7 +52,7 @@ export async function bootstrapSuperAdmins(): Promise<number> {
   // matched emails, so this read is what maps user id → email for the audit rows.
   const targetedBefore = await User.find({ email: { $in: emails } })
     .select('_id email isSuperAdmin')
-    .lean() as Array<{ _id: { toString(): string }; email: string; isSuperAdmin?: boolean }>;
+    .lean();
 
   // Route the promotion through `grantPlatformAdmin` (platform-admin-roles) rather than a
   // bare `isSuperAdmin=true` write. That path assigns the system-org Super Admin
@@ -143,11 +140,7 @@ export async function bootstrapSuperAdmins(): Promise<number> {
  * Returns `true` if the user was promoted.
  */
 export async function maybePromoteNewUser(userId: string, email: string): Promise<boolean> {
-  const raw = process.env.BOOTSTRAP_SUPERADMIN_EMAILS || '';
-  const emails = new Set(
-    raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
-  );
-  if (emails.size === 0 || !emails.has(email.trim().toLowerCase())) return false;
+  if (!isBootstrapSuperAdminEmail(email)) return false;
 
   // Route through `grantPlatformAdmin` (platform-admin-roles) instead of a bare
   // `isSuperAdmin=true` write: it assigns the system-org Super Admin Role AND

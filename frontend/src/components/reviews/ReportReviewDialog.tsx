@@ -13,7 +13,7 @@ import type { ReviewReportCategory } from '@/types/plugin-reviews';
 
 /**
  * Report a review. A `security` report is private: it goes to the publisher and
- * the platform moderators and is never posted publicly (plan §5).
+ * the platform moderators and is never posted publicly.
  */
 export function ReportReviewDialog({ reviewId, onReported, onClose }: {
   reviewId: string;

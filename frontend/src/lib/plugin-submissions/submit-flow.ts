@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The `/plugins/submit` page's state machine (plan §4.1, W5), kept pure so it
+ * The `/plugins/submit` page's state machine, kept pure so it
  * can be tested without a browser:
  *
  *   select ──file──▶ inspecting (challenge → solving → uploading) ──▶ review

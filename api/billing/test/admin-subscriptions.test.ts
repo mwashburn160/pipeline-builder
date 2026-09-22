@@ -8,8 +8,8 @@
  * Mocks Mongoose models, billing helpers, and api-core utilities.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -23,6 +23,7 @@ const mockIsSystemAdmin = jest.fn<AnyFn>();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockAuditRecord,
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
   sendBadRequest: mockSendBadRequest,
@@ -119,25 +120,22 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   recordReactivatePlanMissing: (...a: unknown[]) => mockRecordReactivate(...a),
-  applyPlanTierChange: mockApplyPlanTierChange,
   billingServiceAuth: (_orgId: string) => 'Bearer service-token',
-  buildSubscriptionResponse: mockBuildSubscriptionResponse,
+  createBillingEvent: mockCreateBillingEvent,
+}));
+jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
   syncTierToQuotaService: mockSyncTierToQuotaService,
   syncEntitlements: mockSyncTierToQuotaService,
-  syncProviderAddons: jest.fn(async () => undefined),
-  createBillingEvent: mockCreateBillingEvent,
-  applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
-  finalizePrunedAddons: mockFinalizePrunedAddons,
-  // Entitled (paid-tier-enforcing) status set the route reads to decide whether
-  // an admin status flip crosses the entitlement boundary.
-  MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
+}));
+jest.unstable_mockModule('../src/helpers/subscription-response.js', () => ({
+  buildSubscriptionResponse: mockBuildSubscriptionResponse,
 }));
 
-// prune/plan-change helpers moved to addon-prune.js (imported by the route now).
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyPlanTierChange: mockApplyPlanTierChange,
   applyTierIncludedAddonPrune: mockApplyTierIncludedAddonPrune,
   finalizePrunedAddons: mockFinalizePrunedAddons,
+  syncProviderAddons: jest.fn(async () => undefined),
 }));
 
 // Payment provider — an admin plan change must push the new price to the
@@ -157,11 +155,8 @@ jest.unstable_mockModule('../src/validation/schemas.js', () => ({
 }));
 
 // Central-trail audit client — the tier override emits billing.tier.override
-// here ALONGSIDE the local billing_events write. Mock it to assert emission.
+// here ALONGSIDE the local billing_events write. Spied via the api-core mock's `recordAudit`.
 const mockAuditRecord = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: mockAuditRecord }),
-}));
 
 const mockIncCounter = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -672,7 +667,6 @@ describe('PUT /admin/subscriptions/:id', () => {
         targetId: 'sub-1',
         details: expect.objectContaining({ toTier: 'pro', fromPlanId: 'developer', toPlanId: 'pro' }),
       }),
-      'billing',
     );
   });
 
@@ -705,7 +699,6 @@ describe('PUT /admin/subscriptions/:id', () => {
 
     expect(mockAuditRecord).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'billing.tier.override' }),
-      'billing',
     );
   });
 
@@ -814,7 +807,6 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
         targetId: 'sub-9',
         details: expect.objectContaining({ planId: 'pro', orgId: 'org-9' }),
       }),
-      'billing',
     );
     const [event] = mockAuditRecord.mock.calls[0];
     expect(JSON.stringify(event)).not.toContain('cus_LEAKED');

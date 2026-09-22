@@ -3,11 +3,11 @@
 
 /**
  * Tests for the entitlement-sync hardening on `/compliance/entitlements/:orgId`:
- *  - #6 sync-race watermark: a push with a STALE `occurredAt` is skipped
+ *  - sync-race watermark: a push with a STALE `occurredAt` is skipped
  *    (`{ ok:true, skipped:true }`) and never reconciles; a newer one applies and
  *    advances the watermark; a push with no `occurredAt` always applies.
- *  - #2 drift-read: `GET /:orgId` returns `{ sets }` from the active entitled sets.
- *  - P3: the machine guard is tightened to the BILLING service principal (or
+ *  - drift-read: `GET /:orgId` returns `{ sets }` from the active entitled sets.
+ *  - the machine guard is tightened to the BILLING service principal (or
  *    sysadmin) — a generic service principal is 403'd on both legs.
  */
 
@@ -21,11 +21,12 @@ const syncEntitledSetsMock = jest.fn<(...a: unknown[]) => Promise<{ skipped: boo
 const getActiveEntitledSetsMock = jest.fn<(orgId: string) => Promise<string[]>>(async () => []);
 const getLastOccurredAtMock = jest.fn<(orgId: string) => Promise<Date | null>>(async () => null);
 const recordMock = jest.fn<(orgId: string, at: Date) => Promise<void>>(async () => undefined);
-const emitComplianceAuditMock = jest.fn();
+const recordAuditMock = jest.fn();
 
 let isAdmin = false;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: Record<string, string>, k: string) => p[k],
   validateBody: (req: { body: unknown }, schema: { parse: (b: unknown) => unknown }) => {
     try {
@@ -51,10 +52,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
-}));
 
 jest.unstable_mockModule('../src/services/entitlement-watermark-store.js', () => ({
   entitlementWatermarkStore: {
@@ -68,14 +65,13 @@ jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
     syncEntitledSets: (...a: unknown[]) => syncEntitledSetsMock(...a),
     getActiveEntitledSets: (...a: unknown[]) => getActiveEntitledSetsMock(...(a as [string])),
   },
-  KNOWN_CONTENT_SETS: ['standard', 'advanced'],
 }));
 
 const { createEntitlementSyncRoutes } = await import('../src/routes/entitlements.js');
 
 /**
  * Drive the route's FULL middleware chain, not just its handler — the
- * authorization lives in `requireInternalService` ahead of the handler (#14), so
+ * authorization lives in `requireInternalService` ahead of the handler, so
  * a test that reached past it would assert nothing about who may call this.
  */
 function handlerFor(method: 'put' | 'get') {
@@ -108,7 +104,7 @@ beforeEach(() => {
   getLastOccurredAtMock.mockResolvedValue(null);
 });
 
-describe('PUT /:orgId — occurredAt watermark (#6)', () => {
+describe('PUT /:orgId — occurredAt watermark', () => {
   function put(body: unknown, user: any = BILLING) {
     const handler = handlerFor('put');
     const { res, status, json } = makeRes();
@@ -131,7 +127,7 @@ describe('PUT /:orgId — occurredAt watermark (#6)', () => {
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ ok: true, skipped: true }),
     }));
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('applies a push with NO occurredAt (no watermark option)', async () => {
@@ -158,7 +154,7 @@ describe('entitlement legs — P3 billing-only guard', () => {
     expect(getActiveEntitledSetsMock).not.toHaveBeenCalled();
   });
 
-  it('403s a system admin on PUT — an internal route admits no user token (#14)', async () => {
+  it('403s a system admin on PUT — an internal route admits no user token', async () => {
     isAdmin = true;
     const handler = handlerFor('put');
     const { res, status } = makeRes();
@@ -168,7 +164,7 @@ describe('entitlement legs — P3 billing-only guard', () => {
   });
 });
 
-describe('GET /:orgId — drift-read shape (#2)', () => {
+describe('GET /:orgId — drift-read shape', () => {
   it('returns { sets } for the billing service', async () => {
     getActiveEntitledSetsMock.mockResolvedValue(['advanced', 'standard']);
     const handler = handlerFor('get');

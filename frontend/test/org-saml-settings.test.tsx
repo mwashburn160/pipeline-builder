@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * SAML 2.0 connection editor (#4).
+ * SAML 2.0 connection editor.
  *
  * Covers what the editor is actually responsible for, as opposed to what the
  * server re-checks anyway:

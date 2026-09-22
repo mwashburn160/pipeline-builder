@@ -135,7 +135,7 @@ export default function PlatformSettingsPage() {
       <Card className="mb-4 border-amber-200/60 dark:border-amber-800/60 bg-amber-50/80 dark:bg-amber-900/20">
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-amber-800 dark:text-amber-200">
+          <div className="text-sm text-warning-strong">
             <strong>Read-only.</strong> All values reflect the running deploy&apos;s environment.
             To change a setting, edit the deploy&apos;s env vars and re-deploy — the platform reads
             these at process start.

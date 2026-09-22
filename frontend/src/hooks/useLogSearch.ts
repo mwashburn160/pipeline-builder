@@ -23,18 +23,16 @@ export function useLogSearch(params: LogQueryParams, enabled = true) {
   const fetcher = useCallback(
     async (signal: AbortSignal): Promise<LogSearchResponse | undefined> => {
       if (!enabled) return undefined;
-      const res = await api.logSearch(params, signal);
+      const res = await api.logSearch(params, { signal });
       return res.data;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- params tracked via `key`
     [key, enabled],
   );
-  // `enabled` is part of the resource key. The resource re-binds (and fetches)
-  // only when its key changes, and `enabled` used to live only inside the
-  // fetcher — so on a hard load, where auth is still initialising, the first
-  // fetch returned nothing and flipping `enabled` on did not fetch again: the
-  // Logs page read "0 entries" with an empty histogram for up to 30s, until the
-  // next interval tick.
+  // `enabled` is part of the resource key: the resource re-binds (and fetches)
+  // only when its key changes, so on a hard load — auth still initialising —
+  // flipping `enabled` on must fetch at once rather than leave the Logs page at
+  // "0 entries" until the next interval tick.
   return useObservabilityResource<LogSearchResponse>(fetcher, `${key}|${enabled ? 'on' : 'off'}`);
 }
 
@@ -44,7 +42,7 @@ export function useLogVolume(params: LogQueryParams, enabled = true) {
   const fetcher = useCallback(
     async (signal: AbortSignal): Promise<LogVolumeResponse | undefined> => {
       if (!enabled) return undefined;
-      const res = await api.logVolume(params, signal);
+      const res = await api.logVolume(params, { signal });
       return res.data;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- params tracked via `key`

@@ -36,7 +36,7 @@ export function AccessDenied({ denial }: { denial: AccessDenial }) {
       <div
         data-testid="access-denied"
         role="alert"
-        className="max-w-md w-full rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm dark:border-gray-700 dark:bg-gray-900"
+        className="max-w-md w-full rounded-2xl border border-default bg-white p-8 text-center shadow-sm dark:bg-gray-900"
       >
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-surface-muted">
           <ShieldOff className="h-7 w-7 text-fg-subtle" aria-hidden="true" />
@@ -45,8 +45,8 @@ export function AccessDenied({ denial }: { denial: AccessDenial }) {
           You don&apos;t have access to this page
         </h1>
         <p className="mt-2 text-sm text-fg-muted">
-          <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-800">{denial.pathname}</code>
-          {' '}requires {denial.kind === 'permission' ? <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-800">{denial.permission}</code> : requirement}
+          <code className="rounded bg-surface-muted px-1.5 py-0.5 text-xs">{denial.pathname}</code>
+          {' '}requires {denial.kind === 'permission' ? <code className="rounded bg-surface-muted px-1.5 py-0.5 text-xs">{denial.permission}</code> : requirement}
           {denial.kind === 'permission' ? ' in your active organization.' : '.'}
         </p>
         <p className="mt-2 text-sm text-fg-muted">{remedy}</p>

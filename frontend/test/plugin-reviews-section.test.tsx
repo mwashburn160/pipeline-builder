@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The plugin page's Reviews tab (plan §5, W4):
+ * The plugin page's Reviews tab:
  *  - guests read reviews and get sign-in links (back to ?tab=reviews), never actions;
  *  - bodies are the server-sanitized HTML, authors are display names only ("Former user" once deleted);
  *  - a signed-in viewer writes, edits (held / removed states) and deletes their review;

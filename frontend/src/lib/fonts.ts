@@ -4,17 +4,13 @@
 /**
  * The app's two typefaces, self-hosted by `next/font`.
  *
- * They used to arrive through `@import url('https://fonts.googleapis.com/…')`
- * at the top of globals.css, which meant two things — neither of them good.
- * First, a render-blocking request to a third party before any text could be
- * styled. Second, and worse, the app's own CSP (`style-src 'self'`,
- * `font-src 'self' data:`) BLOCKED both the stylesheet and the font files, so
- * that request bought nothing at all: every page has silently been rendering in
- * the fallback stack.
+ * Not a Google Fonts `@import`: that is a render-blocking third-party request,
+ * and the app's own CSP (`style-src 'self'`, `font-src 'self' data:`) blocks
+ * both the stylesheet and the font files anyway.
  *
  * `next/font` downloads the faces at build time and serves them from
- * `/_next/static/media`, which `'self'` allows — so the typography works for the
- * first time, with no third-party request and no layout shift (the generated
+ * `/_next/static/media`, which `'self'` allows — no third-party request and no
+ * layout shift (the generated
  * `@font-face` carries size-adjust metrics for the fallbacks below).
  */
 

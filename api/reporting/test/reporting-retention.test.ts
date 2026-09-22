@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for the reporting retention scheduler wiring (Phase 7,
- * src/services/reporting-retention.ts). api-core is mocked so createScheduler /
- * createEnvRedisLock are spies; pipeline-data's reportingService is mocked so we
+ * Tests for the reporting retention scheduler wiring
+ * (src/services/reporting-retention.ts). api-core is mocked so createScheduler
+ * is a spy; pipeline-data's reportingService is mocked so we
  * can assert the sweep delegates to purgeExpiredReportingData with the env-tuned
  * batch options.
  */
@@ -15,14 +15,14 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const createSchedulerSpy = jest.fn((_opts: unknown) => ({ start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() }));
-const createEnvRedisLockSpy = jest.fn<() => unknown>(() => null);
-// D8: the scheduler is gated on billing being enabled — default ON, toggled per-test.
+// The scheduler is gated on billing being enabled — default ON, toggled per-test.
 const isBillingEnabledSpy = jest.fn<() => boolean>(() => true);
+const fetchParentOrgIdSpy = jest.fn<AnyFn>(async () => undefined);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createScheduler: createSchedulerSpy,
-  createEnvRedisLock: createEnvRedisLockSpy,
   isBillingEnabled: isBillingEnabledSpy,
+  fetchParentOrgId: fetchParentOrgIdSpy,
 }));
 
 const purgeExpiredReportingData = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({});
@@ -30,12 +30,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   reportingService: { purgeExpiredReportingData: (...a: unknown[]) => purgeExpiredReportingData(...a) },
 }));
 
-const { createReportingRetentionScheduler, isReportingRetentionEnabled } =
+const { createReportingRetentionScheduler, isReportingRetentionEnabled, startReportingRetention, stopReportingRetention } =
   await import('../src/services/reporting-retention.js');
 
 const ENV_KEY = 'REPORTING_RETENTION_ENABLED';
 let saved: string | undefined;
-beforeEach(() => { saved = process.env[ENV_KEY]; jest.clearAllMocks(); createEnvRedisLockSpy.mockReturnValue(null); isBillingEnabledSpy.mockReturnValue(true); });
+beforeEach(() => { saved = process.env[ENV_KEY]; jest.clearAllMocks(); isBillingEnabledSpy.mockReturnValue(true); });
 afterEach(() => { if (saved === undefined) delete process.env[ENV_KEY]; else process.env[ENV_KEY] = saved; });
 
 describe('isReportingRetentionEnabled', () => {
@@ -63,22 +63,14 @@ describe('createReportingRetentionScheduler', () => {
     expect(createSchedulerSpy).not.toHaveBeenCalled();
   });
 
-  it('builds a scheduler with a leader lock when Redis is configured', () => {
+  it('builds a leader-locked scheduler (shared env lock client)', () => {
     process.env[ENV_KEY] = 'true';
-    createEnvRedisLockSpy.mockReturnValue({ set: jest.fn<AnyFn>() });
     const sched = createReportingRetentionScheduler();
     expect(sched).not.toBeNull();
-    const opts = createSchedulerSpy.mock.calls[0][0] as { name: string; lock?: { key: string } };
+    const opts = createSchedulerSpy.mock.calls[0][0] as { name: string; lock?: { key: string; redis?: unknown } };
     expect(opts.name).toBe('reporting-retention');
     expect(opts.lock?.key).toBe('reporting-retention:leader');
-  });
-
-  it('omits the lock when Redis is not configured', () => {
-    process.env[ENV_KEY] = 'true';
-    createEnvRedisLockSpy.mockReturnValue(null);
-    createReportingRetentionScheduler();
-    const opts = createSchedulerSpy.mock.calls[0][0] as { lock?: unknown };
-    expect(opts.lock).toBeUndefined();
+    expect(opts.lock?.redis).toBeUndefined();
   });
 
   it('the run callback delegates to reportingService.purgeExpiredReportingData', async () => {
@@ -125,5 +117,26 @@ describe('createRetentionRootResolver (team rows follow the ROOT\'s retention)',
     const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
     const resolve = createRetentionRootResolver(async (id) => (id === 'a' ? 'b' : 'a'));
     expect(await resolve('a')).toBeNull();
+  });
+});
+
+describe('start/stopReportingRetention', () => {
+  it('starts once, ignores a second start, and stops cleanly', () => {
+    process.env[ENV_KEY] = 'true';
+    startReportingRetention();
+    startReportingRetention();
+    expect(createSchedulerSpy).toHaveBeenCalledTimes(1);
+    const sched = createSchedulerSpy.mock.results[0]!.value as { start: jest.Mock; stop: jest.Mock };
+    expect(sched.start).toHaveBeenCalledTimes(1);
+    stopReportingRetention();
+    expect(sched.stop).toHaveBeenCalledTimes(1);
+    stopReportingRetention(); // already stopped — no-op
+  });
+
+  it('the default resolver asks platform for each parent, failing closed on HTTP errors', async () => {
+    const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
+    fetchParentOrgIdSpy.mockResolvedValueOnce(undefined);
+    expect(await createRetentionRootResolver()('root-org')).toBe('root-org');
+    expect(fetchParentOrgIdSpy).toHaveBeenCalledWith('root-org', expect.objectContaining({ throwOnHttpError: true }));
   });
 });

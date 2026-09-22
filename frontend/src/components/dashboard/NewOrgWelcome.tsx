@@ -54,7 +54,7 @@ export function NewOrgWelcome({ signals, onDismiss }: NewOrgWelcomeProps) {
       <ol className="space-y-2">
         {steps.map((step, idx) => {
           const Icon = step.done ? CheckCircle2 : Circle;
-          const iconColor = step.done ? 'text-green-600 dark:text-green-400' : 'text-fg-subtle';
+          const iconColor = step.done ? 'text-success' : 'text-fg-subtle';
           return (
             <li key={step.id}>
               <Link

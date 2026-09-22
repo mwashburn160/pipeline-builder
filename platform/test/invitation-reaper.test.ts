@@ -8,13 +8,12 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { leaderLockMock } from './helpers/leader-lock-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { invitation: { sweepIntervalMs: 1000 }, audit: { retentionDays: 90 } },
-}));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ invitation: { sweepIntervalMs: 1000 }, audit: { retentionDays: 90 } }));
 
 const mockUpdateMany = jest.fn<(...a: unknown[]) => Promise<{ modifiedCount: number }>>();
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -26,8 +25,18 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 jest.unstable_mockModule('../src/utils/leader-lock.js', () => leaderLockMock());
 
-const { sweepExpiredInvitations, startInvitationReaper, stopInvitationReaper } =
-  await import('../src/services/invitation-reaper.js');
+const { sweepExpiredInvitations, invitationReaperSweep } = await import('../src/services/invitation-reaper.js');
+const { buildSweep } = await import('../src/services/background-sweeps.js');
+
+let sweep: { start(): void; stop(): void } | null = null;
+function startReaper(intervalMs: number): void {
+  sweep ??= buildSweep(invitationReaperSweep(intervalMs));
+  sweep!.start();
+}
+function stopReaper(): void {
+  sweep?.stop();
+  sweep = null;
+}
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -35,7 +44,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  stopInvitationReaper();
+  stopReaper();
 });
 
 describe('sweepExpiredInvitations', () => {
@@ -65,12 +74,12 @@ describe('sweepExpiredInvitations', () => {
   });
 });
 
-describe('startInvitationReaper', () => {
+describe('invitationReaperSweep', () => {
   beforeEach(() => { jest.useFakeTimers(); });
   afterEach(() => { jest.useRealTimers(); });
 
   it('runs an immediate sweep and repeats on the interval', async () => {
-    startInvitationReaper(1000);
+    startReaper(1000);
 
     // Immediate first sweep.
     expect(mockUpdateMany).toHaveBeenCalledTimes(1);
@@ -82,9 +91,9 @@ describe('startInvitationReaper', () => {
     expect(mockUpdateMany).toHaveBeenCalledTimes(3);
   });
 
-  it('is idempotent — a second start does not add a second timer', async () => {
-    startInvitationReaper(1000);
-    startInvitationReaper(1000); // no-op while a timer is live
+  it('the lock key makes it a one-replica-per-window sweep, and a second start adds no second timer', async () => {
+    startReaper(1000);
+    startReaper(1000); // no-op while a timer is live
     expect(mockUpdateMany).toHaveBeenCalledTimes(1); // only the first immediate sweep
 
     await jest.advanceTimersByTimeAsync(1000);
@@ -92,8 +101,8 @@ describe('startInvitationReaper', () => {
   });
 
   it('stop halts the interval', async () => {
-    startInvitationReaper(1000);
-    stopInvitationReaper();
+    startReaper(1000);
+    stopReaper();
     await jest.advanceTimersByTimeAsync(5000);
     expect(mockUpdateMany).toHaveBeenCalledTimes(1); // only the immediate sweep ran
   });

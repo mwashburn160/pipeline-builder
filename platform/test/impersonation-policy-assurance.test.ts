@@ -8,8 +8,9 @@
  * resolver is used, so an absent stored field is judged by its real default.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -31,23 +32,26 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-// `canAdministerOrg` lazily imports org-hierarchy on the CROSS-org branch, so
+// `canManageOrgScope` lazily imports org-hierarchy on the CROSS-org branch, so
 // `isAncestorOrg` has to exist here too (a flat tree: nobody is anyone's
 // ancestor) — otherwise the cross-org case throws instead of being refused.
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   getOrgName: async () => undefined,
   isAncestorOrg: async () => false,
 }));
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8 } }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: {
     findById: () => ({ select: () => ({ lean: async () => before }) }),
     findByIdAndUpdate: (...a: unknown[]) => ({ lean: async () => { await mockUpdate(...a); return { ...before, ...(a[1] as { $set: object }).$set }; } }),
   },
   User: { countDocuments: async () => 3 },
+  // Linking stub: the org-policy service also serves the MFA/security policies.
+  UserOrganization: {},
 }));
 
-const { updateImpersonationPolicy, isLooseningImpersonation } = await import('../src/controllers/org-impersonation-policy.js');
+const { updateImpersonationPolicy } = await import('../src/controllers/org-impersonation-policy.js');
+const { isLooseningImpersonation } = await import('../src/services/org-policy-service.js');
 
 function makeRes() {
   const r: any = { _status: 0, _body: undefined };
@@ -57,7 +61,7 @@ function makeRes() {
 }
 
 /**
- * The route is `canAdministerOrg`-gated and that gate runs FOR REAL (see
+ * The route is `canManageOrgScope`-gated and that gate runs FOR REAL (see
  * helpers/controller-helper-mock.ts): it reads `req.user.role` via `isOrgAdmin`
  * and compares `req.user.organizationId` with the `:id` param. Authority is
  * therefore carried by the FIXTURE — `role: 'admin'` over the caller's own org
@@ -118,13 +122,14 @@ describe('PATCH /organization/:id/impersonation-policy', () => {
 
   // Negative: the tenancy/role gate itself, not the assurance gate. A plain
   // MEMBER of the very same org holds no `admin`/`owner` role, so
-  // `canAdministerOrg` refuses before any assurance check and nothing is
-  // written — even for a TIGHTENING change an admin would be allowed to make.
-  it('403s a non-admin member of the same org, and writes nothing', async () => {
-    const res = await patch({ impersonationPolicy: 'denied' }, 2, { sub: 'member', organizationId: 'org1', role: 'member', aal: 2 });
-    expect(res._status).toBe(403);
-    expect(mockUpdate).not.toHaveBeenCalled();
-    expect(refuseWeakSession).not.toHaveBeenCalled();
+  // Tenancy is scope-only: a non-admin whose custom Role delegates
+  // `org:impersonation` (the route's capability gate) manages its own org's policy.
+  it('admits a non-admin member of the same org holding the delegated permission', async () => {
+    const res = await patch({ impersonationPolicy: 'denied' }, 2, {
+      sub: 'member', organizationId: 'org1', role: 'member', permissions: ['org:impersonation'], aal: 2,
+    });
+    expect(res._status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalled();
   });
 
   // Negative: an admin of a DIFFERENT org gets no reach into org1.

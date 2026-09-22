@@ -338,12 +338,12 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                         <span className="text-xs text-fg-muted">{previewResult.rulesEvaluated} rules evaluated</span>
                       </div>
                       {previewResult.violations.length > 0 && previewResult.violations.map((v, i) => (
-                        <div key={i} className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+                        <div key={i} className="flex items-center gap-1.5 text-xs text-danger">
                           <XCircle className="h-3 w-3 shrink-0" /> {v.ruleName}: {v.message}
                         </div>
                       ))}
                       {previewResult.warnings.length > 0 && previewResult.warnings.map((w, i) => (
-                        <div key={i} className="flex items-center gap-1.5 text-xs text-yellow-600 dark:text-yellow-400">
+                        <div key={i} className="flex items-center gap-1.5 text-xs text-warning">
                           <AlertTriangle className="h-3 w-3 shrink-0" /> {w.ruleName}: {w.message}
                         </div>
                       ))}
@@ -356,7 +356,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                           Impact on your existing entities
                         </span>
                         <span className="text-xs text-fg-muted">
-                          <span className={impactResult.wouldFail > 0 ? 'text-red-600 dark:text-red-400 font-medium' : 'text-green-600 dark:text-green-400'}>
+                          <span className={impactResult.wouldFail > 0 ? 'text-danger font-medium' : 'text-success'}>
                             {impactResult.wouldFail}
                           </span>
                           {' / '}
@@ -367,7 +367,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                       {impactResult.samples.length > 0 && (
                         <ul className="space-y-1">
                           {impactResult.samples.map((s) => (
-                            <li key={s.entityId} className="flex items-start gap-1.5 text-xs text-red-700 dark:text-red-300">
+                            <li key={s.entityId} className="flex items-start gap-1.5 text-xs text-danger">
                               <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
                               <span>
                                 <span className="font-medium">{s.entityName ?? s.entityId.slice(0, 8)}</span>
@@ -451,7 +451,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                       )}
                     </div>
                     {rule.subscribed ? (
-                      <span className="text-xs text-green-600 dark:text-green-400 font-medium">Subscribed</span>
+                      <span className="text-xs text-success font-medium">Subscribed</span>
                     ) : locked ? (
                       <Link
                         href={setGates[setMeta.feature].upsellHref}

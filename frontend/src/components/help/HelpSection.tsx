@@ -67,9 +67,9 @@ function ContentBlockRenderer({ block }: { block: ContentBlock }) {
 
     case 'warning':
       return (
-        <div className="flex gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-sm text-amber-700 dark:text-amber-300 leading-relaxed">{block.content}</p>
+        <div className="flex gap-3 p-3 rounded-lg bg-warning-bg border border-warning-border">
+          <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-warning" />
+          <p className="text-sm text-warning leading-relaxed">{block.content}</p>
         </div>
       );
   }

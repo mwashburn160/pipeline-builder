@@ -17,8 +17,8 @@ interface DescriptionListProps {
 }
 
 /**
- * A responsive key/value list (`<dl>`) — replaces the ~9 hand-rolled definition
- * lists scattered across detail views (token inspector, incident metadata, etc.).
+ * A responsive key/value list (`<dl>`) for detail views (token inspector,
+ * incident metadata, etc.).
  */
 export function DescriptionList({ items, variant = 'rows', className = '' }: DescriptionListProps) {
   if (variant === 'grid') {

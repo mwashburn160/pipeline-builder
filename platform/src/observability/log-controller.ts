@@ -20,6 +20,8 @@
 
 import {
   isSystemAdmin,
+  parsePage,
+  parseQueryIntClamped,
   parseQueryString,
   sendError,
   sendSuccess,
@@ -35,15 +37,16 @@ import {
   resolveTenants,
 } from './log-query.js';
 import * as loki from './loki-client.js';
+import { sendUpstreamFailure } from './upstream.js';
 import { audit } from '../helpers/audit.js';
-import { requireAuth, withController } from '../helpers/controller-helper.js';
+import { ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 
 /** Loki keeps 7 days (`retention_period: 168h`); a wider ask is clamped, not rejected. */
 const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 100;
 
-/** Export budget — see docs/plans/frontend-logs.md D6. Bytes and time, not entries. */
+/** Export budget. Bytes and time, not entries: entry sizes vary far too much for a count to bound anything. */
 const EXPORT_MAX_BYTES = 100 * 1024 * 1024;
 const EXPORT_MAX_ENTRIES = 1_000_000;
 const EXPORT_DEADLINE_MS = 60_000;
@@ -97,10 +100,9 @@ export function resolveWindow(query: Request['query']): ResolvedWindow | { error
   return { startMs: endMs - span, endMs, clamped: false };
 }
 
-function parseLimit(raw: unknown, fallback = DEFAULT_LIMIT): number {
-  const n = typeof raw === 'string' ? parseInt(raw, 10) : NaN;
-  if (!Number.isFinite(n) || n < 1) return fallback;
-  return Math.min(n, MAX_LIMIT);
+/** `?limit=` for a log read: `def` by default, at most {@link MAX_LIMIT}. */
+function parseLimit(query: Request['query'], def = DEFAULT_LIMIT): number {
+  return parsePage(query as Record<string, unknown>, { def, max: MAX_LIMIT }).limit;
 }
 
 /**
@@ -119,10 +121,7 @@ async function tenantsForRequest(req: Request, sysadmin: boolean): Promise<strin
   if (!raw) return resolveTenants({ isSuperAdmin: true }, [INFRA_TENANT]);
 
   if (raw === 'all') {
-    // Imported lazily: the Organization model pulls platform's config (and its
-    // production secret guards) in at module load, and only this one branch
-    // needs it. Keeping it out of the module graph means merely mounting the
-    // log routes doesn't drag the whole config in.
+    // Imported lazily: only this sysadmin branch needs the Organization model.
     const { default: Organization } = await import('../models/organization.js');
     const orgs = await Organization.find({}, { _id: 1 })
       .limit(MAX_TENANTS_PER_QUERY)
@@ -149,23 +148,17 @@ function sendQueryFailure(res: Response, err: unknown, emptyBody: Record<string,
     sendError(res, 400, err.message);
     return;
   }
-  const e = err as { kind?: string };
-  if (e.kind === 'unreachable') {
-    // A LEAN deploy omits Loki; render an empty state, not a 502.
-    sendSuccess(res, 200, { ...emptyBody, degraded: true });
-    return;
-  }
-  if (e.kind === 'upstream-4xx') {
-    // No user text reaches LogQL unquoted, so a 4xx is our compiler's bug.
-    sendError(res, 500, 'Log backend rejected the compiled query');
-    return;
-  }
-  sendError(res, 502, 'Log backend unreachable');
+  // A LEAN deploy omits Loki: render an empty state, not a 502. No user text
+  // reaches LogQL unquoted, so a rejection is our compiler's bug.
+  sendUpstreamFailure(res, err, {
+    rejected: 'Log backend rejected the compiled query',
+    unreachable: 'Log backend unreachable',
+  }, emptyBody);
 }
 
 /** GET /observability/logs — search. */
 export const logSearch = withController('Log search', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const sysadmin = isSystemAdmin(req);
 
   const window = resolveWindow(req.query);
@@ -178,7 +171,7 @@ export const logSearch = withController('Log search', async (req, res) => {
     const entries = await loki.queryLogs(buildLogQL(filter), tenants, {
       startMs: window.startMs,
       endMs: window.endMs,
-      limit: parseLimit(req.query.limit),
+      limit: parseLimit(req.query),
     });
     sendSuccess(res, 200, {
       entries,
@@ -191,7 +184,7 @@ export const logSearch = withController('Log search', async (req, res) => {
 
 /** GET /observability/logs/volume — per-level counts for the histogram. */
 export const logVolume = withController('Log volume', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const sysadmin = isSystemAdmin(req);
 
   const window = resolveWindow(req.query);
@@ -216,13 +209,13 @@ export const logVolume = withController('Log volume', async (req, res) => {
 
 /** GET /observability/logs/context — lines either side of one entry. */
 export const logContext = withController('Log context', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const sysadmin = isSystemAdmin(req);
 
   const atMs = Number(parseQueryString(req.query.at));
   if (!Number.isFinite(atMs)) { sendError(res, 400, 'at must be a unix millisecond timestamp'); return; }
-  const span = Math.min(parseLimit(req.query.spanMs, 60_000), 600_000);
-  const limit = parseLimit(req.query.limit, 50);
+  const span = parseQueryIntClamped(req.query.spanMs, 60_000, 600_000);
+  const limit = parseLimit(req.query, 50);
 
   try {
     const filter = parseLogQuery(parseQueryString(req.query.q));
@@ -252,7 +245,7 @@ export const logContext = withController('Log context', async (req, res) => {
  * The preamble says so, in the file itself.
  */
 export const logRaw = withController('Log raw view', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const sysadmin = isSystemAdmin(req);
 
   const window = resolveWindow(req.query);
@@ -319,7 +312,7 @@ function safeName(name: string): string {
  * streaming, the only way to signal trouble is a truncation footer.
  */
 export const logExport = withController('Log export', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
 
   // Read-only impersonation must not be able to exfiltrate the viewed org's
   // logs. The platform-wide gate keys off the HTTP METHOD (it rejects non-GET),

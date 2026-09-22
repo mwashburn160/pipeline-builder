@@ -4,9 +4,9 @@
 /**
  * Tests for the SOFT-DELETE / restore controller flow.
  *
- * `DELETE /organization/:id` no longer runs the destructive cascade inline — it
+ * `DELETE /organization/:id` does not run the destructive cascade inline — it
  * soft-deletes (snapshot + tombstone + session cut via `softDeleteOrg`) and
- * returns 202 with the purge deadline. The fail-closed cascade now lives in the
+ * returns 202 with the purge deadline. The fail-closed cascade lives in the
  * purge sweep (see org-purge.test.ts). `POST /organization/:id/restore` reverses
  * a soft-delete within the window.
  */
@@ -39,7 +39,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
-// `canAdministerOrg` runs FOR REAL and lazily imports this module on the
+// `canManageOrgScope` runs FOR REAL and lazily imports this module on the
 // CROSS-ORG branch, so `isAncestorOrg` must be present (default: flat tree).
 const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
@@ -90,8 +90,9 @@ function mockRes() {
  * `controller-helper` runs FOR REAL (see helpers/controller-helper-mock.ts), so
  * every gate below is satisfied by the REQUEST FIXTURE, never by a stub:
  *   - `requireSystemAdmin` (DELETE /:id, POST /:id/move) → `isSuperAdmin: true`
- *   - `canAdministerOrg`   (restore, deleteTeam, listDeletedTeams) → admin/owner
- *     of the org named in `params.id`
+ *   - `canManageOrgScope`  (restore, deleteTeam, listDeletedTeams) → the
+ *     caller's active org is (an ancestor of) the org named in `params.id`; the
+ *     `org:settings` capability is the route's `requirePermission`
  *   - `canAccessOrg`       (GET /:id) → any member of that same org
  */
 /** Platform administrator; `organizationId` is their own org, not the target. */
@@ -185,14 +186,22 @@ describe('restoreOrganization', () => {
     expect(mockAudit).not.toHaveBeenCalled();
   });
 
-  it('403s a caller who does not administer the org', async () => {
-    // A member of the target org: authenticated, but not an admin of it.
+  it('403s a caller outside the org\'s scope', async () => {
     const res = mockRes();
 
-    await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(req(ACME_MEMBER), res);
+    await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(req({ sub: 'x', organizationId: 'org-other', role: 'admin' }), res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockRestore).not.toHaveBeenCalled();
+  });
+
+  it('admits a non-admin of the org whose custom Role delegates org:settings', async () => {
+    const res = mockRes();
+    await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(
+      req({ ...ACME_MEMBER, role: 'member', permissions: ['org:settings'] }), res,
+    );
+    expect(res.status).not.toHaveBeenCalledWith(403);
+    expect(mockRestore).toHaveBeenCalled();
   });
 
   it('401s an anonymous caller', async () => {
@@ -264,10 +273,9 @@ describe('deleteTeam — parent admin soft-deletes its own team', () => {
     }
   });
 
-  it('403s a caller who does not administer the parent', async () => {
-    // A plain member of the parent org: authenticated, no admin authority.
+  it('403s a caller outside the parent\'s scope', async () => {
     const res = mockRes();
-    await (deleteTeam as any)(teamReq({ sub: 'u9', organizationId: 'root-1' }), res);
+    await (deleteTeam as any)(teamReq({ sub: 'u9', organizationId: 'other-root', role: 'admin' }), res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockGetTeamParent).not.toHaveBeenCalled();
   });
@@ -307,9 +315,9 @@ describe('listDeletedTeams', () => {
     expect((res.json.mock.calls[0] as any)[0].data).toEqual({ teams });
   });
 
-  it('403s a caller who does not administer :id', async () => {
-    // A member of root-1, and an admin of a DIFFERENT org, are both refused.
-    for (const user of [{ sub: 'a', organizationId: 'root-1' }, { sub: 'b', organizationId: 'other', role: 'admin' }]) {
+  it('403s a caller outside :id\'s scope', async () => {
+    // An admin of a DIFFERENT org is refused.
+    for (const user of [{ sub: 'b', organizationId: 'other', role: 'admin' }]) {
       const res = mockRes();
       await (listDeletedTeams as any)({ user, params: { id: 'root-1' } }, res);
       expect(res.status).toHaveBeenCalledWith(403);

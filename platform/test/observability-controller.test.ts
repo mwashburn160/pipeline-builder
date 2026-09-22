@@ -13,8 +13,10 @@
  *  - 200 + correct envelope shape for instant + range + audit-store queries
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import type { Request, Response } from 'express';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 // sendError + sendSuccess stay real (so res.json shape matches prod).
@@ -22,7 +24,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertmanagerTimeoutMs: 5000 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ observability: { alertmanagerTimeoutMs: 5000 } }));
 
 // Mocks for the upstream clients
 const mockPromQuery = jest.fn<AnyFn>();
@@ -40,7 +42,7 @@ jest.unstable_mockModule('../src/observability/audit-store-client.js', () => ({
 }));
 
 // controller-helper runs FOR REAL (see helpers/controller-helper-mock.ts): its
-// `requireAuth` gate and `getAdminContext` predicates are driven by the request
+// `ensureAuthenticated` gate and `getAdminContext` predicates are driven by the request
 // fixture, not by spies. Only api-core's `isSystemAdmin` stays mocked (above) —
 // platform-admin authority is a JWT claim the controller cannot derive locally.
 const mockIsSystemAdmin = jest.fn<(req?: unknown) => boolean>();
@@ -54,8 +56,6 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({
 
 const { observabilityQuery, observabilityAuditQuery, observabilityCatalog } = await import('../src/observability/controller.js');
 
-import type { Request, Response } from 'express';
-
 
 function makeRes(): Response & { _status: number; _body: unknown } {
   const r: any = {
@@ -68,14 +68,14 @@ function makeRes(): Response & { _status: number; _body: unknown } {
   return r as Response & { _status: number; _body: unknown };
 }
 
-/** A signed-in plain member: enough for `requireAuth`, no admin authority. */
+/** A signed-in plain member: enough for `ensureAuthenticated`, no admin authority. */
 const MEMBER = { sub: 'u1' };
 /** An org admin — `isOrgAdmin` reads `role`, so this is what grants org-admin surfaces. */
 const ORG_ADMIN = { sub: 'a1', organizationId: 'org-1', role: 'admin' };
 
 /**
  * `user` defaults to a signed-in member; pass `null` for an ANONYMOUS caller
- * (the real `requireAuth` then 401s), or `ORG_ADMIN` for the admin surfaces.
+ * (the real `ensureAuthenticated` then 401s), or `ORG_ADMIN` for the admin surfaces.
  */
 function makeReq(
   query: Record<string, string> = {},
@@ -96,7 +96,7 @@ describe('observabilityQuery', () => {
     const res = makeRes();
     await observabilityQuery(makeReq({ key: 'plugin_builds_per_min', range: '1h' }, null), res);
     expect(res._status).toBe(401);
-    // requireAuth sends the 401 itself; controller bails without firing a query
+    // ensureAuthenticated sends the 401 itself; controller bails without firing a query
     expect(mockPromQuery).not.toHaveBeenCalled();
     expect(mockPromQueryRange).not.toHaveBeenCalled();
   });

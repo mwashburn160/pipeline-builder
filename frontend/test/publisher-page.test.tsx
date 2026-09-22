@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The tenant Publisher page (plan §3.1, §3.4, §3.7):
+ * The tenant Publisher page:
  *  - no publisher yet: the create form (handle + terms); a reserved handle
  *    offers a `claim` request instead;
  *  - terms changed: a re-acceptance banner;
@@ -35,15 +35,12 @@ jest.mock('@/components/admin/StepUpModal', () => ({
 }));
 
 let routerQuery: Record<string, string> = {};
-jest.mock('next/router', () => ({
-  __esModule: true,
-  useRouter: () => ({
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({
     isReady: true,
     query: routerQuery,
     pathname: '/dashboard/publisher',
     replace: ({ query }: { query: Record<string, string> }) => { routerQuery = query; return Promise.resolve(true); },
-  }),
-}));
+  })));
 
 const api = {
   getPublisher: jest.fn<AnyFn>(),
@@ -378,7 +375,7 @@ describe('Publisher page — publish and requests', () => {
   });
 });
 
-describe('Publisher page — insights (W7)', () => {
+describe('Publisher page — insights', () => {
   const trend = Array.from({ length: 12 }, (_, i) => ({ month: `2026-${String(i + 1).padStart(2, '0')}`, average: i === 11 ? 4.5 : null, count: i === 11 ? 2 : 0 }));
   const insight = (over: Record<string, unknown> = {}) => ({
     listingId: 'l1', name: 'eslint', state: 'listed', paused: false, latestVersion: '1.0.0', installCount: 12,

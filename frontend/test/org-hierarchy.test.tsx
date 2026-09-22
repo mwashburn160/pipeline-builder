@@ -13,7 +13,7 @@ import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { UserOrgMembership } from '@/types';
 
 let mockAuth: { user: { organizationId?: string; permissions?: string[] } | null; organizations: UserOrgMembership[] };
-jest.mock('@/hooks/useAuth', () => ({ __esModule: true, useAuth: () => mockAuth }));
+jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => mockAuth));
 
 jest.mock('@/hooks/useFeatures', () => ({
   __esModule: true,

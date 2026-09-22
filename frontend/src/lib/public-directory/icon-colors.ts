@@ -4,7 +4,7 @@
 /* eslint-disable no-bitwise -- colour maths: unpacking #rrggbb channels and a 32-bit string hash are bit operations by definition. */
 
 /**
- * Colour decisions for plugin icons (§6a.1), all pure and deterministic so the
+ * Colour decisions for plugin icons, all pure and deterministic so the
  * server-rendered HTML and the hydrated page agree.
  */
 

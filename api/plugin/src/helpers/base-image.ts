@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The BASE IMAGE age of a plugin image (plugin-ecosystem §6 W7, freshness): the
+ * The BASE IMAGE age of a plugin image (freshness): the
  * config `created` time of the image its final stage is built `FROM`, recorded
  * on the listed version at publish.
  *

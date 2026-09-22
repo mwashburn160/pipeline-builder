@@ -17,7 +17,7 @@ import { AccessKeyTable, type KeyRow } from '@/components/settings/AccessKeyTabl
 import { TokenPermissionPicker, permissionsForRequest } from '@/components/settings/TokenPermissionPicker';
 import { readOnlyPreset, type PermissionMode } from '@/components/settings/token-scopes';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useLoadable } from '@/hooks/useLoadable';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 
@@ -28,7 +28,7 @@ import api from '@/lib/api';
  * The key is shown EXACTLY once, at creation — only its hash is stored, so the
  * list can never show more than `pb_pat_…last4`. Everything else the page shows
  * (scope, expiry, last used, where it was created) comes from the key's record,
- * and "last used" is now accurate wherever the key is used: every service trades
+ * and "last used" is accurate wherever the key is used: every service trades
  * the key at platform, and that exchange is what stamps it.
  *
  * The rows themselves are {@link AccessKeyTable}, shared with the service
@@ -53,7 +53,7 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
   const toast = useToast();
   // A load failure must NOT render as "no keys yet" — on a security surface a
   // false-empty could imply the account has no live credentials when it may.
-  // useLoadable keeps prior `keys` on failure and surfaces `loadError`.
+  // useFetch keeps prior `keys` on failure and surfaces `loadError`.
   const { user, can } = useAuthGuard();
   // Service-account keys are only listed for someone who may manage them; for
   // everyone else the page is exactly their own keys, as before.
@@ -80,7 +80,11 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
     }
     return rows;
   }, [canManageServiceAccounts, orgId]);
-  const { data: keys, loading, error: loadError, reload: load } = useLoadable<KeyRow[]>(loadKeys, [], 'Failed to load access keys');
+  const { data: keysLoaded, loading, error: loadErrorFailure, refetch: load } = useFetch<KeyRow[]>(() => loadKeys(), [loadKeys], {
+    onError: (err) => toast.error(formatError(err, 'Failed to load access keys')),
+  });
+  const keys = keysLoaded ?? [];
+  const loadError = loadErrorFailure ? formatError(loadErrorFailure, 'Failed to load access keys') : null;
   const [name, setName] = useState('');
   const [days, setDays] = useState(90);
   // New keys default to SELECTED permissions, seeded with the read-only preset:
@@ -237,7 +241,7 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
             <strong className="text-fg">{pendingRevoke.name}</strong> stops working within
             five minutes. Anything using it — CI jobs, scripts, the CLI — starts failing until it&apos;s replaced.
           </p>
-          <p className="text-red-600 dark:text-red-400">This cannot be undone; issue a new key instead.</p>
+          <p className="text-danger">This cannot be undone; issue a new key instead.</p>
         </ConfirmDialog>
       )}
     </SectionCard>

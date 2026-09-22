@@ -3,7 +3,7 @@
 
 /**
  * The `/api/images` per-repository gate's rules for the plugin ecosystem's
- * namespaces (§3.3): `public/*` is pull-open to any authenticated caller and
+ * namespaces: `public/*` is pull-open to any authenticated caller and
  * APPEND-ONLY through this API — nobody writes it, superadmins included (only
  * the internal publish/yank/gc routes do, as the management identity);
  * `registry-meta/*` (publication records) is closed to everyone.
@@ -14,7 +14,8 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const { canReadRepo, canWriteRepo, repoOwnerOrgId } = await import('../src/routes/images/repo-access.js');
+const { canReadRepo, canWriteRepo } = await import('../src/routes/images/repo-access.js');
+const { repoOwnerOrgId } = await import('../src/services/namespaces.js');
 
 const users = {
   member: { organizationId: 'acme' },
@@ -59,7 +60,7 @@ describe('unchanged namespaces', () => {
   });
 });
 
-// Anonymous plugin submissions (plugin ecosystem §4.2 / W5): never listed, read,
+// Anonymous plugin submissions: never listed, read,
 // written or copied through /api/images — superadmins included.
 describe('quarantine/*', () => {
   const REPO = 'quarantine/0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 /**
  * Shared tone palette for the "posture" surfaces (border + bg + text per
  * severity). Worst-signal-wins compute stays in each page; this is presentation
- * only. Canonical source — previously copied verbatim into executions/compliance.
+ * only.
  */
 const POSTURE_TONE: Record<'red' | 'yellow' | 'green' | 'gray', string> = {
   red: 'border-danger-border bg-danger-bg text-danger-strong',

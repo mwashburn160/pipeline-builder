@@ -100,7 +100,7 @@ describe('PluginUpdateSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('refuses execution-contract keys and anything unknown (strict, G56)', () => {
+  it('refuses execution-contract keys and anything unknown (strict)', () => {
     for (const body of [{ name: 'new-name' }, { commands: ['npm test'] }, { env: { A: 'b' } }, { bogus: 1 }]) {
       expect(PluginUpdateSchema.safeParse(body).success).toBe(false);
     }

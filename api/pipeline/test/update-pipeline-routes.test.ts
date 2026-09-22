@@ -18,7 +18,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockFindById = jest.fn<AnyFn>();
 const mockUpdate = jest.fn<AnyFn>();
 
-// Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here
+// Plugin-contract check — resolves plugins through the DB; stubbed here
 // and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
 const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({

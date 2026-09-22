@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { envInt, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { fetchQuotaSnapshot, fetchSeatUsage, type QuotaSnapshot } from './quota-client.js';
+import { fetchQuotaSnapshot, fetchSeatUsage, type QuotaSnapshot } from './downstream-client.js';
 
 /** Per-quota-type usage entry returned by the rollup. */
 export interface UsageEntry {
@@ -110,7 +110,7 @@ export function buildUsageRollup(
   // against the developer-tier caps. Default 30 days either side gives free-tier
   // orgs a recognizable "this month / next month" shape. Override the fallback
   // width via `BILLING_USAGE_FALLBACK_DAYS`.
-  const fallbackDays = parseInt(process.env.BILLING_USAGE_FALLBACK_DAYS || '30', 10);
+  const fallbackDays = envInt('BILLING_USAGE_FALLBACK_DAYS', 30, { min: 1 });
   const MS_PER_DAY = 24 * 3600_000;
   const periodStart = periodOverride?.start ?? subscription?.currentPeriodStart ?? new Date(now.getTime() - fallbackDays * MS_PER_DAY);
   const periodEnd = periodOverride?.end ?? subscription?.currentPeriodEnd ?? new Date(now.getTime() + fallbackDays * MS_PER_DAY);
@@ -169,7 +169,7 @@ export async function buildUsageRollupFor(
   // in parallel. Seat usage lives on platform, not the quota service, because
   // seats deliberately aren't a quota type. Either can fail-soft to null.
   // Mint the billing→service auth once (member scope) and thread it to both
-  // shared readers, matching the old per-fetch minting.
+  // shared readers.
   const auth = authHeader || getServiceAuthHeader({ serviceName: 'billing', orgId, role: 'member' });
   const [snapshot, seatSnapshot] = await Promise.all([
     fetchQuotaSnapshot(orgId, auth),

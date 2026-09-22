@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode, errorMessage } from '@pipeline-builder/api-core';
-import { pluginArtifactAlias, pluginLookupFilter } from '@pipeline-builder/pipeline-core';
+import { pluginArtifactAlias, pluginLookupFilter, unwrapLookup } from '@pipeline-builder/pipeline-core';
 import { ApiClient } from './api-client.js';
 import { printWarning } from './output-utils.js';
 
 /** Minimal plugin reference shape — matches PluginOptions from pipeline-core. */
 interface PluginRef {
   name: string;
-  /** Publisher handle of an installed listing (plugin ecosystem §3.5). */
+  /** Publisher handle of an installed listing. */
   publisher?: string;
   alias?: string;
   filter?: Record<string, unknown>;
@@ -76,23 +76,10 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
 }
 
 /**
- * The lifecycle warning messages a `/plugins/lookup` answer carries
- * (`warnings: [{ code, message }]` beside `plugin`). Tolerates the same
- * envelopes as the plugin unwrap; anything malformed yields none.
- */
-export function lookupWarningsOf(body: unknown): string[] {
-  const warnings = (body as { warnings?: unknown } | undefined)?.warnings;
-  if (!Array.isArray(warnings)) return [];
-  return warnings
-    .map((w) => (w && typeof w === 'object' ? (w as { message?: unknown }).message : undefined))
-    .filter((m): m is string => typeof m === 'string' && m.length > 0);
-}
-
-/**
  * Lookup refusals that must STOP the synth rather than fall back to
  * deploy-time resolution: an image whose signature doesn't verify, and a
  * listing the org can't use (not installed, blocked by its policy, yanked or
- * suspended — plugin ecosystem §3.2, §3.4). Falling back would quietly turn
+ * suspended). Falling back would quietly turn
  * each into an unresolved step that fails at run time instead of now.
  */
 const FATAL_LOOKUP_CODES: readonly string[] = [
@@ -147,25 +134,11 @@ export async function resolvePluginsForProps(
     const filter = pluginLookupFilter(ref);
     try {
       const res = await client.post<unknown>('/api/plugins/lookup', { filter });
-      // Unwrap the plugin record from whatever envelope the response middleware
-      // applied. The platform's standard success envelope is
-      // `{ success, statusCode, data: { plugin: Plugin } }` (note the DOUBLE
-      // nesting: data.plugin), but tolerate `{ data: Plugin }`, `{ plugin }`,
-      // and a bare Plugin too. Only stopping at `res.data` (which is
-      // `{ plugin: ... }`) made `.name` undefined → every lookup fell back to
-      // deploy-time resolution even though the catalog had the plugin.
-      const data = (res as { data?: unknown }).data;
-      const plugin =
-        (data as { plugin?: unknown } | undefined)?.plugin // { data: { plugin } }
-        ?? (res as { plugin?: unknown }).plugin // { plugin }
-        ?? data // { data: Plugin }
-        ?? res; // bare Plugin
-      // Lifecycle warnings (deprecated / yanked-but-pinned) ride next to the
-      // plugin in the same envelope: `{ data: { plugin, warnings } }`.
-      for (const warning of lookupWarningsOf(data ?? res)) {
+      const { plugin, warnings } = unwrapLookup(res);
+      for (const warning of warnings) {
         printWarning(`Plugin "${label}": ${warning}`);
       }
-      if (plugin && typeof plugin === 'object' && (plugin as { name?: string }).name) {
+      if (plugin) {
         resolved[key] = plugin;
       } else {
         printWarning(`Plugin "${label}" lookup returned no record — falling back to deploy-time resolution`);

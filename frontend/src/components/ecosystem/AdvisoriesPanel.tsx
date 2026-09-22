@@ -28,8 +28,8 @@ interface Props {
 }
 
 // The form kinds carry what was typed (and why it came back) so a refused
-// confirmation returns to a FILLED form. It used to reopen empty: the form was
-// unmounted the moment "Continue" moved on to the step-up dialog.
+// confirmation returns to a FILLED form — the form unmounts the moment
+// "Continue" moves on to the step-up dialog.
 type Action =
   | { kind: 'new-form'; draft?: AdvisoryFormValue; error?: string | null }
   | { kind: 'edit-form'; advisory: AdvisoryView; draft?: AdvisoryFormValue; error?: string | null }
@@ -40,7 +40,7 @@ type Action =
 const STATES: AdvisoryState[] = ['draft', 'published', 'withdrawn'];
 
 /**
- * Ecosystem console → Advisories (plan W8, `plugins:moderate`). Drafts come
+ * Ecosystem console → Advisories (`plugins:moderate`). Drafts come
  * from publishers, moderators, the nightly CVE rescan and reviews; PUBLISHING a
  * draft is approving its `advisory` request (which notifies every installing
  * org), DISCARDING it is rejecting that request. Published advisories can be
@@ -98,7 +98,7 @@ export function AdvisoriesPanel({ can }: Props) {
         return;
       }
       close(); // done — the dialog's own close that follows must not reopen the form
-      advisoriesQ.refetch();
+      void advisoriesQ.refetch();
       return;
     } else if (action.kind === 'publish') {
       await api.approveEcosystemRequest(action.advisory.requestId as string, text || undefined, token);
@@ -110,7 +110,7 @@ export function AdvisoriesPanel({ can }: Props) {
       await api.withdrawEcosystemAdvisory(action.advisory.id, text, token);
       toast.success(`Withdrew the advisory for ${action.advisory.listingName}`);
     }
-    advisoriesQ.refetch();
+    void advisoriesQ.refetch();
   };
 
   const advisories = advisoriesQ.data ?? [];

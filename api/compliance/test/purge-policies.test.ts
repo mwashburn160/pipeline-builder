@@ -22,9 +22,10 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const findDeletedByIdMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const purgeByIdMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const emitComplianceAuditMock = jest.fn<AnyFn>();
+const recordAuditMock = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p?.[k],
   isSystemAdmin: () => true,
   sendBadRequest: jest.fn((res: any, msg: string, code?: string) =>
@@ -45,10 +46,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-jest.unstable_mockModule('../src/services/audit.js', () => ({
-  emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
-}));
 
 jest.unstable_mockModule('../src/services/policy-service.js', () => ({
   compliancePolicyService: {
@@ -91,8 +88,8 @@ describe('POST /:id/purge — purge emits compliance.policy.purge', () => {
     expect(findDeletedByIdMock).toHaveBeenCalledWith(POLICY_ID, 'org-a');
     expect(purgeByIdMock).toHaveBeenCalledWith(POLICY_ID, 'org-a');
     expect(status).toHaveBeenCalledWith(200);
-    expect(emitComplianceAuditMock).toHaveBeenCalledTimes(1);
-    expect(emitComplianceAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+    expect(recordAuditMock).toHaveBeenCalledTimes(1);
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.policy.purge',
       actorId: 'u-1',
       orgId: 'org-a',
@@ -112,7 +109,7 @@ describe('POST /:id/purge — purge emits compliance.policy.purge', () => {
 
     expect(status).toHaveBeenCalledWith(404);
     expect(purgeByIdMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('returns 404 and does not emit when purgeById returns null', async () => {
@@ -125,7 +122,7 @@ describe('POST /:id/purge — purge emits compliance.policy.purge', () => {
 
     expect(purgeByIdMock).toHaveBeenCalledWith(POLICY_ID, 'org-a');
     expect(status).toHaveBeenCalledWith(404);
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 
   it('returns 400 and does not touch the service when the id is missing', async () => {
@@ -136,6 +133,6 @@ describe('POST /:id/purge — purge emits compliance.policy.purge', () => {
 
     expect(status).toHaveBeenCalledWith(400);
     expect(findDeletedByIdMock).not.toHaveBeenCalled();
-    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });

@@ -5,8 +5,7 @@
  * A LOCAL plugin directory (the zip root the platform receives), read and
  * validated with the server's own rules: the spec and config schemas, the
  * required-field contract and the catalog detection all come from api-core, so
- * `plugin validate` / `plugin publish` report exactly what the upload would
- * (plugin-ecosystem W6, §3.1a).
+ * `plugin validate` / `plugin publish` report exactly what the upload would.
  */
 
 import fs from 'fs';

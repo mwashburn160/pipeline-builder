@@ -14,7 +14,7 @@ const enc = encodeURIComponent;
 
 /**
  * Plugin installs, the in-app catalog and the org consumption policy (plugin
- * service, docs/plans/plugin-ecosystem.md W2).
+ * service; see docs/plugin-installing.md).
  *
  * `plugins:read` covers the reads; install / upgrade / uninstall need
  * `plugins:install` (which only REQUESTS an install when the org's policy wants

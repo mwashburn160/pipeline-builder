@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * ORG-ADMIN SELF-SERVICE for IdP group → Role mappings (3a).
+ * ORG-ADMIN SELF-SERVICE for IdP group → Role mappings.
  *
  *   GET    /organization/:id/idp/group-mappings            → list
  *   POST   /organization/:id/idp/group-mappings            → create
@@ -27,19 +27,11 @@
 import { getParam, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
-import { getAdminContext, requireAuth, withController } from '../helpers/controller-helper.js';
+import { getAdminContext, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 import { requireOwnOrgSso } from '../helpers/sso-enforcement.js';
-import { idpGroupMappingService, MAX_MAPPINGS_PER_ORG } from '../services/idp-group-mapping-service.js';
-import {
-  IGM_FORBIDDEN_GRANT,
-  IGM_GROUP_TAKEN,
-  IGM_LIMIT,
-  IGM_NOT_CONFIGURED,
-  IGM_NOT_FOUND,
-  IGM_PROVIDER_UNSUPPORTED,
-} from '../services/idp-mapping-errors.js';
+import { idpGroupMappingService } from '../services/idp-group-mapping-service.js';
+import { IDP_MAPPING_ERROR_MAP } from '../services/idp-mapping-errors.js';
 import type { RoleAssignmentActor } from '../services/role-authority.js';
-import { RL_ASSIGN_EXCEEDS_CEILING, RL_ROLE_NOT_FOUND } from '../services/roles-errors.js';
 import { idpGroupMappingCreateSchema, idpGroupMappingUpdateSchema, validateBody } from '../utils/validation.js';
 
 /**
@@ -57,34 +49,20 @@ function mappingActor(req: Request): RoleAssignmentActor {
   };
 }
 
-/** Shared status map — the same refusal means the same thing on every verb. */
-const MAPPING_ERROR_MAP = {
-  [IGM_NOT_CONFIGURED]: { status: 409, message: 'Configure an identity provider for this organization before mapping its groups' },
-  [IGM_PROVIDER_UNSUPPORTED]: {
-    status: 400,
-    message: 'Group-to-Role mapping is not available for Google: Google\'s OIDC tokens carry no group claim. Use a generic OIDC or Cognito identity provider.',
-  },
-  [IGM_GROUP_TAKEN]: { status: 409, message: 'A mapping for this group already exists' },
-  [IGM_NOT_FOUND]: { status: 404, message: 'Group mapping not found' },
-  [IGM_LIMIT]: { status: 409, message: `An organization can hold at most ${MAX_MAPPINGS_PER_ORG} group mappings` },
-  [IGM_FORBIDDEN_GRANT]: { status: 403, message: 'A group mapping cannot grant organization ownership, platform-administrator or ecosystem-management authority' },
-  [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more roles do not exist in this organization' },
-  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot map a role granting permissions you do not hold yourself' },
-} as const;
 
 /** GET /organization/:id/idp/group-mappings — list this org's mappings. */
 export const listOrgIdpGroupMappings = withController('List IdP group mappings', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
 
   const mappings = await idpGroupMappingService.list(orgId);
   sendSuccess(res, 200, { mappings });
-}, MAPPING_ERROR_MAP);
+}, IDP_MAPPING_ERROR_MAP);
 
 /** POST /organization/:id/idp/group-mappings — map a group to a Role set. */
 export const createOrgIdpGroupMapping = withController('Create IdP group mapping', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
 
@@ -99,11 +77,11 @@ export const createOrgIdpGroupMapping = withController('Create IdP group mapping
     details: { group: mapping.group, roleIds: mapping.roleIds, created: true },
   });
   sendSuccess(res, 201, { mapping }, 'Group mapping created');
-}, MAPPING_ERROR_MAP);
+}, IDP_MAPPING_ERROR_MAP);
 
 /** PUT /organization/:id/idp/group-mappings/:mappingId — edit group and/or Roles. */
 export const updateOrgIdpGroupMapping = withController('Update IdP group mapping', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
 
@@ -119,12 +97,12 @@ export const updateOrgIdpGroupMapping = withController('Update IdP group mapping
     details: { group: mapping.group, roleIds: mapping.roleIds, created: false },
   });
   sendSuccess(res, 200, { mapping }, 'Group mapping updated');
-}, MAPPING_ERROR_MAP);
+}, IDP_MAPPING_ERROR_MAP);
 
 /** DELETE /organization/:id/idp/group-mappings/:mappingId — remove a mapping.
  *  Roles already assigned from it fall away at each member's next sign-in. */
 export const deleteOrgIdpGroupMapping = withController('Delete IdP group mapping', async (req, res) => {
-  if (!requireAuth(req, res)) return;
+  if (!ensureAuthenticated(req, res)) return;
   const orgId = getParam(req.params, 'id')!;
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
 
@@ -136,4 +114,4 @@ export const deleteOrgIdpGroupMapping = withController('Delete IdP group mapping
     affectedOrgId: orgId,
   });
   sendSuccess(res, 200, {}, 'Group mapping deleted');
-}, MAPPING_ERROR_MAP);
+}, IDP_MAPPING_ERROR_MAP);

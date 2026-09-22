@@ -48,12 +48,8 @@ jest.mock('@/components/admin/StepUpModal', () => ({
   ),
 }));
 
-// The toast handle must be STABLE across renders: useLoadable's `reload` depends
-// on it, so a fresh object per render would re-arm its effect forever.
-jest.mock('@/components/ui/Toast', () => {
-  const handle = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), info: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>() };
-  return { __esModule: true, useToast: () => handle };
-});
+// One toast spy object, shared by every render (the real `useToast` memoizes).
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 beforeEach(() => {
   jest.clearAllMocks();

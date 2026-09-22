@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for queue/vuln-rescan (W0.6): the nightly pass over every image plugin
+ * Tests for queue/vuln-rescan: the nightly pass over every image plugin
  * (DB refresh, per-row rescan + persistence, listing-version sync, new
  * critical/high detection, failure isolation), the tick's stale detection off
  * the last-completed timestamp in Redis, and the leader-locked scheduler.
@@ -27,7 +27,7 @@ jest.unstable_mockModule('../src/helpers/vuln-scan.js', () => ({
   scanColumns: (scan: any) => ({ vulnCritical: scan.critical, vulnHigh: scan.high, vulnMedium: scan.medium, vulnLow: scan.low, scannedAt: scan.scannedAt }),
 }));
 
-// -- W8 advisory drafts --------------------------------------------------------
+// -- advisory drafts --------------------------------------------------------
 const mockOpenRescanDraft = jest.fn<(...a: any[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ openRescanDraft: mockOpenRescanDraft }));
 
@@ -190,7 +190,7 @@ describe('rescanAllPlugins', () => {
     );
   });
 
-  it('opens a private advisory draft for a LISTED version whose counts grew past its own stored facts (W8)', async () => {
+  it('opens a private advisory draft for a LISTED version whose counts grew past its own stored facts', async () => {
     const findings = [{ id: 'CVE-2026-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.0' }];
     rows = [row('1', { vulnCritical: 1, vulnHigh: 0 })];
     listingIds = { 1: ['lv-1', 'lv-2', 'lv-3'] };

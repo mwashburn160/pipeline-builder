@@ -3,17 +3,18 @@
 
 /**
  * Tests for routes/version-lifecycle — `POST /plugins/:id/deprecate` and
- * `POST /plugins/:id/yank` (plugin-ecosystem W0.4).
+ * `POST /plugins/:id/yank`.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockRequireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _u: any, _p: any) => true);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockEmitPluginAudit,
   getParam: (params: Record<string, string>, key: string) => params[key],
   requireVisibilityWriteAccess: mockRequireVisibilityWriteAccess,
 }));
@@ -36,7 +37,6 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 }));
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: mockEmitPluginAudit }));
 
 const mockOnPluginDeprecated = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/deprecation-notice.js', () => ({ onPluginDeprecated: mockOnPluginDeprecated }));

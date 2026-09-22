@@ -32,18 +32,12 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
-  // billing-helpers imports effectiveEntitlements from pipeline-core; even though
-  // usage-helpers doesn't call it, ESM linking requires the export to exist.
-  const { effectiveEntitlements } = await import(
-    '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
-  );
   return stubModule('@pipeline-builder/pipeline-core', {
     Config: {
       getAny: () => ({ services: { billingTimeout: 5000 } }),
       // getBillingTimeout() reads Config.get('server').
       get: () => ({ services: { billingTimeout: 5000 } }),
     },
-    effectiveEntitlements,
     // usage-helpers transitively imports api-server (via billing-helpers),
     // whose idempotency-middleware reads these at module load.
     CoreConstants: {

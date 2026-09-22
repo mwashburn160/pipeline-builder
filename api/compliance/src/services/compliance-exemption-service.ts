@@ -58,7 +58,7 @@ class ComplianceExemptionService {
    * Batch variant of {@link getActiveExemptionsForEntity}: active, approved,
    * non-expired exemptions for many entities at once, keyed by entityId. The
    * single source of truth for the active-exemption predicate (the bulk scan
-   * executor previously reimplemented this query).
+   * executor reads through it too).
    */
   async getActiveExemptionsForEntities(orgId: string, entityIds: string[]): Promise<Map<string, ActiveExemption[]>> {
     const map = new Map<string, ActiveExemption[]>();

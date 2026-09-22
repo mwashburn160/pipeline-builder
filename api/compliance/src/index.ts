@@ -14,7 +14,6 @@ import { mountRoutes } from './app-routes.js';
 import { startAuditPruneCron } from './helpers/compliance-check-log.js';
 import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-scheduler.js';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler.js';
-import { getAuditClient } from './services/audit.js';
 import { complianceRuleService } from './services/compliance-rule-service.js';
 import { compliancePolicyService } from './services/policy-service.js';
 
@@ -42,7 +41,7 @@ logger.info('All /compliance routes registered');
 // is lazily built + fully fail-open, so `requireAuth` can reject a token whose
 // `tokenVersion` is behind the platform-published version, degrading to natural
 // token expiry (never a lockout) when Redis is absent.
-wireServiceSecurity('compliance', getAuditClient);
+wireServiceSecurity('compliance');
 
 // Daily prune of compliance_audit_log (default 180 days, override via
 // COMPLIANCE_AUDIT_RETENTION_DAYS). The handle is captured for graceful

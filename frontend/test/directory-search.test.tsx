@@ -11,7 +11,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 
 const replace = jest.fn<AnyFn>();
 const push = jest.fn<AnyFn>();
-jest.mock('next/router', () => ({ __esModule: true, useRouter: () => ({ replace, push }) }));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ replace, push })));
 
 import { DirectorySearch, SEARCH_DEBOUNCE_MS } from '../src/components/public-directory/DirectorySearch';
 

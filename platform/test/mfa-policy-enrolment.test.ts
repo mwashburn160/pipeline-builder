@@ -14,8 +14,9 @@
  * person — a naive sum would report more enrolled members than members.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -33,15 +34,16 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
+jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false, bootstrapSuperAdminEmails: () => new Set<string>() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 // The controller reaches config through the shared request validators; this
 // suite is about a count, not about the service's environment.
-jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8 } }));
 jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({
   DEFAULT_MFA_GRACE_DAYS: 14,
   // Re-exported by validation.js, which the controller pulls in transitively.
   MAX_MFA_GRACE_DAYS: 90,
+  MFA_RESET_GRACE_MAX_HOURS: 168,
   resolveEffectiveMfaPolicy: async () => ({
     requireMfa: false, enforced: false, own: false, idpEnforcesMfa: false,
   }),
@@ -70,7 +72,7 @@ function makeRes() {
 }
 
 /**
- * `controller-helper` runs FOR REAL, so the READ gate (`canAdministerOrg`) is
+ * `controller-helper` runs FOR REAL, so the READ gate (`canManageOrgScope`) is
  * satisfied by the FIXTURE: an admin/owner of the org named in `params.id`.
  */
 const ORG_ADMIN = { sub: 'u1', organizationId: 'org1', role: 'admin' };
@@ -92,11 +94,10 @@ beforeEach(() => {
 });
 
 describe('GET /organization/:id/mfa-policy — enrolment counts', () => {
-  it('refuses a caller who does not administer the org, and counts nothing', async () => {
-    // A plain member of org1: authenticated, but `isOrgAdmin` is false.
+  it('refuses a caller outside the org\'s scope, and counts nothing', async () => {
     mockMemberships.mockResolvedValue([{ userId: 'u1' }]);
     const res = makeRes();
-    await getMfaPolicy(req({ sub: 'u9', organizationId: 'org1' }), res);
+    await getMfaPolicy(req({ sub: 'u9', organizationId: 'org-other', role: 'admin' }), res);
     expect(res._status).toBe(403);
     expect(mockMemberships).not.toHaveBeenCalled();
   });

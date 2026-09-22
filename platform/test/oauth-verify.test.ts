@@ -12,9 +12,10 @@
  * exchange + userinfo calls are deterministic.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import nodeCrypto from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { mockConfig } from './helpers/config-mock.js';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -29,66 +30,64 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, unknown>, key: string) => params?.[key],
 }));
 
-jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: {
-    oauth: {
-      callbackBaseUrl: 'https://app.test',
-      stateTtlMs: 600000,
-      cleanupIntervalMs: 600000,
-      google: {
-        clientId: 'g-client',
-        clientSecret: 'g-secret',
-        enabled: true,
-        authorizeUrl: 'https://accounts.google.test/authorize',
-        tokenUrl: 'https://oauth2.google.test/token',
-        userinfoUrl: 'https://userinfo.google.test/userinfo',
-      },
-      github: {
-        clientId: '',
-        clientSecret: '',
-        enabled: false,
-        authorizeUrl: 'https://github.test/authorize',
-        tokenUrl: 'https://github.test/token',
-        userinfoUrl: 'https://api.github.test/user',
-      },
-      facebook: {
-        clientId: '',
-        clientSecret: '',
-        enabled: false,
-        authorizeUrl: 'https://facebook.test/dialog/oauth',
-        tokenUrl: 'https://graph.facebook.test/oauth/access_token',
-        userinfoUrl: 'https://graph.facebook.test/me',
-      },
-      microsoft: {
-        clientId: 'ms-client',
-        clientSecret: 'ms-secret',
-        enabled: true,
-        // PINNED tenant: the Microsoft handler refuses the shared `common`/
-        // `organizations`/`consumers` tenants (nOAuth — unverifiable email); a
-        // real deploy pins a directory GUID/verified domain, which is the path
-        // the happy-path test below exercises.
-        tenant: 'contoso.onmicrosoft.com',
-        authorizeUrl: 'https://login.microsoft.test/{tenant}/authorize',
-        tokenUrl: 'https://login.microsoft.test/{tenant}/token',
-        userinfoUrl: 'https://graph.microsoft.test/oidc/userinfo',
-      },
-      gitlab: {
-        clientId: 'gl-client',
-        clientSecret: 'gl-secret',
-        enabled: true,
-        baseUrl: 'https://gitlab.test',
-        authorizeUrl: '',
-        tokenUrl: '',
-        userinfoUrl: '',
-      },
-      linkedin: {
-        clientId: 'li-client',
-        clientSecret: 'li-secret',
-        enabled: true,
-        authorizeUrl: 'https://linkedin.test/oauth/authorization',
-        tokenUrl: 'https://linkedin.test/oauth/accessToken',
-        userinfoUrl: 'https://api.linkedin.test/userinfo',
-      },
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
+  oauth: {
+    callbackBaseUrl: 'https://app.test',
+    stateTtlMs: 600000,
+    cleanupIntervalMs: 600000,
+    google: {
+      clientId: 'g-client',
+      clientSecret: 'g-secret',
+      enabled: true,
+      authorizeUrl: 'https://accounts.google.test/authorize',
+      tokenUrl: 'https://oauth2.google.test/token',
+      userinfoUrl: 'https://userinfo.google.test/userinfo',
+    },
+    github: {
+      clientId: '',
+      clientSecret: '',
+      enabled: false,
+      authorizeUrl: 'https://github.test/authorize',
+      tokenUrl: 'https://github.test/token',
+      userinfoUrl: 'https://api.github.test/user',
+    },
+    facebook: {
+      clientId: '',
+      clientSecret: '',
+      enabled: false,
+      authorizeUrl: 'https://facebook.test/dialog/oauth',
+      tokenUrl: 'https://graph.facebook.test/oauth/access_token',
+      userinfoUrl: 'https://graph.facebook.test/me',
+    },
+    microsoft: {
+      clientId: 'ms-client',
+      clientSecret: 'ms-secret',
+      enabled: true,
+      // PINNED tenant: the Microsoft handler refuses the shared `common`/
+      // `organizations`/`consumers` tenants (nOAuth — unverifiable email); a
+      // real deploy pins a directory GUID/verified domain, which is the path
+      // the happy-path test below exercises.
+      tenant: 'contoso.onmicrosoft.com',
+      authorizeUrl: 'https://login.microsoft.test/{tenant}/authorize',
+      tokenUrl: 'https://login.microsoft.test/{tenant}/token',
+      userinfoUrl: 'https://graph.microsoft.test/oidc/userinfo',
+    },
+    gitlab: {
+      clientId: 'gl-client',
+      clientSecret: 'gl-secret',
+      enabled: true,
+      baseUrl: 'https://gitlab.test',
+      authorizeUrl: '',
+      tokenUrl: '',
+      userinfoUrl: '',
+    },
+    linkedin: {
+      clientId: 'li-client',
+      clientSecret: 'li-secret',
+      enabled: true,
+      authorizeUrl: 'https://linkedin.test/oauth/authorization',
+      tokenUrl: 'https://linkedin.test/oauth/accessToken',
+      userinfoUrl: 'https://api.linkedin.test/userinfo',
     },
   },
 }));
@@ -114,17 +113,21 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
   getRedisClient: jest.fn(async () => undefined),
 }));
 
-jest.unstable_mockModule('../src/utils/token.js', () => ({
-  hashRefreshToken: (t: string) => `h:${t}`,
+jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
+  membershipForOrg: jest.fn(async () => undefined),
+}));
+jest.unstable_mockModule('../src/services/session/access-tokens.js', () => ({
   enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  findRefreshSession: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn<AnyFn>(),
   signServiceAccountToken: jest.fn<AnyFn>(),
-  membershipForOrg: jest.fn(async () => undefined),
-  issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   signInAuth: jest.fn(() => ({ amr: ['sso'], aal: 1, authTime: Math.floor(Date.now() / 1000) })),
+}));
+jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  findRefreshSession: jest.fn(async () => undefined),
+  issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
 
 // Pass-through body validation: reject when code/state absent (mirrors the
@@ -151,8 +154,8 @@ jest.unstable_mockModule('../src/services/mfa-challenge.js', () => ({
   createMfaChallenge: (...a: unknown[]) => (mockCreateMfaChallenge as any)(...a),
 }));
 
-const { verifyOAuthCode, handleCallback, getAuthUrl, OAUTH_ERROR_MAP, buildOAuthReauthUrl, verifyOAuthReauthCode } =
-  await import('../src/controllers/oauth.js');
+const { handleCallback, getAuthUrl } = await import('../src/controllers/oauth.js');
+const { verifyOAuthCode, OAUTH_ERROR_MAP, buildOAuthReauthUrl, verifyOAuthReauthCode } = await import('../src/services/oauth-providers.js');
 const { isOAuthProviderEnabled } = await import('../src/helpers/oauth-config.js');
 const {
   OAUTH_EMAIL_UNVERIFIED, OAUTH_INVALID_ID_TOKEN, OAUTH_INVALID_STATE, OAUTH_NO_EMAIL, OAUTH_PROVIDER_DISABLED,

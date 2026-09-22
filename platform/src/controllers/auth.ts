@@ -4,12 +4,13 @@
 import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail, recordBootstrapSession } from '../helpers/bootstrap-admin.js';
+import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { clientInfoOf } from '../helpers/client-info.js';
-import { withController } from '../helpers/controller-helper.js';
+import { ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { graceTokensFor, rememberRotation } from '../helpers/refresh-grace.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
+import { completeInteractiveSignIn, openMfaChallengeIfOwed, sendMfaChallenge } from '../helpers/sign-in.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { SESSION_SLOT_REQUIRED, callerHasSessionSlot } from '../helpers/token-permissions.js';
 import type { RefreshSessionKind } from '../models/user.js';
@@ -18,8 +19,9 @@ import { DUPLICATE_CREDENTIALS, MFA_REQUIRED_FOR_ORG, RESERVED_ORG_NAME, ONBOARD
 import { provisionBillingSubscription } from '../services/billing-provision.js';
 import { auditService, authService } from '../services/index.js';
 import { JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
+import { signInAuth } from '../services/session/access-tokens.js';
+import { hashRefreshToken, renewSessionTokens } from '../services/session/refresh-sessions.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import { hashRefreshToken, issueTokens, renewSessionTokens, signInAuth } from '../utils/token.js';
 import { validateBody, registerSchema, loginSchema, completeOnboardingSchema, joinOrgSchema } from '../utils/validation.js';
 
 const logger = createLogger('auth-controller');
@@ -121,7 +123,7 @@ export const register = withController('Register', async (req, res) => {
  * + flag clear happen synchronously in the service.
  */
 export const completeOnboarding = withController('Complete onboarding', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Unauthorized');
+  if (!ensureAuthenticated(req, res)) return;
   const body = validateBody(completeOnboardingSchema, req.body, res);
   if (!body) return;
 
@@ -142,11 +144,11 @@ export const completeOnboarding = withController('Complete onboarding', async (r
 
 /**
  * GET /auth/onboarding/domain-orgs — orgs the signed-in user could join based on
- * their VERIFIED email domain (P2b discovery). Authenticated + verified-email
+ * their VERIFIED email domain (domain discovery). Authenticated + verified-email
  * gated so it can't be used to enumerate tenants; returns only name + join-mode.
  */
 export const getDomainOrgs = withController('Discover domain orgs', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Unauthorized');
+  if (!ensureAuthenticated(req, res)) return;
   // Lazy-import so the domain-join dependency chain (dns, seats, roles) isn't
   // pulled into auth.ts's static graph — mirrors register()'s superadmin-bootstrap import.
   const { User } = await import('../models/index.js');
@@ -168,7 +170,7 @@ export const getDomainOrgs = withController('Discover domain orgs', async (req, 
  * email. Never trusts the client's eligibility claim.
  */
 export const joinDomainOrg = withController('Join domain org', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Unauthorized');
+  if (!ensureAuthenticated(req, res)) return;
   const body = validateBody(joinOrgSchema, req.body, res);
   if (!body) return;
   const { User } = await import('../models/index.js');
@@ -204,7 +206,7 @@ export const login = withController('Login', async (req, res) => {
   // Early gate: if the identifier is itself an email whose domain is SSO-forced,
   // turn it away before processing the password at all.
   //
-  // NEVER for the bootstrap admin (#8): SSO refuses superadmins outright, so a
+  // NEVER for the bootstrap admin: SSO refuses superadmins outright, so a
   // verified, SSO-enforced domain matching their address would close BOTH
   // sign-in paths and leave the install with no way in at all.
   if (body.identifier.includes('@')
@@ -227,51 +229,30 @@ export const login = withController('Login', async (req, res) => {
   // Same bootstrap-admin carve-out, for the same reason.
   if (!isBootstrapSuperAdminEmail(user.email) && await rejectIfSsoEnforced(res, user.email)) return;
 
-  // SECOND FACTOR. For an account with an authenticator app the password is only
-  // half the credential, so this returns a short-lived, single-use challenge
-  // instead of a session: no access token, no refresh cookie, no session slot.
-  // POST /auth/mfa/verify trades the challenge plus a code (generated or
-  // recovery) for the session this would otherwise have opened. The sign-in is
-  // NOT audited as `user.login` here — it hasn't happened yet.
-  //
-  // Lazily imported, like the other heavy branches in this file: the TOTP
-  // service reaches the secret-encryption and SSO-enforcement graphs, and the
-  // challenge store reads its own config at module load. Neither belongs in the
-  // static import graph of a controller most of whose routes never touch them.
   const userId = user._id.toString();
+  const orgId = user.lastActiveOrgId?.toString();
 
   // ORG PASSWORD POLICY — the one moment the plaintext is in hand. Only a hash
   // is stored, so a minimum an org raised AFTER this password was set can only
   // be checked here; a password below it opens no session until it is changed
   // (see services/password-change-challenge.ts). Checked BEFORE the second
   // factor is asked for and carried through it, so neither leg skips the other.
+  // Lazily imported, like the other heavy branches in this file.
   const { passwordShortfall } = await import('../helpers/password-policy.js');
   const shortfall = await passwordShortfall(body.password, userId);
 
-  const { hasActiveTotp } = await import('../services/totp-service.js');
-  if (await hasActiveTotp(userId)) {
-    const { createMfaChallenge } = await import('../services/mfa-challenge.js');
-    const challenge = await createMfaChallenge(
-      userId,
-      user.lastActiveOrgId?.toString(),
-      shortfall ? { passwordChangeMinLength: shortfall.minLength } : {},
-    );
-    incCounter('platform_mfa_challenges_total');
-    return sendSuccess(res, 200, {
-      mfaRequired: true,
-      challengeId: challenge.challengeId,
-      expiresAt: challenge.expiresAt,
-      // What the code may be. Both go to the same endpoint; this is only so the
-      // UI can word the field ("code from your app, or a recovery code").
-      methods: ['totp', 'recovery'],
-    });
-  }
+  // SECOND FACTOR. For an account with an authenticator app the password is only
+  // half the credential, so this returns a short-lived, single-use challenge
+  // instead of a session. POST /auth/mfa/verify trades the challenge plus a code
+  // (generated or recovery) for the session this would otherwise have opened.
+  // The sign-in is NOT audited as `user.login` here — it hasn't happened yet.
+  if (await openMfaChallengeIfOwed(res, userId, orgId, shortfall ? { passwordChangeMinLength: shortfall.minLength } : {})) return;
 
   if (shortfall) {
     const { createPasswordChangeChallenge } = await import('../services/password-change-challenge.js');
     const challenge = await createPasswordChangeChallenge({
       userId,
-      ...(user.lastActiveOrgId ? { orgId: user.lastActiveOrgId.toString() } : {}),
+      ...(orgId ? { orgId } : {}),
       amr: ['pwd'],
       aal: 1,
       minLength: shortfall.minLength,
@@ -286,24 +267,18 @@ export const login = withController('Login', async (req, res) => {
     return sendSuccess(res, 200, { passwordChangeRequired: true, ...challenge });
   }
 
-  // BOOTSTRAP-ADMIN EXCEPTION (#8, revision 4). A fresh install has one admin
-  // and no factor, so the org policy that would otherwise apply to the system
-  // org cannot apply to them yet. They get a limited `aal: 1` session that
-  // reaches only enrolment, sign-out and the setup routes; it closes for good at
-  // their first enrolment. Resolved AFTER the TOTP branch on purpose — an admin
-  // with an authenticator app has already closed it, and must take the normal
+  // BOOTSTRAP-ADMIN EXCEPTION. A fresh install has one admin and no factor, so
+  // the org policy that would otherwise apply to the system org cannot apply to
+  // them yet. They get a limited `aal: 1` session that reaches only enrolment,
+  // sign-out and the setup routes; it closes for good at their first
+  // enrolment. Resolved AFTER the TOTP branch on purpose — an admin with an
+  // authenticator app has already closed it, and must take the normal
   // second-factor path.
   const bootstrapPending = await isBootstrapExceptionOpen(user);
 
   // Password sign-in opens an INTERACTIVE session (`amr: ['pwd']`).
-  let tokens;
   try {
-    tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
-      kind: 'interactive',
-      auth: signInAuth('pwd'),
-      client: clientInfoOf(req),
-      ...(bootstrapPending ? { mfaEnrollmentPending: true } : {}),
-    });
+    await completeInteractiveSignIn(req, res, user, { orgId, auth: signInAuth('pwd'), bootstrapPending });
   } catch (err) {
     // RECOVERY CODES FOR A PASSKEY ACCOUNT. The org requires MFA, so the
     // password alone was refused — and this account has no authenticator app to
@@ -313,33 +288,11 @@ export const login = withController('Login', async (req, res) => {
     if (err instanceof Error && err.message === MFA_REQUIRED_FOR_ORG) {
       const { hasUnspentRecoveryCodes } = await import('../services/recovery-codes-service.js');
       if (await hasUnspentRecoveryCodes(userId)) {
-        const { createMfaChallenge } = await import('../services/mfa-challenge.js');
-        const challenge = await createMfaChallenge(userId, user.lastActiveOrgId?.toString(), { recoveryOnly: true });
-        incCounter('platform_mfa_challenges_total');
-        return sendSuccess(res, 200, {
-          mfaRequired: true,
-          challengeId: challenge.challengeId,
-          expiresAt: challenge.expiresAt,
-          methods: ['recovery'],
-        });
+        return sendMfaChallenge(res, userId, orgId, { recoveryOnly: true });
       }
     }
     throw err;
   }
-
-  if (bootstrapPending) await recordBootstrapSession(req, user._id.toString(), user.email);
-
-  audit(req, 'user.login', { targetType: 'user', targetId: user._id.toString() });
-  // Counter consumed by the Platform Overview dashboard's "logins/min" panel.
-  incCounter('platform_logins_total');
-  // Browser: the refresh token leaves as an HttpOnly cookie and never appears
-  // in this body. CLI/CI: unchanged, both tokens in the body. The enrolment flag
-  // rides along so the UI can send the admin straight to enrolment instead of
-  // letting them discover the limit one 403 at a time.
-  sendSuccess(res, 200, {
-    ...deliverSessionTokens(req, res, tokens),
-    ...(bootstrapPending ? { mfaEnrollmentPending: true } : {}),
-  });
 }, { ...MFA_POLICY_ERROR_MAP });
 
 /**
@@ -362,7 +315,7 @@ export const login = withController('Login', async (req, res) => {
  * or a CLI caller's body — and the rotated one goes back the same way.
  */
 export const refresh = withController('Refresh', async (req, res) => {
-  if (!req.user) return sendError(res, 401, 'Unauthorized');
+  if (!ensureAuthenticated(req, res)) return;
 
   const presentedToken = res.locals.presentedRefreshToken as string;
   const sessionId = res.locals.refreshSessionId as string;
@@ -558,12 +511,12 @@ export const verifyEmail = withController('Verify email', async (req, res) => {
  * convenience for platform operators in environments with no outbound email.
  *
  * SUPERADMIN ONLY. It only ever verifies the caller's OWN email, so an
- * "admin/owner" delegation was never meaningful — and every self-registered user
- * is `owner` of their personal org, which made the old admin/owner gate
- * effectively "any authenticated user can self-assert verification." Since
- * `isEmailVerified` is the sole proof-of-control the domain-based-join flow
- * trusts, that let an attacker register `x@bigcorp.com`, self-verify, and
- * auto-join bigcorp's org. Restricting to superadmin closes that path. Requires
+ * "admin/owner" delegation would not be meaningful — and every self-registered
+ * user is `owner` of their personal org, so an admin/owner gate would amount to
+ * "any authenticated user can self-assert verification." `isEmailVerified` is
+ * the sole proof-of-control the domain-based-join flow trusts, so that would
+ * let an attacker register `x@bigcorp.com`, self-verify, and auto-join
+ * bigcorp's org. Requires
  * auth (route middleware).
  */
 export const markEmailVerified = withController('Mark email verified', async (req, res) => {

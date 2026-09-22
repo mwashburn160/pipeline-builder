@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 417b3bff021172226bd724752735ae62af6cab15a46e8ca28b27b3d2d7e81d23
+// SOURCE-SHA256: 7287a8e83139447cffe7bae5fcf32e0c84d2ebc41b57dac9670451c06eda87eb
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -108,7 +108,7 @@ export const deployOperationsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Each target ships its own bin/backup.sh / bin/restore.sh (e.g. deploy/local/minikube/bin/backup.sh) — same names across targets, common.sh stays shared in deploy/bin/. The three kubectl targets (minikube / ec2 / eks) run the port-forward variant: it stands up short-lived kubectl port-forwards to the in-cluster postgres/mongodb (+minio), rewrites the connection env to the tunnels, dumps, and tears them down — so the in-cluster service names don't need to be host-reachable (DRY_RUN=1 and restore.sh --list skip the forwards and need no cluster). The docker variant connects directly. They dump and restore Postgres + Mongo (to/from S3; restore.sh requires --confirm-destructive), and optionally mirror the MinIO buckets (attachments/registry/loki/thanos) when MINIO_ENDPOINT is set. They are not scheduled by default on any target — wire them:"
+          "content": "Backup and restore are one implementation — deploy/bin/backup.sh and deploy/bin/restore.sh — and each target's bin/backup.sh / bin/restore.sh is a thin wrapper that picks the connection mode. The three kubectl targets (minikube / ec2 / eks) use --connect k8s: short-lived kubectl port-forwards to the in-cluster postgres/mongodb (+minio), with the connection env rewritten to the tunnels and torn down on exit — so the in-cluster service names don't need to be host-reachable (DRY_RUN=1 and restore.sh --list skip the forwards and need no cluster). docker uses --connect direct. They dump and restore Postgres + Mongo (to/from S3; restore.sh requires --confirm-destructive), and optionally mirror every MinIO bucket when MINIO_ENDPOINT is set — by default the canonical PB_MINIO_BUCKETS list in deploy/bin/common.sh (message-attachments, registry, loki, thanos, plugins, plugin-quarantine, audit-heads), which a deploy contract test keeps equal to what each target's minio-init creates and what the eks CronJob mirrors. They are not scheduled by default on any target — wire them:"
         },
         {
           "type": "text",

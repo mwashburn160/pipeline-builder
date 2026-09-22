@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `/plugins/submit` — submit a plugin WITHOUT an account (plan §4, W5).
+ * `/plugins/submit` — submit a plugin WITHOUT an account.
  *
  * Choose a zip → it is inspected (a dry run, after a proof-of-work) → accept or
- * edit each detected catalog field (§3.1a) and look at the lint / heuristics
+ * edit each detected catalog field and look at the lint / heuristics
  * preview → give an email address and accept the terms → a second
  * proof-of-work → submit → "check your email". Everything else (the email
  * link, the isolated build, the gates, moderation) happens server-side.
@@ -200,7 +200,7 @@ export default function SubmitPluginPage({ siteUrl }: WithSiteUrl) {
                   <ListingCardPreview
                     name={inspect.plugin.name}
                     version={inspect.plugin.version}
-                    // Community listings never use a curated vendor icon (§6a.1): the card shows a monogram.
+                    // Community listings never use a curated vendor icon: the card shows a monogram.
                     values={{ ...applyCatalogEdits(inspect.fields, state.edits), icon: null }}
                     publisher={{ handle: COMMUNITY_PUBLISHER, displayName: 'Community', tier: 'unverified' }}
                   />

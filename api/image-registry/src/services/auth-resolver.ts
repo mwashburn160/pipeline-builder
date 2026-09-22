@@ -51,7 +51,7 @@ export type Identity =
     serviceName?: string;
   }
   /**
-   * An anonymous submission's BUILD (E21): the registry-only credential
+   * An anonymous submission's BUILD: the registry-only credential
    * image-registry minted for `quarantine/<submissionId>`. Never a platform
    * principal — it has no org, no user and no permissions.
    */
@@ -79,14 +79,14 @@ export interface PlatformJwtPayload {
   type?: string;
   /** `service` for an internal caller (api/plugin's builds, the deploy bootstrap push). */
   principalType?: string;
-  /** Narrow capability scope on a machine credential (#12). `registry:push` is
+  /** Narrow capability scope on a machine credential. `registry:push` is
    *  the one this resolver honours — see `REGISTRY_PUSH_SCOPE`. */
   scope?: string;
 }
 
 /**
  * The capability scope a least-privilege machine credential carries to push
- * images (#12). A scoped token is minted with NO permissions and NO admin flags
+ * images. A scoped token is minted with NO permissions and NO admin flags
  * by design, so `plugins:write` can never appear on one — this is what a CI
  * push identity presents instead, and it grants exactly the same raw-image write
  * inside the owning org's namespace, and nothing else.
@@ -99,13 +99,13 @@ export const PLUGIN_PUSH_SERVICE = 'plugin';
 export const BOOTSTRAP_SERVICE = 'deploy-bootstrap';
 
 /**
- * Whether a verified token may PUSH plugin images into its org's namespace (E22):
+ * Whether a verified token may PUSH plugin images into its org's namespace:
  *
  *  - a SERVICE principal: only `plugin` (its own builds), and only with
  *    `plugins:write` (or an admin role) on the token — no other internal
  *    service writes images, whatever permissions its token claims;
  *  - an ORG SERVICE ACCOUNT: `plugins:write`, or the `registry:push` scope —
- *    the CI push identity (#12), which platform mints only while the account's
+ *    the CI push identity, which platform mints only while the account's
  *    creator still holds `plugins:write` (I10);
  *  - a USER: `plugins:write` or an admin role. A `registry:push` scope on a
  *    person's key grants nothing here: that scope is the machine credential's.
@@ -134,7 +134,7 @@ export function mayPushPlugins(decoded: Pick<PlatformJwtPayload, 'principalType'
  *        unknown `kid`). This is the path customer CodeBuild and the
  *        plugin-lookup Lambda use.
  *      - an INTERNAL SERVICE token is ES256 signed by the CALLING service with
- *        its own key (#14) and verified against the per-service public bundle,
+ *        its own key and verified against the per-service public bundle,
  *        and must declare `principalType: 'service'`. This is the path
  *        `api/plugin` uses for its own image pushes and the one the deploy
  *        scripts use for the `deploy-bootstrap` base-image push.
@@ -149,7 +149,7 @@ export function mayPushPlugins(decoded: Pick<PlatformJwtPayload, 'principalType'
  * Returns `null` if all paths fail. Caller should respond 401 in that case.
  */
 export async function resolveIdentity(username: string, password: string): Promise<Identity | null> {
-  // A quarantine build credential (E21) — verified locally, and tried first: it
+  // A quarantine build credential — verified locally, and tried first: it
   // is never a platform token, so no other path could accept it anyway.
   const submissionId = await verifyQuarantineCredential(password);
   if (submissionId) return { type: 'quarantine', submissionId };
