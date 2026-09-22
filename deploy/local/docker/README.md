@@ -5,15 +5,20 @@ Local development deployment using Docker Compose with all services, PostgreSQL,
 ## Quick Start
 
 ```bash
-# 1. Copy and configure environment
-cp .env.example .env
+# 1. Provision: seeds .env, generates the TLS/JWT/signing keys and starts the stack
+./bin/setup.sh
 
-# 2. Start all services
-docker compose up -d
-
-# 3. Initialize platform (register admin, load plugins/pipelines)
+# 2. Initialize platform (register admin, load plugins/pipelines)
 ../../bin/init-platform.sh docker
 ```
+
+Run `bin/setup.sh`, not a bare `docker compose up`: the stack bind-mounts key
+files that must EXIST first (gateway TLS, the registry token keypair, the
+user-token signing key, the per-service signing keys). Docker creates a missing
+bind-mount source as an empty directory, and the containers then crash-loop
+reading a PEM that is a directory. `setup.sh` generates them idempotently, seeds
+`.env` from `.env.example` with real secrets, and runs `docker compose up -d`.
+Day-to-day `docker compose` commands are fine once it has run once.
 
 ## AI Providers
 
@@ -78,9 +83,10 @@ in sees every tenant's metrics. That is also why it is admin-only and not linked
 from any tenant-facing page. Datasources are provisioned from
 `config/grafana/provisioning/`, so a rebuilt container comes back wired.
 
-Unlike the kubernetes targets, Prometheus is the **default** datasource here
-rather than Thanos: this target runs no Thanos, so there are no long-range
-blocks to fan out to.
+Datasources match the kubernetes targets: **Thanos** is the default (it fans out
+to the Prometheus sidecar *and* the MinIO-archived blocks, so it answers long
+ranges Prometheus alone drops after 7 days), with raw Prometheus, Loki and
+Jaeger alongside it.
 
 **No Kiali on this target.** Kiali visualises an Istio mesh, and docker-compose
 runs none — it would render an empty graph. It ships on the three kubernetes
@@ -95,7 +101,13 @@ targets instead.
 | platform | 3000 (internal) | Auth + user management |
 | pipeline | 3000 (internal) | Pipeline CRUD + AI generation |
 | plugin | 3000 (internal) | Plugin CRUD + builds |
-| buildkitd | unix socket (internal) | Rootless BuildKit sidecar for isolated plugin builds |
+| buildkitd | 1234 (internal, TCP) | Rootless BuildKit daemon for tenant plugin builds |
+| buildkitd-quarantine | 1234 (quarantine-network) | Isolated BuildKit for anonymous submissions |
+| ask | 3000 (internal) | AI assistant |
+| image-registry | 3000 (internal) | Registry token-auth issuer + image management API |
+| pgbouncer | 6432 (internal) | Connection pooler — every service's `DB_HOST` |
+| minio | 9000 (internal) | S3-compatible object storage (attachments, registry, loki, thanos, plugin build contexts) |
+| jaeger | 16686 (exposed) | Trace UI; OTLP receivers on 4317/4318 (internal) |
 | quota | 3000 (internal) | Quota enforcement |
 | billing | 3000 (internal) | Subscription management |
 | message | 3000 (internal) | Message routing + WebSocket |
@@ -111,9 +123,9 @@ targets instead.
 | prometheus | 9090 (internal) | Metrics scrape target for the native Observability dashboards |
 | loki | 3100 (internal) | Log store for the native Audit Activity dashboard |
 
-Registry browser: open `https://localhost:8443/dashboard/registry` (system-admin only) — the native UI replaces the joxit `registry-express` container that previously listened on port 5080.
+Registry browser: open `https://localhost:8443/dashboard/registry` (system-admin only) — there is no separate registry-UI container.
 
-Observability: open `https://localhost:8443/dashboard/observability` (system-admin only) — native dashboards (Plugin Builds, Audit Activity) over Prometheus + Loki. These replaced an embedded Grafana iframe and remain the tenant-facing, org-scoped surface. The standalone Grafana above is a separate, admin-only console — not an embed, and not linked from any tenant page.
+Observability: open `https://localhost:8443/dashboard/observability` (system-admin only) — native dashboards (Plugin Builds, Audit Activity) over Prometheus + Loki. These are the tenant-facing, org-scoped surface. The standalone Grafana above is a separate, admin-only console, not linked from any tenant page.
 
 ## Troubleshooting
 

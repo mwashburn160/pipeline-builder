@@ -30,6 +30,10 @@ CLEANUP=false
 CATEGORY_FILTER=""
 
 # ---- Argument parsing ----
+#
+# The deploy/bin convention (as in backup.sh / restore.sh): a value-taking flag
+# asserts its value is THERE before reading it. A bare `"$2"` on a trailing flag
+# dies under `set -u` with `$2: unbound variable`, naming neither flag nor script.
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -37,15 +41,18 @@ while [ $# -gt 0 ]; do
     --rebuild|--force) REBUILD=true; shift ;;
     --cleanup)   CLEANUP=true; shift ;;
     --serial)    SERIAL_MODE=true; shift ;;
-    --parallel)  PARALLEL_JOBS="$2"
+    --parallel)  [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
+                 PARALLEL_JOBS="$2"
                  [[ "$PARALLEL_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --parallel requires a positive integer" >&2; exit 1; }
                  shift 2 ;;
     # Accumulate across repeated flags AND accept a comma-separated value, so
     # both `--category a,b` and `--category a --category b` load a+b. Plain
     # assignment silently kept only the LAST flag — a footgun that looked like
     # every category loaded when only one did.
-    --category)  CATEGORY_FILTER="${CATEGORY_FILTER:+$CATEGORY_FILTER,}$2"; shift 2 ;;
-    --timeout)   UPLOAD_TIMEOUT="$2"
+    --category)  [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
+                 CATEGORY_FILTER="${CATEGORY_FILTER:+$CATEGORY_FILTER,}$2"; shift 2 ;;
+    --timeout)   [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
+                 UPLOAD_TIMEOUT="$2"
                  [[ "$UPLOAD_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --timeout requires a positive integer" >&2; exit 1; }
                  shift 2 ;;
     --help|-h)
@@ -77,13 +84,12 @@ done
 is_eligible_plugin() {
   [ -f "$1/plugin-spec.yaml" ] || return 1
   local _pt
-  # `|| true`: an ABSENT field makes get_spec_field's grep|head|sed return
-  # non-zero; empty is the documented "not found" value and is handled below.
-  _pt=$(get_spec_field pluginType "$1/plugin-spec.yaml" || true)
+  # An absent field yields "" (get_spec_field's contract), not a failure.
+  _pt=$(get_spec_field pluginType "$1/plugin-spec.yaml")
   [ "$_pt" = "ManualApprovalStep" ] && return 0
   [ -f "$1/Dockerfile" ] && return 0
   local _bt
-  _bt=$(get_spec_field buildType "$1/config.yaml" || true)
+  _bt=$(get_spec_field buildType "$1/config.yaml")
   [ "$_bt" = "prebuilt" ] && return 0
   return 1
 }

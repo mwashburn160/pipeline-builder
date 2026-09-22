@@ -71,7 +71,7 @@ CONNECT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --connect) [ $# -ge 2 ] || { echo "--connect requires k8s|direct" >&2; exit 1; }; CONNECT="$2"; shift ;;
-    -h|--help) sed -n '2,/^set -euo/p' "$SCRIPT_DIR/backup.sh" | grep '^#'; exit 0 ;;
+    -h|--help) pb_usage_from_header "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
   shift

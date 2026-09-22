@@ -3,9 +3,9 @@
 # =============================================================================
 # Applied via kustomization.yaml `patches:`. Kept minimal on purpose: the base
 # ResourceQuota/LimitRange in resource-limits.yaml are already tuned for the
-# laptop (requests.cpu bumped to 12 for crane-push bootstrap headroom), so this
-# patch no longer overrides them — an older copy set requests.cpu:10 / limits.cpu:16,
-# which would have regressed that headroom once the patch was actually wired in.
+# laptop (requests.cpu is 12, for crane-push bootstrap headroom), so this patch
+# deliberately does NOT override them — a lower requests.cpu here would silently
+# take that headroom back.
 
 # --- Plugin KEDA ScaledObject: allow more build replicas on the local box ---
 ---

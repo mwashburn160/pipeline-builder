@@ -19,9 +19,9 @@ PROFILE="pipeline-builder"
 # deploy dir. See the VM_DATA_DIR mounts below.
 # LEAN=1 drops the optional observability + admin services (prometheus, thanos,
 # loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali)
-# from the apply so
-# the core stack + Istio mesh fits on an ~8-core laptop. Core services + DBs are
-# unaffected. Full stack is the default (LEAN=0) for larger machines.
+# from the apply so the core stack + Istio mesh fits on an ~8-core laptop. Core
+# services + DBs are unaffected. Full stack is the default (LEAN=0) for larger
+# machines.
 LEAN="${LEAN:-0}"
 # ASK_MODEL=1 additionally deploys the self-hosted Ask model (k8s/ask-model.yaml,
 # Ollama) and points the ask service at it. OFF by default because it is the one
@@ -35,13 +35,10 @@ LEAN="${LEAN:-0}"
 # optional workloads, so a "LEAN=2" that added one would invert its meaning.
 ASK_MODEL="${ASK_MODEL:-0}"
 # Minikube VM disk size. Applied only at cluster CREATE — to grow an existing
-# cluster you must `minikube delete --profile=pipeline-builder` and re-run.
-# On the docker driver it's bounded by Docker Desktop's virtual-disk limit.
+# cluster, re-run with RECREATE=y (which WIPES /data; see the RECREATE block
+# further down). On the docker driver it's bounded by Docker Desktop's
+# virtual-disk limit.
 DISK_SIZE="${DISK_SIZE:-30g}"
-# RECREATE: when an existing cluster is found, whether to WIPE it and start fresh.
-# Unset + a TTY → the script prompts (default: keep data). RECREATE=y wipes /data
-# and recreates (also lets sizing overrides like DISK_SIZE take effect); RECREATE=n
-# (or unset on a non-interactive run) resumes and preserves data.
 # In-VM data path for the k8s hostPath manifests. This is minikube's OWN
 # persistent disk (/data) — data survives stop/start but is NOT mirrored to the
 # host `data/` folder (minikube's /data shadows any host mount there, and DB data
@@ -152,24 +149,25 @@ set +a
 pb_check_alert_delivery "$ENV_FILE" "$(pb_shared_dir)/config/alertmanager/alertmanager.yml" || exit 1
 
 # Generate the MongoDB replica-set keyfile per-deploy if absent (idempotent —
-# skips if present). It's no longer committed, so a fresh checkout has none;
-# the mongodb-keyfile Secret below is created from it, and the mongodb pod's
+# skips if present). It is not tracked in git, so a fresh checkout has none; the
+# mongodb-keyfile Secret below is created from it, and the mongodb pod's
 # init-container tightens perms to 400 at start.
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
-# Data lives on the minikube VM's own persistent /data disk — created by the
-# hostPath `DirectoryOrCreate` mounts + the chown'd ssh mkdirs below — NOT on the
-# host `data/` folder. minikube reserves /data for that persistent disk, which
-# shadows any host 9p mount there, so we don't attempt one (see MK_ARGS). Data
-# survives `minikube stop/start`; `minikube delete` wipes it. For host-side copies
-# use `deploy/local/minikube/bin/backup.sh` (dumps via kubectl port-forward).
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$VM_DATA_DIR/plugins-data}"
 
 # -- Start Minikube -----------------------------------------------------------
+# Data lives on the minikube VM's own persistent /data disk ($VM_DATA_DIR) —
+# created by the hostPath `DirectoryOrCreate` mounts + the chown'd ssh mkdirs
+# below — NOT on the host `data/` folder. minikube reserves /data for that
+# persistent disk, which shadows any host 9p mount there, so we don't attempt
+# one (see MK_ARGS). Data survives `minikube stop/start`; `minikube delete`
+# wipes it. For host-side copies use `deploy/local/minikube/bin/backup.sh`
+# (dumps via kubectl port-forward).
+#
 # NOTE: docker cleanup (removing a stale container/network) is deferred to the
 # create/recreate paths below — it must NEVER run before a RESUME. Removing the
-# `pipeline-builder` docker network here (as an earlier unconditional
-# `docker network rm` did) orphans the running cluster's container, so the resume
-# then fails with "failed to set up container networking: network … not found".
+# `pipeline-builder` docker network while the cluster's container is running
+# orphans it, and the resume then fails with "failed to set up container
+# networking: network … not found".
 
 # The docker driver needs a reachable daemon for every step below — including
 # the `minikube delete` on the recreate path. Without this preflight a stopped
@@ -493,10 +491,10 @@ kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout
 kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
 # `-l app` is an EXISTENCE selector, so it also matches the one-shot Job pods
 # (minio-init carries `app: minio-init`). A Succeeded pod's Ready condition is
-# False/PodCompleted forever, so without the phase filter this wait could never
-# be satisfied and always burned the full 300s — silently, because `|| true`
-# swallowed the timeout. Exclude finished pods, and say which pods are actually
-# lagging instead of hiding the result.
+# False/PodCompleted forever, so without the phase filter this wait can never be
+# satisfied and burns the full 300s — silently, if the timeout is swallowed.
+# Exclude finished pods, and say which pods are actually lagging instead of
+# hiding the result.
 #
 # ask-model is excluded for a second reason: its startupProbe deliberately holds
 # the pod NotReady until `ollama list` shows the model, and the first run pulls

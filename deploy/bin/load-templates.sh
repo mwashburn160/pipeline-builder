@@ -69,11 +69,15 @@ upload_template() {
   # `|| _rc=$?`: curl_with_retry returns 1/2; a bare call under `set -e` would
   # abort before the dispatch below, losing the FAILED/SKIPPED accounting — and
   # the very first already-loaded template (409 → exists) would kill the run.
+  # No `x-org-id` header: the tenant comes from the loader's own token. nginx
+  # OVERWRITES x-org-id on every proxied request (`proxy_set_header x-org-id
+  # $jwt_org_id`), and api-core's getIdentity ignores the header outright for a
+  # user or service-account principal — so sending one only looked like it
+  # chose the org. The `setup` service account already lives in the system org.
   local _rc=0
   curl_with_retry "$dir_name" \
     -X POST "${PLATFORM_BASE_URL}/api/pipeline-templates" \
     -H "Content-Type: application/json" \
-    -H "x-org-id: system" \
     -d @"$body_file" || _rc=$?
   case "$_rc" in
     0) SUCCEEDED=$((SUCCEEDED + 1)) ;;

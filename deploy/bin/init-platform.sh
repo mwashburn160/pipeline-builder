@@ -36,8 +36,8 @@ FORCE_REBUILD_ALL=false
 
 # Parse the target and flags in ANY order — flags may come before OR after the
 # target (e.g. both `init-platform.sh --force ec2` and `init-platform.sh ec2
-# --force` work). The old loop `break`d on the first non-flag, so a trailing
-# `--force` was silently dropped (bootstrap never rebuilt/republished).
+# --force` work). Stopping at the first non-flag would silently drop a trailing
+# `--force`, and the bootstrap image would never be rebuilt or republished.
 TARGET=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -74,7 +74,10 @@ cleanup() {
     wait "$TUNNEL_PID" 2>/dev/null || true
   fi
 }
-trap cleanup EXIT
+# EXIT INT TERM: an untrapped SIGINT/SIGTERM kills the shell without running the
+# EXIT trap, so Ctrl-C would orphan the kubectl port-forward holding :8443/:8080
+# and the next run could not bind it.
+trap cleanup EXIT INT TERM
 
 # ---- Resolve platform URL ----
 
@@ -299,9 +302,8 @@ if [ "$FORCE_REBUILD_ALL" = true ]; then
   BOOTSTRAP_ARGS="--force"
   BOOTSTRAP_FORCE_PUSH=true
 fi
-# Reuse _truthy (case-insensitive) so BUILD_BOOTSTRAP agrees with the LOAD_*
-# toggles on what counts as "on" — the prior inline case missed mixed-case
-# values like `Yes`/`TRUE`.
+# _truthy (case-insensitive) so BUILD_BOOTSTRAP agrees with the LOAD_* toggles
+# on what counts as "on": an inline `case` here would miss `Yes` / `TRUE`.
 if _truthy "$BUILD_BOOTSTRAP"; then
   # shellcheck disable=SC2086  # $BOOTSTRAP_ARGS is intentionally word-split (empty or --force)
   DEPLOY_TARGET="$TARGET" FORCE_PUSH="$BOOTSTRAP_FORCE_PUSH" "$SCRIPT_DIR/build-codebuild-bootstrap.sh" $BOOTSTRAP_ARGS
@@ -458,10 +460,9 @@ if _truthy "$LOAD_PLUGINS"; then
     fi
   fi
 
-  # No re-authentication needed here any more: the loader service-account key is
-  # opaque and valid for 24h, so a long base-image build can no longer outlive
-  # the credential the upload uses (the old flow re-ran `login` because a
-  # 15-minute access token routinely expired mid-build).
+  # No re-authentication here: the loader service-account key is opaque and
+  # valid for 24h, so a long base-image build cannot outlive the credential the
+  # upload uses. (A 15-minute access token would routinely expire mid-build.)
   CLEANUP_ARG=""
   [ "$CLEANUP_AFTER_UPLOAD" = true ] && CLEANUP_ARG="--cleanup"
 

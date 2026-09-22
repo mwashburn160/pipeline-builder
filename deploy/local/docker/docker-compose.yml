@@ -27,6 +27,18 @@ x-api-deploy: &api-deploy
       cpus: '0.4'
       memory: 384M
 
+# -- Deploy defaults for the smaller API containers (message, reporting,
+# image-registry, billing): request/response services with no build, query or
+# render workload behind them. --
+x-api-deploy-small: &api-deploy-small
+  resources:
+    limits:
+      cpus: '0.35'
+      memory: 384M
+    reservations:
+      cpus: '0.15'
+      memory: 192M
+
 # -- Deploy defaults for database containers --
 x-db-deploy: &db-deploy
   resources:
@@ -37,10 +49,44 @@ x-db-deploy: &db-deploy
       cpus: '0.8'
       memory: 768M
 
+# -- The mid tier: services that need half a core and 512M under load and
+# reserve half of that at rest (frontend, compliance, prometheus, loki). --
+x-deploy-medium: &deploy-medium
+  resources:
+    limits:
+      cpus: '0.5'
+      memory: 512M
+    reservations:
+      cpus: '0.25'
+      memory: 256M
+
+# -- Object-store / metric-query services (minio, thanos store-gateway +
+# querier): memory-hungry when a query fans out, near-idle otherwise, so the
+# same 512M ceiling as the mid tier over a much lower floor. --
+x-deploy-storage: &deploy-storage
+  resources:
+    limits:
+      cpus: '0.35'
+      memory: 512M
+    reservations:
+      cpus: '0.10'
+      memory: 128M
+
+# -- Datastore exporters: one scrape endpoint each, no state. --
+x-exporter-deploy: &exporter-deploy
+  resources:
+    limits:
+      cpus: '0.10'
+      memory: 128M
+    reservations:
+      cpus: '0.025'
+      memory: 48M
+
 # -- The PUBLIC per-service key bundle, mounted read-only into every API service.
-# Each service ALSO mounts its own private key at
-# /etc/pipeline-builder/service-keys/service.key (see each service's `volumes:`) —
-# one key per container, so a compromised service cannot sign as another. #14
+# Each service ALSO mounts its own PRIVATE key at
+# /etc/pipeline-builder/service-keys/service.key — the per-service
+# `./certs/service-keys/<name>.key:…` line in its `volumes:`, mounted there and
+# nowhere else, so a compromised service cannot sign as another. #14
 x-service-key-bundle: &service-key-bundle
   ./certs/service-keys/bundle.json:/etc/pipeline-builder/service-key-bundle/bundle.json:ro
 
@@ -50,6 +96,24 @@ x-service-key-bundle: &service-key-bundle
 # points Node at it, so server-side HTTPS to the gateway verifies.
 x-dev-ca: &dev-ca
   ./certs/dev-ca.crt:/etc/pipeline-builder/dev-ca.crt:ro
+
+# -- Thanos object-store config + the credentials it references. objstore.yml
+# contains $(THANOS_S3_*) refs, which Thanos expands from the environment, so
+# the two always travel together — every Thanos component that touches the
+# bucket takes both (the querier touches only its peers' StoreAPIs, so it takes
+# neither).
+x-thanos-objstore: &thanos-objstore
+  ../../shared/config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+
+x-thanos-env: &thanos-env
+  THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
+  THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
+
+# -- Gate on the one-shot bucket/user bootstrap. Anything that opens a MinIO
+# connection at boot takes this, so it never races the bucket into existence.
+x-needs-minio: &needs-minio
+  minio-init:
+    condition: service_completed_successfully
 
 # -- Env shared by ALL API services --
 x-common-env: &common-env
@@ -127,6 +191,25 @@ x-redis-env: &redis-env
 x-quota-client-env: &quota-client-env
   QUOTA_SERVICE_HOST: ${QUOTA_SERVICE_HOST:-quota}
   QUOTA_SERVICE_PORT: ${QUOTA_SERVICE_PORT:-3000}
+
+# -- Developer-tier limit overrides + the default tier for new orgs. Taken by
+# BOTH quota (which owns the full tier matrix) and platform, which seeds a new
+# org's quota defaults from QUOTA_TIERS.developer.limits and so must see the
+# same operator overrides. Empty → the code default in quota-tiers.ts; -1 =
+# unlimited. --
+x-quota-tier-developer-env: &quota-tier-developer-env
+  DEFAULT_QUOTA_TIER: ${DEFAULT_QUOTA_TIER:-}
+  QUOTA_TIER_DEVELOPER_PLUGINS: ${QUOTA_TIER_DEVELOPER_PLUGINS:-}
+  QUOTA_TIER_DEVELOPER_PIPELINES: ${QUOTA_TIER_DEVELOPER_PIPELINES:-}
+  QUOTA_TIER_DEVELOPER_API_CALLS: ${QUOTA_TIER_DEVELOPER_API_CALLS:-}
+  QUOTA_TIER_DEVELOPER_AI_CALLS: ${QUOTA_TIER_DEVELOPER_AI_CALLS:-}
+  QUOTA_TIER_DEVELOPER_STORAGE_BYTES: ${QUOTA_TIER_DEVELOPER_STORAGE_BYTES:-}
+  QUOTA_TIER_DEVELOPER_DASHBOARDS: ${QUOTA_TIER_DEVELOPER_DASHBOARDS:-}
+  QUOTA_TIER_DEVELOPER_ALERT_RULES: ${QUOTA_TIER_DEVELOPER_ALERT_RULES:-}
+  QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS: ${QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS:-}
+  QUOTA_TIER_DEVELOPER_IDP_CONFIGS: ${QUOTA_TIER_DEVELOPER_IDP_CONFIGS:-}
+  QUOTA_TIER_DEVELOPER_LISTINGS: ${QUOTA_TIER_DEVELOPER_LISTINGS:-}
+  QUOTA_TIER_DEVELOPER_SEATS: ${QUOTA_TIER_DEVELOPER_SEATS:-}
 
 # -- Env for services that use AI generation --
 # Everything the shared AI provider registry (packages/ai-core) reads: the
@@ -236,7 +319,6 @@ services:
     volumes:
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/ask.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -266,10 +348,10 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b}
       OLLAMA_HOST: 0.0.0.0:11434
     entrypoint: ["/bin/sh", "-c"]
-    # Retry the pull rather than `|| true`-ing it once. There is no supervisor
-    # here that re-runs it: `restart: always` reacts to the container EXITING,
-    # not to an unhealthy healthcheck, so a single transient registry blip used
-    # to leave a permanently model-less container serving an empty catalogue.
+    # Retry the pull rather than `|| true`-ing it once. Nothing re-runs it:
+    # `restart: always` reacts to the container EXITING, not to an unhealthy
+    # healthcheck, so a single transient registry blip would otherwise leave a
+    # permanently model-less container serving an empty catalogue.
     command:
       - |
         ollama serve &
@@ -284,16 +366,13 @@ services:
       - ask-model-models:/root/.ollama
     networks:
       - backend-network
-    # GATE HEALTH ON THE MODEL, NOT THE SERVER.
-    #
-    # This used to be `ollama list >/dev/null || exit 1`, which passes the moment
-    # the HTTP server binds — while the pull above is still downloading. The
-    # container therefore reported healthy with an EMPTY model catalogue, `ask`
-    # sent it a chat completion for a model that did not exist, and ollama closed
-    # the connection: the user saw
-    #   "AI_APICallError: Cannot connect to API: other side closed".
-    # Grepping for the configured model is the honest check. Mirrors the
-    # startupProbe on all three k8s targets.
+    # GATE HEALTH ON THE MODEL, NOT THE SERVER. A probe that only reaches the
+    # HTTP server passes the moment it binds — while the pull above is still
+    # downloading — so the container reports healthy with an EMPTY catalogue,
+    # `ask` sends a completion for a model that does not exist and ollama closes
+    # the connection ("AI_APICallError: Cannot connect to API: other side
+    # closed"). Grep for the configured model instead. Mirrors the startupProbe
+    # on all three k8s targets.
     healthcheck:
       test: ["CMD", "sh", "-c", "ollama list | grep -qF \"$$OLLAMA_MODEL\""]
       interval: 30s
@@ -301,8 +380,8 @@ services:
       retries: 5
       # The first pull is ~4.7GB for the 7B. Failures during start_period do not
       # count toward `retries`, so this is the first-pull budget — matching the
-      # k8s startupProbe's ~20 minutes. Too short a value (it was 90s) would mark
-      # the container unhealthy while a perfectly normal download is in flight.
+      # k8s startupProbe's ~20 minutes. Too short a value marks the container
+      # unhealthy while a perfectly normal download is still in flight.
       start_period: 1200s
     deploy:
       resources:
@@ -525,8 +604,8 @@ services:
   # alias. Same images, same versions, same metric names — the point is that
   # PostgresUnreachable / MongoDBUnreachable / RedisUnreachable in
   # config/prometheus/alert-rules.yml have real series to evaluate here too.
-  # Without them those rules were dead YAML on this target and a wedged database
-  # in a running container looked healthy.
+  # Drop one and the matching rule becomes dead YAML on this target: a wedged
+  # database in a running container then looks healthy.
   postgres-exporter:
     image: 'quay.io/prometheuscommunity/postgres-exporter@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17'  # quay.io/prometheuscommunity/postgres-exporter:v0.17.1
     container_name: postgres-exporter
@@ -542,14 +621,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '0.10'
-          memory: 128M
-        reservations:
-          cpus: '0.025'
-          memory: 48M
+    deploy: *exporter-deploy
 
   # --collect-all enables the replset/oplog collectors this deployment cares
   # about; --compatible-mode keeps the legacy metric names the alert rules and
@@ -569,14 +641,7 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '0.10'
-          memory: 128M
-        reservations:
-          cpus: '0.025'
-          memory: 48M
+    deploy: *exporter-deploy
 
   # Redis here requires no auth, so no credentials are wired.
   redis-exporter:
@@ -628,14 +693,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 180s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
+    deploy: *deploy-medium
 
   platform:
     image: 'ghcr.io/mwashburn160/platform:4.1.25@sha256:643d88eb7f3ae0de88c3bae69414808e56826d9e66fc54eb77de452018ace59b'
@@ -645,7 +703,7 @@ services:
     environment:
       # Redis (x-redis-env) is how this service PUBLISHES revocations and shares
       # login / step-up / leader state; without it revocations never propagate.
-      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env]
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env, *quota-tier-developer-env]
       SERVICE_NAME: platform
       # Service tunables (blank = code default; see .env.example).
       ALERTMANAGER_TIMEOUT_MS: ${ALERTMANAGER_TIMEOUT_MS:-}
@@ -758,27 +816,12 @@ services:
       LIMITER_MULT_PRO: ${LIMITER_MULT_PRO:-}
       LIMITER_MULT_TEAM: ${LIMITER_MULT_TEAM:-}
       LIMITER_MULT_ENTERPRISE: ${LIMITER_MULT_ENTERPRISE:-}
-      # Developer-tier limit overrides — platform seeds new-org quota defaults
-      # from QUOTA_TIERS.developer.limits, so it must receive these to honor
-      # operator overrides (the quota service receives the full tier matrix).
-      QUOTA_TIER_DEVELOPER_PLUGINS: ${QUOTA_TIER_DEVELOPER_PLUGINS:-}
-      QUOTA_TIER_DEVELOPER_PIPELINES: ${QUOTA_TIER_DEVELOPER_PIPELINES:-}
-      QUOTA_TIER_DEVELOPER_API_CALLS: ${QUOTA_TIER_DEVELOPER_API_CALLS:-}
-      QUOTA_TIER_DEVELOPER_AI_CALLS: ${QUOTA_TIER_DEVELOPER_AI_CALLS:-}
-      QUOTA_TIER_DEVELOPER_STORAGE_BYTES: ${QUOTA_TIER_DEVELOPER_STORAGE_BYTES:-}
-      QUOTA_TIER_DEVELOPER_DASHBOARDS: ${QUOTA_TIER_DEVELOPER_DASHBOARDS:-}
-      QUOTA_TIER_DEVELOPER_ALERT_RULES: ${QUOTA_TIER_DEVELOPER_ALERT_RULES:-}
-      QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS: ${QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS:-}
-      QUOTA_TIER_DEVELOPER_IDP_CONFIGS: ${QUOTA_TIER_DEVELOPER_IDP_CONFIGS:-}
-      QUOTA_TIER_DEVELOPER_LISTINGS: ${QUOTA_TIER_DEVELOPER_LISTINGS:-}
-      QUOTA_TIER_DEVELOPER_SEATS: ${QUOTA_TIER_DEVELOPER_SEATS:-}
-      # Default tier for new orgs + per-tier access-token TTLs (platform reads these)
-      DEFAULT_QUOTA_TIER: ${DEFAULT_QUOTA_TIER:-}
+      # Per-tier access-token TTLs (platform reads these; DEFAULT_QUOTA_TIER and
+      # the developer-tier limits arrive via x-quota-tier-developer-env above).
       JWT_EXPIRES_IN_DEVELOPER: ${JWT_EXPIRES_IN_DEVELOPER:-}
       JWT_EXPIRES_IN_PRO: ${JWT_EXPIRES_IN_PRO:-}
       JWT_EXPIRES_IN_TEAM: ${JWT_EXPIRES_IN_TEAM:-}
       JWT_EXPIRES_IN_ENTERPRISE: ${JWT_EXPIRES_IN_ENTERPRISE:-}
-      # OAuth
       # OAuth — each provider stays hidden until its CLIENT_ID is set.
       OAUTH_GOOGLE_CLIENT_ID: ${OAUTH_GOOGLE_CLIENT_ID:-}
       OAUTH_GOOGLE_CLIENT_SECRET: ${OAUTH_GOOGLE_CLIENT_SECRET:-}
@@ -818,7 +861,6 @@ services:
       - ./certs/token-signing:/etc/pipeline-builder/keys:ro
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/platform.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -878,9 +920,9 @@ services:
       # extracted build context here. MUST match the container-side bind target
       # in `volumes:` below. Local uses a laptop-style /data/* container path
       # that mirrors the host ./data/ checkout layout; the ec2 deploy uses the
-      # canonical /opt/pipeline/pipeline-data/* path instead. Single dir now
-      # (was builds/ + uploads/) — the durable cross-replica artifact lives in
-      # object storage (S3_* below), so this is per-node build scratch only.
+      # canonical /opt/pipeline/pipeline-data/* path instead. One dir for both:
+      # the durable cross-replica artifact lives in object storage (S3_* below),
+      # so this is per-node build scratch only.
       DOCKER_BUILD_TEMP_ROOT: ${DOCKER_BUILD_TEMP_ROOT:-/data/plugins-data}
       PLUGIN_UPLOAD_DIR: ${PLUGIN_UPLOAD_DIR:-/data/plugins-data}
       # Object storage for the uploaded build context — a worker on any replica
@@ -938,7 +980,6 @@ services:
       - ./certs/plugin-signing/plugin-signing.pub:/etc/pipeline-builder/plugin-signing/plugin-signing.pub:ro
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/plugin.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -946,6 +987,7 @@ services:
       # registry pair the quarantine builder pushes to).
       - quarantine-network
     depends_on:
+      <<: *needs-minio
       postgres:
         condition: service_healthy
       redis:
@@ -954,8 +996,6 @@ services:
         condition: service_healthy
       buildkitd-quarantine:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
     healthcheck: *api-healthcheck
     deploy:
       resources:
@@ -974,8 +1014,8 @@ services:
   # buildkitd layer.
   # ---------------------------------------------------------------------------
   buildkitd:
-    # v0.32.1 (was v0.16.0): newer runc reaper avoids the hot
-    # "container not running" retry loop on killed build containers.
+    # Hold at >= v0.32: its runc reaper avoids the hot "container not running"
+    # retry loop on killed build containers.
     image: 'moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88'  # moby/buildkit:v0.32.1-rootless
     container_name: buildkitd
     restart: always
@@ -1115,7 +1155,6 @@ services:
     volumes:
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/pipeline.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -1146,24 +1185,15 @@ services:
     volumes:
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/message.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
     depends_on:
+      <<: *needs-minio
       postgres:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
     healthcheck: *api-healthcheck
-    deploy:
-      resources:
-        limits:
-          cpus: '0.35'
-          memory: 384M
-        reservations:
-          cpus: '0.15'
-          memory: 192M
+    deploy: *api-deploy-small
 
   reporting:
     image: 'ghcr.io/mwashburn160/reporting:4.1.19@sha256:2764266cf65d189f3c7d775cd525d87e67f09eda26e90aa397a7739f5b7032e2'
@@ -1179,7 +1209,6 @@ services:
     volumes:
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/reporting.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -1187,14 +1216,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck: *api-healthcheck
-    deploy:
-      resources:
-        limits:
-          cpus: '0.35'
-          memory: 384M
-        reservations:
-          cpus: '0.15'
-          memory: 192M
+    deploy: *api-deploy-small
 
   compliance:
     image: 'ghcr.io/mwashburn160/compliance:4.1.20@sha256:f4f886642172bfd98261fc4143e94921278aaf259885739beb8f38d183a2cc45'
@@ -1218,7 +1240,6 @@ services:
     volumes:
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/compliance.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -1226,14 +1247,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck: *api-healthcheck
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
+    deploy: *deploy-medium
 
   quota:
     image: 'ghcr.io/mwashburn160/quota:4.1.19@sha256:1f0eb6ef7e2611b2cb07f5cfe3f053e014c6a7cbf9a136145883940c6075b79b'
@@ -1242,7 +1256,7 @@ services:
     stop_grace_period: 10s
     environment:
       # server-env: NODE_ENV=production (security guards), CORS, rate limits, TRUST_PROXY.
-      <<: [*common-env, *server-env, *redis-env, *tunables-env]
+      <<: [*common-env, *server-env, *redis-env, *tunables-env, *quota-tier-developer-env]
       SERVICE_NAME: quota
       # Service tunables (blank = code default; see .env.example).
       QUOTA_AT_RISK_CACHE_TTL_MS: ${QUOTA_AT_RISK_CACHE_TTL_MS:-}
@@ -1252,19 +1266,9 @@ services:
       QUOTA_DEFAULT_PIPELINES: ${QUOTA_DEFAULT_PIPELINES:-10}
       QUOTA_DEFAULT_API_CALLS: ${QUOTA_DEFAULT_API_CALLS:--1}
       QUOTA_RESET_DAYS: ${QUOTA_RESET_DAYS:-3}
-      # Quota tier overrides (empty → code default in quota-tiers.ts; -1 = unlimited)
-      DEFAULT_QUOTA_TIER: ${DEFAULT_QUOTA_TIER:-}
-      QUOTA_TIER_DEVELOPER_PLUGINS: ${QUOTA_TIER_DEVELOPER_PLUGINS:-}
-      QUOTA_TIER_DEVELOPER_PIPELINES: ${QUOTA_TIER_DEVELOPER_PIPELINES:-}
-      QUOTA_TIER_DEVELOPER_API_CALLS: ${QUOTA_TIER_DEVELOPER_API_CALLS:-}
-      QUOTA_TIER_DEVELOPER_AI_CALLS: ${QUOTA_TIER_DEVELOPER_AI_CALLS:-}
-      QUOTA_TIER_DEVELOPER_STORAGE_BYTES: ${QUOTA_TIER_DEVELOPER_STORAGE_BYTES:-}
-      QUOTA_TIER_DEVELOPER_DASHBOARDS: ${QUOTA_TIER_DEVELOPER_DASHBOARDS:-}
-      QUOTA_TIER_DEVELOPER_ALERT_RULES: ${QUOTA_TIER_DEVELOPER_ALERT_RULES:-}
-      QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS: ${QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS:-}
-      QUOTA_TIER_DEVELOPER_IDP_CONFIGS: ${QUOTA_TIER_DEVELOPER_IDP_CONFIGS:-}
-      QUOTA_TIER_DEVELOPER_LISTINGS: ${QUOTA_TIER_DEVELOPER_LISTINGS:-}
-      QUOTA_TIER_DEVELOPER_SEATS: ${QUOTA_TIER_DEVELOPER_SEATS:-}
+      # Quota tier overrides (empty → code default in quota-tiers.ts; -1 =
+      # unlimited). The developer tier + DEFAULT_QUOTA_TIER arrive via
+      # x-quota-tier-developer-env, which platform shares.
       QUOTA_TIER_PRO_PLUGINS: ${QUOTA_TIER_PRO_PLUGINS:-}
       QUOTA_TIER_PRO_PIPELINES: ${QUOTA_TIER_PRO_PIPELINES:-}
       QUOTA_TIER_PRO_API_CALLS: ${QUOTA_TIER_PRO_API_CALLS:-}
@@ -1305,7 +1309,6 @@ services:
     volumes:
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/quota.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -1354,16 +1357,13 @@ services:
       IMAGE_REGISTRY_PORT: ${IMAGE_REGISTRY_PORT:-5000}
       IMAGE_REGISTRY_HTTP: ${IMAGE_REGISTRY_HTTP:-true}
       IMAGE_REGISTRY_INSECURE: ${IMAGE_REGISTRY_INSECURE:-true}
-      # Sourced from IMAGE_REGISTRY_USER/TOKEN — the same pair the kubernetes
-      # targets feed into this service's Secret (bin/k8s-resources.sh). This used
-      # to read a separate IMAGE_REGISTRY_USERNAME/PASSWORD pair, which meant
-      # those two keys were INERT on k8s (nothing read them) while on docker they
-      # carried a `CHANGE_ME` that gen-env-secrets never substituted — so the
-      # registry authenticated with the literal string "CHANGE_ME", or with the
-      # `:-password` fallback. One pair, generated, everywhere.
+      # Sourced from IMAGE_REGISTRY_USER/TOKEN — the same generated pair the
+      # kubernetes targets feed into this service's Secret (bin/k8s-resources.sh).
+      # One pair, everywhere: a docker-only IMAGE_REGISTRY_USERNAME/PASSWORD pair
+      # would be inert on k8s and would miss gen-env-secrets' substitution here.
       IMAGE_REGISTRY_USERNAME: ${IMAGE_REGISTRY_USER}
       IMAGE_REGISTRY_PASSWORD: ${IMAGE_REGISTRY_TOKEN}
-      # JWT signing keypair — generated by `bin/gen-image-registry-jwt-keys.sh`.
+      # JWT signing keypair — generated by `deploy/bin/jwt-keys.sh`.
       # This service signs registry-auth JWTs with the private key; the cert
       # is also mounted into the registry container so it can verify those
       # JWTs (`REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE`).
@@ -1389,7 +1389,6 @@ services:
       - ./certs/plugin-signing/plugin-signing.key:/etc/pipeline-builder/plugin-signing/plugin-signing.key:ro
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/image-registry.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -1397,14 +1396,7 @@ services:
       # The registry token realm for buildkitd-quarantine's pushes/pulls.
       - quarantine-network
     healthcheck: *api-healthcheck
-    deploy:
-      resources:
-        limits:
-          cpus: '0.35'
-          memory: 384M
-        reservations:
-          cpus: '0.15'
-          memory: 192M
+    deploy: *api-deploy-small
 
   billing:
     image: 'ghcr.io/mwashburn160/billing:4.1.19@sha256:8ae104dbfe55e567f5bf2ff867fa1b2912620778519d6477c769685744525e93'
@@ -1475,41 +1467,78 @@ services:
       BILLING_DISCOUNT_MAX_CENTS: ${BILLING_DISCOUNT_MAX_CENTS:-10000000}
       # Add-on bundles (docs/billing-bundles.md) — off by default
       BILLING_BUNDLES_ENABLED: ${BILLING_BUNDLES_ENABLED:-true}
-      # Per-bundle price (cents) + single-dimension grant overrides. Defaults
-      # live in api/billing src/config/billing-config.ts; unset = default.
-      BILLING_BUNDLE_SEAT_PACK_MONTHLY: ${BILLING_BUNDLE_SEAT_PACK_MONTHLY:-}
-      BILLING_BUNDLE_SEAT_PACK_ANNUAL: ${BILLING_BUNDLE_SEAT_PACK_ANNUAL:-}
-      BILLING_BUNDLE_SEAT_PACK_GRANT: ${BILLING_BUNDLE_SEAT_PACK_GRANT:-}
+      # Per-bundle price (cents) / grant / purchasable-tier overrides. The key
+      # is BILLING_BUNDLE_<ID>_<MONTHLY|ANNUAL|GRANT|TIERS>, where <ID> is the
+      # bundle id in api/billing src/config/billing-config.ts upper-cased — so
+      # the per-seat bundle is SEAT, not SEAT_PACK. Unset = the shipped default.
+      # Every bundle in that catalog is listed here: unlike the k8s targets
+      # (which hand the whole .env to the pod via envFrom), compose gives each
+      # service an explicit environment, so a key missing from this list is
+      # silently ignored no matter what .env says.
+      BILLING_BUNDLE_SEAT_MONTHLY: ${BILLING_BUNDLE_SEAT_MONTHLY:-}
+      BILLING_BUNDLE_SEAT_ANNUAL: ${BILLING_BUNDLE_SEAT_ANNUAL:-}
+      BILLING_BUNDLE_SEAT_GRANT: ${BILLING_BUNDLE_SEAT_GRANT:-}
+      BILLING_BUNDLE_SEAT_TIERS: ${BILLING_BUNDLE_SEAT_TIERS:-}
       BILLING_BUNDLE_PIPELINE_PACK_MONTHLY: ${BILLING_BUNDLE_PIPELINE_PACK_MONTHLY:-}
       BILLING_BUNDLE_PIPELINE_PACK_ANNUAL: ${BILLING_BUNDLE_PIPELINE_PACK_ANNUAL:-}
       BILLING_BUNDLE_PIPELINE_PACK_GRANT: ${BILLING_BUNDLE_PIPELINE_PACK_GRANT:-}
+      BILLING_BUNDLE_PIPELINE_PACK_TIERS: ${BILLING_BUNDLE_PIPELINE_PACK_TIERS:-}
       BILLING_BUNDLE_PLUGIN_PACK_MONTHLY: ${BILLING_BUNDLE_PLUGIN_PACK_MONTHLY:-}
       BILLING_BUNDLE_PLUGIN_PACK_ANNUAL: ${BILLING_BUNDLE_PLUGIN_PACK_ANNUAL:-}
       BILLING_BUNDLE_PLUGIN_PACK_GRANT: ${BILLING_BUNDLE_PLUGIN_PACK_GRANT:-}
+      BILLING_BUNDLE_PLUGIN_PACK_TIERS: ${BILLING_BUNDLE_PLUGIN_PACK_TIERS:-}
       BILLING_BUNDLE_API_PACK_MONTHLY: ${BILLING_BUNDLE_API_PACK_MONTHLY:-}
       BILLING_BUNDLE_API_PACK_ANNUAL: ${BILLING_BUNDLE_API_PACK_ANNUAL:-}
       BILLING_BUNDLE_API_PACK_GRANT: ${BILLING_BUNDLE_API_PACK_GRANT:-}
+      BILLING_BUNDLE_API_PACK_TIERS: ${BILLING_BUNDLE_API_PACK_TIERS:-}
       BILLING_BUNDLE_AI_PACK_MONTHLY: ${BILLING_BUNDLE_AI_PACK_MONTHLY:-}
       BILLING_BUNDLE_AI_PACK_ANNUAL: ${BILLING_BUNDLE_AI_PACK_ANNUAL:-}
       BILLING_BUNDLE_AI_PACK_GRANT: ${BILLING_BUNDLE_AI_PACK_GRANT:-}
+      BILLING_BUNDLE_AI_PACK_TIERS: ${BILLING_BUNDLE_AI_PACK_TIERS:-}
       BILLING_BUNDLE_STORAGE_PACK_MONTHLY: ${BILLING_BUNDLE_STORAGE_PACK_MONTHLY:-}
       BILLING_BUNDLE_STORAGE_PACK_ANNUAL: ${BILLING_BUNDLE_STORAGE_PACK_ANNUAL:-}
       BILLING_BUNDLE_STORAGE_PACK_GRANT: ${BILLING_BUNDLE_STORAGE_PACK_GRANT:-}
-      # Per-bundle purchasable-tier overrides (JSON arrays). Most capacity packs
-      # default to all tiers; the tier differentiators (seat, pipeline) are Team+.
-      BILLING_BUNDLE_SEAT_PACK_TIERS: ${BILLING_BUNDLE_SEAT_PACK_TIERS:-}
-      BILLING_BUNDLE_PIPELINE_PACK_TIERS: ${BILLING_BUNDLE_PIPELINE_PACK_TIERS:-}
-      BILLING_BUNDLE_PLUGIN_PACK_TIERS: ${BILLING_BUNDLE_PLUGIN_PACK_TIERS:-}
-      BILLING_BUNDLE_API_PACK_TIERS: ${BILLING_BUNDLE_API_PACK_TIERS:-}
-      BILLING_BUNDLE_AI_PACK_TIERS: ${BILLING_BUNDLE_AI_PACK_TIERS:-}
       BILLING_BUNDLE_STORAGE_PACK_TIERS: ${BILLING_BUNDLE_STORAGE_PACK_TIERS:-}
+      BILLING_BUNDLE_LISTING_PACK_MONTHLY: ${BILLING_BUNDLE_LISTING_PACK_MONTHLY:-}
+      BILLING_BUNDLE_LISTING_PACK_ANNUAL: ${BILLING_BUNDLE_LISTING_PACK_ANNUAL:-}
+      BILLING_BUNDLE_LISTING_PACK_GRANT: ${BILLING_BUNDLE_LISTING_PACK_GRANT:-}
+      BILLING_BUNDLE_LISTING_PACK_TIERS: ${BILLING_BUNDLE_LISTING_PACK_TIERS:-}
+      BILLING_BUNDLE_RETENTION_PACK_MONTHLY: ${BILLING_BUNDLE_RETENTION_PACK_MONTHLY:-}
+      BILLING_BUNDLE_RETENTION_PACK_ANNUAL: ${BILLING_BUNDLE_RETENTION_PACK_ANNUAL:-}
+      BILLING_BUNDLE_RETENTION_PACK_GRANT: ${BILLING_BUNDLE_RETENTION_PACK_GRANT:-}
+      BILLING_BUNDLE_RETENTION_PACK_TIERS: ${BILLING_BUNDLE_RETENTION_PACK_TIERS:-}
+      BILLING_BUNDLE_DORA_HISTORY_PACK_MONTHLY: ${BILLING_BUNDLE_DORA_HISTORY_PACK_MONTHLY:-}
+      BILLING_BUNDLE_DORA_HISTORY_PACK_ANNUAL: ${BILLING_BUNDLE_DORA_HISTORY_PACK_ANNUAL:-}
+      BILLING_BUNDLE_DORA_HISTORY_PACK_GRANT: ${BILLING_BUNDLE_DORA_HISTORY_PACK_GRANT:-}
+      BILLING_BUNDLE_DORA_HISTORY_PACK_TIERS: ${BILLING_BUNDLE_DORA_HISTORY_PACK_TIERS:-}
+      # Feature bundles — price + tier only (they grant no quota dimension).
+      BILLING_BUNDLE_ADVANCED_REPORTING_MONTHLY: ${BILLING_BUNDLE_ADVANCED_REPORTING_MONTHLY:-}
+      BILLING_BUNDLE_ADVANCED_REPORTING_ANNUAL: ${BILLING_BUNDLE_ADVANCED_REPORTING_ANNUAL:-}
+      BILLING_BUNDLE_ADVANCED_REPORTING_TIERS: ${BILLING_BUNDLE_ADVANCED_REPORTING_TIERS:-}
+      BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_MONTHLY: ${BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_MONTHLY:-}
+      BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_ANNUAL: ${BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_ANNUAL:-}
+      BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_TIERS: ${BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_TIERS:-}
+      BILLING_BUNDLE_COMPLIANCE_STANDARD_MONTHLY: ${BILLING_BUNDLE_COMPLIANCE_STANDARD_MONTHLY:-}
+      BILLING_BUNDLE_COMPLIANCE_STANDARD_ANNUAL: ${BILLING_BUNDLE_COMPLIANCE_STANDARD_ANNUAL:-}
+      BILLING_BUNDLE_COMPLIANCE_STANDARD_TIERS: ${BILLING_BUNDLE_COMPLIANCE_STANDARD_TIERS:-}
+      BILLING_BUNDLE_COMPLIANCE_ADVANCED_MONTHLY: ${BILLING_BUNDLE_COMPLIANCE_ADVANCED_MONTHLY:-}
+      BILLING_BUNDLE_COMPLIANCE_ADVANCED_ANNUAL: ${BILLING_BUNDLE_COMPLIANCE_ADVANCED_ANNUAL:-}
+      BILLING_BUNDLE_COMPLIANCE_ADVANCED_TIERS: ${BILLING_BUNDLE_COMPLIANCE_ADVANCED_TIERS:-}
+      # Combo prices (BILLING_COMBO_<ID>_MONTHLY / _ANNUAL).
+      BILLING_COMBO_ANALYTICS_SUITE_MONTHLY: ${BILLING_COMBO_ANALYTICS_SUITE_MONTHLY:-}
+      BILLING_COMBO_ANALYTICS_SUITE_ANNUAL: ${BILLING_COMBO_ANALYTICS_SUITE_ANNUAL:-}
+      BILLING_COMBO_TEAM_GROWTH_MONTHLY: ${BILLING_COMBO_TEAM_GROWTH_MONTHLY:-}
+      BILLING_COMBO_TEAM_GROWTH_ANNUAL: ${BILLING_COMBO_TEAM_GROWTH_ANNUAL:-}
+      BILLING_COMBO_COMPLIANCE_SUITE_MONTHLY: ${BILLING_COMBO_COMPLIANCE_SUITE_MONTHLY:-}
+      BILLING_COMBO_COMPLIANCE_SUITE_ANNUAL: ${BILLING_COMBO_COMPLIANCE_SUITE_ANNUAL:-}
+      BILLING_COMBO_SCALE_BUNDLE_MONTHLY: ${BILLING_COMBO_SCALE_BUNDLE_MONTHLY:-}
+      BILLING_COMBO_SCALE_BUNDLE_ANNUAL: ${BILLING_COMBO_SCALE_BUNDLE_ANNUAL:-}
       # Message service (for notifications)
       MESSAGE_SERVICE_HOST: ${MESSAGE_SERVICE_HOST:-message}
       MESSAGE_SERVICE_PORT: ${MESSAGE_SERVICE_PORT:-3000}
     volumes:
       - *service-key-bundle
       - *dev-ca
-      # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/billing.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
@@ -1517,14 +1546,7 @@ services:
       mongodb:
         condition: service_healthy
     healthcheck: *api-healthcheck
-    deploy:
-      resources:
-        limits:
-          cpus: '0.35'
-          memory: 384M
-        reservations:
-          cpus: '0.15'
-          memory: 192M
+    deploy: *api-deploy-small
 
   # ---------------------------------------------------------------------------
   # Admin UIs
@@ -1619,14 +1641,7 @@ services:
       - './data/minio-data/:/data:rw'
     networks:
       - backend-network
-    deploy:
-      resources:
-        limits:
-          cpus: '0.35'
-          memory: 512M
-        reservations:
-          cpus: '0.10'
-          memory: 128M
+    deploy: *deploy-storage
 
   # ---------------------------------------------------------------------------
   # One-shot bootstrap: create the per-service buckets and per-service,
@@ -1680,9 +1695,9 @@ services:
         # a lifecycle rule to expire non-current versions so it stays bounded.
         # NOT enabled on loki/registry/thanos/plugins — they churn objects and
         # versioning would retain deleted versions unbounded.
-        # These were `|| true`. A silently-absent lifecycle rule is not
-        # cosmetic: the plugins bucket then grows without bound, because the
-        # expiry below is the backstop for a build whose cleanup never ran.
+        # run_ok, not `|| true`: a silently-absent lifecycle rule is not
+        # cosmetic — the expiry below is the backstop for a build whose cleanup
+        # never ran, so without it the plugins bucket grows without bound.
         run_ok "version enable message-attachments" mc version enable local/message-attachments
         run_ok "ilm noncurrent-expire message-attachments" mc ilm rule add --noncurrent-expire-days 30 local/message-attachments
         # plugins holds transient build-context ZIPs — the plugin service deletes
@@ -1734,8 +1749,8 @@ services:
     environment:
       # Token-based auth — registry delegates to pipeline-image-registry's
       # /token endpoint. Every pull/push requires a valid bearer JWT signed
-      # with the keypair generated by `bin/gen-image-registry-jwt-keys.sh`.
-      # Anonymous reads are NOT allowed; deletion of htpasswd is intentional.
+      # with the keypair generated by `deploy/bin/jwt-keys.sh`.
+      # Anonymous reads are NOT allowed, and there is no htpasswd fallback.
       REGISTRY_AUTH: token
       # The bearer realm URL is sent verbatim to clients in the
       # WWW-Authenticate response, so it MUST be resolvable by every
@@ -1766,11 +1781,10 @@ services:
     volumes:
       - './certs/image-registry-jwt.crt:/etc/registry/jwt-public.pem:ro'
       # Custom config.yml selects the S3 driver (replaces the image's filesystem
-      # default). The old ./data/registry-data volume is no longer used.
+      # default), so this registry keeps no local layer storage at all.
       - './config/registry-config.yml:/etc/distribution/config.yml:ro'
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
+      <<: *needs-minio
     networks:
       - proxy-network
       - backend-network
@@ -1792,26 +1806,21 @@ services:
           memory: 256M
 
   # ---------------------------------------------------------------------------
-  # Observability (Prometheus + Loki + Promtail + Grafana).
+  # Observability (Prometheus + Thanos + Loki + Promtail + Jaeger + Grafana)
+  # ---------------------------------------------------------------------------
+  # Grafana — dashboards over prometheus/loki/jaeger, reached at
+  # https://localhost:8443/grafana/ through nginx, same as pgAdmin.
   #
-  # The native /dashboard/observability page remains the TENANT-facing surface —
-  # org-scoped, served through the platform's PromQL proxy. Grafana is the
-  # operator's console beside it: unscoped, admin-only, its own login. An
-  # earlier iteration embedded Grafana as an iframe inside the dashboard and was
-  # removed in favour of the native pages; this is not that — nothing links to
-  # it from a tenant page.
-  # ---------------------------------------------------------------------------
-  # ---------------------------------------------------------------------------
-  # Grafana — dashboards over prometheus/loki/jaeger.
+  # It is the OPERATOR's console, beside — not instead of — the native
+  # /dashboard/observability page, which stays the tenant-facing surface
+  # (org-scoped, served through the platform's PromQL proxy). Nothing links here
+  # from a tenant page: Grafana has its own login because nginx applies no auth
+  # to that route, and it queries Prometheus with no org scoping, so anyone who
+  # gets in sees every tenant's metrics.
   #
   # Mirrors the kubernetes targets, minus Kiali: this target has no service mesh
   # (no istio/ztunnel/envoy anywhere in this file), so Kiali would render an
   # empty graph and is deliberately NOT deployed here.
-  #
-  # Reached at https://localhost:8443/grafana/ through nginx, same as pgAdmin.
-  # It has its own login because nginx applies no auth to that route, and it
-  # queries Prometheus with no org scoping — anyone who gets in sees every
-  # tenant's metrics.
   # ---------------------------------------------------------------------------
   grafana:
     image: 'grafana/grafana@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8'  # grafana/grafana:12.3.0
@@ -1877,26 +1886,18 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
+    deploy: *deploy-medium
 
   # Thanos sidecar — ships Prometheus's 2h TSDB blocks to MinIO (S3) for durable
-  # long-term storage. Shares Prometheus's TSDB volume (read) + talks to it over
-  # HTTP. (Querying archived blocks needs a store-gateway + querier — follow-up.)
+  # long-term storage, and serves the still-local ones over the StoreAPI. Shares
+  # Prometheus's TSDB volume (read) + talks to it over HTTP. Archived blocks are
+  # read back by thanos-store-gateway, and thanos-query fans out to both.
   thanos-sidecar:
     image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
     container_name: thanos-sidecar
     restart: always
-    # objstore.yml reads $(THANOS_S3_*) — Thanos expands env refs in the config.
     environment:
-      THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
-      THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
+      <<: *thanos-env
     command:
       - 'sidecar'
       - '--tsdb.path=/prometheus'
@@ -1907,12 +1908,11 @@ services:
     volumes:
       # :rw — the shipper writes thanos.shipper.json into the TSDB dir.
       - './data/db-data/prometheus/:/prometheus:rw'
-      - '../../shared/config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+      - *thanos-objstore
     networks:
       - backend-network
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
+      <<: *needs-minio
       prometheus:
         condition: service_started
     deploy:
@@ -1931,10 +1931,8 @@ services:
     image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
     container_name: thanos-store-gateway
     restart: always
-    # objstore.yml reads $(THANOS_S3_*) — Thanos expands env refs in the config.
     environment:
-      THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
-      THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
+      <<: *thanos-env
     command:
       - 'store'
       - '--objstore.config-file=/etc/thanos/objstore.yml'
@@ -1942,7 +1940,7 @@ services:
       - '--http-address=0.0.0.0:10902'
       - '--grpc-address=0.0.0.0:10901'
     volumes:
-      - '../../shared/config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+      - *thanos-objstore
     # The image runs as uid 1001 and /var is root:root 755, so the data-dir can't
     # be created in the image fs. Rebuildable cache — tmpfs mirrors the k8s
     # emptyDir. Size-capped: tmpfs is RAM.
@@ -1951,16 +1949,8 @@ services:
     networks:
       - backend-network
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
-    deploy:
-      resources:
-        limits:
-          cpus: '0.35'
-          memory: 512M
-        reservations:
-          cpus: '0.10'
-          memory: 128M
+      <<: *needs-minio
+    deploy: *deploy-storage
 
   # Thanos compactor: the bucket's garbage collector, downsampler and block
   # merger — the ONLY component that deletes from or rewrites the object store.
@@ -1978,10 +1968,8 @@ services:
     image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
     container_name: thanos-compact
     restart: always
-    # objstore.yml reads $(THANOS_S3_*) — Thanos expands env refs in the config.
     environment:
-      THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
-      THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
+      <<: *thanos-env
     command:
       - 'compact'
       # Long-lived loop rather than one-shot-and-exit, so `restart: always`
@@ -1997,7 +1985,7 @@ services:
       - '--compact.concurrency=1'
       - '--downsample.concurrency=1'
     volumes:
-      - '../../shared/config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+      - *thanos-objstore
     # Scratch space for downloaded/compacted blocks (uid 1001 can't mkdir under
     # root-owned /var). tmpfs mirrors the k8s emptyDir; size-capped because it's
     # RAM — raise it if compaction of larger blocks fails with ENOSPC.
@@ -2006,8 +1994,7 @@ services:
     networks:
       - backend-network
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
+      <<: *needs-minio
     deploy:
       resources:
         limits:
@@ -2038,14 +2025,7 @@ services:
         condition: service_started
       thanos-store-gateway:
         condition: service_started
-    deploy:
-      resources:
-        limits:
-          cpus: '0.35'
-          memory: 512M
-        reservations:
-          cpus: '0.10'
-          memory: 128M
+    deploy: *deploy-storage
 
   # Alertmanager: routes Prometheus alerts to Slack and to the platform relay.
   # Alertmanager does NOT expand environment variables in its config file, so
@@ -2108,8 +2088,7 @@ services:
     networks:
       - backend-network
     depends_on:
-      minio-init:
-        condition: service_completed_successfully
+      <<: *needs-minio
     healthcheck:
       # loki 3.6+ images are distroless (no wget/curl/sh) — the loki binary's own
       # `-health` flag probes localhost:3100/ready and exits non-zero until ready.
@@ -2118,14 +2097,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
+    deploy: *deploy-medium
 
   promtail:
     image: 'grafana/promtail@sha256:a761cb834cfaeee29745440d4884d6748f0a08d8f68928db1d707018c1dcfbe9'  # grafana/promtail:3.6.11
@@ -2208,12 +2180,12 @@ services:
           memory: 128M
 
 # =============================================================================
-# Networks
+# Secrets / Networks / Volumes
 # =============================================================================
-# All persistent data lives under ./data/ (bind mounts) so `rm -rf data/`
-# is the single command for a clean slate. Postgres/Mongo data dirs were
-# previously named volumes for I/O perf — the trade-off is acceptable on
-# dev laptops where reproducibility matters more than raw throughput.
+# Persistent data lives under ./data/ (bind mounts) so `rm -rf data/` is the
+# single command for a clean slate. Bind mounts cost some I/O throughput against
+# a named volume, which is the right trade on a dev laptop. The few exceptions
+# are the named volumes at the bottom of this file, each with its reason.
 
 # Alertmanager's credentials, materialised as files (it reads none of them from
 # the environment): the per-org relay bearer for `credentials_file`, and the two
@@ -2241,15 +2213,18 @@ networks:
     name: quarantine-network
     driver: bridge
 
+# The only named volumes in this compose — everything else is a bind mount under
+# ./data/ for one-command wipeability, so each of these needs its own reason.
 volumes:
+  # The pulled Ollama model (~1-5GB); re-downloading it on every recreate is the
+  # slowest thing in this stack.
   ask-model-models:
   # The plugin service's grype vulnerability DB (see GRYPE_DB_CACHE_DIR on the
   # plugin service). A named volume rather than a ./data bind mount so it
   # inherits the image's node-owned /var/cache/grype.
   grype-db:
-  # buildkit-cache is the *only* named volume in this compose — see the
-  # rationale on the buildkitd service. Everything else uses bind mounts
-  # under ./data/ for one-command wipeability.
+  # The tenant buildkitd's layer cache — see the rationale on that service:
+  # overlay-snapshotter semantics a macOS bind mount does not provide.
   buildkit-cache:
   # The quarantine buildkitd's layer cache — kept apart from the tenant one so
   # an anonymous build can never read or poison a tenant build's cached layers.

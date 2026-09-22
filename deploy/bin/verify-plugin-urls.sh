@@ -7,6 +7,21 @@ set -euo pipefail
 # Usage:
 #   ./verify-plugin-urls.sh                    # check all plugins
 #   ./verify-plugin-urls.sh security/trivy     # check a specific plugin
+#
+# Exit codes — THE convention shared by every deploy/bin/verify-*.sh:
+#   0  verified: everything checked passed
+#   1  FAILED: a real verdict — something is missing, unsigned or unreachable
+#   2  nothing to verify (no refs / no files). Non-zero on purpose: a gate must
+#      not go green having checked nothing.
+#   3  could not verify — an infra error, never a verdict: a missing tool, a bad
+#      argument, or the registry/network answering 5xx / rate-limiting.
+# Here: 1 = a URL or COPY --from image did not resolve; 2 = no Dockerfile under
+# the plugins tree; 3 = the named plugin does not exist, or URL extraction broke.
+#
+# Per-item lines read `OK` / `FAIL` / `SKIP` rather than the `ok` / `MISSING` the
+# other three verifiers print: this one reports through common.sh's shared
+# check_url / log_* helpers (also used by test-plugins.sh), and a private format
+# here would just fork them.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
@@ -117,8 +132,9 @@ if [ -n "$SPECIFIC_PLUGIN" ]; then
   if [ -f "$dockerfile" ]; then
     verify_dockerfile "$dockerfile"
   else
-    echo -e "${RED}Not found: $dockerfile${NC}"
-    exit 1
+    # A bad argument is "could not verify", not "verification failed".
+    echo -e "${RED}Not found: $dockerfile${NC}" >&2
+    exit 3
   fi
 else
   for category_dir in "$PLUGINS_DIR"/*/; do
@@ -140,7 +156,7 @@ print_results
 # (.github/workflows/plugin-urls.yml) that verified zero URLs.
 if [ "$DOCKERFILES_SEEN" -eq 0 ]; then
   echo -e "${RED}ERROR: no plugin Dockerfiles were found under $PLUGINS_DIR — refusing to report success.${NC}" >&2
-  exit 1
+  exit 2
 fi
 # Whole-catalog run: the catalog definitely contains downloads, so extracting
 # zero URLs from all of it means the URL parsing broke, not that there is
@@ -148,7 +164,7 @@ fi
 # plugins only inherit a family base.)
 if [ -z "$SPECIFIC_PLUGIN" ] && [ "$((PASSED + FAILED + SKIPPED))" -eq 0 ]; then
   echo -e "${RED}ERROR: walked ${DOCKERFILES_SEEN} Dockerfile(s) but extracted no download URLs — the URL parsing is broken.${NC}" >&2
-  exit 1
+  exit 3
 fi
 
 print_errors_and_exit "All URLs verified!"

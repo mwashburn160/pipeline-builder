@@ -30,14 +30,12 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
-# Prefer Compose v2 (the `docker compose` plugin); fall back to legacy
-# `docker-compose` (v1), still common on older Linux. Use "${DC[@]}" below.
-if docker compose version >/dev/null 2>&1; then
-  DC=(docker compose)
-elif command -v docker-compose >/dev/null 2>&1; then
-  DC=(docker-compose)
-else
-  echo "ERROR: requires 'docker compose' (v2 plugin) or 'docker-compose' (v1)" >&2
+# Compose V2 (the `docker compose` plugin) only. docker-compose v1 cannot read
+# this stack's file at all — `secrets: { …: { environment: … } }`, which is how
+# Alertmanager's Slack URLs and relay token reach it, is a Compose-Spec source
+# that only V2 implements.
+if ! docker compose version >/dev/null 2>&1; then
+  echo "ERROR: requires the 'docker compose' V2 plugin" >&2
   exit 1
 fi
 
@@ -116,8 +114,8 @@ bash "$BIN_DIR/token-signing-keys.sh" "$CERT_DIR"
 # same value to image-registry) — `local` unless someone has deliberately wired
 # AWS credentials into this stack for kms. Idempotent (never regenerates an
 # existing key: that would orphan every signature already pushed).
-PLUGIN_SIGNING_MODE="$(grep -E '^PLUGIN_SIGNING_MODE=' "$DEPLOY_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)" \
-PLUGIN_SIGNING_KMS_KEY_ID="$(grep -E '^PLUGIN_SIGNING_KMS_KEY_ID=' "$DEPLOY_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" || true)" \
+PLUGIN_SIGNING_MODE="$(pb_env_value PLUGIN_SIGNING_MODE "$DEPLOY_DIR/.env")" \
+PLUGIN_SIGNING_KMS_KEY_ID="$(pb_env_value PLUGIN_SIGNING_KMS_KEY_ID "$DEPLOY_DIR/.env")" \
   bash "$BIN_DIR/plugin-signing-keys.sh" "$CERT_DIR"
 # PER-SERVICE ES256 keys for INTERNAL service-to-service tokens →
 # certs/service-keys/<service>.key plus the public certs/service-keys/bundle.json.
@@ -126,8 +124,8 @@ PLUGIN_SIGNING_KMS_KEY_ID="$(grep -E '^PLUGIN_SIGNING_KMS_KEY_ID=' "$DEPLOY_DIR/
 # above — Docker would otherwise create the mount paths as directories and every
 # service would refuse to boot. Idempotent (never rotates an existing key).
 bash "$BIN_DIR/service-signing-keys.sh" "$CERT_DIR"
-# (No registry htpasswd: the registry uses token auth — REGISTRY_AUTH: token in
-# docker-compose.yml; nothing mounts registry.passwd.)
+# The registry needs no htpasswd: it uses token auth (REGISTRY_AUTH: token in
+# docker-compose.yml), delegated to the image-registry service.
 
 # -----------------------------------------------------------------------
 # Ensure MongoDB keyfile has correct permissions
@@ -149,10 +147,10 @@ echo "=== Ensuring data directories exist ==="
 # Bind-mount sources under ./data/ — pre-created here so they're owned by the
 # invoking user (Docker would otherwise auto-create a missing source as root).
 # Keep this list in lockstep with the './data/*' bind mounts in
-# docker-compose.yml. NOT created here (deliberately):
-#   - buildkit-cache : a *named* Docker volume now, not ./data/buildkit-cache.
-#   - registry-data / uploads : pre-object-storage leftovers, superseded by
-#     MinIO (./data/minio-data). The registry no longer uses ./data/registry-data.
+# docker-compose.yml. The named volumes at the bottom of that file
+# (buildkit caches, grype DB, ollama models) are deliberately NOT in this list —
+# Docker creates those itself, and the registry's layers live in MinIO
+# (./data/minio-data), not in a directory of their own.
 mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/db-data/postgres" \
          "$DEPLOY_DIR/data/db-data/redis" \
@@ -165,34 +163,31 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/tmp" \
          "$DEPLOY_DIR/data/promtail-data"
 
-# Docker build scratch dir (single dir now — the durable cross-replica build
-# context lives in object storage / MinIO, so this is per-node scratch: the
-# transient incoming ZIP + the extracted build context). Two paths in play:
-#   - Host: where docker-compose binds the volume from (created + chmod'd here)
+# Docker build scratch dir: per-node only (the transient incoming ZIP + the
+# extracted build context) — the durable cross-replica build context lives in
+# object storage / MinIO. Two paths in play:
+#   - Host: where compose binds the volume from (created + chmod'd here)
 #   - Container: laptop-style /data/plugins-data inside the plugin container,
 #     matching the volumeMount in docker-compose.yml. The plugin code reads
-#     DOCKER_BUILD_TEMP_ROOT / PLUGIN_UPLOAD_DIR to find it, so the env value
-#     must equal the container-side bind target.
-# the ec2 deploy keeps host=container path at /opt/pipeline/pipeline-data/*
-# (its k8s hostPath mounts the same absolute path on both sides).
+#     DOCKER_BUILD_TEMP_ROOT / PLUGIN_UPLOAD_DIR to find it, so those values
+#     (set in docker-compose.yml, overridable in .env) must equal the
+#     container-side bind target. The ec2 deploy instead keeps host = container
+#     at /opt/pipeline/pipeline-data/* (its hostPath mounts the same path both
+#     sides).
 PLUGIN_DATA_HOST="$DEPLOY_DIR/data/plugins-data"
-export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-/data/plugins-data}"
 mkdir -p "$PLUGIN_DATA_HOST"
 
 # Plugin container runs as node (UID 1000) — ensure the writable volume mount
 chmod 1777 "$PLUGIN_DATA_HOST"
 
-# Plugin builds run via a rootless buildkitd sidecar — no strategy choice,
-# no dind, no certs to generate. See deploy/local/docker/docker-compose.yml.
-
 # Register QEMU/binfmt when the build target arch differs from the host (e.g.
 # building linux/amd64 plugin images on an arm64 box) — rootless buildkit can't
 # do it itself. No-op on Docker Desktop (QEMU pre-registered) and on same-arch.
 # PUBLISH_PLATFORM is read from .env (compose's default is linux/amd64).
-# tail -1 (last-wins) matches docker compose's env_file precedence, so if the
-# example's commented PUBLISH_PLATFORM is uncommented AND the seed appends one,
-# ensure-binfmt targets the same arch compose builds for.
-PUBLISH_PLATFORM="$(grep -E '^PUBLISH_PLATFORM=' "$DEPLOY_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+# pb_env_value takes the LAST assignment, matching compose's env_file
+# precedence, so if the example's commented PUBLISH_PLATFORM is uncommented AND
+# the seed appends one, ensure-binfmt targets the arch compose builds for.
+PUBLISH_PLATFORM="$(pb_env_value PUBLISH_PLATFORM "$DEPLOY_DIR/.env")"
 bash "$BIN_DIR/ensure-binfmt.sh" "${PUBLISH_PLATFORM:-linux/amd64}"
 
 # -----------------------------------------------------------------------
@@ -203,8 +198,8 @@ echo "=== Starting Docker Compose ==="
 # `pipeline-manager infra provision` can proceed to health checks + init-platform, and
 # a direct run doesn't block on streamed container logs). Matches the README
 # quick-start. Watch logs any time with: docker compose logs -f
-"${DC[@]}" up -d --remove-orphans "$@"
-echo "Stack started (detached). Follow logs with: ${DC[*]} logs -f"
+docker compose up -d --remove-orphans "$@"
+echo "Stack started (detached). Follow logs with: docker compose logs -f"
 
 # Post-provision smoke checks (non-fatal): test alert -> Slack, test email.
 set -a
@@ -233,6 +228,6 @@ echo "  reach them via the dev tools above, not a host port. Credentials live in
 echo "  ${DEPLOY_DIR}/.env."
 echo ""
 echo "  Next : ./deploy/bin/init-platform.sh docker        # register admin + (opt-in) load plugins/samples/compliance"
-echo "  Stop : ${DC[*]} down                              # data persists in ${DEPLOY_DIR}/data"
-echo "  Reset: ${DC[*]} down && rm -rf ${DEPLOY_DIR}/data  # wipe DBs for a clean re-init"
+echo "  Stop : docker compose down                              # data persists in ${DEPLOY_DIR}/data"
+echo "  Reset: docker compose down && rm -rf ${DEPLOY_DIR}/data  # wipe DBs for a clean re-init"
 echo ""

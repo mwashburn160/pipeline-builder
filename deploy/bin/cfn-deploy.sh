@@ -8,10 +8,11 @@
 #   cfn_deploy <full-stack-name> <template-file> [param ...]
 #
 # Deploys a stack via `aws cloudformation deploy`, first clearing an un-updatable
-# ROLLBACK_COMPLETE / REVIEW_IN_PROGRESS stack so a re-run self-heals instead of failing
-# with "stack ... can not be updated". (Classic case: the first ECS cluster in a fresh
-# account fails on the not-yet-ready service-linked role; the role then exists, so the
-# recreate succeeds — but only after the rollback stack is cleared.)
+# ROLLBACK_COMPLETE / REVIEW_IN_PROGRESS stack so a re-run self-heals instead of
+# failing with "stack ... can not be updated". That state is how a first deploy in
+# a fresh account lands when it raced an AWS-side prerequisite (a service-linked
+# role that did not exist yet): the retry would succeed, but only once the
+# rolled-back stack is out of the way.
 #
 # Requires $REGION to be set by the caller.
 #
@@ -23,10 +24,10 @@
 # propagate failure the portable way, by RETURNING non-zero, so they behave the
 # same whether or not the caller has errexit on.
 #
-# Historically this function's last statement was `echo "  Done"`, so a failed
-# `aws cloudformation deploy` was reported as SUCCESS to any caller that did not
-# happen to have errexit on — the stack silently did not exist and the next step
-# failed somewhere far away. Every AWS call below is now checked explicitly.
+# Every AWS call below is checked EXPLICITLY rather than left to the caller's
+# errexit: a function's status is its LAST command's, and this one ends in an
+# `echo`. Unchecked, a failed `aws cloudformation deploy` returns 0, the stack
+# silently does not exist, and the failure surfaces steps later.
 # =============================================================================
 
 cfn_deploy() {

@@ -75,16 +75,20 @@ kubectl_ctx() {
 # -----------------------------------------------------------------------
 case "$DEPLOY_TARGET" in
   docker)
-    DEPLOY_DIR="$(cd "$SCRIPT_DIR/../local/docker" && pwd)"
-    if [ ! -f "$DEPLOY_DIR/.env" ]; then
-      echo "ERROR: $DEPLOY_DIR/.env not found" >&2
+    # `_target_dir`, NOT DEPLOY_DIR: common.sh owns DEPLOY_DIR as the `deploy/`
+    # root and other sourced helpers read it. Reassigning it to one TARGET's
+    # directory made the two names mean different trees in the same shell.
+    # (build-plugin-images.sh calls the same thing `_pb_target_dir`.)
+    _target_dir="$(cd "$SCRIPT_DIR/../local/docker" && pwd)"
+    if [ ! -f "$_target_dir/.env" ]; then
+      echo "ERROR: $_target_dir/.env not found" >&2
       exit 1
     fi
-    set -a; . "$DEPLOY_DIR/.env"; set +a
+    set -a; . "$_target_dir/.env"; set +a
     # The deploy's own signing key + the public bundle, generated next to the
     # other key material by deploy/bin/service-signing-keys.sh.
-    BOOTSTRAP_KEY_FILE="$DEPLOY_DIR/certs/service-keys/deploy-bootstrap.key"
-    BOOTSTRAP_BUNDLE_FILE="$DEPLOY_DIR/certs/service-keys/bundle.json"
+    BOOTSTRAP_KEY_FILE="$_target_dir/certs/service-keys/deploy-bootstrap.key"
+    BOOTSTRAP_BUNDLE_FILE="$_target_dir/certs/service-keys/bundle.json"
     # In-cluster service-discovery name used both by the registry and
     # by the token realm sent in WWW-Authenticate. We push from a
     # sidecar on backend-network so DNS resolves correctly.
@@ -109,7 +113,10 @@ case "$DEPLOY_TARGET" in
     # `openssl base64 -d` decodes portably — GNU `base64 -d` vs BSD/macOS `base64 -D`
     # differ, and this push path may be driven from a Mac.
     BOOTSTRAP_KEY_FILE="$(mktemp)"; BOOTSTRAP_BUNDLE_FILE="$(mktemp)"
-    trap 'rm -f "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE"' EXIT
+    # EXIT INT TERM, not EXIT alone: an untrapped SIGINT/SIGTERM kills the shell
+    # WITHOUT running the EXIT trap, and this temp file is the deploy-bootstrap
+    # PRIVATE signing key. Ctrl-C during a long push must not leave it in /tmp.
+    trap 'rm -f "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE"' EXIT INT TERM
     kubectl_ctx -n "$NAMESPACE" get secret service-key-deploy-bootstrap -o jsonpath='{.data.service\.key}' 2>/dev/null \
       | openssl base64 -d -A > "$BOOTSTRAP_KEY_FILE" || true
     kubectl_ctx -n "$NAMESPACE" get secret service-key-bundle -o jsonpath='{.data.bundle\.json}' 2>/dev/null \
@@ -191,6 +198,26 @@ fi
 # -----------------------------------------------------------------------
 # Per-target push functions
 # -----------------------------------------------------------------------
+# _push_verdict <rc> <captured output> — the shared verdict of a RETRY attempt,
+# for both transports.
+#
+# Prints the tail of the run so an operator sees the real error, then honours
+# crane's "existing manifest" line: crane logs it (with the resolved tag@digest)
+# when the image is ALREADY present at the remote, which is a definitive
+# idempotent success even if the docker-run / kubectl-run wrapper around it then
+# exits non-zero (observed on arm64 hosts: crane confirms the manifest yet the
+# run exits 1). Without this a redundant re-push of an already-present base or
+# bootstrap image fails the whole publish.
+_push_verdict() {
+  local _rc="$1" _out="$2"
+  printf '%s\n' "$_out" | tail -15 | sed 's/^/    /' >&2
+  if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'existing manifest'; then
+    echo "    (manifest already present at remote — treating as pushed)" >&2
+    return 0
+  fi
+  return "$_rc"
+}
+
 # Push via a docker sidecar on backend-network (local docker-compose).
 # Reads the image tarball on stdin, materializes it inside the sidecar
 # (crane push needs a real path, not stdin), then pushes.
@@ -209,10 +236,8 @@ _push_local() {
     return 0
   fi
   # First attempt reported non-zero. Re-run once as a RETRY, capturing crane's
-  # REAL exit code (not the exit of the tail/sed pipe) and honoring it. A crane
-  # push against an already-present manifest is an idempotent success ("existing
-  # manifest", exit 0); a transient first-attempt hiccup often clears on retry.
-  # Unconditionally returning 1 here mis-reported both as a hard "push FAILED".
+  # REAL exit code (not the exit of the tail/sed pipe): a transient first-attempt
+  # hiccup often clears, and _push_verdict tells that apart from a hard failure.
   local _out _rc
   _out="$(docker save "$_tag" | PLATFORM_JWT="$_jwt" docker run --rm -i \
             --network "$BACKEND_NETWORK" \
@@ -220,17 +245,7 @@ _push_local() {
             --entrypoint sh \
             "$CRANE_IMAGE" -c "$_cmd" 2>&1)"
   _rc=$?
-  printf '%s\n' "$_out" | tail -15 | sed 's/^/    /' >&2
-  # crane logs "existing manifest" (+ the resolved tag@digest) when the image is
-  # ALREADY present at the remote — a definitive idempotent success. Honor that
-  # even if the docker-run/crane wrapper then exits non-zero (observed on arm64
-  # hosts: crane confirms the manifest yet the run exits 1), so a redundant
-  # re-push of an already-present base/bootstrap image doesn't fail the publish.
-  if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'existing manifest'; then
-    echo "    (manifest already present at remote — treating as pushed)" >&2
-    return 0
-  fi
-  return "$_rc"
+  _push_verdict "$_rc" "$_out"
 }
 
 # Build the JSON `--overrides` for a one-shot crane pod. Shared by both
@@ -303,10 +318,9 @@ _push_k8s() {
     return 0
   fi
   # First attempt reported non-zero. Re-run once as a RETRY, capturing the pod's
-  # REAL exit code (not the exit of the tail/sed pipe) and honoring it — an
-  # idempotent "existing manifest" push or a transient first-attempt hiccup must
-  # not be mis-reported as a hard "push FAILED". Pod name reused with a suffix so
-  # there's no name collision against the prior --rm cleanup.
+  # REAL exit code (not the exit of the tail/sed pipe); _push_verdict tells a
+  # transient hiccup and an already-present manifest apart from a hard failure.
+  # Pod name suffixed so there is no collision against the prior --rm cleanup.
   local _retry_podname="${_podname}-retry"
   local _retry_overrides
   _retry_overrides=$(_pod_overrides "$_retry_podname" "$_cmd_json" true "$_jwt" "$REGISTRY_HOST" "$_remote")
@@ -317,14 +331,7 @@ _push_k8s() {
             --image="$CRANE_IMAGE" \
             --overrides="$_retry_overrides" 2>&1)"
   _rc=$?
-  printf '%s\n' "$_out" | tail -15 | sed 's/^/    /' >&2
-  # See _push_local: "existing manifest" is a definitive idempotent-success
-  # signal, honored even if the run wrapper exits non-zero.
-  if [ "$_rc" -ne 0 ] && printf '%s' "$_out" | grep -q 'existing manifest'; then
-    echo "    (manifest already present at remote — treating as pushed)" >&2
-    return 0
-  fi
-  return "$_rc"
+  _push_verdict "$_rc" "$_out"
 }
 
 # -----------------------------------------------------------------------
@@ -424,8 +431,8 @@ _already_exists() {
 echo "=== Pushing base images to ${REGISTRY_HOST}/library/ ($DEPLOY_TARGET) ==="
 for _tag in "${BASE_TAGS[@]}"; do
   # A tag we were asked to push but cannot find is a hard failure, not a skip.
-  # This used to warn-and-continue and still exit 0 — which silently published
-  # nothing on the PUSH_TAGS path (build-codebuild-bootstrap.sh), leaving
+  # Warn-and-continue would publish nothing on the PUSH_TAGS path
+  # (build-codebuild-bootstrap.sh) and still exit 0, leaving
   # CODEBUILD_DEFAULT_IMAGE absent and every CodeBuild run dying later with
   # BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE.
   if ! docker image inspect "$_tag" >/dev/null 2>&1; then

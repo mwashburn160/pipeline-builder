@@ -18,21 +18,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
-require_yq
-
-# Fail fast with a useful message when the current user can't reach the
-# docker socket. Common case on EC2: the user is `ec2-user` who hasn't been
-# added to the docker group (bootstrap.sh adds them, but the user must
-# re-login or run `newgrp docker` for it to take effect).
-if ! docker info >/dev/null 2>&1; then
-  echo "ERROR: cannot reach docker daemon (permission denied or daemon down)" >&2
-  echo "  Current user: $(id -un)" >&2
-  echo "  Fix: ensure your user is in the 'docker' group, then re-login or run:" >&2
-  echo "    newgrp docker && bash $0 $*" >&2
-  echo "  Or run this script with sudo." >&2
-  exit 1
-fi
-
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
 FORCE=false
 RESET=false
@@ -93,6 +78,15 @@ REGISTRY_INSECURE="${REGISTRY_INSECURE:-true}"
 BUILDKIT_HOST="${BUILDKIT_HOST:-}"
 
 # ---- Argument parsing ----
+#
+# Remembered before the loop consumes them, for the "re-run this command" hint
+# in the docker-daemon error below.
+_ORIG_ARGS="$*"
+#
+# The deploy/bin convention (as in backup.sh / restore.sh / load-plugins.sh): a
+# value-taking flag asserts its value is THERE before reading it. A bare `"$2"`
+# on a trailing flag dies under `set -u` with `$2: unbound variable`, naming
+# neither flag nor script.
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -101,8 +95,16 @@ while [ $# -gt 0 ]; do
     --dry-run)   DRY_RUN=true; shift ;;
     --bases-only) BASES_ONLY=true; shift ;;
     --skip-bases) BASES_PREBUILT=true; shift ;;
-    --category)  CATEGORY_FILTER="$2"; shift 2 ;;
-    --max-image-size) MAX_IMAGE_SIZE_MB="$2"; shift 2 ;;
+    # Accumulate across repeated flags AND accept a comma-separated value, so
+    # both `--category a,b` and `--category a --category b` build a+b — matching
+    # load-plugins.sh, which is handed the same `--category` argument by
+    # init-platform.sh. Plain assignment silently kept only the LAST flag.
+    --category)  [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
+                 CATEGORY_FILTER="${CATEGORY_FILTER:+$CATEGORY_FILTER,}$2"; shift 2 ;;
+    --max-image-size) [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
+                 MAX_IMAGE_SIZE_MB="$2"
+                 [[ "$MAX_IMAGE_SIZE_MB" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --max-image-size requires a positive integer" >&2; exit 1; }
+                 shift 2 ;;
     --help|-h)
       echo "Usage: $0 [options]"
       echo ""
@@ -121,6 +123,24 @@ while [ $# -gt 0 ]; do
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# Tool checks AFTER argument parsing, so `--help` answers on any host — a
+# daemon-less box asking what the flags are should get the flags, not an error
+# about docker.
+require_yq
+
+# Fail fast with a useful message when the current user can't reach the
+# docker socket. Common case on EC2: the user is `ec2-user` who hasn't been
+# added to the docker group (bootstrap.sh adds them, but the user must
+# re-login or run `newgrp docker` for it to take effect).
+if ! docker info >/dev/null 2>&1; then
+  echo "ERROR: cannot reach docker daemon (permission denied or daemon down)" >&2
+  echo "  Current user: $(id -un)" >&2
+  echo "  Fix: ensure your user is in the 'docker' group, then re-login or run:" >&2
+  echo "    newgrp docker && bash $0 ${_ORIG_ARGS}" >&2
+  echo "  Or run this script with sudo." >&2
+  exit 1
+fi
 
 # ---- Build base images FIRST (dependency order) ----
 #
@@ -379,10 +399,10 @@ build_base_images() {
 # Cumulative cleanup, installed BEFORE the first thing that creates a temp:
 # _BK_AUTH_DIR holds a config.json with the in-cluster registry's `_token`
 # credential (a live deploy-bootstrap JWT) and is created inside
-# build_base_images, while PLUGIN_LIST_FILE is created further down. Installing
-# the trap only at the plugin-loop (as it used to be) left the credential dir on
-# disk for every exit that happens first — `--bases-only` (which exits right
-# after the base build) and any base-build failure.
+# build_base_images, while PLUGIN_LIST_FILE is created further down. Installed
+# at the plugin loop instead, the credential dir would survive every exit that
+# happens first — `--bases-only` (which exits right after the base build) and
+# any base-build failure.
 _cleanup() {
   [ -n "${PLUGIN_LIST_FILE:-}" ] && rm -f "$PLUGIN_LIST_FILE"
   [ -n "${_BK_AUTH_DIR:-}" ] && rm -rf "$_BK_AUTH_DIR"
@@ -415,11 +435,6 @@ else
   CATEGORIES=$(list_categories "$PLUGINS_DIR" | tr '\n' ' ')
 fi
 
-# ---- Parse buildArgs from plugin-spec.yaml (delegates to yq) ----
-parse_build_arg_flags() {
-  yq_buildargs "$1" | tr '\n' ' '
-}
-
 # ---- Reset mode ----
 
 if [ "$RESET" = true ]; then
@@ -435,11 +450,9 @@ if [ "$RESET" = true ]; then
       config="$plugin_dir/config.yaml"
       [ -f "$config" ] || continue
 
-      # `|| true`: get_spec_field is `grep | head | sed`, so an ABSENT field
-      # returns non-zero under `set -euo pipefail` and would abort the run.
-      # Its contract is "value, or empty when not found" and every caller here
-      # branches on empty — a missing field is a normal outcome, not a failure.
-      _bt=$(get_spec_field buildType "$config" || true)
+      # An absent field yields "" (get_spec_field's contract), and every caller
+      # here branches on empty — a missing field is normal, not a failure.
+      _bt=$(get_spec_field buildType "$config")
       [ "$_bt" = "prebuilt" ] || continue
 
       # Revert config.yaml in one yq write, so field order is deterministic
@@ -510,7 +523,7 @@ while IFS= read -r plugin_dir <&3; do
     category=$(basename "$(dirname "$plugin_dir")")
 
     CURRENT=$((CURRENT + 1))
-    name=$(get_spec_field name "$plugin_dir/plugin-spec.yaml" || true)
+    name=$(get_spec_field name "$plugin_dir/plugin-spec.yaml")
     if [ -z "$name" ]; then
       echo "  [${CURRENT}/${TOTAL}] FAIL ${category}/$(basename "$plugin_dir") (plugin-spec.yaml has no name:)"
       FAILED=$((FAILED + 1))
@@ -539,12 +552,10 @@ while IFS= read -r plugin_dir <&3; do
     #   3. `image.tar` exists but `imageTag` is missing or mismatched →
     #      can't verify freshness, treat as stale and prompt/rebuild.
     if [ "$FORCE" != true ]; then
-      # `|| true` — an ABSENT `imageTag:` is the NORMAL case (a plugin that has
-      # never been built, or one just reverted by --reset). Without it,
-      # get_spec_field's grep returns 1, `set -euo pipefail` kills the script
-      # here, and the whole build exited 1 having printed nothing about this or
-      # any later plugin — a silent abort of the main (non---force) build path.
-      existing_tag=$(get_spec_field imageTag "$plugin_dir/config.yaml" || true)
+      # An ABSENT `imageTag:` is the NORMAL case (a plugin that has never been
+      # built, or one just reverted by --reset); it yields "" per
+      # get_spec_field's contract and the decision tree above handles it.
+      existing_tag=$(get_spec_field imageTag "$plugin_dir/config.yaml")
       hash_matches=$([ "$existing_tag" = "$tag" ] && echo true || echo false)
       tar_present=$([ -f "$plugin_dir/image.tar" ] && echo true || echo false)
 
@@ -595,7 +606,9 @@ while IFS= read -r plugin_dir <&3; do
     # transient error. Retry the whole `docker build` up to BUILD_MAX_ATTEMPTS
     # times when the failure log matches a known-transient pattern; surface
     # any other failure (compile error, missing package, etc.) immediately.
-    build_args=$(parse_build_arg_flags "$plugin_dir/plugin-spec.yaml")
+    # `--build-arg K=V` flags from the spec's buildArgs, one per line from
+    # yq_buildargs, flattened so `$build_args` word-splits into docker's argv.
+    build_args=$(yq_buildargs "$plugin_dir/plugin-spec.yaml" | tr '\n' ' ')
     build_log=$(mktemp)
     max_attempts=${BUILD_MAX_ATTEMPTS:-3}
     attempt=1

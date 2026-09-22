@@ -6,9 +6,14 @@ set -euo pipefail
 #   deploy/compliance/standard/{rules,policies}/*/          (set:standard)
 #   deploy/compliance/advanced/<framework>/{rules,policies}/*/  (set:advanced)
 #
-# Expects:
-#   PLATFORM_BASE_URL  — platform URL (default https://localhost:8443)
-#   PLATFORM_TOKEN     — JWT token (or will prompt for login)
+# A name that already exists comes back as HTTP 409, which `curl_with_retry`
+# classifies as "exists" (SKIP), so re-running over a seeded platform is
+# idempotent.
+#
+# Usage:
+#   ./load-compliance.sh                                       # defaults to https://localhost:8443
+#   PLATFORM_BASE_URL=https://host ./load-compliance.sh        # custom platform URL
+#   ./load-compliance.sh --dry-run                             # validate only, no upload
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/common.sh"
@@ -16,8 +21,38 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPLIANCE_DIR="$DEPLOY_DIR/compliance"
 UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
 UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-10}
+DRY_RUN=false
 
-require_auth
+# ---- Argument parsing ----
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    --help|-h)
+      echo "Usage: $0 [options]"
+      echo ""
+      echo "Options:"
+      echo "  --dry-run   Validate rule.json / policy.json files, but skip upload"
+      echo ""
+      echo "Environment:"
+      echo "  PLATFORM_TOKEN         JWT token (skips credential prompts and login)"
+      echo "  PLATFORM_BASE_URL      Platform API URL (default: https://localhost:8443)"
+      echo "  UPLOAD_RETRIES         Max retries on 503/connection failure (default: 3)"
+      echo "  UPLOAD_RETRY_DELAY     Seconds between retries (default: 10)"
+      exit 0
+      ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found in PATH" >&2; exit 1; }
+
+# Set by require_auth, read by common.sh's curl_with_retry (which sends the
+# bearer via --config so the token never lands in argv) — hence no direct
+# reference in this file.
+# shellcheck disable=SC2034
+JWT_TOKEN=""
+[ "$DRY_RUN" = false ] && require_auth
 
 TOTAL=0
 SUCCEEDED=0
@@ -28,8 +63,15 @@ START_TIME=$(date +%s)
 # ---------------------------------------------------------------------------
 # post_with_retry — POST a JSON file with retry on 429/503/502/504
 #   $1 url  $2 json_file  $3 name
+#
+# No `x-org-id` header: the tenant comes from the loader's own token. nginx
+# OVERWRITES x-org-id on every proxied request, and api-core's getIdentity
+# ignores it outright for a service-account principal.
 # ---------------------------------------------------------------------------
 post_with_retry() {
+  if [ "$DRY_RUN" = true ]; then
+    echo "  OK   $3 (dry-run)"; SUCCEEDED=$((SUCCEEDED + 1)); return
+  fi
   # `|| _rc=$?` is required: curl_with_retry returns 1 (fail) / 2 (exists), and
   # under `set -e` a bare call aborts the whole script mid-loop — so the very
   # first already-loaded rule (HTTP 409 → exists) would abort the entire
@@ -53,6 +95,11 @@ shopt -s nullglob
 # ---------------------------------------------------------------------------
 # Load rules — Standard set + every Advanced framework.
 # ---------------------------------------------------------------------------
+echo "=== Compliance Loader ==="
+echo "  URL:     $PLATFORM_BASE_URL"
+echo "  Source:  $COMPLIANCE_DIR"
+echo "  Dry-run: $DRY_RUN"
+echo ""
 echo "=== Loading compliance rules ==="
 echo "  Source: $COMPLIANCE_DIR/{standard,advanced/*}/rules/*/"
 echo ""
@@ -99,6 +146,19 @@ END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 
 print_summary "$TOTAL" "$SUCCEEDED" "$FAILED" "$SKIPPED" "$DURATION"
+
+echo ""
+echo "=== Done ==="
+
+# Loading nothing is not a successful load — with nullglob an absent tree
+# expands away silently, so a missing/mis-synced deploy/compliance/ printed a
+# 0/0/0 summary and exited 0, which init-platform.sh and CI read as clean.
+# (Matches the same guard in load-plugins.sh / build-plugin-images.sh.)
+if [ "$TOTAL" -eq 0 ]; then
+  echo "ERROR: no compliance rules or policies found under $COMPLIANCE_DIR" >&2
+  echo "  Expected $COMPLIANCE_DIR/{standard,advanced/*}/{rules,policies}/*/ — is the tree checked out?" >&2
+  exit 1
+fi
 
 # Propagate partial-failure to the exit code (matches load-templates.sh) so a
 # failed compliance load is not masked as green.

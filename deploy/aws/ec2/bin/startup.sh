@@ -20,10 +20,10 @@ NAMESPACE="pipeline-builder"
 PROFILE="pipeline-builder"
 # LEAN=1 drops the optional observability + admin services (prometheus, thanos,
 # loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali)
-# from the apply and
-# collapses workloads to a single replica, so the core stack + Istio mesh fits a
-# SMALLER instance (t3.xlarge / 4 vCPU) instead of needing t3.2xlarge. Core services
-# + DBs are unaffected. Full stack is the default (LEAN=0) for t3.2xlarge+.
+# from the apply and collapses workloads to a single replica, so the core stack +
+# Istio mesh fits a SMALLER instance (t3.xlarge / 4 vCPU) instead of needing
+# t3.2xlarge. Core services + DBs are unaffected. Full stack is the default
+# (LEAN=0) for t3.2xlarge+.
 # Accept the CFN/boolean spellings too (the `Lean` stack param passes true/false).
 LEAN="${LEAN:-0}"
 case "$LEAN" in 1|true|TRUE|True|yes|y) LEAN=1 ;; *) LEAN=0 ;; esac
@@ -33,10 +33,6 @@ case "$LEAN" in 1|true|TRUE|True|yes|y) LEAN=1 ;; *) LEAN=0 ;; esac
 # to ~16Gi by the buildkitd GC policy + container images + OS ≈ 35-40Gi); the
 # buildkit GC in plugin.yaml is what prevents unbounded growth, this is cushion.
 DISK_SIZE="${DISK_SIZE:-80g}"
-# RECREATE: when an existing cluster is found, whether to rebuild it. Unset + a TTY
-# → prompt (default: resume). RECREATE=y rebuilds the cluster; RECREATE=n (or unset
-# on the usual headless run) resumes. Data lives on the host $DATA_DIR and is kept
-# either way — to truly wipe, clear $DATA_DIR on the host before re-running.
 # Persistent-storage layout. Honors PIPELINE_ROOT from the host (set by
 # UserData / bootstrap.sh) but defaults to /opt/pipeline for standalone
 # script invocations. The minikube VM mounts $DATA_DIR at the SAME path
@@ -55,18 +51,6 @@ else
 fi
 
 log() { echo ""; echo "=== $1 ==="; }
-
-# LEAN also drops ask-model (pb_lean_filter's extra name, see "Applying
-# Kubernetes manifests"): it is BY FAR the heaviest optional workload. Measured
-# against the rendered kustomize stream, LEAN steady state is 3.60 cpu / 11.56Gi
-# WITH it and 3.35 cpu / 5.56Gi without — it alone is 52% of the LEAN memory
-# footprint (a 7B model asks for 6Gi). LEAN targets a t3.xlarge (4 vCPU / 16Gi),
-# where 11.56Gi of requests plus istiod/ztunnel/KEDA does not fit. Dropping it
-# degrades cleanly: `ask` falls back to whatever cloud provider key is in .env,
-# and with none the assistant reports "AI is not configured". Run LEAN=0
-# (t3.2xlarge+) for the self-hosted model. Downsizing in place leaves it running
-# (the apply does not prune):
-#   kubectl delete -n pipeline-builder deploy/ask-model pvc/ask-model-models
 
 # Shared helpers (preflight, ensure_istioctl). Sourcing common.sh cd's to /tmp —
 # every path here is absolute, so that's safe.
@@ -147,8 +131,8 @@ if [ "$(id -u)" = "0" ]; then
   # READABLE (0644) so `startup.sh` re-run as ANY login user — root, minikube,
   # or the default ec2-user/ssm-user — can source it at `. "$ENV_FILE"`. On this
   # single-node box the whole deploy tree (incl. TLS/JWT keys) is intentionally
-  # 644; locking .env to 0600/root left non-owner re-runs dying with
-  # "Permission denied" at line 56.
+  # 644; locking .env to 0600/root makes a non-owner re-run die with
+  # "Permission denied" while sourcing it.
   chown minikube:minikube "$DEPLOY_DIR/.env" 2>/dev/null || true
   chmod 644 "$DEPLOY_DIR/.env" 2>/dev/null || true
 fi
@@ -412,6 +396,16 @@ log "Applying Kubernetes manifests"
 bash "$BIN_DIR/verify-image-signatures.sh"
 # Only ${BUILDKIT_MEMORY_LIMIT} is expanded. istiod gate + apply + mesh
 # re-enrollment restart: pb_apply_manifests (shared with minikube/eks).
+#
+# The trailing `ask-model` is pb_lean_filter's extra name: LEAN drops it because
+# it is BY FAR the heaviest optional workload. Measured against the rendered
+# kustomize stream, LEAN steady state is 3.60 cpu / 11.56Gi WITH it and
+# 3.35 cpu / 5.56Gi without — it alone is 52% of the LEAN memory footprint (a 7B
+# model asks for 6Gi), and LEAN targets a t3.xlarge (4 vCPU / 16Gi) where that
+# plus istiod/ztunnel/KEDA does not fit. It degrades cleanly: `ask` falls back to
+# whatever cloud provider key is in .env, and with none the assistant reports
+# "AI is not configured". Downsizing in place leaves it running (the apply does
+# not prune): kubectl delete -n pipeline-builder deploy/ask-model pvc/ask-model-models
 pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" "$LEAN" ask-model
 
 log "Post-deploy fixups"
@@ -423,8 +417,8 @@ pb_registry_hosts_fixup "$PROFILE"
 log "Waiting for pods"
 mk kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
 mk kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
-# Two exclusions, both of which otherwise made this wait burn its full 300s and
-# return failure every run — silently, since `|| true` swallowed it:
+# Two exclusions, without which this wait burns its full 300s and fails every
+# run — silently, since `|| true` swallows it:
 #   - ask-model: its startupProbe deliberately holds the pod NotReady until
 #     `ollama list` shows the model, and the first provision pulls ~4.7GB (the
 #     7B) — far longer than any timeout worth blocking a deploy on.

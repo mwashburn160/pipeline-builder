@@ -3,7 +3,8 @@
 # Kiali — the Istio service-mesh console.
 #
 # Deployed like pgadmin/mongo-express: an OPTIONAL admin UI on a NodePort with
-# an nginx subpath route, dropped by LEAN.
+# an nginx subpath route. (The LEAN trim that drops it exists on the ec2 and
+# minikube targets only — eks always applies the full set.)
 #
 # TWO THINGS TO KNOW BEFORE RELYING ON IT
 #

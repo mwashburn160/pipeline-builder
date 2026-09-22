@@ -20,6 +20,14 @@ set -euo pipefail
 #                   Desktop provides both); reached via the mounted socket + host docker CLI.
 #   minikube      : host-side cluster — run on the host instead.
 
+# Tool version + checksum pins, shared with common.sh's ensure_eksctl so the
+# eksctl this container installs cannot drift from the one a host install gets.
+# tool-pins.sh is pure data — sourcing it does NOT change $PWD, which matters
+# because $PWD is what gets mounted into the container below. (common.sh cannot
+# be sourced here for exactly that reason: it cd's to /tmp.)
+# shellcheck source=tool-pins.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tool-pins.sh"
+
 CLI_PKG="@pipeline-builder/pipeline-manager@latest"
 IMAGE="node:24-slim"
 # The kubectl MINOR to install for --target eks. It is deliberately the version
@@ -58,8 +66,8 @@ case "$TARGET" in
     # eks setup.sh needs aws (deploy), eksctl (create the Auto Mode cluster), kubectl
     # (apply manifests), openssl (registry token keypair) and envsubst/gettext-base
     # (cluster.yaml + manifest token expansion). Mount ~/.aws + ~/.kube.
-    # eksctl: pinned VERSION + SHA-256 (keep in step with EKSCTL_VERSION in
-    # deploy/bin/common.sh).
+    # eksctl: pinned VERSION + SHA-256, interpolated from tool-pins.sh — the same
+    # values common.sh's ensure_eksctl uses, so there is nothing to keep in step.
     #
     # kubectl: resolved from the MINOR-scoped channel (dl.k8s.io/release/
     # stable-<EKS_VERSION>.txt), not `stable.txt`, and verified against the
@@ -79,7 +87,7 @@ case "$TARGET" in
     # it falls back to `stable`.
     _kchan="stable-${EKS_VERSION}"
     [ "$EKS_VERSION" = latest ] && _kchan="stable"
-    extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws && a=$(dpkg --print-architecture) && case $a in amd64) s=a2060956f117c3065abafda5c1f681679b9c3716675d70ce4ffff46033b02c35 ;; arm64) s=21afe8a1e38f0e8153a1f27ff7af6b90e309a0411a1438139463dac2f866674d ;; *) echo "no pinned eksctl for $a" >&2; exit 1 ;; esac && curl -fsSL -o /tmp/eksctl.tgz "https://github.com/eksctl-io/eksctl/releases/download/v0.230.0/eksctl_Linux_${a}.tar.gz" && echo "$s  /tmp/eksctl.tgz" | sha256sum -c - && tar -xzf /tmp/eksctl.tgz -C /usr/local/bin eksctl && rm -f /tmp/eksctl.tgz && k=$(curl -fsSL "https://dl.k8s.io/release/'"$_kchan"'.txt") && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl" && echo "$(curl -fsSL "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - && chmod 0755 /usr/local/bin/kubectl'
+    extra='curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-$(uname -m).zip" -o /tmp/a.zip && unzip -q /tmp/a.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/a.zip /tmp/aws && a=$(dpkg --print-architecture) && case $a in amd64) s='"$EKSCTL_SHA256_LINUX_AMD64"' ;; arm64) s='"$EKSCTL_SHA256_LINUX_ARM64"' ;; *) echo "no pinned eksctl for $a" >&2; exit 1 ;; esac && curl -fsSL -o /tmp/eksctl.tgz "https://github.com/eksctl-io/eksctl/releases/download/'"$EKSCTL_VERSION"'/eksctl_Linux_${a}.tar.gz" && echo "$s  /tmp/eksctl.tgz" | sha256sum -c - && tar -xzf /tmp/eksctl.tgz -C /usr/local/bin eksctl && rm -f /tmp/eksctl.tgz && k=$(curl -fsSL "https://dl.k8s.io/release/'"$_kchan"'.txt") && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl" && echo "$(curl -fsSL "https://dl.k8s.io/release/${k}/bin/linux/${a}/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - && chmod 0755 /usr/local/bin/kubectl'
     [ -d "$HOME/.aws" ] && mounts+=( -v "$HOME/.aws:/root/.aws:ro" )
     [ -d "$HOME/.kube" ] && mounts+=( -v "$HOME/.kube:/root/.kube:ro" )
     ;;

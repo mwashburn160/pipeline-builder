@@ -19,9 +19,14 @@ set -euo pipefail
 # Usage:
 #   deploy/bin/verify-image-tags.sh [owner]        # default owner: mwashburn160
 #
-# Exit codes: 0 = every referenced tag is publicly pullable · 1 = one or more
-#             missing or not public · 2 = no refs · 3 = could not reach GHCR
-#             (connection/timeout/5xx/rate-limit — an infra error, not a verdict).
+# Exit codes — THE convention shared by every deploy/bin/verify-*.sh:
+#   0  verified: everything checked passed
+#   1  FAILED: a real verdict — something is missing, unsigned or unreachable
+#   2  nothing to verify (no refs / no files). Non-zero on purpose: a gate must
+#      not go green having checked nothing.
+#   3  could not verify — an infra error, never a verdict: a missing tool, a bad
+#      argument, or the registry/network answering 5xx / rate-limiting.
+# Here: 1 = a referenced tag is missing or not public; 3 = could not reach GHCR.
 
 OWNER="${1:-mwashburn160}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

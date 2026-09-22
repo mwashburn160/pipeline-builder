@@ -27,8 +27,14 @@ set -euo pipefail
 #       verify exactly these refs instead of gathering them from deploy/ (used by
 #       sync-image-tags.sh BEFORE it pins a digest into the manifests)
 #
-# Exit codes: 0 = every referenced image is validly signed · 1 = one or more failed
-#             verification · 2 = no refs found · 3 = infra error (cosign unavailable).
+# Exit codes — THE convention shared by every deploy/bin/verify-*.sh:
+#   0  verified: everything checked passed
+#   1  FAILED: a real verdict — something is missing, unsigned or unreachable
+#   2  nothing to verify (no refs / no files). Non-zero on purpose: a gate must
+#      not go green having checked nothing.
+#   3  could not verify — an infra error, never a verdict: a missing tool, a bad
+#      argument, or the registry/network answering 5xx / rate-limiting.
+# Here: 1 = an image failed verification; 3 = cosign unavailable or too old.
 
 OWNER="${1:-mwashburn160}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -66,7 +72,9 @@ if ! command -v cosign >/dev/null 2>&1; then
     *) echo "ERROR: no pinned cosign build for ${os}-${arch} — cannot verify image signatures." >&2; exit 3 ;;
   esac
   tmp_cosign="$(mktemp)"
-  trap 'rm -f "$tmp_cosign"' EXIT
+  # EXIT INT TERM: an untrapped SIGINT/SIGTERM kills the shell without running
+  # the EXIT trap, leaving the half-downloaded binary behind.
+  trap 'rm -f "$tmp_cosign"' EXIT INT TERM
   if ! curl -fsSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-${os}-${arch}" -o "$tmp_cosign"; then
     echo "ERROR: could not download cosign ${COSIGN_VERSION} — cannot verify image signatures." >&2
     exit 3

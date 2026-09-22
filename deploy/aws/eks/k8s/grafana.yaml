@@ -3,8 +3,9 @@
 # Grafana — dashboards over the existing observability stack.
 #
 # Follows the pgadmin/mongo-express pattern exactly: an OPTIONAL admin UI,
-# NodePort + an nginx subpath route, dropped by LEAN, and gated by its own
-# login rather than by the gateway (nginx applies no auth to /grafana/).
+# NodePort + an nginx subpath route, gated by its own login rather than by the
+# gateway (nginx applies no auth to /grafana/). (The LEAN trim that drops it
+# exists on the ec2 and minikube targets only — eks always applies the full set.)
 #
 # This does NOT replace the native Observability pages. Those are org-scoped —
 # platform proxies PromQL and substitutes $ORG so a tenant only ever sees their

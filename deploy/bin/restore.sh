@@ -69,9 +69,7 @@ PG_KEY=""
 MONGO_KEY=""
 
 usage() {
-  # Grep the RESOLVED script path (not the possibly-relative `$0`), so --help
-  # can't exit non-zero under set -e+pipefail when the grep misses the file.
-  sed -n '2,/^set -euo/p' "$SCRIPT_DIR/restore.sh" | grep '^#'
+  pb_usage_from_header "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
   exit "${1:-1}"
 }
 

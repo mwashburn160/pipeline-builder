@@ -138,8 +138,8 @@ Parameters:
     Description: >
       Optional git tag, branch, or commit SHA to PIN the checkout to for a
       reproducible deploy / rollback. Empty (default) tracks the tip of
-      GitBranch (origin/GitBranch), the previous behaviour. When set, the
-      instance checks out exactly this ref instead of resetting to branch HEAD.
+      GitBranch (origin/GitBranch). When set, the instance checks out exactly
+      this ref instead of resetting to branch HEAD.
 
   AdminPassword:
     Type: String
@@ -211,7 +211,6 @@ Parameters:
 # Conditions
 # =============================================================================
 Conditions:
-  HasDomain: !Not [!Equals [!Ref DomainName, ""]]
   IsPrivate: !Equals [!Ref DeployMode, private]
   IsPublic: !Equals [!Ref DeployMode, public]
   SesEnabled: !Equals [!Ref EmailEnabled, "true"]
@@ -241,17 +240,14 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: !If
-            - HasDomain
-            - !Sub "pipeline-builder-${DomainName}"
-            - "pipeline-builder"
+          Value: !Sub "pipeline-builder-${DomainName}"
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-igw"
+          Value: "pipeline-builder-igw"
 
   VPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -275,7 +271,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-public-a"
+          Value: "pipeline-builder-public-a"
 
   PublicSubnet2:
     Type: AWS::EC2::Subnet
@@ -286,7 +282,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-public-b"
+          Value: "pipeline-builder-public-b"
 
   RouteTable:
     Type: AWS::EC2::RouteTable
@@ -294,7 +290,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-public-rt"
+          Value: "pipeline-builder-public-rt"
 
   PublicRoute:
     Type: AWS::EC2::Route
@@ -320,8 +316,8 @@ Resources:
   # Private subnets + NAT (ALWAYS — the instance is private in BOTH modes; only
   # the ALB scheme/subnets change). The instance lives in PrivateSubnet (AZ0)
   # with NO public IP; the NAT gateway (PublicSubnet, AZ0) provides outbound for
-  # GHCR pulls + OS packages. this template (private mode) creates the VPC interface
-  # endpoints in these subnets. Access is via SSM Session Manager.
+  # GHCR pulls + OS packages. In private mode the VPC interface endpoints below
+  # also live in these subnets. Access is via SSM Session Manager.
   # ---------------------------------------------------------------------------
   PrivateSubnet:
     Type: AWS::EC2::Subnet
@@ -332,7 +328,7 @@ Resources:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-private-a"
+          Value: "pipeline-builder-private-a"
 
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
@@ -343,7 +339,7 @@ Resources:
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-private-b"
+          Value: "pipeline-builder-private-b"
 
   NatEIP:
     Type: AWS::EC2::EIP
@@ -352,7 +348,7 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-nat-eip"
+          Value: "pipeline-builder-nat-eip"
 
   NatGateway:
     Type: AWS::EC2::NatGateway
@@ -361,7 +357,7 @@ Resources:
       SubnetId: !Ref PublicSubnet
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-nat"
+          Value: "pipeline-builder-nat"
 
   PrivateRouteTable:
     Type: AWS::EC2::RouteTable
@@ -369,7 +365,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-private-rt"
+          Value: "pipeline-builder-private-rt"
 
   PrivateRoute:
     Type: AWS::EC2::Route
@@ -416,7 +412,7 @@ Resources:
           Description: All outbound traffic
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-alb-sg"
+          Value: "pipeline-builder-alb-sg"
 
   # ---------------------------------------------------------------------------
   # Instance security group — NO public ingress. Only the ALB SG reaches the
@@ -439,13 +435,13 @@ Resources:
           Description: All outbound traffic
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-sg"
+          Value: "pipeline-builder-sg"
 
   # ---------------------------------------------------------------------------
   # ACM certificate — DNS-validated against the supplied public hosted zone.
   # ACM auto-writes the CNAME and CloudFormation blocks until ISSUED (a few
   # minutes). Publicly trusted, so AWS CodeBuild trusts the gateway on plugin
-  # pulls. Replaces the on-instance Let's Encrypt/certbot flow entirely.
+  # pulls. Nothing on the instance terminates TLS or renews a cert.
   # ---------------------------------------------------------------------------
   Certificate:
     Type: AWS::CertificateManager::Certificate
@@ -457,7 +453,7 @@ Resources:
           HostedZoneId: !Ref HostedZoneId
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-cert"
+          Value: "pipeline-builder-cert"
 
   # ---------------------------------------------------------------------------
   # Application Load Balancer — internet-facing (public) or internal-scheme
@@ -467,7 +463,7 @@ Resources:
   ALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub "pipeline-builder-alb"
+      Name: "pipeline-builder-alb"
       Scheme: !If [IsPrivate, internal, internet-facing]
       Type: application
       SecurityGroups:
@@ -478,7 +474,7 @@ Resources:
         - [!Ref PublicSubnet, !Ref PublicSubnet2]
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-alb"
+          Value: "pipeline-builder-alb"
 
   # Targets the EC2 INSTANCE on the nginx HTTP NodePort (30080). startup.sh
   # bridges the instance's primary IP:30080 → the minikube node IP:30080 via a
@@ -487,7 +483,7 @@ Resources:
   NginxTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub "pipeline-builder-tg"
+      Name: "pipeline-builder-tg"
       VpcId: !Ref VPC
       Port: 30080
       Protocol: HTTP
@@ -532,9 +528,9 @@ Resources:
           TargetGroupArn: !Ref NginxTargetGroup
 
   # ---------------------------------------------------------------------------
-  # Private mode (IsPrivate): inside-AWS-only prerequisites — folded in from the
-  # former private-prereqs.yaml. The ALB's DNS is known in-stack, so the private
-  # hosted zone + VPC interface endpoints live here directly (no separate stack).
+  # Private mode (IsPrivate): inside-AWS-only prerequisites. The ALB's DNS is
+  # known in-stack, so the private hosted zone + VPC interface endpoints live
+  # here directly rather than in a separate prerequisites stack.
   # No extra gateway-ingress rule: the ALB SG already allows 443 from the VPC
   # CIDR in private mode.
   # ---------------------------------------------------------------------------
@@ -553,7 +549,7 @@ Resources:
           Description: HTTPS from within the VPC (CodeBuild to endpoints)
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-vpce-sg"
+          Value: "pipeline-builder-vpce-sg"
 
   # Interface endpoints — VPC-attached CodeBuild reaches AWS APIs over PrivateLink
   # instead of leaning on NAT. PrivateDnsEnabled routes the public hostnames here.
@@ -659,7 +655,7 @@ Resources:
         - VPCId: !Ref VPC
           VPCRegion: !Ref "AWS::Region"
       HostedZoneConfig:
-        Comment: !Sub "pipeline-builder private-mode zone"
+        Comment: "pipeline-builder private-mode zone"
 
   PrivateDomainRecord:
     Type: AWS::Route53::RecordSet
@@ -806,12 +802,11 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-      # ses:SendEmail only (the action SESv2 SendEmailCommand uses), scoped to
-      # the DomainName identity + the configured From address. Gated on
-      # EmailEnabled via a separate policy resource below.
+      # Everything beyond SSM is granted by the scoped IAM::Policy resources
+      # below (SES, CodePipeline, KMS token signing, boot secrets).
       Tags:
         - Key: Name
-          Value: !Sub "pipeline-builder-role"
+          Value: "pipeline-builder-role"
 
   InstanceRoleSesPolicy:
     Type: AWS::IAM::Policy
@@ -983,7 +978,7 @@ Resources:
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
-      # Always private now — the ALB is the only entry point, in both modes.
+      # Always private — the ALB is the only entry point, in both modes.
       SubnetId: !Ref PrivateSubnet
       SecurityGroupIds:
         - !Ref SecurityGroup
@@ -1098,8 +1093,8 @@ Resources:
               git -C "$INSTALL_DIR" fetch --tags
             fi
             # GIT_REF pins an exact tag/branch/SHA for a reproducible deploy/rollback.
-            # Empty (default) keeps tracking the tip of GIT_BRANCH, as before. Shell vars
-            # use bare $VAR (no braces) so Fn::Sub does not try to resolve them as params.
+            # Empty (default) keeps tracking the tip of GIT_BRANCH. Shell vars use bare
+            # $VAR (no braces) so Fn::Sub does not try to resolve them as params.
             if [ -n "$GIT_REF" ]; then
               echo "Pinning checkout to GitRef: $GIT_REF"
               # If GIT_REF names a branch that exists on origin, pin to the REMOTE
@@ -1125,10 +1120,7 @@ Resources:
             echo "=== Bootstrap complete: $(date -u) ==="
       Tags:
         - Key: Name
-          Value: !If
-            - HasDomain
-            - !Sub "pipeline-builder-${DomainName}"
-            - "pipeline-builder"
+          Value: !Sub "pipeline-builder-${DomainName}"
 
   # ---------------------------------------------------------------------------
   # Dedicated Data EBS Volume
@@ -1147,10 +1139,7 @@ Resources:
       Encrypted: true
       Tags:
         - Key: Name
-          Value: !If
-            - HasDomain
-            - !Sub "pipeline-builder-data-${DomainName}"
-            - "pipeline-builder-data"
+          Value: !Sub "pipeline-builder-data-${DomainName}"
         # DataVolumeSnapshotPolicy targets volumes by this tag.
         - Key: pipeline-builder-data-volume
           Value: !Ref AWS::StackName
@@ -1232,16 +1221,12 @@ Outputs:
     Description: ALB DNS name (the ALB endpoint)
     Value: !GetAtt ALB.DNSName
 
-  AlbCanonicalHostedZoneId:
-    Description: ALB canonical hosted zone ID (informational)
-    Value: !GetAtt ALB.CanonicalHostedZoneID
-
   AlbSecurityGroupId:
     Description: ALB SG ID (the ALB security group)
     Value: !Ref AlbSecurityGroup
 
-  SSHCommand:
-    Description: Connect to the app instance via SSM (always available, no public IP)
+  SsmSessionCommand:
+    Description: Shell on the app instance (SSM Session Manager — there is no SSH ingress)
     Value: !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}"
 
   InstanceId:
@@ -1256,8 +1241,9 @@ Outputs:
     Description: How to watch bootstrap progress
     Value: !Sub "aws ssm start-session --target ${EC2Instance} --region ${AWS::Region}  # then: sudo tail -f /var/log/user-data.log"
 
-  # Inputs for private mode: feed the instance .env
-  # and the instance .env (PIPELINE_VPC_ID / PIPELINE_SUBNET_IDS).
+  # Private-mode inputs: UserData writes these into the instance .env as
+  # PIPELINE_VPC_ID / PIPELINE_SUBNET_IDS, which the pipeline service needs to
+  # build VPC-attached CodeBuild projects.
   VpcId:
     Description: VPC ID (.env PIPELINE_VPC_ID)
     Value: !Ref VPC
@@ -1265,10 +1251,6 @@ Outputs:
   SubnetIds:
     Description: Private subnet IDs (.env PIPELINE_SUBNET_IDS)
     Value: !Join [",", [!Ref PrivateSubnet, !Ref PrivateSubnet2]]
-
-  VpcCidr:
-    Description: VPC CIDR (informational)
-    Value: !GetAtt VPC.CidrBlock
 
   SecurityGroupId:
     Description: Instance SG ID

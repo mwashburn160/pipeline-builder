@@ -30,14 +30,10 @@ IF=$(ip -o route get 8.8.8.8 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p' || 
 IF="${IF:-eth0}"
 
 if [ -n "$MINIKUBE_IP" ]; then
-  # Remove the current ALB-target bridge (30080) plus any legacy 443/80 DNAT
-  # rules from older deploys, so an upgrade-in-place leaves no stale rules.
-  for port_pair in "30080:30080" "443:30443" "80:30080"; do
-    EXT="${port_pair%%:*}"; INT="${port_pair##*:}"
-    iptables -t nat -D PREROUTING -i "$IF" -p tcp --dport "$EXT" -j DNAT --to-destination "${MINIKUBE_IP}:${INT}" 2>/dev/null || true
-    iptables -t nat -D PREROUTING -p tcp --dport "$EXT" -j DNAT --to-destination "${MINIKUBE_IP}:${INT}" 2>/dev/null || true
-    iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport "$INT" -j ACCEPT 2>/dev/null || true
-  done
+  # The ALB-target bridge startup.sh installs: identity DNAT 30080 -> the
+  # minikube node's 30080, plus the FORWARD accept that lets it through.
+  iptables -t nat -D PREROUTING -i "$IF" -p tcp --dport 30080 -j DNAT --to-destination "${MINIKUBE_IP}:30080" 2>/dev/null || true
+  iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT 2>/dev/null || true
   echo "  Rules removed for ${MINIKUBE_IP}"
 else
   echo "  WARNING: Unknown minikube IP — cannot remove specific rules."

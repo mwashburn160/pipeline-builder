@@ -3,15 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Generate the PER-SERVICE ES256 (EC P-256) signing keys for INTERNAL
-# service-to-service tokens (roadmap #14), plus the public bundle every service
-# verifies against.
+# service-to-service tokens, plus the public bundle every service verifies
+# against.
 #
-# Before #14 all ten services shared one HS256 `JWT_SECRET`, so any one of them
-# could mint a token naming any other — "billing said so" was unfalsifiable.
-# Now each service signs with its own key, the `kid` is the key's RFC 7638
-# thumbprint, and a verifier requires the token's `sub` to name the service that
-# `kid` belongs to. A service that gets hold of another's token can replay it
-# (5-minute TTL); it cannot mint one.
+# One key per service, not one shared secret: with a shared HS256 `JWT_SECRET`
+# any service could mint a token naming any other, so "billing said so" was
+# unfalsifiable. Here the `kid` is the key's RFC 7638 thumbprint and a verifier
+# requires the token's `sub` to name the service that `kid` belongs to. A
+# service that gets hold of another's token can replay it (5-minute TTL); it
+# cannot mint one.
 #
 #   service-signing-keys.sh [cert_dir] [--rotate <service>|--rotate-all]
 #                                      [--finish <service>|--finish-all]
@@ -63,12 +63,18 @@ ROTATE=""
 FINISH=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --rotate) ROTATE="${2:?--rotate needs a service name}"; shift 2 ;;
+    # A value-taking flag asserts its value is THERE before reading it — the
+    # deploy/bin convention (backup.sh / restore.sh / load-plugins.sh).
+    --rotate) [ $# -ge 2 ] || { echo "ERROR: $1 requires a service name" >&2; exit 1; }
+              ROTATE="$2"; shift 2 ;;
     --rotate-all) ROTATE="ALL"; shift ;;
-    --finish) FINISH="${2:?--finish needs a service name}"; shift 2 ;;
+    --finish) [ $# -ge 2 ] || { echo "ERROR: $1 requires a service name" >&2; exit 1; }
+              FINISH="$2"; shift 2 ;;
     --finish-all) FINISH="ALL"; shift ;;
     -*) echo "Unknown option: $1" >&2; exit 1 ;;
-    *) CERT_DIR="$1"; shift ;;
+    # One positional only — a second path would otherwise silently replace it.
+    *) [ -z "$CERT_DIR" ] || { echo "Unexpected argument: $1 (cert_dir already set to '$CERT_DIR')" >&2; exit 1; }
+       CERT_DIR="$1"; shift ;;
   esac
 done
 CERT_DIR="${CERT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/certs}"

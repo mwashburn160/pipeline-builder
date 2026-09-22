@@ -1,26 +1,34 @@
 # Grafana datasource provisioning for the docker target.
 #
-# Kept in sync with the kubernetes targets' grafana-datasources ConfigMap, with
-# ONE deliberate difference: Prometheus is the default here because this target
-# runs no Thanos (the k8s targets default to Thanos, which fans out to the
-# object-store blocks and so answers long ranges that Prometheus alone drops).
+# Kept in step with the kubernetes targets' grafana-datasources ConfigMap: this
+# target runs the same Thanos read path (sidecar + store-gateway + querier), so
+# it gets the same datasource set and the same default.
 apiVersion: 1
 datasources:
+  # DEFAULT. Thanos Query fans out to the Prometheus sidecar AND the
+  # object-store blocks, so it answers both recent and historical ranges.
+  # Prometheus alone silently returns nothing beyond its local 7d retention.
+  - name: Thanos
+    type: prometheus
+    access: proxy
+    url: http://thanos-query:9090
+    isDefault: true
+  # The raw Prometheus, for debugging the scrape layer itself (targets, rule
+  # evaluation) where Thanos's dedup would get in the way.
   - name: Prometheus
     type: prometheus
     access: proxy
     url: http://prometheus:9090
-    isDefault: true
   - name: Loki
     type: loki
     access: proxy
     url: http://loki:3100
-    # Loki now runs with auth_enabled: true (each org is a tenant), so every
-    # client must send X-Scope-OrgID. Grafana is the OPERATOR console, so it
-    # points at the `_infra` tenant — unattributed platform/infra lines.
-    # Per-org log browsing lives in the product UI (/dashboard/logs), which
-    # scopes the header from the caller's verified token. To inspect a
-    # specific org from here, append its id: `_infra|<orgId>`.
+    # Loki runs with auth_enabled: true (each org is a tenant), so every client
+    # must send X-Scope-OrgID. Grafana is the OPERATOR console, so it points at
+    # the `_infra` tenant — unattributed platform/infra lines. Per-org log
+    # browsing lives in the product UI (/dashboard/logs), which scopes the
+    # header from the caller's verified token. To inspect a specific org from
+    # here, append its id: `_infra|<orgId>`.
     jsonData:
       httpHeaderName1: X-Scope-OrgID
     secureJsonData:

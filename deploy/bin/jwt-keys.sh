@@ -33,7 +33,9 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
     -*) echo "Unknown option: $1" >&2; exit 1 ;;
-    *) CERT_DIR="$1"; shift ;;
+    # One positional only — a second path would otherwise silently replace it.
+    *) [ -z "$CERT_DIR" ] || { echo "Unexpected argument: $1 (cert_dir already set to '$CERT_DIR')" >&2; exit 1; }
+       CERT_DIR="$1"; shift ;;
   esac
 done
 CERT_DIR="${CERT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/certs}"

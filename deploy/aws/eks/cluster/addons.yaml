@@ -20,8 +20,9 @@ metadata:
   name: ${CLUSTER_NAME}
   region: ${REGION}
 
-# EFS CSI is NOT included in Auto Mode — added for the RWX volumes shared across
-# nodes (in-cluster registry, loki). EBS comes with Auto Mode. eksctl creates the
+# EFS CSI is NOT included in Auto Mode — added for the one RWX volume that must
+# survive a reschedule onto any node (alertmanager's silences/nflog; see
+# k8s/storageclasses.yaml). EBS comes with Auto Mode. eksctl creates the
 # addon's recommended Pod Identity association (the EFS CSI controller role) from
 # `useDefaultPodIdentityAssociations` — `wellKnownPolicies` is NOT valid under an
 # addon's podIdentityAssociations (eksctl errors on it).

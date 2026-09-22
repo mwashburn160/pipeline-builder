@@ -79,12 +79,12 @@ done
 log "Waiting for pods"
 kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
 kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
-# Mirrors the hardened wait in setup.sh: `-l app` is an EXISTENCE selector, so it
-# also matches one-shot Job pods (minio-init), whose Ready condition stays
-# False/PodCompleted forever — without the phase filter this could never be
-# satisfied and always burned the full 300s, silently, because `|| true` swallowed
-# it. ask-model is excluded too: its startupProbe holds the pod NotReady until the
-# model is pulled (~1GB on first run), which nothing else here depends on.
+# Mirrors the wait in setup.sh: `-l app` is an EXISTENCE selector, so it also
+# matches one-shot Job pods (minio-init), whose Ready condition stays
+# False/PodCompleted forever — without the phase filter this can never be
+# satisfied and burns the full 300s. ask-model is excluded too: its startupProbe
+# holds the pod NotReady until the model is pulled (~1GB on first run), which
+# nothing else here depends on.
 kubectl wait --for=condition=Ready pod -l 'app,app!=ask-model' -n "$NAMESPACE" \
   --field-selector=status.phase!=Succeeded --timeout=300s 2>/dev/null || true
 kubectl wait --for=condition=Ready pod -l app=nginx -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  nginx not ready"
@@ -121,13 +121,13 @@ for i in $(seq 1 5); do
 done
 
 # -- Optional: self-hosted Ask model ------------------------------------------
-# Placed AFTER the port-forwards, and gated on istiod, for two reasons learned
-# the hard way: `ask-model.yaml` contains an Istio AuthorizationPolicy, whose
-# CREATE calls istiod's validating webhook — on a fresh resume istiod is not
-# listening yet, so an earlier apply died with
+# Placed AFTER the port-forwards, and gated on istiod: `ask-model.yaml` contains
+# an Istio AuthorizationPolicy, whose CREATE calls istiod's validating webhook,
+# and on a fresh resume istiod is not listening yet —
 #   failed calling webhook "validation.istio.io" ... connection refused
-# and, under `set -e`, took the rest of startup (including the port-forwards)
-# with it. Running last means a failure here costs only this feature.
+# which under `set -e` would take the rest of startup (including the
+# port-forwards) with it. Running last means a failure here costs only this
+# feature.
 if [ "$ASK_MODEL" = "1" ]; then
   log "Enabling the self-hosted Ask model (ASK_MODEL=1)"
   echo "  waiting for istiod (its webhook validates the AuthorizationPolicy)..."

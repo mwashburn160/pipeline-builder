@@ -142,14 +142,11 @@ fi
 echo ""
 
 # -----------------------------------------------------------------------
-# Helper: deploy a stack (waits for completion)
+# Helpers
 # -----------------------------------------------------------------------
-# Shared CFN deploy helper (clears un-updatable rollback stacks before deploy). deploy/bin
+# Shared CFN deploy helper (cfn_deploy, waits for completion) (clears un-updatable rollback stacks before deploy). deploy/bin
 # is in every target's clone (COMMON_SPARSE_PATHS). EC2 uses the bare stack name as-is.
 . "$SCRIPT_DIR/../../../bin/cfn-deploy.sh"
-deploy_stack() {
-  cfn_deploy "$@"
-}
 
 # Read a single output value from the base stack ("" if absent).
 out() {
@@ -172,15 +169,11 @@ BASE_PARAMS=(
   "AutoInit=${AUTO_INIT}"
   "Lean=${LEAN}"
 )
-[ -n "$DOMAIN" ]         && BASE_PARAMS+=("DomainName=${DOMAIN}")
-[ -n "$HOSTED_ZONE_ID" ] && BASE_PARAMS+=("HostedZoneId=${HOSTED_ZONE_ID}")
-[ -n "$INSTANCE_TYPE" ]  && BASE_PARAMS+=("InstanceType=${INSTANCE_TYPE}")
-deploy_stack "$STACK_NAME" "$TEMPLATE" "${BASE_PARAMS[@]}"
-
-# Private-mode prerequisites (VPC interface endpoints + Route53 private zone
-# aliasing the domain to the internal ALB) are now created IN the base stack
-# itself, gated on DeployMode=private — there is no separate prereqs stack to
-# deploy. (The ALB's DNS is known in-stack, which is what allowed the merge.)
+# DOMAIN + HOSTED_ZONE_ID are already validated non-empty above; only the
+# instance type is genuinely optional (empty = the template's default).
+BASE_PARAMS+=("DomainName=${DOMAIN}" "HostedZoneId=${HOSTED_ZONE_ID}")
+[ -n "$INSTANCE_TYPE" ] && BASE_PARAMS+=("InstanceType=${INSTANCE_TYPE}")
+cfn_deploy "$STACK_NAME" "$TEMPLATE" "${BASE_PARAMS[@]}"
 
 # -----------------------------------------------------------------------
 # Done

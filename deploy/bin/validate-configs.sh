@@ -33,9 +33,9 @@ pass() { echo "ok:   $*"; }
 # Resolve an image reference (repo@sha256:...) from the docker-compose pin, so
 # this script can never validate against a different version than we deploy.
 # Returns non-zero (it does NOT exit) when the pin is missing: this runs inside
-# a command substitution, where `exit` only kills the subshell — the script has
-# no `set -e`, so it used to sail on with an EMPTY image ref and "validate"
-# against nothing. The callers below turn the non-zero into a real exit.
+# a command substitution, where `exit` only kills the subshell, and the script
+# has no `set -e` — so an `exit` here would leave an EMPTY image ref and
+# "validate" against nothing. The callers below turn the non-zero into a real exit.
 pinned_image() {
   local repo="$1" ref
   ref="$(grep -oE "${repo}@sha256:[0-9a-f]{64}" "$COMPOSE" | head -1)"

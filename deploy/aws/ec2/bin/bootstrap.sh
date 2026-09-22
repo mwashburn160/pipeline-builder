@@ -161,18 +161,13 @@ echo "Phase 4: Install minikube & kubectl"
 echo "========================================"
 
 # kubectl, at PB_K8S_VERSION — the same version Phase 9's `minikube start`
-# creates the cluster with, so client and server always match. It used to come
-# from `dl.k8s.io/release/stable.txt` (upstream's newest) while the cluster took
-# minikube's bundled default, which can exceed kubectl's supported ±1-minor
-# skew and break `apply --server-side` and CRD applies.
+# creates the cluster with, so client and server stay inside kubectl's supported
+# ±1-minor skew (outside it, `apply --server-side` and CRD applies break).
 #
 # The version is pinned but the hash is not: verify against the .sha256 that
 # dl.k8s.io publishes beside each binary, exactly as common.sh's ensure_kubectl
-# does. `curl -LO` alone was neither pinned nor verified — with no -f it wrote a
-# 404/error BODY to a file named `kubectl` and exited 0, so the next line
-# installed an HTML page as /usr/local/bin/kubectl, a failure that only surfaced
-# much later as a broken cluster. fetch_verified fails closed on both a bad
-# response and a bad digest.
+# does. fetch_verified fails closed on both a bad response and a bad digest —
+# without that, a 404 body silently installs as the binary.
 echo "  Installing kubectl..."
 KUBECTL_VERSION="$PB_K8S_VERSION"
 case "$KUBECTL_VERSION" in
@@ -274,13 +269,6 @@ chown minikube:minikube "$PIPELINE_ROOT" "$PIPELINE_DATA_DIR"
 # EACCES. One recursive chown covers them all instead of cataloguing each
 # write site. Takes a few seconds on a fresh tree.
 chown -R minikube:minikube "$INSTALL_DIR"
-
-# Plugin build artifacts. Lives on the persistent volume ($INSTALL_DIR is on
-# the EBS volume too); consumers find it through PLUGIN_ARTIFACTS_DIR.
-PLUGIN_ARTIFACTS_DIR="$PIPELINE_DATA_DIR/plugin-artifacts"
-mkdir -p "$PLUGIN_ARTIFACTS_DIR"
-chown -R minikube:minikube "$PLUGIN_ARTIFACTS_DIR"
-echo "  Plugin artifacts: $PLUGIN_ARTIFACTS_DIR"
 
 # Plugin working directories (hostPath mounts for K8s plugin pod).
 # UID 1000 matches the plugin container's user inside minikube.
@@ -473,29 +461,22 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
 fi
 
 # =============================================================================
-# Phase 11: Daily backup timer (systemd) — INSTALLED DISABLED, needs review
+# Phase 11: Daily backup timer (systemd)
 # =============================================================================
-# deploy/aws/ec2/bin/backup.sh dumps postgres+mongo → S3. It stands up short-lived
-# `kubectl port-forward`s to postgres/mongodb/minio, rewrites the connection env to
-# the local tunnels, dumps, then tears the forwards down — resolving the DB
-# reachability problem automatically (the app's POSTGRES_HOST/MONGODB_URI resolve
-# to in-cluster names the host can't reach). We still install the timer DISABLED
-# because two prerequisites remain operator-owned:
-#   - the postgresql/mongodb clients (pg_dump/mongodump) and `mc` are NOT
-#     installed by bootstrap; backup.sh needs them on the host.
-#   - BACKUP_BUCKET must be provisioned + the instance role granted s3:PutObject.
-# (kubectl + a working kubeconfig already exist for the `minikube` user that runs
-# the unit, so the port-forwards succeed.) Once the clients + bucket are wired up:
-# `systemctl enable --now pipeline-backup.timer`. Mirrors the dnf-automatic timer
-# style above, but intentionally not auto-enabled. Guarded on backup.sh presence.
+# deploy/aws/ec2/bin/backup.sh wraps deploy/bin/backup.sh --connect k8s: it stands
+# up short-lived `kubectl port-forward`s to postgres/mongodb/minio, rewrites the
+# connection env to the local tunnels, dumps to S3, then tears the forwards down —
+# so the in-cluster names in .env never need to be host-reachable. kubectl and a
+# working kubeconfig already exist for the `minikube` user that runs the unit.
+#
+# The unit + timer are always installed; whether the timer is ENABLED is decided
+# below from what is actually usable (dump clients present AND BACKUP_BUCKET set).
+# Provisioning the bucket and granting the instance role s3:PutObject stay
+# operator-owned. Guarded on backup.sh presence.
 echo ""
 echo "========================================"
-echo "Phase 11: Install backup timer (disabled — review before enabling)"
+echo "Phase 11: Install backup timer"
 echo "========================================"
-# The ec2 backup.sh wraps deploy/bin/backup.sh --connect k8s: it stands up
-# short-lived kubectl port-forwards to the in-cluster datastores, rewrites the
-# connection env, dumps, and tears them down — so the in-cluster names in .env
-# don't need to be host-reachable.
 BACKUP_SH="${INSTALL_DIR}/deploy/aws/ec2/bin/backup.sh"
 if [ -f "$BACKUP_SH" ]; then
   # --- Install backup client prereqs (best-effort; never fail the provision) ---
@@ -557,15 +538,10 @@ BACKUPTIMER
 
   systemctl daemon-reload
 
-  # Auto-enable the timer when it can actually succeed: a backup bucket must be
-  # configured in the deploy .env AND the required clients must be present. This
-  # flips backups from "always installed disabled" to "on by default whenever the
-  # prerequisites are satisfied" — the common production case — while a provision
-  # with no BACKUP_BUCKET (or where a client failed to install) keeps the timer
-  # DISABLED rather than failing a backup nightly (a false-red every night).
-  # Provisioning the bucket and granting the instance role s3:PutObject remains
-  # operator-owned (AWS-account specific); this only decides enablement, it never
-  # creates the bucket or touches IAM.
+  # Enable the timer only when it can actually succeed: BACKUP_BUCKET set in the
+  # deploy .env AND both dump clients present. Otherwise leave it DISABLED —
+  # a nightly backup that cannot work is a false-red every night. This decides
+  # enablement only; it never creates the bucket or touches IAM.
   BACKUP_ENV="${DEPLOY_DIR}/.env"
   backup_bucket="$(grep -E '^BACKUP_BUCKET=' "$BACKUP_ENV" 2>/dev/null | tail -n1 | cut -d= -f2-)"
   backup_bucket="${backup_bucket%\"}"; backup_bucket="${backup_bucket#\"}"   # strip double quotes

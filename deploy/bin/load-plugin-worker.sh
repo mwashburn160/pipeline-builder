@@ -60,12 +60,8 @@ dockerfile="$plugin_dir/Dockerfile"
 image_tar="$plugin_dir/image.tar"
 
 build_type="build_image"
-# `|| true`: get_spec_field is `grep | head | sed`, so an ABSENT `buildType:`
-# returns non-zero. As the tail of this `&&` list that trips `set -e` and kills
-# the worker BEFORE any counter is written — the plugin is then tallied in
-# neither succeeded/skipped/failed and the parent's exit gate reads green while
-# the plugin never uploaded. The empty case is already handled on the next line.
-[ -f "$config" ] && build_type=$(get_spec_field buildType "$config" || true)
+# An absent `buildType:` yields "" (get_spec_field's contract), handled below.
+[ -f "$config" ] && build_type=$(get_spec_field buildType "$config")
 [ -z "$build_type" ] && build_type="build_image"
 
 # Auto-detect metadata_only: no Dockerfile and no image.tar
@@ -155,11 +151,16 @@ fi
 # `|| _rc=$?` is required: curl_with_retry returns 1 (fail) / 2 (exists), and
 # under `set -e` a bare call would abort the worker before the dispatch below,
 # skipping the _count and corrupting the parent's summary.
+#
+# No `x-org-id` header: the tenant comes from the loader's own token. nginx
+# OVERWRITES x-org-id on every proxied request (`proxy_set_header x-org-id
+# $jwt_org_id`), and api-core's getIdentity ignores the header outright for a
+# user or service-account principal — so sending one only looked like it chose
+# the org. The `official-catalog-loader` account already lives in the system org.
 _rc=0
 curl_with_retry "$label" \
   -X POST "${PLATFORM_BASE_URL}/api/plugins/upload" \
   --max-time "$UPLOAD_TIMEOUT" \
-  -H "x-org-id: system" \
   -F "plugin=@${zip_file}" \
   -F "visibility=public" \
   -F "publishRequest=true" || _rc=$?

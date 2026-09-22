@@ -50,7 +50,9 @@ CERT_DIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -*) echo "Unknown option: $1" >&2; exit 1 ;;
-    *) CERT_DIR="$1"; shift ;;
+    # One positional only — a second path would otherwise silently replace it.
+    *) [ -z "$CERT_DIR" ] || { echo "Unexpected argument: $1 (cert_dir already set to '$CERT_DIR')" >&2; exit 1; }
+       CERT_DIR="$1"; shift ;;
   esac
 done
 CERT_DIR="${CERT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/certs}"
@@ -107,12 +109,12 @@ case "$MODE" in
     # KMS returns the SPKI public key as base64 DER; cosign verifies against PEM.
     # Written via a temp file so a failed export never truncates a good .pub.
     _tmp="$(mktemp "$KEY_DIR/.plugin-signing.pub.XXXXXX")"
-    trap 'rm -f "$_tmp"' EXIT
+    trap 'rm -f "$_tmp"' EXIT INT TERM
     aws kms get-public-key --key-id "$KMS_KEY_ID" --query PublicKey --output text \
       | base64 -d \
       | openssl pkey -pubin -inform DER -out "$_tmp"
     mv "$_tmp" "$PUB_FILE"
-    trap - EXIT
+    trap - EXIT INT TERM
     echo "  exported plugin signing public key from KMS ($KMS_KEY_ID): $PUB_FILE"
     ;;
   *)

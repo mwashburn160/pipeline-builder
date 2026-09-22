@@ -436,6 +436,25 @@ associate_pod_identity() {
   fi
 }
 
+# Create ONE scoped, customer-managed IAM policy and bind it to ONE
+# ServiceAccount via Pod Identity — the shape every grant below takes.
+# The policy is created on first run and REUSED, never rewritten: an input that
+# changed (a different From address, a re-pointed KMS alias) needs the policy
+# edited or deleted by hand, which the reuse line says.
+# Args: <service-account> <policy-name-suffix> <policy-document-json> <what-it-grants>
+grant_pod_identity() {
+  local sa="$1" suffix="$2" doc="$3" what="$4"
+  local name="${CLUSTER_NAME}-eks-${suffix}"
+  local arn="arn:aws:iam::${ACCOUNT_ID}:policy/${name}"
+  if aws iam get-policy --policy-arn "$arn" >/dev/null 2>&1; then
+    echo "  reusing IAM policy $name — delete it to rebuild from changed inputs ($what)"
+  else
+    aws iam create-policy --policy-name "$name" --policy-document "$doc" >/dev/null
+    echo "  created scoped IAM policy $name ($what)"
+  fi
+  associate_pod_identity "$sa" "$arn"
+}
+
 if [ "${EMAIL_ENABLED:-false}" = true ]; then
   SES_IDENTITY_ARN="arn:aws:ses:${REGION}:${ACCOUNT_ID}:identity/${DOMAIN}"
   SES_CONFIG_SET="${SES_CONFIGURATION_SET:-${CLUSTER_NAME}-email}"
@@ -470,18 +489,11 @@ if [ "${EMAIL_ENABLED:-false}" = true ]; then
   fi
   echo "  SES config set $SES_CONFIG_SET → SNS $TOPIC_NAME"
 
-  # Scoped IAM policy (ses:SendEmail on THIS identity + From address only) — item 3.
-  SES_POLICY_NAME="${CLUSTER_NAME}-eks-ses"
-  SES_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${SES_POLICY_NAME}"
-  if ! aws iam get-policy --policy-arn "$SES_POLICY_ARN" >/dev/null 2>&1; then
-    aws iam create-policy --policy-name "$SES_POLICY_NAME" \
-      --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"SesSendEmail\",\"Effect\":\"Allow\",\"Action\":\"ses:SendEmail\",\"Resource\":\"${SES_IDENTITY_ARN}\",\"Condition\":{\"StringEquals\":{\"ses:FromAddress\":\"${EMAIL_FROM}\"}}}]}" >/dev/null
-    echo "  created scoped IAM policy $SES_POLICY_NAME (ses:SendEmail on $DOMAIN, From=$EMAIL_FROM)"
-  else
-    echo "  reusing IAM policy $SES_POLICY_NAME (edit it if --email-from changed)"
-  fi
-  # SES is consumed by the platform service → bind to the 'platform' SA.
-  associate_pod_identity platform "$SES_POLICY_ARN"
+  # ses:SendEmail on THIS identity + From address only, consumed by the platform
+  # service → bind to the 'platform' SA.
+  grant_pod_identity platform ses \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"SesSendEmail\",\"Effect\":\"Allow\",\"Action\":\"ses:SendEmail\",\"Resource\":\"${SES_IDENTITY_ARN}\",\"Condition\":{\"StringEquals\":{\"ses:FromAddress\":\"${EMAIL_FROM}\"}}}]}" \
+    "ses:SendEmail on $DOMAIN, From=$EMAIL_FROM"
 else
   echo "  EMAIL_ENABLED!=true — skipping SES resources"
 fi
@@ -491,17 +503,10 @@ fi
 # so a single-resource ARN isn't possible; the account+service scope is the
 # tightest bound. Consumed by api/pipeline's pipeline-execution-service, which
 # resolves the CodePipeline name from the registry and calls Start/Stop.
-PIPE_POLICY_NAME="${CLUSTER_NAME}-eks-pipeline-exec"
-PIPE_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${PIPE_POLICY_NAME}"
-if ! aws iam get-policy --policy-arn "$PIPE_POLICY_ARN" >/dev/null 2>&1; then
-  aws iam create-policy --policy-name "$PIPE_POLICY_NAME" \
-    --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"CodePipelineExec\",\"Effect\":\"Allow\",\"Action\":[\"codepipeline:StartPipelineExecution\",\"codepipeline:StopPipelineExecution\",\"codepipeline:GetPipelineState\",\"codepipeline:GetPipelineExecution\"],\"Resource\":\"arn:aws:codepipeline:*:${ACCOUNT_ID}:*\"}]}" >/dev/null
-  echo "  created scoped IAM policy $PIPE_POLICY_NAME (codepipeline Start/Stop on this account's pipelines)"
-else
-  echo "  reusing IAM policy $PIPE_POLICY_NAME"
-fi
-# CodePipeline exec is consumed by the pipeline service → bind to the 'pipeline' SA.
-associate_pod_identity pipeline "$PIPE_POLICY_ARN"
+# Consumed by the pipeline service → bind to the 'pipeline' SA.
+grant_pod_identity pipeline pipeline-exec \
+  "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"CodePipelineExec\",\"Effect\":\"Allow\",\"Action\":[\"codepipeline:StartPipelineExecution\",\"codepipeline:StopPipelineExecution\",\"codepipeline:GetPipelineState\",\"codepipeline:GetPipelineExecution\"],\"Resource\":\"arn:aws:codepipeline:*:${ACCOUNT_ID}:*\"}]}" \
+  "codepipeline Start/Stop on this account's pipelines"
 
 # Plugin-image signing via KMS (PLUGIN_SIGNING_MODE=kms only). image-registry is
 # the ONLY signer, so kms:Sign + kms:GetPublicKey on exactly the plugin-signing
@@ -520,18 +525,11 @@ if [ "${PLUGIN_SIGNING_MODE:-local}" = "kms" ]; then
   esac
   _plugin_signing_key_arn=$(aws kms describe-key --key-id "$PLUGIN_SIGNING_KMS_KEY_ID" --region "$REGION" \
     --query KeyMetadata.Arn --output text)
-  SIGN_POLICY_NAME="${CLUSTER_NAME}-eks-plugin-signing"
-  SIGN_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${SIGN_POLICY_NAME}"
-  if ! aws iam get-policy --policy-arn "$SIGN_POLICY_ARN" >/dev/null 2>&1; then
-    aws iam create-policy --policy-name "$SIGN_POLICY_NAME" \
-      --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"PluginImageSigning\",\"Effect\":\"Allow\",\"Action\":[\"kms:Sign\",\"kms:GetPublicKey\"],\"Resource\":\"${_plugin_signing_key_arn}\"}]}" >/dev/null
-    echo "  created scoped IAM policy $SIGN_POLICY_NAME (kms:Sign + kms:GetPublicKey on $PLUGIN_SIGNING_KMS_KEY_ID)"
-  else
-    echo "  reusing IAM policy $SIGN_POLICY_NAME (edit it if $PLUGIN_SIGNING_KMS_KEY_ID now targets a different key)"
-  fi
+  # Plugin-image signing is performed by image-registry → bind to that SA.
+  grant_pod_identity image-registry plugin-signing \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"PluginImageSigning\",\"Effect\":\"Allow\",\"Action\":[\"kms:Sign\",\"kms:GetPublicKey\"],\"Resource\":\"${_plugin_signing_key_arn}\"}]}" \
+    "kms:Sign + kms:GetPublicKey on $PLUGIN_SIGNING_KMS_KEY_ID"
   unset _plugin_signing_key_arn
-  # Plugin-image signing is performed by image-registry → bind to the 'image-registry' SA.
-  associate_pod_identity image-registry "$SIGN_POLICY_ARN"
 else
   echo "  PLUGIN_SIGNING_MODE=local — no KMS grant for image-registry"
 fi
@@ -553,17 +551,10 @@ if [ "${TOKEN_SIGNING_MODE:-local}" = "kms" ]; then
   esac
   _token_signing_key_arn=$(aws kms describe-key --key-id "$TOKEN_SIGNING_KMS_KEY_ID" --region "$REGION" \
     --query KeyMetadata.Arn --output text)
-  TOKEN_POLICY_NAME="${CLUSTER_NAME}-eks-token-signing"
-  TOKEN_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${TOKEN_POLICY_NAME}"
-  if ! aws iam get-policy --policy-arn "$TOKEN_POLICY_ARN" >/dev/null 2>&1; then
-    aws iam create-policy --policy-name "$TOKEN_POLICY_NAME" \
-      --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"TokenSigning\",\"Effect\":\"Allow\",\"Action\":[\"kms:Sign\",\"kms:GetPublicKey\"],\"Resource\":\"${_token_signing_key_arn}\"}]}" >/dev/null
-    echo "  created scoped IAM policy $TOKEN_POLICY_NAME (kms:Sign + kms:GetPublicKey on $TOKEN_SIGNING_KMS_KEY_ID)"
-  else
-    echo "  reusing IAM policy $TOKEN_POLICY_NAME (edit it if $TOKEN_SIGNING_KMS_KEY_ID now targets a different key)"
-  fi
+  grant_pod_identity platform token-signing \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"TokenSigning\",\"Effect\":\"Allow\",\"Action\":[\"kms:Sign\",\"kms:GetPublicKey\"],\"Resource\":\"${_token_signing_key_arn}\"}]}" \
+    "kms:Sign + kms:GetPublicKey on $TOKEN_SIGNING_KMS_KEY_ID"
   unset _token_signing_key_arn
-  associate_pod_identity platform "$TOKEN_POLICY_ARN"
 else
   echo "  TOKEN_SIGNING_MODE=local — no KMS grant for platform"
 fi

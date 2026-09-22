@@ -21,6 +21,40 @@
 # A function can't safely expand an array (command substitution drops quoting), so the
 # `"${arr[@]+...}"` idiom must stay inline — this block is its single source of truth.
 # ─────────────────────────────────────────────────────────────────────────────
+#
+# ── WHAT IS IN HERE ──────────────────────────────────────────────────────────
+# The file is long because each helper carries the reason it exists. It is NOT
+# split into sourced parts: every caller reaches it by path, and the pieces are
+# also named individually by the deploy contract tests, the docs and two CI
+# path filters, so splitting would move the coupling rather than remove it.
+# The grouping, so you can grep to the right place (definitions appear roughly
+# in this order):
+#
+#   paths + shell setup   SCRIPT_DIR, DEPLOY_DIR, PLATFORM_BASE_URL,
+#                         DEPLOY_TARGET, the `cd /tmp` caller contract
+#   colours + logging     RED…NC, log_pass/log_fail/log_warn/log_info
+#   constants             PB_MINIO_BUCKETS (THE bucket list), PB_K8S_VERSION
+#   MinIO client          mc_setup_aliases, _mc_host_url, _urlencode
+#   token-signing KMS     pb_preflight_token_signing_kms, pb_env_value,
+#                         pb_ensure_token_signing_kms_key, _pb_kms_key_howto
+#   tool install + pins   tool-pins.sh (sourced: the shared version/checksum
+#                         pins), sha256_hash, fetch_verified, _pb_platform,
+#                         ensure_eksctl, require_yq, preflight,
+#                         require_env, ensure_istioctl, ensure_kubectl
+#   plugin catalog        get_spec_field, yq_buildargs, compute_image_tag,
+#                         list_categories, select_categories
+#   operator I/O          pb_usage_from_header, prompt_toggle, print_results,
+#                         print_errors_and_exit, print_summary (at the end)
+#   platform readiness    wait_for_health, wait_for_service_ready
+#   platform auth         PB_DEV_PASSWORD, prompt_credentials, login,
+#                         require_auth, step_up_token, _api_error
+#   service identities    _b64url_jwt, _hex_to_bin, sign_service_jwt,
+#                         _admin_org_id, _issue_service_account_key,
+#                         setup_service_account_key,
+#                         official_loader_service_account_key
+#   HTTP with retry       classify_status, is_retryable_status, _curl_authed,
+#                         curl_with_retry, check_url, check_docker_image
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Common paths.
 #
@@ -35,6 +69,13 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)}"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 PLATFORM_BASE_URL="${PLATFORM_BASE_URL:-https://localhost:8443}"
 DEPLOY_TARGET="${DEPLOY_TARGET:-docker}"
+
+# Tool version + checksum pins (tool-pins.sh) — pure data, shared with
+# provision-docker.sh, which installs some of the same tools but cannot source
+# THIS file (it must keep the caller's $PWD; see the `cd /tmp` note below).
+# Resolved from this file's own location, since the caller's dir may differ.
+# shellcheck source=tool-pins.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tool-pins.sh"
 
 # Move out of any cwd we might not be able to restore. When the script is
 # invoked via `sudo -u minikube ...` from `/home/ec2-user`, every `find`
@@ -58,9 +99,10 @@ NC='\033[0m'
 # ---- Logging helpers ----
 # Callers must initialize: PASSED=0 FAILED=0 SKIPPED=0 ERRORS=()
 
+# No log_skip: the only script that counts skips (verify-plugin-urls.sh) prints
+# its SKIP line indented to line up with check_url's output, not log_*'s.
 log_pass() { echo -e "  ${GREEN}PASS${NC} $1"; PASSED=$((PASSED + 1)); }
 log_fail() { echo -e "  ${RED}FAIL${NC} $1"; FAILED=$((FAILED + 1)); ERRORS+=("$2: $1"); }
-log_skip() { echo -e "  ${YELLOW}SKIP${NC} $1"; SKIPPED=$((SKIPPED + 1)); }
 log_warn() { echo -e "  ${YELLOW}WARN${NC} $1"; }
 log_info() { echo -e "${BLUE}==>${NC} $1"; }
 
@@ -76,10 +118,10 @@ PB_MINIO_BUCKETS="message-attachments registry loki thanos plugins plugin-quaran
 # kubectl each target installs come from this one value, so a client can never
 # drift outside kubectl's supported ±1-minor skew from its own cluster.
 #
-# ec2 previously pinned NEITHER: it took minikube's bundled default for the
-# cluster and `dl.k8s.io/release/stable.txt` for kubectl — upstream's newest,
-# which is already two minors ahead here. Only applies when a cluster is
-# CREATED; an existing one keeps the version it was built with.
+# Neither side may float: minikube's bundled default and
+# `dl.k8s.io/release/stable.txt` (upstream's newest) drift apart by minors, and
+# a skewed client breaks bring-up in ways that look like cluster faults. Only
+# applies when a cluster is CREATED; an existing one keeps its build version.
 #
 # aws/eks is deliberately NOT covered: EKS is a managed control plane on its own
 # release track, pinned separately as EKS_VERSION in its setup.sh.
@@ -133,10 +175,10 @@ _urlencode() { printf '%s' "$1" | jq -Rr '@uri'; }
 # pb_preflight_token_signing_kms — prove the KMS signing key is USABLE, before
 # the deploy does anything expensive.
 #
-# Under TOKEN_SIGNING_MODE=kms the key is created out of band, so the first
-# thing that notices a missing one used to be the key generator in Phase 4 —
-# on eks that is after `eksctl create cluster`, i.e. ~20 minutes of cluster
-# build thrown away for a one-line .env mistake. Run this before Phase 1.
+# Under TOKEN_SIGNING_MODE=kms the key is created out of band, and without this
+# the first thing to notice a missing one is the key generator in Phase 4 — on
+# eks that is after `eksctl create cluster`, i.e. ~20 minutes of cluster build
+# thrown away for a one-line .env mistake. Run this before Phase 1.
 #
 # `get-public-key` rather than `describe-key` deliberately: it is the same
 # permission platform itself needs, and it is the one the ec2 instance role is
@@ -183,12 +225,20 @@ pb_preflight_token_signing_kms() {
 # the deploy is about to seed .env from.
 #
 # Empty (not an error) when no file sets it, so the caller's own default applies.
+# Last assignment in a file wins and one layer of surrounding quotes is stripped,
+# so the answer is what `source`ing that file would have produced.
+#
+# ARGUMENT ORDER: KEY first, then the files. gen-env-secrets.sh keeps a PRIVATE
+# `_pb_env_file_value <file> <KEY>` with the opposite order for its own alert
+# pre-flight; it is deliberately not a second `pb_env_value`, because every
+# target sources both files and the last definition would silently win.
 # ---------------------------------------------------------------------------
 pb_env_value() {
   local _key="$1" _f _v; shift
   for _f in "$@"; do
     [ -f "$_f" ] || continue
-    _v=$(grep -E "^${_key}=" "$_f" 2>/dev/null | tail -1 | cut -d= -f2-) || true
+    _v=$(grep -E "^${_key}=" "$_f" 2>/dev/null | tail -1 | cut -d= -f2- \
+      | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/") || true
     if [ -n "$_v" ]; then printf '%s' "$_v"; return 0; fi
   done
   return 0
@@ -337,19 +387,19 @@ _pb_platform() {
 
 # ---------------------------------------------------------------------------
 # ensure_eksctl — install the pinned eksctl if none is on PATH (a prereq, like
-# kubectl). SHARED by eks setup.sh + shutdown.sh. To bump: change the version
-# and the four hashes together, from the release's eksctl_checksums.txt.
+# kubectl). SHARED by eks setup.sh + shutdown.sh. The version and the four
+# hashes live in tool-pins.sh, because provision-docker.sh installs the same
+# eksctl inside its throwaway container and the two must not drift.
 # ---------------------------------------------------------------------------
-EKSCTL_VERSION="v0.230.0"
 ensure_eksctl() {
   command -v eksctl >/dev/null 2>&1 && return 0
   local _os _sum _bindir _tmp
   _pb_platform
   case "${_pb_os}-${_pb_arch}" in
-    linux-amd64)  _os=Linux  _sum=a2060956f117c3065abafda5c1f681679b9c3716675d70ce4ffff46033b02c35 ;;
-    linux-arm64)  _os=Linux  _sum=21afe8a1e38f0e8153a1f27ff7af6b90e309a0411a1438139463dac2f866674d ;;
-    darwin-amd64) _os=Darwin _sum=9c169be56572dae079dc1e5e2a6efff83c4cc6fc8507e54d0a6e8f4ef14df312 ;;
-    darwin-arm64) _os=Darwin _sum=1412b7ea32efab8141c4c7ccdf96690814d659accefdf72e4e6277ea5c87470c ;;
+    linux-amd64)  _os=Linux  _sum="$EKSCTL_SHA256_LINUX_AMD64" ;;
+    linux-arm64)  _os=Linux  _sum="$EKSCTL_SHA256_LINUX_ARM64" ;;
+    darwin-amd64) _os=Darwin _sum="$EKSCTL_SHA256_DARWIN_AMD64" ;;
+    darwin-arm64) _os=Darwin _sum="$EKSCTL_SHA256_DARWIN_ARM64" ;;
     *) echo "ERROR: no pinned eksctl for ${_pb_os}-${_pb_arch} — install eksctl manually." >&2; return 1 ;;
   esac
   echo "  eksctl not found — installing ${EKSCTL_VERSION}..."
@@ -369,11 +419,10 @@ ensure_eksctl() {
 # ---------------------------------------------------------------------------
 # require_yq — ensure `yq` (mikefarah's Go YAML parser) is on PATH.
 #
-# Replaced ~150 lines of brittle awk YAML state-machine code in
-# build-plugin-images.sh — those parsers broke on
-# multi-line values, comments after value, single-quoted strings with
-# embedded commas, etc. Call this once at the top of any script that uses
-# the `yq_*` helpers below.
+# A real YAML parser, not awk: hand-rolled state machines break on multi-line
+# values, a comment after a value, and single-quoted strings with embedded
+# commas — silently, producing a wrong value rather than an error. Call this
+# once at the top of any script that uses the `yq_*` helpers below.
 # ---------------------------------------------------------------------------
 require_yq() {
   if ! command -v yq >/dev/null 2>&1; then
@@ -400,6 +449,24 @@ preflight() {
     echo "  Install them and re-run. (macOS: brew install <tool>)" >&2
     exit 1
   fi
+}
+
+# ---------------------------------------------------------------------------
+# require_env — the same fail-fast assertion for CONFIGURATION rather than
+# tools: assert one or more env vars are non-empty.
+#   $@  env var names
+#   Exits 1 on first missing var with a clear message.
+# Used by backup.sh/restore.sh and any other script that must fail fast on a
+# configuration gap instead of part-way through the work.
+# ---------------------------------------------------------------------------
+require_env() {
+  local _var
+  for _var in "$@"; do
+    if [ -z "${!_var:-}" ]; then
+      echo "ERROR: required env var '$_var' is not set" >&2
+      exit 1
+    fi
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -619,8 +686,8 @@ compute_image_tag() {
       | sha256_hash
   )
 
-  # buildArgs hashed via yq for the same reason `parse_build_arg_flags`
-  # delegates to it: awk-based YAML parsing was fragile across quoting.
+  # buildArgs hashed via yq for the same reason every other spec read goes
+  # through it (see require_yq): awk YAML parsing is fragile across quoting.
   # yq is REQUIRED here — a soft fallback would omit buildArgs from the hash on
   # a host without yq, so the same plugin would compute a different tag there
   # (cache misses / shipping a stale image). Fail loudly instead.
@@ -640,6 +707,21 @@ compute_image_tag() {
   local _hash
   _hash=$(printf '%s\n%s' "$_content_hash" "$_build_args" | sha256_hash)
   echo "p-${_name_clean}-${_hash:0:12}"
+}
+
+# ---------------------------------------------------------------------------
+# pb_usage_from_header <script> — print the script's own leading comment block
+# as its --help text, so the usage an operator reads is the same text a reader
+# of the file reads and the two cannot drift.
+#
+# Takes an ABSOLUTE path: `$0` and `${BASH_SOURCE[0]}` are whatever the invoker
+# typed, and common.sh has already cd'd to /tmp, so a relative one no longer
+# resolves. Callers pass "$SCRIPT_DIR/${BASH_SOURCE[0]##*/}" — SCRIPT_DIR is
+# absolute (computed before the source) and the basename comes from the file
+# itself, so no script has to hardcode its own name.
+# ---------------------------------------------------------------------------
+pb_usage_from_header() {
+  sed -n '2,/^set -euo/p' "$1" | grep '^#'
 }
 
 # ---------------------------------------------------------------------------
@@ -896,7 +978,7 @@ login() {
   fi
   echo "  Logged in successfully."
 
-  # Bootstrap-admin MFA exception (#8). On a fresh install the admin has no
+  # Bootstrap-admin MFA exception. On a fresh install the admin has no
   # second factor, so their session is limited to enrolment, sign-out and the
   # setup calls this script makes — enough for init, and nothing more. Say so,
   # because the limit is otherwise only discovered as a 403 on the dashboard.
@@ -921,9 +1003,8 @@ login() {
 #   echoes the compact JWT; exits 1 if openssl/jq is missing or the key is not
 #   in the bundle.
 #
-# ES256, not HMAC: since #14 every service signs with its OWN key and a verifier
-# resolves the key by `kid` and then requires the token's `sub` to name that
-# key's owner. So this signs as `service:deploy-bootstrap` with the deploy's own
+# ES256, not HMAC: every service signs with its OWN key, and a verifier resolves
+# the key by `kid` and then requires the token's `sub` to name that key's owner. So this signs as `service:deploy-bootstrap` with the deploy's own
 # key (deploy/bin/service-signing-keys.sh), which is published in the bundle like
 # any other service's. There is no shared secret left to sign with.
 #
@@ -944,22 +1025,6 @@ _b64url_jwt() {
 _hex_to_bin() {
   local _h="$1" _i
   for (( _i=0; _i<${#_h}; _i+=2 )); do printf '\x'"${_h:_i:2}"; done
-}
-# ---------------------------------------------------------------------------
-# require_env — assert that one or more env vars are non-empty.
-#   $@  env var names
-#   Exits 1 on first missing var with a clear message.
-# Used by backup.sh/restore.sh and any other script that needs to fail
-# fast on configuration gaps.
-# ---------------------------------------------------------------------------
-require_env() {
-  local _var
-  for _var in "$@"; do
-    if [ -z "${!_var:-}" ]; then
-      echo "ERROR: required env var '$_var' is not set" >&2
-      exit 1
-    fi
-  done
 }
 
 sign_service_jwt() {
@@ -1429,21 +1494,18 @@ _curl_authed() {
 #   $1  label (display name for logging)
 #   $2+ curl arguments (URL, headers, data, etc.)
 #   Env: UPLOAD_RETRIES (default 3), UPLOAD_RETRY_DELAY (default 30)
-#        CURL_BODY_FILE (optional): write response body to this path so the
-#          caller can parse partial-failure detail. Do NOT pass `-o` in
-#          "$@" — curl only honors one `-o` per URL and the hardcoded
-#          `-o /dev/null` below would silently win.
+#   The verdict is the STATUS CODE; the body is discarded. Do NOT pass `-o` in
+#   "$@" — curl honors one `-o` per URL and the `-o /dev/null` below wins.
 #   Exits: 0=ok, 1=fail, 2=exists (skip)
 # ---------------------------------------------------------------------------
 curl_with_retry() {
   local _label="$1"; shift
   local _retries="${UPLOAD_RETRIES:-3}"
   local _delay="${UPLOAD_RETRY_DELAY:-30}"
-  local _out="${CURL_BODY_FILE:-/dev/null}"
   local _attempt=1 _status _result
 
   while [ "$_attempt" -le "$_retries" ]; do
-    _status=$(_curl_authed -s -o "$_out" -w "%{http_code}" --insecure "$@" 2>/dev/null || echo "000")
+    _status=$(_curl_authed -s -o /dev/null -w "%{http_code}" --insecure "$@" 2>/dev/null || echo "000")
     _result="$(classify_status "$_status")"
 
     if [ "$_result" = "fail" ] && is_retryable_status "$_status" && [ "$_attempt" -lt "$_retries" ]; then

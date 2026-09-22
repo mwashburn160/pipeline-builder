@@ -55,7 +55,13 @@ while [ $# -gt 0 ]; do
       echo "  category/plugin  Test a specific plugin (e.g., language/java)"
       exit 0
       ;;
-    *) SPECIFIC_PLUGIN="$1"; shift ;;
+    # Exactly one positional, and no bare `*)` catch-all: an unmatched `-flag`
+    # would otherwise become the plugin name ("Plugin not found: --spec-onyl")
+    # and a second path would silently replace the first, so the run tested one
+    # plugin and reported success for the set.
+    -*) echo "Unknown option: $1" >&2; exit 1 ;;
+    *) [ -z "$SPECIFIC_PLUGIN" ] || { echo "Unexpected argument: $1 (plugin already set to '$SPECIFIC_PLUGIN')" >&2; exit 1; }
+       SPECIFIC_PLUGIN="$1"; shift ;;
   esac
 done
 
@@ -121,25 +127,23 @@ test_plugin() {
     return
   fi
 
-  # `|| true` on every get_spec_field: it is `grep | head | sed`, so an ABSENT
-  # field returns non-zero and, under `set -euo pipefail`, aborted the ENTIRE
-  # run at the first spec missing one — with no FAIL line for that plugin and no
-  # summary. A missing field must be this plugin's failure, not the framework's.
+  # An absent field yields "" (get_spec_field's contract) and is reported as
+  # THIS plugin's failure below — never as an abort of the whole run.
   local plugin_type
-  plugin_type=$(get_spec_field pluginType "$specfile" || true)
+  plugin_type=$(get_spec_field pluginType "$specfile")
   if [ "$plugin_type" != "ManualApprovalStep" ] && [ ! -f "$dockerfile" ]; then
     log_fail "Missing Dockerfile" "$fqn"
     return
   fi
 
   local spec_name spec_category
-  spec_name=$(get_spec_field name "$specfile" || true)
+  spec_name=$(get_spec_field name "$specfile")
   if [ "$spec_name" != "$plugin_name" ]; then
     log_fail "Name mismatch: spec='${spec_name}' dir='${plugin_name}'" "$fqn"
   else
     log_pass "Name matches directory"
   fi
-  spec_category=$(get_spec_field category "$specfile" || true)
+  spec_category=$(get_spec_field category "$specfile")
   if [ "$spec_category" != "$category" ]; then
     log_fail "Category mismatch: spec='${spec_category}' directory='${category}'" "$fqn"
   else

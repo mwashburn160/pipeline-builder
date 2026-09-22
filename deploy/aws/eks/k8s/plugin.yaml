@@ -29,8 +29,6 @@ spec:
 # bucket) and the build worker rehydrates it into its OWN local scratch dir
 # (see plugin-artifact-storage + ensureLocalBuildContext). So `plugins-data` is
 # a per-pod emptyDir — faster + cheaper than EFS, and no RWX PVC to manage.
-# (The two former pb-efs PVCs plugin-builds/plugin-uploads are intentionally
-# removed.)
 apiVersion: apps/v1
 kind: Deployment
 metadata:

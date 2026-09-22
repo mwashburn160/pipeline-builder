@@ -20,9 +20,8 @@
 // so in-cluster clients (buildkit) are unaffected — they never pass through
 // this filter.
 
-// Matches the in-cluster token realm the registry advertises, regardless of
-// the internal host form — `image-registry:3000/token` (EC2 minikube) or
-// `image-registry.pipeline-builder.local:3000/token` (legacy Cloud Map form).
+// Matches the in-cluster token realm the registry advertises, whatever internal
+// host form it uses (`image-registry:3000/token`, or the cluster-DNS spelling).
 // Only the realm URL is replaced; service + scope params are preserved.
 var REALM_RE = /realm="https?:\/\/[^"]*\/token"/;
 

@@ -43,8 +43,16 @@ case "$MODE" in
   k8s|docker) ;;
   *) echo "ERROR: unknown mode '$MODE' (expected k8s|docker)" >&2; exit 2 ;;
 esac
+# Only `--aws` may follow the mode. A silently-ignored second argument here is
+# how a typo'd `--awd` turns the CodePipeline credential check off without
+# saying so, and the run still reports a clean summary.
 AWS_CHECKS=false
-[ "${2:-}" = "--aws" ] && AWS_CHECKS=true
+case "${2:-}" in
+  '')     ;;
+  --aws)  AWS_CHECKS=true ;;
+  *)      echo "ERROR: unknown argument '$2' (expected --aws)" >&2; exit 2 ;;
+esac
+[ "$#" -le 2 ] || { echo "ERROR: unexpected argument '$3'" >&2; exit 2; }
 NS="${NAMESPACE:-pipeline-builder}"
 SKIP=",${SMOKE_SKIP:-},"
 # Pinned like every other busybox in the manifests.
@@ -65,10 +73,10 @@ skip() { echo "  SKIP  $1"; SKIPPED=$((SKIPPED + 1)); }
 # _exec <workload> <cmd...> — run a command in the service's container.
 _exec() {
   local svc="$1"; shift
+  # No `*)` arm: MODE is validated to k8s|docker before anything runs.
   case "$MODE" in
     k8s)    "${KC[@]}" -n "$NS" exec "deploy/$svc" -- "$@" ;;
     docker) docker exec "$svc" "$@" ;;
-    *)      echo "unknown mode $MODE" >&2; return 2 ;;
   esac
 }
 

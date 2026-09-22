@@ -18,9 +18,9 @@ set -uo pipefail
 #                 in the VPC subnets would otherwise block VPC deletion).
 #   4. Cluster  → eksctl delete cluster (nodes, VPC, Pod Identity, CFN stacks).
 #   5. ACM      → deletes the cert (only possible once the ALB releasing it is gone).
-#   6. SES/IAM  → the SES identity/config-set/SNS topic and the three customer-managed
-#                 IAM policies setup.sh creates (they belong to no stack, so nothing
-#                 else would ever remove them).
+#   6. SES/IAM  → the SES identity/config-set/SNS topic, the four customer-managed
+#                 IAM policies setup.sh creates, and the token-signing KMS key it
+#                 minted (none belong to a stack, so nothing else removes them).
 #   7. EBS      → reports (or, with --delete-volumes, deletes) the Retain'd pb-ebs volumes.
 #
 #   ./bin/shutdown.sh --cluster-name pipeline-builder --region us-east-1 \
@@ -192,12 +192,11 @@ fi
 # removed the Pod Identity associations + their roles, so these policies detach.
 #
 # The policies are created by bin/setup.sh with `aws iam create-policy` — they
-# belong to no CloudFormation stack, so NOTHING else deletes them. All three must
-# be named here: <cluster>-eks-ses (Phase 5, EMAIL_ENABLED), -eks-pipeline-exec
-# (Phase 5, ALWAYS created), -eks-plugin-signing (Phase 5, kms mode) and
-# -eks-token-signing (Phase 5, TOKEN_SIGNING_MODE=kms — the AWS default). Deleting
-# only the SES one left the rest orphaned in the account after a teardown that
-# claims to leak nothing.
+# belong to no CloudFormation stack, so NOTHING else deletes them. Every one
+# setup.sh can create must be named below, or a teardown that claims to leak
+# nothing orphans it: <cluster>-eks-ses (EMAIL_ENABLED), -eks-pipeline-exec
+# (ALWAYS), -eks-plugin-signing (PLUGIN_SIGNING_MODE=kms) and -eks-token-signing
+# (TOKEN_SIGNING_MODE=kms — the AWS default).
 log "Phase 6: SES email + IAM policies"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
 

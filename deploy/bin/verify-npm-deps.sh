@@ -10,9 +10,15 @@ set -euo pipefail
 # Usage:
 #   deploy/bin/verify-npm-deps.sh [pkg ...]    # default: the published libraries
 #
-# Exit codes: 0 = every internal dep resolves · 1 = one or more missing · 3 = could
-#             not check (missing tool, no packages to verify, registry unreachable
-#             or unreadable) — an infra error, never a pass.
+# Exit codes — THE convention shared by every deploy/bin/verify-*.sh:
+#   0  verified: everything checked passed
+#   1  FAILED: a real verdict — something is missing, unsigned or unreachable
+#   2  nothing to verify (no refs / no files). Non-zero on purpose: a gate must
+#      not go green having checked nothing.
+#   3  could not verify — an infra error, never a verdict: a missing tool, a bad
+#      argument, or the registry/network answering 5xx / rate-limiting.
+# Here: 1 = an internal dep version is unpublished; 2 = no package was verifiable;
+# 3 = a missing tool, an unreadable services.txt or an unreachable registry.
 
 SCOPE='@pipeline-builder'
 REGISTRY='https://registry.npmjs.org'
@@ -55,7 +61,7 @@ fi
 # "all resolve ✓" on a release having checked zero packages.
 if [ "${#LIBS[@]}" -eq 0 ]; then
   echo "ERROR: no packages to verify — nothing was checked, so this is not a pass." >&2
-  exit 3
+  exit 2
 fi
 
 echo "Verifying internal npm deps of ${#LIBS[@]} published package(s) …"
@@ -116,7 +122,7 @@ done
 # is wrong) — not "everything resolves".
 if [ "$CHECKED" -eq 0 ]; then
   echo "ERROR: none of the ${#LIBS[@]} package(s) are published on npm — nothing was verified." >&2
-  exit 3
+  exit 2
 fi
 
 if [ "${#MISSING[@]}" -gt 0 ]; then

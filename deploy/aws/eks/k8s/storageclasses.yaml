@@ -4,8 +4,9 @@
 # Multi-node EKS can't use the ec2 target's hostPath volumes (a pod may land on
 # any node), so workloads bind PVCs instead. Actual usage (keep in sync with the
 # manifests):
-#   - pb-ebs (RWO):  single-writer data — postgres, mongodb, prometheus, pgadmin,
-#                    minio, and the redis-sentinel StatefulSet (volumeClaimTemplate).
+#   - pb-ebs (RWO):  single-writer data — postgres, mongodb, prometheus, grafana,
+#                    pgadmin, ask-model, minio, and the redis-sentinel
+#                    StatefulSet (volumeClaimTemplate).
 #   - pb-efs (RWX):  alertmanager only (its silences/nflog need to survive a
 #                    reschedule onto any node).
 # No PVC: registry is stateless (blobs live in MinIO/S3); loki uses an emptyDir

@@ -151,13 +151,20 @@ pb_finish_env_rotation() {
   echo "  cleared ${key}_PREVIOUS — re-create the target's secrets + restart to end the overlap window"
 }
 
-# pb_env_value <env_file> <KEY>
+# Internal: _pb_env_file_value <env_file> <KEY>
 #
 # The raw value of one KEY, read from the FILE rather than the environment (so
 # it works before the caller has sourced it, and is not shadowed by an inherited
 # export). Last assignment wins, one layer of surrounding quotes stripped —
 # matching what `source` would produce.
-pb_env_value() {
+#
+# Deliberately PRIVATE and deliberately not called `pb_env_value`: common.sh
+# exports a `pb_env_value <KEY> <file>…` with the arguments the OTHER way round,
+# and every target sources both files. Two public functions of one name and
+# opposite signatures is a silent mis-read waiting for whichever file is sourced
+# last. This one stays local to the alert pre-flight; cross-file callers use
+# common.sh's.
+_pb_env_file_value() {
   grep -E "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- \
     | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
 }
@@ -203,8 +210,8 @@ _pb_check_slack_url() {
 # succeeds. What it will not do is let a placeholder through silently.
 pb_check_alert_delivery() {
   local env_file="$1" am_yml="${2:-}" crit warn bad=0
-  crit=$(pb_env_value "$env_file" SLACK_CRITICAL_WEBHOOK_URL)
-  warn=$(pb_env_value "$env_file" SLACK_WARNING_WEBHOOK_URL)
+  crit=$(_pb_env_file_value "$env_file" SLACK_CRITICAL_WEBHOOK_URL)
+  warn=$(_pb_env_file_value "$env_file" SLACK_WARNING_WEBHOOK_URL)
 
   if [ -n "$am_yml" ] && [ -f "$am_yml" ] && grep -qE 'CHANGE_ME|T00000000|api_url:' "$am_yml"; then
     echo "ERROR: $am_yml carries an inline webhook URL or placeholder." >&2
@@ -282,7 +289,7 @@ _pb_send_slack_test() {
 
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
-  local pg pgapp mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
+  local pg pgapp pgreader mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
   local powsecret emailhash auditkey reghttp auditheads
   # No token secret is generated here any more: every token is asymmetrically
   # signed and its private key is a FILE, never an env value — the user-token key
@@ -310,8 +317,8 @@ pb_gen_env_secrets() {
   registry=$(openssl rand -base64 24 | tr -d '=+/')
   # MinIO: the server root password plus one distinct secret per bucket-scoped
   # service key. These back the `minio-secret` Secret that bin/k8s-resources.sh
-  # builds — previously a literal in k8s/minio.yaml with shipped defaults, which
-  # is why they were not generated here before.
+  # builds from .env — never a literal in k8s/minio.yaml, which would make these
+  # values inert and ship the same credentials to every install.
   minioroot=$(openssl rand -base64 24 | tr -d '=+/')
   s3msg=$(openssl rand -base64 24 | tr -d '=+/')
   s3reg=$(openssl rand -base64 24 | tr -d '=+/')
