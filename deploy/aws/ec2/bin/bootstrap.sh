@@ -160,17 +160,24 @@ echo "========================================"
 echo "Phase 4: Install minikube & kubectl"
 echo "========================================"
 
-# kubectl. The VERSION floats (whatever dl.k8s.io's stable.txt names today), so
-# there is no static hash to pin — verify against the .sha256 dl.k8s.io publishes
-# beside each binary, exactly as common.sh's ensure_kubectl does. `curl -LO` alone was neither: with no -f it wrote a 404/error BODY to a
-# file named `kubectl` and exited 0, so the next line installed an HTML page as
-# /usr/local/bin/kubectl — a failure that only surfaced much later, as a broken
-# cluster. fetch_verified fails closed on both a bad response and a bad digest.
+# kubectl, at PB_K8S_VERSION — the same version Phase 9's `minikube start`
+# creates the cluster with, so client and server always match. It used to come
+# from `dl.k8s.io/release/stable.txt` (upstream's newest) while the cluster took
+# minikube's bundled default, which can exceed kubectl's supported ±1-minor
+# skew and break `apply --server-side` and CRD applies.
+#
+# The version is pinned but the hash is not: verify against the .sha256 that
+# dl.k8s.io publishes beside each binary, exactly as common.sh's ensure_kubectl
+# does. `curl -LO` alone was neither pinned nor verified — with no -f it wrote a
+# 404/error BODY to a file named `kubectl` and exited 0, so the next line
+# installed an HTML page as /usr/local/bin/kubectl, a failure that only surfaced
+# much later as a broken cluster. fetch_verified fails closed on both a bad
+# response and a bad digest.
 echo "  Installing kubectl..."
-KUBECTL_VERSION=$(curl -fsSL --retry 3 https://dl.k8s.io/release/stable.txt)
+KUBECTL_VERSION="$PB_K8S_VERSION"
 case "$KUBECTL_VERSION" in
   v[0-9]*) ;;
-  *) echo "ERROR: dl.k8s.io/release/stable.txt returned '${KUBECTL_VERSION}', not a version" >&2; exit 1 ;;
+  *) echo "ERROR: PB_K8S_VERSION is '${KUBECTL_VERSION}', not a vX.Y.Z version" >&2; exit 1 ;;
 esac
 KUBECTL_URL="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
 KUBECTL_SHA256=$(curl -fsSL --retry 3 "${KUBECTL_URL}.sha256")

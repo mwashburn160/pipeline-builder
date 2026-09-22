@@ -71,6 +71,21 @@ log_info() { echo -e "${BLUE}==>${NC} $1"; }
 # shellcheck disable=SC2034
 PB_MINIO_BUCKETS="message-attachments registry loki thanos plugins plugin-quarantine audit-heads"
 
+# THE Kubernetes version for the minikube-backed targets (local/minikube and
+# aws/ec2). Both the cluster (`minikube start --kubernetes-version`) and the
+# kubectl each target installs come from this one value, so a client can never
+# drift outside kubectl's supported ±1-minor skew from its own cluster.
+#
+# ec2 previously pinned NEITHER: it took minikube's bundled default for the
+# cluster and `dl.k8s.io/release/stable.txt` for kubectl — upstream's newest,
+# which is already two minors ahead here. Only applies when a cluster is
+# CREATED; an existing one keeps the version it was built with.
+#
+# aws/eks is deliberately NOT covered: EKS is a managed control plane on its own
+# release track, pinned separately as EKS_VERSION in its setup.sh.
+# shellcheck disable=SC2034
+PB_K8S_VERSION="${PB_K8S_VERSION:-v1.35.1}"
+
 # ---------------------------------------------------------------------------
 # mc_setup_aliases — configure the two MinIO client aliases used by backup/restore:
 #   pbsrc = this deploy's MinIO (MINIO_ENDPOINT + root creds)
@@ -79,12 +94,38 @@ PB_MINIO_BUCKETS="message-attachments registry loki thanos plugins plugin-quaran
 #   so the exit propagates to the caller, matching the previous inline behavior).
 # ---------------------------------------------------------------------------
 mc_setup_aliases() {
-  local _cfg="$1"
-  mc --config-dir "$_cfg" alias set pbsrc "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null \
-    || { echo "ERROR: mc alias set (source) failed" >&2; exit 2; }
-  mc --config-dir "$_cfg" alias set pbdst "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY" >/dev/null \
-    || { echo "ERROR: mc alias set (target) failed" >&2; exit 2; }
+  export MC_HOST_pbsrc MC_HOST_pbdst
+  MC_HOST_pbsrc="$(_mc_host_url "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" source)" || exit 2
+  MC_HOST_pbdst="$(_mc_host_url "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY" target)" || exit 2
 }
+
+# `MC_HOST_<alias>=<scheme>://<key>:<secret>@<host>` is mc's own env-var form of
+# an alias, and it is why `mc alias set` is not used: that call put the MinIO
+# ROOT credentials and the backup target's credentials in the process argv,
+# readable by any local user via `ps` for the life of the call. The environment
+# is not world-readable, so the same alias arrives without that exposure.
+#
+# The credentials are URL-ENCODED: ours are alphanumeric (gen-env-secrets.sh
+# strips `=+/`), but MINIO_BACKUP_TARGET_* are operator-supplied and a `/` or `@`
+# in a secret would otherwise silently truncate the authority and authenticate
+# as the wrong principal.
+_mc_host_url() {
+  local _endpoint="$1" _key="$2" _secret="$3" _what="$4"
+  case "$_endpoint" in
+    http://*|https://*) ;;
+    *) echo "ERROR: MinIO $_what endpoint must start with http:// or https:// (got '${_endpoint}')" >&2; return 1 ;;
+  esac
+  if [ -z "$_key" ] || [ -z "$_secret" ]; then
+    echo "ERROR: MinIO $_what credentials are empty" >&2; return 1
+  fi
+  printf '%s://%s:%s@%s' \
+    "${_endpoint%%://*}" "$(_urlencode "$_key")" "$(_urlencode "$_secret")" "${_endpoint#*://}"
+}
+
+# Percent-encode a string for use in a URL's userinfo. `jq -Rr @uri` rather than
+# a shell loop: jq is already a hard preflight requirement for every script that
+# reaches here, and a pure-bash encoder would have to special-case the locale.
+_urlencode() { printf '%s' "$1" | jq -Rr '@uri'; }
 
 # ---------------------------------------------------------------------------
 # get_spec_field — extract a top-level field from a YAML file (e.g. plugin-spec.yaml)
@@ -1209,7 +1250,32 @@ is_retryable_status() {
 }
 
 # ---------------------------------------------------------------------------
+# _curl_authed — curl, with the bearer token supplied OUT OF BAND.
+#
+# `-H "Authorization: Bearer $JWT_TOKEN"` puts the token in the process argv,
+# where any local user's `ps` can read it for the life of the request — the same
+# reasoning push-base-images.sh documents for routing its JWT through the
+# environment. curl's `--config` takes the header from a file instead, and a
+# process substitution keeps that file off disk entirely: `printf` is a shell
+# BUILTIN, so the subshell never execs and never gets an argv of its own.
+#
+# The substitution is re-created per call because a config fd can only be read
+# once — hoisting it out of curl_with_retry's retry loop would send the header
+# on the first attempt and an empty config on every retry.
+#
+# Callers must NOT pass their own Authorization header; set JWT_TOKEN instead.
+# ---------------------------------------------------------------------------
+_curl_authed() {
+  if [ -n "${JWT_TOKEN:-}" ]; then
+    curl --config <(printf 'header = "Authorization: Bearer %s"\n' "$JWT_TOKEN") "$@"
+  else
+    curl "$@"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # curl_with_retry — POST with retry loop on retryable HTTP status codes
+#   Sends `Authorization: Bearer $JWT_TOKEN` automatically (see _curl_authed).
 #   $1  label (display name for logging)
 #   $2+ curl arguments (URL, headers, data, etc.)
 #   Env: UPLOAD_RETRIES (default 3), UPLOAD_RETRY_DELAY (default 30)
@@ -1227,7 +1293,7 @@ curl_with_retry() {
   local _attempt=1 _status _result
 
   while [ "$_attempt" -le "$_retries" ]; do
-    _status=$(curl -s -o "$_out" -w "%{http_code}" --insecure "$@" 2>/dev/null || echo "000")
+    _status=$(_curl_authed -s -o "$_out" -w "%{http_code}" --insecure "$@" 2>/dev/null || echo "000")
     _result="$(classify_status "$_status")"
 
     if [ "$_result" = "fail" ] && is_retryable_status "$_status" && [ "$_attempt" -lt "$_retries" ]; then

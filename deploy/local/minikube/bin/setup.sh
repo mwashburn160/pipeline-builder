@@ -17,15 +17,6 @@ PROFILE="pipeline-builder"
 # NOTE: no host DATA_DIR here — with the minikube docker driver the cluster's
 # persistent data lives INSIDE the VM at VM_DATA_DIR (/data), not under the host
 # deploy dir. See the VM_DATA_DIR mounts below.
-# Kubernetes version for the cluster. PIN it rather than letting minikube pick
-# its built-in default: that default moves with every minikube release (upgrading
-# minikube silently jumps the local cluster a minor or two), which both breaks
-# reproducibility against the EKS target and widens the skew from the host
-# kubectl. Mirrors deploy/aws/eks's `--eks-version` pin. Applied at cluster
-# CREATE only — an existing cluster keeps the version it was created with.
-# Bounded above by what the installed minikube supports (`minikube config
-# defaults kubernetes-version`).
-K8S_VERSION="${K8S_VERSION:-v1.35.1}"
 # LEAN=1 drops the optional observability + admin services (prometheus, thanos,
 # loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali)
 # from the apply so
@@ -68,6 +59,20 @@ VM_DATA_DIR="/data"
 #                        functions ec2 and eks run, with plain kubectl here.
 # common.sh cd's to /tmp on source; every path below is absolute so that's safe.
 . "$BIN_DIR/common.sh"
+# Kubernetes version for the cluster. PIN it rather than letting minikube pick
+# its built-in default: that default moves with every minikube release (upgrading
+# minikube silently jumps the local cluster a minor or two), which both breaks
+# reproducibility against the EKS target and widens the skew from the host
+# kubectl. Applied at cluster CREATE only — an existing cluster keeps the version
+# it was created with. Bounded above by what the installed minikube supports
+# (`minikube config defaults kubernetes-version`).
+#
+# The default is common.sh's PB_K8S_VERSION, which aws/ec2 (also a minikube
+# cluster) pins BOTH its cluster and its kubectl to, so the two minikube-backed
+# targets cannot drift apart. Resolved here rather than in the config block
+# above because PB_K8S_VERSION does not exist until common.sh is sourced, and
+# `set -u` makes that a hard failure rather than a silent empty default.
+K8S_VERSION="${K8S_VERSION:-$PB_K8S_VERSION}"
 . "$BIN_DIR/gen-env-secrets.sh"
 . "$BIN_DIR/mongo-keyfile.sh"
 # PB_KUBECTL/PB_NAMESPACE are consumed by the sourced k8s-resources.sh.

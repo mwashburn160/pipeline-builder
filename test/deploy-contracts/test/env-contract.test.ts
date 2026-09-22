@@ -97,10 +97,27 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
   });
 
   it('configures ES256 user-token signing', () => {
-    // Platform is the only minter; every other verifier reads the JWKS. `local`
-    // is the shipped default on every target so a fresh deploy needs no manual
-    // AWS step; the AWS targets document the KMS switch alongside it.
-    expect(env.TOKEN_SIGNING_MODE).toBe('local');
+    // Platform is the only minter; every other verifier reads the JWKS.
+    //
+    // The mode is deliberately NOT uniform. The AWS targets default to `kms`,
+    // where the key that mints a person's session never leaves AWS, so reading
+    // the host's disk yields no signing key — worth the one prerequisite it
+    // adds (the KMS key must exist before the first deploy; setup fails closed
+    // if TOKEN_SIGNING_KMS_KEY_ID is unset rather than falling back to a file).
+    // docker/minikube stay `local`: there is no KMS to reach, and a laptop
+    // deploy must need no AWS account at all.
+    const isAws = target.includes('/aws/');
+    expect(env.TOKEN_SIGNING_MODE).toBe(isAws ? 'kms' : 'local');
+    if (isAws) {
+      // By ALIAS, never an ARN — an ARN embeds the AWS account id, and
+      // platform's own validation rejects one. The alias must match what the
+      // IAM grant is scoped to (ec2: the TokenSigningKmsAlias stack parameter,
+      // eks: resolved by setup.sh), or every sign call AccessDenies.
+      expect(env.TOKEN_SIGNING_KMS_KEY_ID).toMatch(/^alias\/[A-Za-z0-9/_-]+$/);
+      expect(env.TOKEN_SIGNING_KMS_KEY_ID).not.toMatch(/^arn:/);
+      expect(env.TOKEN_SIGNING_KMS_KEY_PREVIOUS_ID).toBe('');
+    }
+    // Kept on every target: local mode reads it, and kms mode ignores it.
     expect(env.TOKEN_SIGNING_KEY_FILE).toBe('/etc/pipeline-builder/keys/token-signing.key');
     // Rotation overlap — declared and EMPTY, so the manifests can reference it
     // unconditionally (same convention as every *_PREVIOUS value).

@@ -519,6 +519,40 @@ else
   echo "  PLUGIN_SIGNING_MODE=local — no KMS grant for image-registry"
 fi
 
+# User-token signing via KMS (TOKEN_SIGNING_MODE=kms, the AWS default). This is
+# the key that mints a PERSON's session, so the grant goes to 'platform' and to
+# nothing else — no other workload may ever mint a user token. Same alias-only
+# rule as plugin signing: an ARN embeds the AWS account id and platform's own
+# validation rejects one, so the ARN is resolved here purely because an IAM
+# policy Resource must be a key ARN, and it never leaves this shell.
+# platform reaches the Pod Identity agent + KMS via k8s/networkpolicy.yaml,
+# which already allows 169.254.170.23 for exactly this.
+if [ "${TOKEN_SIGNING_MODE:-local}" = "kms" ]; then
+  case "${TOKEN_SIGNING_KMS_KEY_ID:-}" in
+    alias/?*) ;;
+    *) echo "ERROR: TOKEN_SIGNING_MODE=kms needs TOKEN_SIGNING_KMS_KEY_ID=alias/<name> in .env (by alias, never ARN)." >&2
+       echo "       Create the key first:" >&2
+       echo "         aws kms create-key --key-spec ECC_NIST_P256 --key-usage SIGN_VERIFY" >&2
+       echo "         aws kms create-alias --alias-name alias/pipeline-builder-token-signing --target-key-id <key-id>" >&2
+       exit 1 ;;
+  esac
+  _token_signing_key_arn=$(aws kms describe-key --key-id "$TOKEN_SIGNING_KMS_KEY_ID" --region "$REGION" \
+    --query KeyMetadata.Arn --output text)
+  TOKEN_POLICY_NAME="${CLUSTER_NAME}-eks-token-signing"
+  TOKEN_POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${TOKEN_POLICY_NAME}"
+  if ! aws iam get-policy --policy-arn "$TOKEN_POLICY_ARN" >/dev/null 2>&1; then
+    aws iam create-policy --policy-name "$TOKEN_POLICY_NAME" \
+      --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"TokenSigning\",\"Effect\":\"Allow\",\"Action\":[\"kms:Sign\",\"kms:GetPublicKey\"],\"Resource\":\"${_token_signing_key_arn}\"}]}" >/dev/null
+    echo "  created scoped IAM policy $TOKEN_POLICY_NAME (kms:Sign + kms:GetPublicKey on $TOKEN_SIGNING_KMS_KEY_ID)"
+  else
+    echo "  reusing IAM policy $TOKEN_POLICY_NAME (edit it if $TOKEN_SIGNING_KMS_KEY_ID now targets a different key)"
+  fi
+  unset _token_signing_key_arn
+  associate_pod_identity platform "$TOKEN_POLICY_ARN"
+else
+  echo "  TOKEN_SIGNING_MODE=local — no KMS grant for platform"
+fi
+
 # ---- Phase 6: KEDA (plugin ScaledObject CRD) -------------------------------
 log "Phase 6: KEDA operator"
 # Auto Mode does NOT bundle KEDA; plugin.yaml's ScaledObject needs it.

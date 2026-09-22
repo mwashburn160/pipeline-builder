@@ -133,7 +133,7 @@ if [ "$MINIO_RESTORE" = "1" ]; then
   MINIO_BACKUP_TARGET_BUCKET="${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
   MC_CONFIG_DIR="${WORKDIR}/.mc"
 
-  mc_setup_aliases "$MC_CONFIG_DIR"
+  mc_setup_aliases
   for b in ${MINIO_BUCKETS}; do
     echo "[minio] restoring ${b} ← ${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
     mc --config-dir "$MC_CONFIG_DIR" mb --ignore-existing "pbsrc/${b}" >/dev/null 2>&1 || true

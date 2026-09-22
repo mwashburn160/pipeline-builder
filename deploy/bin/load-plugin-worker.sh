@@ -159,7 +159,6 @@ _rc=0
 curl_with_retry "$label" \
   -X POST "${PLATFORM_BASE_URL}/api/plugins/upload" \
   --max-time "$UPLOAD_TIMEOUT" \
-  -H "Authorization: Bearer ${JWT_TOKEN}" \
   -H "x-org-id: system" \
   -F "plugin=@${zip_file}" \
   -F "visibility=public" \

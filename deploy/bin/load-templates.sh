@@ -72,7 +72,6 @@ upload_template() {
   local _rc=0
   curl_with_retry "$dir_name" \
     -X POST "${PLATFORM_BASE_URL}/api/pipeline-templates" \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "x-org-id: system" \
     -d @"$body_file" || _rc=$?
@@ -93,6 +92,10 @@ echo ""
 
 command -v jq >/dev/null 2>&1 || { echo "ERROR: jq not found in PATH" >&2; exit 1; }
 
+# Set by require_auth, read by common.sh's curl_with_retry (which sends the
+# bearer via --config so the token never lands in argv) — hence no direct
+# reference in this file.
+# shellcheck disable=SC2034
 JWT_TOKEN=""
 [ "$DRY_RUN" = false ] && require_auth
 

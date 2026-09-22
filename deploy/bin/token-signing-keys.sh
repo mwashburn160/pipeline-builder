@@ -7,13 +7,20 @@
 # holder; every other service verifies against the public half it publishes at
 # /.well-known/jwks.json, so this key is never distributed anywhere else.
 #
-# This is the LOCAL signer (TOKEN_SIGNING_MODE=local) — which is what EVERY
-# target ships: docker, minikube, ec2 and eks all set TOKEN_SIGNING_MODE=local
-# in their .env.example, so all four run this generator by default.
-# TOKEN_SIGNING_MODE=kms is OPT-IN, available on the AWS targets: set it (plus
-# TOKEN_SIGNING_KMS_KEY_ID) and the private key stays inside KMS, this script's
-# output is unused and no token-signing Secret is created
-# (deploy/bin/k8s-resources.sh:176). See docs/runbooks/secret-rotation.md.
+# This is the LOCAL signer (TOKEN_SIGNING_MODE=local), which is what the LOCAL
+# targets ship: docker and minikube have no KMS to reach, so they run this
+# generator and platform mounts the key it writes.
+#
+# The AWS targets (ec2, eks) default to TOKEN_SIGNING_MODE=kms, where the
+# private key never leaves AWS: this script generates nothing, no token-signing
+# Secret is created (pb_create_token_signing_secret skips it), and platform
+# signs through kms:Sign. That needs an ECC_NIST_P256 SIGN_VERIFY key to exist
+# BEFORE the first deploy, named by alias in TOKEN_SIGNING_KMS_KEY_ID — this
+# script fails closed if it is missing rather than writing a key on disk that
+# would look like the live signer. The IAM grant is the instance role
+# (ec2 template.yaml) or a Pod Identity association (eks setup.sh), scoped to
+# that alias. Set TOKEN_SIGNING_MODE=local to opt back out.
+# See docs/runbooks/secret-rotation.md.
 #
 #   token-signing-keys.sh [cert_dir] [--rotate]
 #
@@ -49,6 +56,31 @@ CERT_DIR="${CERT_DIR:-$(cd "$(dirname "$0")/.." && pwd)/certs}"
 KEY_DIR="$CERT_DIR/token-signing"
 KEY_FILE="$KEY_DIR/token-signing.key"
 PREV_FILE="$KEY_DIR/token-signing-previous.key"
+
+# KMS mode: the signing key lives in AWS and this generator has nothing to do.
+# Validate the alias and STOP — do not write a local key that nothing would use
+# and that would sit on disk looking like the live signer. Mirrors the same
+# guard in plugin-signing-keys.sh.
+if [ "${TOKEN_SIGNING_MODE:-local}" = "kms" ]; then
+  case "${TOKEN_SIGNING_KMS_KEY_ID:-}" in
+    alias/?*) ;;
+    "") echo "TOKEN_SIGNING_MODE=kms requires TOKEN_SIGNING_KMS_KEY_ID (alias/<name>)" >&2
+        echo "  Create the key once, before deploying:" >&2
+        echo "    aws kms create-key --key-spec ECC_NIST_P256 --key-usage SIGN_VERIFY" >&2
+        echo "    aws kms create-alias --alias-name alias/pipeline-builder-token-signing --target-key-id <key-id>" >&2
+        exit 1 ;;
+    *) echo "refusing TOKEN_SIGNING_KMS_KEY_ID='${TOKEN_SIGNING_KMS_KEY_ID}': name the key BY ALIAS (alias/<name>) — an ARN embeds the AWS account id" >&2
+       exit 1 ;;
+  esac
+  # A key from an earlier local-mode run is NOT what KMS signs with. Refuse
+  # rather than leave a stale private key that no longer mints anything.
+  if [ -f "$KEY_FILE" ]; then
+    echo "refusing: $KEY_FILE exists but TOKEN_SIGNING_MODE=kms — remove it (the KMS key replaces it; see docs/runbooks/secret-rotation.md)" >&2
+    exit 1
+  fi
+  echo "  token signing: KMS mode ($TOKEN_SIGNING_KMS_KEY_ID) — no local key generated"
+  exit 0
+fi
 
 mkdir -p "$KEY_DIR"
 

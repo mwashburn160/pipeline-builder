@@ -194,7 +194,7 @@ if [ "$WANT_MINIO" = "1" ]; then
   MC_CONFIG_DIR="${WORKDIR}/.mc"
 
   if [ "$DRY_RUN" != "1" ]; then
-    mc_setup_aliases "$MC_CONFIG_DIR"
+    mc_setup_aliases
     for b in ${MINIO_BUCKETS}; do
       echo "  mirroring ${b} → ${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
       mc --config-dir "$MC_CONFIG_DIR" mirror --overwrite --quiet \

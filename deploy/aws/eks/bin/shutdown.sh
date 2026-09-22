@@ -194,9 +194,10 @@ fi
 # The policies are created by bin/setup.sh with `aws iam create-policy` — they
 # belong to no CloudFormation stack, so NOTHING else deletes them. All three must
 # be named here: <cluster>-eks-ses (Phase 5, EMAIL_ENABLED), -eks-pipeline-exec
-# (Phase 5, ALWAYS created) and -eks-plugin-signing (Phase 5, kms mode). Deleting
-# only the SES one left the other two orphaned in the account after a teardown
-# that claims to leak nothing.
+# (Phase 5, ALWAYS created), -eks-plugin-signing (Phase 5, kms mode) and
+# -eks-token-signing (Phase 5, TOKEN_SIGNING_MODE=kms — the AWS default). Deleting
+# only the SES one left the rest orphaned in the account after a teardown that
+# claims to leak nothing.
 log "Phase 6: SES email + IAM policies"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
 
@@ -218,6 +219,7 @@ if [ -n "$ACCOUNT_ID" ] && [ "$ACCOUNT_ID" != None ]; then
   delete_managed_policy "${CLUSTER_NAME}-eks-ses"
   delete_managed_policy "${CLUSTER_NAME}-eks-pipeline-exec"
   delete_managed_policy "${CLUSTER_NAME}-eks-plugin-signing"
+  delete_managed_policy "${CLUSTER_NAME}-eks-token-signing"
   aws sns delete-topic --topic-arn "arn:aws:sns:${REGION}:${ACCOUNT_ID}:${CLUSTER_NAME}-email-events" --region "$REGION" 2>/dev/null \
     && echo "  deleted SNS topic ${CLUSTER_NAME}-email-events" || true
 fi

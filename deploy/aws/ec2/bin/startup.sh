@@ -206,7 +206,11 @@ echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M RAM → Minikube: ${MK_CPUS} CP
 # the EC2 host's $DATA_DIR, where all DB/minio data lives); the sizing flags are
 # CREATE-ONLY.
 MK_MOUNT_ARGS=(--mount --mount-string="$DATA_DIR:$DATA_DIR")
-MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker "${MK_MOUNT_ARGS[@]}")
+# --kubernetes-version is CREATE-ONLY too, and pins the cluster to the same
+# PB_K8S_VERSION that bootstrap.sh installed kubectl at (mirrors what the
+# local/minikube target does). Without it minikube picks its own bundled
+# default, which can drift outside kubectl's supported ±1-minor skew.
+MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="$DISK_SIZE" --driver=docker --kubernetes-version="$PB_K8S_VERSION" "${MK_MOUNT_ARGS[@]}")
 
 # RESUME an existing cluster with just the mount (no create-only sizing flags —
 # those can exit non-zero on an existing cluster and trip a delete/recreate). A

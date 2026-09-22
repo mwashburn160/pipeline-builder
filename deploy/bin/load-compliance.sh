@@ -38,7 +38,6 @@ post_with_retry() {
   curl_with_retry "$3" \
     -X POST "$1" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $JWT_TOKEN" \
     -d @"$2" || _rc=$?
   case "$_rc" in
     0) SUCCEEDED=$((SUCCEEDED + 1)) ;;
