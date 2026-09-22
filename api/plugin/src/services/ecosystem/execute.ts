@@ -163,7 +163,12 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
       changelog: plugin.changelog,
       vulnCritical: plugin.vulnCritical,
       vulnHigh: plugin.vulnHigh,
+      vulnCriticalFixable: plugin.vulnCriticalFixable,
+      vulnHighFixable: plugin.vulnHighFixable,
       scannedAt: plugin.scannedAt,
+      // The rescan's flag travels with the image: the public copy is the same digest.
+      scanFlaggedAt: plugin.scanFlaggedAt,
+      scanFlag: plugin.scanFlag,
       baseImageCreatedAt,
       publishedBy: actor,
     });

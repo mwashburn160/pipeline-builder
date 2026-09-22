@@ -248,7 +248,9 @@ describe('POST /plugins — compliance image facts', () => {
     const [, attrs, , , , , deferred] = mockValidatePlugin.mock.calls[0]!;
     expect(attrs).toMatchObject({ tags: ['cve'] });
     expect(attrs).not.toHaveProperty('signed');
-    expect(deferred).toEqual(['signed', 'scanned', 'vulnCritical', 'vulnHigh', 'vulnMedium', 'vulnLow', 'runAsRoot', 'packages']);
+    expect(deferred).toEqual([
+      'signed', 'scanned', 'vulnCritical', 'vulnHigh', 'vulnMedium', 'vulnLow', 'vulnCriticalFixable', 'vulnHighFixable', 'runAsRoot', 'packages',
+    ]);
     const job = mockEnqueueBuild.mock.calls[0]![2] as any;
     // JSON-safe on the BullMQ job: the worker converts it to a Date.
     expect(job.pluginRecord.quotaResetAt).toBe('2026-09-24T00:00:00.000Z');

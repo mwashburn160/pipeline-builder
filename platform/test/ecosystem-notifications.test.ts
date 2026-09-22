@@ -175,6 +175,27 @@ describe('resolveEcosystemRecipients', () => {
     expect([...users.keys()]).toEqual(['teamOwner']);
   });
 
+  it('org_members: only the named users who are ACTIVE members of that org, inboxed there; malformed ids never reach the query', async () => {
+    const [active, left, other, unknown] = ['a1', 'a2', 'a3', 'a4'].map((p) => p.padEnd(24, '0'));
+    db.memberships.push(
+      { userId: active, organizationId: SYSTEM, isActive: true, role: 'member' },
+      { userId: left, organizationId: SYSTEM, isActive: false, role: 'member' },
+      { userId: other, organizationId: PUB, isActive: true, role: 'member' },
+      { userId: 'mod1', organizationId: SYSTEM, isActive: true, role: 'member' },
+    );
+    const { users } = await resolveEcosystemRecipients([
+      { kind: 'org_members', orgId: SYSTEM, userIds: [active!, left!, other!, unknown!, 'mod1'] },
+    ]);
+    // `left` left, `other` is another org's member, `unknown` doesn't exist, 'mod1' isn't an id.
+    expect([...users.entries()]).toEqual([[active, { inboxOrgId: SYSTEM }]]);
+  });
+
+  it('org_permission plugins:write (plugin security notices): holders, else the owners', async () => {
+    db.roles.push({ _id: 'rWriter', organizationId: PUB, permissions: ['plugins:read', 'plugins:write'] });
+    db.assignments.push({ userId: 'pubAdmin', roleId: 'rWriter', organizationId: PUB });
+    expect([...(await resolveEcosystemRecipients([{ kind: 'org_permission', orgId: PUB, permission: 'plugins:write' }])).users.keys()]).toEqual(['pubAdmin']);
+  });
+
   it('user: the named user, inboxed in the given org or their last active org; unknown users drop', async () => {
     const { users } = await resolveEcosystemRecipients([
       { kind: 'user', userId: 'requester' },
@@ -237,6 +258,17 @@ describe('deliverEcosystemNotification', () => {
     expect(mockInApp).not.toHaveBeenCalled();
     const inAppOnly = await deliverEcosystemNotification({ event: 'N26', subject: 's', text: 't', recipients: [{ kind: 'user', userId: 'pubAdmin' }] });
     expect(inAppOnly).toMatchObject({ inApp: 1, emailed: 0 });
+  });
+
+  it('emails an org\'s verified external security address on N30/N31 alongside its members', async () => {
+    const report = await deliverEcosystemNotification({
+      event: 'N31',
+      recipients: [{ kind: 'user', userId: 'pubAdmin', orgId: PUB }, { kind: 'address', email: 'sec@pub.io' }],
+      subject: 'Rescan found new Critical/High in plugin lint@1.0.0',
+      text: 't',
+    });
+    expect(report).toMatchObject({ recipientCount: 2, inApp: 1, emailed: 2 });
+    expect(mockSend.mock.calls.map((c) => (c[0] as { to: string }).to).sort()).toEqual(['pubadmin@pub.io', 'sec@pub.io']);
   });
 
   it('emails an anonymous submitter address (N1) and counts failed sends', async () => {

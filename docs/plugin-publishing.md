@@ -55,6 +55,22 @@ Publishing is available on every plan, within a **listings** limit: the number o
   If the checks can't be run at that moment the application is refused as unavailable (503); try again shortly.
 - **Verified below Team.** If your plan drops below Team, your Verified badge stays for a **30-day grace period** (notice N29, with reminders at 14 and 3 days left). If the plan still doesn't include Verified publishing when the grace period ends, the tier returns to Community and every image is re-signed.
 
+## Scan gates
+
+Every plugin image is scanned for vulnerabilities when it's built: an SBOM is made with syft and scanned with grype. This applies to every build, not just published ones: uploads, prebuilt images, AI-generated plugins, bulk uploads and the catalog loader. Anonymous submissions go through the same gate.
+
+**Fixable findings.** A finding is **fixable** when the scanner knows a version of the affected package that fixes it. The gates count **fixable Critical** findings only, because a Critical with no fix yet can't be resolved by rebuilding. Plugin views show both numbers for Critical and High, for example **2 fixable / 5 Critical**.
+
+**A build that can't be scanned fails.** If the scan can't run, the build is retried like any other transient failure. After the last attempt it fails with `IMAGE_SCAN_UNAVAILABLE`: nothing is stored and the plugin quota the upload reserved is released. Build it again once the scanner is back.
+
+The operator can let such builds through with `PLUGIN_ALLOW_UNSCANNED=true`. The version is then stored without a scan, shows an **Unscanned** badge, and the skip is audited (`plugin.scan.skipped`).
+
+**The platform floor.** A version with more fixable Critical findings than `PLUGIN_VULN_MAX_CRITICAL` fails its build with `PLUGIN_VULN_GATE` (default `0`, so any fixable Critical fails; `-1` turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser.
+
+**Nightly rescans.** Stored versions are rescanned every night against the latest vulnerability data. This includes every listed version, which is rescanned from its own public image even if the organization that built it has since deleted the plugin. When a rescan finds more fixable Critical findings than the floor allows, the version is **flagged**: plugin views show **Flagged by rescan** with the top findings and their fixed versions, and pipelines that resolve it get a `VULN_FLAGGED` warning (see [Plugin Installing](plugin-installing.md#vulnerability-scans-and-rescans)). The flag clears on the first rescan that finds the findings resolved. To clear it yourself, rebuild the plugin on patched packages, or publish a new version.
+
+**Who is told.** A blocked build (notice N30) is always reported right away. New Critical or High findings from a rescan (notice N31) follow your organization's settings. Admins set both under **Settings → Organization → Plugin security notifications**: who receives them (the uploader and everyone who can write plugins, or chosen members), whether rescan findings are sent and as a daily or weekly digest, an optional signed webhook, and one external address. The external address gets nothing until its owner opens the confirmation link and presses **Confirm address**. **Send test** sends a test notice to every configured channel.
+
 ## Requests
 
 Every change to the ecosystem is a request. Open requests show on the Publisher page's **Requests** tab, where you can withdraw them.
@@ -80,7 +96,7 @@ A new-listing or new-version request is refused, with the list of failing checks
 - has **public** visibility;
 - declares an **SPDX license**;
 - ships a **README**;
-- if it produces an image, is **signed** (it has a digest), **scanned**, and has no **critical** vulnerabilities (the vulnerability gate).
+- if it produces an image, is **signed** (it has a digest), **scanned**, and has no more **fixable critical** vulnerabilities than the instance allows (the vulnerability gate; see [Scan gates](#scan-gates)).
 
 ### The digest is pinned
 
@@ -182,7 +198,7 @@ The instance must turn it on: `ANONYMOUS_SUBMISSIONS_ENABLED=true`, **and** outb
    - the license is an allowed SPDX identifier;
    - the Dockerfile and spec have no lint errors;
    - the image doesn't run as root;
-   - the vulnerability scan is under the instance's threshold;
+   - the image's **fixable** critical findings are under the instance's threshold;
    - no high-severity suspicious patterns (crypto-miners, obfuscated shell, reading cloud or CI credentials, piping downloads to a shell);
    - no secret-looking default values in `env`;
    - a `smokeTest` is declared and passes (it runs with no network);
@@ -295,4 +311,6 @@ ecosystems (GitHub Actions, npm), paid listings, and syncing between instances.
 | `PUBLISHER_SUSPENDED` | The system org suspended the publisher. |
 | `PLUGIN_PUBLISHING_DISABLED` | Publishing is turned off on this instance (`PLUGIN_PUBLISHING_ENABLED`). |
 | `PLUGIN_VERSION_FROZEN` | The version is referenced by a request or already listed. |
+| `IMAGE_SCAN_UNAVAILABLE` | The build's image couldn't be scanned after every retry. Nothing was stored; build again later. |
+| `PLUGIN_VULN_GATE` | The build's image has more fixable Critical findings than `PLUGIN_VULN_MAX_CRITICAL` allows. The message lists them with their fixed versions. |
 | `DUPLICATE_ENTRY` | An open request of that kind already exists, or the handle is taken. |

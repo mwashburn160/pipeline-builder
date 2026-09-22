@@ -44,8 +44,8 @@ const DIGEST = `sha256:${'a'.repeat(64)}`;
 const REF = { orgId: 'org-1', name: 'trivy', imageDigest: DIGEST };
 const REGISTRY = { host: 'registry', port: 5000, network: '', http: true };
 
-const match = (id: string, severity: string, name = 'openssl', version = '1.0') => ({
-  vulnerability: { id, severity },
+const match = (id: string, severity: string, name = 'openssl', version = '1.0', fix?: { state: string; versions: unknown[] }) => ({
+  vulnerability: { id, severity, ...(fix ? { fix } : {}) },
   artifact: { name, version },
 });
 const report = (...matches: unknown[]) => JSON.stringify({ matches });
@@ -65,11 +65,37 @@ describe('parseGrypeReport', () => {
       match('CVE-4', 'Low'),
       match('CVE-5', 'low', 'zlib'),
     ));
-    expect(r).toMatchObject({ critical: 1, high: 1, medium: 1, low: 2 });
+    expect(r).toMatchObject({ critical: 1, high: 1, medium: 1, low: 2, criticalFixable: 0, highFixable: 0 });
     expect(r.findings).toEqual([
-      { id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0' },
-      { id: 'CVE-2', severity: 'high', packageName: 'curl', packageVersion: '8.0' },
+      { id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', fixedIn: [] },
+      { id: 'CVE-2', severity: 'high', packageName: 'curl', packageVersion: '8.0', fixedIn: [] },
     ]);
+  });
+
+  it('counts a critical/high as FIXABLE only when grype reports fix.state "fixed" with a version', () => {
+    const r = vs.parseGrypeReport(report(
+      match('CVE-1', 'Critical', 'openssl', '1.0', { state: 'fixed', versions: ['1.1', ' 1.1 ', ''] }),
+      match('CVE-2', 'Critical', 'zlib', '1.0', { state: 'not-fixed', versions: [] }),
+      match('CVE-3', 'Critical', 'curl', '8.0', { state: 'wont-fix', versions: ['9.0'] }),
+      match('CVE-4', 'High', 'curl', '8.0', { state: 'Fixed', versions: ['8.1'] }),
+      match('CVE-5', 'High', 'libxml', '2.0', { state: 'fixed', versions: [] }),
+      match('CVE-6', 'Medium', 'libxml', '2.0', { state: 'fixed', versions: ['2.1'] }),
+    ));
+    expect(r).toMatchObject({ critical: 3, high: 2, medium: 1, criticalFixable: 1, highFixable: 1 });
+    // Criticals first, fixable before unfixable.
+    expect(r.findings.map((f) => [f.id, f.fixedIn])).toEqual([
+      ['CVE-1', ['1.1']], ['CVE-2', []], ['CVE-3', []], ['CVE-4', ['8.1']], ['CVE-5', []],
+    ]);
+  });
+
+  it('a later matcher of the same finding that knows the fix makes it fixable (once)', () => {
+    const r = vs.parseGrypeReport(report(
+      match('CVE-1', 'Critical'),
+      match('CVE-1', 'Critical', 'openssl', '1.0', { state: 'fixed', versions: ['1.1'] }),
+      match('CVE-1', 'Critical', 'openssl', '1.0', { state: 'fixed', versions: ['1.2'] }),
+    ));
+    expect(r).toMatchObject({ critical: 1, criticalFixable: 1 });
+    expect(r.findings).toEqual([{ id: 'CVE-1', severity: 'critical', packageName: 'openssl', packageVersion: '1.0', fixedIn: ['1.1'] }]);
   });
 
   it('counts one (vulnerability, package, version) once, however many matchers report it', () => {
@@ -88,11 +114,11 @@ describe('parseGrypeReport', () => {
       { vulnerability: { id: 'CVE-4', severity: 'High' }, artifact: { name: 5 } },
     ));
     expect(r).toMatchObject({ critical: 0, high: 1, medium: 0, low: 0 });
-    expect(r.findings).toEqual([{ id: 'CVE-4', severity: 'high', packageName: '', packageVersion: '' }]);
+    expect(r.findings).toEqual([{ id: 'CVE-4', severity: 'high', packageName: '', packageVersion: '', fixedIn: [] }]);
   });
 
   it('a clean report is all zeros', () => {
-    expect(vs.parseGrypeReport(report())).toEqual({ critical: 0, high: 0, medium: 0, low: 0, findings: [] });
+    expect(vs.parseGrypeReport(report())).toEqual({ critical: 0, high: 0, medium: 0, low: 0, criticalFixable: 0, highFixable: 0, findings: [] });
   });
 
   it('throws on anything that is not a grype report (never a clean result)', () => {
@@ -127,9 +153,9 @@ describe('sbomPackageNames / isRootUser / scanColumns / hasNewCriticalOrHigh', (
 
   it('maps a scan to columns, and an unscanned result to all NULL', () => {
     const at = new Date();
-    expect(vs.scanColumns({ critical: 1, high: 2, medium: 3, low: 4, scannedAt: at, findings: [] }))
-      .toEqual({ vulnCritical: 1, vulnHigh: 2, vulnMedium: 3, vulnLow: 4, scannedAt: at });
-    expect(vs.scanColumns(null)).toEqual({ vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, scannedAt: null });
+    expect(vs.scanColumns({ critical: 1, high: 2, medium: 3, low: 4, criticalFixable: 1, highFixable: 0, scannedAt: at, findings: [] }))
+      .toEqual({ vulnCritical: 1, vulnHigh: 2, vulnMedium: 3, vulnLow: 4, vulnCriticalFixable: 1, vulnHighFixable: 0, scannedAt: at });
+    expect(vs.scanColumns(null)).toEqual({ vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, vulnCriticalFixable: null, vulnHighFixable: null, scannedAt: null });
   });
 
   it('new critical/high = a count grew; unscanned before counts as none known', () => {
@@ -303,7 +329,7 @@ describe('inspectRunAsRoot — crane config', () => {
 
 describe('onNewCriticalOrHigh', () => {
   const plugin = { id: 'p-1', orgId: 'org-1', name: 'trivy', version: '1.0.0', imageDigest: DIGEST, listingVersionIds: [] as string[] };
-  const after = { critical: 3, high: 1, medium: 0, low: 0, scannedAt: new Date(), findings: [] };
+  const after = { critical: 3, high: 1, medium: 0, low: 0, criticalFixable: 0, highFixable: 0, scannedAt: new Date(), findings: [] };
 
   it('counts only the NEW critical/high findings, labelled by listed', () => {
     vs.onNewCriticalOrHigh(plugin, { critical: 1, high: 1 }, after);

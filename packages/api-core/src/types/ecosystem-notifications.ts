@@ -18,7 +18,8 @@
 export type EcosystemNotificationEventId =
   | 'N1' | 'N2' | 'N3' | 'N4' | 'N5' | 'N6' | 'N7' | 'N8' | 'N9' | 'N10'
   | 'N11' | 'N12' | 'N13' | 'N14' | 'N15' | 'N16' | 'N17' | 'N18' | 'N19' | 'N20'
-  | 'N21' | 'N22' | 'N23' | 'N24' | 'N25' | 'N26' | 'N27' | 'N28' | 'N29';
+  | 'N21' | 'N22' | 'N23' | 'N24' | 'N25' | 'N26' | 'N27' | 'N28' | 'N29'
+  | 'N30' | 'N31';
 
 /** A delivery channel. In-app is the source of truth; email is the courtesy copy. */
 export type EcosystemNotificationChannel = 'in_app' | 'email';
@@ -57,13 +58,14 @@ export interface EcosystemEventSpec {
   channels: readonly EcosystemNotificationChannel[];
   /**
    * Email opt-out key, or `null` when the email is TRANSACTIONAL / security
-   * (N1, N3–N5, N7–N10, N18–N23, N25, N28, N29 can't be turned off).
+   * (N1, N3–N5, N7–N10, N18–N23, N25, N28–N31 can't be turned off).
    */
   preference: EcosystemEmailPreference | null;
   /** When the email is batched rather than immediate, its cadence. */
   digest?: EcosystemDigestCadence;
-  /** Allowed to address a raw email (the anonymous SUBMITTER) — only the
-   *  transactional submission notices. */
+  /** Allowed to address a raw email: the anonymous SUBMITTER (the
+   *  transactional submission notices) and an org's VERIFIED external
+   *  security address (the plugin security notices N30/N31). */
   allowsAddress?: boolean;
 }
 
@@ -98,6 +100,12 @@ export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificatio
   N27: { description: 'Installed listing auto-updated within its range', channels: ['in_app', 'email'], preference: 'ecosystem.upgrades.email', digest: 'weekly' },
   N28: { description: 'A request needs a second approval', channels: ['in_app', 'email'], preference: null },
   N29: { description: 'Plan change affects publishing', channels: ['in_app', 'email'], preference: null },
+  // Per-org plugin security notices (docs/plugin-publishing.md "Scan gates").
+  // Recipients follow the org's plugin security notification settings; the org's
+  // webhook (if any) is sent by the plugin service itself. N31's email honors
+  // the org's digest setting (the sender batches it), N30 is always immediate.
+  N30: { description: 'Plugin version blocked (unscanned or fixable Critical)', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
+  N31: { description: 'Rescan found new Critical/High in a plugin version', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
 };
 
 /** Whether `value` is a notification event number. */
@@ -106,7 +114,7 @@ export function isEcosystemNotificationEvent(value: unknown): value is Ecosystem
 }
 
 /** Org-local permissions an {@link EcosystemRecipientSpec} `org_permission` rule may name. */
-export type EcosystemOrgRecipientPermission = 'publishers:manage' | 'plugin_installs:manage';
+export type EcosystemOrgRecipientPermission = 'publishers:manage' | 'plugin_installs:manage' | 'plugins:write';
 /** System-org permissions a `moderators` rule may name. */
 export type EcosystemModeratorPermission = 'plugins:moderate' | 'publishers:verify';
 
@@ -117,18 +125,24 @@ export type EcosystemModeratorPermission = 'plugins:moderate' | 'publishers:veri
  *    `orgId` picks the inbox; defaults to the user's last active org.
  *  - `org_permission` — active members of `orgId` holding `permission`
  *    (Publisher managers = `publishers:manage`, Org approvers =
- *    `plugin_installs:manage`). With `inheritFromRoot`, a team with no holders
- *    falls back to its root org's holders; with none anywhere, the org's owners.
+ *    `plugin_installs:manage`, plugin writers = `plugins:write`). With
+ *    `inheritFromRoot`, a team with no holders falls back to its root org's
+ *    holders; with none anywhere, the org's owners.
+ *  - `org_members` — the named users, but only those who are ACTIVE members of
+ *    `orgId` at send time (an org's chosen security recipients: a stale id, or
+ *    someone who left, receives nothing).
  *  - `moderators` — the system org's holders of `permission` (the Ecosystem
  *    Manager role), minus anyone with a conflict of interest (members of
  *    `excludeMembersOfOrgId`, or the listed users); superadmins when empty.
  *  - `superadmins` — every platform superadmin.
  *  - `address` — a raw address; only the anonymous SUBMITTER notices (N1, N3,
- *    N4), whose recipient has no account.
+ *    N4), whose recipient has no account, and an org's VERIFIED external
+ *    security address on the plugin security notices (N30, N31).
  */
 export type EcosystemRecipientSpec =
   | { kind: 'user'; userId: string; orgId?: string }
   | { kind: 'org_permission'; orgId: string; permission: EcosystemOrgRecipientPermission; inheritFromRoot?: boolean }
+  | { kind: 'org_members'; orgId: string; userIds: string[] }
   | { kind: 'moderators'; permission: EcosystemModeratorPermission; excludeMembersOfOrgId?: string; excludeUserIds?: string[] }
   | { kind: 'superadmins' }
   | { kind: 'address'; email: string };
@@ -154,7 +168,9 @@ export const ECOSYSTEM_NOTIFY_SUBJECT_MAX = 500;
 export const ECOSYSTEM_NOTIFY_TEXT_MAX = 10000;
 const MAX_RECIPIENT_RULES = 50;
 
-const ORG_PERMISSIONS: readonly string[] = ['publishers:manage', 'plugin_installs:manage'];
+const ORG_PERMISSIONS: readonly string[] = ['publishers:manage', 'plugin_installs:manage', 'plugins:write'];
+/** At most this many users in one `org_members` rule. */
+export const ECOSYSTEM_ORG_MEMBERS_MAX = 100;
 const MODERATOR_PERMISSIONS: readonly string[] = ['plugins:moderate', 'publishers:verify'];
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -179,6 +195,13 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
         permission: r.permission as EcosystemOrgRecipientPermission,
         ...(r.inheritFromRoot === true ? { inheritFromRoot: true } : {}),
       };
+    case 'org_members': {
+      if (!nonEmptyString(r.orgId)) return 'org_members recipient needs orgId';
+      const users = r.userIds;
+      if (!Array.isArray(users) || users.length === 0 || !users.every((u) => nonEmptyString(u))) return 'org_members recipient needs a non-empty userIds array';
+      if (users.length > ECOSYSTEM_ORG_MEMBERS_MAX) return `org_members recipient names at most ${ECOSYSTEM_ORG_MEMBERS_MAX} users`;
+      return { kind: 'org_members', orgId: r.orgId, userIds: [...new Set(users as string[])] };
+    }
     case 'moderators': {
       if (typeof r.permission !== 'string' || !MODERATOR_PERMISSIONS.includes(r.permission)) return 'moderators recipient names an unsupported permission';
       if (r.excludeMembersOfOrgId !== undefined && !nonEmptyString(r.excludeMembersOfOrgId)) return 'excludeMembersOfOrgId must be a string';
@@ -194,7 +217,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
     case 'superadmins':
       return { kind: 'superadmins' };
     case 'address':
-      if (!spec.allowsAddress) return 'address recipients are only allowed for anonymous-submission notices';
+      if (!spec.allowsAddress) return 'address recipients are only allowed for anonymous-submission and plugin security notices';
       if (!nonEmptyString(r.email, 320) || !EMAIL_SHAPE.test(r.email)) return 'address recipient needs a valid email';
       return { kind: 'address', email: r.email.trim().toLowerCase() };
     default:
@@ -210,7 +233,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
 export function parseEcosystemNotifyRequest(body: unknown): EcosystemNotifyRequest | string {
   if (!body || typeof body !== 'object') return 'body must be an object';
   const b = body as Record<string, unknown>;
-  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N29';
+  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N31';
   const spec = ECOSYSTEM_NOTIFICATION_EVENTS[b.event];
   if (!nonEmptyString(b.subject, ECOSYSTEM_NOTIFY_SUBJECT_MAX)) return `subject is required (max ${ECOSYSTEM_NOTIFY_SUBJECT_MAX})`;
   if (!nonEmptyString(b.text, ECOSYSTEM_NOTIFY_TEXT_MAX)) return `text is required (max ${ECOSYSTEM_NOTIFY_TEXT_MAX})`;

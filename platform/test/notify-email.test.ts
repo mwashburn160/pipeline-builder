@@ -216,6 +216,18 @@ describe('handleNotifyEmail — ecosystem notices (plugin)', () => {
     expect(mockDeliver).not.toHaveBeenCalled();
   });
 
+  it('SECURITY: admits a raw address only on the plugin security notices (N30/N31), never on other events', async () => {
+    mockDeliver.mockResolvedValue({ recipientCount: 1, inApp: 0, emailed: 1, suppressed: 0, failed: 0 });
+    const address = [{ kind: 'address', email: 'sec@example.com' }];
+    const ok = mockRes();
+    await handleNotifyEmail({ body: { ...notice, event: 'N31', recipients: address }, user: plugin } as any, ok);
+    expect(ok.status).toHaveBeenCalledWith(200);
+    const refused = mockRes();
+    await handleNotifyEmail({ body: { ...notice, event: 'N21', recipients: address }, user: plugin } as any, refused);
+    expect(refused.status).toHaveBeenCalledWith(400);
+    expect(mockDeliver).toHaveBeenCalledTimes(1);
+  });
+
   it('400s a tenant-email body from the plugin service (it only sends ecosystem notices)', async () => {
     const res = mockRes();
     await handleNotifyEmail({ body: { orgId: 'org-1', subject: 'S', text: 'T' }, user: plugin } as any, res);

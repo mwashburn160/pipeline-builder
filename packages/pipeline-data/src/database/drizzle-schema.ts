@@ -59,6 +59,7 @@ import {
   pluginInstall,
   pluginInstallPolicy,
   pluginAdvisoryDelivery,
+  pluginSecurityNotificationPref,
 } from './schema/ecosystem.js';
 import { messageAttachment } from './schema/message-attachment.js';
 import { message } from './schema/message.js';
@@ -129,6 +130,7 @@ export const schema = {
   pluginInstall,
   pluginInstallPolicy,
   pluginAdvisoryDelivery,
+  pluginSecurityNotificationPref,
   // (The public_listings / public_listed_versions views are exported from
   // ./schema/ecosystem but are not tables, so they are not listed here.)
 } as const;

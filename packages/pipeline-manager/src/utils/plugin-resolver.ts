@@ -77,16 +77,18 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
 
 /**
  * Lookup refusals that must STOP the synth rather than fall back to
- * deploy-time resolution: an image whose signature doesn't verify, and a
- * listing the org can't use (not installed, blocked by its policy, yanked or
- * suspended). Falling back would quietly turn
- * each into an unresolved step that fails at run time instead of now.
+ * deploy-time resolution: an image whose signature doesn't verify, a listing
+ * the org can't use (not installed, blocked by its policy, yanked or
+ * suspended), and — with `PLUGIN_BLOCK_ON_NEW_CRITICAL` on — a pin to a
+ * version the nightly rescan flagged. Falling back would quietly turn each into
+ * an unresolved step that fails at run time instead of now.
  */
 const FATAL_LOOKUP_CODES: readonly string[] = [
   ErrorCode.IMAGE_VERIFICATION_FAILED,
   ErrorCode.PLUGIN_NOT_INSTALLED,
   ErrorCode.PLUGIN_BLOCKED_BY_POLICY,
   ErrorCode.PLUGIN_UNAVAILABLE,
+  ErrorCode.PLUGIN_VERSION_VULN_BLOCKED,
 ];
 
 /** The error code of a plugin service answer, when it is one of {@link FATAL_LOOKUP_CODES}. */
@@ -94,6 +96,13 @@ function fatalLookupCode(err: unknown): string | null {
   const data = (err as { response?: { data?: unknown } } | undefined)?.response?.data;
   const code = data && typeof data === 'object' ? (data as { code?: unknown }).code : undefined;
   return typeof code === 'string' && FATAL_LOOKUP_CODES.includes(code) ? code : null;
+}
+
+/** The plugin service's own refusal message, when the answer carries one. */
+function serviceMessage(err: unknown): string | null {
+  const data = (err as { response?: { data?: unknown } } | undefined)?.response?.data;
+  const message = data && typeof data === 'object' ? (data as { message?: unknown }).message : undefined;
+  return typeof message === 'string' && message.length > 0 ? message : null;
 }
 
 /**
@@ -151,6 +160,9 @@ export async function resolvePluginsForProps(
       if (fatal === ErrorCode.IMAGE_VERIFICATION_FAILED) {
         throw new Error(`Plugin "${label}" image failed signature verification: ${errorMessage(err)}`);
       }
+      // The block-mode refusal already names the version, the CVEs and the fix:
+      // print it as the platform wrote it.
+      if (fatal === ErrorCode.PLUGIN_VERSION_VULN_BLOCKED) throw new Error(serviceMessage(err) ?? errorMessage(err));
       if (fatal) throw new Error(`Plugin "${label}" can't be used (${fatal}): ${errorMessage(err)}`);
       const msg = errorMessage(err);
       printWarning(`Plugin "${label}" pre-resolution failed (${msg}) — falling back to deploy-time resolution`);

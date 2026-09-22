@@ -105,7 +105,13 @@ export async function reviewDiff(r: PluginPublishRequest, publisher: Publisher) 
     contract: isVersion && current ? contractDiff(prev?.specSnapshot ?? null, current) : null,
     vuln: isVersion && plugin ? {
       previous: prev ? { critical: prev.vulnCritical, high: prev.vulnHigh } : null,
-      current: { critical: plugin.vulnCritical, high: plugin.vulnHigh, scannedAt: plugin.scannedAt ? new Date(plugin.scannedAt).toISOString() : null },
+      current: {
+        critical: plugin.vulnCritical,
+        high: plugin.vulnHigh,
+        criticalFixable: plugin.vulnCriticalFixable,
+        highFixable: plugin.vulnHighFixable,
+        scannedAt: plugin.scannedAt ? new Date(plugin.scannedAt).toISOString() : null,
+      },
       ...vulnDelta(prev ? { critical: prev.vulnCritical, high: prev.vulnHigh } : null, { critical: plugin.vulnCritical, high: plugin.vulnHigh }),
     } : null,
     dockerfile: isVersion && plugin ? {
@@ -144,7 +150,7 @@ async function submissionReviewDiff(r: PluginPublishRequest, publisher: Publishe
     contract: sub.contract,
     vuln: facts ? {
       previous: previousCounts,
-      current: { critical: facts.vulnCritical, high: facts.vulnHigh, scannedAt: facts.scannedAt },
+      current: { critical: facts.vulnCritical, high: facts.vulnHigh, criticalFixable: facts.vulnCriticalFixable, highFixable: facts.vulnHighFixable, scannedAt: facts.scannedAt },
       ...vulnDelta(previousCounts, { critical: facts.vulnCritical, high: facts.vulnHigh }),
     } : null,
     dockerfile: sub.dockerfile,

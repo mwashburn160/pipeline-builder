@@ -9,6 +9,7 @@ import type { ListingDetail, RatingBucket, ReviewPage } from '@/lib/public-direc
 import { ReviewsSection } from '@/components/reviews/ReviewsSection';
 import { formatDay } from './ListingCardView';
 import { VersionAdvisoryMarker } from './AdvisoryBanner';
+import { VulnSummary } from '@/components/plugin/VulnSummary';
 
 export const LISTING_TABS = ['overview', 'versions', 'configuration', 'supply-chain', 'reviews'] as const;
 export type ListingTab = typeof LISTING_TABS[number];
@@ -33,16 +34,6 @@ export function OverviewPanel({ listing }: { listing: ListingDetail }) {
   return <p className="whitespace-pre-line text-sm text-fg">{listing.description || listing.summary}</p>;
 }
 
-function VulnCounts({ critical, high }: { critical: number | null; high: number | null }) {
-  if (critical == null && high == null) return <span className="text-fg-subtle">Not scanned</span>;
-  const clean = !critical && !high;
-  return (
-    <span className={clean ? 'text-success-strong' : 'text-danger-strong'}>
-      {critical ?? 0} critical · {high ?? 0} high
-    </span>
-  );
-}
-
 export function VersionsPanel({ listing }: { listing: ListingDetail }) {
   if (listing.versions.length === 0) return <Empty>No versions are listed.</Empty>;
   return (
@@ -57,7 +48,7 @@ export function VersionsPanel({ listing }: { listing: ListingDetail }) {
             {v.yanked && <Badge color="red">Yanked</Badge>}
             <VersionAdvisoryMarker advisoryIds={v.advisoryIds} advisories={listing.advisories} />
             <span className="text-xs text-fg-subtle">{formatDay(v.publishedAt)}</span>
-            <span className="text-xs"><VulnCounts critical={v.vulnCritical} high={v.vulnHigh} /></span>
+            <VulnSummary facts={v} />
           </div>
           {v.deprecated && v.deprecationMessage && <p className="text-sm text-warning-strong">{v.deprecationMessage}</p>}
           {/* Changelog is publisher text: rendered as text, never markup. */}
@@ -130,7 +121,7 @@ export function SupplyChainPanel({ listing }: { listing: ListingDetail }) {
         <Row label="Image digest">{s.digest ? <code className="break-all text-xs">{s.digest}</code> : <span className="text-fg-subtle">—</span>}</Row>
         <Row label="Image source">{s.imageSource === 'uploaded' ? 'Uploaded image' : s.imageSource === 'built' ? 'Built from source by the platform' : (s.imageSource ?? '—')}</Row>
         <Row label="Vulnerabilities">
-          <VulnCounts critical={s.vulnCritical} high={s.vulnHigh} />
+          <VulnSummary facts={s} details />
           {s.scannedAt && <span className="ml-2 text-xs text-fg-subtle">scanned {formatDay(s.scannedAt)}</span>}
         </Row>
         <Row label="SBOM">

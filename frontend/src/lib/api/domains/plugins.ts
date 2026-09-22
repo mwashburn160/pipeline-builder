@@ -7,6 +7,10 @@ import { ApiError } from '../errors';
 import type {
   ApiResponse, Criticality, EntityLink, Lifecycle, OwnerType, Plugin, PluginCatalogEdits, PluginInspectResult, QueueStatus, Visibility,
 } from '@/types';
+import type { LookupWarning } from '@/lib/plugin-vulns';
+import type {
+  PluginSecurityNotificationPrefs, PluginSecurityNotificationPrefsWrite, PluginSecurityTestResult,
+} from '@/types/plugin-security-notifications';
 
 /**
  * Page envelope of the build-queue listings (`/plugins/queue/failed`, `/dlq`).
@@ -34,6 +38,8 @@ export const PLUGIN_LIST_FIELDS = [
   'buildType', 'imageDigest', 'imageSource',
   // Version lifecycle: the Deprecated / Yanked badges and their actions.
   'deprecatedAt', 'deprecationMessage', 'yankedAt', 'yankReason',
+  // Scan standing: the fixable / total, Unscanned and Flagged badges.
+  'vulnCritical', 'vulnHigh', 'vulnCriticalFixable', 'vulnHighFixable', 'scannedAt', 'scanFlaggedAt', 'scanFlag',
 ] as const satisfies ReadonlyArray<keyof Plugin>;
 
 /** A plugin row as the list view receives it (see {@link PLUGIN_LIST_FIELDS}). */
@@ -357,6 +363,49 @@ export function pluginsApi(core: ApiCore) {
     streamPluginGeneration: async function*(prompt: string, provider: string, model: string, apiKey?: string) {
       yield* core.streamRequest('/api/plugins/generate/stream', {
         prompt, provider, model, ...(apiKey ? { apiKey } : {}),
+      });
+    },
+
+    // ============================================
+    // Resolution preview + plugin security notifications
+    // ============================================
+
+    /**
+     * Resolve one plugin reference exactly as synth will (`POST /plugins/lookup`):
+     * the version it lands on plus the `warnings[]` synth prints (deprecated,
+     * yanked, advisory, `VULN_FLAGGED`, …). A refusal throws an {@link ApiError}
+     * carrying the server's code — `PLUGIN_VERSION_VULN_BLOCKED` when block mode
+     * refuses an exact pin to a flagged version.
+     */
+    lookupPlugin: async (
+      filter: { name: string; publisher?: string; version?: string; id?: string },
+      opts?: { signal?: AbortSignal },
+    ) => {
+      return core.request<ApiResponse<{ plugin: Pick<Plugin, 'id' | 'name' | 'version'> & Record<string, unknown>; warnings: LookupWarning[] }>>('/api/plugins/lookup', {
+        method: 'POST',
+        body: JSON.stringify({ filter }),
+        signal: opts?.signal,
+      });
+    },
+
+    /** The org's plugin security notification settings (defaults when never saved). `plugins:read`. */
+    getPluginSecurityNotifications: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ preferences: PluginSecurityNotificationPrefs }>>('/api/plugins/security-notifications', { signal: opts?.signal });
+    },
+
+    /** Save them (`org:settings`). A new external address is sent a confirmation link. */
+    updatePluginSecurityNotifications: async (body: PluginSecurityNotificationPrefsWrite) => {
+      return core.request<ApiResponse<{ preferences: PluginSecurityNotificationPrefs }>>('/api/plugins/security-notifications', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** Send a test notice to every configured channel (`org:settings`). */
+    sendPluginSecurityNotificationTest: async () => {
+      return core.request<ApiResponse<{ result: PluginSecurityTestResult }>>('/api/plugins/security-notifications/test', {
+        method: 'POST',
+        body: JSON.stringify({}),
       });
     },
   };

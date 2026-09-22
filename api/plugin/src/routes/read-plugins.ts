@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, isSystemOrgId, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
+import {
+  asScanFlag, blockOnNewCritical, getParam, ErrorCode, isSystemOrgId, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested,
+  parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound, vulnBlockedMessage, vulnFlaggedWarning,
+} from '@pipeline-builder/api-core';
+import type { QuotaService, VulnFlaggedWarning } from '@pipeline-builder/api-core';
 import { incCounter, withRoute, meterQuotaOnSuccess } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
 import { Config, CoreConstants, pluginImageRepository } from '@pipeline-builder/pipeline-core';
@@ -24,11 +27,10 @@ function parentOrgIdOf(req: Request): string | undefined {
   return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
 }
 
-/** A warning attached to a lookup answer (lifecycle, listings, advisories). */
-export interface LookupWarning {
-  code: 'PLUGIN_DEPRECATED' | 'PLUGIN_YANKED' | 'PLUGIN_SHADOWS_LISTING' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED' | 'PLUGIN_ADVISORY';
-  message: string;
-}
+/** A warning attached to a lookup answer (lifecycle, listings, advisories, rescan flags). */
+export type LookupWarning =
+  | { code: 'PLUGIN_DEPRECATED' | 'PLUGIN_YANKED' | 'PLUGIN_SHADOWS_LISTING' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED' | 'PLUGIN_ADVISORY'; message: string }
+  | VulnFlaggedWarning;
 
 /** The lifecycle warnings a resolved version carries (empty for a healthy one). */
 export function lookupWarnings(plugin: {
@@ -39,6 +41,8 @@ export function lookupWarnings(plugin: {
   yankReason?: string | null;
   deprecatedAt?: Date | string | null;
   deprecationMessage?: string | null;
+  scanFlaggedAt?: Date | string | null;
+  scanFlag?: unknown;
 }): LookupWarning[] {
   const ref = `${plugin.name}@${plugin.version}`;
   const warnings: LookupWarning[] = [];
@@ -54,7 +58,16 @@ export function lookupWarnings(plugin: {
       message: `Plugin ${ref} is deprecated${plugin.deprecationMessage ? `: ${plugin.deprecationMessage}` : ''}.`,
     });
   }
+  // A rescan flagged it (fixable Criticals over PLUGIN_VULN_MAX_CRITICAL); it
+  // resolves only because block mode is off — say so, with the fixes.
+  const flag = plugin.scanFlaggedAt ? asScanFlag(plugin.scanFlag) : null;
+  if (flag) warnings.push(vulnFlaggedWarning(plugin.name, plugin.version, flag));
   return warnings;
+}
+
+/** Whether a lookup filter pins ONE version exactly (by id or an exact version). */
+export function isPinnedFilter(filter: PluginFilter): boolean {
+  return filter.id !== undefined || (filter.version !== undefined && !isVersionRange(filter.version));
 }
 
 /**
@@ -63,17 +76,18 @@ export function lookupWarnings(plugin: {
  * unless the caller pinned it exactly — by id or by an exact version (ranges
  * already exclude yanked versions in the query builder).
  */
-export function resolutionFilter(filter: PluginFilter): PluginFilter {
-  const pinned = filter.id !== undefined || (filter.version !== undefined && !isVersionRange(filter.version));
+export function resolutionFilter(filter: PluginFilter, opts: { excludeScanFlagged?: boolean } = {}): PluginFilter {
+  const pinned = isPinnedFilter(filter);
   return {
     ...filter,
     ...(filter.name !== undefined ? { nameMatch: 'exact' as const } : {}),
     ...(pinned ? {} : { excludeYanked: true }),
+    ...(opts.excludeScanFlagged && !pinned ? { excludeScanFlagged: true } : {}),
   };
 }
 
 /** Lookup refusal reasons, as `plugin_lookup_refusals_total{reason}` reports them. */
-const LOOKUP_REFUSAL_REASONS: Record<string, string> = { yanked: 'yank', blocked_listing: 'policy' };
+const LOOKUP_REFUSAL_REASONS: Record<string, string> = { yanked: 'yank', blocked_listing: 'policy', vuln_flagged: 'vuln' };
 
 /**
  * Count a refused lookup (synth resolving a plugin it may not use): a failed
@@ -207,7 +221,25 @@ export function createReadPluginRoutes(
     };
 
     if (!publisher) {
-      const result = await pluginService.findFirst(resolutionFilter(rowFilter), orgId, parentOrgId);
+      // PLUGIN_BLOCK_ON_NEW_CRITICAL: a range / the default skips rescan-flagged
+      // versions (the newest unflagged satisfying one wins); an exact pin to a
+      // flagged version — or a range whose every version is flagged — is refused
+      // 409 PLUGIN_VERSION_VULN_BLOCKED naming the fix (never a silent fallback
+      // to a listing of the same name).
+      const blockFlagged = blockOnNewCritical();
+      let result = await pluginService.findFirst(resolutionFilter(rowFilter, { excludeScanFlagged: blockFlagged }), orgId, parentOrgId);
+      if (!result && blockFlagged && !isPinnedFilter(rowFilter)) {
+        const onlyFlagged = await pluginService.findFirst(resolutionFilter(rowFilter), orgId, parentOrgId);
+        if (onlyFlagged?.scanFlaggedAt) result = onlyFlagged;
+      }
+      if (result && blockFlagged && result.scanFlaggedAt) {
+        const flag = asScanFlag(result.scanFlag) ?? { critical: 0, high: 0, maxCritical: 0, findings: [] };
+        recordLookupRefusal('vuln_flagged');
+        ctx.log('WARN', 'Plugin lookup refused: rescan-flagged version', { id: result.id, name: result.name, version: result.version });
+        return sendError(res, 409, vulnBlockedMessage(result.name, result.version, flag), ErrorCode.PLUGIN_VERSION_VULN_BLOCKED, {
+          reason: 'vuln_flagged', version: result.version, critical: flag.critical, high: flag.high, findings: flag.findings,
+        });
+      }
       if (result) {
         const imageRepository = pluginImageRepository(result);
         // These are the endpoints synth resolves plugins through, and synth pins

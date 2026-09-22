@@ -53,7 +53,13 @@ export interface ListingVersionView {
   yankReason: string | null;
   vulnCritical: number | null;
   vulnHigh: number | null;
+  /** Findings with a known fixed version (null = unscanned). */
+  vulnCriticalFixable?: number | null;
+  vulnHighFixable?: number | null;
   scannedAt?: string | null;
+  /** Set while a rescan finds fixable Criticals the version was built without. */
+  scanFlaggedAt?: string | null;
+  scanFlag?: unknown;
   /** The base image's `created` time, recorded at publish (the health score's freshness signal). */
   baseImageCreatedAt?: string | null;
   publishedAt: string;
@@ -243,6 +249,8 @@ export interface PublishDraft {
     scannedAt: string | null;
     vulnCritical: number | null;
     vulnHigh: number | null;
+    vulnCriticalFixable?: number | null;
+    vulnHighFixable?: number | null;
     breaking: boolean;
   };
   listing: ListingView | null;

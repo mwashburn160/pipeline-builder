@@ -2595,6 +2595,79 @@
   },
   {
     "method": "GET",
+    "path": "/plugins/security-notifications",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PUT",
+    "path": "/plugins/security-notifications",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.security_notifications.update"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/plugins/security-notifications/test",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.security_notifications.test"
+    ]
+  },
+  {
+    "method": "GET",
     "path": "/plugins/shadowing",
     "auth": true,
     "permissions": [
@@ -2615,6 +2688,23 @@
     "features": [],
     "scopes": [],
     "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/public/plugin-security-notifications/confirm",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.security_notifications.external_email.verify"
+    ]
   },
   {
     "method": "POST",

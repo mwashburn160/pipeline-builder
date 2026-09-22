@@ -162,7 +162,15 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     vuln_high INTEGER,
     vuln_medium INTEGER,
     vuln_low INTEGER,
+    -- The critical/high findings grype reports a fixed version for — what the
+    -- platform floor PLUGIN_VULN_MAX_CRITICAL gates on. NULL = unscanned.
+    vuln_critical_fixable INTEGER,
+    vuln_high_fixable INTEGER,
     scanned_at TIMESTAMPTZ,
+    -- Set by the nightly rescan while the fixable criticals exceed the floor
+    -- (cleared when resolved): {critical, high, maxCritical, findings[]}.
+    scan_flagged_at TIMESTAMPTZ,
+    scan_flag JSONB,
     run_as_root BOOLEAN,
 
     -- Version lifecycle. breaking: publisher-marked major that `latest`
@@ -1407,7 +1415,8 @@ ORDER BY event_object_table, trigger_name;
 --     scoped. Writes are gated in the service layer (system-org-only approval,
 --     and approves them). Their RLS stance is set in the ROW-LEVEL SECURITY section below.
 --   * ORG-SCOPED (pipeline_step_manifests, plugin_installs,
---     plugin_install_policies, plugin_advisory_deliveries): carry org_id and
+--     plugin_install_policies, plugin_advisory_deliveries,
+--     plugin_security_notification_prefs): carry org_id and
 --     get the standard rls_org_* policies + FORCE like every other tenant table.
 -- Anonymous visitors read the directory only through the two public_* views at
 -- the end of this section, as the ecosystem_public_reader role.
@@ -1539,7 +1548,13 @@ CREATE TABLE IF NOT EXISTS plugin_listing_versions (
     changelog TEXT,
     vuln_critical INTEGER,
     vuln_high INTEGER,
+    vuln_critical_fixable INTEGER,
+    vuln_high_fixable INTEGER,
     scanned_at TIMESTAMPTZ,
+    -- The nightly rescan's flag (fixable criticals over PLUGIN_VULN_MAX_CRITICAL),
+    -- scanned from this version's own public/* image.
+    scan_flagged_at TIMESTAMPTZ,
+    scan_flag JSONB,
     -- Base image config `created`, recorded at publish (image freshness), NULL = unknown.
     base_image_created_at TIMESTAMPTZ,
     -- When maintenance collected the public/* image of this long-yanked,
@@ -1958,6 +1973,36 @@ CREATE TABLE IF NOT EXISTS plugin_install_policies (
     )
 );
 
+-- Per-org plugin security notification settings (docs/plugin-publishing.md
+-- "Scan gates"): who hears about a blocked build (N30) and a rescan finding
+-- (N31), and where else they go. One row per org; absent = the defaults below.
+-- webhook_secret and external_email_enc are encrypted with the org's key
+-- (api-core secret-encryption) and never returned; the external address is used
+-- only once confirmed (external_verify_token_hash = sha256 of the single-use
+-- emailed token, cleared when it is consumed).
+CREATE TABLE IF NOT EXISTS plugin_security_notification_prefs (
+    org_id VARCHAR(255) PRIMARY KEY,
+    recipient_mode VARCHAR(10) NOT NULL DEFAULT 'writers'
+                        CHECK (recipient_mode IN ('writers', 'users')),
+    target_users TEXT[] NOT NULL DEFAULT '{}',
+    notify_rescan BOOLEAN NOT NULL DEFAULT true,
+    digest_mode VARCHAR(10) NOT NULL DEFAULT 'immediate'
+                        CHECK (digest_mode IN ('immediate', 'daily', 'weekly')),
+    webhook_url VARCHAR(2048),
+    webhook_secret TEXT,
+    external_email_enc TEXT,
+    external_email_hash VARCHAR(64),
+    external_email_verified_at TIMESTAMPTZ,
+    external_verify_token_hash VARCHAR(64),
+    external_verify_expires_at TIMESTAMPTZ,
+    updated_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_security_notification_prefs_verify_token_idx
+    ON plugin_security_notification_prefs(external_verify_token_hash);
+
 -- N21 idempotency: one delivery per (advisory, installing org), so a retried
 -- fan-out never notifies an org twice. Org-scoped (hard-removed with the org).
 CREATE TABLE IF NOT EXISTS plugin_advisory_deliveries (
@@ -1979,7 +2024,7 @@ BEGIN
         'publishers', 'plugin_listings', 'plugin_advisories', 'ecosystem_auto_approval_rules',
         'ecosystem_settings', 'ecosystem_collections', 'plugin_reviews', 'plugin_review_replies',
         'plugin_stats', 'plugin_submissions', 'pipeline_step_manifests', 'plugin_installs',
-        'plugin_install_policies'
+        'plugin_install_policies', 'plugin_security_notification_prefs'
     ]
     LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS update_%s_modtime ON %I', t, t);
@@ -2104,7 +2149,11 @@ SELECT
     (v.yanked_at IS NOT NULL) AS yanked,
     v.deprecation_message,
     v.spec_snapshot->>'imageSource' AS image_source,
-    v.base_image_created_at
+    v.base_image_created_at,
+    -- Appended (CREATE OR REPLACE VIEW only adds columns at the end).
+    v.vuln_critical_fixable,
+    v.vuln_high_fixable,
+    v.scan_flagged_at
 FROM plugin_listing_versions v
 JOIN plugin_listings l ON l.id = v.listing_id
 JOIN publishers p ON p.id = l.publisher_id
@@ -2292,7 +2341,7 @@ BEGIN
             'compliance_entitlement_watermark',
             -- Plugin ecosystem, org-scoped half (the global half is below).
             'pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies',
-            'plugin_advisory_deliveries'
+            'plugin_advisory_deliveries', 'plugin_security_notification_prefs'
         ])
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -2544,6 +2593,7 @@ ALTER TABLE pipeline_step_manifests FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_installs FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_install_policies FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_advisory_deliveries FORCE ROW LEVEL SECURITY;
+ALTER TABLE plugin_security_notification_prefs FORCE ROW LEVEL SECURITY;
 
 -- Plugin ecosystem, GLOBAL half. These tables have no org_id: the directory is
 -- instance-wide, and who may write what (system-org approval, publisher
@@ -2587,12 +2637,13 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (33/33):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (34/34):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'
 \echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'
-\echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries'
+\echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries,'
+\echo '   plugin_security_notification_prefs'
 \echo 'App-role-only policy (no FORCE) on the 18 ecosystem-global tables'
 
 -- ============================================================================

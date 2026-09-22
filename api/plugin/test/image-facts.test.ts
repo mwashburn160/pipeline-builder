@@ -17,8 +17,8 @@ jest.unstable_mockModule('../src/helpers/vuln-scan.js', () => ({
   inspectRunAsRoot: mockInspectRunAsRoot,
   isRootUser: (u: unknown) => { const n = typeof u === 'string' ? u.trim().split(':')[0] : ''; return n === '' || n === '0' || n === 'root'; },
   scanColumns: (scan: any) => (scan
-    ? { vulnCritical: scan.critical, vulnHigh: scan.high, vulnMedium: scan.medium, vulnLow: scan.low, scannedAt: scan.scannedAt }
-    : { vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, scannedAt: null }),
+    ? { vulnCritical: scan.critical, vulnHigh: scan.high, vulnMedium: scan.medium, vulnLow: scan.low, vulnCriticalFixable: scan.criticalFixable, vulnHighFixable: scan.highFixable, scannedAt: scan.scannedAt }
+    : { vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, vulnCriticalFixable: null, vulnHighFixable: null, scannedAt: null }),
 }));
 
 const mockValidatePlugin = jest.fn<(...a: any[]) => Promise<any>>();
@@ -74,15 +74,26 @@ describe('resolveRunAsRoot', () => {
   });
 });
 
+const FINDING = { id: 'CVE-2026-1', severity: 'critical' as const, packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] };
+
 describe('establishImageFacts', () => {
   it('scans with a DB refresh (trigger build) and resolves USER', async () => {
     mockScanPluginImage.mockResolvedValueOnce({
-      scan: { critical: 1, high: 2, medium: 3, low: 4, scannedAt: SCANNED_AT, findings: [] }, packages: ['openssl'],
+      scan: { critical: 1, high: 2, medium: 3, low: 4, criticalFixable: 1, highFixable: 0, scannedAt: SCANNED_AT, findings: [FINDING] }, packages: ['openssl'],
     });
     mockInspectRunAsRoot.mockResolvedValueOnce(false);
 
     await expect(establishImageFacts(REF, REGISTRY, null)).resolves.toEqual({
-      vulnCritical: 1, vulnHigh: 2, vulnMedium: 3, vulnLow: 4, scannedAt: SCANNED_AT, runAsRoot: false, packages: ['openssl'],
+      vulnCritical: 1,
+      vulnHigh: 2,
+      vulnMedium: 3,
+      vulnLow: 4,
+      vulnCriticalFixable: 1,
+      vulnHighFixable: 0,
+      scannedAt: SCANNED_AT,
+      runAsRoot: false,
+      packages: ['openssl'],
+      findings: [FINDING],
     });
     expect(mockScanPluginImage).toHaveBeenCalledWith(REF, REGISTRY, 'build', { refreshDb: true });
   });
@@ -92,13 +103,13 @@ describe('establishImageFacts', () => {
     mockInspectRunAsRoot.mockResolvedValueOnce(true);
 
     await expect(establishImageFacts(REF, REGISTRY, null)).resolves.toEqual({
-      vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, scannedAt: null, runAsRoot: true, packages: null,
+      vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, vulnCriticalFixable: null, vulnHighFixable: null, scannedAt: null, runAsRoot: true, packages: null, findings: [],
     });
   });
 });
 
 describe('assertPostBuildCompliance', () => {
-  const facts = { vulnCritical: 0, vulnHigh: 1, vulnMedium: 0, vulnLow: 0, scannedAt: SCANNED_AT, runAsRoot: false, packages: ['zlib'] };
+  const facts = { vulnCritical: 0, vulnHigh: 1, vulnMedium: 0, vulnLow: 0, vulnCriticalFixable: 0, vulnHighFixable: 1, scannedAt: SCANNED_AT, runAsRoot: false, packages: ['zlib'], findings: [] };
 
   it('evaluates the deferred rules on the REAL image facts, nothing deferred', async () => {
     mockValidatePlugin.mockResolvedValueOnce({ blocked: false, violations: [] });

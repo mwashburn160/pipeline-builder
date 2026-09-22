@@ -15,8 +15,10 @@
  *  2. BUILD on the ISOLATED quarantine buildkitd (`PLUGIN_QUARANTINE_BUILDKIT_ADDR`,
  *     never the tenant one) into `quarantine/<id>`, pushed with a registry-only
  *     credential scoped to that one repository, SBOM'd and signed under the system org;
- *  3. IMAGE — `scanned`, `vuln` (grype over the signed SBOM, the ecosystem
- *     critical threshold), `non_root`;
+ *  3. IMAGE — `scanned`, `vuln` (grype over the signed SBOM: FIXABLE criticals
+ *     against the ecosystem threshold `ECOSYSTEM_VULN_GATE_MAX_CRITICAL`),
+ *     `vuln_floor` (the platform floor `PLUGIN_VULN_MAX_CRITICAL`, the same
+ *     helper the build worker uses), `non_root`;
  *  4. SMOKE — the spec's `smokeTest`, run as a second NO-PUSH build
  *     (`FROM <image@digest>`, `RUN --network=none`).
  *
@@ -62,7 +64,8 @@ import { buildAndPushQuarantine, runQuarantineSmokeTest, type QuarantineBuildOpt
 import { readPackageFiles } from '../../helpers/package-files.js';
 import { parsePluginZip, validateBuildArgs, type ParsedPlugin } from '../../helpers/plugin-spec.js';
 import { writeDockerConfig, type RegistryInfo } from '../../helpers/registry-auth.js';
-import { inspectRunAsRoot, scanColumns, scanPluginImage } from '../../helpers/vuln-scan.js';
+import { vulnGateError } from '../../helpers/scan-gates.js';
+import { inspectRunAsRoot, scanColumns, scanPluginImage, type VulnFinding } from '../../helpers/vuln-scan.js';
 import { getPluginArtifactToFile, pluginQuarantineBucket } from '../plugin-artifact-storage.js';
 
 const logger = createLogger('ecosystem-submission-pipeline');
@@ -74,6 +77,8 @@ export interface QuarantineBuildOutcome {
   imageRepository: string;
   digest: string;
   scan: ReturnType<typeof scanColumns>;
+  /** Critical/high findings with their fixed versions (empty when unscanned). */
+  findings: VulnFinding[];
   runAsRoot: boolean | null;
 }
 
@@ -135,7 +140,7 @@ const liveDeps: SubmissionPipelineDeps = {
         logger.warn('Quarantined image config unreadable; runAsRoot unknown (the gate fails closed)', { submissionId: s.id, error: errorMessage(err) });
         return null;
       });
-      return { imageRepository: built.repository, digest: built.digest, scan: scanColumns(scan), runAsRoot };
+      return { imageRepository: built.repository, digest: built.digest, scan: scanColumns(scan), findings: scan?.findings ?? [], runAsRoot };
     } finally {
       await fs.rm(dockerConfigDir, { recursive: true, force: true }).catch(() => undefined);
     }
@@ -288,16 +293,21 @@ export async function runSubmissionGates(submissionId: string): Promise<GateRunO
       vulnHigh: outcome.scan.vulnHigh,
       vulnMedium: outcome.scan.vulnMedium,
       vulnLow: outcome.scan.vulnLow,
+      vulnCriticalFixable: outcome.scan.vulnCriticalFixable,
+      vulnHighFixable: outcome.scan.vulnHighFixable,
       scannedAt: outcome.scan.scannedAt ? new Date(outcome.scan.scannedAt).toISOString() : null,
       runAsRoot: outcome.runAsRoot,
     };
     const scanned = facts.scannedAt !== null;
     const maxCritical = vulnGateMaxCritical();
+    const floor = scanned ? vulnGateError({ ...facts, findings: outcome.findings }) : null;
     gates.push(
       gate('scanned', scanned, 'Image scanned', 'The image could not be scanned for vulnerabilities'),
-      gate('vuln', scanned && (facts.vulnCritical ?? 0) <= maxCritical,
-        `${facts.vulnCritical ?? 0} critical, ${facts.vulnHigh ?? 0} high vulnerabilities`,
-        scanned ? `${facts.vulnCritical} critical vulnerabilities (at most ${maxCritical} allowed)` : 'No vulnerability scan'),
+      gate('vuln', scanned && (facts.vulnCriticalFixable ?? 0) <= maxCritical,
+        `${facts.vulnCritical ?? 0} critical (${facts.vulnCriticalFixable ?? 0} fixable), ${facts.vulnHigh ?? 0} high (${facts.vulnHighFixable ?? 0} fixable) vulnerabilities`,
+        scanned ? `${facts.vulnCriticalFixable} fixable critical vulnerabilities (at most ${maxCritical} allowed)` : 'No vulnerability scan'),
+      gate('vuln_floor', scanned && floor === null, 'Within the platform vulnerability floor',
+        floor ? floor.message.replace(/^PLUGIN_VULN_GATE: /, '') : 'No vulnerability scan'),
       gate('non_root', facts.runAsRoot === false, 'Runs as a non-root user',
         facts.runAsRoot === null ? 'Could not tell which user the image runs as' : 'The image runs as root'),
     );

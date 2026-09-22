@@ -451,6 +451,9 @@ const API_DEFAULTS: Record<string, unknown> = {
   getPasswordPolicy: { policy: {} },
   getAuthenticatorPolicy: { own: [], effective: [], inheritedFrom: [], mds: { models: [] }, compliance: { modelsInUse: [] } },
   getMfaPolicy: { own: { required: false }, effective: { required: false }, inheritedFrom: [] },
+  getPluginSecurityNotifications: {
+    preferences: { recipientMode: 'writers', targetUsers: [], notifyRescan: true, digestMode: 'immediate', webhookUrl: null, hasWebhookSecret: false, externalEmail: null },
+  },
   listOrgDomains: { domains: [] },
   listOrgJoinRequests: { requests: [] },
   listIdpGroupMappings: { mappings: [] },
@@ -1297,6 +1300,19 @@ const CONTROLS: Control[] = [
       mount: page('../pages/dashboard/settings'),
       router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
       find: byText(/^password policy$/i),
+    },
+  },
+  {
+    control: 'Edit / test plugin security notifications (Settings → Organization)',
+    file: 'pages/dashboard/settings.tsx',
+    gateFiles: ['src/components/settings/PluginSecurityNotificationSettings.tsx'],
+    // Shown read-only with `plugins:read`; the write controls need `org:settings`.
+    permissions: ['org:settings'],
+    routes: ['plugin PUT /plugins/security-notifications', 'plugin POST /plugins/security-notifications/test'],
+    behaviour: {
+      mount: page('../pages/dashboard/settings'),
+      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      find: button(/^save notification settings$/i),
     },
   },
   {
@@ -2148,6 +2164,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'pre-session',
     why: 'Anonymous plugin submission: the not-signed-in submit and verify pages (src/lib/api/domains/plugin-submissions.ts) drive them with a proof-of-work and a magic link; there is no session, so no permission applies. Quarantine only — nothing is published without the two-person console decision.',
   }),
+  'plugin POST /public/plugin-security-notifications/confirm': {
+    category: 'pre-session',
+    why: 'The not-signed-in /notifications/confirm page (pages/notifications/confirm.tsx via src/lib/api/domains/plugin-security.ts) POSTs the emailed single-use token only on its Confirm button; the address\'s owner may have no account, so no permission applies.',
+  },
   ...group('plugin', [
     'GET /plugins/ecosystem/requests/:id/submission-sbom',
     'GET /plugins/ecosystem/requests/:id/submission-scan',
@@ -2494,7 +2514,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/token/exchange': { category: 'no-ui', why: 'Service-account token exchange; a machine surface with no frontend reference (api.generateNewToken is a different route).' },
   'platform POST /auth/key/rotate': { category: 'no-ui', why: 'Unattended service-account key self-rotation — the audit-event description says explicitly that no person is present.' },
   'platform POST /auth/key/revoke': { category: 'no-ui', why: 'Service-account key self-revocation; a machine surface with no frontend reference.' },
-  'plugin POST /plugins/lookup': { category: 'no-ui', why: 'Deploy-time PluginLookup Lambda call from the CDK; no client function exists for it.' },
+  'plugin POST /plugins/lookup': {
+    category: 'same-control',
+    coveredBy: 'Plugin list + detail reads',
+    why: 'A READ over POST: the pipeline editor previews how a step\'s plugin reference resolves (src/components/pipeline/editors/PluginResolutionWarnings.tsx → api.lookupPlugin) to show VULN_FLAGGED / PLUGIN_VERSION_VULN_BLOCKED, failing soft; same plugins:read gate as the plugin list. Its main caller is still the deploy-time PluginLookup Lambda (CDK) and pipeline-manager.',
+  },
   ...group('compliance', ['GET /compliance/rules/:id', 'GET /compliance/policies/:id'], {
     category: 'no-ui',
     why: 'Read-one-by-id, for API / CLI callers. The dashboard never re-reads a single rule or policy: src/lib/api/domains/compliance.ts has only the list, PUT and DELETE by id — the list response already carries the whole row the drawer renders.',
@@ -3077,12 +3101,15 @@ describe('MFA refusals are handled app-wide', () => {
 
   it('no authenticated endpoint bypasses the fetch core with a raw fetch', () => {
     // File / text / multipart endpoints use core.requestRaw / requestBlob /
-    // requestText, so their refusals take the same path. Only the anonymous
-    // public-submission client may call fetch itself.
+    // requestText, so their refusals take the same path. Only the ANONYMOUS
+    // public-route clients (submission, emailed-link confirmation) leave without
+    // the core, and they go through the one credential-free helper
+    // (src/lib/api/anonymous.ts) rather than calling fetch themselves.
     const dir = resolve(FRONTEND_DIR, 'src/lib/api/domains');
-    const rawFetchers = readdirSync(dir)
-      .filter((f) => /\bfetch\(/.test(readFileSync(resolve(dir, f), 'utf8')));
-    expect(rawFetchers).toEqual(['plugin-submissions.ts']);
+    const read = (f: string) => readFileSync(resolve(dir, f), 'utf8');
+    expect(readdirSync(dir).filter((f) => /\bfetch\(/.test(read(f)))).toEqual([]);
+    expect(readdirSync(dir).filter((f) => read(f).includes("from '../anonymous'")).sort())
+      .toEqual(['plugin-security.ts', 'plugin-submissions.ts']);
   });
 });
 

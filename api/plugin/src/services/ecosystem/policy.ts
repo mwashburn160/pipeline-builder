@@ -170,7 +170,10 @@ export interface Gate {
   message: string;
 }
 
-/** Highest number of CRITICAL vulnerabilities a version may carry to be requested (the vuln gate). */
+/**
+ * Highest number of FIXABLE critical vulnerabilities (grype reports a fixed
+ * version) a version may carry to be requested — the ecosystem vuln gate.
+ */
 export function vulnGateMaxCritical(): number {
   return envInt('ECOSYSTEM_VULN_GATE_MAX_CRITICAL', 0, { min: 0 });
 }
@@ -178,7 +181,8 @@ export function vulnGateMaxCritical(): number {
 /**
  * The gates a plugin VERSION must pass for a new-listing / new-version request.
  * An image plugin must be signed (it has a digest — only signed images get one)
- * and scanned, with at most {@link vulnGateMaxCritical} criticals.
+ * and scanned, with at most {@link vulnGateMaxCritical} FIXABLE criticals (an
+ * unfixable finding can't be acted on by a rebuild, so it doesn't block).
  */
 export function versionGates(p: PluginRow): Gate[] {
   const hasImage = p.imageDigest !== null;
@@ -194,10 +198,10 @@ export function versionGates(p: PluginRow): Gate[] {
       { id: 'scanned', ok: p.scannedAt !== null, message: p.scannedAt !== null ? 'Image scanned' : 'The image has not been scanned for vulnerabilities yet' },
       {
         id: 'vuln',
-        ok: p.scannedAt !== null && (p.vulnCritical ?? 0) <= maxCritical,
-        message: (p.vulnCritical ?? 0) <= maxCritical
-          ? `${p.vulnCritical ?? 0} critical, ${p.vulnHigh ?? 0} high vulnerabilities`
-          : `${p.vulnCritical} critical vulnerabilities (at most ${maxCritical} allowed) — fix them and upload a new version`,
+        ok: p.scannedAt !== null && (p.vulnCriticalFixable ?? 0) <= maxCritical,
+        message: (p.vulnCriticalFixable ?? 0) <= maxCritical
+          ? `${p.vulnCritical ?? 0} critical (${p.vulnCriticalFixable ?? 0} fixable), ${p.vulnHigh ?? 0} high (${p.vulnHighFixable ?? 0} fixable) vulnerabilities`
+          : `${p.vulnCriticalFixable} fixable critical vulnerabilities (at most ${maxCritical} allowed) — rebuild on the fixed package versions and upload a new version`,
       },
     );
   }

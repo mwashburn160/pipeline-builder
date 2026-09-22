@@ -4,8 +4,8 @@
 import { randomUUID } from 'crypto';
 import { auditSpoolKey, createEnvRedisAuditSpool, type AuditSpool, type AuditSpoolEntry } from './audit-spool.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
-import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { setAuthzDenialAuditor, type AuthzDenialInfo } from '../middleware/permission-gates.js';
+import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import type { ServiceConfig } from '../types/common.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
@@ -43,6 +43,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.build.completed',
   'plugin.build.failed',
   'plugin.build.timeout',
+  // A version persisted UNSCANNED because the build-time scan could not run and
+  // the operator escape hatch `PLUGIN_ALLOW_UNSCANNED` is on (without it the
+  // build fails `IMAGE_SCAN_UNAVAILABLE`). `details` carry name/version/digest.
+  'plugin.scan.skipped',
   // Plugin lifecycle mutations (api/plugin route handlers) — the destructive /
   // publishing surface that builds already audit's counterpart: registry delete,
   // source upload, and deploy-to-cluster. `targetId` is the plugin id.
@@ -306,6 +310,13 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.advisory.update',
   'plugin.advisory.publish',
   'plugin.advisory.withdraw',
+  // Per-org plugin security notifications (plugin scan gates): the settings
+  // (recipients, digest, webhook, external address — changed field names and
+  // the webhook host only, never the secret or the address), an external
+  // address confirmed through its emailed single-use link, and a test send.
+  'plugin.security_notifications.update',
+  'plugin.security_notifications.external_email.verify',
+  'plugin.security_notifications.test',
 ] as const;
 
 export type RemoteAuditAction = typeof REMOTE_AUDIT_ACTIONS[number];

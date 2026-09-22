@@ -6,6 +6,7 @@ import { Select } from '@/components/ui/Select';
 import CollapsibleSection from './CollapsibleSection';
 import MetadataEditor from './MetadataEditor';
 import PluginNameCombobox from './PluginNameCombobox';
+import { PluginResolutionWarnings } from './PluginResolutionWarnings';
 
 /** Props for {@link PluginOptionsEditor}. */
 interface PluginOptionsEditorProps {
@@ -83,6 +84,12 @@ export default function PluginOptionsEditor({
         disabled={disabled}
         label={label}
         error={error}
+      />
+      <PluginResolutionWarnings
+        name={value.name}
+        publisher={value.publisher}
+        version={value.filter.version}
+        id={value.filter.id}
       />
       <div className="grid grid-cols-2 gap-3">
         <div>

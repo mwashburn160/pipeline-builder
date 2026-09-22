@@ -33,15 +33,15 @@ const { createEcosystemNotifyClient, ECOSYSTEM_NOTIFY_PATH } = await import('../
 const base = { event: 'N23', subject: 'S', text: 'T', recipients: [{ kind: 'superadmins' }] };
 
 describe('ECOSYSTEM_NOTIFICATION_EVENTS', () => {
-  it('covers N1..N29 exactly', () => {
-    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 29 }, (_, i) => `N${i + 1}`));
-    expect(isEcosystemNotificationEvent('N29')).toBe(true);
-    expect(isEcosystemNotificationEvent('N30')).toBe(false);
+  it('covers N1..N31 exactly', () => {
+    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 31 }, (_, i) => `N${i + 1}`));
+    expect(isEcosystemNotificationEvent('N31')).toBe(true);
+    expect(isEcosystemNotificationEvent('N32')).toBe(false);
     expect(isEcosystemNotificationEvent('toString')).toBe(false);
   });
 
   it('makes the notification transactional and security notices non-optional', () => {
-    for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29'] as const) {
+    for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29', 'N30', 'N31'] as const) {
       expect([n, ECOSYSTEM_NOTIFICATION_EVENTS[n].preference]).toEqual([n, null]);
     }
   });
@@ -102,6 +102,10 @@ describe('parseEcosystemNotifyRequest', () => {
     // A tenant-org rule can never name a governance permission (or anything else).
     [{ ...base, recipients: [{ kind: 'org_permission', orgId: 'o', permission: 'plugins:moderate' }] }, /unsupported/],
     [{ ...base, recipients: [{ kind: 'moderators', permission: 'members:manage' }] }, /unsupported/],
+    [{ ...base, recipients: [{ kind: 'org_members', userIds: ['u'] }] }, /orgId/],
+    [{ ...base, recipients: [{ kind: 'org_members', orgId: 'o', userIds: [] }] }, /userIds/],
+    [{ ...base, recipients: [{ kind: 'org_members', orgId: 'o', userIds: [3] }] }, /userIds/],
+    [{ ...base, recipients: [{ kind: 'org_members', orgId: 'o', userIds: Array.from({ length: 101 }, (_, i) => `u${i}`) }] }, /at most 100/],
     [{ ...base, recipients: [{ kind: 'moderators', permission: 'plugins:moderate', excludeMembersOfOrgId: 3 }] }, /excludeMembersOfOrgId/],
     [{ ...base, recipients: [{ kind: 'moderators', permission: 'plugins:moderate', excludeUserIds: [1] }] }, /excludeUserIds/],
     // A raw address only for the anonymous-submitter notices.
@@ -115,6 +119,30 @@ describe('parseEcosystemNotifyRequest', () => {
     const result = parseEcosystemNotifyRequest(body);
     expect(typeof result).toBe('string');
     expect(result).toMatch(message);
+  });
+
+  it('allows the verified external security address on N30/N31 only', () => {
+    for (const event of ['N30', 'N31']) {
+      expect(parseEcosystemNotifyRequest({ ...base, event, recipients: [{ kind: 'address', email: 'Sec@Example.com' }] }))
+        .toMatchObject({ recipients: [{ kind: 'address', email: 'sec@example.com' }] });
+    }
+    expect(parseEcosystemNotifyRequest({ ...base, event: 'N20', recipients: [{ kind: 'address', email: 'sec@example.com' }] })).toMatch(/only allowed/);
+  });
+
+  it('accepts plugins:write writers and deduplicated org members', () => {
+    expect(parseEcosystemNotifyRequest({
+      ...base,
+      event: 'N30',
+      recipients: [
+        { kind: 'org_permission', orgId: 'o', permission: 'plugins:write' },
+        { kind: 'org_members', orgId: 'o', userIds: ['u1', 'u1', 'u2'] },
+      ],
+    })).toMatchObject({
+      recipients: [
+        { kind: 'org_permission', orgId: 'o', permission: 'plugins:write' },
+        { kind: 'org_members', orgId: 'o', userIds: ['u1', 'u2'] },
+      ],
+    });
   });
 
   it('allows a submitter address on N1/N3/N4 and lowercases it', () => {

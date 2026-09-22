@@ -111,7 +111,12 @@ export interface DirectoryListingVersion {
   changelog: string | null;
   vulnCritical: number | null;
   vulnHigh: number | null;
+  /** Of those, the findings grype reports a fixed version for. */
+  vulnCriticalFixable: number | null;
+  vulnHighFixable: number | null;
   scannedAt: string | null;
+  /** When the nightly rescan flagged this version (fixable criticals over the platform floor); null = not flagged. */
+  scanFlaggedAt: string | null;
   /** Ids of the published advisories whose range covers this version. */
   advisoryIds: string[];
 }
@@ -138,6 +143,9 @@ export interface DirectoryListingDetail extends DirectoryListingCard {
     scannedAt: string | null;
     vulnCritical: number | null;
     vulnHigh: number | null;
+    vulnCriticalFixable: number | null;
+    vulnHighFixable: number | null;
+    scanFlaggedAt: string | null;
     sbomUrl: string | null;
   };
   advisories: {
@@ -519,7 +527,10 @@ type VersionRow = {
   changelog: string | null;
   vuln_critical: number | null;
   vuln_high: number | null;
+  vuln_critical_fixable: number | null;
+  vuln_high_fixable: number | null;
   scanned_at: Date | string | null;
+  scan_flagged_at: Date | string | null;
   image_digest: string | null;
   image_source: string | null;
   plugin_type: string | null;
@@ -584,7 +595,10 @@ export async function getPublicListing(publisherHandle: string, name: string): P
       changelog: v.changelog,
       vulnCritical: v.vuln_critical,
       vulnHigh: v.vuln_high,
+      vulnCriticalFixable: v.vuln_critical_fixable ?? null,
+      vulnHighFixable: v.vuln_high_fixable ?? null,
       scannedAt: v.scanned_at ? iso(v.scanned_at) : null,
+      scanFlaggedAt: v.scan_flagged_at ? iso(v.scan_flagged_at) : null,
       advisoryIds: advisoryRows.filter((a) => advisoryRangeCovers(a.affected_range, v.version)).map((a) => a.id),
     })),
     configuration: {
@@ -604,6 +618,9 @@ export async function getPublicListing(publisherHandle: string, name: string): P
       scannedAt: current?.scanned_at ? iso(current.scanned_at) : null,
       vulnCritical: current?.vuln_critical ?? null,
       vulnHigh: current?.vuln_high ?? null,
+      vulnCriticalFixable: current?.vuln_critical_fixable ?? null,
+      vulnHighFixable: current?.vuln_high_fixable ?? null,
+      scanFlaggedAt: current?.scan_flagged_at ? iso(current.scan_flagged_at) : null,
       sbomUrl: current?.image_digest
         ? `/api/public/plugins/${encodeURIComponent(row.publisher_handle)}/${encodeURIComponent(row.name)}/versions/${encodeURIComponent(current.version)}/sbom`
         : null,

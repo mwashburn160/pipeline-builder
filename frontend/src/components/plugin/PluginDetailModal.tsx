@@ -7,7 +7,8 @@ import { Modal } from '@/components/ui/Modal';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { formatDateTime } from '@/lib/format';
 import { ShadowingNotice } from '@/components/plugin-installs/ShadowingNotice';
-import { PluginSupplyChain } from './PluginSupplyChain';
+import { PluginSupplyChain, pluginProducesImage } from './PluginSupplyChain';
+import { VulnSummary } from './VulnSummary';
 import { PluginLifecycleBadges } from './PluginLifecycleBadges';
 
 /**
@@ -138,6 +139,13 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
           </Link>
         )}
         <PluginSupplyChain plugin={plugin} />
+        {pluginProducesImage(plugin) && (
+          <div>
+            <p className="text-xs font-medium text-fg-muted mb-1">Vulnerabilities</p>
+            <VulnSummary facts={plugin} details />
+            {plugin.scannedAt && <p className="mt-1 text-xs text-fg-muted">Scanned {formatDateTime(plugin.scannedAt)}</p>}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3 text-xs text-fg-muted">
           <div>Created: {formatDateTime(plugin.createdAt)}</div>
           <div>Updated: {formatDateTime(plugin.updatedAt)}</div>

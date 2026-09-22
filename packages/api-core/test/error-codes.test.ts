@@ -102,3 +102,11 @@ describe('getStatusForErrorCode', () => {
     expect(getStatusForErrorCode('UNKNOWN_CODE' as ErrorCode)).toBe(500);
   });
 });
+
+describe('plugin scan-gate codes', () => {
+  it('maps the build-outcome codes to 422 and the exact-pin vuln block to 409', () => {
+    expect(getStatusForErrorCode(ErrorCode.IMAGE_SCAN_UNAVAILABLE)).toBe(422);
+    expect(getStatusForErrorCode(ErrorCode.PLUGIN_VULN_GATE)).toBe(422);
+    expect(getStatusForErrorCode(ErrorCode.PLUGIN_VERSION_VULN_BLOCKED)).toBe(409);
+  });
+});

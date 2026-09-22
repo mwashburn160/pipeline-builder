@@ -168,3 +168,16 @@ export const SUBMISSION_STATUSES = [
   'pending_verification', 'pending_review', 'publishing', 'gate_failed', 'approved', 'rejected', 'expired', 'claimed',
 ] as const;
 export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
+
+// -----------------------------------------------------------------------------
+// Plugin security notifications (per org)
+// -----------------------------------------------------------------------------
+
+/** Who receives an org's plugin security notices: `writers` = the uploader plus
+ *  members holding `plugins:write`; `users` = the org's chosen members. */
+export const PLUGIN_SECURITY_RECIPIENT_MODES = ['writers', 'users'] as const;
+export type PluginSecurityRecipientMode = (typeof PLUGIN_SECURITY_RECIPIENT_MODES)[number];
+
+/** How rescan findings (N31) are batched; blocked builds (N30) are always immediate. */
+export const PLUGIN_SECURITY_DIGEST_MODES = ['immediate', 'daily', 'weekly'] as const;
+export type PluginSecurityDigestMode = (typeof PLUGIN_SECURITY_DIGEST_MODES)[number];

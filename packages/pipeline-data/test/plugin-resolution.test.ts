@@ -114,7 +114,11 @@ function version(v: string, over: Partial<PluginListingVersion> = {}): PluginLis
     changelog: `v${v}`,
     vulnCritical: 0,
     vulnHigh: 0,
+    vulnCriticalFixable: 0,
+    vulnHighFixable: 0,
     scannedAt: T0,
+    scanFlaggedAt: null,
+    scanFlag: null,
     baseImageCreatedAt: null,
     imageCollectedAt: null,
     publishedAt: T0,
@@ -408,6 +412,59 @@ describe('selectListingVersion', () => {
     expect(pinned).toMatchObject({ reason: 'advisory', details: { fixedVersions: ['1.2.0'] }, message: expect.stringMatching(/Fixed in 1.2.0/) });
     // `never` turns the block off.
     expect(pick(selectListingVersion({ ...base, mode: implicit, advisories: all, policy: policy({ blockOnAdvisory: 'never' }) }))).toBe('1.1.0');
+  });
+
+  describe('rescan-flagged versions', () => {
+    const flag = { critical: 2, high: 1, maxCritical: 0, findings: [{ id: 'CVE-2026-1', severity: 'critical' as const, packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] }] };
+    const flagged = [version('1.0.0'), version('1.1.0', { scanFlaggedAt: T0, scanFlag: flag })];
+    const b = { ...base, versions: flagged, mode: implicit };
+
+    it('resolve normally (with a warning elsewhere) when block mode is off', () => {
+      expect(pick(selectListingVersion({ ...b, blockFlagged: false }))).toBe('1.1.0');
+      expect(pick(selectListingVersion({ ...b, blockFlagged: false, requested: '1.1.0' }))).toBe('1.1.0');
+    });
+
+    it('block mode: a range / the default falls back to the newest unflagged satisfying version', () => {
+      expect(pick(selectListingVersion({ ...b, blockFlagged: true }))).toBe('1.0.0');
+      expect(pick(selectListingVersion({ ...b, blockFlagged: true, requested: '^1.0.0' }))).toBe('1.0.0');
+    });
+
+    it('block mode: an exact pin to a flagged version is refused 409 PLUGIN_VERSION_VULN_BLOCKED naming the fix', () => {
+      expect(pick(selectListingVersion({ ...b, blockFlagged: true, requested: '1.1.0' }))).toMatchObject({
+        code: 'PLUGIN_VERSION_VULN_BLOCKED',
+        reason: 'vuln_flagged',
+        message: expect.stringMatching(/CVE-2026-1 \(openssl@3\.0\.1 → 3\.0\.2\)/),
+        details: { version: '1.1.0', critical: 2, fixedVersions: ['3.0.2'] },
+      });
+    });
+
+    it('block mode: when every candidate is flagged the refusal is the vuln block', () => {
+      expect(pick(selectListingVersion({ ...b, blockFlagged: true, requested: '~1.1.0' }))).toMatchObject({ code: 'PLUGIN_VERSION_VULN_BLOCKED' });
+    });
+
+    it('reads PLUGIN_BLOCK_ON_NEW_CRITICAL by default', () => {
+      process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL = 'true';
+      try {
+        expect(pick(selectListingVersion(b))).toBe('1.0.0');
+      } finally {
+        delete process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL;
+      }
+      expect(pick(selectListingVersion(b))).toBe('1.1.0');
+    });
+
+    it('a flagged resolved version carries a VULN_FLAGGED warning', () => {
+      const { warnings } = listedVersionWarnings({
+        publisher: publisher(), listing: listing(), version: flagged[1]!, advisories: [], policy: policy(),
+      });
+      expect(warnings).toEqual([expect.objectContaining({
+        code: 'VULN_FLAGGED',
+        plugin: 'pipeline-builder/trivy',
+        version: '1.1.0',
+        critical: 2,
+        high: 1,
+        message: 'pipeline-builder/trivy@1.1.0 has 2 fixable Critical findings — rebuild or upgrade',
+      })]);
+    });
   });
 
   it('refuses when nothing is live', () => {

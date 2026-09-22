@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useId } from 'react';
 import { useAsyncCallback } from '@/hooks/useAsync';
-import { Upload, CheckCircle, XCircle } from 'lucide-react';
+import { Upload, CheckCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { formatBytes } from '@/lib/format';
 import { Modal } from '@/components/ui/Modal';
@@ -18,6 +18,7 @@ import { CatalogDetailsStep } from './CatalogDetailsStep';
 import api from '@/lib/api';
 import { PLUGIN_BUILD_TIMEOUT_MS } from '@/lib/constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
+import { BuildFailureMessage } from './BuildFailureMessage';
 import type { PluginCatalogEdits, Visibility } from '@/types';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
@@ -239,14 +240,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
               </p>
             </div>
           )}
-          {isFailed && lastEvent && (
-            <div className="alert-error mb-4">
-              <p className="flex items-center gap-2">
-                <XCircle className="w-4 h-4" />
-                {lastEvent.message}
-              </p>
-            </div>
-          )}
+          {isFailed && lastEvent && <BuildFailureMessage event={lastEvent} className="mb-4" />}
 
           {/* Build progress log — shown once the upload has been queued
               (requestId set) and SSE events start arriving. */}

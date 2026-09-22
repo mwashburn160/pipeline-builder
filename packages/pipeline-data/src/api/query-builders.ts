@@ -217,6 +217,10 @@ export function buildPluginConditions(
     conditions.push(...notYanked());
   }
 
+  if (filter.excludeScanFlagged === true) {
+    conditions.push(isNull(schema.plugin.scanFlaggedAt));
+  }
+
   if (filter.keyword !== undefined) {
     conditions.push(buildJsonbKeywordCondition(schema.plugin.keywords, normalizeStringFilter(filter.keyword)));
   }

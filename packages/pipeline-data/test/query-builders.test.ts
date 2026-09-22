@@ -122,6 +122,14 @@ describe('buildPluginConditions', () => {
     expect(withVersion.length).toBeGreaterThan(withoutVersion.length);
   });
 
+  it('excludeScanFlagged drops rescan-flagged versions (block mode)', () => {
+    const dialect = new PgDialect();
+    const q = dialect.sqlToQuery(and(...buildPluginConditions({ excludeScanFlagged: true }, 'org-1'))!);
+    expect(q.sql).toContain('"plugins"."scan_flagged_at" is null');
+    const without = dialect.sqlToQuery(and(...buildPluginConditions({}, 'org-1'))!);
+    expect(without.sql).not.toContain('scan_flagged_at');
+  });
+
   it('adds orgId filter', () => {
     const withOrgId = buildPluginConditions({ orgId: 'specific-org' }, 'org-1');
     const withoutOrgId = buildPluginConditions({}, 'org-1');

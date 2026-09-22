@@ -14,38 +14,12 @@
  * `code` (`SUBMISSIONS_DISABLED`, `SUBMISSION_LIMIT`, `NAME_TAKEN`, …), its
  * `details`, and `retryAfter` on 429.
  */
-import { ApiError } from '../errors';
-import { API_URL } from '../util';
+import { anonymousRequest as call } from '../anonymous';
 import type { PluginCatalogEdits, PluginInspectField } from '@/types';
 import type {
   HeuristicFinding, ProofOfWorkSolution, SubmissionChallenge, SubmissionCreated, SubmissionGate, SubmissionInspectResult,
   SubmissionLintIssue, SubmissionStatusView, SubmissionVerified,
 } from '@/types/plugin-submissions';
-
-interface ErrorBody { message?: string; code?: string; details?: Record<string, unknown>; data?: unknown }
-
-async function call<T>(path: string, init: RequestInit & { signal?: AbortSignal } = {}): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      ...init,
-      headers: { Accept: 'application/json', ...(init.headers as Record<string, string> | undefined) },
-      credentials: 'omit',
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') throw err;
-    throw new ApiError('Could not reach the server. Check your connection and try again.', 0, 'NETWORK_ERROR');
-  }
-  const body = (await response.json().catch(() => ({}))) as ErrorBody;
-  if (!response.ok) {
-    const error = new ApiError(body.message || `Request failed (${response.status})`, response.status, body.code, body.details);
-    const retryAfter = Number(response.headers.get('Retry-After'));
-    if (Number.isFinite(retryAfter) && retryAfter > 0) error.retryAfter = retryAfter;
-    throw error;
-  }
-  // The platform wraps payloads as `{ success, data }`; tolerate a bare body too.
-  return (body && typeof body === 'object' && 'data' in body ? body.data : body) as T;
-}
 
 const asString = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 const asLine = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);

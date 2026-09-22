@@ -20,6 +20,7 @@ import { createQueueStatusRoutes } from './routes/queue-status.js';
 import { createReadPluginRoutes } from './routes/read-plugins.js';
 import { createRestorePluginRoutes } from './routes/restore-plugin.js';
 import { createReviewRoutes } from './routes/reviews.js';
+import { createPublicSecurityNotificationRoutes, createSecurityNotificationRoutes } from './routes/security-notifications.js';
 import { createUpdatePluginRoutes } from './routes/update-plugin.js';
 import { createUploadPluginRoutes } from './routes/upload-plugin.js';
 import { createVersionLifecycleRoutes } from './routes/version-lifecycle.js';
@@ -49,6 +50,9 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // the directory's state). Quarantine only: nothing it does reaches a
   // `plugins` row or `public/*` without two-person moderation.
   app.use('/public/plugin-submissions', createPublicSubmissionRoutes());
+  // Confirming an org's external security-notice address (the emailed
+  // single-use link's page POSTs here). Before the directory for the same reason.
+  app.use('/public/plugin-security-notifications', createPublicSecurityNotificationRoutes());
   app.use('/public', createPublicDirectoryRoutes());
 
   // -- Service-to-service routes (image-registry → the team parent-pull set).
@@ -88,6 +92,9 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // Reviews and ratings — each route owns its gate (plugins:read or
   // publishers:manage, a human session, per-user/org/IP throttles).
   app.use('/plugins', createReviewRoutes());
+  // Per-org plugin security notification settings — each route owns its gate
+  // (plugins:read to view, org:settings to change); before the read routes for `/:id`.
+  app.use('/plugins', createSecurityNotificationRoutes());
 
   // -- Queue status routes (MUST be before read routes so `/:id` can't catch "queue").
   //    Every route owns its gate (requireSystemAdmin for the cross-org operator

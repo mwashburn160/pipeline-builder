@@ -140,3 +140,19 @@ export {
   type HealthInputs,
   type HealthBand,
 } from './plugin-health.js';
+export {
+  asScanFlag,
+  blockOnNewCritical,
+  describeFindings,
+  describeFix,
+  exceedsVulnFloor,
+  pluginVulnMaxCritical,
+  SCAN_FLAG_TOP_FINDINGS,
+  VULN_FLAGGED_WARNING,
+  vulnBlockedMessage,
+  vulnFlaggedMessage,
+  vulnFlaggedWarning,
+  type PluginScanFinding,
+  type PluginScanFlag,
+  type VulnFlaggedWarning,
+} from './plugin-scan.js';

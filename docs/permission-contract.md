@@ -58,6 +58,15 @@ so they don't show in the rows. Loosening `PUT /plugins/install-policy` below
 `plugin_installs:manage + step-up(any)` lets any member widen what the org's
 pipelines may run, which is a weakening.
 
+The org-local plugin security notification rows (`/plugins/security-notifications*`)
+decide where the org's blocked-build (N30) and rescan (N31) notices go — including
+an outbound webhook and an external address. Loosening the `PUT` or the `test`
+send below `org:settings` would let any member redirect security notices or aim
+the webhook, which is a weakening. The anonymous
+`POST /public/plugin-security-notifications/confirm` carries no caller identity
+(its single-use emailed token is the authority), so it has no row here; its
+waiver is pinned in `api/plugin/test/route-coverage.test.ts`.
+
 ## Plugin reviews
 
 The review writes (`/plugins/listings/*/reviews`, `/plugins/reviews/*`) are
@@ -508,6 +517,9 @@ body carries. `POST /messages` stays on `messages:write`.
 | plugin | POST | `/plugins/lookup` | `any(plugins:read)` |
 | plugin | GET | `/plugins/plugin-usage` | `any(plugins:read)` |
 | plugin | GET | `/plugins/providers` | `any(plugins:read) + feature(ai_generation)` |
+| plugin | GET | `/plugins/security-notifications` | `any(plugins:read)` |
+| plugin | PUT | `/plugins/security-notifications` | `any(org:settings)` |
+| plugin | POST | `/plugins/security-notifications/test` | `any(org:settings)` |
 | plugin | GET | `/plugins/shadowing` | `any(plugins:read)` |
 | plugin | DELETE | `/plugins/queue/dlq` | `sysadmin` |
 | plugin | GET | `/plugins/queue/dlq` | `any(plugins:write)` |

@@ -11,6 +11,19 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { SortHeader } from './SortHeader';
 import type { DlqJob, FailedJob, SortDir, SortField } from './types';
+import { buildFailureInfo } from '@/lib/plugin-vulns';
+
+/** A failed job's error: a scan-gate refusal gets its plain-words title ahead of the raw text. */
+function FailureCell({ error }: { error?: string }) {
+  if (!error) return <span>—</span>;
+  const info = buildFailureInfo({ message: error });
+  return (
+    <span className="block" title={error}>
+      {info.code && <Badge color="red" className="mb-1">{info.title}</Badge>}
+      <span className="line-clamp-2">{error}</span>
+    </span>
+  );
+}
 
 export interface FailedJobsTableProps {
   /** The CURRENT server page of jobs (the queue listings are paged server-side). */
@@ -195,7 +208,7 @@ export function FailedJobsTable({
                     {job.failedAt ? <RelativeTime value={job.failedAt} /> : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-danger text-xs max-w-xs">
-                    <span className="line-clamp-2" title={job.error}>{job.error || '—'}</span>
+                    <FailureCell error={job.error} />
                   </td>
                   {onAction && (
                     <td className="px-4 py-2.5 text-right whitespace-nowrap">

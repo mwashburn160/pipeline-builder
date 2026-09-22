@@ -14,7 +14,7 @@ import { postBuildComplianceAttributes } from './plugin-compliance.js';
 import type { PluginRecordData } from './plugin-helpers.js';
 import type { RegistryInfo } from './registry-auth.js';
 import type { PluginImageRef } from './supply-chain.js';
-import { inspectRunAsRoot, isRootUser, scanColumns, scanPluginImage, type ScanColumns } from './vuln-scan.js';
+import { inspectRunAsRoot, isRootUser, scanColumns, scanPluginImage, type ScanColumns, type VulnFinding } from './vuln-scan.js';
 
 const logger = createLogger('image-facts');
 
@@ -25,6 +25,8 @@ export interface ImageFacts extends ScanColumns {
   runAsRoot: boolean | null;
   /** SBOM package names (for the compliance check only; not a column). */
   packages: string[] | null;
+  /** Critical/high findings with their fixed versions (the gate message); empty when unscanned. */
+  findings: VulnFinding[];
 }
 
 /**
@@ -46,13 +48,14 @@ export async function resolveRunAsRoot(ref: PluginImageRef, registry: RegistryIn
 
 /**
  * Scan the pushed image and resolve its USER. Never throws: an unscannable
- * image lands as UNSCANNED (all scan columns NULL — compliance then sees
- * `scanned: false`), never as a fake clean scan.
+ * image comes back UNSCANNED (all scan columns NULL), never as a fake clean
+ * scan — the build worker then fails the build (`IMAGE_SCAN_UNAVAILABLE`,
+ * after its retries) unless `PLUGIN_ALLOW_UNSCANNED` persists it unscanned.
  */
 export async function establishImageFacts(ref: PluginImageRef, registry: RegistryInfo, dockerfile: string | null): Promise<ImageFacts> {
   const { scan, packages } = await scanPluginImage(ref, registry, 'build', { refreshDb: true });
   const runAsRoot = await resolveRunAsRoot(ref, registry, dockerfile);
-  return { ...scanColumns(scan), runAsRoot, packages };
+  return { ...scanColumns(scan), runAsRoot, packages, findings: scan?.findings ?? [] };
 }
 
 /**

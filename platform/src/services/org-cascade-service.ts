@@ -140,6 +140,9 @@ const HARD_DELETE_TABLES = [
   { table: schema.pluginInstall, name: 'plugin_installs' },
   { table: schema.pluginInstallPolicy, name: 'plugin_install_policies' },
   { table: schema.pluginAdvisoryDelivery, name: 'plugin_advisory_deliveries' },
+  // The org's plugin security notification settings (webhook secret and
+  // external address are encrypted under the org's own key).
+  { table: schema.pluginSecurityNotificationPref, name: 'plugin_security_notification_prefs' },
 ] as const;
 
 /** Every DB table name the org cascade covers (soft + hard). Exported so a

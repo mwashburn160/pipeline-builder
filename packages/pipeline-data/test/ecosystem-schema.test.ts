@@ -10,10 +10,10 @@
  * `public_*` views and nothing else.
  */
 
-import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { describe, it, expect } from '@jest/globals';
 import { getTableConfig, getViewConfig, type PgTable } from 'drizzle-orm/pg-core';
 import * as eco from '../src/database/schema/ecosystem.js';
 import { pipelineEvent } from '../src/database/schema/pipeline.js';
@@ -52,9 +52,13 @@ const ECO_TABLES: PgTable[] = [
   eco.pluginReview, eco.pluginReviewReply, eco.pluginReviewReport, eco.pluginReviewVote, eco.pluginReviewHistory,
   eco.pluginStats, eco.pluginSubmission, eco.ecosystemSearchMiss, eco.ecosystemNotificationQueue,
   eco.pipelineStepManifest, eco.pluginInstall, eco.pluginInstallPolicy, eco.pluginAdvisoryDelivery,
+  eco.pluginSecurityNotificationPref,
 ];
 
-const ORG_SCOPED = ['pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies', 'plugin_advisory_deliveries'];
+const ORG_SCOPED = [
+  'pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies', 'plugin_advisory_deliveries',
+  'plugin_security_notification_prefs',
+];
 
 describe('ecosystem schema matches the shipped DDL', () => {
   it.each(ECO_TABLES.map((t) => [getTableConfig(t).name, t] as const))(

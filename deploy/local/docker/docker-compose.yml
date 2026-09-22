@@ -911,6 +911,10 @@ services:
       PLUGIN_REVIEWS_ENABLED: ${PLUGIN_REVIEWS_ENABLED:-true}
       ANONYMOUS_SUBMISSIONS_ENABLED: ${ANONYMOUS_SUBMISSIONS_ENABLED:-false}
       OFFICIAL_AUTO_APPROVAL_ENABLED: ${OFFICIAL_AUTO_APPROVAL_ENABLED:-true}
+      # Plugin image scan gates (docs/plugin-publishing.md#scan-gates).
+      PLUGIN_VULN_MAX_CRITICAL: ${PLUGIN_VULN_MAX_CRITICAL:-0}
+      PLUGIN_ALLOW_UNSCANNED: ${PLUGIN_ALLOW_UNSCANNED:-false}
+      PLUGIN_BLOCK_ON_NEW_CRITICAL: ${PLUGIN_BLOCK_ON_NEW_CRITICAL:-false}
       # Anonymous submissions. Quarantine builds run ONLY on the
       # isolated buildkitd-quarantine below — never on BUILDKIT_HOST (no fallback:
       # the plugin service fails closed without it). The zip waits in its own
@@ -1105,6 +1109,9 @@ services:
       PLUGIN_SERVICE_HOST: ${PLUGIN_SERVICE_HOST:-plugin}
       PLUGIN_SERVICE_PORT: ${PLUGIN_SERVICE_PORT:-3000}
       HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
+      # The create-time plugin contract check resolves installed listings with the
+      # same scan-gate rule as the plugin service's lookup.
+      PLUGIN_BLOCK_ON_NEW_CRITICAL: ${PLUGIN_BLOCK_ON_NEW_CRITICAL:-false}
     volumes:
       - *service-key-bundle
       - *dev-ca

@@ -3,7 +3,7 @@
 
 import {
   ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle,
-  type MetadataSources, type OwnerType, type Visibility,
+  type MetadataSources, type OwnerType, type PluginScanFlag, type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
@@ -224,7 +224,15 @@ export const plugin = pgTable('plugins', {
   vulnHigh: integer('vuln_high'),
   vulnMedium: integer('vuln_medium'),
   vulnLow: integer('vuln_low'),
+  // Of the critical/high findings, those grype reports a fixed version for —
+  // what the platform floor (PLUGIN_VULN_MAX_CRITICAL) gates on. NULL = unscanned.
+  vulnCriticalFixable: integer('vuln_critical_fixable'),
+  vulnHighFixable: integer('vuln_high_fixable'),
   scannedAt: timestamp('scanned_at', { withTimezone: true }),
+  // Set by the nightly rescan while this version's fixable criticals exceed the
+  // floor (cleared when resolved): the counts and top findings at that rescan.
+  scanFlaggedAt: timestamp('scan_flagged_at', { withTimezone: true }),
+  scanFlag: jsonb('scan_flag').$type<PluginScanFlag>(),
   runAsRoot: boolean('run_as_root'),
 
   // Version lifecycle. `breaking`: a publisher-marked major that `latest`

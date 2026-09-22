@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 20e2e53f70d7efd1d80465bfedb7ac36fa7fc7b8cc6dcb89e8cddecce21dcef4
+// SOURCE-SHA256: 6a20aaad469a28cc9942bb30223d82481a89c2e4d60acf8e7f564593de8b33e7
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -156,6 +156,40 @@ export const pluginPublishingTopic: HelpTopic = {
       ]
     },
     {
+      "id": "scan-gates",
+      "title": "Scan gates",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Every plugin image is scanned for vulnerabilities when it's built: an SBOM is made with syft and scanned with grype. This applies to every build, not just published ones: uploads, prebuilt images, AI-generated plugins, bulk uploads and the catalog loader. Anonymous submissions go through the same gate."
+        },
+        {
+          "type": "text",
+          "content": "Fixable findings. A finding is fixable when the scanner knows a version of the affected package that fixes it. The gates count fixable Critical findings only, because a Critical with no fix yet can't be resolved by rebuilding. Plugin views show both numbers for Critical and High, for example 2 fixable / 5 Critical."
+        },
+        {
+          "type": "text",
+          "content": "A build that can't be scanned fails. If the scan can't run, the build is retried like any other transient failure. After the last attempt it fails with IMAGE_SCAN_UNAVAILABLE: nothing is stored and the plugin quota the upload reserved is released. Build it again once the scanner is back."
+        },
+        {
+          "type": "text",
+          "content": "The operator can let such builds through with PLUGIN_ALLOW_UNSCANNED=true. The version is then stored without a scan, shows an Unscanned badge, and the skip is audited (plugin.scan.skipped)."
+        },
+        {
+          "type": "text",
+          "content": "The platform floor. A version with more fixable Critical findings than PLUGIN_VULN_MAX_CRITICAL fails its build with PLUGIN_VULN_GATE (default 0, so any fixable Critical fails; -1 turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser."
+        },
+        {
+          "type": "text",
+          "content": "Nightly rescans. Stored versions are rescanned every night against the latest vulnerability data. This includes every listed version, which is rescanned from its own public image even if the organization that built it has since deleted the plugin. When a rescan finds more fixable Critical findings than the floor allows, the version is flagged: plugin views show Flagged by rescan with the top findings and their fixed versions, and pipelines that resolve it get a VULN_FLAGGED warning (see Plugin Installing). The flag clears on the first rescan that finds the findings resolved. To clear it yourself, rebuild the plugin on patched packages, or publish a new version."
+        },
+        {
+          "type": "text",
+          "content": "Who is told. A blocked build (notice N30) is always reported right away. New Critical or High findings from a rescan (notice N31) follow your organization's settings. Admins set both under Settings → Organization → Plugin security notifications: who receives them (the uploader and everyone who can write plugins, or chosen members), whether rescan findings are sent and as a daily or weekly digest, an optional signed webhook, and one external address. The external address gets nothing until its owner opens the confirmation link and presses Confirm address. Send test sends a test notice to every configured channel."
+        }
+      ]
+    },
+    {
       "id": "requests",
       "title": "Requests",
       "blocks": [
@@ -236,7 +270,7 @@ export const pluginPublishingTopic: HelpTopic = {
             "has public visibility;",
             "declares an SPDX license;",
             "ships a README;",
-            "if it produces an image, is signed (it has a digest), scanned, and has no critical vulnerabilities (the vulnerability gate)."
+            "if it produces an image, is signed (it has a digest), scanned, and has no more fixable critical vulnerabilities than the instance allows (the vulnerability gate; see Scan gates)."
           ]
         },
         {
@@ -458,7 +492,7 @@ export const pluginPublishingTopic: HelpTopic = {
             "the license is an allowed SPDX identifier;",
             "the Dockerfile and spec have no lint errors;",
             "the image doesn't run as root;",
-            "the vulnerability scan is under the instance's threshold;",
+            "the image's fixable critical findings are under the instance's threshold;",
             "no high-severity suspicious patterns (crypto-miners, obfuscated shell, reading cloud or CI credentials, piping downloads to a shell);",
             "no secret-looking default values in env;",
             "a smokeTest is declared and passes (it runs with no network);",
@@ -747,6 +781,14 @@ export const pluginPublishingTopic: HelpTopic = {
             [
               "PLUGIN_VERSION_FROZEN",
               "The version is referenced by a request or already listed."
+            ],
+            [
+              "IMAGE_SCAN_UNAVAILABLE",
+              "The build's image couldn't be scanned after every retry. Nothing was stored; build again later."
+            ],
+            [
+              "PLUGIN_VULN_GATE",
+              "The build's image has more fixable Critical findings than PLUGIN_VULN_MAX_CRITICAL allows. The message lists them with their fixed versions."
             ],
             [
               "DUPLICATE_ENTRY",

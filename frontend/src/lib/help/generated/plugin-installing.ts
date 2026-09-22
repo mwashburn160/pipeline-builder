@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d7b69ce166429658bef947009d7c2b00f776dc57bdad02a09615f002105267bf
+// SOURCE-SHA256: daf5b846f32eadf01a6844e2fc34d04c99429b1973bda61512085743b8d49542
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -221,8 +221,42 @@ export const pluginInstallingTopic: HelpTopic = {
             "Yanked versions never resolve for a listing, even when pinned. A pin to one fails with PLUGIN_UNAVAILABLE, reason yanked.",
             "Paused versions are skipped by range resolution, unless the install already resolved to that version or the step pins it exactly.",
             "Versions with a published advisory at or above your blockOnAdvisory level are skipped. A pin to one fails with PLUGIN_BLOCKED_BY_POLICY, reason advisory.",
-            "Deprecated versions still resolve, with a warning at synth."
+            "Deprecated versions still resolve, with a warning at synth.",
+            "Versions flagged by a rescan still resolve, with a VULN_FLAGGED warning, unless the instance blocks them (see Vulnerability scans and rescans)."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Vulnerability scans and rescans"
+        },
+        {
+          "type": "text",
+          "content": "Every plugin version's image is scanned when it's built, and rescanned every night. A build with more fixable Critical findings than the instance allows never gets stored (see Scan gates). A finding is fixable when a fixed version of the affected package is known. The plugin list, plugin details, the directory's versions and supply-chain tabs and the Publisher page show:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "the Critical and High counts, each as fixable / total;",
+            "Unscanned for a version stored without a scan (only when the operator allows unscanned builds);",
+            "Flagged by rescan when a later rescan found fixable Critical findings the build didn't have. Its tooltip, and the plugin details, list the top findings and the versions that fix them."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A flagged version still resolves by default. Lookup answers with a warning, which synth, pipeline-manager and the pipeline editor show:"
+        },
+        {
+          "type": "code",
+          "content": "VULN_FLAGGED: trivy@1.4.0 has 2 fixable Critical findings — rebuild or upgrade",
+          "language": "text"
+        },
+        {
+          "type": "text",
+          "content": "When the operator sets PLUGIN_BLOCK_ON_NEW_CRITICAL=true, flagged versions are skipped instead. A version range, latest or the default resolves to the newest satisfying version that isn't flagged, the same way advisory-blocked versions are skipped. An exact version or digest pin to a flagged version fails with 409 PLUGIN_VERSION_VULN_BLOCKED, and the message names the fix. This applies to your organization's own plugins and to listings."
+        },
+        {
+          "type": "text",
+          "content": "Your organization decides who is told about rescan findings under Settings → Organization → Plugin security notifications (see Notifications)."
         }
       ]
     },
@@ -527,12 +561,71 @@ export const pluginInstallingTopic: HelpTopic = {
               "A listing or version you use was suspended, yanked or taken down",
               "Installing orgs",
               "In-app + email, immediate, with the reason"
+            ],
+            [
+              "N30",
+              "A plugin version was blocked at build: it couldn't be scanned, or it has fixable Critical findings",
+              "Your plugin security recipients",
+              "In-app + email + webhook, immediate"
+            ],
+            [
+              "N31",
+              "A rescan found new Critical or High findings in a plugin version",
+              "Your plugin security recipients",
+              "In-app + email + webhook; follows your digest setting, and sent once per version and set of findings"
             ]
           ]
         },
         {
           "type": "text",
           "content": "\"Installing orgs\" means organizations with an active explicit install, plus, for Official listings, organizations whose pipelines use the listing through the implicit install. The notice goes to each organization's approvers."
+        },
+        {
+          "type": "text",
+          "content": "Plugin security notifications"
+        },
+        {
+          "type": "text",
+          "content": "N30 and N31 go where your organization says, under Settings → Organization → Plugin security notifications. Anyone with plugins:read can see the settings; changing them needs org:settings."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Setting",
+            "Default",
+            "What it does"
+          ],
+          "rows": [
+            [
+              "Recipients",
+              "The uploader and everyone who can write plugins",
+              "Or only the members you choose."
+            ],
+            [
+              "Rescan findings",
+              "On",
+              "Turn off to stop N31. Blocked versions (N30) are always sent."
+            ],
+            [
+              "Rescan delivery",
+              "Immediately",
+              "Or a daily or weekly digest. N30 is never batched."
+            ],
+            [
+              "Webhook URL",
+              "None",
+              "An https URL that gets each notice as JSON. With a signing secret, every delivery carries X-PB-Signature: sha256=<HMAC>. The secret is never shown again once saved."
+            ],
+            [
+              "External address",
+              "None",
+              "One address outside your organization, such as a security team's mailbox. Saving it emails that address a confirmation link, valid for 24 hours and usable once. The link opens a page with a Confirm address button, so mail scanners that open links can't confirm it. The address gets nothing until it's confirmed. You can resend the link or remove the address."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Send test sends a test notice to every configured channel, so you can check the webhook and the addresses before a real notice."
         }
       ]
     },
@@ -901,6 +994,11 @@ export const pluginInstallingTopic: HelpTopic = {
               "IMAGE_VERIFICATION_FAILED",
               "409",
               "The image's signature, or its signed tier and publisher, doesn't verify."
+            ],
+            [
+              "PLUGIN_VERSION_VULN_BLOCKED",
+              "409",
+              "You pinned a version a rescan flagged, and the instance blocks flagged versions (PLUGIN_BLOCK_ON_NEW_CRITICAL). The message names the fix. Move to a newer version, or use a range."
             ],
             [
               "REVIEW_SELF_PROMOTION",

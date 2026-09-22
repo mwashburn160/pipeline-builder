@@ -103,6 +103,14 @@ describe('resolvePluginsForProps — image signature verification', () => {
       .rejects.toThrow(new RegExp(`"acme/lint" can't be used \\(${code}\\)`));
   });
 
+  // PLUGIN_BLOCK_ON_NEW_CRITICAL: a pin to a rescan-flagged version stops the
+  // synth, and the platform's message (version, CVEs, fix) is printed as-is.
+  it('aborts on 409 PLUGIN_VERSION_VULN_BLOCKED with the platform message verbatim', async () => {
+    const message = 'trivy@1.1.0 is blocked: a rescan found 2 fixable Critical findings (PLUGIN_BLOCK_ON_NEW_CRITICAL). Rebuild it on patched packages or move to a newer version. Fix: CVE-2026-1 (openssl@3.0.1 → 3.0.2).';
+    const client = clientRejecting(409, { success: false, code: 'PLUGIN_VERSION_VULN_BLOCKED', message });
+    await expect(resolvePluginsForProps(client, propsWithPlugin('trivy', { version: '1.1.0' }))).rejects.toThrow(new Error(message));
+  });
+
   it('still falls back (non-fatal) on an ordinary lookup failure', async () => {
     const client = clientRejecting(503, { success: false, code: 'SERVICE_UNAVAILABLE', message: 'down' });
     await expect(resolvePluginsForProps(client, propsWithPlugin('java-corretto'))).resolves.toEqual({});

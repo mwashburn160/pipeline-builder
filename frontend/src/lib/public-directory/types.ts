@@ -75,7 +75,13 @@ export interface ListingVersion {
   changelog: string | null;
   vulnCritical: number | null;
   vulnHigh: number | null;
+  /** Findings with a known fixed version (null = unscanned). */
+  vulnCriticalFixable?: number | null;
+  vulnHighFixable?: number | null;
   scannedAt: string | null;
+  /** Set while a rescan finds fixable Criticals the version was built without. */
+  scanFlaggedAt?: string | null;
+  scanFlag?: unknown;
   /** Ids of the published advisories whose range covers this version. */
   advisoryIds: string[];
 }
@@ -97,6 +103,10 @@ export interface ListingSupplyChain {
   scannedAt: string | null;
   vulnCritical: number | null;
   vulnHigh: number | null;
+  vulnCriticalFixable?: number | null;
+  vulnHighFixable?: number | null;
+  scanFlaggedAt?: string | null;
+  scanFlag?: unknown;
   sbomUrl: string | null;
 }
 

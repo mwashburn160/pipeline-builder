@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: be26597c1c07954f0444e1fc101c00c662c8b8519b7d24aa60e6262ce465e1c6
+// SOURCE-SHA256: 4d786e292c44fb67e0de36668afb5b23d733d5c6a853c2246f797bb708ad428a
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1393,6 +1393,21 @@ export const envVariablesTopic: HelpTopic = {
               "PLUGIN_RESCAN_STARTUP_DELAY_MS",
               "120000",
               "Delay before the first rescan tick after boot"
+            ],
+            [
+              "PLUGIN_VULN_MAX_CRITICAL",
+              "0",
+              "The platform vulnerability floor: a build whose image has MORE fixable Critical findings (grype reports a fixed version) fails permanently with PLUGIN_VULN_GATE (the message lists the CVEs and their fixed versions) — every build path (upload, prebuilt, AI deploy, bulk, catalog loader) and the anonymous-submission quarantine gates. The nightly rescan flags a stored version that exceeds it. -1 disables the floor and the flag. Org compliance rules can still be stricter"
+            ],
+            [
+              "PLUGIN_ALLOW_UNSCANNED",
+              "false",
+              "Operator escape hatch. By default a build whose image could not be vulnerability-scanned is retried (BullMQ attempts/backoff) and, on its last attempt, fails with IMAGE_SCAN_UNAVAILABLE — nothing is persisted and the quota slot is released. true persists the version unscanned instead (audited plugin.scan.skipped; the UI shows \"Unscanned\")"
+            ],
+            [
+              "PLUGIN_BLOCK_ON_NEW_CRITICAL",
+              "false",
+              "What resolution does with a version the nightly rescan flagged (fixable Criticals over PLUGIN_VULN_MAX_CRITICAL). false: it resolves, and the lookup carries a VULN_FLAGGED warning (synth / the CLI print it). true: ranges and the default skip flagged versions (the newest unflagged satisfying version wins, like advisory-blocked skipping), and an exact version / id pin to one is refused 409 PLUGIN_VERSION_VULN_BLOCKED naming the fix. Applies to org plugins and to installed listings; set it on the plugin service and the pipeline service (its create-time contract check resolves listings too)"
             ]
           ]
         },
@@ -1892,7 +1907,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ECOSYSTEM_VULN_GATE_MAX_CRITICAL",
               "0",
-              "The vulnerability gate a version must pass to be requested: at most this many CRITICAL findings in its scan"
+              "The vulnerability gate a version must pass to be requested (and an anonymous submission to reach moderation): at most this many fixable CRITICAL findings (grype reports a fixed version) in its scan. Unfixable findings are shown but don't block"
             ],
             [
               "REVIEW_WRITE_RATE_LIMIT_PER_MIN",

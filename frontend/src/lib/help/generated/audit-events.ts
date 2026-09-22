@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 068319ea60a422d3ec3a34a49ebabdd5a2156c4f0cdc37025c27419309c57d8c
+// SOURCE-SHA256: 63c9bba24a25d308e0cf23dc696b9fdbc0c1bbc072d3b0701a5abef8a94e631f
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -404,7 +404,11 @@ export const auditEventsTopic: HelpTopic = {
           "rows": [
             [
               "Plugin",
-              "plugin.build.completed, plugin.build.failed, plugin.build.timeout, plugin.delete, plugin.restore, plugin.purge, plugin.update, plugin.upload, plugin.deploy, plugin.bulk.update, plugin.bulk.delete, plugin.dlq.purge, plugin.build.retry, plugin.dlq.replay (the last two are queue-triage re-runs — re-enqueueing a failed or dead-lettered build; affectedOrgId is the job's owning org, which differs from the caller's on a sysadmin retry)"
+              "plugin.build.completed, plugin.build.failed, plugin.build.timeout, plugin.delete, plugin.restore, plugin.purge, plugin.update, plugin.upload, plugin.deploy, plugin.bulk.update, plugin.bulk.delete, plugin.dlq.purge, plugin.build.retry, plugin.dlq.replay (the last two are queue-triage re-runs — re-enqueueing a failed or dead-lettered build; affectedOrgId is the job's owning org, which differs from the caller's on a sysadmin retry), plugin.scan.skipped (a version persisted unscanned because the build-time scan could not run and the operator escape hatch PLUGIN_ALLOW_UNSCANNED is on; details: name, version, digest). A build blocked by a scan gate ends in plugin.build.failed with details.errorCode = IMAGE_SCAN_UNAVAILABLE or PLUGIN_VULN_GATE"
+            ],
+            [
+              "Plugin security notifications (org-local)",
+              "plugin.security_notifications.update (org:settings; details: changed field NAMES, recipient mode + count, digest mode, rescan opt-in, the webhook HOST, whether a secret / external address is set and whether a confirmation was sent — never the secret, the URL path/query or the address), plugin.security_notifications.external_email.verify (actor anonymous: the address's emailed single-use link was confirmed; orgId = the org whose address it is), plugin.security_notifications.test (details: the per-channel outcome of the test send)"
             ],
             [
               "Pipeline",

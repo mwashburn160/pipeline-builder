@@ -24,6 +24,7 @@ import { ImpersonationPolicySettings } from '@/components/settings/Impersonation
 import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
 import { PasswordPolicySettings } from '@/components/settings/PasswordPolicySettings';
 import { AuthenticatorPolicySettings } from '@/components/settings/AuthenticatorPolicySettings';
+import { PluginSecurityNotificationSettings } from '@/components/settings/PluginSecurityNotificationSettings';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
@@ -56,6 +57,8 @@ export default function SettingsPage() {
   // takes `readOnly`). See the note on the Organization tab below.
   const canSeeOrgSettings = hasPermission(user, 'org:settings');
   const canSeeImpersonationPolicy = hasPermission(user, 'org:impersonation');
+  // Plugin security notifications: readable with `plugins:read`, edited with `org:settings`.
+  const canSeePluginSecurity = canSeeOrgSettings || hasPermission(user, 'plugins:read');
 
   // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
   // shareable / back-forward-friendly — same pattern as the Billing page.
@@ -258,6 +261,16 @@ export default function SettingsPage() {
             )}
             {canSeeOrgSettings && user.organizationId && (
               <AuthenticatorPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
+            )}
+
+            {/* Notifications: who hears about plugin versions the scan gates
+                block, and about new findings from the nightly rescan. */}
+            {canSeePluginSecurity && user.organizationId && (
+              <PluginSecurityNotificationSettings
+                orgId={user.organizationId}
+                canEdit={canSeeOrgSettings}
+                readOnly={isReadOnly}
+              />
             )}
 
             {/* AI Providers */}

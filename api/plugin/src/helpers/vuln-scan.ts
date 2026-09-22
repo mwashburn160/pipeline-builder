@@ -29,7 +29,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { envInt, createLogger, errorMessage, type PluginScanFinding } from '@pipeline-builder/api-core';
 import { incCounter, observe } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 
@@ -55,15 +55,20 @@ export interface VulnCounts {
   low: number;
 }
 
-/** One critical/high finding — what a advisory draft is built from. */
-export interface VulnFinding {
-  id: string;
-  severity: 'critical' | 'high';
-  packageName: string;
-  packageVersion: string;
+/**
+ * One critical/high finding — what an advisory draft, a gate message and a
+ * rescan flag are built from. `fixedIn` lists the versions grype reports fix it
+ * (empty = no fix available: the finding is not FIXABLE).
+ */
+export type VulnFinding = PluginScanFinding;
+
+/** The FIXABLE subset of the critical/high counts (grype reports a fixed version). */
+export interface FixableCounts {
+  criticalFixable: number;
+  highFixable: number;
 }
 
-export interface VulnScanResult extends VulnCounts {
+export interface VulnScanResult extends VulnCounts, FixableCounts {
   scannedAt: Date;
   /** Critical and high findings only (medium/low are counted, not itemized). */
   findings: VulnFinding[];
@@ -83,6 +88,8 @@ export interface ScanColumns {
   vulnHigh: number | null;
   vulnMedium: number | null;
   vulnLow: number | null;
+  vulnCriticalFixable: number | null;
+  vulnHighFixable: number | null;
   scannedAt: Date | null;
 }
 
@@ -154,18 +161,28 @@ export async function refreshVulnDb(opts: { force?: boolean } = {}): Promise<voi
 const COUNTED = ['critical', 'high', 'medium', 'low'] as const;
 
 interface GrypeMatch {
-  vulnerability?: { id?: unknown; severity?: unknown };
+  vulnerability?: { id?: unknown; severity?: unknown; fix?: { state?: unknown; versions?: unknown } };
   artifact?: { name?: unknown; version?: unknown };
+}
+
+/** The fixed versions grype reports for a match: non-empty only when `fix.state` is `fixed`. */
+function fixedVersions(match: GrypeMatch): string[] {
+  const fix = match?.vulnerability?.fix;
+  if (!fix || typeof fix.state !== 'string' || fix.state.toLowerCase() !== 'fixed' || !Array.isArray(fix.versions)) return [];
+  return [...new Set(fix.versions.filter((v): v is string => typeof v === 'string' && v.trim() !== '').map((v) => v.trim()))];
 }
 
 /**
  * Count grype's `-o json` report by severity. A finding is one
  * (vulnerability, package, version) — grype can report the same one through
  * several matchers, which must not inflate the counts. `Negligible` and
- * `Unknown` severities are not counted. Throws on anything that is not a grype
- * report: an unparseable report is a scan that did not run, never a clean one.
+ * `Unknown` severities are not counted. A critical/high finding is FIXABLE when
+ * grype reports `vulnerability.fix.state == "fixed"` with at least one fixed
+ * version; the fixable counts are what the platform floor gates on. Throws on
+ * anything that is not a grype report: an unparseable report is a scan that
+ * did not run, never a clean one.
  */
-export function parseGrypeReport(stdout: string): VulnCounts & { findings: VulnFinding[] } {
+export function parseGrypeReport(stdout: string): VulnCounts & FixableCounts & { findings: VulnFinding[] } {
   let report: { matches?: unknown };
   try {
     report = JSON.parse(stdout) as { matches?: unknown };
@@ -175,7 +192,7 @@ export function parseGrypeReport(stdout: string): VulnCounts & { findings: VulnF
   if (!report || typeof report !== 'object' || !Array.isArray(report.matches)) {
     throw new Error('grype report has no matches array');
   }
-  const counts: VulnCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+  const counts: VulnCounts & FixableCounts = { critical: 0, high: 0, medium: 0, low: 0, criticalFixable: 0, highFixable: 0 };
   const findings: VulnFinding[] = [];
   const seen = new Set<string>();
   for (const match of report.matches as GrypeMatch[]) {
@@ -185,13 +202,27 @@ export function parseGrypeReport(stdout: string): VulnCounts & { findings: VulnF
     const packageVersion = typeof match?.artifact?.version === 'string' ? match.artifact.version : '';
     if (!id || !(COUNTED as readonly string[]).includes(severity)) continue;
     const key = `${id}|${packageName}|${packageVersion}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      // A second matcher for the same finding may be the one that knows the fix.
+      const earlier = findings.find((f) => f.id === id && f.packageName === packageName && f.packageVersion === packageVersion);
+      const fixedIn = fixedVersions(match);
+      if (earlier && earlier.fixedIn.length === 0 && fixedIn.length > 0) {
+        earlier.fixedIn = fixedIn;
+        counts[earlier.severity === 'critical' ? 'criticalFixable' : 'highFixable']++;
+      }
+      continue;
+    }
     seen.add(key);
     counts[severity as keyof VulnCounts]++;
     if (severity === 'critical' || severity === 'high') {
-      findings.push({ id, severity, packageName, packageVersion });
+      const fixedIn = fixedVersions(match);
+      if (fixedIn.length > 0) counts[severity === 'critical' ? 'criticalFixable' : 'highFixable']++;
+      findings.push({ id, severity, packageName, packageVersion, fixedIn });
     }
   }
+  // Criticals first, fixable before unfixable — what a flag / gate message shows first.
+  findings.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'critical' ? -1 : 1)
+    || (b.fixedIn.length > 0 ? 1 : 0) - (a.fixedIn.length > 0 ? 1 : 0));
   return { ...counts, findings };
 }
 
@@ -314,8 +345,16 @@ export async function inspectRunAsRoot(plugin: PluginImageRef, registry: Registr
 /** The scan columns for a result — all NULL when unscanned. */
 export function scanColumns(scan: VulnScanResult | null): ScanColumns {
   return scan
-    ? { vulnCritical: scan.critical, vulnHigh: scan.high, vulnMedium: scan.medium, vulnLow: scan.low, scannedAt: scan.scannedAt }
-    : { vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, scannedAt: null };
+    ? {
+      vulnCritical: scan.critical,
+      vulnHigh: scan.high,
+      vulnMedium: scan.medium,
+      vulnLow: scan.low,
+      vulnCriticalFixable: scan.criticalFixable,
+      vulnHighFixable: scan.highFixable,
+      scannedAt: scan.scannedAt,
+    }
+    : { vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, vulnCriticalFixable: null, vulnHighFixable: null, scannedAt: null };
 }
 
 // -----------------------------------------------------------------------------

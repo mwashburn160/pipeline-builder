@@ -28,8 +28,16 @@
  *    version spec. Yanked versions never resolve for a listing; a paused
  *    version is skipped unless the install already resolved to it or the
  *    reference pins it exactly; advisory-blocked versions are skipped.
+ *  - Scan flags: a version the nightly rescan FLAGGED (fixable Criticals
+ *    over `PLUGIN_VULN_MAX_CRITICAL`) resolves with a `VULN_FLAGGED` warning —
+ *    or, with `PLUGIN_BLOCK_ON_NEW_CRITICAL` on, is skipped like an
+ *    advisory-blocked one, and an exact pin to it is refused
+ *    `PLUGIN_VERSION_VULN_BLOCKED`.
  */
 
+import {
+  asScanFlag, blockOnNewCritical, vulnBlockedMessage, vulnFlaggedWarning, type VulnFlaggedWarning,
+} from '@pipeline-builder/api-core';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { CrudTx } from './crud-service.js';
 import {
@@ -199,17 +207,16 @@ export function applyPolicyUpdate(base: ConsumptionPolicy, input: unknown): Cons
 
 /** Why a reference can't resolve; `code` is an api-core `ErrorCode` name. */
 export interface ResolutionRefusal {
-  code: 'NOT_FOUND' | 'PLUGIN_NOT_INSTALLED' | 'PLUGIN_BLOCKED_BY_POLICY' | 'PLUGIN_UNAVAILABLE';
+  code: 'NOT_FOUND' | 'PLUGIN_NOT_INSTALLED' | 'PLUGIN_BLOCKED_BY_POLICY' | 'PLUGIN_UNAVAILABLE' | 'PLUGIN_VERSION_VULN_BLOCKED';
   reason: string;
   message: string;
   details?: Record<string, unknown>;
 }
 
-/** A non-fatal note a resolution carries (synth prints it). */
-export interface ResolutionWarning {
-  code: 'PLUGIN_ADVISORY' | 'PLUGIN_DEPRECATED' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED';
-  message: string;
-}
+/** A non-fatal note a resolution carries (synth prints its `message`). */
+export type ResolutionWarning =
+  | { code: 'PLUGIN_ADVISORY' | 'PLUGIN_DEPRECATED' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED'; message: string }
+  | VulnFlaggedWarning;
 
 /** Why the org's policy (or the listing's state) keeps a listing out, or null. */
 export interface ListingBlock {
@@ -345,6 +352,18 @@ export type InstallMode =
 
 type VersionRow = Pick<PluginListingVersion, 'version' | 'yankedAt' | 'pausedAt' | 'breaking'>;
 
+/** The refusal an exact pin to a flagged version gets while blocking (409). */
+function vulnRefusal(ref: string, v: Pick<PluginListingVersion, 'version' | 'scanFlag'>): ResolutionRefusal {
+  const flag = asScanFlag(v.scanFlag) ?? { critical: 0, high: 0, maxCritical: 0, findings: [] };
+  const fixed = [...new Set(flag.findings.flatMap((f) => f.fixedIn))];
+  return {
+    code: 'PLUGIN_VERSION_VULN_BLOCKED',
+    reason: 'vuln_flagged',
+    message: vulnBlockedMessage(ref, v.version, flag),
+    details: { version: v.version, critical: flag.critical, high: flag.high, findings: flag.findings, ...(fixed.length ? { fixedVersions: fixed } : {}) },
+  };
+}
+
 const isStable = (v: string): boolean => (parseSemver(v)?.prerelease.length ?? 1) === 0;
 
 /**
@@ -402,6 +421,8 @@ export interface VersionChoiceInput<V extends PluginListingVersion = PluginListi
   requested?: string;
   advisories: readonly PluginAdvisory[];
   policy: ConsumptionPolicy;
+  /** Skip / refuse rescan-flagged versions (default: `PLUGIN_BLOCK_ON_NEW_CRITICAL`). */
+  blockFlagged?: boolean;
 }
 
 /**
@@ -410,6 +431,7 @@ export interface VersionChoiceInput<V extends PluginListingVersion = PluginListi
  */
 export function selectListingVersion<V extends PluginListingVersion>(input: VersionChoiceInput<V>): { version: V } | { refusal: ResolutionRefusal } {
   const { ref, versions, mode, requested, advisories, policy } = input;
+  const blockFlagged = input.blockFlagged ?? blockOnNewCritical();
   const exact = requested !== undefined && !isVersionRange(requested) ? requested.trim() : null;
 
   if (exact !== null) {
@@ -437,6 +459,7 @@ export function selectListingVersion<V extends PluginListingVersion>(input: Vers
     }
     const blocking = blockingAdvisories(advisories, exact, policy);
     if (blocking.length) return { refusal: advisoryRefusal(ref, exact, blocking) };
+    if (blockFlagged && v.scanFlaggedAt) return { refusal: vulnRefusal(ref, v) };
     return { version: v };
   }
 
@@ -448,7 +471,8 @@ export function selectListingVersion<V extends PluginListingVersion>(input: Vers
       : requested !== undefined || modeAdmits(mode, v.version, versions))
     && (requested === undefined || satisfiesVersionSpec(v.version, requested))
     && (!v.pausedAt || v.version === resolvedBefore));
-  const allowed = admitted.filter((v) => blockingAdvisories(advisories, v.version, policy).length === 0);
+  const allowed = admitted.filter((v) => blockingAdvisories(advisories, v.version, policy).length === 0
+    && !(blockFlagged && v.scanFlaggedAt));
   // Ranges only admit prereleases they name (npm semantics), so the highest
   // admitted version is the answer.
   const best = highest(allowed.map((v) => v.version));
@@ -456,7 +480,9 @@ export function selectListingVersion<V extends PluginListingVersion>(input: Vers
 
   if (admitted.length > 0) {
     const newest = highest(admitted.map((v) => v.version))!;
-    return { refusal: advisoryRefusal(ref, newest, blockingAdvisories(advisories, newest, policy)) };
+    const blocking = blockingAdvisories(advisories, newest, policy);
+    if (blocking.length === 0) return { refusal: vulnRefusal(ref, admitted.find((v) => v.version === newest)!) };
+    return { refusal: advisoryRefusal(ref, newest, blocking) };
   }
   if (mode.kind === 'explicit' && requested !== undefined
     && versions.some((v) => !v.yankedAt && satisfiesVersionSpec(v.version, requested))) {
@@ -687,7 +713,8 @@ export async function resolveListingReference(
 export function listedVersionWarnings(input: {
   publisher: Pick<Publisher, 'handle' | 'tier'>;
   listing: Pick<PluginListing, 'name' | 'state'>;
-  version: Pick<PluginListingVersion, 'version' | 'deprecatedAt' | 'deprecationMessage' | 'specSnapshot'>;
+  version: Pick<PluginListingVersion, 'version' | 'deprecatedAt' | 'deprecationMessage' | 'specSnapshot'>
+    & Partial<Pick<PluginListingVersion, 'scanFlaggedAt' | 'scanFlag'>>;
   advisories: readonly Pick<PluginAdvisory, 'severity' | 'state' | 'affectedRange' | 'fixedVersion' | 'summary'>[];
   policy: Pick<ConsumptionPolicy, 'secretsAllowedTiers'>;
 }): { warnings: ResolutionWarning[]; secretsWithheld: boolean } {
@@ -709,6 +736,8 @@ export function listedVersionWarnings(input: {
         + `${a.fixedVersion ? ` Fixed in ${a.fixedVersion}.` : ''}`,
     });
   }
+  const flag = version.scanFlaggedAt ? asScanFlag(version.scanFlag) : null;
+  if (flag) warnings.push(vulnFlaggedWarning(ref, version.version, flag));
   if (secretsWithheld) {
     warnings.push({ code: 'PLUGIN_SECRETS_WITHHELD', message: `${ref} is a ${publisher.tier} plugin; your organization's policy gives it no secrets, so its declared secrets are not injected.` });
   }
@@ -769,7 +798,11 @@ export function listedPluginRecord(res: ListingResolved): Record<string, unknown
     breaking: version.breaking,
     vulnCritical: version.vulnCritical,
     vulnHigh: version.vulnHigh,
+    vulnCriticalFixable: version.vulnCriticalFixable,
+    vulnHighFixable: version.vulnHighFixable,
     scannedAt: version.scannedAt,
+    scanFlaggedAt: version.scanFlaggedAt,
+    scanFlag: version.scanFlag,
     lifecycle: version.deprecatedAt ? 'deprecated' : 'production',
     deprecatedAt: version.deprecatedAt,
     deprecationMessage: version.deprecationMessage,

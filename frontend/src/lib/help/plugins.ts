@@ -316,7 +316,9 @@ env:
           type: 'list',
           items: [
             'Every built image gets an SPDX SBOM and a cosign signature from the platform key; pipelines are pinned to the verified image digest at synth. An image whose signature doesn\'t verify is refused (409 IMAGE_VERIFICATION_FAILED).',
-            'Images are scanned for vulnerabilities at build (grype over the SBOM) and rescanned nightly; the critical/high counts and scan date show on the plugin and feed compliance rules along with signed, runAsRoot and the image\'s packages.',
+            'Images are scanned for vulnerabilities at build (grype over the SBOM) and rescanned nightly; the critical/high counts (fixable / total — a finding is fixable when a fixed package version is known) and scan date show on the plugin and feed compliance rules along with signed, runAsRoot and the image\'s packages.',
+            'A build fails when the image can\'t be scanned (IMAGE_SCAN_UNAVAILABLE) or has more fixable Critical findings than the platform allows (PLUGIN_VULN_GATE, default 0); the failure lists each CVE and the version that fixes it.',
+            'A version a nightly rescan finds fixable Critical findings in is marked "Flagged by rescan"; pipelines using it get a VULN_FLAGGED warning, or — when the instance blocks flagged versions — resolve to the newest unflagged one. Settings → Organization → Plugin security notifications decides who is told.',
             'Download the SBOM from the plugin (GET /api/plugins/{id}/sbom), or for a listed version from its public directory page.',
             'Reports → Plugins → Runs shows how each plugin version behaves when your pipelines run it: runs, success rate and p50/p95 duration.',
           ],

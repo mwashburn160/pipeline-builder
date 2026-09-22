@@ -21,7 +21,7 @@ export interface BlockedInfo {
   message: string;
 }
 
-export type InstallWarningCode = 'PLUGIN_ADVISORY' | 'PLUGIN_DEPRECATED' | 'LISTING_UNMAINTAINED' | 'PLUGIN_SECRETS_WITHHELD';
+export type InstallWarningCode = 'PLUGIN_ADVISORY' | 'PLUGIN_DEPRECATED' | 'LISTING_UNMAINTAINED' | 'PLUGIN_SECRETS_WITHHELD' | 'VULN_FLAGGED';
 
 export interface InstallWarning {
   code: InstallWarningCode;
@@ -157,6 +157,9 @@ export interface ListingVersionState {
   changelog: string | null;
   vulnCritical: number | null;
   vulnHigh: number | null;
+  vulnCriticalFixable?: number | null;
+  vulnHighFixable?: number | null;
+  scanFlaggedAt?: string | null;
 }
 
 /** `GET /plugins/listings/:publisher/:name/install-state`. */

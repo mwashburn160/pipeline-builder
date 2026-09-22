@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Rocket, Save, CheckCircle, XCircle } from 'lucide-react';
+import { Rocket, Save, CheckCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
@@ -12,6 +12,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
+import { BuildFailureMessage } from './BuildFailureMessage';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { Plugin, Visibility } from '@/types';
@@ -295,11 +296,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
         {success && (
           <div className="alert-success"><p className="flex items-center gap-2"><CheckCircle className="w-4 h-4" />{success}</p></div>
         )}
-        {buildStatus === 'failed' && lastEvent && (
-          <div className="rounded-xl bg-danger-bg border border-danger-border p-3">
-            <p className="text-sm text-danger-strong flex items-center gap-2"><XCircle className="w-4 h-4" />{lastEvent.message}</p>
-          </div>
-        )}
+        {buildStatus === 'failed' && lastEvent && <BuildFailureMessage event={lastEvent} />}
         {events.length > 0 && (
           <div className="rounded-lg border border-default bg-canvas p-3 max-h-64 overflow-y-auto">
             <p className="text-xs font-medium text-fg-muted mb-2">Build log</p>

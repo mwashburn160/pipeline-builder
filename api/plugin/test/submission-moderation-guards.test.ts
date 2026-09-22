@@ -104,7 +104,7 @@ const mod = await import('../src/services/ecosystem/submission-moderation.js');
 const DIGEST = 'sha256:' + 'a'.repeat(64);
 const community = { id: 'pub-community', handle: 'community', tier: 'community' } as any;
 const facts = {
-  imageRepository: 'quarantine/sub-1', digest: DIGEST, vulnCritical: 0, vulnHigh: 0, vulnMedium: 0, vulnLow: 0, scannedAt: '2026-09-01T00:00:00Z', runAsRoot: false,
+  imageRepository: 'quarantine/sub-1', digest: DIGEST, vulnCritical: 0, vulnHigh: 0, vulnMedium: 0, vulnLow: 0, vulnCriticalFixable: 0, vulnHighFixable: 0, scannedAt: '2026-09-01T00:00:00Z', runAsRoot: false,
 };
 const submission = (over: Record<string, unknown> = {}) => ({
   id: 'sub-1',

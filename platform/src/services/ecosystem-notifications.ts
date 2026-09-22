@@ -33,6 +33,9 @@ import { incCounter } from '../observability/metrics.js';
 
 const logger = createLogger('ecosystem-notifications');
 
+/** A Mongo user id. */
+const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
+
 /** One resolved user: where their in-app copy lands (and whose per-org
  *  preferences govern their email). */
 interface ResolvedUser { inboxOrgId: string | undefined }
@@ -166,6 +169,14 @@ export async function resolveEcosystemRecipients(
         for (const { u, org } of found) add(u, org);
         break;
       }
+      case 'org_members':
+        // An org's chosen recipients (plugin security notices): only the named
+        // users who are ACTIVE members of that org right now — a stale id or
+        // someone who left receives nothing.
+        // Only ObjectId-shaped ids reach the query (anything else would fail the
+        // whole delivery on a cast error, and names nobody anyway).
+        for (const u of await activeMembers(spec.orgId, spec.userIds.filter((id) => OBJECT_ID_RE.test(id)))) add(u, spec.orgId);
+        break;
       case 'moderators': {
         // The system org's Ecosystem Managers, minus conflicts of interest; the
         // superadmins when nobody else is eligible.

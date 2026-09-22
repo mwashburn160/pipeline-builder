@@ -790,6 +790,19 @@ export interface Plugin {
   yankedAt?: string | null;
   yankReason?: string | null;
 
+  // Vulnerability scan (grype over the SBOM at build; nightly rescan). NULL
+  // counts = never scanned. A finding is FIXABLE when a fixed version is known;
+  // the build gates compare fixable Criticals only.
+  vulnCritical?: number | null;
+  vulnHigh?: number | null;
+  vulnCriticalFixable?: number | null;
+  vulnHighFixable?: number | null;
+  scannedAt?: string | null;
+  /** Set while a rescan finds fixable Criticals over the platform floor. */
+  scanFlaggedAt?: string | null;
+  /** The rescan's counts and top findings (see `normalizeScanFlag`). */
+  scanFlag?: unknown;
+
   // Access and visibility
   visibility: Visibility;
   isDefault: boolean;

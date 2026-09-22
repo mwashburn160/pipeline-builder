@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8c3358b3677895f9ee8708cd2c2d3c930da2080c4531ddc0c054e33266a445b5
+// SOURCE-SHA256: 5932b94f56d669e7833b7d9f00149c37c80d89c850ad8c11ee07c461f9f8f367
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -288,7 +288,7 @@ export const apiReferenceTopic: HelpTopic = {
               "Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through. Without publisher: own org → parent org's shared plugin → the Official listing pipeline-builder/<name> through the org's install (explicit, else implicit). With publisher: only that publisher's listing, only through an install (403 PLUGIN_NOT_INSTALLED / PLUGIN_BLOCKED_BY_POLICY, 409 PLUGIN_UNAVAILABLE otherwise). A listing's version range is the install's, narrowed by filter.version; yanked listing versions never resolve. Verifies the image signature (and, for a listing, the signed tier and publisher) and returns imageDigest, which synth pins CodeBuild to; 409 IMAGE_VERIFICATION_FAILED otherwise. Answer: { plugin, warnings } — plugin carries publisher, publisherTier, listingId, imageRepository, source (org \\",
               "listing) and install (explicit \\",
               "implicit \\",
-              "null); warnings may list PLUGIN_SHADOWS_LISTING, PLUGIN_SECRETS_WITHHELD, LISTING_UNMAINTAINED, PLUGIN_DEPRECATED, PLUGIN_YANKED, which synth prints"
+              "null); warnings may list PLUGIN_SHADOWS_LISTING, PLUGIN_SECRETS_WITHHELD, LISTING_UNMAINTAINED, PLUGIN_DEPRECATED, PLUGIN_YANKED, PLUGIN_ADVISORY and VULN_FLAGGED ({ code, plugin, version, critical, high, findings, message: 'x@v has N fixable Critical findings — rebuild or upgrade' } — the nightly rescan flagged the resolved version), which synth prints. With PLUGIN_BLOCK_ON_NEW_CRITICAL on, ranges and the default skip flagged versions and an exact pin to one is refused 409 PLUGIN_VERSION_VULN_BLOCKED"
             ],
             [
               "PUT",
@@ -537,6 +537,58 @@ export const apiReferenceTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Install errors: 403 PLUGIN_NOT_INSTALLED (details.reason: not_installed / pending_approval / denied / official_explicit / version_outside_install), 403 PLUGIN_BLOCKED_BY_POLICY (tier / blocked_listing / advisory), 409 PLUGIN_UNAVAILABLE (yanked / suspended / paused), 409 PLUGIN_NAME_LISTED (an auto-created placeholder can't take a listed name). See Error Handling."
+        },
+        {
+          "type": "text",
+          "content": "Plugin security notifications"
+        },
+        {
+          "type": "text",
+          "content": "Org-local settings for the plugin security notices: N30 (a build blocked by a scan gate — IMAGE_SCAN_UNAVAILABLE / PLUGIN_VULN_GATE; immediate) and N31 (the nightly rescan found new Critical/High findings in a stored or installed version; follows digestMode, deduplicated per version and CVE). See Plugin Publishing."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Method",
+            "Endpoint",
+            "Description"
+          ],
+          "rows": [
+            [
+              "GET",
+              "/plugins/security-notifications",
+              "`{ preferences: { recipientMode: 'writers'\\",
+              "'users', targetUsers, notifyRescan, digestMode: 'immediate'\\",
+              "'daily'\\",
+              "'weekly', webhookUrl, hasWebhookSecret, externalEmail: { masked, verified, pendingExpiresAt } \\",
+              "null, updatedBy, updatedAt, canEdit } } — defaults when the org never saved; the secret and the address are never returned (plugins:read`)"
+            ],
+            [
+              "PUT",
+              "/plugins/security-notifications",
+              "Partial { recipientMode?, targetUsers?, notifyRescan?, digestMode?, webhookUrl? (https, SSRF-checked; '' / null clears it and its secret), webhookSecret? ('' / null clears; omit keeps), externalEmail? ('' / null clears), resendConfirmation? }. writers = the uploader + members holding plugins:write; users needs ≥ 1 of targetUsers (max 100; only active members receive). A new or changed externalEmail starts unverified and gets a single-use 24-hour link at /notifications/confirm?token=…; it receives nothing until confirmed. Answers { preferences }; 400 VALIDATION_ERROR otherwise. Audited plugin.security_notifications.update (org:settings)"
+            ],
+            [
+              "POST",
+              "/plugins/security-notifications/test",
+              "One test notice on every configured channel → `{ result: { relay: 'sent'\\",
+              "'queued'\\",
+              "'retry_queued'\\",
+              "'failed', webhook: { ok, code?, error? } \\",
+              "null, externalEmail: 'sent'\\",
+              "'pending'\\",
+              "'none' } }; audited plugin.security_notifications.test; 5 a minute per org (org:settings`)"
+            ],
+            [
+              "POST",
+              "/public/plugin-security-notifications/confirm",
+              "Anonymous (nginx: POST-only, credentials stripped). { token } → { confirmed: true }; an unknown, used or expired token → 400 VALIDATION_ERROR. Rate limited per IP; audited plugin.security_notifications.external_email.verify"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The webhook receives { event: 'N30'\\|'N31'\\|'test', type, orgId, plugin, version, subject, text, code?, critical?, high?, findings?, occurredAt }, signed X-PB-Signature: sha256=<hmac> when a secret is set."
         },
         {
           "type": "text",

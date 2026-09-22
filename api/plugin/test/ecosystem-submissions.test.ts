@@ -204,13 +204,15 @@ async function submitted(zip?: Buffer, email?: string): Promise<{ id: string; st
 }
 
 /** Pipeline I/O that "builds" successfully. */
-function greenBuild(over: Partial<{ runAsRoot: boolean | null; critical: number; smoke: 'pass' | 'fail'; build: 'ok' | 'fail' }> = {}) {
+function greenBuild(over: Partial<{ runAsRoot: boolean | null; critical: number; fixable: number; smoke: 'pass' | 'fail'; build: 'ok' | 'fail' }> = {}) {
   const build = jest.fn(async (s: any) => {
     if (over.build === 'fail') throw new Error('RUN step failed: exit 2');
+    const fixable = over.fixable ?? over.critical ?? 0;
     return {
       imageRepository: `quarantine/${s.id}`,
       digest: DIGEST_A,
-      scan: { vulnCritical: over.critical ?? 0, vulnHigh: 0, vulnMedium: 1, vulnLow: 2, scannedAt: new Date() },
+      scan: { vulnCritical: over.critical ?? 0, vulnHigh: 0, vulnMedium: 1, vulnLow: 2, vulnCriticalFixable: fixable, vulnHighFixable: 0, scannedAt: new Date() },
+      findings: Array.from({ length: fixable }, (_, i) => ({ id: `CVE-2026-${i + 1}`, severity: 'critical' as const, packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] })),
       runAsRoot: over.runAsRoot === undefined ? false : over.runAsRoot,
     };
   });
@@ -567,7 +569,7 @@ describe('the quarantine gate pipeline', () => {
     expect(s.status).toBe('pending_review');
     expect(s.gateReport.gates.every((g: any) => g.ok)).toBe(true);
     expect(s.gateReport.gates.map((g: any) => g.id)).toEqual([
-      'spec', 'license', 'lint', 'heuristics', 'env_secrets', 'smoke_test_declared', 'name', 'build', 'scanned', 'vuln', 'non_root', 'smoke_test',
+      'spec', 'license', 'lint', 'heuristics', 'env_secrets', 'smoke_test_declared', 'name', 'build', 'scanned', 'vuln', 'vuln_floor', 'non_root', 'smoke_test',
     ]);
     expect(s.quarantineImageRef).toBe(`quarantine/${id}@${DIGEST_A}`);
     expect(deps.smokeTest).toHaveBeenCalledWith(expect.objectContaining({ imageRepository: `quarantine/${id}` }), 'lint --version');
@@ -616,7 +618,8 @@ describe('the quarantine gate pipeline', () => {
     ['the build fails', { build: 'fail' as const }, 'build'],
     ['the image runs as root', { runAsRoot: true }, 'non_root'],
     ['root-ness is unknown', { runAsRoot: null }, 'non_root'],
-    ['a critical vulnerability', { critical: 1 }, 'vuln'],
+    ['a fixable critical vulnerability', { critical: 1 }, 'vuln'],
+    ['a fixable critical over the platform floor', { critical: 1 }, 'vuln_floor'],
     ['the smoke test fails', { smoke: 'fail' as const }, 'smoke_test'],
   ])('an image failure (%s) → gate_failed, no request', async (_why, over, gateId) => {
     greenBuild(over);
@@ -629,6 +632,23 @@ describe('the quarantine gate pipeline', () => {
     // A failed submission's quarantined package and build are dropped at once.
     expect(artifacts.del).toHaveBeenCalledWith(`submissions/${id}.zip`, 'plugin-quarantine');
     expect(h.registryDelete).toHaveBeenCalledWith(`/internal/quarantine/${id}`, expect.anything());
+  });
+
+  it('counts only FIXABLE criticals: an unfixable one passes both vuln gates', async () => {
+    greenBuild({ critical: 2, fixable: 0 });
+    const { id } = await submitted();
+    expect(await pipeline.runSubmissionGates(id)).toBe('queued');
+    const gates = row(id).gateReport.gates;
+    expect(gates.find((g: any) => g.id === 'vuln')).toMatchObject({ ok: true, message: expect.stringMatching(/2 critical \(0 fixable\)/) });
+    expect(gates.find((g: any) => g.id === 'vuln_floor').ok).toBe(true);
+    expect(row(id).gateReport.facts).toMatchObject({ vulnCritical: 2, vulnCriticalFixable: 0 });
+  });
+
+  it('the platform floor message names the CVE and its fixed version', async () => {
+    greenBuild({ critical: 1 });
+    const { id } = await submitted();
+    await pipeline.runSubmissionGates(id);
+    expect(row(id).gateReport.gates.find((g: any) => g.id === 'vuln_floor').message).toMatch(/CVE-2026-1 \(openssl@3\.0\.1 → 3\.0\.2\)/);
   });
 
   it('fails a submission closed when the queue gives up on it', async () => {

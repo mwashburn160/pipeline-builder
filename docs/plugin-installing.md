@@ -92,6 +92,25 @@ Deployed pipelines keep running the image digest they were synthesized with. A n
 - **Paused** versions are skipped by range resolution, unless the install already resolved to that version or the step pins it exactly.
 - Versions with a published advisory at or above your `blockOnAdvisory` level are skipped. A pin to one fails with `PLUGIN_BLOCKED_BY_POLICY`, reason `advisory`.
 - **Deprecated** versions still resolve, with a warning at synth.
+- Versions **flagged by a rescan** still resolve, with a `VULN_FLAGGED` warning, unless the instance blocks them (see [Vulnerability scans and rescans](#vulnerability-scans-and-rescans)).
+
+### Vulnerability scans and rescans
+
+Every plugin version's image is scanned when it's built, and rescanned every night. A build with more **fixable** Critical findings than the instance allows never gets stored (see [Scan gates](plugin-publishing.md#scan-gates)). A finding is fixable when a fixed version of the affected package is known. The plugin list, plugin details, the directory's versions and supply-chain tabs and the Publisher page show:
+
+- the Critical and High counts, each as **fixable / total**;
+- **Unscanned** for a version stored without a scan (only when the operator allows unscanned builds);
+- **Flagged by rescan** when a later rescan found fixable Critical findings the build didn't have. Its tooltip, and the plugin details, list the top findings and the versions that fix them.
+
+A flagged version still resolves by default. Lookup answers with a warning, which synth, `pipeline-manager` and the pipeline editor show:
+
+```text
+VULN_FLAGGED: trivy@1.4.0 has 2 fixable Critical findings — rebuild or upgrade
+```
+
+When the operator sets `PLUGIN_BLOCK_ON_NEW_CRITICAL=true`, flagged versions are skipped instead. A version range, `latest` or the default resolves to the newest satisfying version that isn't flagged, the same way advisory-blocked versions are skipped. An exact version or digest pin to a flagged version fails with `409 PLUGIN_VERSION_VULN_BLOCKED`, and the message names the fix. This applies to your organization's own plugins and to listings.
+
+Your organization decides who is told about rescan findings under **Settings → Organization → Plugin security notifications** (see [Notifications](#notifications)).
 
 ## Implicit Official installs
 
@@ -211,8 +230,24 @@ Notices go to your organization only. Publishers never learn who installed their
 | N14 | A listing you use is deprecated or unmaintained | Installing orgs | In-app + email |
 | N26 | A listing or version you use was paused by its publisher | Installing orgs | In-app |
 | N8 | A listing or version you use was suspended, yanked or taken down | Installing orgs | In-app + email, immediate, with the reason |
+| N30 | A plugin version was blocked at build: it couldn't be scanned, or it has fixable Critical findings | Your plugin security recipients | In-app + email + webhook, immediate |
+| N31 | A rescan found new Critical or High findings in a plugin version | Your plugin security recipients | In-app + email + webhook; follows your digest setting, and sent once per version and set of findings |
 
 "Installing orgs" means organizations with an active explicit install, plus, for Official listings, organizations whose pipelines use the listing through the implicit install. The notice goes to each organization's approvers.
+
+### Plugin security notifications
+
+N30 and N31 go where your organization says, under **Settings → Organization → Plugin security notifications**. Anyone with `plugins:read` can see the settings; changing them needs `org:settings`.
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| Recipients | The uploader and everyone who can write plugins | Or only the members you choose. |
+| Rescan findings | On | Turn off to stop N31. Blocked versions (N30) are always sent. |
+| Rescan delivery | Immediately | Or a daily or weekly digest. N30 is never batched. |
+| Webhook URL | None | An `https` URL that gets each notice as JSON. With a signing secret, every delivery carries `X-PB-Signature: sha256=<HMAC>`. The secret is never shown again once saved. |
+| External address | None | One address outside your organization, such as a security team's mailbox. Saving it emails that address a confirmation link, valid for 24 hours and usable once. The link opens a page with a **Confirm address** button, so mail scanners that open links can't confirm it. The address gets nothing until it's confirmed. You can resend the link or remove the address. |
+
+**Send test** sends a test notice to every configured channel, so you can check the webhook and the addresses before a real notice.
 
 ## Reviews and ratings
 
@@ -317,6 +352,7 @@ AI generation offers your installed listings and the implicit Official ones. It 
 | `PLUGIN_UNAVAILABLE` | 409 | The listing or version can't be used. `details.reason`: `yanked`, `suspended` or `paused` (no new installs). |
 | `PLUGIN_NAME_LISTED` | 409 | A plugin created on the fly can't take a listed plugin's name. Install the listing instead. |
 | `IMAGE_VERIFICATION_FAILED` | 409 | The image's signature, or its signed tier and publisher, doesn't verify. |
+| `PLUGIN_VERSION_VULN_BLOCKED` | 409 | You pinned a version a rescan flagged, and the instance blocks flagged versions (`PLUGIN_BLOCK_ON_NEW_CRITICAL`). The message names the fix. Move to a newer version, or use a range. |
 | `REVIEW_SELF_PROMOTION` | 403 | You can't review, or vote on reviews of, your own organization's plugins. |
 | `PLUGIN_REVIEWS_DISABLED` | 403 | Reviews are read-only on this instance (`PLUGIN_REVIEWS_ENABLED`). |
 | `HUMAN_SESSION_REQUIRED` | 403 | Reviews, votes, reports and replies need a person signed in, not an access key or service account. |

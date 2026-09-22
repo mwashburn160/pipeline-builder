@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { EcosystemActionDialog } from '@/components/ecosystem/EcosystemActionDialog';
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
+import { VulnSummary } from '@/components/plugin/VulnSummary';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -162,8 +163,7 @@ export function PublisherListingsPanel({ canPublish, canManage }: Props) {
                           <span className="inline-flex flex-wrap gap-1">
                             {v.yankedAt ? <Badge color="red">Yanked</Badge> : v.pausedAt ? <Badge color="yellow">Paused</Badge> : <Badge color="green">Available</Badge>}
                             {v.deprecatedAt && <Badge color="yellow">Deprecated</Badge>}
-                            {(v.vulnCritical ?? 0) > 0 && <Badge color="red">{v.vulnCritical} critical</Badge>}
-                            {(v.vulnHigh ?? 0) > 0 && <Badge color="yellow">{v.vulnHigh} high</Badge>}
+                            <VulnSummary facts={v} quiet />
                           </span>
                           {v.yankReason && <span className="block text-fg-muted">{v.yankReason}</span>}
                           {v.deprecatedAt && v.deprecationMessage && <span className="block text-warning-strong">{v.deprecationMessage}</span>}

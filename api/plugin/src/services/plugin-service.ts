@@ -887,7 +887,12 @@ export class PluginService extends CrudService<
             vulnHigh: data.vulnHigh ?? null,
             vulnMedium: data.vulnMedium ?? null,
             vulnLow: data.vulnLow ?? null,
+            vulnCriticalFixable: data.vulnCriticalFixable ?? null,
+            vulnHighFixable: data.vulnHighFixable ?? null,
             scannedAt: data.scannedAt ?? null,
+            // A rescan flag described the OLD image; the new one starts unflagged.
+            scanFlaggedAt: null,
+            scanFlag: null,
             runAsRoot: data.runAsRoot ?? null,
             visibility: data.visibility,
             isDefault: becomeDefault,

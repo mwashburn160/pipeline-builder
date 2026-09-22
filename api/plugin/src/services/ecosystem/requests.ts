@@ -176,6 +176,8 @@ export async function draft(caller: Caller, pluginId: unknown) {
       scannedAt: plugin.scannedAt?.toISOString() ?? null,
       vulnCritical: plugin.vulnCritical,
       vulnHigh: plugin.vulnHigh,
+      vulnCriticalFixable: plugin.vulnCriticalFixable,
+      vulnHighFixable: plugin.vulnHighFixable,
       breaking: plugin.breaking === true,
     },
     listing: listing ? listingView(listing, publisher) : null,

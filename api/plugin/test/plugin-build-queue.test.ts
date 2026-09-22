@@ -8,7 +8,7 @@
  * services (SSEManager, QuotaService, db, buildAndPush).
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -73,10 +73,29 @@ const SCANNED_FACTS = {
   vulnHigh: 2,
   vulnMedium: 5,
   vulnLow: 9,
+  vulnCriticalFixable: 0,
+  vulnHighFixable: 1,
   scannedAt: new Date('2026-09-21T00:00:00Z'),
   runAsRoot: false,
   packages: ['openssl'],
+  findings: [] as any[],
 };
+/** An image the scan could not run on. */
+const UNSCANNED_FACTS = {
+  vulnCritical: null,
+  vulnHigh: null,
+  vulnMedium: null,
+  vulnLow: null,
+  vulnCriticalFixable: null,
+  vulnHighFixable: null,
+  scannedAt: null,
+  runAsRoot: false,
+  packages: null,
+  findings: [] as any[],
+};
+const CRIT = { id: 'CVE-2026-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] };
+// N30 on a scan-gate build failure (real behaviour in plugin-security-notifications.test.ts).
+const mockNotifyVersionBlocked = jest.fn<(...args: any[]) => any>(async () => undefined);
 const mockEstablishImageFacts = jest.fn<(...args: any[]) => any>(async () => SCANNED_FACTS);
 const mockAssertPostBuildCompliance = jest.fn<(...args: any[]) => any>(async () => undefined);
 
@@ -194,6 +213,7 @@ function registerMocks() {
     pluginService: { deployVersion: mockDeployVersion },
   }));
   jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: mockSubmitAfterBuild }));
+  jest.unstable_mockModule('../src/services/plugin-security-notifications.js', () => ({ notifyVersionBlocked: mockNotifyVersionBlocked }));
 
   // image facts: the scan + USER + post-build compliance check the worker
   // runs between push and deploy. Real behaviour is covered by image-facts.test.ts.
@@ -496,7 +516,7 @@ describe('plugin-build-queue', () => {
       // the signed digest + image source are persisted with the row.
       // the image's scan + USER facts land on the row (the quota snapshot
       // becomes a Date column; this job carried none).
-      const { packages: _packages, ...scanFacts } = SCANNED_FACTS;
+      const { packages: _packages, findings: _findings, ...scanFacts } = SCANNED_FACTS;
       expect(mockDeployVersion).toHaveBeenCalledWith(
         { ...jobData.pluginRecord, quotaResetAt: null, imageDigest: digest, imageSource: 'built', ...scanFacts },
         'user-1',
@@ -545,6 +565,123 @@ describe('plugin-build-queue', () => {
 
       await expect(getMainProcessor()(makeJob(makeJobData()))).rejects.toThrow('COMPLIANCE_VIOLATION');
       expect(mockDeployVersion).not.toHaveBeenCalled();
+    });
+
+    describe('platform scan gates', () => {
+      const DIGEST = `sha256:${'d'.repeat(64)}`;
+      afterEach(() => {
+        delete process.env.PLUGIN_ALLOW_UNSCANNED;
+        delete process.env.PLUGIN_VULN_MAX_CRITICAL;
+      });
+      const build = () => {
+        queueModule.startWorker(makeSseManager(), makeQuotaService());
+        mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: DIGEST, imageSource: 'built' });
+        mockDeployVersion.mockResolvedValue({ id: 'p1', name: 'my-plugin', version: '1.0.0' });
+      };
+
+      it('an unscanned image fails RETRYABLY before the last attempt (BullMQ retries), persisting nothing', async () => {
+        build();
+        mockEstablishImageFacts.mockResolvedValueOnce(UNSCANNED_FACTS);
+        const err = await getMainProcessor()(makeJob(makeJobData(), { attemptsMade: 0, opts: { attempts: 2 } })).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as any).code).toBeUndefined();
+        expect(mockDeployVersion).not.toHaveBeenCalled();
+      });
+
+      it('REGRESSION: an unscanned image on the LAST attempt fails IMAGE_SCAN_UNAVAILABLE — never persisted unscanned', async () => {
+        build();
+        mockEstablishImageFacts.mockResolvedValueOnce(UNSCANNED_FACTS);
+        const err = await getMainProcessor()(makeJob(makeJobData(), { attemptsMade: 1, opts: { attempts: 2 } })).catch((e: unknown) => e);
+        // Unrecoverable: BullMQ spends no further attempt; the code rides along for the failure handler.
+        const { UnrecoverableError } = await import('bullmq') as any;
+        expect(err).toBeInstanceOf(UnrecoverableError);
+        expect(err).toMatchObject({ statusCode: 422, code: 'IMAGE_SCAN_UNAVAILABLE' });
+        expect((err as Error).message).toMatch(/image could not be scanned/);
+        expect(mockDeployVersion).not.toHaveBeenCalled();
+        expect(mockAssertPostBuildCompliance).not.toHaveBeenCalled();
+      });
+
+      it('PLUGIN_ALLOW_UNSCANNED persists it unscanned and audits plugin.scan.skipped', async () => {
+        process.env.PLUGIN_ALLOW_UNSCANNED = 'true';
+        build();
+        mockEstablishImageFacts.mockResolvedValueOnce(UNSCANNED_FACTS);
+        await getMainProcessor()(makeJob(makeJobData(), { attemptsMade: 1, opts: { attempts: 2 } }));
+        expect(mockDeployVersion.mock.calls[0]![0]).toEqual(expect.objectContaining({ scannedAt: null, vulnCriticalFixable: null }));
+        expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({
+          action: 'plugin.scan.skipped',
+          orgId: 'org-1',
+          targetId: 'p1',
+          details: expect.objectContaining({ imageDigest: DIGEST, reason: 'PLUGIN_ALLOW_UNSCANNED' }),
+        }));
+      });
+
+      it('more FIXABLE criticals than PLUGIN_VULN_MAX_CRITICAL fails PLUGIN_VULN_GATE listing the CVE and its fix', async () => {
+        build();
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCritical: 3, vulnCriticalFixable: 1, findings: [CRIT] });
+        const err = await getMainProcessor()(makeJob(makeJobData())).catch((e: unknown) => e);
+        const { UnrecoverableError } = await import('bullmq') as any;
+        expect(err).toBeInstanceOf(UnrecoverableError);
+        expect(err).toMatchObject({ statusCode: 422, code: 'PLUGIN_VULN_GATE', details: { critical: 1, maxCritical: 0, findings: [CRIT] } });
+        expect((err as Error).message).toContain('CVE-2026-1 (openssl@3.0.1 → 3.0.2)');
+        expect(mockDeployVersion).not.toHaveBeenCalled();
+      });
+
+      it('unfixable criticals pass the floor; the floor is configurable and -1 disables it', async () => {
+        build();
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCritical: 4, vulnCriticalFixable: 0 });
+        await getMainProcessor()(makeJob(makeJobData()));
+        expect(mockDeployVersion).toHaveBeenCalledTimes(1);
+        expect(mockDeployVersion.mock.calls[0]![0]).toEqual(expect.objectContaining({ vulnCritical: 4, vulnCriticalFixable: 0, vulnHighFixable: 1 }));
+
+        process.env.PLUGIN_VULN_MAX_CRITICAL = '2';
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCriticalFixable: 2, findings: [CRIT] });
+        await getMainProcessor()(makeJob(makeJobData()));
+        expect(mockDeployVersion).toHaveBeenCalledTimes(2);
+
+        process.env.PLUGIN_VULN_MAX_CRITICAL = '-1';
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCriticalFixable: 50, findings: [CRIT] });
+        await getMainProcessor()(makeJob(makeJobData()));
+        expect(mockDeployVersion).toHaveBeenCalledTimes(3);
+      });
+
+      it('a scan-gate failure is terminal: quota released, code surfaced on the stream, N30 sent', async () => {
+        const sse = makeSseManager();
+        const quota = makeQuotaService();
+        queueModule.startWorker(sse, quota);
+        const { AppError } = await import('@pipeline-builder/api-core') as any;
+        const gate = new AppError(422, 'PLUGIN_VULN_GATE', 'PLUGIN_VULN_GATE: the image has 1 fixable Critical finding', { critical: 1, high: 0, maxCritical: 0, findings: [CRIT] });
+
+        await getTierFailedHandler()(makeJob(makeJobData(), { attemptsMade: 2, opts: { attempts: 2 } }), gate);
+        await flush();
+
+        expect(auditActions()).toEqual(['plugin.build.failed']);
+        expect(mockAuditRecord.mock.calls[0]![0].details).toMatchObject({ errorCode: 'PLUGIN_VULN_GATE' });
+        expect(sse.send).toHaveBeenCalledWith('req-123', 'ERROR', expect.stringContaining('PLUGIN_VULN_GATE'), expect.objectContaining({
+          code: 'PLUGIN_VULN_GATE', details: expect.objectContaining({ findings: [CRIT] }),
+        }));
+        expect(mockIncrementQuota).toHaveBeenCalled();
+        expect(mockNotifyVersionBlocked).toHaveBeenCalledWith({
+          orgId: 'org-1',
+          uploaderId: 'user-1',
+          plugin: 'my-plugin',
+          version: '1.0.0',
+          code: 'PLUGIN_VULN_GATE',
+          message: 'PLUGIN_VULN_GATE: the image has 1 fixable Critical finding',
+          critical: 1,
+          high: 0,
+          findings: [CRIT],
+        });
+      });
+
+      it('IMAGE_SCAN_UNAVAILABLE also sends N30; other terminal failures do not', async () => {
+        queueModule.startWorker(makeSseManager(), makeQuotaService());
+        const { AppError } = await import('@pipeline-builder/api-core') as any;
+        await getTierFailedHandler()(makeJob(makeJobData(), { attemptsMade: 2 }), new AppError(422, 'IMAGE_SCAN_UNAVAILABLE', 'IMAGE_SCAN_UNAVAILABLE: image could not be scanned'));
+        await getTierFailedHandler()(makeJob(makeJobData(), { attemptsMade: 2 }), new Error('COMPLIANCE_VIOLATION: blocked'));
+        await flush();
+        expect(mockNotifyVersionBlocked).toHaveBeenCalledTimes(1);
+        expect(mockNotifyVersionBlocked.mock.calls[0]![0]).toMatchObject({ code: 'IMAGE_SCAN_UNAVAILABLE' });
+      });
     });
 
     it('persists the quota snapshot as a Date and skips scanning when no image was produced', async () => {

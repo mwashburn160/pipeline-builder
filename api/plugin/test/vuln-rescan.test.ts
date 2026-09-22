@@ -2,16 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for queue/vuln-rescan: the nightly pass over every image plugin
- * (DB refresh, per-row rescan + persistence, listing-version sync, new
- * critical/high detection, failure isolation), the tick's stale detection off
- * the last-completed timestamp in Redis, and the leader-locked scheduler.
- * The database is a fake drizzle transaction; the scanner is mocked.
+ * Tests for queue/vuln-rescan: the nightly pass over (a) every active image
+ * plugin and (b) every listed version FROM ITS OWN public image, deduplicated
+ * by digest (DB refresh, per-row persistence incl. fixable counts and the
+ * scan flag, new critical/high detection, advisory drafts and N31, failure
+ * isolation), the tick's stale detection off the last-completed timestamp in
+ * Redis, and the leader-locked scheduler. The database is the in-memory fake
+ * ecosystem db; the scanner is mocked.
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
+import { createFakeEcosystemDb } from './helpers/fake-ecosystem-db.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+
+const db = createFakeEcosystemDb();
 
 // -- scanner ------------------------------------------------------------------
 const mockRefreshVulnDb = jest.fn<(...a: any[]) => Promise<void>>();
@@ -24,12 +29,30 @@ jest.unstable_mockModule('../src/helpers/vuln-scan.js', () => ({
   inspectRunAsRoot: mockInspectRunAsRoot,
   onNewCriticalOrHigh: mockOnNewCriticalOrHigh,
   hasNewCriticalOrHigh: (before: any, after: any) => after.critical > (before?.critical ?? 0) || after.high > (before?.high ?? 0),
-  scanColumns: (scan: any) => ({ vulnCritical: scan.critical, vulnHigh: scan.high, vulnMedium: scan.medium, vulnLow: scan.low, scannedAt: scan.scannedAt }),
+  scanColumns: (scan: any) => ({
+    vulnCritical: scan.critical,
+    vulnHigh: scan.high,
+    vulnMedium: scan.medium,
+    vulnLow: scan.low,
+    vulnCriticalFixable: scan.criticalFixable,
+    vulnHighFixable: scan.highFixable,
+    scannedAt: scan.scannedAt,
+  }),
 }));
 
-// -- advisory drafts --------------------------------------------------------
+// -- advisory drafts, installers, listings, N31 ---------------------------------
 const mockOpenRescanDraft = jest.fn<(...a: any[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ openRescanDraft: mockOpenRescanDraft }));
+const mockInstallingOrgs = jest.fn<(...a: any[]) => Promise<Array<{ orgId: string; install: null }>>>();
+jest.unstable_mockModule('../src/services/ecosystem/install-notify.js', () => ({ installingOrgs: mockInstallingOrgs }));
+const LISTING = { id: 'l-1', name: 'lint', state: 'listed', publisherId: 'pub-1' };
+const PUBLISHER = { id: 'pub-1', handle: 'acme', tier: 'verified', suspendedAt: null };
+jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
+  listings: { byId: async (id: string) => (id === LISTING.id ? LISTING : null) },
+  publishers: { byId: async (id: string) => (id === PUBLISHER.id ? PUBLISHER : null) },
+}));
+const mockNotifyRescanFindings = jest.fn<(...a: any[]) => Promise<number>>();
+jest.unstable_mockModule('../src/services/plugin-security-notifications.js', () => ({ notifyRescanFindings: mockNotifyRescanFindings }));
 
 // -- metrics / scheduler ------------------------------------------------------
 const mockSetGauge = jest.fn();
@@ -44,116 +67,82 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 }));
 
 // -- fake database ------------------------------------------------------------
-interface Row {
-  id: string;
-  orgId: string;
-  name: string;
-  version: string;
-  imageDigest: string | null;
-  vulnCritical: number | null;
-  vulnHigh: number | null;
-  scannedAt: Date | null;
-  runAsRoot: boolean | null;
-}
-let rows: Row[] = [];
-let pageLimits: number[] = [];
-const pluginUpdates: Array<{ set: Record<string, unknown>; where: unknown }> = [];
-const listingUpdates: Array<{ set: Record<string, unknown>; where: unknown }> = [];
 const tenantContexts: unknown[] = [];
-
-const T = { plugin: { __t: 'plugin', id: 'id' }, pluginListingVersion: { __t: 'listing', id: 'lvid', sourcePluginId: 'src', imageDigest: 'dig' } };
-jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
-  and: (...parts: unknown[]) => ({ op: 'and', parts }),
-  or: (...parts: unknown[]) => ({ op: 'or', parts }),
-  eq: (c: unknown, v: unknown) => ({ op: 'eq', c, v }),
-  gt: (c: unknown, v: unknown) => ({ op: 'gt', c, v }),
-  isNull: (c: unknown) => ({ op: 'isNull', c }),
-  isNotNull: (c: unknown) => ({ op: 'isNotNull', c }),
-  asc: (c: unknown) => c,
-}));
-function cursorOf(cond: any): string | undefined {
-  return cond?.parts?.find((p: any) => p?.op === 'gt')?.v;
-}
-/** Listing versions by source plugin id, as stored BEFORE the pass. */
-let listedPriors: Record<string, Array<Record<string, unknown>>> = {};
-const tx = {
-  select: () => ({
-    from: (table: { __t: string }) => ({
-      where: (cond: any) => ({
-        // listing-version priors: `select … where(or(source = id, digest = …))`, awaited directly.
-        then: (resolve: (v: unknown) => unknown) => resolve(table.__t === 'listing' ? listedPriors[cond?.parts?.[0]?.v] ?? [] : []),
-        orderBy: () => ({
-          limit: async (n: number) => {
-            pageLimits.push(n);
-            const after = cursorOf(cond);
-            return rows.filter((r) => after === undefined || r.id > after).sort((a, b) => a.id.localeCompare(b.id)).slice(0, n);
-          },
-        }),
-      }),
-    }),
-  }),
-  update: (table: { __t: string }) => ({
-    set: (set: Record<string, unknown>) => ({
-      where: (where: unknown) => {
-        (table.__t === 'plugin' ? pluginUpdates : listingUpdates).push({ set, where });
-        const done = Promise.resolve(undefined);
-        return Object.assign(done, { returning: async () => (table.__t === 'listing' ? listingIdsFor(where) : []) });
-      },
-    }),
-  }),
-};
-let listingIds: Record<string, string[]> = {};
-function listingIdsFor(where: any): Array<{ id: string }> {
-  const pluginId = where?.parts?.[0]?.v as string;
-  return (listingIds[pluginId] ?? []).map((id) => ({ id }));
-}
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock(db.ops));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  schema: T,
-  withTenantTx: async (fn: (t: typeof tx) => unknown) => fn(tx),
+  ...db.pipelineData,
   runWithTenantContext: async (ctx: unknown, fn: () => unknown) => { tenantContexts.push(ctx); return fn(); },
 }));
 
 const rescan = await import('../src/queue/vuln-rescan.js');
 
 const DIGEST = (c: string) => `sha256:${c.repeat(64)}`;
-const row = (id: string, over: Partial<Row> = {}): Row => ({
-  id,
-  orgId: 'org-1',
-  name: `p-${id}`,
-  version: '1.0.0',
-  imageDigest: DIGEST('a'),
-  vulnCritical: 0,
-  vulnHigh: 0,
-  scannedAt: new Date('2026-09-01'),
-  runAsRoot: false,
-  ...over,
+const finding = (id: string, severity: 'critical' | 'high' = 'critical', fixedIn: string[] = ['3.0.2']) =>
+  ({ id, severity, packageName: 'openssl', packageVersion: '3.0.1', fixedIn });
+const scan = (c: number, h: number, over: Record<string, unknown> = {}) => ({
+  critical: c, high: h, medium: 0, low: 0, criticalFixable: 0, highFixable: 0, scannedAt: new Date('2026-09-21'), findings: [], ...over,
 });
-const scan = (c: number, h: number, m = 0, l = 0) => ({ critical: c, high: h, medium: m, low: l, scannedAt: new Date('2026-09-21'), findings: [] });
+
+function plugin(id: string, over: Record<string, unknown> = {}) {
+  return db.seed('plugins', {
+    id,
+    orgId: 'org-1',
+    name: `p-${id}`,
+    version: '1.0.0',
+    imageDigest: DIGEST('a'),
+    isActive: true,
+    vulnCritical: 0,
+    vulnHigh: 0,
+    scannedAt: new Date('2026-09-01'),
+    scanFlaggedAt: null,
+    runAsRoot: false,
+    createdBy: 'u-1',
+    ...over,
+  });
+}
+function listed(id: string, over: Record<string, unknown> = {}) {
+  return db.seed('plugin_listing_versions', {
+    id,
+    listingId: LISTING.id,
+    version: '1.0.0',
+    imageDigest: DIGEST('b'),
+    imageRepository: 'public/acme/lint',
+    vulnCritical: 0,
+    vulnHigh: 0,
+    scannedAt: new Date('2026-09-01'),
+    scanFlaggedAt: null,
+    imageCollectedAt: null,
+    ...over,
+  });
+}
+const pluginRow = (id: string) => db.tables.plugins!.find((r) => r.id === id)!;
+const listedRow = (id: string) => db.tables.plugin_listing_versions!.find((r) => r.id === id)!;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  rows = [];
-  pageLimits = [];
-  pluginUpdates.length = 0;
-  listingUpdates.length = 0;
+  db.reset();
   tenantContexts.length = 0;
-  listingIds = {};
-  listedPriors = {};
   mockOpenRescanDraft.mockResolvedValue({ id: 'adv-1' });
   mockRefreshVulnDb.mockResolvedValue(undefined);
   mockScanPluginImage.mockResolvedValue({ scan: scan(0, 0), packages: [] });
+  mockInstallingOrgs.mockResolvedValue([]);
+  mockNotifyRescanFindings.mockResolvedValue(1);
 });
 afterEach(() => {
   delete process.env.PLUGIN_RESCAN_ENABLED;
   delete process.env.PLUGIN_RESCAN_INTERVAL_MS;
   delete process.env.PLUGIN_RESCAN_LOCK_TTL_MS;
   delete process.env.PLUGIN_RESCAN_STARTUP_DELAY_MS;
+  delete process.env.PLUGIN_VULN_MAX_CRITICAL;
 });
 
-describe('rescanAllPlugins', () => {
+describe('rescanAllPlugins — (a) tenant plugin rows', () => {
   it('forces a DB refresh, then rescans every image plugin across orgs as superadmin', async () => {
-    rows = [row('1'), row('2', { orgId: 'org-2' })];
-    mockScanPluginImage.mockResolvedValueOnce({ scan: scan(0, 1, 2, 3), packages: [] }).mockResolvedValueOnce({ scan: scan(1, 0), packages: [] });
+    plugin('1');
+    plugin('2', { orgId: 'org-2', imageDigest: DIGEST('c') });
+    mockScanPluginImage
+      .mockResolvedValueOnce({ scan: scan(0, 1, { medium: 2, low: 3, highFixable: 1 }), packages: [] })
+      .mockResolvedValueOnce({ scan: scan(1, 0), packages: [] });
 
     const r = await rescan.rescanAllPlugins();
 
@@ -161,63 +150,92 @@ describe('rescanAllPlugins', () => {
     expect(mockRefreshVulnDb.mock.invocationCallOrder[0]!).toBeLessThan(mockScanPluginImage.mock.invocationCallOrder[0]!);
     expect(tenantContexts).toEqual([{ isSuperAdmin: true }]);
     expect(mockScanPluginImage).toHaveBeenCalledWith({ orgId: 'org-1', name: 'p-1', imageDigest: DIGEST('a') }, expect.objectContaining({ host: 'registry' }), 'rescan');
-    expect(r).toEqual({ total: 2, rescanned: 2, failed: 0, newCriticalOrHigh: 2, advisoryDrafts: 0, catalog: { critical: 1, high: 1, medium: 2, low: 3 } });
-    expect(pluginUpdates[0]!.set).toEqual({ vulnCritical: 0, vulnHigh: 1, vulnMedium: 2, vulnLow: 3, scannedAt: expect.any(Date), runAsRoot: false });
+    expect(r).toEqual({
+      total: 2,
+      rescanned: 2,
+      failed: 0,
+      listed: 0,
+      newCriticalOrHigh: 2,
+      advisoryDrafts: 0,
+      flagged: 0,
+      catalog: { critical: 1, high: 1, medium: 2, low: 3 },
+    });
+    expect(pluginRow('1')).toMatchObject({ vulnCritical: 0, vulnHigh: 1, vulnMedium: 2, vulnLow: 3, vulnCriticalFixable: 0, vulnHighFixable: 1, scanFlaggedAt: null, scanFlag: null });
     expect(mockSetGauge).toHaveBeenCalledWith('plugin_vuln_catalog_findings', { severity: 'critical' }, 1);
     expect(mockSetGauge).toHaveBeenCalledWith('plugin_vuln_rescan_plugins', { state: 'total' }, 2);
   });
 
-  it('pages through the catalog by id', async () => {
-    rows = Array.from({ length: 205 }, (_, i) => row(String(i).padStart(4, '0')));
+  it('skips deleted, inactive and image-less rows, and pages by id', async () => {
+    plugin('del', { deletedAt: new Date() });
+    plugin('off', { isActive: false });
+    plugin('noimg', { imageDigest: null });
+    for (let i = 0; i < 205; i++) plugin(`r${String(i).padStart(4, '0')}`, { imageDigest: DIGEST('a') });
     const r = await rescan.rescanAllPlugins();
     expect(r.total).toBe(205);
-    expect(pageLimits).toEqual([100, 100, 100]);
+    // One digest across all of them: scanned ONCE.
+    expect(mockScanPluginImage).toHaveBeenCalledTimes(1);
   });
 
-  it('syncs listing versions published from the row and reports new findings with them', async () => {
-    rows = [row('1', { vulnCritical: 1, vulnHigh: 0 })];
-    listingIds = { 1: ['lv-1'] };
-    mockScanPluginImage.mockResolvedValue({ scan: scan(2, 0), packages: [] });
+  it('flags a version whose FIXABLE criticals exceed PLUGIN_VULN_MAX_CRITICAL, keeps the first flag time, and clears it when resolved', async () => {
+    plugin('1', { vulnCritical: 0 });
+    const findings = [finding('CVE-1'), finding('CVE-2', 'critical', [])];
+    mockScanPluginImage.mockResolvedValue({ scan: scan(2, 0, { criticalFixable: 1, findings }), packages: [] });
+
+    await rescan.rescanAllPlugins();
+    const flaggedAt = pluginRow('1').scanFlaggedAt as Date;
+    expect(flaggedAt).toBeInstanceOf(Date);
+    expect(pluginRow('1').scanFlag).toEqual({ critical: 1, high: 0, maxCritical: 0, findings: [finding('CVE-1')] });
+
+    // Still flagged next pass: the flag keeps its original time.
+    await rescan.rescanAllPlugins();
+    expect(pluginRow('1').scanFlaggedAt).toBe(flaggedAt);
+
+    // Resolved (rebuilt / fixed upstream): unflagged.
+    mockScanPluginImage.mockResolvedValue({ scan: scan(1, 0, { criticalFixable: 0, findings: [finding('CVE-2', 'critical', [])] }), packages: [] });
+    await rescan.rescanAllPlugins();
+    expect(pluginRow('1')).toMatchObject({ scanFlaggedAt: null, scanFlag: null });
+  });
+
+  it('counts only FIXABLE criticals against the floor, and -1 disables it', async () => {
+    plugin('1');
+    mockScanPluginImage.mockResolvedValue({ scan: scan(5, 0, { criticalFixable: 0, findings: [finding('CVE-1', 'critical', [])] }), packages: [] });
+    await rescan.rescanAllPlugins();
+    expect(pluginRow('1').scanFlaggedAt).toBeNull();
+
+    process.env.PLUGIN_VULN_MAX_CRITICAL = '-1';
+    mockScanPluginImage.mockResolvedValue({ scan: scan(5, 0, { criticalFixable: 5, findings: [finding('CVE-1')] }), packages: [] });
+    await rescan.rescanAllPlugins();
+    expect(pluginRow('1').scanFlaggedAt).toBeNull();
+  });
+
+  it('reports new findings to the owning org (N31, uploader included) and to the metrics', async () => {
+    plugin('1', { vulnCritical: 1, vulnHigh: 0, createdBy: 'uploader-1' });
+    const findings = [finding('CVE-1'), finding('CVE-9', 'high')];
+    mockScanPluginImage.mockResolvedValue({ scan: scan(2, 1, { criticalFixable: 1, highFixable: 1, findings }), packages: [] });
 
     const r = await rescan.rescanAllPlugins();
 
-    expect(listingUpdates[0]!.set).toEqual({ vulnCritical: 2, vulnHigh: 0, scannedAt: expect.any(Date) });
     expect(r.newCriticalOrHigh).toBe(1);
     expect(mockOnNewCriticalOrHigh).toHaveBeenCalledWith(
-      expect.objectContaining({ id: '1', listingVersionIds: ['lv-1'], imageDigest: DIGEST('a') }),
+      expect.objectContaining({ id: '1', listingVersionIds: [], imageDigest: DIGEST('a') }),
       { critical: 1, high: 0 },
       expect.objectContaining({ critical: 2 }),
     );
+    expect(mockNotifyRescanFindings).toHaveBeenCalledWith({
+      versionKey: 'plugin:1',
+      plugin: 'p-1',
+      version: '1.0.0',
+      critical: 2,
+      high: 1,
+      findings,
+      flagged: true,
+      orgs: [{ orgId: 'org-1', uploaderId: 'uploader-1' }],
+    });
   });
 
-  it('opens a private advisory draft for a LISTED version whose counts grew past its own stored facts', async () => {
-    const findings = [{ id: 'CVE-2026-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.0' }];
-    rows = [row('1', { vulnCritical: 1, vulnHigh: 0 })];
-    listingIds = { 1: ['lv-1', 'lv-2', 'lv-3'] };
-    listedPriors = {
-      1: [
-        // Stored facts already at 2 critical: nothing new for this copy.
-        { id: 'lv-1', listingId: 'l-1', version: '1.0.0', yankedAt: null, vulnCritical: 2, vulnHigh: 0, scannedAt: new Date('2026-09-01') },
-        // Stored facts lag at 0 critical: new.
-        { id: 'lv-2', listingId: 'l-2', version: '1.0.0', yankedAt: null, vulnCritical: 0, vulnHigh: 0, scannedAt: new Date('2026-09-01') },
-        // Never scanned: every finding is new.
-        { id: 'lv-3', listingId: 'l-3', version: '1.0.0', yankedAt: null, vulnCritical: null, vulnHigh: null, scannedAt: null },
-      ],
-    };
-    mockScanPluginImage.mockResolvedValue({ scan: { ...scan(2, 0), findings }, packages: [] });
-    mockOpenRescanDraft.mockResolvedValueOnce({ id: 'adv-1' }).mockResolvedValueOnce(null); // the second was deduplicated
-
-    const r = await rescan.rescanAllPlugins();
-
-    expect(mockOpenRescanDraft.mock.calls.map((c) => (c[0] as any).listingVersion.id)).toEqual(['lv-2', 'lv-3']);
-    expect(mockOpenRescanDraft).toHaveBeenCalledWith({ listingVersion: expect.objectContaining({ id: 'lv-2', version: '1.0.0' }), findings });
-    expect(r.advisoryDrafts).toBe(1);
-    // The listing versions' facts are updated regardless.
-    expect(listingUpdates[0]!.set).toEqual({ vulnCritical: 2, vulnHigh: 0, scannedAt: expect.any(Date) });
-  });
-
-  it('does not flag unchanged counts; an unscanned row\'s findings are all new', async () => {
-    rows = [row('1', { vulnCritical: 1, vulnHigh: 1 }), row('2', { scannedAt: null, vulnCritical: null, vulnHigh: null })];
+  it('does not report unchanged counts; an unscanned row\'s findings are all new', async () => {
+    plugin('1', { vulnCritical: 1, vulnHigh: 1 });
+    plugin('2', { scannedAt: null, vulnCritical: null, vulnHigh: null, imageDigest: DIGEST('c') });
     mockScanPluginImage.mockResolvedValue({ scan: scan(1, 1), packages: [] });
     const r = await rescan.rescanAllPlugins();
     expect(r.newCriticalOrHigh).toBe(1);
@@ -226,32 +244,121 @@ describe('rescanAllPlugins', () => {
   });
 
   it('fills runAsRoot only where unknown, and leaves it unknown when the config is unreadable', async () => {
-    rows = [row('1', { runAsRoot: null }), row('2', { runAsRoot: null }), row('3', { runAsRoot: true })];
+    plugin('1', { runAsRoot: null });
+    plugin('2', { runAsRoot: null, imageDigest: DIGEST('c') });
+    plugin('3', { runAsRoot: true, imageDigest: DIGEST('d') });
     mockInspectRunAsRoot.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error('crane 401'));
     await rescan.rescanAllPlugins();
     expect(mockInspectRunAsRoot).toHaveBeenCalledTimes(2);
-    expect(pluginUpdates[0]!.set).toMatchObject({ runAsRoot: true });
-    expect(pluginUpdates[1]!.set).not.toHaveProperty('runAsRoot');
-    expect(pluginUpdates[2]!.set).toMatchObject({ runAsRoot: true });
+    expect(pluginRow('1').runAsRoot).toBe(true);
+    expect(pluginRow('2').runAsRoot).toBeNull();
+    expect(pluginRow('3').runAsRoot).toBe(true);
   });
 
   it('an image that fails to rescan keeps its previous scan and is counted failed; the pass continues', async () => {
-    rows = [row('1'), row('2'), row('3')];
+    plugin('1');
+    plugin('2', { imageDigest: DIGEST('c') });
+    plugin('3', { imageDigest: DIGEST('d') });
     mockScanPluginImage
       .mockResolvedValueOnce({ scan: null, packages: null })
       .mockRejectedValueOnce(new Error('unexpected'))
       .mockResolvedValueOnce({ scan: scan(0, 0), packages: [] });
     const r = await rescan.rescanAllPlugins();
     expect(r).toMatchObject({ total: 3, rescanned: 1, failed: 2 });
-    expect(pluginUpdates).toHaveLength(1);
+    expect(pluginRow('1').scannedAt).toEqual(new Date('2026-09-01'));
     expect(mockSetGauge).toHaveBeenCalledWith('plugin_vuln_rescan_plugins', { state: 'failed' }, 2);
   });
 
   it('does not run at all when the DB refresh fails', async () => {
-    rows = [row('1')];
+    plugin('1');
     mockRefreshVulnDb.mockRejectedValue(new Error('db offline'));
     await expect(rescan.rescanAllPlugins()).rejects.toThrow('db offline');
     expect(mockScanPluginImage).not.toHaveBeenCalled();
+  });
+});
+
+describe('rescanAllPlugins — (b) listed versions from their own public image', () => {
+  it('REGRESSION: a listed version whose source plugin was force-deleted is still rescanned from public/*, updated, and gets its drafts + N31', async () => {
+    // The publisher's org row is gone (force-deleted / purged); only the listing copy remains.
+    listed('lv-1', { sourcePluginId: 'gone', vulnCritical: 0 });
+    const findings = [finding('CVE-2026-1')];
+    mockScanPluginImage.mockResolvedValue({ scan: scan(1, 0, { criticalFixable: 1, findings }), packages: [] });
+    mockInstallingOrgs.mockResolvedValue([{ orgId: 'org-x', install: null }, { orgId: 'org-y', install: null }]);
+
+    const r = await rescan.rescanAllPlugins();
+
+    expect(mockScanPluginImage).toHaveBeenCalledWith(
+      { orgId: '000000000000000000000001', name: 'lint', imageDigest: DIGEST('b'), imageRepository: 'public/acme/lint' },
+      expect.objectContaining({ host: 'registry' }), 'rescan');
+    expect(listedRow('lv-1')).toMatchObject({ vulnCritical: 1, vulnCriticalFixable: 1, scanFlag: expect.objectContaining({ critical: 1 }) });
+    expect(listedRow('lv-1').scanFlaggedAt).toBeInstanceOf(Date);
+    expect(mockOpenRescanDraft).toHaveBeenCalledWith({ listingVersion: expect.objectContaining({ id: 'lv-1', version: '1.0.0' }), findings });
+    expect(mockInstallingOrgs).toHaveBeenCalledWith(PUBLISHER, LISTING, '1.0.0');
+    expect(mockNotifyRescanFindings).toHaveBeenCalledWith(expect.objectContaining({
+      versionKey: 'listing-version:lv-1',
+      plugin: 'acme/lint',
+      version: '1.0.0',
+      flagged: true,
+      orgs: [{ orgId: 'org-x' }, { orgId: 'org-y' }],
+    }));
+    expect(r).toMatchObject({ total: 1, listed: 1, rescanned: 1, advisoryDrafts: 1, newCriticalOrHigh: 1, flagged: 1 });
+  });
+
+  it('scans each image once per pass: a listed copy sharing its source row\'s digest reuses that scan', async () => {
+    plugin('1', { imageDigest: DIGEST('b') });
+    listed('lv-1', { sourcePluginId: '1' });
+    mockScanPluginImage.mockResolvedValue({ scan: scan(0, 2), packages: [] });
+    const r = await rescan.rescanAllPlugins();
+    expect(mockScanPluginImage).toHaveBeenCalledTimes(1);
+    expect(listedRow('lv-1')).toMatchObject({ vulnHigh: 2 });
+    expect(r).toMatchObject({ total: 2, rescanned: 2, catalog: { critical: 0, high: 2, medium: 0, low: 0 } });
+  });
+
+  it('a digest whose tenant-namespace scan failed is retried from the public copy', async () => {
+    plugin('1', { imageDigest: DIGEST('b') });
+    listed('lv-1');
+    mockScanPluginImage.mockResolvedValueOnce({ scan: null, packages: null }).mockResolvedValueOnce({ scan: scan(0, 0), packages: [] });
+    const r = await rescan.rescanAllPlugins();
+    expect(mockScanPluginImage).toHaveBeenCalledTimes(2);
+    expect(r).toMatchObject({ rescanned: 1, failed: 1 });
+  });
+
+  it('covers yanked versions until their image is collected, and skips image-less ones', async () => {
+    listed('yanked-live', { yankedAt: new Date(), imageDigest: DIGEST('c') });
+    listed('yanked-gone', { yankedAt: new Date(), imageCollectedAt: new Date(), imageDigest: DIGEST('d') });
+    listed('no-image', { imageDigest: null, imageRepository: null });
+    listed('no-repo', { imageRepository: null, imageDigest: DIGEST('e') });
+    const r = await rescan.rescanAllPlugins();
+    expect(r).toMatchObject({ total: 1, listed: 1 });
+    expect(mockScanPluginImage.mock.calls[0]![0]).toMatchObject({ imageDigest: DIGEST('c') });
+  });
+
+  it('a yanked version still gets its facts and draft checks, but installers are not told', async () => {
+    listed('lv-1', { yankedAt: new Date() });
+    mockScanPluginImage.mockResolvedValue({ scan: scan(1, 0, { findings: [finding('CVE-1')] }), packages: [] });
+    await rescan.rescanAllPlugins();
+    expect(listedRow('lv-1').vulnCritical).toBe(1);
+    expect(mockOpenRescanDraft).toHaveBeenCalled();
+    expect(mockNotifyRescanFindings).not.toHaveBeenCalled();
+  });
+
+  it('compares a listed version against ITS OWN stored facts', async () => {
+    listed('lv-same', { vulnCritical: 2, vulnHigh: 0 });
+    listed('lv-lag', { vulnCritical: 0, vulnHigh: 0, imageDigest: DIGEST('c') });
+    listed('lv-new', { vulnCritical: null, vulnHigh: null, scannedAt: null, imageDigest: DIGEST('d') });
+    mockScanPluginImage.mockResolvedValue({ scan: scan(2, 0), packages: [] });
+    mockOpenRescanDraft.mockResolvedValueOnce({ id: 'adv-1' }).mockResolvedValueOnce(null); // the second was deduplicated
+    const r = await rescan.rescanAllPlugins();
+    expect(mockOpenRescanDraft.mock.calls.map((c) => (c[0] as any).listingVersion.id)).toEqual(['lv-lag', 'lv-new']);
+    expect(r.advisoryDrafts).toBe(1);
+  });
+
+  it('an unreadable installer set never fails the pass', async () => {
+    listed('lv-1');
+    mockScanPluginImage.mockResolvedValue({ scan: scan(1, 0), packages: [] });
+    mockInstallingOrgs.mockRejectedValue(new Error('db blip'));
+    const r = await rescan.rescanAllPlugins();
+    expect(r).toMatchObject({ rescanned: 1, failed: 0 });
   });
 });
 
@@ -280,7 +387,6 @@ describe('runRescanTick — stale detection', () => {
   it.each([[null], ['garbage'], ['0'], ['-5']])('treats a missing or invalid timestamp (%p) as never run', async (raw) => {
     const r = redis(raw);
     await expect(rescan.runRescanTick(r, () => 1_000)).resolves.toBe('completed');
-    // Nothing published before the pass; only its own completion afterwards.
     const stamps = mockSetGauge.mock.calls.filter((c) => c[0] === 'plugin_vuln_rescan_last_completed_timestamp_seconds');
     expect(stamps).toEqual([['plugin_vuln_rescan_last_completed_timestamp_seconds', {}, 1]]);
   });

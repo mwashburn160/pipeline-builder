@@ -17,6 +17,7 @@ import { registryHrefFor } from './PluginDetailModal';
 import { PluginLifecycleBadges } from './PluginLifecycleBadges';
 import { lifecycleActionsFor, type PluginLifecycleAction } from './PluginLifecycleModal';
 import { pluginProducesImage } from './PluginSupplyChain';
+import { VulnSummary } from './VulnSummary';
 
 /**
  * DataTable column id → the server-side sort field the plugins list endpoint
@@ -149,6 +150,7 @@ export function usePluginColumns({
                 </span>
               )}
               <PluginLifecycleBadges plugin={p} />
+              {pluginProducesImage(p) && <VulnSummary facts={p} quiet />}
               {used > 0 && (
                 <span title={`Referenced by ${used} pipeline${used === 1 ? '' : 's'} in your org`} className="inline-block">
                   <Badge color="blue">Used by {used}</Badge>

@@ -70,6 +70,9 @@ export interface SubmissionFacts {
   vulnHigh: number | null;
   vulnMedium: number | null;
   vulnLow: number | null;
+  /** Fixable subset (grype reports a fixed version). */
+  vulnCriticalFixable: number | null;
+  vulnHighFixable: number | null;
   scannedAt: string | null;
   runAsRoot: boolean | null;
 }
@@ -250,6 +253,8 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
         changelog: typeof values.changelog === 'string' ? values.changelog : null,
         vulnCritical: facts.vulnCritical,
         vulnHigh: facts.vulnHigh,
+        vulnCriticalFixable: facts.vulnCriticalFixable,
+        vulnHighFixable: facts.vulnHighFixable,
         scannedAt: facts.scannedAt ? new Date(facts.scannedAt) : null,
         publishedBy: actor,
       });
@@ -365,7 +370,13 @@ export async function submissionReviewContext(r: PluginPublishRequest) {
     },
     vuln: report?.facts ? {
       previous: prev ? { critical: prev.vulnCritical, high: prev.vulnHigh } : null,
-      current: { critical: report.facts.vulnCritical, high: report.facts.vulnHigh, scannedAt: report.facts.scannedAt },
+      current: {
+        critical: report.facts.vulnCritical,
+        high: report.facts.vulnHigh,
+        criticalFixable: report.facts.vulnCriticalFixable,
+        highFixable: report.facts.vulnHighFixable,
+        scannedAt: report.facts.scannedAt,
+      },
     } : null,
   };
   return { review, submission: s, listing, previous: prev, facts: report?.facts ?? null };

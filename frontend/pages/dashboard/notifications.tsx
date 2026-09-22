@@ -17,7 +17,7 @@
  */
 
 import Link from 'next/link';
-import { Bell, Mail, SlidersHorizontal } from 'lucide-react';
+import { Bell, Mail, ShieldAlert, SlidersHorizontal } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -148,6 +148,20 @@ export default function NotificationsPage() {
           actions={
             <Link href="/dashboard/observability/alert-destinations" className="action-link text-sm shrink-0">
               Alert destinations →
+            </Link>
+          }
+        />
+
+        {/* Plugin security notices (blocked versions, rescan findings) are
+            org-level too: recipients, webhook and external address live on the
+            Organization settings tab. */}
+        <SectionCard
+          icon={ShieldAlert}
+          title="Plugin security notices"
+          description="Who hears about plugin versions blocked for vulnerabilities and new findings from the nightly rescan."
+          actions={
+            <Link href="/dashboard/settings?tab=organization" className="action-link text-sm shrink-0">
+              Organization settings →
             </Link>
           }
         />

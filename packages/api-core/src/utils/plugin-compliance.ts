@@ -17,6 +17,8 @@
  * - `scanned`: a vulnerability scan completed (`scannedAt` is set); the
  *   `vuln*` counts are present only then — an unscanned image sends no counts,
  *   so a numeric rule like `vulnCritical lt 1` cannot pass on a missing value.
+ *   `vulnCriticalFixable` / `vulnHighFixable` count only the findings grype
+ *   reports a fixed version for (what the platform floor gates on).
  * - `runAsRoot`: the image config's effective USER is root (empty, `0`, `root`).
  * - `packages`: package names from the signed SBOM.
  * - `tags`: the plugin's keywords plus `key=value` labels (CIS 2.1 inventory).
@@ -48,6 +50,8 @@ export interface PluginComplianceAttributes {
   vulnHigh?: number;
   vulnMedium?: number;
   vulnLow?: number;
+  vulnCriticalFixable?: number;
+  vulnHighFixable?: number;
   runAsRoot?: boolean;
   packages?: string[];
   [key: string]: unknown;
@@ -55,7 +59,8 @@ export interface PluginComplianceAttributes {
 
 /** Plugin attributes only the build worker can establish (see {@link PluginComplianceAttributes}). */
 export const PLUGIN_IMAGE_COMPLIANCE_FIELDS = [
-  'signed', 'scanned', 'vulnCritical', 'vulnHigh', 'vulnMedium', 'vulnLow', 'runAsRoot', 'packages',
+  'signed', 'scanned', 'vulnCritical', 'vulnHigh', 'vulnMedium', 'vulnLow',
+  'vulnCriticalFixable', 'vulnHighFixable', 'runAsRoot', 'packages',
 ] as const;
 export type PluginImageComplianceField = typeof PLUGIN_IMAGE_COMPLIANCE_FIELDS[number];
 
@@ -69,6 +74,8 @@ export interface PluginImageRow {
   vulnHigh?: unknown;
   vulnMedium?: unknown;
   vulnLow?: unknown;
+  vulnCriticalFixable?: unknown;
+  vulnHighFixable?: unknown;
   runAsRoot?: unknown;
   keywords?: unknown;
   labels?: unknown;
@@ -140,6 +147,8 @@ export function derivePluginImageCompliance(
     attributes.vulnHigh = finiteCount(row.vulnHigh);
     attributes.vulnMedium = finiteCount(row.vulnMedium);
     attributes.vulnLow = finiteCount(row.vulnLow);
+    attributes.vulnCriticalFixable = finiteCount(row.vulnCriticalFixable);
+    attributes.vulnHighFixable = finiteCount(row.vulnHighFixable);
   }
   if (typeof row.runAsRoot === 'boolean') attributes.runAsRoot = row.runAsRoot;
   if (Array.isArray(packages)) attributes.packages = packages;

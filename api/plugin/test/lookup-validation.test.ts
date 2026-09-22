@@ -10,7 +10,7 @@
  * filter to the service layer.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import * as z from 'zod';
@@ -344,6 +344,13 @@ describe('resolutionFilter — how a lookup resolves ONE plugin', () => {
     expect(resolutionFilter({ name: 'trivy', version: '1.2.3-rc.1' })).not.toHaveProperty('excludeYanked');
     expect(resolutionFilter({ id: 'p1' } as never)).not.toHaveProperty('excludeYanked');
   });
+
+  it('skips rescan-flagged versions for a range / the default only when asked (block mode), never for a pin', () => {
+    expect(resolutionFilter({ name: 'trivy' })).not.toHaveProperty('excludeScanFlagged');
+    expect(resolutionFilter({ name: 'trivy' }, { excludeScanFlagged: true })).toMatchObject({ excludeScanFlagged: true });
+    expect(resolutionFilter({ name: 'trivy', version: '~1.2.0' }, { excludeScanFlagged: true })).toMatchObject({ excludeScanFlagged: true });
+    expect(resolutionFilter({ name: 'trivy', version: '1.2.3' }, { excludeScanFlagged: true })).not.toHaveProperty('excludeScanFlagged');
+  });
 });
 
 describe('lookupWarnings', () => {
@@ -399,6 +406,63 @@ describe('POST /plugins/lookup — answer carries warnings', () => {
     const { res } = makeRes();
     await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ warnings: [] }));
+  });
+});
+
+describe('POST /plugins/lookup — rescan-flagged org versions', () => {
+  const FLAG = { critical: 2, high: 1, maxCritical: 0, findings: [{ id: 'CVE-2026-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] }] };
+  const flagged = { id: 'p2', orgId: 'org-1', name: 'trivy', version: '1.1.0', buildType: 'metadata_only', pluginType: 'CodeBuildStep', keywords: [], installCommands: [], commands: [], scanFlaggedAt: new Date(), scanFlag: FLAG };
+  const clean = { ...flagged, id: 'p1', version: '1.0.0', scanFlaggedAt: null, scanFlag: null };
+  beforeEach(() => { jest.clearAllMocks(); });
+  afterEach(() => { delete process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL; });
+
+  it('block mode off: a flagged version resolves with a VULN_FLAGGED warning naming the fix', async () => {
+    mockFind.mockResolvedValue(flagged);
+    const { res } = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
+    expect(mockFind).toHaveBeenCalledWith({ name: 'trivy', nameMatch: 'exact', excludeYanked: true }, 'org-1', undefined);
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
+      warnings: [{
+        code: 'VULN_FLAGGED',
+        plugin: 'trivy',
+        version: '1.1.0',
+        critical: 2,
+        high: 1,
+        message: 'trivy@1.1.0 has 2 fixable Critical findings — rebuild or upgrade',
+        findings: FLAG.findings,
+      }],
+    }));
+  });
+
+  it('REGRESSION block mode: a range / the default skips flagged versions (falls back to the newest unflagged)', async () => {
+    process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL = 'true';
+    mockFind.mockResolvedValue(clean);
+    const { res } = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy', version: '^1.0.0' } } }, res);
+    expect(mockFind).toHaveBeenCalledWith({ name: 'trivy', version: '^1.0.0', nameMatch: 'exact', excludeYanked: true, excludeScanFlagged: true }, 'org-1', undefined);
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ plugin: expect.objectContaining({ id: 'p1' }), warnings: [] }));
+  });
+
+  it('REGRESSION block mode: an exact pin to a flagged version is refused 409 PLUGIN_VERSION_VULN_BLOCKED naming the fix', async () => {
+    process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL = 'true';
+    mockFind.mockResolvedValue(flagged);
+    const { res } = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy', version: '1.1.0' } } }, res);
+    expect(mockFind).toHaveBeenCalledWith({ name: 'trivy', version: '1.1.0', nameMatch: 'exact' }, 'org-1', undefined);
+    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.stringMatching(/trivy@1\.1\.0 is blocked.*CVE-2026-1 \(openssl@3\.0\.1 → 3\.0\.2\)/),
+      'PLUGIN_VERSION_VULN_BLOCKED', expect.objectContaining({ reason: 'vuln_flagged', version: '1.1.0', critical: 2 }));
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+    expect(mockResolveListed).not.toHaveBeenCalled();
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_lookup_refusals_total', { reason: 'vuln' });
+  });
+
+  it('block mode: when EVERY satisfying version is flagged, the range is refused 409 — never a silent fall-through to a listing', async () => {
+    process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL = 'true';
+    mockFind.mockResolvedValueOnce(null).mockResolvedValueOnce(flagged);
+    const { res } = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.any(String), 'PLUGIN_VERSION_VULN_BLOCKED', expect.anything());
+    expect(mockResolveListed).not.toHaveBeenCalled();
   });
 });
 

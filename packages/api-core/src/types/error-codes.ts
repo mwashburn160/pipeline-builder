@@ -148,6 +148,20 @@ export enum ErrorCode {
    *  a reserved name, an Official/Verified listing's name, or one confusable
    *  with a top listing; `details.reason` says which. */
   NAME_TAKEN = 'NAME_TAKEN',
+  /** A flagged plugin version (a rescan found fixable Critical findings above
+   *  `PLUGIN_VULN_MAX_CRITICAL`) was pinned exactly while
+   *  `PLUGIN_BLOCK_ON_NEW_CRITICAL` is on; the message names the fix. Ranges
+   *  and the default skip flagged versions instead (docs/plugin-installing.md). */
+  PLUGIN_VERSION_VULN_BLOCKED = 'PLUGIN_VERSION_VULN_BLOCKED',
+
+  // Plugin build outcomes (422) — terminal build failures, reported on the build
+  // stream and in the build's failure record, never answered on a request.
+  /** The built image could not be vulnerability-scanned after every retry, so
+   *  nothing was persisted (docs/plugin-publishing.md). */
+  IMAGE_SCAN_UNAVAILABLE = 'IMAGE_SCAN_UNAVAILABLE',
+  /** The built image has more fixable Critical findings than the platform
+   *  floor `PLUGIN_VULN_MAX_CRITICAL`; the message lists them with their fixes. */
+  PLUGIN_VULN_GATE = 'PLUGIN_VULN_GATE',
 
   // Billing errors
   PAYMENT_METHOD_REQUIRED = 'PAYMENT_METHOD_REQUIRED', // 402
@@ -230,6 +244,9 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.PLUGIN_UNAVAILABLE]: 409,
   [ErrorCode.PLUGIN_NAME_LISTED]: 409,
   [ErrorCode.NAME_TAKEN]: 409,
+  [ErrorCode.PLUGIN_VERSION_VULN_BLOCKED]: 409,
+  [ErrorCode.IMAGE_SCAN_UNAVAILABLE]: 422,
+  [ErrorCode.PLUGIN_VULN_GATE]: 422,
   [ErrorCode.PAYMENT_METHOD_REQUIRED]: 402,
   [ErrorCode.DISCOUNT_CEILING_EXCEEDED]: 400,
   [ErrorCode.DISCOUNT_NOT_FOUND]: 404,

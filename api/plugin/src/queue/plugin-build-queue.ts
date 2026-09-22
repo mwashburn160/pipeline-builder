@@ -12,11 +12,11 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
-import type { QuotaService, QuotaTier } from '@pipeline-builder/api-core';
+import type { AppError, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
-import { DelayedError, Worker } from 'bullmq';
+import { DelayedError, UnrecoverableError, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 
 import { recordBuildEvent } from './build-failures.js';
@@ -41,9 +41,20 @@ import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build
 import type { BuildResult } from '../helpers/docker-build.js';
 import { assertPostBuildCompliance, establishImageFacts, type ImageFacts } from '../helpers/image-facts.js';
 import { toPluginInsert, type PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { allowUnscanned, scanUnavailableError, vulnGateError } from '../helpers/scan-gates.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('plugin-build-queue');
+
+/**
+ * A scan-gate refusal as a BullMQ {@link UnrecoverableError}: the verdict is
+ * deterministic for this image, so BullMQ must not spend another attempt
+ * rebuilding it. The typed code / details ride along for the failure handler
+ * (build stream, audit, N30).
+ */
+function terminal(err: AppError): UnrecoverableError {
+  return Object.assign(new UnrecoverableError(err.message), { code: err.code, statusCode: err.statusCode, details: err.details });
+}
 
 const tierWorkers = new Map<QuotaTier, Worker<PluginBuildJobData>>();
 
@@ -169,16 +180,38 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         }
 
         // scan the signed image (grype over its signed SBOM), resolve its
-        // USER, then run the compliance rules the upload deferred — signed,
-        // scanned, vuln*, runAsRoot, packages — on the REAL facts, before the
-        // version is persisted. A block fails the build permanently.
+        // USER, apply the platform scan gates, then run the compliance rules
+        // the upload deferred — signed, scanned, vuln*, runAsRoot, packages —
+        // on the REAL facts, before the version is persisted. A block fails the
+        // build permanently.
+        //  - unscanned: retryable (BullMQ attempts/backoff) until the job's
+        //    last attempt, which fails IMAGE_SCAN_UNAVAILABLE — unless the
+        //    operator escape hatch PLUGIN_ALLOW_UNSCANNED persists it unscanned;
+        //  - more fixable Criticals than PLUGIN_VULN_MAX_CRITICAL: PLUGIN_VULN_GATE.
         let facts: ImageFacts | null = null;
+        let skippedScan = false;
         if (image) {
           const ref = { orgId, name: pluginRecord.name, imageDigest: image.imageDigest };
           facts = await establishImageFacts(ref, buildRequest.registry, pluginRecord.dockerfile);
-          sseManager.send(requestId, 'INFO', facts.scannedAt ? 'Image scanned' : 'Image could not be scanned (left unscanned)', {
-            vulnCritical: facts.vulnCritical, vulnHigh: facts.vulnHigh, runAsRoot: facts.runAsRoot,
-          });
+          if (!facts.scannedAt) {
+            if (!allowUnscanned()) {
+              const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+              if (lastAttempt) throw terminal(scanUnavailableError());
+              throw new Error('Image could not be scanned; retrying the build');
+            }
+            skippedScan = true;
+            sseManager.send(requestId, 'WARN', 'Image could not be scanned — persisted UNSCANNED (PLUGIN_ALLOW_UNSCANNED)', { scanned: false });
+          } else {
+            sseManager.send(requestId, 'INFO', 'Image scanned', {
+              vulnCritical: facts.vulnCritical,
+              vulnHigh: facts.vulnHigh,
+              vulnCriticalFixable: facts.vulnCriticalFixable,
+              vulnHighFixable: facts.vulnHighFixable,
+              runAsRoot: facts.runAsRoot,
+            });
+            const gate = vulnGateError(facts);
+            if (gate) throw terminal(gate);
+          }
           await assertPostBuildCompliance(orgId, pluginRecord, image.imageDigest, facts);
         }
 
@@ -191,6 +224,8 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
               vulnHigh: facts.vulnHigh,
               vulnMedium: facts.vulnMedium,
               vulnLow: facts.vulnLow,
+              vulnCriticalFixable: facts.vulnCriticalFixable,
+              vulnHighFixable: facts.vulnHighFixable,
               scannedAt: facts.scannedAt,
               runAsRoot: facts.runAsRoot,
             } : {}),
@@ -234,9 +269,29 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
             jobId: job.id,
             durationMs,
             ...(image && { imageDigest: image.imageDigest, imageSource: image.imageSource }),
-            ...(facts && { scanned: facts.scannedAt !== null, vulnCritical: facts.vulnCritical, vulnHigh: facts.vulnHigh, runAsRoot: facts.runAsRoot }),
+            ...(facts && {
+              scanned: facts.scannedAt !== null,
+              vulnCritical: facts.vulnCritical,
+              vulnHigh: facts.vulnHigh,
+              vulnCriticalFixable: facts.vulnCriticalFixable,
+              vulnHighFixable: facts.vulnHighFixable,
+              runAsRoot: facts.runAsRoot,
+            }),
           },
         });
+
+        // The operator escape hatch persisted an UNSCANNED version: that is a
+        // security-relevant exception, so it carries its own audit event.
+        if (skippedScan && image) {
+          recordAudit({
+            action: 'plugin.scan.skipped',
+            actorId: userId ?? 'system',
+            orgId,
+            targetType: 'plugin',
+            targetId: result.id,
+            details: { pluginName: result.name, pluginVersion: result.version, imageDigest: image.imageDigest, reason: 'PLUGIN_ALLOW_UNSCANNED' },
+          });
+        }
 
         // Plugin ecosystem: the upload asked for a publish request —
         // submit it now that the version (and its signed digest) exists. Never

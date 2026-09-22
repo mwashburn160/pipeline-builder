@@ -76,7 +76,11 @@ const DEFAULTS: Record<string, () => NewRow> = {
     changelog: null,
     vulnCritical: null,
     vulnHigh: null,
+    vulnCriticalFixable: null,
+    vulnHighFixable: null,
     scannedAt: null,
+    scanFlaggedAt: null,
+    scanFlag: null,
     baseImageCreatedAt: null,
     publishedAt: new Date(),
   }),
@@ -151,6 +155,20 @@ const DEFAULTS: Record<string, () => NewRow> = {
     decidedAt: null,
     emailPurgeAfter: null,
   }),
+  plugin_security_notification_prefs: () => ({
+    recipientMode: 'writers',
+    targetUsers: [],
+    notifyRescan: true,
+    digestMode: 'immediate',
+    webhookUrl: null,
+    webhookSecret: null,
+    externalEmailEnc: null,
+    externalEmailHash: null,
+    externalEmailVerifiedAt: null,
+    externalVerifyTokenHash: null,
+    externalVerifyExpiresAt: null,
+    updatedBy: null,
+  }),
   plugin_install_policies: () => ({
     allowedTiers: ['official', 'verified'],
     requireApprovalTiers: ['community', 'unverified'],
@@ -183,6 +201,7 @@ export const TABLES = {
   pluginReviewHistory: 'plugin_review_history',
   pluginStats: 'plugin_stats',
   pluginSubmission: 'plugin_submissions',
+  pluginSecurityNotificationPref: 'plugin_security_notification_prefs',
 } as const;
 
 function tableObject(name: string): Record<string, unknown> {

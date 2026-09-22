@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f8a00c7b14744d4ddc469d8f2027074c2efb1ea1c2916f0a0b8c67088783dc31
+// SOURCE-SHA256: c5631e7848fd26fb16ab13aa91dccdcc88bce68ee87c7aa7ecbc42a53e7ea82f
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -240,7 +240,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "Org settings",
               "org:settings",
-              "General org settings + AI provider config; team lifecycle for a parent admin (delete a team, list and restore recently-deleted teams, export)"
+              "General org settings + AI provider config; team lifecycle for a parent admin (delete a team, list and restore recently-deleted teams, export); the org's plugin security notifications (PUT /plugins/security-notifications — recipients, rescan digest, webhook URL/secret, external address; POST /plugins/security-notifications/test; audited plugin.security_notifications.update / .test). Reading those settings needs only plugins:read (secret and address never returned)"
             ],
             [
               "SSO / IdP",

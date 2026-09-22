@@ -26,6 +26,7 @@ import { invalidateQueries, type Query } from './query-cache';
 import type { SessionMeta } from './api/domains/auth';
 import type { Pipeline, Plugin, TotpStatus } from '@/types';
 import type { CatalogEntry, ShadowingEntry } from '@/types/plugin-installs';
+import type { LookupWarning } from './plugin-vulns';
 
 /**
  * Stable key fragment for a params object — sorted, `undefined` dropped — so
@@ -155,6 +156,16 @@ export const queries = {
       return { entries, shadowing };
     },
     staleMs: CACHE_TTL_MS,
+  }),
+
+  /**
+   * How one plugin reference resolves right now (`POST /plugins/lookup`) — the
+   * pipeline editor's preview of the warnings synth will print. Under the
+   * plugins prefix, so a build or install change re-reads it.
+   */
+  pluginLookup: (filter: { name: string; publisher?: string; version?: string; id?: string }): Query<{ warnings: LookupWarning[] }> => ({
+    key: `${PREFIX.plugins}lookup?${stable(filter)}`,
+    run: async (signal) => ({ warnings: (await api.lookupPlugin(filter, { signal })).data?.warnings ?? [] }),
   }),
 
   sessions: (): Query<{ sessions: SessionMeta[]; machineSessions: SessionMeta[] }> => ({

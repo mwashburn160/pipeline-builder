@@ -43,6 +43,9 @@ import type {
   AdvisoryState,
   AdvisorySource,
   SubmissionStatus,
+  PluginScanFlag,
+  PluginSecurityRecipientMode,
+  PluginSecurityDigestMode,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import {
@@ -249,7 +252,13 @@ export const pluginListingVersion = pgTable('plugin_listing_versions', {
   changelog: text('changelog'),
   vulnCritical: integer('vuln_critical'),
   vulnHigh: integer('vuln_high'),
+  // Fixable subset (grype reports a fixed version); NULL = unscanned.
+  vulnCriticalFixable: integer('vuln_critical_fixable'),
+  vulnHighFixable: integer('vuln_high_fixable'),
   scannedAt: timestamp('scanned_at', { withTimezone: true }),
+  // The nightly rescan's flag (fixable criticals over PLUGIN_VULN_MAX_CRITICAL); NULL = not flagged.
+  scanFlaggedAt: timestamp('scan_flagged_at', { withTimezone: true }),
+  scanFlag: jsonb('scan_flag').$type<PluginScanFlag>(),
   // The base image's config `created` time, recorded at publish; NULL = unknown.
   baseImageCreatedAt: timestamp('base_image_created_at', { withTimezone: true }),
   // When maintenance collected this long-yanked, unreferenced version's public/* image; NULL = still stored.
@@ -751,6 +760,41 @@ export const pluginInstallPolicy = pgTable('plugin_install_policies', {
 }));
 
 /**
+ * Per-org plugin security notification settings (docs/plugin-publishing.md
+ * "Scan gates"): who hears about a blocked build (N30) and a rescan finding
+ * (N31), and where else they go. One row per org; absent = the column
+ * defaults. The webhook secret and the external address are stored ENCRYPTED
+ * (api-core secret-encryption, the org's key) and never returned; the address
+ * is used only once confirmed through its emailed single-use link
+ * (`external_verify_token_hash`, sha256 of the token).
+ *
+ * @table plugin_security_notification_prefs
+ */
+export const pluginSecurityNotificationPref = pgTable('plugin_security_notification_prefs', {
+  orgId: varchar('org_id', { length: 255 }).primaryKey(),
+  recipientMode: varchar('recipient_mode', { length: 10 }).$type<PluginSecurityRecipientMode>().default('writers').notNull(),
+  targetUsers: text('target_users').array().$type<string[]>().default([]).notNull(),
+  notifyRescan: boolean('notify_rescan').default(true).notNull(),
+  digestMode: varchar('digest_mode', { length: 10 }).$type<PluginSecurityDigestMode>().default('immediate').notNull(),
+  webhookUrl: varchar('webhook_url', { length: 2048 }),
+  webhookSecret: text('webhook_secret'),
+  externalEmailEnc: text('external_email_enc'),
+  externalEmailHash: varchar('external_email_hash', { length: 64 }),
+  externalEmailVerifiedAt: timestamp('external_email_verified_at', { withTimezone: true }),
+  externalVerifyTokenHash: varchar('external_verify_token_hash', { length: 64 }),
+  externalVerifyExpiresAt: timestamp('external_verify_expires_at', { withTimezone: true }),
+  updatedBy: text('updated_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  verifyTokenIdx: uniqueIndex('plugin_security_notification_prefs_verify_token_idx').on(table.externalVerifyTokenHash),
+  recipientModeCheck: check('plugin_security_notification_prefs_recipient_mode_check',
+    sql`${table.recipientMode} IN ('writers', 'users')`),
+  digestModeCheck: check('plugin_security_notification_prefs_digest_mode_check',
+    sql`${table.digestMode} IN ('immediate', 'daily', 'weekly')`),
+}));
+
+/**
  * N21 idempotency: one delivery per (advisory, installing org), so a retried
  * fan-out never notifies an org twice.
  *
@@ -844,6 +888,10 @@ export const publicListedVersions = pgView('public_listed_versions', {
   deprecationMessage: text('deprecation_message'),
   imageSource: text('image_source'),
   baseImageCreatedAt: timestamp('base_image_created_at', { withTimezone: true }),
+  // Appended in the view (CREATE OR REPLACE VIEW only adds columns at the end).
+  vulnCriticalFixable: integer('vuln_critical_fixable'),
+  vulnHighFixable: integer('vuln_high_fixable'),
+  scanFlaggedAt: timestamp('scan_flagged_at', { withTimezone: true }),
 }).existing();
 
 /**
@@ -966,6 +1014,9 @@ export type PluginInstallInsert = typeof pluginInstall.$inferInsert;
 
 export type PluginInstallPolicy = typeof pluginInstallPolicy.$inferSelect;
 export type PluginInstallPolicyInsert = typeof pluginInstallPolicy.$inferInsert;
+
+export type PluginSecurityNotificationPref = typeof pluginSecurityNotificationPref.$inferSelect;
+export type PluginSecurityNotificationPrefInsert = typeof pluginSecurityNotificationPref.$inferInsert;
 
 export type PluginAdvisoryDelivery = typeof pluginAdvisoryDelivery.$inferSelect;
 export type PluginAdvisoryDeliveryInsert = typeof pluginAdvisoryDelivery.$inferInsert;

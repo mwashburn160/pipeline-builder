@@ -46,6 +46,8 @@ const ROUTERS = {
   installs: { __router: 'installs' },
   ecosystemConsole: { __router: 'ecosystemConsole' },
   reviews: { __router: 'reviews' },
+  securityNotifications: { __router: 'securityNotifications' },
+  publicSecurityNotifications: { __router: 'publicSecurityNotifications' },
 } as const;
 
 /** Stand-ins for the shared middleware so their placement can be asserted. */
@@ -129,6 +131,10 @@ jest.unstable_mockModule('../src/routes/publisher.js', () => ({ createPublisherR
 jest.unstable_mockModule('../src/routes/installs.js', () => ({ createInstallRoutes: () => ROUTERS.installs }));
 jest.unstable_mockModule('../src/routes/ecosystem-console.js', () => ({ createEcosystemConsoleRoutes: () => ROUTERS.ecosystemConsole }));
 jest.unstable_mockModule('../src/routes/reviews.js', () => ({ createReviewRoutes: () => ROUTERS.reviews }));
+jest.unstable_mockModule('../src/routes/security-notifications.js', () => ({
+  createSecurityNotificationRoutes: () => ROUTERS.securityNotifications,
+  createPublicSecurityNotificationRoutes: () => ROUTERS.publicSecurityNotifications,
+}));
 // The real module (EcosystemError, callerFromRequest …) with boot wiring stubbed.
 const realEcosystemContext = await import('../src/services/ecosystem/context.js');
 jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ ...realEcosystemContext, initEcosystem: jest.fn() }));
@@ -225,13 +231,16 @@ describe('src/index.ts — plugin ecosystem', () => {
     const publisherMount = mountFor(ROUTERS.publisher);
     const installsMount = mountFor(ROUTERS.installs);
     const reviewsMount = mountFor(ROUTERS.reviews);
+    const securityMount = mountFor(ROUTERS.securityNotifications);
     expect(consoleMount).toEqual(['/plugins/ecosystem', ROUTERS.ecosystemConsole]);
     expect(publisherMount).toEqual(['/plugins', ROUTERS.publisher]);
     // Installs + consumption policy — before `/:id` can catch "installs".
     expect(installsMount).toEqual(['/plugins', ROUTERS.installs]);
     // Reviews — before `/:id` can catch "reviews".
     expect(reviewsMount).toEqual(['/plugins', ROUTERS.reviews]);
-    for (const mount of [consoleMount, publisherMount, installsMount, reviewsMount]) {
+    // Plugin security notification settings — before `/:id` can catch "security-notifications".
+    expect(securityMount).toEqual(['/plugins', ROUTERS.securityNotifications]);
+    for (const mount of [consoleMount, publisherMount, installsMount, reviewsMount, securityMount]) {
       expect(useCalls.indexOf(mount)).toBeGreaterThan(chainAt);
       expect(useCalls.indexOf(mount)).toBeLessThan(readAt);
     }
@@ -242,6 +251,14 @@ describe('src/index.ts — plugin ecosystem', () => {
     expect(gatesBefore(ROUTERS.publisher)).toEqual([]);
     expect(gatesBefore(ROUTERS.installs)).toEqual([]);
     expect(gatesBefore(ROUTERS.reviews)).toEqual([]);
+    expect(gatesBefore(ROUTERS.securityNotifications)).toEqual([]);
+  });
+
+  it('mounts the anonymous address confirmation on its own prefix, before the directory and the auth chain', () => {
+    const args = mountFor(ROUTERS.publicSecurityNotifications);
+    expect(args).toEqual(['/public/plugin-security-notifications', ROUTERS.publicSecurityNotifications]);
+    expect(useCalls.indexOf(args)).toBeLessThan(useCalls.indexOf(mountFor(ROUTERS.publicDirectory)));
+    expect(useCalls.indexOf(args)).toBeLessThan(useCalls.findIndex((c) => c.includes(AUTH_CHAIN)));
   });
 });
 

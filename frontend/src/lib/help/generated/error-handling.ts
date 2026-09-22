@@ -1,6 +1,6 @@
 // GENERATED FROM docs/error-handling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4ba373b396df39e3625b009c76064157c6b7b53f9709c8838b40df3ba66d374d
+// SOURCE-SHA256: 44843f4264beccd5a0e3928fcada95e7d5995c062a3e56ac33bd70a9db4e4f25
 // SPDX-License-Identifier: Apache-2.0
 import { TriangleAlert } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -232,6 +232,21 @@ export const errorHandlingTopic: HelpTopic = {
               "IMAGE_VERIFICATION_FAILED",
               "409",
               "The image's signature doesn't verify, or, for a listing, its signed trust tier and publisher don't match the publisher's current tier and handle"
+            ],
+            [
+              "PLUGIN_VERSION_VULN_BLOCKED",
+              "409",
+              "With PLUGIN_BLOCK_ON_NEW_CRITICAL on, a lookup pinned exactly (version or id) to a version the nightly rescan flagged (fixable Criticals over PLUGIN_VULN_MAX_CRITICAL) — or a range whose every satisfying version is flagged. details: reason: 'vuln_flagged', version, critical, high, findings[] (id, package, installed version, fixedIn), fixedVersions (listings). The message names the CVEs and fixes; the CLI prints it as-is"
+            ],
+            [
+              "IMAGE_SCAN_UNAVAILABLE",
+              "422",
+              "A build outcome, not a request answer: the built image could not be vulnerability-scanned after every retry, so nothing was saved (PLUGIN_ALLOW_UNSCANNED persists it unscanned instead). Carried as code on the build stream's ERROR event and as details.errorCode on plugin.build.failed"
+            ],
+            [
+              "PLUGIN_VULN_GATE",
+              "422",
+              "A build outcome: the image has more fixable Critical findings than PLUGIN_VULN_MAX_CRITICAL. The message lists the top CVEs with their fixed versions; the build stream's ERROR event carries code and details (critical, high, maxCritical, findings[])"
             ]
           ]
         },

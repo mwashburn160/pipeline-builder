@@ -147,6 +147,13 @@ export interface PluginFilter extends CommonFilter {
   readonly excludeYanked?: boolean;
 
   /**
+   * Exclude versions the nightly rescan flagged (`scan_flagged_at` set) —
+   * resolution of a range / the default while `PLUGIN_BLOCK_ON_NEW_CRITICAL`
+   * is on. Internal.
+   */
+  readonly excludeScanFlagged?: boolean;
+
+  /**
    * Keyword to search within the keywords JSONB array (case-insensitive contains)
    */
   readonly keyword?: string;

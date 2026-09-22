@@ -1,5 +1,5 @@
 import { useState, useEffect, useId } from 'react';
-import { Sparkles, Rocket, XCircle } from 'lucide-react';
+import { Sparkles, Rocket } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
@@ -12,6 +12,7 @@ import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
+import { BuildFailureMessage } from './BuildFailureMessage';
 import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
@@ -256,14 +257,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
       <SuccessAlert message={success} />
 
       {/* Build failure */}
-      {buildStatus === 'failed' && lastEvent && (
-        <div className="rounded-xl bg-danger-bg border border-danger-border p-3">
-          <p className="text-sm text-danger-strong flex items-center gap-2">
-            <XCircle className="w-4 h-4" />
-            {lastEvent.message}
-          </p>
-        </div>
-      )}
+      {buildStatus === 'failed' && lastEvent && <BuildFailureMessage event={lastEvent} />}
 
       {/* Build progress log */}
       {requestId && events.length > 0 && (

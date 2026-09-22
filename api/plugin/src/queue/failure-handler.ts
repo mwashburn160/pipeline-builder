@@ -8,8 +8,8 @@
  * event) or hand it to the dead-letter queue for a delayed retry.
  */
 
-import type { QuotaService } from '@pipeline-builder/api-core';
-import { createLogger, errorMessage, extractDbError, recordAudit } from '@pipeline-builder/api-core';
+import type { PluginScanFinding, QuotaService } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, errorMessage, extractDbError, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
@@ -21,6 +21,22 @@ import { cleanupBuildArtifacts } from './build-workspace.js';
 import { dlqJobId, getBuildCfg, getDeadLetterQueue, totalAttemptBudget } from './connections.js';
 import { emitTerminalBuildFailure, enforceDlqMaxSize } from './plugin-build-dlq.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { notifyVersionBlocked } from '../services/plugin-security-notifications.js';
+
+/** The platform scan gates' terminal build failures (N30 to the org). */
+const SCAN_GATE_CODES: readonly string[] = [ErrorCode.IMAGE_SCAN_UNAVAILABLE, ErrorCode.PLUGIN_VULN_GATE];
+
+/**
+ * The typed api-core code (and structured details) of a failure — an AppError,
+ * or a scan gate's UnrecoverableError carrying one (both have an HTTP
+ * `statusCode` beside the `code`) — for the build stream and the failure
+ * record. A bare `code` (Node's `ECONNREFUSED` …) is not surfaced.
+ */
+function failureCode(error: Error): { code?: string; details?: Record<string, unknown> } {
+  const { code, statusCode, details } = error as Error & { code?: unknown; statusCode?: unknown; details?: unknown };
+  if (typeof code !== 'string' || typeof statusCode !== 'number') return {};
+  return { code, ...(details && typeof details === 'object' ? { details: details as Record<string, unknown> } : {}) };
+}
 
 const logger = createLogger('plugin-build-queue');
 
@@ -67,12 +83,16 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
       // BuildProcessError carries the captured tail; other failures (deploy,
       // compliance) fall back to the masked error message.
       const failureSummary = summarizeBuildFailure(error, isTimeout);
+      const typed = failureCode(error);
       sseManager.send(requestId, 'ERROR', failureSummary.message, {
         jobId: job.id,
         attemptsMade: job.attemptsMade,
         maxAttempts,
         reason: failureSummary.reason,
         tail: failureSummary.tail,
+        // IMAGE_SCAN_UNAVAILABLE / PLUGIN_VULN_GATE / COMPLIANCE_VIOLATION …: the
+        // dashboard maps the code to a clear message (details carry the CVEs).
+        ...typed,
       });
 
       const action = isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed';
@@ -119,6 +139,7 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
           pluginName: pluginRecord.name,
           pluginVersion: pluginRecord.version,
           errorMessage: error.message,
+          ...(typed.code ? { errorCode: typed.code } : {}),
         });
 
         // TRUE terminal at the tier level: a permanent failure never reaches
@@ -136,8 +157,26 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
             jobId: job.id,
             errorMessage: error.message,
             isTimeout,
+            ...(typed.code ? { errorCode: typed.code } : {}),
           },
         });
+
+        // A platform scan gate blocked the version: tell the org (N30), per its
+        // plugin security notification settings. Never fails the handler.
+        if (typed.code && SCAN_GATE_CODES.includes(typed.code)) {
+          const d = (typed.details ?? {}) as { critical?: number; high?: number; findings?: PluginScanFinding[] };
+          await notifyVersionBlocked({
+            orgId,
+            uploaderId: job.data.userId ?? null,
+            plugin: pluginRecord.name,
+            version: pluginRecord.version,
+            code: typed.code,
+            message: error.message,
+            ...(typeof d.critical === 'number' ? { critical: d.critical } : {}),
+            ...(typeof d.high === 'number' ? { high: d.high } : {}),
+            ...(Array.isArray(d.findings) ? { findings: d.findings } : {}),
+          });
+        }
 
         logger.warn('Permanent failure, cleaned up', {
           jobId: job.id,

@@ -119,6 +119,7 @@ export {
   pluginInstall,
   pluginInstallPolicy,
   pluginAdvisoryDelivery,
+  pluginSecurityNotificationPref,
   publicListings,
   publicListedVersions,
   publicAdvisories,
@@ -153,6 +154,8 @@ export {
   type PluginInstallInsert,
   type PluginInstallPolicy,
   type PluginInstallPolicyInsert,
+  type PluginSecurityNotificationPref,
+  type PluginSecurityNotificationPrefInsert,
   type PublicReview,
 } from './drizzle-schema.js';
 export {

@@ -276,6 +276,17 @@ describe('getPublicListing', () => {
     for (const q of executed) expect(q.sql).toMatch(/public_(listings|listed_versions|advisories)/);
   });
 
+  it('exposes fixable counts and the rescan flag per version and for the current one', async () => {
+    responses = [[listingRow()], [
+      version('2.0.0', { vuln_critical: 3, vuln_critical_fixable: 2, vuln_high_fixable: 0, scan_flagged_at: '2026-09-20T00:00:00Z' }),
+      version('1.5.0'),
+    ], []];
+    const detail = await getPublicListing('acme', 'terraform-plan');
+    expect(detail?.versions[0]).toMatchObject({ vulnCritical: 3, vulnCriticalFixable: 2, vulnHighFixable: 0, scanFlaggedAt: '2026-09-20T00:00:00.000Z' });
+    expect(detail?.versions[1]).toMatchObject({ vulnCriticalFixable: null, scanFlaggedAt: null });
+    expect(detail?.supplyChain).toMatchObject({ vulnCriticalFixable: 2, vulnHighFixable: 0, scanFlaggedAt: '2026-09-20T00:00:00.000Z' });
+  });
+
   it('falls back to the newest non-yanked version when the latest is yanked', async () => {
     responses = [[listingRow()], [version('2.0.0', { yanked: true }), version('1.5.0')], []];
     const detail = await getPublicListing('acme', 'terraform-plan');

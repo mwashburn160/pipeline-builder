@@ -18,6 +18,8 @@ describe('derivePluginImageCompliance (the one definition of signed/scanned)', (
       vulnHigh: 2,
       vulnMedium: 0,
       vulnLow: 5,
+      vulnCriticalFixable: 1,
+      vulnHighFixable: 0,
       runAsRoot: false,
       keywords: ['node'],
       labels: { team: 'core' },
@@ -30,6 +32,8 @@ describe('derivePluginImageCompliance (the one definition of signed/scanned)', (
       vulnHigh: 2,
       vulnMedium: 0,
       vulnLow: 5,
+      vulnCriticalFixable: 1,
+      vulnHighFixable: 0,
       runAsRoot: false,
       packages: ['openssl', 'zlib'],
     });

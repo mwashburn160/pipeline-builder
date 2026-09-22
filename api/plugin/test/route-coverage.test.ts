@@ -73,6 +73,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Dry-run parse of a submission zip (proof-of-work, rate limited): builds nothing and stores nothing; the submission it precedes is audited (plugin.submission.create).',
   },
   {
+    method: 'POST',
+    path: '/public/plugin-security-notifications/confirm',
+    waive: 'permission',
+    reason: 'Confirms an org\'s external security-notice address from its emailed link: no caller identity by design (the recipient may have no account; nginx strips credentials). The single-use, 24-hour token (stored only as a sha256) is the authority; rate limited per trusted IP; audited.',
+  },
+  {
     path: /^GET \/public\/plugins/,
     waive: 'permission',
     reason: 'Anonymous public plugin directory: no caller identity by design (nginx strips credentials), reads only the public_* views through the view-only ecosystem_public_reader role, rate limited per trusted IP.',

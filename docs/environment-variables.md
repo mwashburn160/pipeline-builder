@@ -454,6 +454,9 @@ there is no docker daemon, no privileged build sidecar, and no strategy switch.
 | `PLUGIN_RESCAN_INTERVAL_MS` | `86400000` | Time between completed rescan passes (24 h); pods tick hourly and run a pass only when this has elapsed |
 | `PLUGIN_RESCAN_LOCK_TTL_MS` | `21600000` | Rescan leader-lock TTL (6 h) — must outlast one pass |
 | `PLUGIN_RESCAN_STARTUP_DELAY_MS` | `120000` | Delay before the first rescan tick after boot |
+| `PLUGIN_VULN_MAX_CRITICAL` | `0` | The platform vulnerability floor: a build whose image has MORE **fixable** Critical findings (grype reports a fixed version) fails permanently with `PLUGIN_VULN_GATE` (the message lists the CVEs and their fixed versions) — every build path (upload, prebuilt, AI deploy, bulk, catalog loader) and the anonymous-submission quarantine gates. The nightly rescan **flags** a stored version that exceeds it. `-1` disables the floor and the flag. Org compliance rules can still be stricter |
+| `PLUGIN_ALLOW_UNSCANNED` | `false` | Operator escape hatch. By default a build whose image could not be vulnerability-scanned is retried (BullMQ attempts/backoff) and, on its last attempt, fails with `IMAGE_SCAN_UNAVAILABLE` — nothing is persisted and the quota slot is released. `true` persists the version **unscanned** instead (audited `plugin.scan.skipped`; the UI shows "Unscanned") |
+| `PLUGIN_BLOCK_ON_NEW_CRITICAL` | `false` | What resolution does with a version the nightly rescan flagged (fixable Criticals over `PLUGIN_VULN_MAX_CRITICAL`). `false`: it resolves, and the lookup carries a `VULN_FLAGGED` warning (synth / the CLI print it). `true`: ranges and the default skip flagged versions (the newest unflagged satisfying version wins, like advisory-blocked skipping), and an exact version / id pin to one is refused `409 PLUGIN_VERSION_VULN_BLOCKED` naming the fix. Applies to org plugins and to installed listings; set it on the plugin service **and** the pipeline service (its create-time contract check resolves listings too) |
 
 The plugin image is published with a single tag (`plugin:<version>`) — one
 builder, one path, no per-builder target suffixes.
@@ -583,7 +586,7 @@ Feature flags and kill switches for the plugin ecosystem
 | `OFFICIAL_AUTO_APPROVAL_ENABLED` | `true` | The seeded rule that auto-approves routine, gate-green patch/minor updates of existing Official listings submitted by the catalog loader. Off → every Official update waits for two-person approval |
 | `PUBLISHER_TERMS_VERSION` | `2026-09-21` | The publisher terms version in force. Bumping it makes every publisher re-accept before its next request (`PUBLISHER_TERMS_REQUIRED`); existing listings are unaffected |
 | `ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS` | `24` | How long the one-time bootstrap exception stays open after the first Official request of an empty instance, so the initial catalog load (whose builds finish in parallel) is approved automatically. It closes for good when it elapses or when any manager decides a request |
-| `ECOSYSTEM_VULN_GATE_MAX_CRITICAL` | `0` | The vulnerability gate a version must pass to be requested: at most this many CRITICAL findings in its scan |
+| `ECOSYSTEM_VULN_GATE_MAX_CRITICAL` | `0` | The vulnerability gate a version must pass to be requested (and an anonymous submission to reach moderation): at most this many **fixable** CRITICAL findings (grype reports a fixed version) in its scan. Unfixable findings are shown but don't block |
 | `REVIEW_WRITE_RATE_LIMIT_PER_MIN` | `30` | Plugin review writes per minute, per user |
 | `REVIEW_ORG_WRITE_RATE_LIMIT_PER_MIN` | `120` | Plugin review writes per minute, per org |
 | `REVIEW_IP_DAILY_LIMIT` | `20` | Plugin review writes per day, per source IP |
