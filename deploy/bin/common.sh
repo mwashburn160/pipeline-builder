@@ -95,6 +95,12 @@ get_spec_field() {
   # Trim the leading "field:" + spaces AND any trailing whitespace, including a
   # trailing CR, so CRLF-edited specs don't yield values with a stray \r.
   grep "^${1}:" "$2" 2>/dev/null | head -1 | sed -E "s/^${1}:[[:space:]]*//; s/[[:space:]]+$//"
+  # An ABSENT field is a normal answer ("" per the contract above), not a
+  # failure. Without this the pipeline hands back grep's 1, and a caller doing
+  # `v=$(get_spec_field …)` under `set -e` dies AT THE ASSIGNMENT — before it can
+  # report which plugin is at fault. `imageTag:` is absent for every plugin that
+  # has never been built, so that abort was the normal path, not an edge case.
+  return 0
 }
 
 # ---------------------------------------------------------------------------
