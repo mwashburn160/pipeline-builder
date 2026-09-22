@@ -246,7 +246,7 @@ describe('shared store surface', () => {
     const store = createSharedRateLimitStore('surface')!;
     expect(store.prefix).toBe('rl:surface:');
 
-    store.init!({ windowMs: 60_000 } as never);
+    void store.init!({ windowMs: 60_000 } as never);
     // Scripts load once, on the first call — not at construction.
     expect(commands).toHaveLength(0);
 
