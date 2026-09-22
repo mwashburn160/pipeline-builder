@@ -158,7 +158,8 @@ describe('verifyImageSignature', () => {
     const [binary, args] = mockSpawn.mock.calls[0];
     expect(binary).toBe('cosign');
     expect(args).toEqual([
-      'verify', '--key', '/etc/pipeline-builder/plugin-signing/plugin-signing.pub', '--insecure-ignore-tlog=true',
+      'verify', '--key', '/etc/pipeline-builder/plugin-signing/plugin-signing.pub',
+      '--new-bundle-format=false', '--insecure-ignore-tlog=true',
       '--allow-insecure-registry', '--allow-http-registry',
       `registry:5000/org-acme/foo@${DIGEST}`,
     ]);
@@ -239,7 +240,9 @@ describe('fetchPublicImageSbom (anonymous directory)', () => {
     mockSpawn.mockImplementation(ok);
     await expect(fetchPublicImageSbom('public/acme/trivy', DIGEST, REGISTRY)).resolves.toEqual(spdx);
     const args = mockSpawn.mock.calls[0][1];
-    expect(args).toEqual(expect.arrayContaining(['verify-attestation', '--type', 'spdxjson', '--insecure-ignore-tlog=true']));
+    expect(args).toEqual(expect.arrayContaining([
+      'verify-attestation', '--type', 'spdxjson', '--new-bundle-format=false', '--insecure-ignore-tlog=true',
+    ]));
     expect(args[args.length - 1]).toBe(`registry:5000/public/acme/trivy@${DIGEST}`);
     // The pull credential is written and removed again.
     expect(mockRmSync).toHaveBeenCalledWith(expect.stringContaining('pb-dockercfg-'), expect.objectContaining({ recursive: true }));

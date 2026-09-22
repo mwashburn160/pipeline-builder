@@ -22,30 +22,30 @@
     "projen": "pnpm dlx projen"
   },
   "devDependencies": {
-    "@jest/globals": "30.4.1",
+    "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
     "@types/node": "^24",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
-    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
-    "jest": "30.4.2",
+    "jest": "30.5.2",
     "jest-junit": "^17",
     "ts-jest": "29.4.12",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "5.0.62",
-    "@ai-sdk/anthropic": "4.0.42",
-    "@ai-sdk/google": "4.0.51",
-    "@ai-sdk/openai": "4.0.47",
-    "@ai-sdk/openai-compatible": "3.0.37",
-    "@ai-sdk/xai": "4.0.44",
-    "@aws-sdk/credential-providers": "3.1101.0",
+    "@ai-sdk/amazon-bedrock": "5.0.88",
+    "@ai-sdk/anthropic": "4.0.58",
+    "@ai-sdk/google": "4.0.76",
+    "@ai-sdk/openai": "4.0.71",
+    "@ai-sdk/openai-compatible": "3.0.53",
+    "@ai-sdk/xai": "5.0.4",
+    "@aws-sdk/credential-providers": "3.1136.0",
     "@pipeline-builder/api-core": "workspace:*",
-    "ai": "7.0.79"
+    "ai": "7.0.107"
   },
   "keywords": [
     "ci-cd",
@@ -101,7 +101,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "4.1.16",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

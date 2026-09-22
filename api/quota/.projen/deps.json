@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -55,7 +55,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -90,12 +90,12 @@
     },
     {
       "name": "mongoose",
-      "version": "9.9.1",
+      "version": "9.10.1",
       "type": "runtime"
     },
     {
       "name": "zod",
-      "version": "4.4.3",
+      "version": "4.6.5",
       "type": "runtime"
     }
   ],

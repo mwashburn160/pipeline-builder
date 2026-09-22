@@ -23,10 +23,10 @@
     "@swc-node/core": "1.15.0",
     "@swc-node/register": "1.12.1",
     "@types/node": "^24",
-    "constructs": "10.7.0",
-    "npm-check-updates": "22.2.9",
+    "constructs": "10.8.1",
+    "npm-check-updates": "23.1.0",
     "nx": "^23",
-    "projen": "0.103.23",
+    "projen": "0.103.26",
     "ts-node": "^10.9.2",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },

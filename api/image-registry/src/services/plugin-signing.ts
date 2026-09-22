@@ -43,6 +43,33 @@ const MAX_STDOUT_BYTES = 96 * 1024 * 1024;
 /** SPDX predicate type cosign records for `--type spdxjson`. */
 const SPDX_PREDICATE_TYPE = 'https://spdx.dev/Document';
 
+/**
+ * cosign v3 changed three signing defaults; all three have to be pinned back or
+ * signatures stop landing where this platform reads them:
+ *
+ * - `--new-bundle-format=false` — v3 defaults to attaching a Sigstore bundle
+ *   through the OCI referrers API. The in-cluster registry:3 has no reliable
+ *   referrers endpoint, and `dropSignature()` / the plugin service both address
+ *   signatures by the legacy `sha256-<digest>.sig` / `.att` TAG.
+ * - `--use-signing-config=false` — v3 fetches a TUF-provided signing config by
+ *   default, which both reaches out to public Sigstore and makes
+ *   `--tlog-upload=false` a hard error ("not supported with --use-signing-config").
+ * - `--tlog-upload=false` — unchanged from v2: the public Rekor log would
+ *   publish every org id and plugin name.
+ *
+ * All three are marked deprecated upstream ("this will be the only supported
+ * format in future versions"), so a cosign bump must re-check them: the day they
+ * are removed, signing has to move to a `--signing-config` file with no
+ * transparency-log service instead.
+ */
+const COSIGN_SIGN_FLAGS = ['--new-bundle-format=false', '--use-signing-config=false', '--tlog-upload=false'];
+
+/**
+ * Verification side of {@link COSIGN_SIGN_FLAGS}: read the legacy tag layout,
+ * and don't demand a Rekor entry for a signature that was never logged.
+ */
+const COSIGN_VERIFY_FLAGS = ['--new-bundle-format=false', '--insecure-ignore-tlog=true'];
+
 export class PluginSigningError extends Error {
   constructor(message: string) {
     super(message);
@@ -286,9 +313,9 @@ export async function signPluginImage({ repository, digest, sbom, annotations }:
     // One short-lived credential per cosign step — each is bounded by the
     // signing timeout, and a registry token only lives a few minutes.
     for (const args of [
-      ['sign', '--key', key.key, ...annotationArgs(annotations), '--tlog-upload=false', '--yes', ...registryFlags(), ref],
+      ['sign', '--key', key.key, ...annotationArgs(annotations), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
       ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', predicate,
-        ...(isPublic ? ['--replace'] : []), '--tlog-upload=false', '--yes', ...registryFlags(), ref],
+        ...(isPublic ? ['--replace'] : []), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
     ]) {
       await withCredential(repository, 'push', (env) => cosign(args, { ...env, ...key.env }));
     }
@@ -310,7 +337,7 @@ export async function resignPublicImage(repository: string, digest: string, anno
   const key = await signingKey();
   await dropSignature(repository, digest);
   await withCredential(repository, 'push', (env) => cosign(
-    ['sign', '--key', key.key, ...annotationArgs(annotations), '--tlog-upload=false', '--yes', ...registryFlags(), refOf(repository, digest)],
+    ['sign', '--key', key.key, ...annotationArgs(annotations), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), refOf(repository, digest)],
     { ...env, ...key.env },
   ));
   logger.info('Re-signed public plugin image', { repository, digest });
@@ -327,7 +354,7 @@ export async function readSignedSbom(repository: string, digest: string): Promis
   assertSignable(repository, digest);
   const key = verificationKeyRef();
   const out = await withCredential(repository, 'pull', (env) => cosign(
-    ['verify-attestation', '--key', key, '--type', 'spdxjson', '--insecure-ignore-tlog=true', ...registryFlags(), refOf(repository, digest)],
+    ['verify-attestation', '--key', key, '--type', 'spdxjson', ...COSIGN_VERIFY_FLAGS, ...registryFlags(), refOf(repository, digest)],
     env,
     { captureStdout: true },
   ));
@@ -384,7 +411,7 @@ export async function verifyPluginSignature(repository: string, digest: string):
   let out: string;
   try {
     out = await withCredential(repository, 'pull', (env) => cosign(
-      ['verify', '--key', key, '--insecure-ignore-tlog=true', '--output', 'json', ...registryFlags(), refOf(repository, digest)],
+      ['verify', '--key', key, ...COSIGN_VERIFY_FLAGS, '--output', 'json', ...registryFlags(), refOf(repository, digest)],
       env,
       { captureStdout: true },
     ));

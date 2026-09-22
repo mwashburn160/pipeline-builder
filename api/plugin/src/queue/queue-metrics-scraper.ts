@@ -8,8 +8,8 @@
  *
  * Cardinality: `queue` is bounded to the 5 per-tier build queues
  * (`plugin-build-{developer,pro,team,enterprise,unlimited}`) + the DLQ = 6
- * values, and `state` to BullMQ's 6 states (`waiting`, `active`, `completed`,
- * `failed`, `delayed`, `paused`) → 36 series total. Safe to label.
+ * values, and `state` to BullMQ's 5 states (`waiting`, `active`, `completed`,
+ * `failed`, `delayed`) → 30 series total. Safe to label.
  */
 
 import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
@@ -24,8 +24,10 @@ const logger = createLogger('queue-metrics-scraper');
  *  env value falls back to the default instead of a nonsensical `NaN` interval. */
 const DEFAULT_INTERVAL_MS = envInt('PLUGIN_QUEUE_METRICS_INTERVAL_MS', 15000, { min: 1 });
 
-/** BullMQ states reported by `getJobCounts`. Stable across BullMQ 5.x. */
-const STATES = ['waiting', 'active', 'completed', 'failed', 'delayed', 'paused'] as const;
+/** BullMQ states reported by `getJobCounts`. BullMQ 6 dropped `paused` from
+ *  `JobType` — a paused queue's jobs are reported as `waiting` — so the gauge
+ *  carries the five remaining states. */
+const STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 

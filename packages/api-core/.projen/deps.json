@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -60,7 +60,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -80,17 +80,17 @@
     },
     {
       "name": "@aws-sdk/client-kms",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sts",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/credential-providers",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
@@ -115,7 +115,7 @@
     },
     {
       "name": "zod",
-      "version": "4.4.3",
+      "version": "4.6.5",
       "type": "runtime"
     }
   ],

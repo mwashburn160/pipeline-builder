@@ -128,10 +128,10 @@ describe('queue-status route', () => {
 
   it('should return job counts for admin users', async () => {
     mockGetJobCounts.mockResolvedValue({
-      waiting: 3, active: 1, completed: 10, failed: 2, delayed: 0, paused: 0,
+      waiting: 3, active: 1, completed: 10, failed: 2, delayed: 0,
     });
     mockDlqGetJobCounts.mockResolvedValue({
-      waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0, paused: 0,
+      waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0,
     });
 
     // `requireSystemAdmin` reads the `isSuperAdmin` token claim directly.

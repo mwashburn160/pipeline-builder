@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -50,7 +50,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "name": "yaml",
-      "version": "2.9.0",
+      "version": "2.9.1",
       "type": "build"
     }
   ],

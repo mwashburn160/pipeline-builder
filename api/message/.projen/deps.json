@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -27,7 +27,7 @@
     },
     {
       "name": "@types/pg",
-      "version": "8.20.3",
+      "version": "8.23.1",
       "type": "build"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -80,7 +80,7 @@
     },
     {
       "name": "@aws-sdk/client-s3",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
@@ -105,7 +105,7 @@
     },
     {
       "name": "drizzle-orm",
-      "version": "0.45.2",
+      "version": "0.45.3",
       "type": "runtime"
     },
     {
@@ -115,17 +115,17 @@
     },
     {
       "name": "jimp",
-      "version": "1.6.0",
+      "version": "1.6.1",
       "type": "runtime"
     },
     {
       "name": "multer",
-      "version": "2.2.0",
+      "version": "2.4.0",
       "type": "runtime"
     },
     {
       "name": "pg",
-      "version": "8.22.0",
+      "version": "8.23.0",
       "type": "runtime"
     }
   ],

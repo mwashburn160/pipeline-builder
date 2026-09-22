@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -55,7 +55,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -70,12 +70,12 @@
     },
     {
       "name": "@aws-sdk/client-marketplace-entitlement-service",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-marketplace-metering",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
@@ -105,17 +105,17 @@
     },
     {
       "name": "mongoose",
-      "version": "9.9.1",
+      "version": "9.10.1",
       "type": "runtime"
     },
     {
       "name": "stripe",
-      "version": "22.4.0",
+      "version": "22.6.2",
       "type": "runtime"
     },
     {
       "name": "zod",
-      "version": "4.4.3",
+      "version": "4.6.5",
       "type": "runtime"
     }
   ],

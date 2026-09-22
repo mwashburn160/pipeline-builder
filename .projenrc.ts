@@ -23,26 +23,34 @@ import { PackageProject } from './projenrc/package';
 
 const branch = 'main';
 const pnpmVersion = '10.33.0';
-const constructsVersion = '10.7.0';
+const constructsVersion = '10.8.1';
 // The `constructs` range pipeline-core declares as a PEER dep. Kept equal to
 // aws-cdk-lib's own `constructs` peer range so a consumer that satisfies
 // aws-cdk-lib always satisfies pipeline-core too  no second copy can appear.
 const constructsPeerRange = '10.5.0';
-// TypeScript 7 (native Go compiler) transition via the dual-package pattern:
-// the `typescript` package is aliased to the 6.x-compatible `@typescript/typescript6`
-// so API consumers (ts-jest's ConfigSet, typescript-eslint, editors) keep the classic
-// JS API and don't crash under TS7; the real TS7 compiler is installed alongside as
-// `@typescript/native` (see the shared devDeps). Drop the alias once ts-jest supports TS7.
+// TypeScript 7 (native Go compiler) via the dual-package pattern. `typescript@7`
+// is ESM-only and its package root exports ONLY `{ version, versionMajorMinor }`
+// (lib/version.cjs) — the classic JS compiler API is gone, replaced by the
+// separate `./unstable/{sync,async,ast}` surface. Every tool here that drives the
+// compiler programmatically needs the classic API: ts-jest's ConfigSet
+// (peer `typescript: ">=4.3 <7"`), `@typescript-eslint/parser` (peer
+// `typescript: ">=4.8.4 <6.1.0"`), and this very file (`ts.isInterfaceDeclaration`
+// & co. in the barrel drift-check below). So `typescript` is aliased to Microsoft's
+// own compat package `@typescript/typescript6` (main: lib/typescript.js — the
+// classic API) and the real TS7 compiler is installed alongside as
+// `@typescript/native` (see the shared devDeps), which is what `tsc` runs.
+// This is not a stopgap for a lagging tool: it is how TS 7 is consumed until the
+// ecosystem moves to the `unstable` API.
 const typescriptVersion = 'npm:@typescript/typescript6@^6.0.2';
 const tsNativeDep = '@typescript/native@npm:typescript@^7.0.2';
-const cdkVersion = '2.263.0';
+const cdkVersion = '2.270.0';
 const expressVersion = '5.2.1';
 
 // jest version, applied to every project. There is no `@types/jest` ceiling to
 // work around here: every package is ESM and imports its test globals from
 // `@jest/globals`, which is self-typed, so nothing depends on `@types/jest` and
 // projen never has to pin it. See `configureEsmJest` in projenrc/shared-config.ts.
-const jestVersion = '30.4.2';
+const jestVersion = '30.5.2';
 
 // @types/node for EVERY project — ONE constant, tracking the runtime's major
 // (minNodeVersion 24.14.0 below; the images run node 24). It used to be pinned
@@ -73,7 +81,7 @@ const pkg = {
 const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.103.23',
+  projenVersion: '0.103.26',
   minNodeVersion: '24.14.0',
   minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
@@ -97,7 +105,7 @@ const root = new TypeScriptProject({
     '@swc-node/core@1.15.0',
     '@swc-node/register@1.12.1',
     `constructs@${constructsVersion}`,
-    'npm-check-updates@22.2.9',
+    'npm-check-updates@23.1.0',
   ],
 });
 root.addScripts({ 'npm-check': 'npx npm-check-updates' });
@@ -432,18 +440,18 @@ const apiCore = new PackageProject({
   outdir: './packages/api-core',
   deps: [
     `express@${expressVersion}`,
-    'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.4.3',
+    'jsonwebtoken@9.0.3', 'winston@3.19.0', 'zod@4.6.5',
     '@asteasolutions/zod-to-openapi@9.1.0',
     // AWS-KMS KeyProvider  bundled as a regular dep so the
     // KmsKeyProvider class can be imported without operator-side install
     // steps. Lazy-loaded at first use; envs that stick with the
     // EnvKeyProvider don't construct a KMS client.
-    '@aws-sdk/client-kms@3.1101.0',
+    '@aws-sdk/client-kms@3.1136.0',
     // STS + credential-providers for the per-org IAM role assumption
     // helper. Same posture as the KMS client: lazy-imported, only loads
     // when an operator configures a per-org assumeRoleArn.
-    '@aws-sdk/client-sts@3.1101.0',
-    '@aws-sdk/credential-providers@3.1101.0',
+    '@aws-sdk/client-sts@3.1136.0',
+    '@aws-sdk/credential-providers@3.1136.0',
     // Redis client for the env-based token-revocation READER
     // (createEnvRedisTokenRevocationStore). Loaded via a guarded dynamic require
     // only when a service configures REDIS_URL/REDIS_SENTINELS, so it stays optional
@@ -497,10 +505,10 @@ const pipelineData = new PackageProject({
 ...pkgDefaults, parent: root,
   name: '@pipeline-builder/pipeline-data',
   outdir: './packages/pipeline-data',
-  deps: [`@pipeline-builder/api-core@${pkg.apiCore}`, 'pg@8.22.0', 'drizzle-orm@0.45.2'],
+  deps: [`@pipeline-builder/api-core@${pkg.apiCore}`, 'pg@8.23.0', 'drizzle-orm@0.45.3'],
   // PGlite: in-process Postgres (WASM) for the RLS integration suite, which
   // applies the real postgres-init.sql — no Docker needed in CI.
-  devDeps: [typesNode, '@types/pg@8.20.3', 'drizzle-kit@0.31.10', `typescript@${typescriptVersion}`, '@electric-sql/pglite@0.5.8'],
+  devDeps: [typesNode, '@types/pg@8.23.1', 'drizzle-kit@0.31.11', `typescript@${typescriptVersion}`, '@electric-sql/pglite@0.5.8'],
 });
 pipelineData.eslint?.addRules(rules);
 publishToNpm(pipelineData);
@@ -514,7 +522,7 @@ const pipelineCore = new PackageProject({
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-    'jsonwebtoken@9.0.3', 'axios@1.19.0',
+    'jsonwebtoken@9.0.3', 'axios@1.20.0',
   ],
   // `aws-cdk-lib` / `constructs` are PEER deps, not regular deps  the standard
   // shape for a published CDK construct library. As regular deps they were a
@@ -533,8 +541,8 @@ const pipelineCore = new PackageProject({
   peerDependencyOptions: { pinnedDevDependency: false },
   devDeps: [
     `constructs@${constructsVersion}`, `aws-cdk-lib@${cdkVersion}`,
-    typesNode, '@types/aws-lambda@8.10.162', '@types/jsonwebtoken@9.0.10',
-    '@aws-sdk/client-secrets-manager@3.1101.0', 'copyfiles@2.4.1',
+    typesNode, '@types/aws-lambda@8.10.163', '@types/jsonwebtoken@9.0.10',
+    '@aws-sdk/client-secrets-manager@3.1136.0', 'copyfiles@2.4.1',
   ],
 });
 pipelineCore.eslint?.addRules(rules);
@@ -573,15 +581,15 @@ const apiServer = new PackageProject({
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`,
-    'express-rate-limit@8.6.1', 'helmet@8.3.0', 'cors@2.8.6', 'compression@1.8.1',
-    'uuid@14.0.1', 'prom-client@15.1.3',
-    'swagger-ui-express@5.0.1', 'rate-limit-redis@6.0.0',
-    '@opentelemetry/sdk-node@0.221.0', '@opentelemetry/exporter-trace-otlp-http@0.221.0',
-    '@opentelemetry/resources@2.10.0', '@opentelemetry/auto-instrumentations-node@0.79.0',
+    'express-rate-limit@8.7.0', 'helmet@8.3.0', 'cors@2.8.6', 'compression@1.8.2',
+    'uuid@14.0.2', 'prom-client@15.1.3',
+    'swagger-ui-express@5.0.1', 'rate-limit-redis@6.0.1',
+    '@opentelemetry/sdk-node@0.222.0', '@opentelemetry/exporter-trace-otlp-http@0.222.0',
+    '@opentelemetry/resources@2.11.0', '@opentelemetry/auto-instrumentations-node@0.80.0',
     // Direct dep so the ESM loader hook (hook.mjs) is resolvable from the
     // otel-bootstrap preload (it patches `import`ed modules; the CJS
     // require-in-the-middle path doesn't cover ESM services).
-    '@opentelemetry/instrumentation@0.221.0',
+    '@opentelemetry/instrumentation@0.222.0',
     '@opentelemetry/api@1.9.1',
     // Server-side untrusted-markdown renderer (`lib/markdown.js`, plugin
     // READMEs / advisories / reviews).
@@ -590,7 +598,7 @@ const apiServer = new PackageProject({
     'rehype-sanitize@6.0.0', 'rehype-stringify@10.0.1',
   ],
   devDeps: [
-    '@types/hast@3.0.4',
+    '@types/hast@3.0.5',
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.3',
     '@types/compression@1.8.1', '@types/cors@2.8.19', 'jsonwebtoken@9.0.3', '@types/jsonwebtoken@9.0.10',
     '@types/swagger-ui-express@4.1.8', typesNode, `typescript@${typescriptVersion}`,
@@ -608,14 +616,14 @@ const aiCore = new PackageProject({
   outdir: './packages/ai-core',
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
-    'ai@7.0.79',
-    '@ai-sdk/anthropic@4.0.42', '@ai-sdk/openai@4.0.47', '@ai-sdk/google@4.0.51',
-    '@ai-sdk/xai@4.0.44', '@ai-sdk/amazon-bedrock@5.0.62', '@ai-sdk/openai-compatible@3.0.37',
+    'ai@7.0.107',
+    '@ai-sdk/anthropic@4.0.58', '@ai-sdk/openai@4.0.71', '@ai-sdk/google@4.0.76',
+    '@ai-sdk/xai@5.0.4', '@ai-sdk/amazon-bedrock@5.0.88', '@ai-sdk/openai-compatible@3.0.53',
     // Bedrock is the one KEYLESS provider: it authenticates with the runtime's
     // IAM role (EKS Pod Identity / IRSA / EC2 instance profile). The ai-sdk
     // provider only reads static keys unless it is handed a credential provider,
     // so the AWS default chain has to be passed in explicitly.
-    '@aws-sdk/credential-providers@3.1101.0',
+    '@aws-sdk/credential-providers@3.1136.0',
   ],
   devDeps: [typesNode, `typescript@${typescriptVersion}`],
 });
@@ -634,18 +642,18 @@ const pipelineEvents = new PackageProject({
   outdir: './packages/pipeline-events',
   deps: [],
   devDeps: [
-    typesNode, '@types/aws-lambda@8.10.162',
-    '@aws-sdk/client-secrets-manager@3.1101.0',
+    typesNode, '@types/aws-lambda@8.10.163',
+    '@aws-sdk/client-secrets-manager@3.1136.0',
     // devDep only: the handler dynamic-imports the CodePipeline client at runtime
     // (AWS Lambda provides @aws-sdk v3); pinned to the same version as the other
     // @aws-sdk clients so it doesn't perturb the shared tree, and externalized
     // from the Lambda bundle.
-    '@aws-sdk/client-codepipeline@3.1101.0',
+    '@aws-sdk/client-codepipeline@3.1136.0',
     `typescript@${typescriptVersion}`,
     // Bundled into lib/index.js (never a runtime dependency): the shared
     // platform-credential handling.
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
-    'esbuild@0.28.0',
+    'esbuild@0.28.2',
   ],
 });
 pipelineEvents.eslint?.addRules(rules);
@@ -691,16 +699,16 @@ const manager = new ManagerProject({
     // left implicit, npm resolves aws-cdk-lib's `constructs: ^10.5.0` peer to the latest
     // 10.x, which is what produced the `scope.node._scopes is not iterable` crash.
     `typescript@${typescriptVersion}`, `aws-cdk-lib@${cdkVersion}`, `constructs@${constructsVersion}`,
-    '@aws-sdk/client-cloudformation@3.1101.0', '@aws-sdk/client-lambda@3.1101.0',
-    '@aws-sdk/client-secrets-manager@3.1101.0', '@aws-sdk/client-sts@3.1101.0',
+    '@aws-sdk/client-cloudformation@3.1136.0', '@aws-sdk/client-lambda@3.1136.0',
+    '@aws-sdk/client-secrets-manager@3.1136.0', '@aws-sdk/client-sts@3.1136.0',
     // `infra redrive-events` calls SQS StartMessageMoveTask (DLQ → main queue) —
     // the manual fallback for the events Lambda's self-healing redrive.
-    '@aws-sdk/client-sqs@3.1101.0',
+    '@aws-sdk/client-sqs@3.1136.0',
     'form-data@4.0.6', 'commander@15.0.0', 'figlet@1.11.4',
-    'axios@1.19.0', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.0', 'ora@9.4.1',
-    'zod@4.4.3',
+    'axios@1.20.0', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.1', 'ora@9.4.1',
+    'zod@4.6.5',
   ],
-  devDeps: ['@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1', 'esbuild@0.28.0'],
+  devDeps: ['@types/figlet@1.7.0', '@types/progress@2.0.7', 'copyfiles@2.4.1', 'esbuild@0.28.2'],
 });
 manager.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 publishToNpm(manager);
@@ -740,12 +748,12 @@ const platform = new FunctionProject({
     // identity/auth/observability code remains Mongo-backed.
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
-    `express@${expressVersion}`, 'express-rate-limit@8.6.1',
-    'nodemailer@9.0.3', 'zod@4.4.3', '@aws-sdk/client-sesv2@3.1101.0',
+    `express@${expressVersion}`, 'express-rate-limit@8.7.0',
+    'nodemailer@10.0.10', 'zod@4.6.5', '@aws-sdk/client-sesv2@3.1136.0',
     // ES256 user-token signing with the private key held in KMS
     // (asymmetric ECC_NIST_P256, sign-only) on the AWS targets. Lazily
     // imported — a local-file-signer install never constructs a KMS client.
-    '@aws-sdk/client-kms@3.1101.0',
+    '@aws-sdk/client-kms@3.1136.0',
     'jsonwebtoken@9.0.3', 'slugify@1.6.9', 'winston@3.19.0', 'bcryptjs@3.0.3',
     // WebAuthn/passkey ceremonies (registration, assertion, step-up). Dual
     // CJS/ESM, Node >= 20; the browser half is `@simplewebauthn/browser` in the
@@ -756,9 +764,9 @@ const platform = new FunctionProject({
     // reference resolution — so a maintained library is the right call here.
     // CJS, but its named exports resolve cleanly from platform's ESM.
     '@node-saml/node-saml@5.1.0',
-    'mongoose@9.9.1', 'helmet@8.3.0', 'cors@2.8.6',
-    'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'yaml@2.9.0',
-    'adm-zip@0.6.0', 'multer@2.2.0', 'prom-client@15.1.3',
+    'mongoose@9.10.1', 'helmet@8.3.0', 'cors@2.8.6',
+    'pg@8.23.0', 'drizzle-orm@0.45.3', 'uuid@14.0.2', 'yaml@2.9.1',
+    'adm-zip@0.6.1', 'multer@2.4.0', 'prom-client@15.1.3',
     // Redis client — used ONLY to publish session-revocation entries the
     // stateless services read (helpers/session-revocation.ts). Loaded via a
     // guarded dynamic require (utils/redis-client.ts); optional at runtime.
@@ -766,19 +774,19 @@ const platform = new FunctionProject({
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.3',
-    '@types/nodemailer@8.0.1', '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
-    typesNode, '@types/pg@8.20.3', '@types/adm-zip@0.5.8',
+    '@types/nodemailer@8.0.2', '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
+    typesNode, '@types/pg@8.23.1', '@types/adm-zip@0.5.8',
     '@types/multer@2.2.0', 'copyfiles@2.4.1',
     // Real-Mongo integration test (organization-id-storage.integration.test.ts).
     // The test self-skips unless RUN_MONGO_INTEGRATION=1, so the default suite
     // never spins up mongod; this dep is only exercised on the opt-in path.
-    'mongodb-memory-server@11.2.0',
+    'mongodb-memory-server@11.3.0',
     // SAML test fixtures (#4): the suite SIGNS assertions with a throwaway key
     // generated per run, so the signature/audience/expiry/rotation cases are
     // real XML-DSig verifications rather than mocks — and no test key is checked
     // into the repo. Same version node-saml itself resolves, so the two agree on
     // canonicalization. Test-only; never imported by src/.
-    'xml-crypto@6.2.0',
+    'xml-crypto@6.3.1',
   ],
 });
 platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error');
@@ -821,8 +829,8 @@ const frontend = new FrontEndProject({
     // `{{ … }}` tokenizer, so inline validation matches synth exactly); nothing
     // imports its root, which carries server/CDK-side code.
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
-    'next@16.2.12', 'react@19.2.8', 'react-dom@19.2.8',
-    'lucide-react@1.28.0', 'tailwindcss@4.3.3', 'framer-motion@12.43.0',
+    'next@16.3.5', 'react@19.3.0', 'react-dom@19.3.0',
+    'lucide-react@1.47.0', 'tailwindcss@4.3.3', 'framer-motion@13.4.0',
     // Browser half of the WebAuthn/passkey ceremonies (registration, assertion,
     // conditional-UI autofill). Must stay on the same major as platform's
     // `@simplewebauthn/server` — v14 changed the JSON response shapes.
@@ -842,23 +850,23 @@ const frontend = new FrontEndProject({
     'react-grid-layout@2.2.4', 'react-resizable@4.0.2',
   ],
   devDeps: [
-    typesNode, '@types/react@19.2.18', '@types/react-dom@19.2.4',
-    '@tailwindcss/postcss@4.3.3', 'autoprefixer@10.5.4',
-    'postcss@8.5.25', 'ts-jest@^29.4.12', `typescript@${typescriptVersion}`, tsNativeDep,
+    typesNode, '@types/react@19.3.0', '@types/react-dom@19.3.0',
+    '@tailwindcss/postcss@4.3.3', 'autoprefixer@10.6.1',
+    'postcss@8.5.28', 'ts-jest@^29.4.12', `typescript@${typescriptVersion}`, tsNativeDep,
     // No @types/react-grid-layout: v2 ships its own types (Layout = readonly LayoutItem[]).
     // RTL stack for component / page render tests.
-    '@testing-library/react@16.3.2',
-    '@testing-library/jest-dom@7.0.0',
-    '@testing-library/user-event@14.6.1',
+    '@testing-library/react@16.3.3',
+    '@testing-library/jest-dom@7.0.1',
+    '@testing-library/user-event@14.6.7',
     // Test globals are imported from `@jest/globals` (self-typed), like every
     // other package — there is no `@types/jest`. Same pin as configureEsmJest.
-    '@jest/globals@30.4.1',
-    // Must track jestVersion's 30.4.x line: jest-runtime 30.4.x calls the jsdom
-    // env's moduleMocker.clearMocksOnScope (added in jest-mock 30.4.x). An older
-    // jsdom env builds its moduleMocker from an older jest-mock without it,
-    // crashing every jsdom test. (jest-environment-jsdom's latest 30.4.x is
-    // 30.4.1, one patch behind jest core's 30.4.2 — they release together.)
-    'jest-environment-jsdom@30.4.1',
+    '@jest/globals@30.5.2',
+    // Must track jestVersion EXACTLY: jest-runtime calls the jsdom env's
+    // moduleMocker.clearMocksOnScope (added in jest-mock 30.4.x). An older jsdom
+    // env builds its moduleMocker from an older jest-mock without it, crashing
+    // every jsdom test. jest core and jest-environment-jsdom release together,
+    // so keep this equal to jestVersion.
+    'jest-environment-jsdom@30.5.2',
   ],
 });
 // Regenerate the in-app help topics from docs/*.md (single source of truth).
@@ -1002,18 +1010,18 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     name: 'quota',
     // HTTP middleware (cors/helmet/rate limit) and JWT/logging come from
     // api-server/api-core; a service lists only what its own code imports.
-    deps: ['mongoose@9.9.1', 'zod@4.4.3'],
+    deps: ['mongoose@9.10.1', 'zod@4.6.5'],
   },
   {
     name: 'billing',
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'mongoose@9.9.1', 'zod@4.4.3',
-      '@aws-sdk/client-marketplace-metering@3.1101.0', '@aws-sdk/client-marketplace-entitlement-service@3.1101.0',
+      'mongoose@9.10.1', 'zod@4.6.5',
+      '@aws-sdk/client-marketplace-metering@3.1136.0', '@aws-sdk/client-marketplace-entitlement-service@3.1136.0',
       // stripe v22's CJS type entry (`export = StripeConstructor`) doesn't expose
       // the `Stripe.Subscription` namespace to NodeNext+CJS — but billing is ESM,
       // so it resolves stripe's ESM types and uses `Stripe.Subscription` natively.
-      'stripe@22.4.0',
+      'stripe@22.6.2',
     ],
   },
   {
@@ -1026,21 +1034,21 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // the dep tree.
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'pg@8.22.0', 'drizzle-orm@0.45.2', 'uuid@14.0.1', 'yaml@2.9.0',
-      'adm-zip@0.6.0', 'yauzl@3.4.0', 'multer@2.2.0', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
-      'bullmq@5.80.6', 'ioredis@6.0.0', '@aws-sdk/client-s3@3.1101.0',
+      'pg@8.23.0', 'drizzle-orm@0.45.3', 'uuid@14.0.2', 'yaml@2.9.1',
+      'adm-zip@0.6.1', 'yauzl@3.4.0', 'multer@2.4.0', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.5',
+      'bullmq@6.3.8', 'ioredis@6.0.0', '@aws-sdk/client-s3@3.1136.0',
     ],
-    devDeps: ['jsonwebtoken@9.0.3', '@types/jsonwebtoken@9.0.10', '@types/pg@8.20.3', '@types/adm-zip@0.5.8', '@types/yauzl@3.4.0', '@types/multer@2.2.0'],
+    devDeps: ['jsonwebtoken@9.0.3', '@types/jsonwebtoken@9.0.10', '@types/pg@8.23.1', '@types/adm-zip@0.5.8', '@types/yauzl@3.4.0', '@types/multer@2.2.0'],
   },
   {
     name: 'pipeline',
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'pg@8.22.0', 'drizzle-orm@0.45.2',
-      `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3',
-      '@aws-sdk/client-codepipeline@3.1101.0',
+      'pg@8.23.0', 'drizzle-orm@0.45.3',
+      `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.5',
+      '@aws-sdk/client-codepipeline@3.1136.0',
     ],
-    devDeps: ['@types/pg@8.20.3'],
+    devDeps: ['@types/pg@8.23.1'],
   },
   {
     name: 'message',
@@ -1051,12 +1059,12 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // jimp: PURE-JS image resize for attachment thumbnails — deliberately NOT
     // sharp, so the alpine (musl) service image needs no native libvips binary /
     // Dockerfile change (thumbnails are occasional + small, so perf is a non-issue).
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'multer@2.2.0', '@aws-sdk/client-s3@3.1101.0', 'jimp@1.6.0'],
-    devDeps: ['@types/pg@8.20.3', '@types/multer@2.2.0'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.23.0', 'drizzle-orm@0.45.3', 'multer@2.4.0', '@aws-sdk/client-s3@3.1136.0', 'jimp@1.6.1'],
+    devDeps: ['@types/pg@8.23.1', '@types/multer@2.2.0'],
   },
   {
     name: 'reporting',
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'zod@4.4.3'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'zod@4.6.5'],
   },
   {
     // "Ask" agent: read-only conversational how-to grounded in docs/*.md (Phase 1),
@@ -1065,13 +1073,13 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // (v1 conversation is client-held) and no pipeline-data, so no pg/drizzle. The
     // service image must bundle the repo's docs/*.md (grounding corpus; ASK_DOCS_DIR).
     name: 'ask',
-    deps: [`@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.4.3'],
+    deps: [`@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.5'],
     devDeps: [],
   },
   {
     name: 'compliance',
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.22.0', 'drizzle-orm@0.45.2', 'zod@4.4.3'],
-    devDeps: ['@types/pg@8.20.3'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.23.0', 'drizzle-orm@0.45.3', 'zod@4.6.5'],
+    devDeps: ['@types/pg@8.23.1'],
   },
   {
     // Docker Registry token-auth issuer + image management API.
@@ -1080,7 +1088,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // against platform JWTs, the build service account, or platform user
     // creds; signs outgoing registry tokens with RS256.
     name: 'image-registry',
-    deps: ['jsonwebtoken@9.0.3', 'zod@4.4.3', 'axios@1.19.0'],
+    deps: ['jsonwebtoken@9.0.3', 'zod@4.6.5', 'axios@1.20.0'],
     devDeps: ['@types/jsonwebtoken@9.0.10'],
   },
 ];
@@ -1128,7 +1136,7 @@ const deployContracts = new FunctionProject({
   name: 'deploy-contracts',
   outdir: './test/deploy-contracts',
   deps: [],
-  devDeps: [typesNode, 'yaml@2.9.0'],
+  devDeps: [typesNode, 'yaml@2.9.1'],
 });
 deployContracts.eslint?.addRules(rules);
 
@@ -1345,6 +1353,19 @@ for (const project of root.subprojects) {
 // =============================================================================
 // Lint: no `--fix` in CI
 // =============================================================================
+
+/**
+ * ESLint stays on 9.x with the eslintrc config projen emits (hence
+ * `ESLINT_USE_FLAT_CONFIG: 'false'` on the tasks below). ESLint 10 drops
+ * eslintrc, and three plugins this rule set is built on have NO 10-compatible
+ * release — their LATEST published versions cap out at 9:
+ *   eslint-plugin-import@2.32.0   peer eslint: … || ^9
+ *   eslint-plugin-react@7.37.5    peer eslint: … || ^9.7
+ *   eslint-plugin-jsx-a11y@6.10.2 peer eslint: … || ^9
+ * projen's own `Eslint` component also pins `eslint@^9` and emits only
+ * `.eslintrc.json`, so there is no flat-config path through projen either.
+ * (`@stylistic/eslint-plugin` and `@typescript-eslint/*` already allow ^10.)
+ */
 
 /**
  * projen's `eslint` task runs `eslint --fix`, and `test` spawns it — so CI

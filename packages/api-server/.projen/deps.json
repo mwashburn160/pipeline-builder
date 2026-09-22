@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -32,7 +32,7 @@
     },
     {
       "name": "@types/hast",
-      "version": "3.0.4",
+      "version": "3.0.5",
       "type": "build"
     },
     {
@@ -85,7 +85,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -110,27 +110,27 @@
     },
     {
       "name": "@opentelemetry/auto-instrumentations-node",
-      "version": "0.79.0",
+      "version": "0.80.0",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/exporter-trace-otlp-http",
-      "version": "0.221.0",
+      "version": "0.222.0",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/instrumentation",
-      "version": "0.221.0",
+      "version": "0.222.0",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/resources",
-      "version": "2.10.0",
+      "version": "2.11.0",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/sdk-node",
-      "version": "0.221.0",
+      "version": "0.222.0",
       "type": "runtime"
     },
     {
@@ -150,7 +150,7 @@
     },
     {
       "name": "compression",
-      "version": "1.8.1",
+      "version": "1.8.2",
       "type": "runtime"
     },
     {
@@ -160,7 +160,7 @@
     },
     {
       "name": "express-rate-limit",
-      "version": "8.6.1",
+      "version": "8.7.0",
       "type": "runtime"
     },
     {
@@ -180,7 +180,7 @@
     },
     {
       "name": "rate-limit-redis",
-      "version": "6.0.0",
+      "version": "6.0.1",
       "type": "runtime"
     },
     {
@@ -220,7 +220,7 @@
     },
     {
       "name": "uuid",
-      "version": "14.0.1",
+      "version": "14.0.2",
       "type": "runtime"
     }
   ],

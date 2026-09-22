@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -47,7 +47,7 @@
     },
     {
       "name": "esbuild",
-      "version": "0.28.0",
+      "version": "0.28.2",
       "type": "build"
     },
     {
@@ -70,7 +70,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -85,27 +85,27 @@
     },
     {
       "name": "@aws-sdk/client-cloudformation",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-lambda",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-secrets-manager",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sqs",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sts",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
@@ -125,12 +125,12 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "2.263.0",
+      "version": "2.270.0",
       "type": "runtime"
     },
     {
       "name": "axios",
-      "version": "1.19.0",
+      "version": "1.20.0",
       "type": "runtime"
     },
     {
@@ -140,7 +140,7 @@
     },
     {
       "name": "constructs",
-      "version": "10.7.0",
+      "version": "10.8.1",
       "type": "runtime"
     },
     {
@@ -175,12 +175,12 @@
     },
     {
       "name": "yaml",
-      "version": "2.9.0",
+      "version": "2.9.1",
       "type": "runtime"
     },
     {
       "name": "zod",
-      "version": "4.4.3",
+      "version": "4.6.5",
       "type": "runtime"
     }
   ],

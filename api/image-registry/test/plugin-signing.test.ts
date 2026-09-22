@@ -97,12 +97,20 @@ describe('signPluginImage — local key', () => {
     expect(password).toMatch(/^[0-9a-f]{64}$/);
 
     const ref = `registry:5000/org-acme/foo@${DIGEST}`;
-    expect(sign.args).toEqual(expect.arrayContaining(['--tlog-upload=false', '--yes', '--allow-insecure-registry', '--allow-http-registry']));
+    // cosign v3's changed defaults are pinned back: the legacy `.sig`/`.att` tag
+    // layout, no TUF signing config, no Rekor upload.
+    expect(sign.args).toEqual(expect.arrayContaining([
+      '--new-bundle-format=false', '--use-signing-config=false', '--tlog-upload=false',
+      '--yes', '--allow-insecure-registry', '--allow-http-registry',
+    ]));
     expect(sign.args[sign.args.length - 1]).toBe(ref);
     expect(sign.args[sign.args.indexOf('--key') + 1]).toMatch(/plugin-signing\.key$/);
     expect(sign.env.COSIGN_PASSWORD).toBe(password);
 
-    expect(attest.args).toEqual(expect.arrayContaining(['--type', 'spdxjson', '--predicate', '--tlog-upload=false']));
+    expect(attest.args).toEqual(expect.arrayContaining([
+      '--type', 'spdxjson', '--predicate',
+      '--new-bundle-format=false', '--use-signing-config=false', '--tlog-upload=false',
+    ]));
     expect(attest.args[attest.args.length - 1]).toBe(ref);
   });
 

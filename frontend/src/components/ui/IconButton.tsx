@@ -58,10 +58,10 @@ const REST_CLASS: Record<IconButtonTone, string> = {
  * per page. Requires an `aria-label`. Use `restTone` for stateful/coloured
  * actions (toggles, approve/reject); otherwise `tone` for a muted-at-rest icon.
  */
-export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>((
   { tone = 'default', restTone, type = 'button', className = '', children, ...props },
   ref,
-) {
+) => {
   const colour = restTone ? REST_CLASS[restTone] : `text-fg-subtle ${TONE_CLASS[tone]}`;
   // Keyboard focus MUST be visible: this is the app's most common row action and
   // its only styling was a hover tone, so tabbing through a table moved an
@@ -78,3 +78,4 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
     </button>
   );
 });
+IconButton.displayName = 'IconButton';

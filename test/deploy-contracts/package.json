@@ -17,20 +17,20 @@
     "projen": "pnpm dlx projen"
   },
   "devDependencies": {
-    "@jest/globals": "30.4.1",
+    "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
     "@types/node": "^24",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
-    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
-    "jest": "30.4.2",
+    "jest": "30.5.2",
     "jest-junit": "^17",
     "ts-jest": "29.4.12",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "yaml": "2.9.0"
+    "yaml": "2.9.1"
   },
   "engines": {
     "node": ">= 24.14.0"
@@ -46,7 +46,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.0.2",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

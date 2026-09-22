@@ -7,7 +7,7 @@
     },
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -22,7 +22,7 @@
     },
     {
       "name": "@types/pg",
-      "version": "8.20.3",
+      "version": "8.23.1",
       "type": "build"
     },
     {
@@ -42,7 +42,7 @@
     },
     {
       "name": "drizzle-kit",
-      "version": "0.31.10",
+      "version": "0.31.11",
       "type": "build"
     },
     {
@@ -65,7 +65,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -85,12 +85,12 @@
     },
     {
       "name": "drizzle-orm",
-      "version": "0.45.2",
+      "version": "0.45.3",
       "type": "runtime"
     },
     {
       "name": "pg",
-      "version": "8.22.0",
+      "version": "8.23.0",
       "type": "runtime"
     }
   ],

@@ -23,26 +23,26 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
-    "@jest/globals": "30.4.1",
+    "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
     "@types/node": "^24",
-    "@types/pg": "8.20.3",
+    "@types/pg": "8.23.1",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "drizzle-kit": "0.31.10",
+    "drizzle-kit": "0.31.11",
     "eslint": "^9",
-    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
-    "jest": "30.4.2",
+    "jest": "30.5.2",
     "jest-junit": "^17",
     "ts-jest": "29.4.12",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
-    "drizzle-orm": "0.45.2",
-    "pg": "8.22.0"
+    "drizzle-orm": "0.45.3",
+    "pg": "8.23.0"
   },
   "keywords": [
     "ci-cd",
@@ -98,7 +98,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "4.1.18",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },

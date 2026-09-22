@@ -49,9 +49,9 @@ const NAMESPACE_TRUNCATE_AT = 24;
  * Long namespace IDs use the platform's Tooltip primitive (so the full ID
  * is reachable for inspection without relying on the native title attribute).
  */
-export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListProps>(function RepositoryList({
+export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListProps>(({
   groups, selectedRepo, loading, error, hasMore, filter, onFilterChange, onSelect, onLoadMore, onRefresh, onDelete,
-}, ref) {
+}, ref) => {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -192,3 +192,4 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
     </div>
   );
 });
+RepositoryList.displayName = 'RepositoryList';

@@ -31,8 +31,75 @@ describe('release images', () => {
     const df = read(`${dir}/Dockerfile`);
     const arg = /^ARG NODE_IMAGE=(\S+)$/m.exec(df);
     expect(arg?.[1]).toMatch(/^node:[0-9.]+-(alpine|slim)@sha256:[0-9a-f]{64}$/);
-    for (const from of df.match(/^FROM\s+(\S+)/gm) ?? []) {
-      expect(from).toMatch(/^FROM \$\{NODE_IMAGE\}/);
+    // api/image-registry and api/plugin add a Go builder stage (they compile
+    // cosign/buildctl/crane/syft/grype from source); it is pinned the same way.
+    const goArg = /^ARG GO_IMAGE=(\S+)$/m.exec(df);
+    if (goArg) expect(goArg[1]).toMatch(/^golang:1\.(2[7-9]|[3-9][0-9])[0-9.]*-alpine@sha256:[0-9a-f]{64}$/);
+    for (const from of df.match(/^FROM\s+(?:--platform=\S+\s+)?(\S+)/gm) ?? []) {
+      expect(from).toMatch(/^FROM (\$\{NODE_IMAGE\}|--platform=\$BUILDPLATFORM \$\{GO_IMAGE\})/);
+    }
+  });
+});
+
+describe('supply-chain tooling is compiled from verified source', () => {
+  // Upstream release binaries lag the Go security train (the prebuilt cosign
+  // v2.6.5 shipped 3 Critical / 19 High from Go 1.26.4 alone), so every Go tool
+  // these two images carry is built here. Guard the properties that make that
+  // build trustworthy, since none of them fails loudly if it silently regresses.
+  const GO_TOOLS: Array<[string, string[]]> = [
+    ['api/image-registry', ['COSIGN']],
+    ['api/plugin', ['BUILDKIT', 'CRANE', 'COSIGN', 'SYFT', 'GRYPE']],
+  ];
+
+  it.each(GO_TOOLS)('%s: pins every tool by tag AND resolved commit', (dir, tools) => {
+    const df = read(`${dir}/Dockerfile`);
+    for (const tool of tools) {
+      expect([tool, new RegExp(`^ARG ${tool}_VERSION=\\S+$`, 'm').test(df)]).toEqual([tool, true]);
+      expect([tool, new RegExp(`^ARG ${tool}_COMMIT=[0-9a-f]{40}$`, 'm').test(df)]).toEqual([tool, true]);
+      // No leftover prebuilt-asset download for a tool that is now compiled.
+      expect([tool, df.includes(`${tool}_SHA256`)]).toEqual([tool, false]);
+    }
+    // The clone must be checked against the pinned commit, not just tagged.
+    expect(df).toContain('git clone --depth 1 --branch');
+    expect(df).toContain('rev-parse HEAD');
+    // Module integrity stays with go.sum: nothing may loosen the module checks.
+    // (Comments name those knobs to say they are NOT used — check instructions.)
+    const instructions = df.split('\n').filter((l) => !l.trimStart().startsWith('#')).join('\n');
+    expect(instructions).not.toMatch(/GOFLAGS|GONOSUMCHECK|GONOSUMDB|GOPRIVATE|GOINSECURE|GdisableNOSUM|-mod=mod\b/);
+    // Cross-compile, never QEMU: the builder runs on the build platform.
+    expect(df).toContain('FROM --platform=$BUILDPLATFORM ${GO_IMAGE}');
+    expect(df).toContain('GOARCH="${TARGETARCH:-amd64}"');
+  });
+
+  it('keeps cosign on one version across image, release workflow and deploy verifier', () => {
+    const fromDockerfile = (dir: string) => /^ARG COSIGN_VERSION=(\S+)$/m.exec(read(`${dir}/Dockerfile`))?.[1];
+    const workflow = /COSIGN_VERSION: (\S+)/.exec(read('projenrc/workflow.ts'))?.[1]?.replace(/['",]/g, '');
+    const verifier = /^COSIGN_VERSION="(\S+)"$/m.exec(read('deploy/bin/verify-image-signatures.sh'))?.[1];
+    const versions = [fromDockerfile('api/image-registry'), fromDockerfile('api/plugin'), workflow, verifier];
+    expect(versions).toEqual([versions[0], versions[0], versions[0], versions[0]]);
+    // v3+: the in-cluster signing path pins v3's changed defaults back, and the
+    // deploy verifier refuses a v2 binary outright.
+    expect(versions[0]).toMatch(/^v[3-9]\d*\./);
+  });
+
+  it('pins back every cosign v3 default the registry layout depends on', () => {
+    // v3 defaults to Sigstore bundles over the OCI referrers API and to a
+    // TUF-fetched signing config; the in-cluster registry serves neither, and
+    // --tlog-upload=false is a hard ERROR while the signing config is on.
+    const signing = read('api/image-registry/src/services/plugin-signing.ts');
+    expect(signing).toContain("const COSIGN_SIGN_FLAGS = ['--new-bundle-format=false', '--use-signing-config=false', '--tlog-upload=false']");
+    for (const file of ['api/image-registry/src/services/plugin-signing.ts', 'api/plugin/src/helpers/supply-chain.ts']) {
+      const src = read(file);
+      expect([file, src]).toEqual([file,
+        expect.stringContaining("const COSIGN_VERIFY_FLAGS = ['--new-bundle-format=false', '--insecure-ignore-tlog=true']")]);
+      // Every cosign call goes through the shared lists: the flag literals only
+      // ever appear in a COSIGN_*_FLAGS declaration, never inlined at a call site
+      // where the next cosign bump would miss them.
+      const inlined = src.split('\n').filter((l) =>
+        !/^\s*(\*|\/\*|\/\/)/.test(l)
+        && !/^const COSIGN_[A-Z_]*FLAGS = /.test(l)
+        && /'--(insecure-ignore-tlog=true|new-bundle-format=false|use-signing-config=false|tlog-upload=false)'/.test(l));
+      expect([file, inlined]).toEqual([file, []]);
     }
   });
 });

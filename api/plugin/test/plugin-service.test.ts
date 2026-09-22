@@ -558,7 +558,7 @@ describe('PluginService', () => {
     it('deletes an in-use, listed version with force, clears its quota snapshot and promotes the next default', async () => {
       blockers('listed', 3);
       const promoted = { id: 'p-0', version: '0.9.0' };
-      (service.promoteNextDefault as jest.Mock<any>).mockResolvedValue(promoted);
+      (service.promoteNextDefault as jest.Mock<(...a: any[]) => Promise<any>>).mockResolvedValue(promoted);
       const def = { ...row, isDefault: true, quotaResetAt: new Date() };
       await expect(service.deleteVersion(def, 'org-1', 'u-1', { force: true }))
         .resolves.toEqual({ deleted: row, inUse: 3, listed: true, promoted });

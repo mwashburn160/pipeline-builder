@@ -533,9 +533,16 @@ export class Workflow extends Component {
                     //
                     // Installed directly rather than via sigstore/cosign-installer: the
                     // action's bootstrap `curl -fsL` has no retry, so a single transient
-                    // GitHub Releases error failed whole publish jobs. Pinned v2 binary
+                    // GitHub Releases error failed whole publish jobs. Pinned binary
                     // + hardcoded SHA256 (from the release's cosign_checksums.txt) —
-                    // bump both together.
+                    // bump both together, and keep deploy/bin/verify-image-signatures.sh
+                    // (which VERIFIES what this signs) on the same version.
+                    //
+                    // v3 keeps its own defaults here on purpose: the keyless flow wants
+                    // the TUF signing config, and new-bundle-format=true is exactly the
+                    // OCI-referrers attachment this job already relies on. Only the
+                    // in-cluster plugin-signing path pins the legacy flags back
+                    // (api/image-registry/src/services/plugin-signing.ts).
                     name: 'Install cosign',
                     run: [
                         'set -euo pipefail',
@@ -545,8 +552,8 @@ export class Workflow extends Component {
                         'cosign version',
                     ].join(' && '),
                     env: {
-                        COSIGN_VERSION: 'v2.6.5',
-                        COSIGN_SHA256: 'c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644',
+                        COSIGN_VERSION: 'v3.1.3',
+                        COSIGN_SHA256: '4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71',
                     },
                 },
                 {

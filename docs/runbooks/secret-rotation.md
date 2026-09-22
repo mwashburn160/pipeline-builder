@@ -544,6 +544,16 @@ the registry as cosign's `sha256-<digest>.sig` / `.att` tags. The plugin service
 **verifies** that signature before it hands out an image-producing plugin, and
 synth pins CodeBuild to the verified digest.
 
+Both services run **cosign v3**, compiled from source at its pinned release tag
+in their own images. v3 defaults to Sigstore bundles over the OCI referrers API
+and to a TUF-fetched signing config, so every call pins
+`--new-bundle-format=false --use-signing-config=false --tlog-upload=false`
+(signing) and `--new-bundle-format=false --insecure-ignore-tlog=true`
+(verification). Signing silently moving to the referrers API, or a `cosign sign`
+that fails with *"--tlog-upload=false is not supported with --use-signing-config"*,
+means one of those pins was lost in a cosign bump — see
+`api/image-registry/src/services/plugin-signing.ts`.
+
 **Who holds what.** The PRIVATE key lives in **image-registry only**, which
 signs at `POST /internal/plugin-signatures` (service token; the caller must be
 `plugin`, and on the mesh targets the `image-registry-internal-plugin-signatures`

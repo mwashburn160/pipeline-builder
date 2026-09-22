@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -17,17 +17,17 @@
     },
     {
       "name": "@testing-library/jest-dom",
-      "version": "7.0.0",
+      "version": "7.0.1",
       "type": "build"
     },
     {
       "name": "@testing-library/react",
-      "version": "16.3.2",
+      "version": "16.3.3",
       "type": "build"
     },
     {
       "name": "@testing-library/user-event",
-      "version": "14.6.1",
+      "version": "14.6.7",
       "type": "build"
     },
     {
@@ -37,12 +37,12 @@
     },
     {
       "name": "@types/react-dom",
-      "version": "19.2.4",
+      "version": "19.3.0",
       "type": "build"
     },
     {
       "name": "@types/react",
-      "version": "19.2.18",
+      "version": "19.3.0",
       "type": "build"
     },
     {
@@ -62,7 +62,7 @@
     },
     {
       "name": "autoprefixer",
-      "version": "10.5.4",
+      "version": "10.6.1",
       "type": "build"
     },
     {
@@ -95,7 +95,7 @@
     },
     {
       "name": "jest-environment-jsdom",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -105,12 +105,12 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
       "name": "postcss",
-      "version": "8.5.25",
+      "version": "8.5.28",
       "type": "build"
     },
     {
@@ -140,12 +140,12 @@
     },
     {
       "name": "framer-motion",
-      "version": "12.43.0",
+      "version": "13.4.0",
       "type": "runtime"
     },
     {
       "name": "lucide-react",
-      "version": "1.28.0",
+      "version": "1.47.0",
       "type": "runtime"
     },
     {

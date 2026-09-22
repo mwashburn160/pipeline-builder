@@ -36,7 +36,7 @@ function makeQueue(counts: Record<string, number>): Queue {
   } as unknown as Queue;
 }
 
-const ALL_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed', 'paused'];
+const ALL_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'];
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -51,7 +51,7 @@ afterEach(() => {
 
 describe('startQueueMetricsScraper', () => {
   it('emits one setGauge per (queue, state) on the immediate first sample', async () => {
-    const q = makeQueue({ waiting: 4, active: 1, completed: 99, failed: 2, delayed: 0, paused: 0 });
+    const q = makeQueue({ waiting: 4, active: 1, completed: 99, failed: 2, delayed: 0 });
     startQueueMetricsScraper([{ name: 'plugin-build', queue: q }], 15_000);
     // The first sample is fired immediately (not after intervalMs). It's
     // async though — flush microtasks before asserting.
@@ -68,7 +68,7 @@ describe('startQueueMetricsScraper', () => {
   });
 
   it('repeats on each tick of the interval', async () => {
-    const q = makeQueue({ waiting: 1, active: 0, completed: 0, failed: 0, delayed: 0, paused: 0 });
+    const q = makeQueue({ waiting: 1, active: 0, completed: 0, failed: 0, delayed: 0 });
     startQueueMetricsScraper([{ name: 'plugin-build', queue: q }], 1000);
     await Promise.resolve();
     await Promise.resolve();
@@ -81,8 +81,8 @@ describe('startQueueMetricsScraper', () => {
   });
 
   it('scrapes multiple queues per tick', async () => {
-    const main = makeQueue({ waiting: 1, active: 0, completed: 0, failed: 0, delayed: 0, paused: 0 });
-    const dlq = makeQueue({ waiting: 0, active: 0, completed: 0, failed: 7, delayed: 0, paused: 0 });
+    const main = makeQueue({ waiting: 1, active: 0, completed: 0, failed: 0, delayed: 0 });
+    const dlq = makeQueue({ waiting: 0, active: 0, completed: 0, failed: 7, delayed: 0 });
     startQueueMetricsScraper([
       { name: 'plugin-build', queue: main },
       { name: 'plugin-build-dlq', queue: dlq },
@@ -110,7 +110,7 @@ describe('startQueueMetricsScraper', () => {
   });
 
   it('is idempotent — second start with the timer still running is a no-op', async () => {
-    const q = makeQueue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, paused: 0 });
+    const q = makeQueue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 });
     startQueueMetricsScraper([{ name: 'plugin-build', queue: q }], 1000);
     startQueueMetricsScraper([{ name: 'plugin-build', queue: q }], 1000);
     await Promise.resolve();
@@ -123,7 +123,7 @@ describe('startQueueMetricsScraper', () => {
 
 describe('stopQueueMetricsScraper', () => {
   it('clears the interval so no more ticks fire', async () => {
-    const q = makeQueue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, paused: 0 });
+    const q = makeQueue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 });
     startQueueMetricsScraper([{ name: 'plugin-build', queue: q }], 1000);
     await Promise.resolve();
     await Promise.resolve();

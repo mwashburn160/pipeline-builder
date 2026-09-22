@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -50,7 +50,7 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -65,37 +65,37 @@
     },
     {
       "name": "@ai-sdk/amazon-bedrock",
-      "version": "5.0.62",
+      "version": "5.0.88",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/anthropic",
-      "version": "4.0.42",
+      "version": "4.0.58",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/google",
-      "version": "4.0.51",
+      "version": "4.0.76",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai-compatible",
-      "version": "3.0.37",
+      "version": "3.0.53",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai",
-      "version": "4.0.47",
+      "version": "4.0.71",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/xai",
-      "version": "4.0.44",
+      "version": "5.0.4",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/credential-providers",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
@@ -105,7 +105,7 @@
     },
     {
       "name": "ai",
-      "version": "7.0.79",
+      "version": "7.0.107",
       "type": "runtime"
     }
   ],

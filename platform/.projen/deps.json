@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@jest/globals",
-      "version": "30.4.1",
+      "version": "30.5.2",
       "type": "build"
     },
     {
@@ -47,12 +47,12 @@
     },
     {
       "name": "@types/nodemailer",
-      "version": "8.0.1",
+      "version": "8.0.2",
       "type": "build"
     },
     {
       "name": "@types/pg",
-      "version": "8.20.3",
+      "version": "8.23.1",
       "type": "build"
     },
     {
@@ -95,12 +95,12 @@
     },
     {
       "name": "jest",
-      "version": "30.4.2",
+      "version": "30.5.2",
       "type": "build"
     },
     {
       "name": "mongodb-memory-server",
-      "version": "11.2.0",
+      "version": "11.3.0",
       "type": "build"
     },
     {
@@ -115,17 +115,17 @@
     },
     {
       "name": "xml-crypto",
-      "version": "6.2.0",
+      "version": "6.3.1",
       "type": "build"
     },
     {
       "name": "@aws-sdk/client-kms",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sesv2",
-      "version": "3.1101.0",
+      "version": "3.1136.0",
       "type": "runtime"
     },
     {
@@ -160,7 +160,7 @@
     },
     {
       "name": "adm-zip",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "type": "runtime"
     },
     {
@@ -175,12 +175,12 @@
     },
     {
       "name": "drizzle-orm",
-      "version": "0.45.2",
+      "version": "0.45.3",
       "type": "runtime"
     },
     {
       "name": "express-rate-limit",
-      "version": "8.6.1",
+      "version": "8.7.0",
       "type": "runtime"
     },
     {
@@ -205,22 +205,22 @@
     },
     {
       "name": "mongoose",
-      "version": "9.9.1",
+      "version": "9.10.1",
       "type": "runtime"
     },
     {
       "name": "multer",
-      "version": "2.2.0",
+      "version": "2.4.0",
       "type": "runtime"
     },
     {
       "name": "nodemailer",
-      "version": "9.0.3",
+      "version": "10.0.10",
       "type": "runtime"
     },
     {
       "name": "pg",
-      "version": "8.22.0",
+      "version": "8.23.0",
       "type": "runtime"
     },
     {
@@ -235,7 +235,7 @@
     },
     {
       "name": "uuid",
-      "version": "14.0.1",
+      "version": "14.0.2",
       "type": "runtime"
     },
     {
@@ -245,12 +245,12 @@
     },
     {
       "name": "yaml",
-      "version": "2.9.0",
+      "version": "2.9.1",
       "type": "runtime"
     },
     {
       "name": "zod",
-      "version": "4.4.3",
+      "version": "4.6.5",
       "type": "runtime"
     }
   ],

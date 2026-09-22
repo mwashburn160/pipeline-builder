@@ -53,16 +53,16 @@ fi
 # pinned to COSIGN_VERSION and checked against a per-OS/arch SHA-256 — this binary
 # is the thing deciding whether an image is trusted, so a swapped release asset
 # must fail closed. Same version as .github/workflows/release.yml.
-COSIGN_VERSION="v2.6.5"
+COSIGN_VERSION="v3.1.3"
 if ! command -v cosign >/dev/null 2>&1; then
   echo "cosign not found — installing ${COSIGN_VERSION}…"
   arch="$(uname -m)"; case "$arch" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; esac
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   case "${os}-${arch}" in
-    linux-amd64)  cosign_sha256=c3b4f5410e608af03a5eb0aaac84a4313d8da131248e08ff1759ac70c79d1644 ;;
-    linux-arm64)  cosign_sha256=426193b4c5da4d4d643e822f48fe0cc8a476ca1782a272704831f5a0cef716d7 ;;
-    darwin-amd64) cosign_sha256=0f8a1a70c81de9740a2b62e91307ff396ce54e7dd80568d42411bb2d9d44269c ;;
-    darwin-arm64) cosign_sha256=4d41cc18f0563907c0c785b51db76e1d1af10db4422b605ba876b1758e1771ab ;;
+    linux-amd64)  cosign_sha256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71 ;;
+    linux-arm64)  cosign_sha256=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a ;;
+    darwin-amd64) cosign_sha256=2347488e5d5b25336644024dfeca5601b190e91197a71a917bda44744aff106c ;;
+    darwin-arm64) cosign_sha256=5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76 ;;
     *) echo "ERROR: no pinned cosign build for ${os}-${arch} — cannot verify image signatures." >&2; exit 3 ;;
   esac
   tmp_cosign="$(mktemp)"
@@ -84,6 +84,16 @@ if ! command -v cosign >/dev/null 2>&1; then
     exit 3
   fi
 fi
+
+# An operator's pre-installed cosign must be v3+. The release workflow signs with
+# cosign v3, whose keyless signatures are Sigstore bundles a v2 binary cannot read
+# — it would report every image UNSIGNED and look exactly like a real tampering
+# finding. Say so instead, as an INFRA error.
+cosign_installed="$(cosign version 2>/dev/null | awk '/GitVersion:/ {print $2; exit}')"
+case "${cosign_installed}" in
+  v[3-9]*|v[1-9][0-9]*) ;;
+  *) echo "ERROR: cosign ${cosign_installed:-<unknown>} on PATH is too old — ${COSIGN_VERSION} or newer is required to verify v3 keyless signatures." >&2; exit 3 ;;
+esac
 
 # Distinct semver-pinned ghcr refs under deploy/ (same gather as verify-image-tags.sh).
 # while-read (not mapfile) so this also runs on macOS bash 3.2.

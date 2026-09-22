@@ -100,6 +100,22 @@ function cosignRegistryFlags(registry: RegistryInfo): string[] {
   return registry.http ? ['--allow-insecure-registry', '--allow-http-registry'] : [];
 }
 
+/**
+ * cosign v3 verification flags, the mirror of image-registry's
+ * `COSIGN_SIGN_FLAGS` (api/image-registry/src/services/plugin-signing.ts):
+ *
+ * - `--new-bundle-format=false` — v3 defaults to reading a Sigstore bundle over
+ *   the OCI referrers API; image-registry signs into the legacy
+ *   `sha256-<digest>.sig` / `.att` tags the in-cluster registry:3 serves.
+ * - `--insecure-ignore-tlog=true` — those signatures are deliberately never
+ *   uploaded to Rekor (it would publish every org id and plugin name); the
+ *   verifier pins the public key instead, which is what the tlog would vouch for.
+ *
+ * Both are deprecated upstream, so a cosign bump has to re-check them together
+ * with the signing side.
+ */
+const COSIGN_VERIFY_FLAGS = ['--new-bundle-format=false', '--insecure-ignore-tlog=true'];
+
 /** Namespace-relative repository (`system/<name>` / `org-<id>/<name>`) of a full one. */
 function relativeRepository(repository: string, registry: RegistryInfo): string {
   const prefix = `${registry.host}:${registry.port}/`;
@@ -259,7 +275,7 @@ export async function verifyImageSignature(plugin: PluginImageRef, registry: Reg
   const check = withPullCredential(plugin, registry, async (env) => {
     try {
       await run('cosign', [
-        'verify', '--key', key, '--insecure-ignore-tlog=true',
+        'verify', '--key', key, ...COSIGN_VERIFY_FLAGS,
         ...cosignRegistryFlags(registry),
         ref,
       ], getBuildCfg().pushTimeoutMs, env, { captureStdout: true });
@@ -289,7 +305,7 @@ export async function fetchImageSbom(plugin: PluginImageRef, registry: RegistryI
   const out = await withPullCredential(plugin, registry, async (env) => {
     try {
       return await run('cosign', [
-        'verify-attestation', '--key', key, '--type', 'spdxjson', '--insecure-ignore-tlog=true',
+        'verify-attestation', '--key', key, '--type', 'spdxjson', ...COSIGN_VERIFY_FLAGS,
         ...cosignRegistryFlags(registry),
         ref,
       ], getBuildCfg().pushTimeoutMs, env, { captureStdout: true });
@@ -358,7 +374,7 @@ export async function fetchPublicImageSbom(
     let out: string;
     try {
       out = await run('cosign', [
-        'verify-attestation', '--key', key, '--type', 'spdxjson', '--insecure-ignore-tlog=true',
+        'verify-attestation', '--key', key, '--type', 'spdxjson', ...COSIGN_VERIFY_FLAGS,
         ...cosignRegistryFlags(registry),
         ref,
       ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir, ...cosignEnv() }, { captureStdout: true });

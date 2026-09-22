@@ -23,7 +23,7 @@
     "docker:verify": "docker buildx imagetools inspect ${REGISTRY:-ghcr.io/mwashburn160}/${PROJECT_NAME:-billing}:$(jq -r .version package.json) --raw | jq -e '[(.manifests // [])[].platform.architecture] as $a | (($a | index(\"amd64\")) and ($a | index(\"arm64\")))'"
   },
   "devDependencies": {
-    "@jest/globals": "30.4.1",
+    "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
     "@types/express": "5.0.6",
     "@types/node": "^24",
@@ -31,24 +31,24 @@
     "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
-    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
-    "jest": "30.4.2",
+    "jest": "30.5.2",
     "jest-junit": "^17",
     "ts-jest": "29.4.12",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-marketplace-entitlement-service": "3.1101.0",
-    "@aws-sdk/client-marketplace-metering": "3.1101.0",
+    "@aws-sdk/client-marketplace-entitlement-service": "3.1136.0",
+    "@aws-sdk/client-marketplace-metering": "3.1136.0",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
     "express": "5.2.1",
-    "mongoose": "9.9.1",
-    "stripe": "22.4.0",
-    "zod": "4.4.3"
+    "mongoose": "9.10.1",
+    "stripe": "22.6.2",
+    "zod": "4.6.5"
   },
   "engines": {
     "node": ">= 24.14.0"
@@ -64,7 +64,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.18",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",

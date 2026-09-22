@@ -567,6 +567,19 @@ as cosign's `sha256-<digest>.sig` / `.att` tags (hidden from the registry's tag
 listings, and deleted with the manifest). Rotating the key invalidates existing
 signatures — see [Secret rotation](../runbooks/secret-rotation.md).
 
+**cosign version and flags.** The platform runs **cosign v3**, built from source
+at its release tag inside the image-registry and plugin images (upstream's
+prebuilt binaries lag the Go security train). v3 changed three defaults that this
+layout depends on, so every invocation pins them back:
+`--new-bundle-format=false` (v3 otherwise attaches a Sigstore bundle through the
+OCI referrers API, which the in-cluster registry does not serve),
+`--use-signing-config=false` (v3 otherwise fetches a TUF signing config from
+public Sigstore — and refuses `--tlog-upload=false` while it is on) and
+`--tlog-upload=false`. Verification correspondingly passes
+`--new-bundle-format=false --insecure-ignore-tlog=true`. All of these are marked
+deprecated upstream: when they are removed, signing moves to a `--signing-config`
+file that lists no transparency-log service.
+
 **Getting the SBOM.** The plugin detail view has a **Download SBOM** button, or:
 
 ```bash
@@ -578,9 +591,15 @@ The document is read from the signed attestation, so a successful download also
 proves it verified. Anyone with pull access can check an image directly:
 
 ```bash
-cosign verify --key plugin-signing.pub --insecure-ignore-tlog=true <registry>/org-<id>/<name>@sha256:…
-cosign verify-attestation --key plugin-signing.pub --type spdxjson --insecure-ignore-tlog=true <registry>/org-<id>/<name>@sha256:…
+cosign verify --key plugin-signing.pub --new-bundle-format=false --insecure-ignore-tlog=true \
+  <registry>/org-<id>/<name>@sha256:…
+cosign verify-attestation --key plugin-signing.pub --type spdxjson --new-bundle-format=false --insecure-ignore-tlog=true \
+  <registry>/org-<id>/<name>@sha256:…
 ```
+
+(`--new-bundle-format=false` is what makes cosign v3 read the `sha256-<digest>.sig`
+/ `.att` tags these signatures actually live in; without it v3 looks for a
+Sigstore bundle over the OCI referrers API and reports nothing found.)
 
 **Existing plugins** without a signed digest can't be used in a pipeline until
 they're rebuilt — re-upload them (or re-run `deploy/bin/load-plugins.sh` for the
