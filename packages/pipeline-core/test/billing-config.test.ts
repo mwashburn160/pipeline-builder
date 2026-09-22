@@ -346,6 +346,18 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(['team', 'enterprise']);
     });
 
+    it('sells a stackable Listing Pack (+10 listings, $4.99/mo) on every tier', () => {
+      const { bundles } = loadBillingConfig();
+      const pack = bundles.find((x) => x.id === 'listing_pack');
+      expect(pack).toMatchObject({
+        grants: { listings: 10 },
+        prices: { monthly: 499, annual: 4990 },
+        stackable: true,
+        availableForTiers: ['developer', 'pro', 'team', 'enterprise'],
+      });
+      expect(pack?.features).toBeUndefined();
+    });
+
     it('overrides purchasable tiers from BILLING_BUNDLE_<ID>_TIERS', () => {
       process.env.BILLING_BUNDLE_SEAT_TIERS = '["pro","enterprise"]';
       const { bundles } = loadBillingConfig();

@@ -23,6 +23,7 @@ function logEntry(level: string, tag: string, message: string, data?: unknown) {
   const line = JSON.stringify({ level, tag, message, data, ts: new Date().toISOString() });
   switch (level) {
     case 'ERROR': console.error(line); break;
+    case 'WARN': console.warn(line); break;
     case 'DEBUG': if (process.env.LOG_LEVEL === 'debug') console.debug(line); break;
     default: console.log(line);
   }
@@ -31,6 +32,7 @@ function logEntry(level: string, tag: string, message: string, data?: unknown) {
 const lambdaLog = {
   info: (tag: string, message: string, data?: unknown) => logEntry('INFO', tag, message, data),
   error: (tag: string, message: string, data?: unknown) => logEntry('ERROR', tag, message, data),
+  warn: (tag: string, message: string, data?: unknown) => logEntry('WARN', tag, message, data),
   debug: (tag: string, message: string, data?: unknown) => logEntry('DEBUG', tag, message, data),
 };
 
@@ -106,6 +108,28 @@ function create(baseURL: string, token: string): AxiosInstance {
 }
 
 /**
+ * Unwrap a `/plugins/lookup` answer. The platform's success envelope is
+ * `{ success, statusCode, data: { plugin, warnings } }`; a bare Plugin (or
+ * `{ plugin }`) is tolerated too. Returns the plugin (null when absent) and the
+ * lifecycle warning messages.
+ */
+export function unwrapLookup(body: unknown): { plugin: Plugin | null; warnings: string[] } {
+  if (!body || typeof body !== 'object') return { plugin: null, warnings: [] };
+  const inner = (body as { data?: unknown }).data;
+  const container = (inner && typeof inner === 'object' ? inner : body) as { plugin?: unknown; warnings?: unknown };
+  const candidate = container.plugin ?? container;
+  const plugin = candidate && typeof candidate === 'object' && typeof (candidate as { name?: unknown }).name === 'string'
+    ? candidate as Plugin
+    : null;
+  const warnings = Array.isArray(container.warnings)
+    ? container.warnings
+      .map((w) => (w && typeof w === 'object' ? (w as { message?: unknown }).message : undefined))
+      .filter((m): m is string => typeof m === 'string' && m.length > 0)
+    : [];
+  return { plugin, warnings };
+}
+
+/**
  * Fetches plugin configuration from the external API with retry logic.
  * Retries on transient failures (429, 502, 503, 504, network errors)
  * with exponential backoff.
@@ -128,13 +152,17 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
     }
 
     try {
-      const { data, status } = await api.post<Plugin>('/api/plugins/lookup', {
+      const { data: body, status } = await api.post<unknown>('/api/plugins/lookup', {
         filter: pluginFilter,
       });
 
+      const { plugin: data, warnings } = unwrapLookup(body);
       if (!data) {
         throw new Error('Empty response data from API');
       }
+      // Lifecycle warnings (deprecated / yanked-but-pinned) — surfaced in the
+      // deploy log; the lookup still succeeds.
+      for (const message of warnings) lambdaLog.warn('LIFECYCLE', message, { plugin: data.name, version: data.version });
 
       lambdaLog.info('FETCH', 'Plugin fetched successfully', {
         status,

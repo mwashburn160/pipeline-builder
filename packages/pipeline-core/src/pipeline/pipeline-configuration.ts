@@ -5,10 +5,11 @@ import type { BuilderProps } from './pipeline-builder.js';
 import type { CodeCommitOptions, CodeStarOptions, GitHubOptions, S3Options, SourceType } from './source-types.js';
 import type { PluginOptions, StageOptions, StepCustomization } from './step-types.js';
 import { CoreConstants } from '../config/app-config.js';
-import { merge, replaceNonAlphanumeric } from '../core/metadata-helpers.js';
+import { replaceNonAlphanumeric } from '../core/metadata-helpers.js';
 import type { CodeBuildDefaults, NetworkConfig } from '../core/network-types.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
 import { TriggerType } from '../core/pipeline-types.js';
+import { pipelineScopeMetadata } from '../core/plugin-contract.js';
 
 /**
  * Validated and processed pipeline configuration (business logic layer).
@@ -55,13 +56,13 @@ export class PipelineConfiguration {
     // Calculate pipeline name
     this.pipelineName = props.pipelineName ?? `${this.organization}-${this.project}-pipeline`;
 
-    // Metadata merging: global → defaults → synth-specific
+    // Metadata merging: global → defaults → synth-specific. The one definition
+    // of `pipeline.metadata` — the API's plugin-contract check reads it too.
     const global = { ...(props.global ?? {}) };
-    const withDefaults = merge(global, props.defaults?.metadata ?? {});
     this.metadata = {
       global,
       synth: props.synth.metadata ?? {},
-      merged: merge(withDefaults, props.synth.metadata ?? {}),
+      merged: pipelineScopeMetadata(props),
     };
 
     // Expose synth/builder properties directly

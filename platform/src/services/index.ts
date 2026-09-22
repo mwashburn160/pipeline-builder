@@ -25,8 +25,9 @@ export { permissionsForGrantsRole } from './role-authority.js';
 export type { ActorPermissionCeiling, RoleAssignmentActor } from './role-authority.js';
 export {
   getUserRolePermissions, listRolesWithMembers, addUserToRole, removeUserFromRole,
-  createRole, updateRole, deleteRole,
+  createRole, updateRole, deleteRole, ecosystemRoleName,
 } from './role-crud.js';
+export { deliverEcosystemNotification, notifyEcosystemManagerChange } from './ecosystem-notifications.js';
 export {
   serviceAccountRoles, serviceAccountRolesFor, setServiceAccountRoles, clearServiceAccountRoles,
 } from './service-account-roles.js';

@@ -15,6 +15,7 @@ import { type User } from '@/types';
 import { useBillingEnabled } from '@/hooks/useBillingEnabled';
 import { useFeatures } from '@/hooks/useFeatures';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, navItemLockedFeature, type NavItem } from '@/lib/nav';
+import { isSystemOrgActive } from '@/lib/ecosystem-access';
 import { Tooltip } from './Tooltip';
 
 /** localStorage key for which nav sections the user has collapsed. */
@@ -81,7 +82,7 @@ export function Sidebar({
       ? currentPath === '/dashboard'
       : currentPath.startsWith(href);
 
-  const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: string) => hasPermission(user, p), billingEnabled, isFeatureEnabled };
+  const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: string) => hasPermission(user, p), billingEnabled, isFeatureEnabled, isSystemOrg: isSystemOrgActive(user) };
 
   // `paletteOnly` entries are sub-pages of a listed item: ⌘K finds them by
   // name, the sidebar leaves them to their parent's row.

@@ -31,9 +31,17 @@ class MockAIEmptyOutputError extends Error {
 
 jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () => ({
   AIEmptyOutputError: MockAIEmptyOutputError,
+  dockerfileViolations: (dockerfile: string) => (dockerfile.includes('USER 1000:1000') ? [] : ['Dockerfile: the final stage sets no USER']),
   getAvailableProviders: jest.fn(() => []),
   generatePluginConfig: mockGeneratePluginConfig,
   streamPluginConfig: mockStreamPluginConfig,
+}));
+
+const SIMILAR = [{ id: 'p-1', name: 'eslint-lint', version: '2.0.0', category: 'quality', summary: 'Runs ESLint', keywords: ['lint'] }];
+const mockFindSimilarPlugins = jest.fn<(...args: any[]) => Promise<any[]>>(() => Promise.resolve(SIMILAR));
+
+jest.unstable_mockModule('../src/services/similar-plugin-lookup.js', () => ({
+  findSimilarPlugins: mockFindSimilarPlugins,
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -254,5 +262,66 @@ describe('POST /generate/stream — quota reserve auth', () => {
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
     );
+  });
+});
+
+// W6: catalog context — the closest existing plugins go into the prompt and
+// back to the caller as a `similarPlugins` hint.
+describe('similarPlugins hint', () => {
+  const generate = getHandler('post', '/generate');
+  const stream = getHandler('post', '/generate/stream');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 100, used: 1, remaining: 99, resetAt: '2026-08-01T00:00:00Z' } });
+    mockFindSimilarPlugins.mockResolvedValue(SIMILAR);
+    (initSSEStream as jest.Mock).mockReturnValue({ aborted: () => false });
+  });
+
+  it('POST /generate looks up similar plugins for the caller (with parent org), passes them to the model, and returns them', async () => {
+    mockGeneratePluginConfig.mockResolvedValue({ config: { name: 'x' }, dockerfile: 'FROM node', dockerfileViolations: ['Dockerfile: the final stage sets no USER'] });
+    const res = mockRes();
+
+    await generate(mockReq({ user: { parentOrganizationId: 'parent-1' } }), res);
+
+    expect(mockFindSimilarPlugins).toHaveBeenCalledWith('make a linter', 'org-1', 'parent-1');
+    expect(mockGeneratePluginConfig).toHaveBeenCalledWith(expect.objectContaining({ similarPlugins: SIMILAR }));
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: { config: { name: 'x' }, dockerfile: 'FROM node', dockerfileViolations: ['Dockerfile: the final stage sets no USER'], similarPlugins: SIMILAR },
+    });
+  });
+
+  it('POST /generate still succeeds with an empty hint when the lookup yields nothing', async () => {
+    mockFindSimilarPlugins.mockResolvedValue([]);
+    mockGeneratePluginConfig.mockResolvedValue({ config: { name: 'x' }, dockerfile: 'FROM node' });
+    const res = mockRes();
+
+    await generate(mockReq(), res);
+
+    expect(mockFindSimilarPlugins).toHaveBeenCalledWith('make a linter', 'org-1', undefined);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data.similarPlugins).toEqual([]);
+  });
+
+  it('POST /generate/stream includes similarPlugins in the done event', async () => {
+    mockStreamPluginConfig.mockReturnValue({
+      partialOutputStream: (async function* () { yield { name: 'x' }; })(),
+      output: Promise.resolve({ dockerfile: 'FROM node', name: 'x' }),
+    });
+    const res = mockRes();
+
+    await stream(mockReq(), res);
+
+    expect(mockStreamPluginConfig).toHaveBeenCalledWith(expect.objectContaining({ similarPlugins: SIMILAR }));
+    const done = res.write.mock.calls
+      .map((c: any[]) => c[0] as string)
+      .find((line: string) => line.includes('"type":"done"'));
+    expect(done).toBeDefined();
+    const event = JSON.parse(done!.replace(/^data: /, ''));
+    expect(event.data.similarPlugins).toEqual(SIMILAR);
+    expect(event.data.dockerfile).toBe('FROM node');
+    // The final Dockerfile is checked against the catalog rules; violations ride the done event.
+    expect(event.data.dockerfileViolations).toEqual(['Dockerfile: the final stage sets no USER']);
   });
 });

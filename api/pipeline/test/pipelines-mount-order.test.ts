@@ -196,7 +196,14 @@ jest.unstable_mockModule('../src/services/git-analysis-service.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/plugin-lookup-service.js', () => ({
   findExistingPluginNames: jest.fn(async () => new Set()),
+  findListedNames: jest.fn(async () => new Map()),
 }));
+// Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here.
+jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  findPluginContractViolations: jest.fn(async () => []),
+  formatContractViolations: jest.fn(() => 'contract'),
+}));
+
 jest.unstable_mockModule('../src/helpers/pipeline-template-validator.js', () => ({
   validatePipelineTemplates: jest.fn(),
   resolvePipeline: jest.fn(),

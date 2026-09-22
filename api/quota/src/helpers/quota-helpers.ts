@@ -144,6 +144,7 @@ function buildSummaries(
     alertRules: summarize(quotas?.alertRules ?? d.alertRules, usage?.alertRules ?? du),
     alertDestinations: summarize(quotas?.alertDestinations ?? d.alertDestinations, usage?.alertDestinations ?? du),
     idpConfigs: summarize(quotas?.idpConfigs ?? d.idpConfigs, usage?.idpConfigs ?? du),
+    listings: summarize(quotas?.listings ?? d.listings, usage?.listings ?? du),
   };
 }
 

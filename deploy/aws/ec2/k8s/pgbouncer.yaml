@@ -21,6 +21,15 @@ data:
     pipeline_builder_developer = host=postgres port=5432 dbname=pipeline_builder pool_size=20
     pipeline_builder_pro       = host=postgres port=5432 dbname=pipeline_builder pool_size=40
     pipeline_builder_unlimited = host=postgres port=5432 dbname=pipeline_builder pool_size=80
+    # The anonymous public plugin directory (plugin-ecosystem §6a): only the
+    # view-only ecosystem_public_reader logs in here, on a small separate pool.
+    pipeline_builder_public = host=postgres port=5432 dbname=pipeline_builder pool_size=5 max_db_connections=5
+
+    [users]
+    # Cap the directory's login across EVERY pool: a client could name a tenant
+    # database alias, so the per-database pool_size alone wouldn't keep
+    # unauthenticated traffic off the tenant pools.
+    ecosystem_public_reader = max_user_connections=5
 
     [pgbouncer]
     listen_addr = 0.0.0.0
@@ -152,6 +161,18 @@ spec:
       containers:
         - name: pgbouncer
           image: edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340  # edoburu/pgbouncer:v1.25.2-p0
+          # Seed the reader into userlist.txt, then run the image's own entrypoint,
+          # which appends the DB_USER app role (it only adds users that are
+          # missing). userlist form: double quotes in the password are doubled.
+          # No password → no reader line → the directory's logins are refused.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              if [ -n "${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}" ] && ! grep -q '^"ecosystem_public_reader"' /etc/pgbouncer/userlist.txt 2>/dev/null; then
+                printf '"ecosystem_public_reader" "%s"\n' "$(printf '%s' "$ECOSYSTEM_PUBLIC_READER_PASSWORD" | sed 's/"/""/g')" >> /etc/pgbouncer/userlist.txt
+              fi
+              exec /entrypoint.sh /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
           ports:
             - containerPort: 6432
               name: pgbouncer
@@ -186,6 +207,15 @@ spec:
               value: "scram-sha-256"
             - name: POOL_MODE
               value: "transaction"
+            # Second pooled login: the view-only ecosystem_public_reader (the
+            # `pipeline_builder_public` pool). Every Postgres client goes through
+            # this pooler; none connects to Postgres directly.
+            - name: ECOSYSTEM_PUBLIC_READER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: ECOSYSTEM_PUBLIC_READER_PASSWORD
+                  optional: true
           volumeMounts:
             - name: config
               mountPath: /etc/pgbouncer/pgbouncer.ini

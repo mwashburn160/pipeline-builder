@@ -13,7 +13,7 @@
 
 import { createLogger, isValidPermission } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { assertActorMayAssignRole } from './role-authority.js';
+import { assertActorMayAssignRole, assertSystemOrgOnlyRoleInSystemOrg } from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_REQUIRES_SUPERADMIN, RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -123,6 +123,7 @@ export async function setServiceAccountRoles(
   for (const role of roles) {
     if (role.grantsRole === 'superadmin' && !actor.isSuperAdmin) throw new Error(RL_REQUIRES_SUPERADMIN);
     assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+    assertSystemOrgOnlyRoleInSystemOrg(role.permissions as string[] | undefined, oid);
   }
 
   // Removals are subject to the same ceiling (symmetry with removeUserFromRole):

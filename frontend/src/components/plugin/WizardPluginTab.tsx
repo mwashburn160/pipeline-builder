@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
+import { InfoAlert } from '@/components/ui/InfoAlert';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -254,27 +255,17 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
 
   const handleSave = async () => {
     if (!selectedId) { setError('Select a plugin to edit.'); return; }
-    if (toLines(commands).length === 0 && pluginType !== 'ManualApprovalStep') {
-      setError('At least one run command is required.'); return;
-    }
     setError(null); setSuccess(null); setSaving(true);
     try {
-      const env = parseEnv(envText);
-      const t = timeout.trim();
+      // `PUT /plugins/:id` accepts only descriptive + operational fields: the
+      // execution contract (type, compute, env, commands, timeout, …) changes
+      // only by uploading a new version, and the API refuses those keys.
       const response = await api.updatePlugin(selectedId, {
         description: description.trim() || undefined,
         keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : [],
-        pluginType,
-        computeType,
-        primaryOutputDirectory: primaryOutputDirectory.trim() || null,
-        env,
-        installCommands: toLines(installCommands),
-        commands: toLines(commands),
         visibility: access,
         isActive,
         isDefault,
-        timeout: t ? Number(t) : null,
-        failureBehavior: failureBehavior as 'fail' | 'warn' | 'ignore',
       });
       if (response.success) {
         setSuccess(`Plugin "${name}" updated successfully!`);
@@ -352,7 +343,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
 
       <p className="text-sm text-fg-muted">
         {editing
-          ? 'Pick a plugin and edit its settings. Name, version, and Dockerfile are fixed once built — to change those, create a new version.'
+          ? 'Pick a plugin and edit its description, keywords, visibility and status.'
           : "Fill in the plugin spec and we'll build the container image and save it — no AI provider or offline packaging needed."}
       </p>
 
@@ -379,6 +370,9 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
       {/* The spec form is shown for Create always, and for Edit once a plugin is selected. */}
       {(!editing || selectedId) && (
         <>
+          {editing && (
+            <InfoAlert message="Commands, environment, secrets and compute are the plugin's execution contract. They change only by uploading a new version." />
+          )}
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Name" hint={editing ? 'not editable' : 'lowercase, digits, hyphens'}>
               <Input value={name} onChange={(e) => { setName(e.target.value); setError(null); }} placeholder="my-linter" disabled={disabled || isWorking || editing} />
@@ -394,14 +388,14 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
 
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Plugin type">
-              <Select value={pluginType} onChange={(e) => setPluginType(e.target.value)} disabled={disabled || isWorking}>
+              <Select value={pluginType} onChange={(e) => setPluginType(e.target.value)} disabled={disabled || isWorking || editing}>
                 {PLUGIN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                 {/* Preserve an existing plugin's type even if it isn't a build type we create. */}
                 {editing && !PLUGIN_TYPES.includes(pluginType as (typeof PLUGIN_TYPES)[number]) && <option value={pluginType}>{pluginType}</option>}
               </Select>
             </FormField>
             <FormField label="Compute type">
-              <Select value={computeType} onChange={(e) => setComputeType(e.target.value)} disabled={disabled || isWorking}>
+              <Select value={computeType} onChange={(e) => setComputeType(e.target.value)} disabled={disabled || isWorking || editing}>
                 {COMPUTE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </Select>
             </FormField>
@@ -412,20 +406,20 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
               <Input value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="quality, lint" disabled={disabled || isWorking} />
             </FormField>
             <FormField label="Primary output directory" hint="optional">
-              <Input value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} placeholder="dist" disabled={disabled || isWorking} />
+              <Input value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} placeholder="dist" disabled={disabled || isWorking || editing} />
             </FormField>
           </div>
 
           <FormField label="Install commands" hint="one per line, run before the build (optional)">
-            <Textarea className="font-mono text-xs" rows={2} value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} placeholder={'npm ci'} disabled={disabled || isWorking} />
+            <Textarea className="font-mono text-xs" rows={2} value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} placeholder={'npm ci'} disabled={disabled || isWorking || editing} />
           </FormField>
 
           <FormField label="Run commands" hint="one per line, required">
-            <Textarea className="font-mono text-xs" rows={3} value={commands} onChange={(e) => { setCommands(e.target.value); setError(null); }} placeholder={'npm run build'} disabled={disabled || isWorking} />
+            <Textarea className="font-mono text-xs" rows={3} value={commands} onChange={(e) => { setCommands(e.target.value); setError(null); }} placeholder={'npm run build'} disabled={disabled || isWorking || editing} />
           </FormField>
 
           <FormField label="Environment" hint="KEY=VALUE, one per line (optional)">
-            <Textarea className="font-mono text-xs" rows={2} value={envText} onChange={(e) => setEnvText(e.target.value)} placeholder={'NODE_ENV=production'} disabled={disabled || isWorking} />
+            <Textarea className="font-mono text-xs" rows={2} value={envText} onChange={(e) => setEnvText(e.target.value)} placeholder={'NODE_ENV=production'} disabled={disabled || isWorking || editing} />
           </FormField>
 
           {/* Dockerfile — create only (editing it would need a rebuild). */}
@@ -438,11 +432,11 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
           {/* Other settings — edit only (the create/build path doesn't accept these). */}
           {editing && (
             <div className="grid grid-cols-2 gap-4">
-              <FormField label="Timeout (minutes)" hint="blank = default">
-                <Input type="number" min={0} value={timeout} onChange={(e) => setTimeoutVal(e.target.value)} placeholder="10" disabled={isWorking} />
+              <FormField label="Timeout (minutes)" hint="execution contract — not editable">
+                <Input type="number" min={0} value={timeout} onChange={(e) => setTimeoutVal(e.target.value)} placeholder="10" disabled />
               </FormField>
               <FormField label="Failure behavior">
-                <Select value={failureBehavior} onChange={(e) => setFailureBehavior(e.target.value)} disabled={isWorking}>
+                <Select value={failureBehavior} onChange={(e) => setFailureBehavior(e.target.value)} disabled>
                   {FAILURE_BEHAVIORS.map((b) => <option key={b} value={b}>{b}</option>)}
                 </Select>
               </FormField>

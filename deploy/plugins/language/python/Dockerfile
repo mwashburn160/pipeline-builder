@@ -14,10 +14,10 @@
 FROM pipeline-python-base:1.0
 
 # TODO(confirm): confirm the intended pinned tool versions at build time.
-ARG POETRY_VERSION=1.8.5
-ARG PIPENV_VERSION=2024.4.0
-ARG PYTEST_VERSION=8.3.4
-ARG PYTEST_COV_VERSION=6.0.0
+ARG POETRY_VERSION=2.5.1
+ARG PIPENV_VERSION=2026.8.0
+ARG PYTEST_VERSION=9.1.1
+ARG PYTEST_COV_VERSION=7.1.0
 RUN pip3 install --no-cache-dir \
     "poetry==${POETRY_VERSION}" \
     "pipenv==${PIPENV_VERSION}" \
@@ -28,4 +28,5 @@ RUN pip3 install --no-cache-dir \
 ENV PACKAGE_MANAGER=auto
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

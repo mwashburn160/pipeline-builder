@@ -125,3 +125,17 @@ env:
   IMAGE_TAG: latest
   ECR_REGISTRY: ""
   REGISTRY_URL: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.docker.com/build/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/artifact/docker-build
+icon: docker
+network:
+  egress:
+    - "*.amazonaws.com"
+    - "registry-1.docker.io"
+    - "auth.docker.io"
+    - "production.cloudflare.docker.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

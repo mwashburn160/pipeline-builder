@@ -30,6 +30,12 @@ The **My Services** page (dashboard → Overview → *My Services*) lists the pi
 
 The command palette (**⌘K**) searches actual resources — pipelines and plugins by name/keywords — not just page names, so you can jump straight to a resource without knowing which page it lives on.
 
+### Plugin catalog: listings and installs
+
+The plugins a developer can use are the org's **own plugins** plus the ecosystem **listings** the org has installed. The in-app catalog (dashboard → Plugins) shows every listing with the org's install state: installed or not, the version a new synth resolves to, whether installing needs approval, and whether the org's consumption policy blocks it. Official listings (publisher `pipeline-builder`) count as installed for every org through the implicit install. See [Plugin Installing](plugin-installing.md). Each listing also shows a 0–100 **health score** (runtime success, vulnerabilities, freshness, signing, smoke test, docs and rating); see [Health score](plugin-installing.md#health-score).
+
+**Shadowing warning.** An own-org plugin with the same name as an Official listing wins for unqualified references (`plugin: { name: trivy }`). The Plugins page flags that plugin, the pipeline editor flags each step that uses it, and lookup warns `PLUGIN_SHADOWS_LISTING`. `GET /api/plugins/shadowing` lists every shadowed name. Add `publisher: pipeline-builder` to a step to use the listing instead.
+
 ## Golden-path templates
 
 A **pipeline template** is a parameterized starter: its body is a `BuilderProps` with `{{ vars.* }}` placeholders, and it declares the `inputs` a developer fills in to instantiate it. System-org **public** templates form a shared golden-path catalog visible to every org (the same sharing model as the sample template catalog and compliance rule templates); org-private templates are visible only to their org.

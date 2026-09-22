@@ -25,6 +25,7 @@
  *
  * **Helpers**
  * - replaceNonAlphanumeric, extractMetadataEnv — string and metadata utilities
+ * - resolveFailureBehavior, wrapCommandsForFailureBehavior — a step's failureBehavior, as CodeBuild runs it
  *
  * **Re-exports from api-core**
  * - ErrorCode, createLogger
@@ -46,10 +47,14 @@ export * from './core/pipeline-types.js';
 export * from './core/role-types.js';
 export * from './core/security-group-types.js';
 export * from './core/id-generator.js';
-export { replaceNonAlphanumeric, extractMetadataEnv } from './core/metadata-helpers.js';
+export { replaceNonAlphanumeric, extractMetadataEnv, resolveFailureBehavior, wrapCommandsForFailureBehavior, STEP_BOOTSTRAP_CMD } from './core/metadata-helpers.js';
+export * from './core/step-manifest.js';
+export * from './core/plugin-contract.js';
 
 // Plugin domain type (the synth-time authoring types live in the `/cdk` entry)
 export * from './pipeline/plugin-spec.js';
 
 // Template engine — synth-time scripting for pipeline config + plugin specs
 export * from './template/index.js';
+// A plugin's `{{ … }}` resolution against a pipeline scope (synth, `plugin test`)
+export { resolvePluginTemplates, isPluginTemplatableField } from './template/plugin-resolver.js';

@@ -22,7 +22,14 @@ export interface AuditFilter {
   orgIdOrAffected?: string;
   /** Specific user who performed the action. */
   actorId?: string;
+  /** Case-insensitive substring match on the action. */
   action?: string;
+  /**
+   * Action GROUP: an event matches when its action matches ANY entry — `foo.`
+   * is a prefix, anything else an exact action (both anchored, so a match in
+   * the middle of an unrelated action never counts). ANDed with `action`.
+   */
+  actions?: string[];
   targetType?: string;
   targetId?: string;
   /** Permission role involved (org.role.* actions). */
@@ -100,9 +107,19 @@ export function buildAuditQuery(filter: AuditFilter): Record<string, unknown> {
     if (filter.affectedOrgId) query.affectedOrgId = filter.affectedOrgId;
   }
   if (filter.actorId) query.actorId = filter.actorId;
+  const actionPredicates: Record<string, unknown>[] = [];
   if (filter.action) {
-    query.action = { $regex: escapeRegex(filter.action), $options: 'i' };
+    actionPredicates.push({ action: { $regex: escapeRegex(filter.action), $options: 'i' } });
   }
+  if (filter.actions && filter.actions.length > 0) {
+    actionPredicates.push({
+      action: {
+        $in: filter.actions.map((a) => (a.endsWith('.') ? new RegExp(`^${escapeRegex(a)}`) : new RegExp(`^${escapeRegex(a)}$`))),
+      },
+    });
+  }
+  if (actionPredicates.length === 1) Object.assign(query, actionPredicates[0]);
+  else if (actionPredicates.length > 1) query.$and = actionPredicates;
   if (filter.targetType) query.targetType = filter.targetType;
   if (filter.targetId) query.targetId = filter.targetId;
   if (filter.roleId) query.roleId = filter.roleId;

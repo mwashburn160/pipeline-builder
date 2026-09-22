@@ -17,7 +17,12 @@
 
 import { createLogger, isValidPermission } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { assertActorMayAssignRole, sanitizePermissions } from './role-authority.js';
+import {
+  assertActorMayAssignRole,
+  assertSystemOrgOnlyRoleInSystemOrg,
+  carriesSystemOrgOnlyPermission,
+  sanitizePermissions,
+} from './role-authority.js';
 import type { ActorPermissionCeiling, OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import {
   RL_CANNOT_REMOVE_SELF,
@@ -27,6 +32,7 @@ import {
   RL_REQUIRES_SUPERADMIN,
   RL_ROLE_NOT_FOUND,
   RL_SYSTEM_IMMUTABLE,
+  RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN,
   RL_USER_NOT_FOUND,
 } from './roles-errors.js';
 import { recomputeUserOrgRole } from './roles-service.js';
@@ -300,9 +306,14 @@ export async function deleteRole(orgId: string, roleId: string, actor: RoleAssig
  *     are all within the actor's own set — closing the within-tenant escalation
  *     of assigning the built-in Admin Role (full `ADMIN_PERMISSIONS`) to gain
  *     capabilities the actor lacks. Admin/owner and superadmin bypass it.
+ *   - A Role carrying a system-org-only permission (the system org's Ecosystem
+ *     Manager) may only be assigned by a platform superadmin
+ *     (`RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN`, inside the ceiling) and only
+ *     inside the system org (`RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG`).
  *
  * Throws `RL_ROLE_NOT_FOUND` / `RL_USER_NOT_FOUND` / `RL_NOT_ORG_MEMBER` /
- * `RL_REQUIRES_SUPERADMIN` / `RL_ASSIGN_EXCEEDS_CEILING`.
+ * `RL_REQUIRES_SUPERADMIN` / `RL_ASSIGN_EXCEEDS_CEILING` /
+ * `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN` / `RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG`.
  */
 export async function addUserToRole(
   orgId: string,
@@ -326,7 +337,9 @@ export async function addUserToRole(
   // capabilities beyond their own effective set (mirror of the create/update
   // ceiling `sanitizePermissions` enforces). Prevents a `roles:manage` holder
   // from self-granting Admin's `members:manage`/`org:settings`/`billing:manage`.
+  // Also refuses a non-superadmin on an ecosystem (system-org-only) Role.
   assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+  assertSystemOrgOnlyRoleInSystemOrg(role.permissions as string[] | undefined, oid);
 
   const user = target.userId
     ? await User.findById(target.userId).select('_id')
@@ -363,6 +376,18 @@ export async function addUserToRole(
 
   logger.info('Assigned user to Role', { organizationId: orgId, roleId, userId: String(user._id) });
   return { userId: String(user._id) };
+}
+
+/**
+ * The name of `roleId` in `orgId` when it is an ecosystem-governance Role (one
+ * carrying a system-org-only permission — the system org's "Ecosystem
+ * Manager"), else `undefined`. Membership changes to such a Role are audited
+ * with `details.role` (docs/plans/plugin-ecosystem.md §5c) and announced as N23.
+ */
+export async function ecosystemRoleName(orgId: string, roleId: string): Promise<string | undefined> {
+  const role = await Role.findOne({ _id: roleId, organizationId: toOrgId(orgId) }).select('name permissions').lean();
+  if (!role || !carriesSystemOrgOnlyPermission(role.permissions as string[] | undefined)) return undefined;
+  return role.name as string;
 }
 
 /**
@@ -420,7 +445,8 @@ export async function assertNotLastPrivilegedMember(
  * the ceiling is not evaluated — internal callers that already gate authority
  * upstream (e.g. `revokePlatformAdmin`) keep working.
  *
- * Throws `RL_ROLE_NOT_FOUND`, `RL_REQUIRES_SUPERADMIN`, `RL_ASSIGN_EXCEEDS_CEILING`,
+ * Throws `RL_ROLE_NOT_FOUND`, `RL_REQUIRES_SUPERADMIN`,
+ * `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN`, `RL_ASSIGN_EXCEEDS_CEILING`,
  * `RL_CANNOT_REMOVE_SELF`, `RL_LAST_PRIVILEGED_MEMBER`.
  */
 export async function removeUserFromRole(
@@ -443,6 +469,11 @@ export async function removeUserFromRole(
   // superadmin-granting Role (mirror of the gate in addUserToRole).
   if (role.grantsRole === 'superadmin' && !opts.actorIsSuperAdmin) {
     throw new Error(RL_REQUIRES_SUPERADMIN);
+  }
+  // Unassigning an ecosystem (system-org-only) Role is superadmin-only too —
+  // checked unconditionally, not only when the actor context is supplied.
+  if (carriesSystemOrgOnlyPermission(role.permissions as string[] | undefined) && !opts.actorIsSuperAdmin) {
+    throw new Error(RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN);
   }
 
   // Permission ceiling (symmetry with addUserToRole): a delegate can't touch

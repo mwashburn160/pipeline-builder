@@ -3,6 +3,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { checkPluginTemplates, type PluginTemplateEngine } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import YAML from 'yaml';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync, withSslOptions } from '../utils/command-utils.js';
@@ -108,16 +109,13 @@ export function validateTemplatesCommand(program: Command): void {
     });
 }
 
-function validatePluginDoc(core: Record<string, any>, doc: unknown): Array<{ field?: string; message: string; code?: string }> {
-  const isTpl = (f: string) =>
-    f === 'description' ||
-    f.startsWith('commands') ||
-    f.startsWith('installCommands') ||
-    f.startsWith('env.') || f.startsWith('env[') ||
-    f.startsWith('buildArgs.') || f.startsWith('buildArgs[');
-  const isKnown = core.allowedScopeRoots(['pipeline', 'plugin', 'env']);
-  const { errors } = core.validateTemplates(doc, isTpl, isKnown);
-  return errors;
+/** The plugin template contract the upload applies (api-core's shared check). */
+function validatePluginDoc(core: PluginTemplateEngine, doc: unknown): Array<{ field?: string; message: string; code?: string }> {
+  return checkPluginTemplates(doc as object, core).map((issue) => ({
+    field: issue.line !== undefined ? `${issue.field}:${issue.line}:${issue.col}` : issue.field,
+    message: issue.message,
+    code: issue.kind,
+  }));
 }
 
 function validatePipelineDoc(core: Record<string, any>, doc: unknown): Array<{ field?: string; message: string; code?: string }> {

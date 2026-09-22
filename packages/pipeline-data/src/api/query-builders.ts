@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { SYSTEM_ORG_ID, type Lifecycle } from '@pipeline-builder/api-core';
-import { and, eq, ilike, isNull, not, or, gte, lte, sql, SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, isNull, not, or, gte, lte, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import {
   AccessControlQueryBuilder,
@@ -11,6 +11,7 @@ import {
   normalizeStringFilter,
   parseBooleanFilter,
 } from './access-control-builder.js';
+import { isVersionRange, semverOrderBy, versionSpecCondition } from './semver-range.js';
 import type {
   MessageFilter,
   PipelineFilter,
@@ -29,11 +30,15 @@ import {
   type RuleTarget,
   type RuleSeverity,
   type RuleScope,
+  type PluginLifecycle,
 } from '../database/drizzle-schema.js';
 
 // Query builder instances
 const pipelineBuilder = new AccessControlQueryBuilder(schema.pipeline);
-const pluginBuilder = new AccessControlQueryBuilder(schema.plugin);
+// A system-org plugin reaches other orgs only as an Official LISTING, resolved
+// through the org's (explicit or implicit) install — see plugin-resolution.ts —
+// never through `visibility = 'public'` on its `plugins` row (plan §3.1, G26).
+const pluginBuilder = new AccessControlQueryBuilder(schema.plugin, { systemCatalog: false });
 const pipelineTemplateBuilder = new AccessControlQueryBuilder(schema.pipelineTemplate);
 
 /**
@@ -136,6 +141,37 @@ export function buildPipelineConditions(
 }
 
 /**
+ * THE ranking for resolving one plugin ROW by name (`/plugins/lookup`,
+ * `/plugins/find`, the pipeline service's contract check) — one definition so
+ * synth and the contract check never pick different winners. Rows are only the
+ * org's own and its parent's: the Official catalog and every other publisher
+ * resolve as LISTINGS afterwards (plugin-resolution.ts, plan §3.5).
+ *   1. owner — the caller's own org, then its parent org (a team reads the
+ *      parent's shared rows), then anything else a superadmin can see;
+ *   2. the default version;
+ *   3. the highest semver (so `^1.2` resolves to the newest matching release);
+ *   4. `id`, a total tiebreak.
+ */
+export function pluginResolutionOrderBy(orgId?: string, parentOrgId?: string): SQL[] {
+  const ownerRank = orgId
+    ? parentOrgId
+      ? sql`CASE ${schema.plugin.orgId} WHEN ${orgId} THEN 0 WHEN ${parentOrgId} THEN 1 ELSE 2 END`
+      : sql`CASE ${schema.plugin.orgId} WHEN ${orgId} THEN 0 ELSE 2 END`
+    : null;
+  return [
+    ...(ownerRank ? [ownerRank] : []),
+    desc(schema.plugin.isDefault),
+    ...semverOrderBy(schema.plugin.version),
+    asc(schema.plugin.id),
+  ];
+}
+
+/** A plugin version that has not been yanked (timestamp and lifecycle agree). */
+function notYanked(): SQL[] {
+  return [isNull(schema.plugin.yankedAt), sql`${schema.plugin.lifecycle} <> 'yanked'`];
+}
+
+/**
  * Build SQL conditions for plugin queries
  *
  * Access control is the shared three-rung `visibility` ladder — see
@@ -158,12 +194,27 @@ export function buildPluginConditions(
     conditions.push(eq(schema.plugin.orgId, normalizeStringFilter(filter.orgId)));
   }
 
+  // Substring search for the list / search UI; EXACT for resolution (the
+  // lookup path sets `nameMatch: 'exact'`) so `trivy` never resolves to
+  // `trivy-scan` or another org's `my-trivy`.
   if (filter.name !== undefined) {
-    conditions.push(ilike(schema.plugin.name, `%${escapeLikeWildcards(normalizeStringFilter(filter.name))}%`));
+    const name = normalizeStringFilter(filter.name);
+    conditions.push(filter.nameMatch === 'exact'
+      ? eq(schema.plugin.name, name)
+      : ilike(schema.plugin.name, `%${escapeLikeWildcards(name)}%`));
   }
 
+  // Exact version, or a semver range / `latest` (see semver-range.ts). A range
+  // never resolves to a yanked version: yank stops a version resolving for
+  // new synths, while an exact pin still finds it (so the caller can explain).
   if (filter.version !== undefined) {
-    conditions.push(eq(schema.plugin.version, filter.version as string));
+    const spec = filter.version as string;
+    conditions.push(versionSpecCondition(schema.plugin.version, spec));
+    if (isVersionRange(spec)) conditions.push(...notYanked());
+  }
+
+  if (filter.excludeYanked === true) {
+    conditions.push(...notYanked());
   }
 
   if (filter.keyword !== undefined) {
@@ -180,7 +231,7 @@ export function buildPluginConditions(
   }
 
   if (filter.lifecycle !== undefined) {
-    conditions.push(eq(schema.plugin.lifecycle, filter.lifecycle as Lifecycle));
+    conditions.push(eq(schema.plugin.lifecycle, filter.lifecycle as PluginLifecycle));
   }
 
   return conditions;

@@ -10,8 +10,16 @@
 FROM pipeline-node-base:1.0
 
 # TODO(confirm): pin the intended Playwright version at build time.
-ARG PLAYWRIGHT_VERSION=1.49.0
+ARG PLAYWRIGHT_VERSION=1.63.0
 RUN npm install -g "@playwright/test@${PLAYWRIGHT_VERSION}"
+
+# Browsers go to a fixed, shared path (the default ~/.cache/ms-playwright is
+# per-user — browsers installed by the root build step would be invisible to
+# the uid-1000 runtime user).
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+
+# `--with-deps` apt-installs the browsers' system libraries — needs root.
+USER root
 
 # ─── Playwright browsers + system dependencies ───
 # `playwright install --with-deps` shells out to apt-get install for the
@@ -39,7 +47,9 @@ RUN _files="/etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list" \
     && for f in $_files; do \
          [ -f "$f.regional" ] && mv "$f.regional" "$f"; \
        done \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod -R a+rX "${PLAYWRIGHT_BROWSERS_PATH}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

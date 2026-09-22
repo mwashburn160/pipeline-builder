@@ -38,3 +38,17 @@ commands:
 env:
   SONAR_ORGANIZATION: ""
   SONAR_PROJECT_KEY: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.sonarsource.com/sonarqube-cloud/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/sonarcloud-dotnet
+icon: { key: sonarcloud, badge: dotnet }
+network:
+  egress:
+    - "sonarcloud.io"
+    - "api.sonarcloud.io"
+    - "scanner.sonarcloud.io"
+    - "api.nuget.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -11,4 +11,5 @@
 FROM pipeline-trivy-base:1.0
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

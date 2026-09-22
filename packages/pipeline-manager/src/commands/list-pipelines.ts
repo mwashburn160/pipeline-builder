@@ -66,7 +66,7 @@ export function listPipelines(program: Command): void {
     .action((options) => runListEntity<Pipeline, PipelineFilterParams>(program, options, {
       labelPlural: 'Pipelines',
       responseKey: 'pipelines',
-      listUrl: (config) => config.api.pipelineListUrl,
+      listUrl: (config) => config.api.pipelineUrl,
       commandName: 'list-pipelines',
       buildFilters: (options, base) => {
         const filters: PipelineFilterParams = { ...base };

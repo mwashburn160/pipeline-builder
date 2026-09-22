@@ -76,6 +76,25 @@ describe('rateLimitByOrg', () => {
     expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-2' } })).nexted).toBe(true);
   });
 
+  it('keyBy user: one bucket per caller, across orgs', async () => {
+    const mw = rateLimitByOrg({ name: 'test-user', max: 1, windowMs: 60_000, keyBy: 'user' });
+    expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-1', sub: 'u-1' } })).nexted).toBe(true);
+    // Same person, another org: still their bucket.
+    expect((await run(mw, { ip: '10.0.0.2', user: { organizationId: 'org-2', sub: 'u-1' } })).nexted).toBe(false);
+    // Another person in the same org is untouched.
+    expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-1', sub: 'u-2' } })).nexted).toBe(true);
+    // No identity: the client-IP bucket.
+    expect((await run(mw, { ip: '10.0.0.9' })).nexted).toBe(true);
+    expect((await run(mw, { ip: '10.0.0.9' })).nexted).toBe(false);
+  });
+
+  it('keyBy ip: one bucket per trusted client IP, whoever is signed in', async () => {
+    const mw = rateLimitByOrg({ name: 'test-ip', max: 1, windowMs: 60_000, keyBy: 'ip' });
+    expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-1', sub: 'u-1' } })).nexted).toBe(true);
+    expect((await run(mw, { ip: '10.0.0.1', user: { organizationId: 'org-2', sub: 'u-2' } })).nexted).toBe(false);
+    expect((await run(mw, { ip: '10.0.0.2', user: { organizationId: 'org-1', sub: 'u-1' } })).nexted).toBe(true);
+  });
+
   it('skips verified service principals (never limited)', async () => {
     const mw = rateLimitByOrg({ name: 'test-c', max: 1, windowMs: 60_000 });
     const svc: MockReq = { ip: '10.0.0.9', user: { organizationId: 'org-1' }, serviceToken: true };

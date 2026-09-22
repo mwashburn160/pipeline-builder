@@ -4,24 +4,31 @@
 # Supports EKS authentication via AWS CLI
 
 # ─── Tool versions (override with --build-arg) ───
-ARG KUBECTL_VERSION=1.31.4
+ARG KUBECTL_VERSION=1.37.0
 
 FROM pipeline-aws-cli-base:1.0
+
+# Build steps below need root (apt, writes under /usr/local, /opt or /etc);
+# the image drops back to the unprivileged `plugin` user (uid 1000) at the end.
+USER root
 
 ARG KUBECTL_VERSION
 
 # ─── kubectl ───
-# SHA256-verified — kubernetes.io publishes a `kubectl.sha256` companion
-# file alongside every binary. Without this, a TLS interception or mirror
-# compromise could substitute a malicious binary that we'd silently install.
-RUN ARCH=$(dpkg --print-architecture) \
-    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
-       -o /usr/local/bin/kubectl \
-    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" \
-       -o /tmp/kubectl.sha256 \
-    && echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c - \
-    && rm /tmp/kubectl.sha256 \
-    && chmod +x /usr/local/bin/kubectl
+# Pinned digest — the values are kubernetes.io's published `kubectl.sha256`
+# companions for this release, baked into the Dockerfile (not fetched at build
+# time next to the binary, which a mirror compromise could swap together).
+# fetch-verified refuses to install on mismatch.
+ARG KUBECTL_SHA256_AMD64=6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+ARG KUBECTL_SHA256_ARM64=922df28df248cc00a9e025f947704f1d1482de64ece54cfe57e61f19eaf1eef3
+RUN set -eux; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) arch=amd64; sum="${KUBECTL_SHA256_AMD64}" ;; \
+      arm64) arch=arm64; sum="${KUBECTL_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    fetch-verified "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" "$sum" /usr/local/bin/kubectl; \
+    chmod 0755 /usr/local/bin/kubectl
 
 # ─── Runtime configuration defaults ───
 ENV KUBE_CONTEXT=""
@@ -32,6 +39,7 @@ ENV ROLLOUT_TIMEOUT=300s
 
 # Working directory for pipeline source
 WORKDIR /app
+USER 1000:1000
 
 # Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

@@ -623,6 +623,17 @@ not rotating: leave the current key in place until the rebuilds are ready.
   re-run setup so the new public key is exported and mounted, restart both
   services, rebuild every image plugin. Schedule the old key for deletion only
   after the rebuilds — until then it is your rollback.
+- **Both modes — published plugins.** Rebuilding re-signs the images in each
+  org's own namespace, but NOT the copies in the read-only `public/*`
+  namespace that the plugin ecosystem publishes (listed versions are
+  immutable and never rebuilt). After the restart, an Ecosystem Manager runs
+  **Re-sign all published images** in the Ecosystem console
+  (`POST /api/plugins/ecosystem/resign` with a reason; system org, aal2,
+  step-up). It queues one re-sign job per publisher; the plugin service's
+  maintenance scheduler signs every listed version with the new key and the
+  current tier annotations, resuming after any failure. Keep the old key (or
+  KMS key version) until the overview shows no re-sign jobs left. See
+  [Ecosystem moderation](ecosystem-moderation.md#re-sign-job).
 
 **Compromise response** — a leaked `local` key lets anyone produce an image the
 platform will accept. Rotate immediately and treat every plugin image pushed
@@ -630,7 +641,8 @@ since the suspected exposure as untrusted until rebuilt; switch to `kms` while
 you are at it.
 
 **Verify** — a fresh plugin build succeeds end to end (image-registry signs,
-plugin's `cosign verify` passes); a plugin that was not rebuilt fails with
+plugin's `cosign verify` passes); every `public/*` image verifies again once the
+re-sign jobs finish; a plugin that was not rebuilt fails with
 `Plugin image signature did not verify` (or `has no signed image digest`) rather
 than running unverified. image-registry must be able to write `/tmp` (the
 `scratch-tmp` emptyDir) — a `cosign … failed` error mentioning a read-only file

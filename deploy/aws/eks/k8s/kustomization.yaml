@@ -30,6 +30,8 @@ resources:
   - platform.yaml
   - pipeline.yaml
   - plugin.yaml
+  # Isolated buildkitd for anonymous plugin submissions (plugin-ecosystem §4.2, W5).
+  - plugin-quarantine-builder.yaml
   - message.yaml
   - reporting.yaml
   - ask.yaml

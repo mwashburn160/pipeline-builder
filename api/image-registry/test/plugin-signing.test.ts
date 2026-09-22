@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 import { jest } from '@jest/globals';
+import { registryClientMock } from './helpers/registry-client-mock.js';
 
 type ExecCb = (err: Error | null, stdout: string, stderr: string) => void;
 const execCalls: Array<{ args: string[]; env: Record<string, string | undefined>; dockerConfig?: unknown }> = [];
@@ -30,7 +31,7 @@ const mockExecFile = jest.fn((_file: string, args: string[], opts: { env: Record
 jest.unstable_mockModule('child_process', () => ({ execFile: mockExecFile }));
 
 const mockMintToken = jest.fn<(repo: string) => Promise<string>>(async (repo) => `token-for-${repo}`);
-jest.unstable_mockModule('../src/services/registry-client.js', () => ({ mintRepositoryPushToken: mockMintToken }));
+jest.unstable_mockModule('../src/services/registry-client.js', () => registryClientMock({ mintRepositoryPushToken: mockMintToken }));
 
 const keyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-signing-test-'));
 const keyFile = path.join(keyDir, 'plugin-signing.key');

@@ -40,7 +40,8 @@ import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } f
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { BuildResult } from '../helpers/docker-build.js';
-import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { assertPostBuildCompliance, establishImageFacts, type ImageFacts } from '../helpers/image-facts.js';
+import { toPluginInsert, type PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { getAuditClient } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
 
@@ -169,8 +170,33 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           sseManager.send(requestId, 'INFO', 'Image pushed and signed', { fullImage, digest: result.digest });
         }
 
+        // W0.6: scan the signed image (grype over its signed SBOM), resolve its
+        // USER, then run the compliance rules the upload deferred — signed,
+        // scanned, vuln*, runAsRoot, packages — on the REAL facts, before the
+        // version is persisted. A block fails the build permanently.
+        let facts: ImageFacts | null = null;
+        if (image) {
+          const ref = { orgId, name: pluginRecord.name, imageDigest: image.imageDigest };
+          facts = await establishImageFacts(ref, buildRequest.registry, pluginRecord.dockerfile);
+          sseManager.send(requestId, 'INFO', facts.scannedAt ? 'Image scanned' : 'Image could not be scanned (left unscanned)', {
+            vulnCritical: facts.vulnCritical, vulnHigh: facts.vulnHigh, runAsRoot: facts.runAsRoot,
+          });
+          await assertPostBuildCompliance(orgId, pluginRecord, image.imageDigest, facts);
+        }
+
         const result = await pluginService.deployVersion(
-          { ...pluginRecord, imageDigest: image?.imageDigest ?? null, imageSource: image?.imageSource ?? null },
+          toPluginInsert(pluginRecord, {
+            imageDigest: image?.imageDigest ?? null,
+            imageSource: image?.imageSource ?? null,
+            ...(facts ? {
+              vulnCritical: facts.vulnCritical,
+              vulnHigh: facts.vulnHigh,
+              vulnMedium: facts.vulnMedium,
+              vulnLow: facts.vulnLow,
+              scannedAt: facts.scannedAt,
+              runAsRoot: facts.runAsRoot,
+            } : {}),
+          }),
           userId,
           access,
         );
@@ -210,8 +236,20 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
             jobId: job.id,
             durationMs,
             ...(image && { imageDigest: image.imageDigest, imageSource: image.imageSource }),
+            ...(facts && { scanned: facts.scannedAt !== null, vulnCritical: facts.vulnCritical, vulnHigh: facts.vulnHigh, runAsRoot: facts.runAsRoot }),
           },
         }, 'plugin');
+
+        // Plugin ecosystem (§3.1): the upload asked for a publish request —
+        // submit it now that the version (and its signed digest) exists. Never
+        // fails the build: the refusal is reported on the build stream.
+        if (job.data.publish) {
+          const { submitAfterBuild } = await import('../services/ecosystem/requests.js');
+          const outcome = await submitAfterBuild(job.data.publish.caller, result.id);
+          sseManager.send(requestId, outcome.ok ? 'INFO' : 'WARN', `Publish request: ${outcome.message}`, {
+            ...(outcome.requestId ? { publishRequestId: outcome.requestId, status: outcome.status } : {}),
+          });
+        }
 
         sseManager.send(requestId, 'COMPLETED', 'Plugin deployed', {
           id: result.id,

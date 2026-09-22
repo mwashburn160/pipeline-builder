@@ -275,3 +275,16 @@ env:
   CDK_REQUIRE_APPROVAL: never
   CDK_ROLLBACK_ON_FAILURE: "true"
   CDK_OUTPUTS_FILE: cdk-outputs.json
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.aws.amazon.com/cdk/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/deploy/cdk-deploy-multi-region
+# icon: none — AWS marks were removed from Simple Icons at AWS's request; no confirmed press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "*.amazonaws.com"
+    - "registry.npmjs.org"
+    - "registry.yarnpkg.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -92,13 +92,14 @@ describe('EditPluginModal — team ownership', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(updatePlugin).toHaveBeenCalled());
-    expect(updatePlugin.mock.calls[0][1]).toMatchObject({ visibility: 'public', ownerId: 'team-1', ownerType: 'team' });
+    // Only changed fields are sent: the visibility fix, not the unchanged owner.
+    expect(updatePlugin.mock.calls[0][1]).toEqual({ visibility: 'public' });
   });
 
   it('omits the owner entirely for a non-admin, whose values the server drops', async () => {
     currentUser = { id: 'u2', role: 'member' };
     renderModal();
-    await waitFor(() => expect(getPluginById).toHaveBeenCalled());
+    fireEvent.click(await screen.findByLabelText('Active'));
 
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(updatePlugin).toHaveBeenCalled());

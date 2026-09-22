@@ -34,6 +34,9 @@ export * from './api/query-builders.js';
 export * from './api/access-control-builder.js';
 export * from './api/viewer-context.js';
 export * from './api/crud-service.js';
+export * from './api/semver-range.js';
+export * from './api/public-directory.js';
+export * from './api/plugin-resolution.js';
 // `isSoftDeletePurgeEnabled` is the module's own env gate — `runSoftDeletePurge`
 // and the scheduler already apply it, so callers never ask separately.
 export {

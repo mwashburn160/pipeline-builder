@@ -7,7 +7,7 @@ import { errorMessage } from '@pipeline-builder/api-core';
 import pico from 'picocolors';
 import { executeCdkShellCommand, resolveBoilerplatePath } from './cdk-utils.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
-import { buildRegistryPayload, writePendingIntent } from './registry.js';
+import { buildRegistryPayload, readStepManifest, writePendingIntent } from './registry.js';
 import { assertShellSafe, shellQuote } from '../config/cli.constants.js';
 import { type Pipeline } from '../types/index.js';
 
@@ -123,6 +123,10 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
       },
       region,
     );
+    // The synth's step manifest (W0.1) rides the same registration — and the
+    // pending intent, so a retried registration still carries it.
+    const steps = await readStepManifest(output);
+    if (steps) payload.steps = steps;
   } catch (buildError) {
     printWarning('Could not build registry payload — skipping registration', {
       error: errorMessage(buildError),

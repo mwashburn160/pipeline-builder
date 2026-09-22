@@ -46,6 +46,10 @@ describe('shared permission catalog', () => {
     expect(grouped.every(isOrgAssignablePermission)).toBe(true);
     expect(grouped).not.toContain('registry:read');
     expect(grouped).not.toContain('registry:write');
+    // System-org-only ecosystem permissions are never offered to a custom Role.
+    expect(grouped).not.toContain('plugins:moderate');
+    expect(grouped).not.toContain('publishers:verify');
+    expect(grouped).toContain('plugins:install');
   });
 
   it('contains every permission the dashboard gates on', () => {

@@ -32,7 +32,8 @@ This reference documents Pipeline Builder's per-org, permission-based access con
   returns the deduplicated union of every assigned Role's permissions. No Role
   assigned → no permissions (a Super Admin short-circuits to all).
 - **Built-in Roles** — every org seeds **Admin** and **Member**; the system org
-  also seeds **Super Admin**. A startup backfill re-syncs each built-in Role's
+  also seeds **Super Admin** and **Ecosystem Manager** (see
+  [Ecosystem Manager](#ecosystem-manager-system-org-only)). A startup backfill re-syncs each built-in Role's
   permission set to the current catalog, so new permissions reach existing orgs.
 - **Custom Roles** — admins with `roles:manage` can author additional Roles from
   the org-assignable catalog (see the carve-out below), bounded by a **permission
@@ -81,7 +82,9 @@ Enforcement lives in exactly two places, so no entity can drift:
 |----------|-------------|-------|
 | Pipelines | `pipelines:read`, `pipelines:write`, `pipelines:publish` | `:publish` allows the `public` rung |
 | Templates | `templates:read`, `templates:write`, `templates:publish` | Golden-path [pipeline templates](templates.md). Split out of `pipelines:*` so a platform team can curate starters without pipeline write access. `:write` covers the `private` and `org` rungs; `:publish` is required for `public`. **Instantiating** a template creates a pipeline, so that still needs `pipelines:write`. |
-| Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung |
+| Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung, and submitting plugin-ecosystem publish requests for the org's `public` versions |
+| Plugin ecosystem | `plugins:install`, `plugin_installs:manage`, `publishers:manage` | [Plugin ecosystem](plans/plugin-ecosystem.md#5a-permissions). `plugins:install` (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only **requests** an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or `breaking` version also needs `plugin_installs:manage`. `plugin_installs:manage` (admin/owner): the org's consumption policy (`PUT /plugins/install-policy`, step-up; `org.plugin-install-policy.update`), approving and denying install requests *within the org* (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices ([Plugin Installing](plugin-installing.md)). `publishers:manage` (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and **submitting** publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org ([Plugin Publishing](plugin-publishing.md)). `plugins:publish` also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only `plugins:read`. Installing is free on every plan and no consumption control is plan-gated. |
+| Plugin ecosystem (system org only) | `plugins:moderate`, `publishers:verify` | **System-org only** — never grantable to a custom Role in any org; held only through the built-in **Ecosystem Manager** Role or as a Super Admin. See the carve-out below. |
 | Compliance | `compliance:read`, `compliance:write` | |
 | Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning) |
 | Observability | `dashboards:read`, `dashboards:write`, `observability:read`, `observability:write`, `logs:export` | `logs:export` is admin/owner by default — viewing logs rides `observability:read`, but DOWNLOADING them is bulk egress an org may withhold from members. See [Logs](observability-logs.md#downloading). |
@@ -107,16 +110,66 @@ list — grant both.
 requested by a custom Role (`sanitizePermissions` strips them), so the only holder
 is a Super Admin via implicit-all.
 
+**System-org-only carve-out.** `plugins:moderate` / `publishers:verify` are in
+`SYSTEM_ORG_ONLY_PERMISSIONS` (predicate `isSystemOrgOnlyPermission`), a second
+non-assignable class next to the registry pair. They govern the plugin
+ecosystem, which only the system org may manage or approve
+([plan §3.0](plans/plugin-ecosystem.md#30-governance-only-the-system-org-manages-or-approves-the-ecosystem)).
+They're in **no** member/admin/owner bundle and a custom Role requesting either
+is rejected with `RL_PERMISSION_NOT_ASSIGNABLE` in **every** org — the system
+org and a Super Admin author included. The only holders are Super Admins
+(implicit-all) and members of the system org's built-in **Ecosystem Manager**
+Role.
+
+The class is enforced in four places, each tested
+(`platform/test/ecosystem-manager-isolation.test.ts` walks every path a tenant
+could try — custom Role, assignment, invitation, IdP mapping, token):
+
+1. **Authoring** — `sanitizePermissions` refuses them in any custom Role.
+2. **Assignment** — only a Super Admin may assign or unassign a Role carrying
+   them, and only inside the system org (below).
+3. **Token issue** — `confinePermissionsToOrg` drops them from the `permissions`
+   claim of every token whose active org is not the system org (user tokens,
+   exchanged keys and service-account tokens alike) — even a Super Admin's
+   implicit-all, and even if a hand-written Role document carried them there.
+4. **Routes** — `requireEcosystemPermission(...)` (below) requires the system
+   org as the caller's active org, the permission, and an MFA-grade session.
+
 ### Built-in Role bundles
 
 - **Member** — the read + author baseline: `pipelines:*` (read/write),
-  `templates:*` (read/write), `plugins:*` (read/write), `compliance:read`, `dashboards:read`,
+  `templates:*` (read/write), `plugins:*` (read/write), `plugins:install`, `compliance:read`, `dashboards:read`,
   `observability:read`, `reports:read`, `messages:read/write`, `billing:read`,
   `quotas:read`. No `:publish`, no management, no `:rollup`.
 - **Admin / Owner** — every **org-assignable** permission (the full catalog minus
-  the Super-Admin-only registry pair). Includes `pipelines:publish`,
-  `templates:publish`, `plugins:publish`, and `reports:rollup`.
-- **Super Admin** — implicit-all, including `registry:*`.
+  the Super-Admin-only registry pair and the system-org-only ecosystem pair).
+  Includes `pipelines:publish`, `templates:publish`, `plugins:publish`,
+  `reports:rollup`, `plugin_installs:manage` and `publishers:manage`.
+- **Ecosystem Manager** (system org only) — `ECOSYSTEM_MANAGER_PERMISSIONS`:
+  `plugins:read`, `plugins:moderate`, `publishers:verify`, `messages:read`,
+  `observability:read`. See below.
+- **Super Admin** — implicit-all, including `registry:*`, `plugins:moderate` and
+  `publishers:verify`.
+
+### Ecosystem Manager (system org only)
+
+The built-in Role for the people who run the plugin ecosystem
+([plan §5a.1](plans/plugin-ecosystem.md#5a1-built-in-role-ecosystem-manager-system-org-only)):
+deciding publish requests, publisher tiers and profile changes, transfers,
+yanks and advisories, and moderating anonymous submissions and reviews. They are
+the only non-superadmins anywhere who hold the system-org-only permissions, and
+they get **no** platform superadmin powers.
+
+| Property | Value |
+|---|---|
+| Exists in | **The system org only.** Seeded by `seedDefaultRoles` next to Super Admin, Admin and Member when the system org is created; never seeded in a tenant org or team. The org creator is **not** added to it. |
+| Immutable | `system: true` — it can't be renamed, edited or deleted (`RL_SYSTEM_IMMUTABLE`). The startup backfill re-syncs it to `ECOSYSTEM_MANAGER_PERMISSIONS` (it is marked `seedBundle: 'ecosystem_manager'`, which is also what keeps it out of the Member-floor lookups it shares `grantsRole: 'member'` with). |
+| `grantsRole` | `member` — no admin rights over the system org, and it **never** sets `User.isSuperAdmin`. |
+| Permissions | `plugins:read`, `plugins:moderate`, `publishers:verify`, `messages:read` (in-app notices), `observability:read` (the moderation-SLA dashboard). Nothing tenant-facing: no `registry:*`, no `members:manage`. |
+| Who can assign it | **Super Admins only.** Assigning **or** unassigning any Role that carries a system-org-only permission is refused for everyone else — an admin or owner of the system org included — with `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN` (403). Such a Role can only be held inside the system org (`RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG`, 400). The same ceiling applies to service-account Role sets, and an IdP group mapping can never grant it (`IGM_FORBIDDEN_GRANT`, like the Super Admin Role). |
+| Audit | Assignment and removal are `org.role.member.add` / `org.role.member.remove` with `affectedOrgId` = the system org and `details.role = 'Ecosystem Manager'`. |
+| Notifications | Every Super Admin and the affected user get **N23** (in-app + email, can't be turned off) when someone is added or removed. Holders are the **Moderators** recipients of the other ecosystem notices ([plan §5b](plans/plugin-ecosystem.md#5b-notifications)); with nobody in the role, Super Admins receive them. |
+| Console | The admin console's **Ecosystem** section (Ecosystem Manager assignment for Super Admins; the publish queue and publisher verification as the workflows land) appears only while the active org is the system org **and** the user holds `plugins:moderate` or `publishers:verify`. Tenant users never see it — this is a governance boundary, so the nav hides it rather than locking it. A holder without an MFA-grade session sees an enrol prompt instead. |
 
 ## Enforcement
 
@@ -144,6 +197,8 @@ request also emits an [`authz.denied` audit event](audit-events.md#action-catalo
 | `requireInternalService({ callers })` | **internal routes** (`/internal/*`, the quota usage counters, the entity-event / audit ingests, the entitlement sync legs): a signed `service:*` token whose name is one of `callers`, never a user token — not even a superadmin's. The name is bound to the signing key, so this is an identity check, not a claim check. Refusals increment `internal_route_refused_total{service,route,reason,caller}` and emit `authz.denied` |
 | `requireAssurance({ minAssurance: 2 })` | the SESSION must have been opened with a second factor (`aal: 2`); a single-factor one gets 401 `MFA_REQUIRED`, a machine credential 403 `HUMAN_SESSION_REQUIRED` |
 | `requireOrgAdminAssurance({ machines })` | the org's **"administrative actions require MFA"** policy: while it is on (the `org_admin_aal` claim), a single-factor session gets 401 `MFA_REQUIRED`; `machines: 'allow'` lets PATs / service accounts through, `'refuse'` answers them 403 `HUMAN_SESSION_REQUIRED`. A no-op while the policy is off |
+| `requireSystemOrg` | the caller's **active org** (token `organizationId`) must be the system org — compared by id, never by name. A token minted in a tenant org is refused 403 `SYSTEM_ORG_REQUIRED` even for the same person, Super Admins included; refusals increment `system_org_guard_refused_total` and emit `authz.denied` (`required: 'system-org'`) |
+| `requireEcosystemPermission(p, …)` | **the** gate for a plugin-ecosystem governance route: `requireSystemOrg` + `requirePermission(p, …)` + `requireAssurance({ minAssurance: 2 })`. Only takes system-org-only permissions (throws at definition time otherwise). Destructive actions add `requireStepUp` on top |
 | `audited('<action>')` | declares the audit action the route's handler emits — metadata for the route table, a no-op at runtime |
 
 ### Assurance tiers
@@ -192,6 +247,13 @@ Every service (and platform) has a `test/route-coverage.test.ts` that fails when
 - a route whose path contains `/internal/` is not gated by `requireInternalService`
   — **with no exception list**: a peer-service API a browser can reach is the
   failure that rule exists to prevent.
+
+The plugin and image-registry tests also run `findSystemOrgGuardViolations`
+(the **governance check**, [plan §3.0](plans/plugin-ecosystem.md#30-governance-only-the-system-org-manages-or-approves-the-ecosystem)):
+any route whose permission gate names a system-org-only permission must also run
+`requireSystemOrg` and require `aal: 2` — again **with no exception list**. It
+passes on a table with no governance route, so it is wired in before the first
+one exists and bites the day one lands without `requireEcosystemPermission`.
 
 An internal route counts as gated on its own (the gate is stricter than any user
 permission), and `findInternalRouteViolations` additionally checks each service's
@@ -466,8 +528,8 @@ POST|DELETE /api/organization/:id/roles/:roleId/members/:uid  # add / remove a R
 ```
 
 `POST` / `PUT` / `DELETE` require `roles:manage`. Custom-Role authoring validates
-the requested permissions against the org-assignable set (the registry carve-out
-is rejected) **and** against the author's own permissions (the permission ceiling
+the requested permissions against the org-assignable set (the registry and
+system-org-only carve-outs are rejected) **and** against the author's own permissions (the permission ceiling
 above) — a request granting a permission the author lacks is rejected `403`.
 
 ### IdP group → Role mappings

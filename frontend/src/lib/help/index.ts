@@ -41,7 +41,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
   corpus ??= (async () => {
     const [
       gettingStarted, pipelines, plugins, aiGeneration, registry,
-      organizationBenefits, onboarding, architectureFlow, developerGuide, developerPortal,
+      organizationBenefits, onboarding, architectureFlow, developerGuide, developerPortal, pluginPublishing, pluginInstalling,
       templates, metadataKeys, cdkUsage, samples, deployment, cliReference,
       deployOperations, serviceMesh, observabilityLogs, doraMetrics, incidentsWebhook,
       authentication, permissions, compliance, auditEvents,
@@ -58,6 +58,8 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       import('./generated/architecture-flow'),
       import('./generated/developer-guide'),
       import('./generated/developer-portal'),
+      import('./generated/plugin-publishing'),
+      import('./generated/plugin-installing'),
       import('./generated/templates'),
       import('./generated/metadata-keys'),
       import('./generated/cdk-usage'),
@@ -97,6 +99,8 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
         topics: [
           pipelines.pipelinesTopic,
           plugins.pluginsTopic,
+          pluginPublishing.pluginPublishingTopic,
+          pluginInstalling.pluginInstallingTopic,
           templates.templatesTopic,
           metadataKeys.metadataKeysTopic,
           cdkUsage.cdkUsageTopic,

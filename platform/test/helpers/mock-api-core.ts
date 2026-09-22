@@ -33,7 +33,11 @@ import {
   ALL_PERMISSIONS,
   ROLE_PERMISSIONS,
   SUPERADMIN_ONLY_PERMISSIONS,
+  SYSTEM_ORG_ONLY_PERMISSIONS,
+  ECOSYSTEM_MANAGER_PERMISSIONS,
   ORG_ASSIGNABLE_PERMISSIONS,
+  isOrgAssignablePermission,
+  isSystemOrgOnlyPermission,
   resolveUserPermissions,
 } from '@pipeline-builder/api-core/lib/types/permissions.js';
 import { scrubAwsIdentifiers } from '@pipeline-builder/api-core/lib/utils/aws-scrub.js';
@@ -113,10 +117,14 @@ const platformDefaults = (): Record<string, unknown> => ({
   ROLE_PERMISSIONS,
   resolveUserPermissions,
   isValidPermission: (value: string) => ALL_PERMISSIONS.includes(value),
-  // Registry carve-out for custom-Role authoring.
+  // Registry + ecosystem carve-outs for custom-Role authoring, and the system
+  // org's Ecosystem Manager seed bundle (the REAL values/predicates).
   SUPERADMIN_ONLY_PERMISSIONS,
+  SYSTEM_ORG_ONLY_PERMISSIONS,
+  ECOSYSTEM_MANAGER_PERMISSIONS,
   ORG_ASSIGNABLE_PERMISSIONS,
-  isOrgAssignablePermission: (p: string) => !SUPERADMIN_ONLY_PERMISSIONS.includes(p),
+  isOrgAssignablePermission,
+  isSystemOrgOnlyPermission,
   // Session-revocation PUBLISHER contract (helpers/session-revocation.ts).
   publishTokenRevocation: jest.fn(async () => undefined),
   publishSessionRevocation: jest.fn(async () => true),

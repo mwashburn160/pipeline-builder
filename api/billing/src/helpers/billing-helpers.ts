@@ -525,7 +525,9 @@ export interface Overage {
 /**
  * Whether applying `newAddons` would drop a COUNT quota's cap below current
  * pooled usage (docs/billing-bundles.md §8). Guards seats (platform),
- * plugins/pipelines (quota) — these can't auto-shrink. Rate-based quotas
+ * plugins/pipelines/listings (quota) — these can't auto-shrink (`listings` is
+ * raised by the `listing_pack` add-on, so removing packs below the org's active
+ * listing count is refused). Rate-based quotas
  * (apiCalls/aiCalls/storage) are NOT guarded (they reset / fail-closed on new
  * consumption). Returns the overages (empty = safe). Fail-open on a usage-read
  * error (a transient outage must not block the user's explicit removal).
@@ -549,7 +551,7 @@ export async function checkEntitlementOvercap(
       overages.push({ quotaType: 'seats', currentUsage: used, targetCap: limits.seats, overage: used - limits.seats });
     }
   }
-  for (const field of ['plugins', 'pipelines'] as const) {
+  for (const field of ['plugins', 'pipelines', 'listings'] as const) {
     if (limits[field] === -1) continue;
     const used = await fetchQuotaTypeUsage(orgId, field, auth);
     if (used !== null && used > limits[field]) {
@@ -632,7 +634,8 @@ async function applyEntitlements(
   occurredAt: string = new Date().toISOString(),
 ): Promise<boolean> {
   const { limits, features } = effectiveEntitlements(tier, addons, getBundleCatalog());
-  // The 9 tracked types go to quota; `seats` + purchased feature entitlements
+  // Every tracked type (VALID_QUOTA_TYPES, incl. `listings` raised by
+  // `listing_pack`) goes to quota; `seats` + purchased feature entitlements
   // go to platform (platform owns both); retention days go to reporting.
   const tracked: Record<string, number> = {};
   for (const t of VALID_QUOTA_TYPES) tracked[t] = limits[t];

@@ -14,7 +14,8 @@
  */
 
 import type { Plugin } from '@/types';
-import type { FormBuilderState, FormStage } from '@/types/form-types';
+import type { FormBuilderState, FormPluginOptions, FormStage } from '@/types/form-types';
+import type { CatalogEntry } from '@/types/plugin-installs';
 
 /** A single artifact key option for the autocomplete dropdown. */
 export interface ArtifactKeyOption {
@@ -33,15 +34,51 @@ export interface ArtifactKeyGroup {
 }
 
 /**
- * Look up a plugin's `primaryOutputDirectory` by name from the plugin list.
- * Returns the default version (isDefault=true) first, otherwise the first match.
+ * The plugin-alias segment of an artifact key and the pipeline's lookup key for
+ * a plugin reference. Mirrors pipeline-core's `pluginArtifactAlias` exactly:
+ * the explicit alias, else `<publisher>-<name>-alias` for a publisher-qualified
+ * reference, else `<name>-alias`.
  */
-function getOutputDir(plugins: Plugin[], pluginName: string): string | undefined {
-  if (!pluginName) return undefined;
-  const matches = plugins.filter((p) => p.name === pluginName);
-  const defaultMatch = matches.find((p) => p.isDefault);
-  const plugin = defaultMatch ?? matches[0];
-  return plugin?.primaryOutputDirectory ?? undefined;
+export function pluginArtifactAlias(plugin: { alias?: string | null; publisher?: string | null; name: string }): string {
+  if (plugin.alias) return plugin.alias;
+  return plugin.publisher ? `${plugin.publisher}-${plugin.name}-alias` : `${plugin.name}-alias`;
+}
+
+/** Where a step's plugin can come from: the org's own plugins and the in-app catalog's listings. */
+export interface PluginOutputSources {
+  /** Own-org plugin rows (`GET /plugins`). */
+  plugins: Plugin[];
+  /** Catalog entries (`GET /plugins/catalog`) — listings resolve through installs. */
+  catalog?: CatalogEntry[];
+}
+
+/**
+ * Look up the `primaryOutputDirectory` a plugin reference resolves to.
+ *
+ * - `publisher` set: only that publisher's listing (through its install).
+ * - unqualified: the org's own plugin of that name first (default version,
+ *   else the first match), then a listing whose pipeline reference is the bare
+ *   name (the implicit Official install).
+ */
+function getOutputDir(sources: PluginOutputSources, ref: Pick<FormPluginOptions, 'publisher' | 'name'>): string | undefined {
+  const { name } = ref;
+  if (!name) return undefined;
+  const publisher = ref.publisher?.trim() ?? '';
+  const catalog = sources.catalog ?? [];
+  if (publisher) {
+    const entry = catalog.find((e) => e.listing.publisherHandle === publisher && e.listing.name === name);
+    return entry?.resolved?.primaryOutputDirectory ?? undefined;
+  }
+  const matches = sources.plugins.filter((p) => p.name === name);
+  const own = matches.find((p) => p.isDefault) ?? matches[0];
+  if (own) return own.primaryOutputDirectory ?? undefined;
+  const entry = catalog.find((e) => !e.reference.publisher && e.reference.name === name);
+  return entry?.resolved?.primaryOutputDirectory ?? undefined;
+}
+
+/** `publisher/name` for a qualified reference, else the bare name. */
+function refLabel(ref: Pick<FormPluginOptions, 'publisher' | 'name'>): string {
+  return ref.publisher ? `${ref.publisher}/${ref.name}` : ref.name;
 }
 
 /**
@@ -65,7 +102,7 @@ function buildKey(
  *
  * @param synth - Current synth configuration from form state
  * @param stages - All pipeline stages from form state
- * @param plugins - Loaded plugin list (with primaryOutputDirectory)
+ * @param sources - Own plugins and catalog listings (with primaryOutputDirectory)
  * @param currentStageIndex - Index of the stage being edited
  * @param currentStepIndex - Index of the step being edited within the stage
  * @returns Flat list of artifact key options
@@ -73,7 +110,7 @@ function buildKey(
 export function computeAvailableArtifacts(
   synth: FormBuilderState['synth'],
   stages: FormStage[],
-  plugins: Plugin[],
+  sources: PluginOutputSources,
   currentStageIndex: number,
   currentStepIndex: number,
 ): ArtifactKeyOption[] {
@@ -81,13 +118,13 @@ export function computeAvailableArtifacts(
 
   // Synth step artifact
   const synthPluginName = synth.plugin.name;
-  const synthOutputDir = getOutputDir(plugins, synthPluginName);
+  const synthOutputDir = getOutputDir(sources, synth.plugin);
   if (synthPluginName && synthOutputDir) {
-    const synthAlias = synth.plugin.alias || `${synthPluginName}-alias`;
+    const synthAlias = pluginArtifactAlias(synth.plugin);
     const key = buildKey('no-stage', 'no-stage-alias', synthPluginName, synthAlias, synthOutputDir);
     options.push({
       key,
-      label: `${synthPluginName} → ${synthOutputDir}`,
+      label: `${refLabel(synth.plugin)} → ${synthOutputDir}`,
       category: 'Synth',
     });
   }
@@ -103,14 +140,14 @@ export function computeAvailableArtifacts(
       const step = stage.steps[stepi];
       if (!step) continue;
       const pluginName = step.plugin.name;
-      const outputDir = getOutputDir(plugins, pluginName);
+      const outputDir = getOutputDir(sources, step.plugin);
       if (!pluginName || !outputDir) continue;
 
-      const pluginAlias = step.plugin.alias || `${pluginName}-alias`;
+      const pluginAlias = pluginArtifactAlias(step.plugin);
       const key = buildKey(stageName, stageAlias, pluginName, pluginAlias, outputDir);
       options.push({
         key,
-        label: `${pluginName} → ${outputDir}`,
+        label: `${refLabel(step.plugin)} → ${outputDir}`,
         category: stageName,
       });
     }

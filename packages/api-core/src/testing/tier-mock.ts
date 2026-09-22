@@ -44,6 +44,7 @@ const uncappedLimits = (): QuotaTierLimits => ({
   alertRules: -1,
   alertDestinations: -1,
   idpConfigs: -1,
+  listings: -1,
   eventRetentionDays: -1,
   doraRetentionDays: -1,
 });

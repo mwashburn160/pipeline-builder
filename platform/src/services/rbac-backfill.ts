@@ -3,9 +3,9 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
-import { permissionsForGrantsRole } from './role-authority.js';
+import { builtinRolePermissions } from './role-authority.js';
 import { Role, RoleAssignment, UserOrganization } from '../models/index.js';
-import type { RoleGrant } from '../models/index.js';
+import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
 const logger = createLogger('rbac-backfill');
 
@@ -53,12 +53,17 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // Idempotent: a Role already carrying the exact bundle is skipped (no write, not
   // counted). Scoped to system Roles only — user-authored custom Roles (system:false)
   // are never touched.
+  // A named-bundle Role (the system org's Ecosystem Manager) re-syncs to ITS
+  // bundle, never to the Member bundle it shares `grantsRole: 'member'` with.
   const builtinRoles = await Role.find({ system: true })
-    .select('_id grantsRole permissions').lean();
+    .select('_id grantsRole seedBundle permissions').lean();
 
   let rolesBackfilled = 0;
   for (const g of builtinRoles) {
-    const desired = permissionsForGrantsRole(g.grantsRole as RoleGrant);
+    const desired = builtinRolePermissions({
+      grantsRole: g.grantsRole as RoleGrant,
+      seedBundle: g.seedBundle as RoleSeedBundle | undefined,
+    });
     const current = (g.permissions as string[] | undefined) ?? [];
     if (permissionSetsEqual(current, desired)) continue; // already in sync — no-op
     await Role.updateOne({ _id: g._id }, { $set: { permissions: desired } });
@@ -71,9 +76,12 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // ── Pass B: ensure each active member holds the Role matching their role ────
   // Build org → { member, admin } built-in-Role id map, keyed off the stable
   // `grantsRole` (name-independent).
+  // `seedBundle: null` keeps the Ecosystem Manager (grantsRole 'member') out of
+  // the Member slot — no member is ever auto-assigned an ecosystem Role.
   const builtins = await Role.find({
     system: true,
     grantsRole: { $in: ['member', 'admin'] },
+    seedBundle: null,
   }).select('_id organizationId grantsRole').lean();
 
   const byOrg = new Map<string, { member?: Types.ObjectId; admin?: Types.ObjectId }>();

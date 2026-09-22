@@ -102,3 +102,14 @@ env:
   APPROVAL_MESSAGE: "Pipeline requires manual approval"
   APPROVAL_TIMEOUT: "3600"
   APPROVAL_URL: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.aws.amazon.com/sns/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/infrastructure/manual-approval-custom
+# icon: none — generic pipeline step with no vendor (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "*.amazonaws.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

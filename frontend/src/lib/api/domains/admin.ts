@@ -36,6 +36,8 @@ export function adminApi(core: ApiCore) {
       affectedOrgId?: string;
       actorId?: string;
       action?: string;
+      /** Action group, comma-separated: `foo.` = prefix, else exact action. */
+      actions?: string;
       targetType?: string;
       targetId?: string;
       /** Permission role the event concerns (`org.role.*` actions). */

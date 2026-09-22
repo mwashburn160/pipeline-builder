@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { API_KEY_TOKEN_TTL_SECONDS, createLogger, intersectPermissions, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
+import { API_KEY_TOKEN_TTL_SECONDS, confinePermissionsToOrg, createLogger, intersectPermissions, isSystemOrgId, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
 import type { AssuranceLevel, AuthMethod, TokenScope, TokenUse, QuotaTier } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Types } from 'mongoose';
@@ -193,11 +193,18 @@ function createAccessTokenPayload(
     // Permission-scoped credentials: subset ∩ current (see above). The holder's
     // superadmin flag still counts toward "current" — it is the SUBSET that
     // bounds the token, never the flag.
+    // System-org-only ecosystem permissions (`plugins:moderate`,
+    // `publishers:verify`) are confined to the SYSTEM org: a token minted in any
+    // tenant org never claims them — not even a superadmin's implicit-all
+    // (plugin-ecosystem §5a, G22).
     permissions: scope
       ? []
-      : restricted
-        ? intersectPermissions(resolveUserPermissions(membership?.rolePermissions, holderIsSuperAdmin), subset!)
-        : resolveUserPermissions(membership?.rolePermissions, isSuperAdmin),
+      : confinePermissionsToOrg(
+        restricted
+          ? intersectPermissions(resolveUserPermissions(membership?.rolePermissions, holderIsSuperAdmin), subset!)
+          : resolveUserPermissions(membership?.rolePermissions, isSuperAdmin),
+        isSystemOrgId(membership?.organizationId),
+      ),
     ...(scope ? { scope } : {}),
     ...(restricted ? { permissionsRestricted: true } : {}),
     tokenVersion: user.tokenVersion,
@@ -814,7 +821,10 @@ export async function signServiceAccountToken(
       isSuperAdmin: account.isSuperAdmin,
       accountFeatures: account.featureEntitlements,
     }),
-    permissions: scope ? [] : resolveUserPermissions(account.rolePermissions, account.isSuperAdmin),
+    permissions: scope ? [] : confinePermissionsToOrg(
+      resolveUserPermissions(account.rolePermissions, account.isSuperAdmin),
+      isSystemOrgId(account.organizationId),
+    ),
     ...(scope ? { scope } : {}),
     // Service accounts have no email identity to verify; every route that gates
     // on verification is a human-onboarding route.

@@ -10,8 +10,9 @@
 FROM pipeline-node-base:1.0
 
 # TODO(confirm): pin the intended Prettier version at build time.
-ARG PRETTIER_VERSION=3.4.2
+ARG PRETTIER_VERSION=3.9.8
 RUN npm install -g "prettier@${PRETTIER_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

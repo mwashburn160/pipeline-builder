@@ -341,6 +341,9 @@ services:
       # NOSUPERUSER NOBYPASSRLS application role every service logs in as.
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
+      # Read by postgres-init.sql to create the view-only ecosystem_public_reader
+      # login the anonymous plugin directory uses (empty → role not created).
+      ECOSYSTEM_PUBLIC_READER_PASSWORD: ${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}
     volumes:
       - './data/db-data/postgres/:/var/lib/postgresql:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
@@ -376,6 +379,24 @@ services:
       LISTEN_PORT: '6432'
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
+      # The second pooled login: the view-only ecosystem_public_reader behind the
+      # anonymous plugin directory (pgbouncer.ini's `pipeline_builder_public`
+      # pool). Every Postgres client goes through this pooler — none connects to
+      # Postgres directly.
+      ECOSYSTEM_PUBLIC_READER_PASSWORD: ${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}
+    # Seed the reader into userlist.txt, then hand off to the image's own
+    # entrypoint, which appends the DB_USER app role (it only adds users that are
+    # missing). The password is written in userlist form: double quotes doubled.
+    # No password → no reader line → the directory's logins are refused here.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        if [ -n "$${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}" ] && ! grep -q '^"ecosystem_public_reader"' /etc/pgbouncer/userlist.txt 2>/dev/null; then
+          printf '"ecosystem_public_reader" "%s"\n' "$$(printf '%s' "$$ECOSYSTEM_PUBLIC_READER_PASSWORD" | sed 's/"/""/g')" >> /etc/pgbouncer/userlist.txt
+        fi
+        exec /entrypoint.sh /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
     volumes:
       - './config/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro'
     depends_on:
@@ -629,6 +650,7 @@ services:
       QUOTA_TIER_DEVELOPER_ALERT_RULES: ${QUOTA_TIER_DEVELOPER_ALERT_RULES:-}
       QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS: ${QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS:-}
       QUOTA_TIER_DEVELOPER_IDP_CONFIGS: ${QUOTA_TIER_DEVELOPER_IDP_CONFIGS:-}
+      QUOTA_TIER_DEVELOPER_LISTINGS: ${QUOTA_TIER_DEVELOPER_LISTINGS:-}
       QUOTA_TIER_DEVELOPER_SEATS: ${QUOTA_TIER_DEVELOPER_SEATS:-}
       # Default tier for new orgs + per-tier access-token TTLs (platform reads these)
       DEFAULT_QUOTA_TIER: ${DEFAULT_QUOTA_TIER:-}
@@ -741,7 +763,34 @@ services:
       # Signing itself is image-registry's job (IMAGE_REGISTRY_SERVICE_HOST/PORT
       # default to image-registry:3000, this stack's service name).
       PLUGIN_SIGNING_PUBLIC_KEY_FILE: ${PLUGIN_SIGNING_PUBLIC_KEY_FILE:-/etc/pipeline-builder/plugin-signing/plugin-signing.pub}
+      # Vulnerability DB for grype (build-time scan + nightly rescan). The
+      # `grype-db` named volume keeps it across restarts (a fresh DB download is
+      # hundreds of MB) and inherits the image dir's node ownership.
+      GRYPE_DB_CACHE_DIR: /var/cache/grype
+      # Anonymous public plugin directory: served by this service, read through
+      # pgbouncer (DB_HOST/DB_PORT above) from the `pipeline_builder_public` pool
+      # as the view-only ecosystem_public_reader — never as DB_USER.
+      ECOSYSTEM_PUBLIC_READER_PASSWORD: ${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}
+      PUBLIC_DIRECTORY_DB_NAME: ${PUBLIC_DIRECTORY_DB_NAME:-pipeline_builder_public}
+      # Plugin ecosystem flags (docs/plans/plugin-ecosystem.md §9).
+      PUBLIC_DIRECTORY_ENABLED: ${PUBLIC_DIRECTORY_ENABLED:-true}
+      PLUGIN_PUBLISHING_ENABLED: ${PLUGIN_PUBLISHING_ENABLED:-false}
+      PLUGIN_REVIEWS_ENABLED: ${PLUGIN_REVIEWS_ENABLED:-true}
+      ANONYMOUS_SUBMISSIONS_ENABLED: ${ANONYMOUS_SUBMISSIONS_ENABLED:-false}
+      OFFICIAL_AUTO_APPROVAL_ENABLED: ${OFFICIAL_AUTO_APPROVAL_ENABLED:-true}
+      # Anonymous submissions (§4.2, W5). Quarantine builds run ONLY on the
+      # isolated buildkitd-quarantine below — never on BUILDKIT_HOST (no fallback:
+      # the plugin service fails closed without it). The zip waits in its own
+      # bucket (30-day expiry), same bucket-scoped MinIO credentials as S3_BUCKET.
+      PLUGIN_QUARANTINE_BUILDKIT_ADDR: ${PLUGIN_QUARANTINE_BUILDKIT_ADDR:-tcp://buildkitd-quarantine:1234}
+      PLUGIN_QUARANTINE_BUCKET: ${PLUGIN_QUARANTINE_BUCKET:-plugin-quarantine}
+      SUBMISSION_POW_SECRET: ${SUBMISSION_POW_SECRET:-}
+      SUBMISSION_POW_DIFFICULTY: ${SUBMISSION_POW_DIFFICULTY:-20}
+      SUBMISSION_EMAIL_HASH_SECRET: ${SUBMISSION_EMAIL_HASH_SECRET:-}
+      SUBMISSION_BUILD_TIMEOUT_SECONDS: ${SUBMISSION_BUILD_TIMEOUT_SECONDS:-900}
+      SUBMISSION_MAX_ZIP_BYTES: ${SUBMISSION_MAX_ZIP_BYTES:-52428800}
     volumes:
+      - grype-db:/var/cache/grype
       # Host ./data/plugins-data → container /data/plugins-data (per-node build
       # scratch: transient ZIP + extract dir). Symmetric naming makes "what's in
       # the laptop dir" obvious from inside the container too.
@@ -755,12 +804,17 @@ services:
       - ./certs/service-keys/plugin.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
       - backend-network
+      # Reaches buildkitd-quarantine (and nothing else lives there but the
+      # registry pair the quarantine builder pushes to).
+      - quarantine-network
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       buildkitd:
+        condition: service_healthy
+      buildkitd-quarantine:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
@@ -836,6 +890,67 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # QUARANTINE BuildKit daemon — anonymous plugin submissions ONLY
+  # (docs/plans/plugin-ecosystem.md §4.2 "Isolated build pool", W5).
+  #
+  # Runs the Dockerfile RUN steps of zips uploaded by people who are not logged
+  # in, so it is the least-trusted workload in the stack and is kept apart from
+  # the tenant `buildkitd` above on every axis compose can express:
+  #   - its OWN network (quarantine-network): the only other members are the
+  #     plugin service (the one client), the registry (push quarantine/<id>, pull
+  #     base images through the mirror) and image-registry (the registry token
+  #     realm). Postgres, Redis, MinIO, platform and every other service are on
+  #     backend-network only, which this container is NOT attached to.
+  #   - no environment at all (no credentials, no service keys), no volumes but
+  #     its own cache and read-only config, and a smaller CPU/memory cap. Registry
+  #     push credentials never live here: buildctl in the plugin service hands a
+  #     short-lived, quarantine/-scoped token over the build session.
+  #   - its own buildkitd.toml (package-mirror/registry settings only).
+  # Compose has no FQDN egress filter, so outbound internet (package mirrors) is
+  # NOT narrowed here as it is on the k8s targets' NetworkPolicies/Cilium set —
+  # this target is a local dev stack, and the flag stays off by default.
+  # platform/test/deploy-quarantine-builder-contract.test.ts pins all of this.
+  # ---------------------------------------------------------------------------
+  buildkitd-quarantine:
+    image: 'moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88'  # moby/buildkit:v0.32.1-rootless
+    container_name: buildkitd-quarantine
+    restart: always
+    stop_grace_period: 5s
+    user: "1000:1000"
+    # Same rootless requirements as the tenant buildkitd (newuidmap + unshare).
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    command:
+      - --addr
+      - tcp://0.0.0.0:1234
+      - --oci-worker-no-process-sandbox
+      - --config
+      - /home/user/.config/buildkit/buildkitd.toml
+    expose:
+      - "1234"
+    volumes:
+      - 'buildkit-quarantine-cache:/home/user/.local/share/buildkit:rw'
+      - './config/buildkitd-quarantine/buildkitd.toml:/home/user/.config/buildkit/buildkitd.toml:ro'
+    networks:
+      - quarantine-network
+    healthcheck:
+      test: ["CMD", "buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2048M
+          pids: 1024
+        reservations:
+          cpus: '0.1'
+          memory: 256M
 
   pipeline:
     image: 'ghcr.io/mwashburn160/pipeline:4.1.14'
@@ -988,6 +1103,7 @@ services:
       QUOTA_TIER_DEVELOPER_ALERT_RULES: ${QUOTA_TIER_DEVELOPER_ALERT_RULES:-}
       QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS: ${QUOTA_TIER_DEVELOPER_ALERT_DESTINATIONS:-}
       QUOTA_TIER_DEVELOPER_IDP_CONFIGS: ${QUOTA_TIER_DEVELOPER_IDP_CONFIGS:-}
+      QUOTA_TIER_DEVELOPER_LISTINGS: ${QUOTA_TIER_DEVELOPER_LISTINGS:-}
       QUOTA_TIER_DEVELOPER_SEATS: ${QUOTA_TIER_DEVELOPER_SEATS:-}
       QUOTA_TIER_PRO_PLUGINS: ${QUOTA_TIER_PRO_PLUGINS:-}
       QUOTA_TIER_PRO_PIPELINES: ${QUOTA_TIER_PRO_PIPELINES:-}
@@ -998,6 +1114,7 @@ services:
       QUOTA_TIER_PRO_ALERT_RULES: ${QUOTA_TIER_PRO_ALERT_RULES:-}
       QUOTA_TIER_PRO_ALERT_DESTINATIONS: ${QUOTA_TIER_PRO_ALERT_DESTINATIONS:-}
       QUOTA_TIER_PRO_IDP_CONFIGS: ${QUOTA_TIER_PRO_IDP_CONFIGS:-}
+      QUOTA_TIER_PRO_LISTINGS: ${QUOTA_TIER_PRO_LISTINGS:-}
       QUOTA_TIER_PRO_SEATS: ${QUOTA_TIER_PRO_SEATS:-}
       QUOTA_TIER_TEAM_PLUGINS: ${QUOTA_TIER_TEAM_PLUGINS:-}
       QUOTA_TIER_TEAM_PIPELINES: ${QUOTA_TIER_TEAM_PIPELINES:-}
@@ -1008,6 +1125,7 @@ services:
       QUOTA_TIER_TEAM_ALERT_RULES: ${QUOTA_TIER_TEAM_ALERT_RULES:-}
       QUOTA_TIER_TEAM_ALERT_DESTINATIONS: ${QUOTA_TIER_TEAM_ALERT_DESTINATIONS:-}
       QUOTA_TIER_TEAM_IDP_CONFIGS: ${QUOTA_TIER_TEAM_IDP_CONFIGS:-}
+      QUOTA_TIER_TEAM_LISTINGS: ${QUOTA_TIER_TEAM_LISTINGS:-}
       QUOTA_TIER_TEAM_SEATS: ${QUOTA_TIER_TEAM_SEATS:-}
       QUOTA_TIER_ENTERPRISE_PLUGINS: ${QUOTA_TIER_ENTERPRISE_PLUGINS:-}
       QUOTA_TIER_ENTERPRISE_PIPELINES: ${QUOTA_TIER_ENTERPRISE_PIPELINES:-}
@@ -1018,6 +1136,7 @@ services:
       QUOTA_TIER_ENTERPRISE_ALERT_RULES: ${QUOTA_TIER_ENTERPRISE_ALERT_RULES:-}
       QUOTA_TIER_ENTERPRISE_ALERT_DESTINATIONS: ${QUOTA_TIER_ENTERPRISE_ALERT_DESTINATIONS:-}
       QUOTA_TIER_ENTERPRISE_IDP_CONFIGS: ${QUOTA_TIER_ENTERPRISE_IDP_CONFIGS:-}
+      QUOTA_TIER_ENTERPRISE_LISTINGS: ${QUOTA_TIER_ENTERPRISE_LISTINGS:-}
       QUOTA_TIER_ENTERPRISE_SEATS: ${QUOTA_TIER_ENTERPRISE_SEATS:-}
       QUOTA_TIER_DEVELOPER_LABEL: ${QUOTA_TIER_DEVELOPER_LABEL:-}
       QUOTA_TIER_PRO_LABEL: ${QUOTA_TIER_PRO_LABEL:-}
@@ -1102,6 +1221,8 @@ services:
     networks:
       - backend-network
       - proxy-network
+      # The registry token realm for buildkitd-quarantine's pushes/pulls.
+      - quarantine-network
     healthcheck: *api-healthcheck
     deploy:
       resources:
@@ -1249,7 +1370,7 @@ services:
       mongodb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/mongo-express/status"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8081/mongo-express/status"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -1280,7 +1401,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/misc/ping"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/misc/ping"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1371,7 +1492,7 @@ services:
         }
         until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
         # One bucket + one bucket-scoped user per consumer (no shared root creds).
-        for b in message-attachments registry loki thanos plugins; do mc mb --ignore-existing "local/$$b"; done
+        for b in message-attachments registry loki thanos plugins plugin-quarantine; do mc mb --ignore-existing "local/$$b"; done
         # Versioning on user data (attachments) for accidental-delete protection +
         # a lifecycle rule to expire non-current versions so it stays bounded.
         # NOT enabled on loki/registry/thanos/plugins — they churn objects and
@@ -1385,6 +1506,10 @@ services:
         # each after its build, but expire after 7 days as a backstop so a missed
         # delete (crash between build + cleanup) can't grow the bucket unbounded.
         run_ok "ilm expire plugins" mc ilm rule add --expire-days 7 local/plugins
+        # plugin-quarantine holds anonymous-submission zips (plugin-ecosystem
+        # §4.2): 30 days is the quarantine retention promise (§8, G46), the same
+        # window as a pending submission's expiry and the quarantine/* registry GC.
+        run_ok "ilm expire plugin-quarantine" mc ilm rule add --expire-days 30 local/plugin-quarantine
         make_user() {  # $1=bucket  $2=policy  $3=access  $4=secret
           echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$$1\",\"arn:aws:s3:::$$1/*\"]}]}" > /tmp/p.json
           run_ok "policy create $$2" mc admin policy create local "$$2" /tmp/p.json
@@ -1399,6 +1524,11 @@ services:
         make_user loki                loki-rw                "$$LOKI_S3_ACCESS_KEY"     "$$LOKI_S3_SECRET_KEY"
         make_user thanos              thanos-rw              "$$THANOS_S3_ACCESS_KEY"   "$$THANOS_S3_SECRET_KEY"
         make_user plugins             plugins-rw             "$$PLUGIN_S3_ACCESS_KEY"   "$$PLUGIN_S3_SECRET_KEY"
+        # The plugin service's SAME bucket-scoped user also gets plugin-quarantine
+        # (a second policy attached to it — no new credential to distribute).
+        echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
+        run_ok "policy create plugin-quarantine-rw" mc admin policy create local plugin-quarantine-rw /tmp/q.json
+        run_ok "policy attach plugin-quarantine-rw -> plugins user" mc admin policy attach local plugin-quarantine-rw --user "$$PLUGIN_S3_ACCESS_KEY"
         echo 'minio-init done'
 
   # ---------------------------------------------------------------------------
@@ -1453,8 +1583,10 @@ services:
     networks:
       - proxy-network
       - backend-network
+      # buildkitd-quarantine pushes quarantine/<id> and pulls base images here.
+      - quarantine-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:5001/debug/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO /dev/null http://127.0.0.1:5001/debug/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1515,7 +1647,7 @@ services:
     depends_on:
       - prometheus
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -1549,7 +1681,7 @@ services:
     networks:
       - backend-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/ready"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:9090/-/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1582,7 +1714,8 @@ services:
       - '--http-address=0.0.0.0:10902'
       - '--grpc-address=0.0.0.0:10901'
     volumes:
-      - './data/db-data/prometheus/:/prometheus:ro'
+      # :rw — the shipper writes thanos.shipper.json into the TSDB dir.
+      - './data/db-data/prometheus/:/prometheus:rw'
       - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
     networks:
       - backend-network
@@ -1619,6 +1752,11 @@ services:
       - '--grpc-address=0.0.0.0:10901'
     volumes:
       - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+    # The image runs as uid 1001 and /var is root:root 755, so the data-dir can't
+    # be created in the image fs. Rebuildable cache — tmpfs mirrors the k8s
+    # emptyDir. Size-capped: tmpfs is RAM.
+    tmpfs:
+      - '/var/thanos/store:mode=1777,size=512m'
     networks:
       - backend-network
     depends_on:
@@ -1669,6 +1807,11 @@ services:
       - '--downsample.concurrency=1'
     volumes:
       - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+    # Scratch space for downloaded/compacted blocks (uid 1001 can't mkdir under
+    # root-owned /var). tmpfs mirrors the k8s emptyDir; size-capped because it's
+    # RAM — raise it if compaction of larger blocks fails with ENOSPC.
+    tmpfs:
+      - '/var/thanos/compact:mode=1777,size=2g'
     networks:
       - backend-network
     depends_on:
@@ -1744,7 +1887,7 @@ services:
     networks:
       - backend-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/ready"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:9093/-/ready"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1900,10 +2043,23 @@ networks:
   backend-network:
     name: backend-network
     driver: bridge
+  # The anonymous-submission build sandbox's network (see buildkitd-quarantine):
+  # plugin (client), registry + image-registry (push target / token realm) and
+  # the quarantine buildkitd — nothing that holds tenant data.
+  quarantine-network:
+    name: quarantine-network
+    driver: bridge
 
 volumes:
   ask-model-models:
+  # The plugin service's grype vulnerability DB (see GRYPE_DB_CACHE_DIR on the
+  # plugin service). A named volume rather than a ./data bind mount so it
+  # inherits the image's node-owned /var/cache/grype.
+  grype-db:
   # buildkit-cache is the *only* named volume in this compose — see the
   # rationale on the buildkitd service. Everything else uses bind mounts
   # under ./data/ for one-command wipeability.
   buildkit-cache:
+  # The quarantine buildkitd's layer cache — kept apart from the tenant one so
+  # an anonymous build can never read or poison a tenant build's cached layers.
+  buildkit-quarantine-cache:

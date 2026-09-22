@@ -6,6 +6,7 @@ import {
   validateTemplates,
   detectCycles,
   allowedScopeRoots,
+  pipelineScopeMetadata,
   resolveSelfReferencing,
 } from '@pipeline-builder/pipeline-core';
 
@@ -55,10 +56,27 @@ function fieldToScopePath(field: string): string | null {
  */
 export interface PipelineLike {
   project?: unknown;
-  metadata?: unknown;
+  /** Pipeline metadata, layered as synth merges it (see `pipelineScopeMetadata`). */
+  global?: unknown;
+  defaults?: unknown;
+  synth?: unknown;
   vars?: unknown;
   /** Create/update bodies + DB rows nest the templatable fields here (BuilderProps). */
   props?: PipelineLike;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
+}
+
+/**
+ * The templatable view of a pipeline: `project`, `vars`, and `metadata` AS SYNTH
+ * SEES IT — `global` ← `defaults.metadata` ← `synth.metadata` (last wins), the
+ * one shared definition in pipeline-core. BuilderProps has no `metadata` field,
+ * so reading one validated nothing.
+ */
+function templatableView(src: PipelineLike): { project: unknown; metadata: Record<string, unknown>; vars: unknown } {
+  return { project: src.project, metadata: { ...pipelineScopeMetadata(src) }, vars: src.vars };
 }
 
 /**
@@ -70,12 +88,7 @@ export function validatePipelineTemplates(pipeline: PipelineLike): void {
   // (BuilderProps) — without descending into it, validation reads undefined and
   // silently passes every document. Fall back to the top level for callers that
   // pass the props object directly.
-  const src = pipeline.props ?? pipeline;
-  const doc = {
-    project: src.project,
-    metadata: src.metadata,
-    vars: src.vars,
-  };
+  const doc = templatableView(pipeline.props ?? pipeline);
 
   // Shape check (parse errors, unknown roots, reserved secrets.*)
   const { valid, errors } = validateTemplates(doc, isPipelineTemplatable, isPipelineKnownPath);
@@ -101,15 +114,13 @@ export function validatePipelineTemplates(pipeline: PipelineLike): void {
  * the same object. Errors on unresolved paths or cycles.
  */
 export function resolvePipeline<T extends PipelineLike>(pipeline: T): T {
-  // Resolve in place against `props` when present (that's where metadata/vars/
-  // project live) — otherwise the placeholders are never expanded.
-  const target = (pipeline.props ?? pipeline) as unknown as Record<string, unknown>;
-  const scope = {
-    metadata: (target.metadata as Record<string, unknown>) ?? {},
-    vars: (target.vars as Record<string, unknown>) ?? {},
-  };
+  // Resolve against `props` when present (that's where the fields live).
+  const target = (pipeline.props ?? pipeline) as PipelineLike;
+  const doc = templatableView(target);
+  const vars = asRecord(doc.vars) ?? {};
+  const scope = { metadata: doc.metadata, vars };
   const { errors } = resolveSelfReferencing(
-    target,
+    doc as unknown as Record<string, unknown>,
     scope,
     isPipelineTemplatable,
     fieldToScopePath,
@@ -120,6 +131,20 @@ export function resolvePipeline<T extends PipelineLike>(pipeline: T): T {
       errors.map(e => `  • [${e.field ?? '?'}] ${e.message}`).join('\n'),
     );
   }
+
+  // Write back. `vars` was resolved in place. Each metadata key is written to
+  // the layer synth takes it from (the last one that sets it), so an
+  // overridden lower-layer value is left as the author wrote it.
+  const writable = target as Record<string, unknown>;
+  if (typeof doc.project === 'string') writable.project = doc.project;
+  const layers = [
+    asRecord(asRecord(target.synth)?.metadata),
+    asRecord(asRecord(target.defaults)?.metadata),
+    asRecord(target.global),
+  ];
+  for (const [key, value] of Object.entries(doc.metadata)) {
+    const owner = layers.find((layer) => layer && Object.prototype.hasOwnProperty.call(layer, key));
+    if (owner) owner[key] = value;
+  }
   return pipeline;
 }
-

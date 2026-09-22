@@ -19,12 +19,21 @@ const P3 = '33333333-3333-4333-8333-333333333333';
 const mockUpdateMany = jest.fn();
 const mockFindByIds = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue([]);
 const mockBulkDelete = jest.fn();
+const mockDeleteBlockers = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue({ frozen: false, listed: false, inUse: 0 });
+const mockClearQuotaSnapshot = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue(undefined);
+const mockPromoteNextDefault = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue(null);
+const mockDecrementQuota = jest.fn();
+const mockVersionImmutability = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue(null);
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     updateMany: mockUpdateMany,
     bulkDelete: mockBulkDelete,
     findByIds: mockFindByIds,
+    deleteBlockers: mockDeleteBlockers,
+    clearQuotaSnapshot: mockClearQuotaSnapshot,
+    promoteNextDefault: mockPromoteNextDefault,
+    versionImmutability: mockVersionImmutability,
   },
 }));
 
@@ -38,6 +47,7 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  decrementQuota: mockDecrementQuota,
   createComplianceClient: () => ({ validatePlugin: mockValidatePlugin }),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
@@ -194,6 +204,74 @@ describe('POST /plugins/bulk/delete — visibility ladder parity', () => {
   });
 });
 
+describe('POST /plugins/bulk/delete — delete safety (W0.5)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFindByIds.mockResolvedValue([]);
+    mockDeleteBlockers.mockResolvedValue({ frozen: false, listed: false, inUse: 0 });
+  });
+
+  it('skips frozen, listed and in-use versions (no force in bulk) and deletes the rest', async () => {
+    mockFindByIds.mockResolvedValue([
+      { id: P1, orgId: 'org-1' }, { id: P2, orgId: 'org-1' }, { id: P3, orgId: 'org-1' },
+    ]);
+    mockDeleteBlockers
+      .mockResolvedValueOnce({ frozen: true, listed: false, inUse: 0 })
+      .mockResolvedValueOnce({ frozen: false, listed: true, inUse: 0 })
+      .mockResolvedValueOnce({ frozen: false, listed: false, inUse: 0 });
+    mockBulkDelete.mockResolvedValue([{ id: P3, orgId: 'org-1' }]);
+    const { res, json } = makeRes();
+
+    await getDeleteHandler()({ body: { ids: [P1, P2, P3] }, user: { isSuperAdmin: false } }, res);
+
+    expect(mockBulkDelete).toHaveBeenCalledWith([P3], 'org-1', 'u-1', expect.any(Object));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({
+      data: { deleted: 1, ids: [P3], skipped: [{ id: P1, reason: 'frozen' }, { id: P2, reason: 'listed' }] },
+    }));
+  });
+
+  it('reports an in-use version as skipped and never calls bulkDelete when nothing is left', async () => {
+    mockFindByIds.mockResolvedValue([{ id: P1, orgId: 'org-1' }]);
+    mockDeleteBlockers.mockResolvedValueOnce({ frozen: false, listed: false, inUse: 3 });
+    const { res, json } = makeRes();
+
+    await getDeleteHandler()({ body: { ids: [P1] }, user: { isSuperAdmin: false } }, res);
+
+    expect(mockBulkDelete).not.toHaveBeenCalled();
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ data: { deleted: 0, ids: [], skipped: [{ id: P1, reason: 'in_use' }] } }));
+  });
+
+  it("does not judge another org's row (bulkDelete pins the org and skips it)", async () => {
+    mockFindByIds.mockResolvedValue([{ id: P1, orgId: 'system' }]);
+    mockBulkDelete.mockResolvedValue([]);
+    const { res } = makeRes();
+
+    await getDeleteHandler()({ body: { ids: [P1] }, user: { isSuperAdmin: false } }, res);
+
+    expect(mockDeleteBlockers).not.toHaveBeenCalled();
+    expect(mockBulkDelete).toHaveBeenCalledWith([P1], 'org-1', 'u-1', expect.any(Object));
+  });
+
+  it('refunds each deleted slot period-conditionally and promotes a new default for a deleted default', async () => {
+    const quotaResetAt = new Date('2026-09-24T00:00:00.000Z');
+    mockBulkDelete.mockResolvedValue([
+      { id: P1, orgId: 'org-1', name: 'a', version: '1.0.0', isDefault: true, quotaResetAt },
+      { id: P2, orgId: 'org-1', name: 'b', version: '1.0.0', isDefault: false, quotaResetAt: null },
+    ]);
+    const { res } = makeRes();
+
+    await getDeleteHandler()({ body: { ids: [P1, P2] }, user: { isSuperAdmin: false } }, res);
+
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(mockDecrementQuota).toHaveBeenCalledWith(
+      undefined, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, quotaResetAt.toISOString(),
+    );
+    expect(mockClearQuotaSnapshot).toHaveBeenCalledWith(P1);
+    expect(mockPromoteNextDefault).toHaveBeenCalledTimes(1);
+    expect(mockPromoteNextDefault).toHaveBeenCalledWith('org-1', expect.objectContaining({ id: P1 }), 'u-1');
+  });
+});
+
 // Attributed audit emissions — ONE event per bulk op, only when rows landed.
 describe('bulk plugin audit emissions', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -329,8 +407,9 @@ describe('PUT /plugins/bulk/update — compliance re-check parity with single up
     const { res } = makeRes();
     await getUpdateHandler()({ body: { ids: [P1, P2], data: { visibility: 'private' } }, user: { isSuperAdmin: true } }, res);
     expect(mockValidatePlugin).toHaveBeenCalledTimes(2);
-    expect(mockValidatePlugin).toHaveBeenCalledWith('org-1', expect.objectContaining({ name: 'a', visibility: 'private' }),
-      expect.any(String), P1, 'a', 'update');
+    // The stored image facts ride along; `packages` (post-build only) is deferred.
+    expect(mockValidatePlugin).toHaveBeenCalledWith('org-1', expect.objectContaining({ name: 'a', visibility: 'private', signed: false }),
+      expect.any(String), P1, 'a', 'update', ['packages']);
     expect(mockUpdateMany).toHaveBeenCalled();
   });
 
@@ -358,5 +437,63 @@ describe('PUT /plugins/bulk/update — compliance re-check parity with single up
     await getUpdateHandler()({ body: { ids: [P1], data: { description: 'x', isActive: false } }, user: { isSuperAdmin: true } }, res);
     expect(mockValidatePlugin).not.toHaveBeenCalled();
     expect(mockUpdateMany).toHaveBeenCalled();
+  });
+});
+
+describe('PUT /plugins/bulk/update — frozen / listed versions (same rule as single update)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockVersionImmutability.mockResolvedValue(null);
+  });
+
+  const admin = { sub: 'u-1', isSuperAdmin: true };
+
+  it('skips a frozen and a listed version with a per-item 409 when catalog fields change', async () => {
+    mockFindByIds.mockResolvedValue([
+      { id: P1, orgId: 'org-1', visibility: 'org' },
+      { id: P2, orgId: 'org-1', visibility: 'org' },
+      { id: P3, orgId: 'org-1', visibility: 'org' },
+    ]);
+    mockVersionImmutability.mockImplementation(async (row: any) =>
+      row.id === P1 ? 'frozen' : row.id === P2 ? 'listed' : null);
+    mockUpdateMany.mockResolvedValue([{ id: P3 }]);
+    const { res, json } = makeRes();
+    await getUpdateHandler()({ user: admin, body: { ids: [P1, P2, P3], data: { keywords: ['x'], category: 'lint' } } }, res);
+
+    expect(mockUpdateMany).toHaveBeenCalledWith({ id: [P3] }, expect.anything(), 'org-1', 'u-1');
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({
+      data: {
+        updated: 1,
+        skipped: [
+          { id: P1, reason: 'frozen', statusCode: 409, code: expect.any(String) },
+          { id: P2, reason: 'listed', statusCode: 409, code: expect.any(String) },
+        ],
+      },
+    }));
+  });
+
+  it('updates nothing when every version is locked', async () => {
+    mockFindByIds.mockResolvedValue([{ id: P1, orgId: 'org-1', visibility: 'org' }]);
+    mockVersionImmutability.mockResolvedValue('listed');
+    const { res, json } = makeRes();
+    await getUpdateHandler()({ user: admin, body: { ids: [P1], data: { description: 'new' } } }, res);
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ data: { updated: 0, skipped: [expect.objectContaining({ id: P1, reason: 'listed' })] } }));
+  });
+
+  it('does not consult immutability for operational-only fields (isActive)', async () => {
+    mockUpdateMany.mockResolvedValue([{ id: P1 }]);
+    const { res } = makeRes();
+    await getUpdateHandler()({ user: admin, body: { ids: [P1], data: { isActive: false } } }, res);
+    expect(mockVersionImmutability).not.toHaveBeenCalled();
+    expect(mockUpdateMany).toHaveBeenCalledWith({ id: [P1] }, expect.anything(), 'org-1', 'u-1');
+  });
+
+  it('ignores rows owned by another org (updateMany never touches them)', async () => {
+    mockFindByIds.mockResolvedValue([{ id: P1, orgId: 'system', visibility: 'public' }]);
+    mockUpdateMany.mockResolvedValue([]);
+    const { res } = makeRes();
+    await getUpdateHandler()({ user: admin, body: { ids: [P1], data: { category: 'lint' } } }, res);
+    expect(mockVersionImmutability).not.toHaveBeenCalled();
   });
 });

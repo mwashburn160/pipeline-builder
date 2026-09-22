@@ -26,6 +26,23 @@ import {
   PR_REGISTRY_OWNED_BY_OTHER_ORG,
 } from '../services/pipeline-registry-service.js';
 
+/**
+ * One step-manifest entry as the CLI ships it from the synth (W0.1). Only
+ * `pluginId` is used to resolve the plugin — name/version/digest are
+ * re-read from that row server-side (see replaceStepManifest).
+ */
+const StepManifestEntrySchema = z.object({
+  stageName: z.string().min(1).max(255),
+  actionName: z.string().min(1).max(255),
+  pluginId: z.string().uuid(),
+  pluginName: z.string().min(1).max(255),
+  pluginVersion: z.string().min(1).max(50),
+  imageDigest: z.string().max(71).nullable(),
+});
+
+/** Upper bound on manifest entries per registration (CodePipeline caps a pipeline far below this). */
+const MAX_MANIFEST_STEPS = 500;
+
 const PipelineRegistrySchema = z.object({
   pipelineId: z.string().min(1, 'pipelineId is required'),
   pipelineName: z.string().min(1, 'pipelineName is required'),
@@ -33,11 +50,14 @@ const PipelineRegistrySchema = z.object({
   project: z.string().optional(),
   organization: z.string().optional(),
   stackName: z.string().optional(),
+  steps: z.array(StepManifestEntrySchema).max(MAX_MANIFEST_STEPS).optional(),
 });
 
 /**
  * Register pipeline registry routes.
- * - POST /pipelines/registry — upsert a pipeline ARN mapping for event reporting.
+ * - POST /pipelines/registry — upsert a pipeline ARN mapping for event reporting,
+ *   and (when `steps` is sent — a post-deploy registration) replace the
+ *   pipeline's step manifest, which attributes action events to plugins.
  * - GET  /pipelines/registry — list registry entries owned by the caller's org.
  *   Used by the dashboard's "deployed pipelines" panel and by drift-detection
  *   tools (the `pipeline-manager audit stacks` CLI joins this against live
@@ -76,8 +96,10 @@ export function createRegistryRoutes(): Router {
         project: v.project,
         organization: v.organization,
         stackName: v.stackName,
+        steps: v.steps,
+        ...(req.user?.parentOrganizationId ? { parentOrgId: req.user.parentOrganizationId } : {}),
       });
-      ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, pipelineId: v.pipelineId });
+      ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, pipelineId: v.pipelineId, manifestSteps: result.manifestSteps });
 
       // Best-effort attributed audit — emitted only after the mapping landed.
       // `targetId` is the stable pipeline id. `details` carries display metadata
@@ -95,6 +117,7 @@ export function createRegistryRoutes(): Router {
           ...(v.project !== undefined ? { project: v.project } : {}),
           ...(v.organization !== undefined ? { organization: v.organization } : {}),
           ...(v.stackName !== undefined ? { stackName: v.stackName } : {}),
+          ...(result.manifestSteps !== undefined ? { manifestSteps: result.manifestSteps } : {}),
         },
       });
 

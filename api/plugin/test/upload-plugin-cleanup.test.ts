@@ -52,8 +52,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({
   parsePluginZip: mockParsePluginZip,
   validateBuildArgs: jest.fn(),
+  specContractFields: jest.fn(() => ({})),
 }));
-jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuildJobData: (p: unknown) => p }));
+jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuildJobData: (p: unknown) => p, toPluginInsert: (p: unknown) => p }));
 jest.unstable_mockModule('../src/helpers/build-strategy.js', () => ({ getBuildStrategy: () => ({ producesImage: true }) }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: jest.fn(), getOrgTier: jest.fn() }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: jest.fn() }));

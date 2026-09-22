@@ -39,20 +39,24 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
 }));
 
 const invalidateStorageCache = jest.fn();
+const computeStorageUsage = jest.fn<(prefix: string, opts?: unknown) => Promise<{ bytes: number; incomplete: boolean }>>();
 jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
   invalidateStorageCache,
-  computeStorageUsage: jest.fn(),
+  computeStorageUsage,
 }));
 
 const emitImageRegistryAudit = jest.fn();
 jest.unstable_mockModule('../src/services/audit.js', () => ({ emitImageRegistryAudit }));
 
 const incCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter }));
+const setGauge = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter, setGauge }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const { runRegistryGc } = await import('../src/services/registry-gc.js');
+const {
+  runRegistryGc, isAgeGcExempt, deleteQuarantineRepository, runQuarantineGc,
+} = await import('../src/services/registry-gc.js');
 
 // A well-past-cutoff timestamp (default maxAgeDays = 30) and a fresh one.
 const STALE = '2020-01-01T00:00:00.000Z';
@@ -64,7 +68,7 @@ function wireRepo(tagsToCreated: Record<string, string>) {
   listTags.mockResolvedValue({ tags: Object.keys(tagsToCreated) });
   getManifest.mockImplementation(async (_name, ref) => {
     const created = tagsToCreated[ref];
-    if (!created) throw { statusCode: 404 };
+    if (!created) throw { response: { status: 404 } };
     return { body: { created }, digest: `sha256:digest-${ref}`, mediaType: 'application/vnd.oci.image.manifest.v1+json' };
   });
 }
@@ -148,7 +152,7 @@ describe('runRegistryGc — Fix 1: multi-arch INDEX age resolution', () => {
       if (ref === 'sha256:child-amd64') {
         return { body: { config: { digest: 'sha256:cfg' } }, digest: 'sha256:child-amd64', mediaType: IMG };
       }
-      throw { statusCode: 404 };
+      throw { response: { status: 404 } };
     });
     getBlobJson.mockResolvedValue({ created: STALE });
 
@@ -200,7 +204,7 @@ describe('runRegistryGc — Fix 2: retention safeguards (no live-tag data loss)'
       if (ref === 'child-direct' || ref === 'sha256:child') {
         return { body: { config: { digest: 'sha256:cfg' } }, digest: 'sha256:child', mediaType: IMG };
       }
-      throw { statusCode: 404 };
+      throw { response: { status: 404 } };
     });
     getBlobJson.mockResolvedValue({ created: STALE });
 
@@ -221,5 +225,115 @@ describe('runRegistryGc — Fix 2: retention safeguards (no live-tag data loss)'
 
     expect(deleteManifest).toHaveBeenCalledWith('org-acme/app', 'sha256:old');
     expect(result.deleted).toBe(1);
+  });
+});
+
+// Plugin ecosystem G40: a public/* image is collected only when yanked >180 days
+// AND unreferenced by any step manifest — a decision only the plugin service can
+// make (via POST /internal/plugin-publications/gc). The AGE sweep never reaches it.
+describe('runRegistryGc — public/* and registry-meta/* are exempt from the age sweep', () => {
+  it.each([
+    ['public/acme/app', true],
+    ['registry-meta/publications/acme/app', true],
+    ['org-acme/app', false],
+    ['system/app', false],
+    ['publicity/app', false],
+  ])('isAgeGcExempt(%s) = %s', (repo, exempt) => {
+    expect(isAgeGcExempt(repo)).toBe(exempt);
+  });
+
+  it('never scans or deletes a public/* or registry-meta/* repository, even under a short prefix', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValue(['public/acme/app', 'registry-meta/publications/acme/app']);
+    listTags.mockResolvedValue({ tags: ['old'] });
+    getManifest.mockResolvedValue({ body: { created: STALE }, digest: 'sha256:digest-old', mediaType: IMG });
+
+    const result = await runRegistryGc({ prefix: 'p', dryRun: false });
+
+    expect(listTags).not.toHaveBeenCalled();
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(result.reposScanned).toBe(0);
+    expect(result.deleted).toBe(0);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// quarantine/* — anonymous plugin submissions (plugin ecosystem §4.2 / W5)
+// -----------------------------------------------------------------------------
+
+const Q = 'quarantine/0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';
+const IMAGE_MT = 'application/vnd.oci.image.manifest.v1+json';
+const INDEX_MT = 'application/vnd.oci.image.index.v1+json';
+
+describe('deleteQuarantineRepository', () => {
+  it('deletes every manifest — image, index children and cosign companions — once per digest', async () => {
+    listTags.mockResolvedValue({ tags: ['1.0.0', 'sha256-abc.sig', 'latest'] });
+    getManifest.mockImplementation(async (_n, ref) => {
+      if (ref === '1.0.0' || ref === 'latest') {
+        return { body: { manifests: [{ digest: 'sha256:child-amd64' }] }, digest: 'sha256:index', mediaType: INDEX_MT };
+      }
+      return { body: {}, digest: 'sha256:sig', mediaType: IMAGE_MT };
+    });
+
+    const result = await deleteQuarantineRepository(Q, 'requested');
+
+    expect(result).toEqual({ repository: Q, deleted: 3 });
+    expect(deleteManifest.mock.calls.map((c) => c[1]).sort()).toEqual(['sha256:child-amd64', 'sha256:index', 'sha256:sig']);
+    expect(incCounter).toHaveBeenCalledWith('registry_quarantine_repositories_deleted_total', { reason: 'requested' });
+    expect(invalidateStorageCache).toHaveBeenCalledWith('quarantine/');
+  });
+
+  it('is idempotent on a repo that is already gone', async () => {
+    listTags.mockRejectedValue({ statusCode: 404 });
+    await expect(deleteQuarantineRepository(Q, 'requested')).resolves.toEqual({ repository: Q, deleted: 0 });
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('refuses anything outside quarantine/', async () => {
+    await expect(deleteQuarantineRepository('org-acme/app', 'requested')).rejects.toThrow(/Not a quarantine repository/);
+    expect(listTags).not.toHaveBeenCalled();
+  });
+});
+
+describe('runQuarantineGc', () => {
+  const OLD = 'quarantine/old-submission';
+  const NEW = 'quarantine/new-submission';
+
+  beforeEach(() => {
+    computeStorageUsage.mockResolvedValue({ bytes: 1234, incomplete: false });
+    listRepositoriesUnderPrefix.mockResolvedValue([OLD, NEW]);
+    listTags.mockImplementation(async (name) => ({ tags: name === OLD ? ['1.0.0', `sha256-${'a'.repeat(64)}.sig`] : ['2.0.0'] }));
+    getManifest.mockImplementation(async (name, ref) => ({
+      body: { created: name === OLD ? STALE : RECENT },
+      digest: `sha256:${name.split('/')[1]}-${ref}`,
+      mediaType: IMAGE_MT,
+    }));
+  });
+
+  it('deletes only repos whose newest image is past 30 days, never a recent one', async () => {
+    const result = await runQuarantineGc();
+
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledWith('quarantine/');
+    expect(result).toEqual({ reposScanned: 2, deleted: 1, skippedNoTimestamp: 0 });
+    const deletedRepos = new Set(deleteManifest.mock.calls.map((c) => c[0]));
+    expect(deletedRepos).toEqual(new Set([OLD]));
+    expect(incCounter).toHaveBeenCalledWith('registry_quarantine_repositories_deleted_total', { reason: 'expired' });
+    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'registry.gc', targetId: OLD }));
+    expect(setGauge).toHaveBeenCalledWith('registry_quarantine_repositories', {}, 1);
+    expect(setGauge).toHaveBeenCalledWith('registry_quarantine_storage_bytes', {}, 1234);
+  });
+
+  it('dry-run deletes nothing', async () => {
+    const result = await runQuarantineGc({ dryRun: true });
+    expect(result.deleted).toBe(0);
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('keeps (and counts) a repo whose build time cannot be resolved', async () => {
+    getManifest.mockResolvedValue({ body: {}, digest: 'sha256:x', mediaType: IMAGE_MT });
+    getBlobJson.mockResolvedValue({});
+    const result = await runQuarantineGc();
+    expect(result.skippedNoTimestamp).toBe(2);
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(incCounter).toHaveBeenCalledWith('gc_skipped_no_timestamp_total', { reason: 'quarantine_no_created' });
   });
 });

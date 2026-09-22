@@ -46,6 +46,20 @@ const logger = createLogger('plugin-artifact-storage');
 export const PLUGIN_ARTIFACT_BUCKET = envStr('S3_BUCKET', 'plugins');
 
 /**
+ * The SEPARATE bucket anonymous submissions are staged in (plugin-ecosystem
+ * §4.2, E5): `submissions/<id>.zip`, 30-day lifecycle expiry. Same client and
+ * credentials as the build-context bucket; never read by the tenant build path.
+ */
+export function pluginQuarantineBucket(): string {
+  return envStr('PLUGIN_QUARANTINE_BUCKET', 'plugin-quarantine');
+}
+
+/** The quarantine key of a submission's zip. */
+export function submissionArtifactKey(submissionId: string): string {
+  return `submissions/${submissionId}.zip`;
+}
+
+/**
  * Deterministic key for a build-context blob: `<orgId>/<requestId>.zip`. The
  * requestId is unique per upload, so a key never collides across builds.
  */
@@ -73,7 +87,7 @@ function s3(): S3Client {
   return client;
 }
 
-let bucketReady: Promise<void> | null = null;
+const bucketsReady = new Map<string, Promise<void>>();
 
 /**
  * Ensure the plugins bucket exists (memoized). MinIO — unlike an auto-provisioned
@@ -82,32 +96,34 @@ let bucketReady: Promise<void> | null = null;
  * benign "already exists" race is swallowed. (minio-init also pre-creates it, so
  * this is a belt-and-braces backstop for a fresh/real-S3 target.)
  */
-async function ensureBucket(): Promise<void> {
-  if (!bucketReady) {
-    bucketReady = (async () => {
+async function ensureBucket(bucket: string): Promise<void> {
+  let ready = bucketsReady.get(bucket);
+  if (!ready) {
+    ready = (async () => {
       try {
-        await s3().send(new HeadBucketCommand({ Bucket: PLUGIN_ARTIFACT_BUCKET }));
+        await s3().send(new HeadBucketCommand({ Bucket: bucket }));
       } catch {
         try {
-          await s3().send(new CreateBucketCommand({ Bucket: PLUGIN_ARTIFACT_BUCKET }));
-          logger.info('Created plugins bucket', { bucket: PLUGIN_ARTIFACT_BUCKET });
+          await s3().send(new CreateBucketCommand({ Bucket: bucket }));
+          logger.info('Created plugins bucket', { bucket });
         } catch (err) {
           // Another replica may have created it between our HEAD and CREATE.
-          logger.warn('Plugins bucket ensure race (continuing)', { error: String(err) });
+          logger.warn('Plugins bucket ensure race (continuing)', { bucket, error: String(err) });
         }
       }
     })();
+    bucketsReady.set(bucket, ready);
   }
-  return bucketReady;
+  return ready;
 }
 
 /** Upload a build-context ZIP. Throws on failure — the caller must not enqueue a
  *  build whose context never reached durable storage (a cross-pod build would
  *  then fail to materialize it). */
-export async function putPluginArtifact(key: string, body: Buffer): Promise<void> {
-  await ensureBucket();
+export async function putPluginArtifact(key: string, body: Buffer, bucket: string = PLUGIN_ARTIFACT_BUCKET): Promise<void> {
+  await ensureBucket(bucket);
   await s3().send(new PutObjectCommand({
-    Bucket: PLUGIN_ARTIFACT_BUCKET,
+    Bucket: bucket,
     Key: key,
     Body: body,
     ContentType: 'application/zip',
@@ -119,18 +135,18 @@ export async function putPluginArtifact(key: string, body: Buffer): Promise<void
  * contexts can be large) rather than buffering. Throws if the key is absent —
  * the worker treats a missing context as a hard build failure.
  */
-export async function getPluginArtifactToFile(key: string, destPath: string): Promise<void> {
-  const out = await s3().send(new GetObjectCommand({ Bucket: PLUGIN_ARTIFACT_BUCKET, Key: key }));
+export async function getPluginArtifactToFile(key: string, destPath: string, bucket: string = PLUGIN_ARTIFACT_BUCKET): Promise<void> {
+  const out = await s3().send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   // In Node the SDK returns a Readable; narrow the union and stream to disk.
   await pipeline(out.Body as Readable, createWriteStream(destPath));
 }
 
 /** Best-effort single-object delete — never throws (blob cleanup is housekeeping;
  *  the bucket's expiry lifecycle rule is the guaranteed backstop). */
-export async function deletePluginArtifact(key: string | undefined): Promise<void> {
+export async function deletePluginArtifact(key: string | undefined, bucket: string = PLUGIN_ARTIFACT_BUCKET): Promise<void> {
   if (!key) return;
   try {
-    await s3().send(new DeleteObjectCommand({ Bucket: PLUGIN_ARTIFACT_BUCKET, Key: key }));
+    await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   } catch (err) {
     logger.warn('Plugin artifact delete failed (lifecycle rule will expire it)', { key, error: String(err) });
   }

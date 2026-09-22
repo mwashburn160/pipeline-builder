@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import { Plugin } from '@/types';
-import { FormPluginOptions, FormPluginFilter } from '@/types/form-types';
+import { FormPluginOptions, FormPluginFilter, createEmptyPluginFilter } from '@/types/form-types';
+import type { PluginPick } from '@/lib/plugin-installs';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import CollapsibleSection from './CollapsibleSection';
@@ -35,9 +35,24 @@ export default function PluginOptionsEditor({
   const updateFilter = (fields: Partial<FormPluginFilter>) =>
     update({ filter: { ...value.filter, ...fields } });
 
-  const handlePluginSelect = useCallback((plugin: Plugin) => {
+  const handlePluginSelect = useCallback((pick: PluginPick) => {
+    if (pick.kind === 'listing') {
+      // A listing resolves through the org's install (its version policy), so
+      // the reference is just `{ publisher?, name }` — own-row filters (id,
+      // orgId, visibility, …) would never match a listing and are cleared.
+      const { reference } = pick.entry;
+      onChange({
+        ...value,
+        publisher: reference.publisher ?? '',
+        name: reference.name,
+        filter: createEmptyPluginFilter(),
+      });
+      return;
+    }
+    const { plugin } = pick;
     onChange({
       ...value,
+      publisher: '',
       name: plugin.name,
       filter: {
         ...value.filter,
@@ -61,21 +76,35 @@ export default function PluginOptionsEditor({
     <div className="space-y-3">
       <PluginNameCombobox
         value={value.name}
+        publisher={value.publisher}
         onChange={(name) => update({ name })}
         onSelectPlugin={handlePluginSelect}
         disabled={disabled}
         label={label}
         error={error}
       />
-      <div>
-        <label className="label">{label} Alias</label>
-        <Input
-          type="text"
-          value={value.alias}
-          onChange={(e) => update({ alias: e.target.value })}
-          placeholder="Optional alias"
-          disabled={disabled}
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label">{label} Publisher</label>
+          <Input
+            type="text"
+            value={value.publisher}
+            onChange={(e) => update({ publisher: e.target.value.trim() })}
+            placeholder="Optional (e.g. acme)"
+            disabled={disabled}
+          />
+          <p className="mt-1 text-xs text-fg-subtle">Set to use an installed listing from that publisher only.</p>
+        </div>
+        <div>
+          <label className="label">{label} Alias</label>
+          <Input
+            type="text"
+            value={value.alias}
+            onChange={(e) => update({ alias: e.target.value })}
+            placeholder="Optional alias"
+            disabled={disabled}
+          />
+        </div>
       </div>
       <CollapsibleSection title={`${label} Filters`} hasContent={hasFilter}>
         <div className="mt-3 space-y-3">

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 91deeda3d4e72864529733aade7dd51c5df9ee35798ed71011043a5ac72a2205
+// SOURCE-SHA256: 0269eff245632dbadd42db3aa711a6fe427cfeddbca75e2ad6d70da2a16922fc
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -31,7 +31,7 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "flowchart TB\n    subgraph Clients\n        FE[Frontend<br/>Next.js]\n        CLI[CLI<br/>pipeline-manager]\n        API_EXT[REST API]\n    end\n\n    subgraph Platform[\"Pipeline Builder Platform\"]\n        NGINX[Nginx<br/>Reverse Proxy]\n        PLATFORM[Platform API<br/>Auth / Gateway]\n        PIPELINE[Pipeline API]\n        PLUGIN[Plugin API]\n        COMPLIANCE[Compliance]\n        QUOTA[Quota]\n        BILLING[Billing]\n        MESSAGE[Message]\n        REPORTING[Reporting]\n        IMGREG[Image Registry<br/>Token / Image API]\n    end\n\n    subgraph Data\n        MONGO[(MongoDB<br/>Users / Orgs)]\n        PG[(PostgreSQL<br/>Pipelines / Plugins)]\n        REDIS[(Redis<br/>BullMQ / Cache)]\n    end\n\n    subgraph Build\n        BK[buildkitd Sidecar<br/>Rootless BuildKit]\n        REG[Registry<br/>Plugin Images]\n    end\n\n    FE & CLI & API_EXT --> NGINX\n    NGINX --> PLATFORM\n    PLATFORM --> PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & IMGREG\n    PLUGIN & PIPELINE -->|validate| COMPLIANCE\n    PLATFORM --> MONGO\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING --> PG\n    PLUGIN --> REDIS\n    PLUGIN -->|buildctl build_image| BK\n    PLUGIN -->|crane push prebuilt| REG\n    BK -->|push with scoped Bearer token| REG\n    IMGREG -->|mint scoped token| REG",
+          "content": "flowchart TB\n    subgraph Clients\n        FE[Frontend<br/>Next.js]\n        CLI[CLI<br/>pipeline-manager]\n        API_EXT[REST API]\n    end\n\n    subgraph Platform[\"Pipeline Builder Platform\"]\n        NGINX[Nginx<br/>Reverse Proxy]\n        PLATFORM[Platform API<br/>Identity / Orgs / Audit]\n        PIPELINE[Pipeline API]\n        PLUGIN[Plugin API]\n        COMPLIANCE[Compliance]\n        QUOTA[Quota]\n        BILLING[Billing]\n        MESSAGE[Message]\n        REPORTING[Reporting]\n        IMGREG[Image Registry<br/>Token / Image API]\n    end\n\n    subgraph Data\n        MONGO[(MongoDB<br/>Users / Orgs)]\n        PG[(PostgreSQL<br/>Pipelines / Plugins)]\n        REDIS[(Redis<br/>BullMQ / Cache)]\n    end\n\n    subgraph Build\n        BK[buildkitd Sidecar<br/>Rootless BuildKit]\n        REG[Registry<br/>Plugin Images]\n    end\n\n    FE & CLI & API_EXT --> NGINX\n    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & IMGREG\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & IMGREG -.->|verify tokens via JWKS| PLATFORM\n    PLUGIN & PIPELINE -->|validate| COMPLIANCE\n    PLATFORM --> MONGO\n    PIPELINE & PLUGIN & COMPLIANCE & REPORTING --> PG\n    PLUGIN --> REDIS\n    PLUGIN -->|buildctl build_image| BK\n    PLUGIN -->|crane push prebuilt| REG\n    BK -->|push with scoped Bearer token| REG\n    IMGREG -->|mint scoped token| REG",
           "language": "mermaid"
         }
       ]
@@ -70,6 +70,51 @@ export const architectureFlowTopic: HelpTopic = {
           "type": "code",
           "content": "flowchart LR\n    subgraph build_image\n        DF2[Dockerfile] --> Build[buildctl build<br/>+ provenance] --> Push1[buildkit push] --> Sign1[SBOM + sign] --> R1[Registry]\n    end\n\n    subgraph prebuilt\n        TAR2[image.tar] --> Push2[crane push] --> Sign2[SBOM + sign] --> R2[Registry]\n    end\n\n    subgraph metadata_only\n        Spec2[plugin-spec.yaml] --> Direct[Deploy directly<br/>No Docker build]\n    end",
           "language": "mermaid"
+        }
+      ]
+    },
+    {
+      "id": "flow-1b-publishing-to-the-plugin-ecosystem",
+      "title": "Flow 1b: Publishing to the Plugin Ecosystem",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A plugin reaches other organizations only through the plugin ecosystem: the publisher requests a listing, the system organization approves it, and the approved version is copied into a read-only public/* registry namespace. visibility: public never crosses an org boundary on its own."
+        },
+        {
+          "type": "code",
+          "content": "sequenceDiagram\n    participant Pub as Publisher org\n    participant Plugin as Plugin API\n    participant Mod as Ecosystem Managers<br/>(system org)\n    participant IR as Image Registry\n    participant Reg as Registry\n\n    Pub->>Plugin: POST /plugins/publish-requests (kind new_listing / new_version)\n    Plugin->>Plugin: Gates (public, license, README, signed, scanned, vuln)<br/>Pin digest + freeze version\n    alt bootstrap exception or auto-approval rule\n        Plugin->>Plugin: Approve as system\n    else manual review\n        Plugin-->>Mod: N24 (queue)\n        Mod->>Plugin: approve (and second-approve for Official / Verified)\n    end\n    Plugin->>IR: POST /internal/plugin-publications (pinned digest, tier)\n    IR->>Reg: Copy org-ID/name@digest to public/PUBLISHER/name\n    IR->>Reg: Sign fresh (pb.trust, pb.publisher) + attest SBOM + tag version\n    Plugin->>Plugin: Record listing + listing version (immutable)\n    Plugin-->>Pub: N25 (approved)",
+          "language": "mermaid"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Official catalog. The system org's plugins are listings under the"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "pipeline-builder publisher, loaded by load-plugins.sh as the official-catalog-loader service account (publishRequest=true). The first load rides the one-time bootstrap exception; later gate-green patch/minor updates ride the seeded Official auto-approval rule."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Resolution until installs ship. Plugin reads and lookups include another"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "org's plugin only when it is a system-org row that is the source of a live Official listing version (OFFICIAL_LISTED_PLUGIN_SCOPE in pipeline-data). W2 switches resolution to installs (implicit for Official) and to the listing's public/* image repository."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Re-sign job. A tier change, suspension, handle change or transfer"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "re-signs every published image with the new annotations, then drops the lookup verify cache."
         }
       ]
     },
@@ -168,7 +213,7 @@ export const architectureFlowTopic: HelpTopic = {
             ],
             [
               "Platform API",
-              "Auth gateway, user/org management",
+              "Sign-in and token issuance (ES256, published as JWKS), user/org management, audit",
               "platform/src/controllers/"
             ],
             [
@@ -178,8 +223,8 @@ export const architectureFlowTopic: HelpTopic = {
             ],
             [
               "Plugin API",
-              "Plugin upload, build queue, AI generation",
-              "api/plugin/src/"
+              "Plugin upload, build queue, AI generation, the plugin ecosystem (publishers, publish requests, the Ecosystem console)",
+              "api/plugin/src/, api/plugin/src/services/ecosystem/"
             ],
             [
               "Image Registry",

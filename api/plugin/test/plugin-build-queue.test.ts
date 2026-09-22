@@ -65,6 +65,21 @@ class MockBuildProcessError extends Error {
 }
 
 const mockDeployVersion = jest.fn<(...args: any[]) => any>();
+// Plugin ecosystem: the post-build publish request (`publishRequest=true`).
+const mockSubmitAfterBuild = jest.fn<(...args: any[]) => any>();
+
+/** Image facts the worker establishes after push (W0.6). */
+const SCANNED_FACTS = {
+  vulnCritical: 0,
+  vulnHigh: 2,
+  vulnMedium: 5,
+  vulnLow: 9,
+  scannedAt: new Date('2026-09-21T00:00:00Z'),
+  runAsRoot: false,
+  packages: ['openssl'],
+};
+const mockEstablishImageFacts = jest.fn<(...args: any[]) => any>(async () => SCANNED_FACTS);
+const mockAssertPostBuildCompliance = jest.fn<(...args: any[]) => any>(async () => undefined);
 
 // Shared remote-audit `record` spy. services/audit.ts caches a single
 // ServiceAuditClient, and BOTH the tier queue (getAuditClient().record →
@@ -180,6 +195,14 @@ function registerMocks() {
 
   jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
     pluginService: { deployVersion: mockDeployVersion },
+  }));
+  jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: mockSubmitAfterBuild }));
+
+  // W0.6 image facts: the scan + USER + post-build compliance check the worker
+  // runs between push and deploy. Real behaviour is covered by image-facts.test.ts.
+  jest.unstable_mockModule('../src/helpers/image-facts.js', () => ({
+    establishImageFacts: mockEstablishImageFacts,
+    assertPostBuildCompliance: mockAssertPostBuildCompliance,
   }));
 
   jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
@@ -491,11 +514,18 @@ describe('plugin-build-queue', () => {
       // The uploader's visibility authority, snapshotted into the job, reaches the
       // deploy so the worker applies the same overwrite gate the route did — and
       // the signed digest + image source are persisted with the row.
+      // W0.6: the image's scan + USER facts land on the row (the quota snapshot
+      // becomes a Date column; this job carried none).
+      const { packages: _packages, ...scanFacts } = SCANNED_FACTS;
       expect(mockDeployVersion).toHaveBeenCalledWith(
-        { ...jobData.pluginRecord, imageDigest: digest, imageSource: 'built' },
+        { ...jobData.pluginRecord, quotaResetAt: null, imageDigest: digest, imageSource: 'built', ...scanFacts },
         'user-1',
         { isSystemAdmin: false, canPublish: false },
       );
+      expect(mockEstablishImageFacts).toHaveBeenCalledWith(
+        { orgId: 'org-1', name: 'my-plugin', imageDigest: digest }, jobData.buildRequest.registry, jobData.pluginRecord.dockerfile,
+      );
+      expect(mockAssertPostBuildCompliance).toHaveBeenCalledWith('org-1', jobData.pluginRecord, digest, SCANNED_FACTS);
 
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Build started', expect.any(Object));
       expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Image pushed and signed', expect.objectContaining({ digest }));
@@ -509,6 +539,49 @@ describe('plugin-build-queue', () => {
       // permanent failure to roll back). Success path → no quota mutation.
       expect(mockIncrementQuota).not.toHaveBeenCalled();
       expect(result).toEqual({ pluginId: 'plugin-1', fullImage: 'registry:5000/plugin:p-test-abc123' });
+    });
+
+    it('submits the publish request the upload asked for once the version is deployed, reporting the outcome on the stream', async () => {
+      const sse = makeSseManager();
+      queueModule.startWorker(sse, makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'e'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'plugin-9', name: 'my-plugin', version: '1.0.0' });
+      const caller = { userId: 'sa-1', orgId: 'org-1', principalType: 'service_account', name: 'official-catalog-loader', isSuperAdmin: false, permissions: [], features: [] };
+
+      mockSubmitAfterBuild.mockResolvedValueOnce({ ok: true, message: 'Publish request approved', requestId: 'r-1', status: 'approved' });
+      await getMainProcessor()(makeJob(makeJobData({ publish: { caller } })));
+      expect(mockSubmitAfterBuild).toHaveBeenCalledWith(caller, 'plugin-9');
+      expect(sse.send).toHaveBeenCalledWith('req-123', 'INFO', 'Publish request: Publish request approved', { publishRequestId: 'r-1', status: 'approved' });
+
+      mockSubmitAfterBuild.mockResolvedValueOnce({ ok: false, message: 'The organization has no publisher' });
+      await getMainProcessor()(makeJob(makeJobData({ publish: { caller } })));
+      expect(sse.send).toHaveBeenCalledWith('req-123', 'WARN', 'Publish request: The organization has no publisher', {});
+    });
+
+    it('does not deploy when the post-build compliance check blocks the image (W0.6)', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'d'.repeat(64)}`, imageSource: 'built' });
+      mockAssertPostBuildCompliance.mockRejectedValueOnce(new Error('COMPLIANCE_VIOLATION: the built image failed compliance rules'));
+
+      await expect(getMainProcessor()(makeJob(makeJobData()))).rejects.toThrow('COMPLIANCE_VIOLATION');
+      expect(mockDeployVersion).not.toHaveBeenCalled();
+    });
+
+    it('persists the quota snapshot as a Date and skips scanning when no image was produced', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img' });
+      mockDeployVersion.mockResolvedValue({ id: 'p1', name: 'my-plugin', version: '1.0.0' });
+      const jobData = makeJobData();
+      jobData.pluginRecord.pluginType = 'ManualApprovalStep';
+      jobData.pluginRecord.quotaResetAt = '2026-09-24T00:00:00.000Z';
+
+      await getMainProcessor()(makeJob(jobData));
+
+      expect(mockEstablishImageFacts).not.toHaveBeenCalled();
+      expect(mockAssertPostBuildCompliance).not.toHaveBeenCalled();
+      expect(mockDeployVersion.mock.calls[0]![0]).toEqual(expect.objectContaining({
+        quotaResetAt: new Date('2026-09-24T00:00:00.000Z'), imageDigest: null,
+      }));
     });
 
     it('binds the build-log stream owner (requestId, orgId) before the first SSE send (F3 backstop)', async () => {

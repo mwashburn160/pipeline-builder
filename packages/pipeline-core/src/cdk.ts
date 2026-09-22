@@ -50,4 +50,5 @@ export * from './pipeline/step-types.js';
 export * from './pipeline/stage-builder.js';
 export * from './pipeline/pipeline-builder.js';
 export * from './pipeline/plugin-lookup.js';
+export * from './pipeline/step-manifest-recorder.js';
 export { PipelineConfiguration } from './pipeline/pipeline-configuration.js';

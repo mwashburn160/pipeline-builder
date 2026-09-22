@@ -38,3 +38,16 @@ commands:
     fi
     [ "${_rc:-0}" -eq 0 ]
   - "echo \"SpotBugs analysis complete. Reports available in spotbugs-reports/\""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://spotbugs.github.io
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/quality/spotbugs
+# icon: none — no mark in Simple Icons 16.32.0; no confirmed vendor press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "repo.maven.apache.org"
+    - "plugins.gradle.org"
+    - "services.gradle.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

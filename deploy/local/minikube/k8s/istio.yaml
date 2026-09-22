@@ -349,6 +349,8 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/image-registry
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              # the anonymous-submission quarantine builder (push quarantine/<id>, pull bases)
+              - cluster.local/ns/pipeline-builder/sa/plugin-quarantine-builder
               - cluster.local/ns/pipeline-builder/sa/nginx
               - cluster.local/ns/pipeline-builder/sa/default
       to:
@@ -746,3 +748,32 @@ spec:
       to:
         - operation:
             ports: ["3000"]
+---
+# =============================================================================
+# Quarantine builder (anonymous plugin submissions, plugin-ecosystem §4.2 / W5)
+# =============================================================================
+# plugin-quarantine-builder (k8s/plugin-quarantine-builder.yaml, its own SA with
+# no token) accepts builds from the plugin service ONLY. Its outbound mesh hops
+# are bounded twice: networkpolicy.yaml lets it reach just the registry and the
+# waypoint, and istio-internal-routes.yaml denies it every waypoint-fronted
+# Service except image-registry's /token. The registry itself admits it below
+# (registry-allow) for the quarantine/<id> push and base-image pulls — what it
+# may do there is decided by image-registry's token scopes, not the mesh.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: plugin-quarantine-builder-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: plugin-quarantine-builder
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            ports: ["1234"]

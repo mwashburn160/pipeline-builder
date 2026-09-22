@@ -31,6 +31,12 @@ export interface QuotaTierLimits {
   alertDestinations: number;
   idpConfigs: number;
   /**
+   * Active, non-suspended plugin-ecosystem listings the org publishes
+   * (docs/plans/plugin-ecosystem.md §3.7). A COUNT quota — installs never
+   * count. -1 = unlimited. Extendable via the `listing_pack` add-on bundle.
+   */
+  listings: number;
+  /**
    * Max org members (active users / seats). -1 = unlimited. This is the "Team"
    * tier differentiator — enforced at member-invite time (an invite is blocked
    * when active members + pending invites would exceed this).
@@ -92,6 +98,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertRules: 50,
     alertDestinations: 10,
     idpConfigs: 1,
+    listings: 3,
     seats: 1,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
@@ -110,6 +117,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertRules: 500,
     alertDestinations: 50,
     idpConfigs: 5,
+    listings: 10,
     seats: 1,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
@@ -128,6 +136,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertRules: -1,
     alertDestinations: -1,
     idpConfigs: 5,
+    listings: 25,
     seats: 3,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
@@ -146,6 +155,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertRules: -1,
     alertDestinations: -1,
     idpConfigs: -1,
+    listings: 100,
     seats: 15,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
@@ -162,6 +172,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     alertRules: -1,
     alertDestinations: -1,
     idpConfigs: -1,
+    listings: -1,
     seats: -1,
     eventRetentionDays: -1,
     doraRetentionDays: -1,
@@ -208,6 +219,7 @@ function tierLimits(tier: QuotaTier): QuotaTierLimits {
     alertRules: tierLimitEnv(`QUOTA_TIER_${T}_ALERT_RULES`, d.alertRules),
     alertDestinations: tierLimitEnv(`QUOTA_TIER_${T}_ALERT_DESTINATIONS`, d.alertDestinations),
     idpConfigs: tierLimitEnv(`QUOTA_TIER_${T}_IDP_CONFIGS`, d.idpConfigs),
+    listings: tierLimitEnv(`QUOTA_TIER_${T}_LISTINGS`, d.listings),
     seats: tierLimitEnv(`QUOTA_TIER_${T}_SEATS`, d.seats),
     eventRetentionDays: tierLimitEnv(`QUOTA_TIER_${T}_EVENT_RETENTION_DAYS`, d.eventRetentionDays),
     doraRetentionDays: tierLimitEnv(`QUOTA_TIER_${T}_DORA_RETENTION_DAYS`, d.doraRetentionDays),

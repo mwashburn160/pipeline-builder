@@ -101,3 +101,14 @@ env:
   PIPELINE_STATUS: ""
   PD_SEVERITY: critical
   PD_SOURCE: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://developer.pagerduty.com/docs/events-api-v2/overview/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/notification/pagerduty-notify
+icon: pagerduty
+network:
+  egress:
+    - "events.pagerduty.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

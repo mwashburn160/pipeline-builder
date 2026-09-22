@@ -8,6 +8,7 @@ import { eq, and, gt, lt, asc } from 'drizzle-orm';
 import { logComplianceCheck } from './compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
 import { resolveParentOrgId } from './org-hierarchy-client.js';
+import { withPluginImageFacts } from './plugin-image-attributes.js';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
@@ -27,6 +28,8 @@ interface EntityRecord {
   id: string;
   name?: string;
   attributes: Record<string, unknown>;
+  /** Attributes this scan cannot see (rules on them are skipped, not passed). */
+  deferredFields?: string[];
 }
 
 /**
@@ -43,6 +46,13 @@ function toEntityRecord(row: Record<string, unknown>, name: unknown): EntityReco
     name: typeof name === 'string' ? name : undefined,
     attributes: toComplianceAttributes(row) as Record<string, unknown>,
   };
+}
+
+/** A plugin row also carries its derived image facts (`signed`, `scanned`, …). */
+function toPluginEntityRecord(row: Record<string, unknown>, name: unknown): EntityRecord {
+  const base = toEntityRecord(row, name);
+  const { attributes, deferredFields } = withPluginImageFacts(base.attributes);
+  return { ...base, attributes, deferredFields };
 }
 
 /** A `running` scan whose `startedAt` is older than this is presumed orphaned
@@ -202,7 +212,7 @@ async function executeScanInternal(scanId: string): Promise<void> {
         const slice = entities.slice(i, i + concurrency);
         const settled = await Promise.allSettled(slice.map(async (entity) => {
           const exemptions = exemptionMap.get(entity.id) ?? [];
-          const result = evaluateRules(rules, entity.attributes, exemptions);
+          const result = evaluateRules(rules, entity.attributes, exemptions, entity.deferredFields);
 
           if (!isDryRun) {
             logComplianceCheck(
@@ -364,7 +374,7 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
           ))
           .orderBy(asc(schema.plugin.id))
           .limit(pageSize));
-        rows = page.map((r: typeof schema.plugin.$inferSelect) => toEntityRecord(r as unknown as Record<string, unknown>, r.name));
+        rows = page.map((r: typeof schema.plugin.$inferSelect) => toPluginEntityRecord(r as unknown as Record<string, unknown>, r.name));
       } else {
         const page = await withTenantTx(async (tx) => tx
           .select()

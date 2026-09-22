@@ -215,7 +215,7 @@ describe('POST /api/images/copy — happy paths', () => {
       if (ref === '1.0') return manifest({ manifests: [{ digest: 'sha256:c1' }, { digest: 'sha256:c2' }] }, 'sha256:idx', INDEX_MT);
       if (ref === 'sha256:c1') return manifest({ config: { digest: 'sha256:cfg1' }, layers: [{ digest: 'sha256:shared' }] }, ref, MANIFEST_MT);
       if (ref === 'sha256:c2') return manifest({ config: { digest: 'sha256:cfg2' }, layers: [{ digest: 'sha256:shared' }] }, ref, MANIFEST_MT);
-      throw { statusCode: 404 };
+      throw { response: { status: 404 } };
     });
 
     const { status, body } = await copy('super', { source: 'library/foo:1.0', target: 'library/bar:1.0' });

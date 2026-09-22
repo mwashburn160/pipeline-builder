@@ -607,6 +607,11 @@ configmap prometheus-config \
 configmap thanos-objstore --from-file=objstore.yml="$CONFIG_DIR/thanos/objstore.yml"
 configmap alertmanager-config --from-file=alertmanager.yml="$CONFIG_DIR/alertmanager/alertmanager.yml"
 configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml"
+# Grafana dashboards (the provider config + the dashboard JSON), mounted at
+# /etc/grafana/provisioning/dashboards by grafana.yaml.
+configmap grafana-dashboards \
+  --from-file=dashboards.yaml="$CONFIG_DIR/grafana/dashboards/dashboards.yaml" \
+  --from-file=plugin-ecosystem.json="$CONFIG_DIR/grafana/dashboards/plugin-ecosystem.json"
 
 # -- Deploy -------------------------------------------------------------------
 

@@ -5,24 +5,28 @@
 
 FROM pipeline-plugin-base:24.04
 
+# Build steps below need root (apt, writes under /usr/local, /opt or /etc);
+# the image drops back to the unprivileged `plugin` user (uid 1000) at the end.
+USER root
+
 RUN apt-retry-install lsb-release
 
 # ─── Docker CLI + Buildx ───
-RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+# Signing key pinned by fingerprint (Docker's published CE release key) —
+# fetch-apt-key refuses a rotated or substituted key.
+RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /usr/share/keyrings/docker-archive-keyring.gpg \
+       9DC858229FC7DD38854AE2D88D81803C0EBFCD88 \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
     > /etc/apt/sources.list.d/docker.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    docker-ce-cli \
-    docker-buildx-plugin \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-retry-install docker-ce-cli docker-buildx-plugin
 
 # ─── Azure CLI (az) ───
-RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-archive-keyring.gpg \
+# Microsoft release-signing key pinned by fingerprint.
+RUN fetch-apt-key https://packages.microsoft.com/keys/microsoft.asc /usr/share/keyrings/microsoft-archive-keyring.gpg \
+       BC528686B50D79E339D3721CEB3E94ADBE1229CF \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/repos/azure-cli/ $(lsb_release -cs) main" \
     > /etc/apt/sources.list.d/azure-cli.list \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    azure-cli \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-retry-install azure-cli
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — AZURE_CLIENT_ID/SECRET/TENANT_ID injected at runtime
@@ -34,6 +38,7 @@ ENV DOCKER_CONTEXT=.
 
 # Working directory for pipeline source
 WORKDIR /app
+USER 1000:1000
 
 # Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

@@ -14,6 +14,17 @@ export const ROLE_GRANTS = ['superadmin', 'admin', 'member'] as const;
 export type RoleGrant = typeof ROLE_GRANTS[number];
 
 /**
+ * Named seed bundles for built-in Roles whose permissions are NOT derived from
+ * their `grantsRole`. `ecosystem_manager` is the system org's "Ecosystem
+ * Manager" (docs/plans/plugin-ecosystem.md §5a.1): it grants the coarse
+ * `member` label but carries api-core `ECOSYSTEM_MANAGER_PERMISSIONS`. The key
+ * is what distinguishes it from the built-in Member Role (same `grantsRole`,
+ * both `system: true`), so the Member-floor lookups filter `seedBundle: null`.
+ */
+export const ROLE_SEED_BUNDLES = ['ecosystem_manager'] as const;
+export type RoleSeedBundle = typeof ROLE_SEED_BUNDLES[number];
+
+/**
  * A named permission Role inside an organization or team.
  *
  * Two grant mechanisms, unioned at token-issue time (see `resolveUserPermissions`
@@ -37,6 +48,10 @@ export interface RoleDocument extends Document {
   permissions: string[];
   /** Seeded default Role — protected from deletion/rename in the API. */
   system: boolean;
+  /** Built-in Roles only: the named seed bundle this Role carries instead of
+   *  its `grantsRole` bundle (unset for Admin/Member/Super Admin and every
+   *  custom Role). */
+  seedBundle?: RoleSeedBundle;
 }
 
 const roleSchema = new Schema<RoleDocument>(
@@ -47,6 +62,7 @@ const roleSchema = new Schema<RoleDocument>(
     grantsRole: { type: String, enum: ROLE_GRANTS as unknown as string[], default: 'member' },
     permissions: { type: [String], default: [] },
     system: { type: Boolean, default: false },
+    seedBundle: { type: String, enum: ROLE_SEED_BUNDLES as unknown as string[] },
   },
   { timestamps: true, collection: 'roles' },
 );

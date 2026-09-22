@@ -36,6 +36,7 @@ const EXPECTED_LIMITS: Record<string, number> = {
   alertRules: 50,
   alertDestinations: 10,
   idpConfigs: 1,
+  listings: 3,
   seats: 10,
 };
 const mockEffectiveEntitlements = jest.fn<(...args: unknown[]) => { limits: Record<string, number>; features: string[] }>()
@@ -50,7 +51,7 @@ const okQuotaResponse = () => ({
     data: {
       quota: {
         quotas: Object.fromEntries(
-          ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs']
+          ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'listings']
             .map((t) => [t, { limit: EXPECTED_LIMITS[t] }]),
         ),
       },
@@ -727,6 +728,7 @@ describe('Subscription Lifecycle Checker', () => {
                 alertRules: { limit: 50 },
                 alertDestinations: { limit: 10 },
                 idpConfigs: { limit: 1 },
+                listings: { limit: 3 },
               },
             },
           },

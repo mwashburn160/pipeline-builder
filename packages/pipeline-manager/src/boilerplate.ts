@@ -2,7 +2,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { errorMessage } from '@pipeline-builder/api-core';
+import { STEP_MANIFEST_FILE } from '@pipeline-builder/pipeline-core';
 import { PipelineBuilder, type BuilderProps } from '@pipeline-builder/pipeline-core/cdk';
 import { App, Stack } from 'aws-cdk-lib';
 import pico from 'picocolors';
@@ -56,7 +59,13 @@ function main(): void {
   });
 
   const stack = new Stack(app, stackName, {});
-  new PipelineBuilder(stack, componentId, props);
+  const builder = new PipelineBuilder(stack, componentId, props);
+
+  // Synthesize now (App.synth() is cached, so the CLI's own synth is a no-op)
+  // and drop the step manifest next to the template: `deploy` reads it back
+  // from `--output` and ships it with the registry registration (W0.1).
+  const assembly = app.synth();
+  writeFileSync(join(assembly.directory, STEP_MANIFEST_FILE), JSON.stringify(builder.stepManifest));
 
   console.log(
     green(bold('Success')),

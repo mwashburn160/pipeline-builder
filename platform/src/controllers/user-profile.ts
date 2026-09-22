@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, refuseForOrgAdminAssurance, sendError, sendSuccess, resolveUserFeatures, TOKEN_SCOPES } from '@pipeline-builder/api-core';
+import { createLogger, ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES, refuseForOrgAdminAssurance, sendError, sendSuccess, resolveUserFeatures, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { TokenScope, FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
@@ -605,13 +605,28 @@ export const updatePreferences = withController('Update preferences', async (req
     if (!n || typeof n !== 'object' || Array.isArray(n)) {
       return sendError(res, 400, 'notifications must be an object', 'INVALID_NOTIFICATIONS');
     }
-    const entries = Object.entries(n as Record<string, unknown>);
+    const { ecosystem, ...flat } = n as Record<string, unknown>;
+    const entries = Object.entries(flat);
     const unknownKeys = entries.map(([k]) => k).filter((k) => !NOTIFICATION_PREFERENCE_KEYS.has(k));
     if (unknownKeys.length > 0) {
       return sendError(res, 400, `Unknown notification preference(s): ${unknownKeys.join(', ')}`, 'INVALID_NOTIFICATIONS');
     }
     if (entries.some(([, v]) => typeof v !== 'boolean')) {
       return sendError(res, 400, 'Notification preferences must be booleans', 'INVALID_NOTIFICATIONS');
+    }
+    // Plugin-ecosystem email opt-outs (§5b): a nested object of known booleans.
+    if (ecosystem !== undefined) {
+      if (!ecosystem || typeof ecosystem !== 'object' || Array.isArray(ecosystem)) {
+        return sendError(res, 400, 'notifications.ecosystem must be an object', 'INVALID_NOTIFICATIONS');
+      }
+      const ecoEntries = Object.entries(ecosystem as Record<string, unknown>);
+      const unknownEco = ecoEntries.map(([k]) => k).filter((k) => !(ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES as readonly string[]).includes(k));
+      if (unknownEco.length > 0) {
+        return sendError(res, 400, `Unknown ecosystem notification preference(s): ${unknownEco.join(', ')}`, 'INVALID_NOTIFICATIONS');
+      }
+      if (ecoEntries.some(([, v]) => typeof v !== 'boolean')) {
+        return sendError(res, 400, 'Notification preferences must be booleans', 'INVALID_NOTIFICATIONS');
+      }
     }
     patch.notifications = n as PreferencesPatch['notifications'];
   }

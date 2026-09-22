@@ -31,7 +31,7 @@ const mockWebhookDeliver = jest.fn<(...a: any[]) => Promise<any>>(async () => ({
 const mockEmailDeliver = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ ok: true }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  getServiceAuthHeader: () => 'Bearer test-service-token',
+  getServiceAuthHeader: (opts: { orgId?: string }) => `Bearer test-service-token:${opts?.orgId}`,
   createWebhookChannel: (opts: Record<string, any> = {}) => {
     webhookOpts.push(opts);
     return { channel: opts.name ?? 'webhook', deliver: mockWebhookDeliver };
@@ -111,6 +111,10 @@ describe('email channel configuration', () => {
     expect(payload).toMatchObject({
       orgId: 'org-9', targetUsers: ['u1'], subject: 'subj', text: 'body text',
     });
+    // The token is scoped to the tenant it emails — platform's relay refuses a
+    // service token whose org differs from the body's.
+    const opts = mockEmailPost.mock.calls[0][2] as { headers: Record<string, string> };
+    expect(opts.headers.Authorization).toBe('Bearer test-service-token:org-9');
   });
 
   it('passes targetUsers: null through as "every org admin"', async () => {
@@ -141,7 +145,7 @@ describe('inAppChannel (the one transport that stays per-service)', () => {
     await inAppChannel.deliver(notification, {});
     const [, , opts] = mockMessagePost.mock.calls[0] as [string, unknown, { headers: Record<string, string> }];
     // A user bearer cannot write across tenants — it must be service-minted.
-    expect(opts.headers.Authorization).toBe('Bearer test-service-token');
+    expect(opts.headers.Authorization).toBe('Bearer test-service-token:000000000000000000000001');
     expect(opts.headers['x-org-id']).toBeDefined();
   });
 

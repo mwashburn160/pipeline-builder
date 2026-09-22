@@ -16,5 +16,18 @@ export interface PluginSummary { total: number; active: number; inactive: number
 export interface PluginVersion { name: string; version_count: number; latest_version: string; has_default: boolean }
 export interface BuildSuccessEntry { period: string; succeeded: number; failed: number; success_pct: number }
 export interface BuildDurationStat { plugin_name: string; avg_ms: number; max_ms: number; builds: number }
+/** One plugin version's run-time behaviour (success-rate + duration routes, joined). */
+export interface PluginRuntimeRow {
+  pluginPublisher: string | null;
+  pluginName: string;
+  pluginVersion: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  successPct: number;
+  lastRun: string;
+  p50Ms: number | null;
+  p95Ms: number | null;
+}
 export interface BuildFailure { plugin_name: string; error_message: string; occurrences: number; last_seen: string }
 export interface PluginDistribution { plugin_type: string; compute_type: string; count: number }

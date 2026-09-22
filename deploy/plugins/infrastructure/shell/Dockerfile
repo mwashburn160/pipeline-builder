@@ -10,13 +10,19 @@
 #   - git, curl, wget, jq, ca-certificates, gnupg
 #   - tar, gzip, xz-utils, zip, unzip
 #   - apt-retry-install <pkgs> (for installing additional system packages)
+#   - fetch-verified <url> <sha256> <dest> (pinned, checksum-verified downloads)
 #
 # If a user needs a tool that isn't in the base, they can either:
 #   1. Use `apt-retry-install <pkg>` in their installCommands
-#   2. Use `curl ... | sh` to install via vendor script
+#   2. Download a pinned release with `fetch-verified` (never pipe a remote
+#      installer script into a shell)
 #   3. Switch to a tool-specific plugin (snyk-go, terraform, etc.)
+#
+# (This previously built FROM bare ubuntu:24.04, which lacked the base helpers
+# listed above and failed its own smokeTest's `which apt-retry-install`.)
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM pipeline-plugin-base:24.04
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

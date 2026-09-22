@@ -30,6 +30,8 @@ Analytics and reporting for pipeline executions and plugin inventory. Ingests CI
 | GET | `/reports/plugins/build-success-rate` | Build success rate over time (`interval`: day/week/month) |
 | GET | `/reports/plugins/build-duration` | Avg/max build duration per plugin |
 | GET | `/reports/plugins/build-failures` | Top build error messages (system admin; scrubbed) |
+| GET | `/reports/plugins/runtime-success-rate` | Per plugin version: pipeline runs, succeeded/failed, success % (filters `name`, `publisher` — empty = own-org plugins — `version`) |
+| GET | `/reports/plugins/runtime-duration` | Per plugin version: runs and p50/p95 action duration (same filters) |
 
 Time-ranged endpoints accept `from`/`to`; admin error/failure endpoints accept `limit`.
 

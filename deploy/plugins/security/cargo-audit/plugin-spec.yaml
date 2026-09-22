@@ -25,3 +25,16 @@ commands:
     cargo audit --json > audit-reports/cargo-audit.json 2>&1 || true
     run-logged audit-reports/cargo-audit.log -- cargo audit || true
   - "echo \"Cargo audit complete. Reports available in audit-reports/\""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://rustsec.org
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/cargo-audit
+# icon: none — no mark in Simple Icons 16.32.0; no confirmed vendor press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "github.com"
+    - "index.crates.io"
+    - "static.crates.io"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

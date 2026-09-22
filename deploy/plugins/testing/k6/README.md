@@ -17,7 +17,7 @@ k6 performance and load testing plugin for running configurable load tests with 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `K6_VERSION` | `0.56.0` | k6 binary version to use |
+| `K6_VERSION` | `2.3.0` | k6 binary version to use |
 | `K6_SCRIPT` | _none_ | Path to the k6 test script (auto-detected if not set) |
 | `K6_VUS` | `10` | Number of virtual users to simulate |
 | `K6_DURATION` | `30s` | Duration of the load test (e.g., 30s, 5m) |
@@ -36,7 +36,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "k6",
   "plugin": "k6",
   "env": {
-    "K6_VERSION": "0.56.0",
+    "K6_VERSION": "2.3.0",
     "K6_SCRIPT": "<your-k6_script>",
     "K6_VUS": "10",
     "K6_DURATION": "30s",

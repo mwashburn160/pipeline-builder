@@ -28,7 +28,8 @@ export const RL_NAME_TAKEN = 'RL_NAME_TAKEN';
 export const RL_INVALID_PERMISSION = 'RL_INVALID_PERMISSION';
 /** A supplied permission is valid but NOT assignable through a user-authored
  *  custom Role — it's superadmin-only (the shared image registry:
- *  `registry:read`/`registry:write`). Built-in Role seeds are exempt (they carry
+ *  `registry:read`/`registry:write`) or system-org-only (the plugin ecosystem's
+ *  `plugins:moderate`/`publishers:verify`). Built-in Role seeds are exempt (they carry
  *  it legitimately); this guards only custom-Role create/update. */
 export const RL_PERMISSION_NOT_ASSIGNABLE = 'RL_PERMISSION_NOT_ASSIGNABLE';
 /** A requested permission is org-assignable but the ACTOR authoring the custom
@@ -49,3 +50,12 @@ export const RL_SUPERADMIN_ROLE_MISSING = 'RL_SUPERADMIN_ROLE_MISSING';
  *  `sanitizePermissions` enforces on custom-Role authoring. Admin/owner of the
  *  org and platform superadmins bypass (they already hold the full bundle). */
 export const RL_ASSIGN_EXCEEDS_CEILING = 'RL_ASSIGN_EXCEEDS_CEILING';
+/** Only a platform superadmin may assign, unassign, edit or delete a Role
+ *  carrying a SYSTEM-ORG-ONLY permission (`plugins:moderate`,
+ *  `publishers:verify` — the system org's "Ecosystem Manager" Role). An org
+ *  admin of the system org is refused too: ecosystem governance is a platform
+ *  decision, not in-org delegation (docs/plans/plugin-ecosystem.md §5a.1). */
+export const RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN = 'RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN';
+/** A Role carrying a system-org-only permission can only be held inside the
+ *  system org — refused when the target org is any other org. */
+export const RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG = 'RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG';

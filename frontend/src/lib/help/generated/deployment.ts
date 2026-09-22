@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6f5e52075e237260fd8a5f2e3389fa343fc4bfd744549461f3077298489e2049
+// SOURCE-SHA256: 9e1ff7ef5738e21298297db9f4760fc9242247a50318e77e4455af4ff3c46b2c
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2041,7 +2041,38 @@ export const deploymentTopic: HelpTopic = {
               "GET /api/reports/plugins/build-failures",
               "Build failure reasons (top N)",
               "from, to, limit"
+            ],
+            [
+              "GET /api/reports/plugins/runtime-success-rate",
+              "Runtime success rate per plugin version (pipeline runs)",
+              "from, to, name, publisher, version"
+            ],
+            [
+              "GET /api/reports/plugins/runtime-duration",
+              "Runtime p50/p95 duration per plugin version",
+              "from, to, name, publisher, version"
             ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Plugin runtime telemetry. The runtime reports describe how plugins behave when your pipelines run them. The build reports cover building the plugin images. In the dashboard, Reports → Plugins → Runs shows both runtime reports as one table per plugin version (runs, success rate, p50/p95 duration, last run), with CSV export. Here is how the data gets there:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "When pipeline-manager pipeline deploy synthesizes a pipeline, it records a step manifest: which plugin (publisher, name, version, image digest) each CodePipeline stage and action runs. It writes it as pb-step-manifest.json in the cloud assembly.",
+            "After the deploy, the manifest is sent with the POST /api/pipelines/registry registration. The platform re-reads name, version and digest from the plugin row (the CLI's claim isn't trusted), then replaces the pipeline's rows in pipeline_step_manifests.",
+            "Event ingest joins each ACTION/BUILD event on (pipeline, stage, action). It stamps plugin_publisher, plugin_name and plugin_version onto pipeline_events."
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "A run is a terminal ACTION event: SUCCEEDED or FAILED. Canceled and superseded actions aren't counted.",
+            "publisher is pipeline-builder for the Official catalog and empty for your org's own plugins. To select only your own plugins, pass ?publisher= with an empty value.",
+            "A pipeline deployed before this existed has no manifest, so its events carry no plugin until its next deploy.",
+            "These reports are rollup-aware (?includeDescendants=true with reports:rollup) and capped by your retention window."
           ]
         },
         {

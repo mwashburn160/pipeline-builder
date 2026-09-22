@@ -43,3 +43,40 @@ export const CATEGORY_DISPLAY_NAMES: Record<PluginCategory, string> = {
   notification: 'Notification',
   ai: 'AI',
 };
+
+/** Narrow an untrusted string (a URL segment, an API field) to a category id. */
+export function isPluginCategory(value: unknown): value is PluginCategory {
+  return typeof value === 'string' && (PLUGIN_CATEGORIES as readonly string[]).includes(value);
+}
+
+/**
+ * One-line, plain-language description of each category — shown on the public
+ * directory's category grid and landing pages and in the Plugins help topic.
+ * Deliberately free of counts: those come live from the directory's facets.
+ */
+export const CATEGORY_DESCRIPTIONS: Record<PluginCategory, string> = {
+  language: 'Build and test toolchains for Node, Python, Java, Go, Rust, .NET, Ruby, PHP and C/C++, pinned on shared base images.',
+  security: 'Find problems before they ship: SAST, dependency (SCA) and secret scanning, container and IaC checks.',
+  quality: 'Linters, formatters, type checks and coverage gates that keep a codebase consistent.',
+  testing: 'Unit, integration, end-to-end, load and contract testing runners.',
+  artifact: 'Package and publish what you build: container images, npm/PyPI/Maven packages, S3 artifacts.',
+  deploy: 'Ship to AWS and beyond: CloudFormation/CDK, ECS, Lambda, Kubernetes, and cross-cloud deploys.',
+  infrastructure: 'Synthesize and validate infrastructure as code, plus approval gates between stages.',
+  monitoring: 'Post-deploy checks, observability hooks and release markers.',
+  notification: 'Tell people what happened: Slack, Teams, email and webhook notifications.',
+  ai: 'AI-assisted steps, e.g. generating Dockerfiles or reviewing changes.',
+};
+
+/** Where a category's plugins fit in a pipeline ("where it fits" on category pages). */
+export const CATEGORY_STAGES: Record<PluginCategory, string> = {
+  language: 'Build',
+  security: 'Build · Test',
+  quality: 'Build · Test',
+  testing: 'Test',
+  artifact: 'Publish',
+  deploy: 'Deploy',
+  infrastructure: 'Synth · Gate',
+  monitoring: 'Post-deploy',
+  notification: 'Any stage',
+  ai: 'Any stage',
+};

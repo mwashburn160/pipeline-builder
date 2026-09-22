@@ -28,7 +28,7 @@ flowchart TB
 
     subgraph Platform["Pipeline Builder Platform"]
         NGINX[Nginx<br/>Reverse Proxy]
-        PLATFORM[Platform API<br/>Auth / Gateway]
+        PLATFORM[Platform API<br/>Identity / Orgs / Audit]
         PIPELINE[Pipeline API]
         PLUGIN[Plugin API]
         COMPLIANCE[Compliance]
@@ -51,8 +51,8 @@ flowchart TB
     end
 
     FE & CLI & API_EXT --> NGINX
-    NGINX --> PLATFORM
-    PLATFORM --> PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & IMGREG
+    NGINX -->|route by path| PLATFORM & PIPELINE & PLUGIN & COMPLIANCE & QUOTA & BILLING & MESSAGE & REPORTING & IMGREG
+    PIPELINE & PLUGIN & COMPLIANCE & REPORTING & IMGREG -.->|verify tokens via JWKS| PLATFORM
     PLUGIN & PIPELINE -->|validate| COMPLIANCE
     PLATFORM --> MONGO
     PIPELINE & PLUGIN & COMPLIANCE & REPORTING --> PG
@@ -131,6 +131,52 @@ flowchart LR
         Spec2[plugin-spec.yaml] --> Direct[Deploy directly<br/>No Docker build]
     end
 ```
+
+---
+
+## Flow 1b: Publishing to the Plugin Ecosystem
+
+A plugin reaches **other organizations** only through the plugin ecosystem:
+the publisher requests a listing, the system organization approves it, and the
+approved version is copied into a read-only `public/*` registry namespace.
+`visibility: public` never crosses an org boundary on its own.
+
+```mermaid
+sequenceDiagram
+    participant Pub as Publisher org
+    participant Plugin as Plugin API
+    participant Mod as Ecosystem Managers<br/>(system org)
+    participant IR as Image Registry
+    participant Reg as Registry
+
+    Pub->>Plugin: POST /plugins/publish-requests (kind new_listing / new_version)
+    Plugin->>Plugin: Gates (public, license, README, signed, scanned, vuln)<br/>Pin digest + freeze version
+    alt bootstrap exception or auto-approval rule
+        Plugin->>Plugin: Approve as system
+    else manual review
+        Plugin-->>Mod: N24 (queue)
+        Mod->>Plugin: approve (and second-approve for Official / Verified)
+    end
+    Plugin->>IR: POST /internal/plugin-publications (pinned digest, tier)
+    IR->>Reg: Copy org-ID/name@digest to public/PUBLISHER/name
+    IR->>Reg: Sign fresh (pb.trust, pb.publisher) + attest SBOM + tag version
+    Plugin->>Plugin: Record listing + listing version (immutable)
+    Plugin-->>Pub: N25 (approved)
+```
+
+- **Official catalog.** The system org's plugins are listings under the
+  `pipeline-builder` publisher, loaded by `load-plugins.sh` as the
+  `official-catalog-loader` service account (`publishRequest=true`). The first
+  load rides the one-time bootstrap exception; later gate-green patch/minor
+  updates ride the seeded Official auto-approval rule.
+- **Resolution until installs ship.** Plugin reads and lookups include another
+  org's plugin only when it is a system-org row that is the source of a live
+  Official listing version (`OFFICIAL_LISTED_PLUGIN_SCOPE` in pipeline-data).
+  W2 switches resolution to installs (implicit for Official) and to the
+  listing's `public/*` image repository.
+- **Re-sign job.** A tier change, suspension, handle change or transfer
+  re-signs every published image with the new annotations, then drops the
+  lookup verify cache.
 
 ---
 
@@ -309,9 +355,9 @@ flowchart LR
 | Component | Purpose | Key Files |
 |-----------|---------|-----------|
 | **Frontend** | Pipeline/plugin management UI | `frontend/pages/dashboard/` |
-| **Platform API** | Auth gateway, user/org management | `platform/src/controllers/` |
+| **Platform API** | Sign-in and token issuance (ES256, published as JWKS), user/org management, audit | `platform/src/controllers/` |
 | **Pipeline API** | Pipeline CRUD, compliance | `api/pipeline/src/` |
-| **Plugin API** | Plugin upload, build queue, AI generation | `api/plugin/src/` |
+| **Plugin API** | Plugin upload, build queue, AI generation, the plugin ecosystem (publishers, publish requests, the Ecosystem console) | `api/plugin/src/`, `api/plugin/src/services/ecosystem/` |
 | **Image Registry** | Registry bearer-token minting, image management/GC | `api/image-registry/src/` |
 | **pipeline-core** | CDK constructs, plugin lookup | `packages/pipeline-core/src/pipeline/` |
 | **pipeline-data** | DB schemas (Drizzle ORM) | `packages/pipeline-data/src/database/` |

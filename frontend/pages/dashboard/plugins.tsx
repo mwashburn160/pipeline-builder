@@ -25,6 +25,7 @@ import { DataTable } from '@/components/ui/DataTable';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { FilterBar } from '@/components/ui/FilterBar';
 import { PluginDetailModal } from '@/components/plugin/PluginDetailModal';
+import { PluginLifecycleModal, type PluginLifecycleAction } from '@/components/plugin/PluginLifecycleModal';
 import { usePluginColumns, PLUGIN_SORT_FIELD } from '@/components/plugin/usePluginColumns';
 import { BulkActionBar, BulkActionBarSpacer, useRowSelection } from '@/components/dashboard/BulkActionBar';
 import api from '@/lib/api';
@@ -33,6 +34,11 @@ import { mapCommonParams, canModify } from '@/lib/resource-helpers';
 import { buildListSummary } from '@/lib/list-summary';
 import { visitedPluginsKey } from '@/lib/onboarding';
 import { useFavorites } from '@/lib/favorites';
+import { useUrlTab } from '@/hooks/useUrlTab';
+import { CatalogTab } from '@/components/plugin-installs/CatalogTab';
+import { InstallsTab } from '@/components/plugin-installs/InstallsTab';
+import { ApprovalsTab } from '@/components/plugin-installs/ApprovalsTab';
+import { PolicyTab } from '@/components/plugin-installs/PolicyTab';
 
 // Modals and the recently-deleted panel load on first use — none of them is
 // part of the list's first paint, and the create modal carries the AI builder.
@@ -42,6 +48,10 @@ const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedP
 
 /** `fields` for the list request — every rendered column, never the build spec. */
 const LIST_FIELDS = PLUGIN_LIST_FIELDS.join(',');
+
+/** Page tabs (`?tab=`): the org's own plugins, then the ecosystem side (W2). */
+const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy'] as const;
+type PageTab = typeof PAGE_TABS[number];
 
 // ─── Page ───────────────────────────────────────────────
 
@@ -59,6 +69,21 @@ export default function PluginsPage() {
   // (`can('pipelines:publish')`) instead of the old `isSuperAdmin` proxy, so a
   // custom-group member granted `plugins:publish` can publish. Superadmins bypass.
   const canPublish = can('plugins:publish');
+  // Ecosystem consumption (W2): installing listings, and the org-local
+  // consumption policy + install approvals.
+  const canInstall = can('plugins:install');
+  const canManageInstalls = can('plugin_installs:manage');
+  const router = useRouter();
+  const [urlTab, setTab] = useUrlTab<PageTab>('tab', PAGE_TABS, 'mine');
+  // Approvals is an approver's surface; a hand-edited URL can't open it.
+  const tab: PageTab = urlTab === 'approvals' && !canManageInstalls ? 'mine' : urlTab;
+  // `useUrlTab` adopts `?tab=` in an effect, so the first render still says
+  // "mine". The own-plugin list (and its URL write-back, which replaces the
+  // whole query) must not start until the URL agrees, or it drops `?tab=`.
+  const queryTab = typeof router.query.tab === 'string' ? router.query.tab : undefined;
+  const mineActive = tab === 'mine'
+    && (!queryTab || queryTab === 'mine' || !(PAGE_TABS as readonly string[]).includes(queryTab)
+      || (queryTab === 'approvals' && !canManageInstalls));
   // Batch activate/deactivate/delete is a tier-gated feature: the backend
   // attaches `requireFeature('bulk_operations')` to the bulk routes, so without
   // the flag every bulk action 403s. The backend ALSO gates bulk delete/update
@@ -97,6 +122,22 @@ export default function PluginsPage() {
     }
   }, [isAuthenticated]);
   const pluginUsage = useMemo(() => usageData ?? {}, [usageData]);
+
+  // Own plugins whose names shadow an Official listing (an unqualified
+  // reference resolves to ours, not the Official one). Non-blocking too.
+  const { data: shadowingData } = useFetch(async () => {
+    if (!isAuthenticated) return [];
+    try {
+      return (await api.getPluginShadowing()).data?.shadowing ?? [];
+    } catch {
+      return [];
+    }
+  }, [isAuthenticated]);
+  const shadowedById = useMemo(() => {
+    const m = new Map<string, { publisherHandle: string; name: string }>();
+    for (const s of shadowingData ?? []) for (const id of s.pluginIds) m.set(id, s.listing);
+    return m;
+  }, [shadowingData]);
 
   // ── Data ──
 
@@ -144,8 +185,10 @@ export default function PluginsPage() {
       const response = await api.listPlugins(p, { signal });
       return { items: response.data?.plugins || [], pagination: response.data?.pagination };
     },
-    enabled: isAuthenticated,
-    urlSync: true,
+    // Only the "My plugins" tab reads (and URL-syncs) the list: its write-back
+    // replaces the whole query and would drop another tab's `?tab=`.
+    enabled: isAuthenticated && mineActive,
+    urlSync: mineActive,
   });
 
   // Any write here re-reads this page AND drops the pipeline builder's cached
@@ -167,7 +210,6 @@ export default function PluginsPage() {
 
   // Seed the name search from a `?q=` deep-link (e.g. ⌘K "find plugin X" or a
   // My Services plugin link) so the list lands filtered to that plugin.
-  const router = useRouter();
   useEffect(() => {
     const q = router.query.q;
     if (typeof q === 'string' && q) list.updateFilter('name', q);
@@ -271,6 +313,9 @@ export default function PluginsPage() {
   const [createInitialTab, setCreateInitialTab] = useState<'upload' | 'ai' | null>(null);
   const [editPlugin, setEditPlugin] = useState<PluginSummary | null>(null);
   const [viewPlugin, setViewPlugin] = useState<PluginSummary | null>(null);
+  // Deprecate / clear deprecation / yank a version (W0.4) — one confirm dialog.
+  const [lifecycleTarget, setLifecycleTarget] = useState<{ plugin: PluginSummary; action: PluginLifecycleAction } | null>(null);
+  const openLifecycle = useCallback((plugin: PluginSummary, action: PluginLifecycleAction) => setLifecycleTarget({ plugin, action }), []);
 
   // Open the create modal (AI Builder tab) when arrived via the sidebar "Add
   // Plugin" shortcut (`?create=1`).
@@ -286,11 +331,13 @@ export default function PluginsPage() {
     favorites,
     onToggleFavorite: handleToggleFavorite,
     usage: pluginUsage,
+    shadowed: shadowedById,
     canWriteRow,
     showRegistryLink: isSuperAdmin,
     onView: setViewPlugin,
     onEdit: setEditPlugin,
     onDelete: openDelete,
+    onLifecycle: openLifecycle,
   });
 
   // ── Render ──
@@ -327,6 +374,34 @@ export default function PluginsPage() {
       <div className="page-section">
         <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} size="sm" />
 
+        <TabBar
+          className="mb-4"
+          ariaLabel="Plugin sections"
+          idPrefix="plugins"
+          items={[
+            { id: 'mine', label: 'My plugins' },
+            { id: 'catalog', label: 'Catalog' },
+            { id: 'installs', label: 'Installs' },
+            ...(canManageInstalls ? [{ id: 'approvals', label: 'Approvals' }] : []),
+            { id: 'policy', label: 'Policy' },
+          ]}
+          activeId={tab}
+          onSelect={(id) => setTab(id as PageTab)}
+        />
+
+        {tab === 'catalog' && (
+          <CatalogTab
+            canInstall={canInstall}
+            usage={pluginUsage}
+            initialQuery={typeof router.query.q === 'string' ? router.query.q : ''}
+          />
+        )}
+        {tab === 'installs' && <InstallsTab canInstall={canInstall} usage={pluginUsage} />}
+        {tab === 'approvals' && canManageInstalls && <ApprovalsTab />}
+        {tab === 'policy' && <PolicyTab canManage={canManageInstalls} />}
+
+        {tab === 'mine' && (
+        <>
         {/* Active / Recently-deleted tabs (restore is write-gated). */}
         {canWrite && (
           <TabBar
@@ -475,6 +550,8 @@ export default function PluginsPage() {
 
         </>
         )}
+        </>
+        )}
       </div>
 
       {createInitialTab && (
@@ -488,6 +565,15 @@ export default function PluginsPage() {
 
       {del.target && (
         <DeleteConfirmModal title="Delete plugin" itemName={del.target.name} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
+      )}
+
+      {lifecycleTarget && (
+        <PluginLifecycleModal
+          plugin={lifecycleTarget.plugin}
+          action={lifecycleTarget.action}
+          onClose={() => setLifecycleTarget(null)}
+          onDone={afterWrite}
+        />
       )}
 
       {showBulkDelete && (
@@ -505,7 +591,18 @@ export default function PluginsPage() {
       )}
 
       {viewPlugin && (
-        <PluginDetailModal plugin={viewPlugin} showRegistryLink={isSuperAdmin} onClose={() => setViewPlugin(null)} />
+        // `publicUrl` ("View public page") is left unset: the in-app list API doesn't
+        // say yet whether a plugin is listed in the public directory. When it does,
+        // pass `pluginPagePath(publisher, name)` from `@/lib/public-directory/links`.
+        <PluginDetailModal
+          plugin={viewPlugin}
+          shadows={shadowedById.get(viewPlugin.id) ?? null}
+          showRegistryLink={isSuperAdmin}
+          onClose={() => setViewPlugin(null)}
+          publishHref={can('plugins:publish') && viewPlugin.visibility === 'public' && viewPlugin.orgId === user?.organizationId
+            ? `/dashboard/publisher?tab=publish&pluginId=${encodeURIComponent(viewPlugin.id)}`
+            : undefined}
+        />
       )}
 
       {/* Sticky bottom bulk actions bar */}

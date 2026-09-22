@@ -31,6 +31,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
+import { findPluginContractViolations, formatContractViolations } from '../helpers/plugin-contract-check.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService, type PipelineInsert, type PipelineUpdate } from '../services/pipeline-service.js';
 
@@ -104,6 +105,14 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       } catch (err) {
         results.failed++;
         results.errors.push({ index: i, error: errorMessage(err) });
+        continue;
+      }
+
+      // Per-item plugin contracts (W0.2), before any quota is reserved.
+      const contractViolations = await findPluginContractViolations(body.props, orgId, req.user?.parentOrganizationId);
+      if (contractViolations.length > 0) {
+        results.failed++;
+        results.errors.push({ index: i, error: formatContractViolations(contractViolations) });
         continue;
       }
 
@@ -293,6 +302,14 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       validatePipelineTemplates(validData);
     } catch (err) {
       return sendBadRequest(res, errorMessage(err), ErrorCode.TEMPLATE_VALIDATION_FAILED);
+    }
+
+    // Plugin contracts (W0.2) of the shared props — one verdict for every row.
+    if (validData.props) {
+      const contractViolations = await findPluginContractViolations(validData.props, orgId, req.user?.parentOrganizationId);
+      if (contractViolations.length > 0) {
+        return sendError(res, 400, formatContractViolations(contractViolations), ErrorCode.TEMPLATE_CONTRACT_VIOLATION, { steps: contractViolations });
+      }
     }
 
     // The shared payload can change the compliance posture of every row (same

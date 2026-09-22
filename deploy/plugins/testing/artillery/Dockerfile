@@ -8,8 +8,9 @@
 FROM pipeline-node-base:1.0
 
 # TODO(confirm): pin the intended Artillery version at build time.
-ARG ARTILLERY_VERSION=2.0.21
+ARG ARTILLERY_VERSION=2.0.34
 RUN npm install -g "artillery@${ARTILLERY_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

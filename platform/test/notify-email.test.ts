@@ -51,7 +51,18 @@ jest.unstable_mockModule('../src/utils/email.js', () => ({
   default: { send: (...a: unknown[]) => mockSend(...a) },
 }));
 
-const { notifyEmail: handleNotifyEmail } = await import('../src/controllers/notify-email.js');
+// Ecosystem notices (plugin-ecosystem §5b) are delivered by their own service,
+// tested in ecosystem-notifications.test.ts; here only the relay's branching.
+const mockDeliver = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
+  deliverEcosystemNotification: (...a: unknown[]) => mockDeliver(...a),
+}));
+
+// EMAIL_ENABLED as platform config exposes it — mutable per test for the status route.
+const mockEmailConfig = { enabled: true };
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: { email: mockEmailConfig } }));
+
+const { notifyEmail: handleNotifyEmail, notifyEmailStatus } = await import('../src/controllers/notify-email.js');
 
 function mockRes() {
   const res: any = {};
@@ -61,6 +72,7 @@ function mockRes() {
 }
 
 beforeEach(() => {
+  mockDeliver.mockReset();
   mockMembershipFind.mockReset();
   mockUserFind.mockReset();
   mockSend.mockReset();
@@ -172,5 +184,67 @@ describe('handleNotifyEmail', () => {
 
     expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: ['o@x.com'] }));
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('handleNotifyEmail — ecosystem notices (plugin)', () => {
+  const plugin = { sub: 'service:plugin', principalType: 'service', organizationId: '000000000000000000000001', isSuperAdmin: false };
+  const notice = { event: 'N23', subject: 'S', text: 'T', recipients: [{ kind: 'superadmins' }] };
+
+  it('delivers a valid notice from the plugin service and reports counts', async () => {
+    mockDeliver.mockResolvedValue({ recipientCount: 2, inApp: 2, emailed: 2, suppressed: 0, failed: 0 });
+    const res = mockRes();
+    await handleNotifyEmail({ body: notice, user: plugin } as any, res);
+    expect(mockDeliver).toHaveBeenCalledWith(expect.objectContaining({ event: 'N23', recipients: [{ kind: 'superadmins' }] }));
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ ok: true, recipientCount: 2 }) }));
+  });
+
+  it('SECURITY: refuses an ecosystem notice from any other caller (compliance cannot fan out across orgs)', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body: notice, user: { ...plugin, sub: 'service:compliance' } } as any, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockDeliver).not.toHaveBeenCalled();
+  });
+
+  it('400s an invalid notice without delivering anything', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body: { ...notice, recipients: [{ kind: 'org_permission', orgId: 'o', permission: 'plugins:moderate' }] }, user: plugin } as any, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockDeliver).not.toHaveBeenCalled();
+  });
+
+  it('400s a tenant-email body from the plugin service (it only sends ecosystem notices)', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body: { orgId: 'org-1', subject: 'S', text: 'T' }, user: plugin } as any, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockMembershipFind).not.toHaveBeenCalled();
+  });
+
+  it('500s when delivery throws (so the sender keeps the row for retry)', async () => {
+    mockDeliver.mockRejectedValue(new Error('mongo down'));
+    const res = mockRes();
+    await handleNotifyEmail({ body: notice, user: plugin } as any, res);
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+});
+
+// GET /internal/notify-email/status — the plugin service's anonymous-submission
+// API (plugin-ecosystem §4.2) is only available when outbound email is on.
+describe('notifyEmailStatus', () => {
+  it.each([[true], [false]])('reports enabled=%s straight from EMAIL_ENABLED', (enabled) => {
+    mockEmailConfig.enabled = enabled;
+    const res = mockRes();
+    notifyEmailStatus({ user: { sub: 'service:plugin' } } as any, res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { enabled } }));
+  });
+
+  it('reveals nothing but the switch (no provider, host or sender)', () => {
+    mockEmailConfig.enabled = true;
+    const res = mockRes();
+    notifyEmailStatus({} as any, res);
+    const payload = (res.json.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(Object.keys(payload)).toEqual(['enabled']);
   });
 });

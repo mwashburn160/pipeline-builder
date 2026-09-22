@@ -30,6 +30,7 @@ This is the documentation index for **Pipeline Builder**, a multi-tenant platfor
 | [Deploy Operations](deploy-operations.md) | Ops runbook — preflight, secrets rotation, backups, teardown |
 | [Secret Rotation](runbooks/secret-rotation.md) | Rotating every secret with zero downtime — JWT, refresh, at-rest key, alert relay, registry signing key |
 | [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) | Issuing personal access keys and provisioning the three stored machine credentials |
+| [Ecosystem Moderation](runbooks/ecosystem-moderation.md) | For Ecosystem Managers: the publish-request queue, two-person approval, separation of duties, auto-approval rules, takedowns, re-sign jobs, the bootstrap exception |
 
 ---
 
@@ -131,7 +132,7 @@ npm install -g @pipeline-builder/pipeline-manager
 pipeline-manager auth login          # browser sign-in; stores the session locally
 # (in CI instead: export PLATFORM_TOKEN=<access key from "auth pat">)
 
-pipeline-manager plugin upload --file ./node-build.zip --organization my-org --name node-build --version 1.0.0
+pipeline-manager plugin upload --file ./node-build.zip   # name + version come from plugin-spec.yaml
 pipeline-manager pipeline create --file ./pipeline-props.json --project my-app --organization my-org
 pipeline-manager pipeline deploy --id <pipeline-id> --profile production
 ```
@@ -153,7 +154,7 @@ curl -X POST https://localhost:8443/api/pipelines \
       "organization": "my-org",
       "synth": {
         "source": { "type": "github", "options": { "repo": "my-org/my-app", "branch": "main" } },
-        "plugin": { "name": "cdk-synth", "version": "1.0.0" }
+        "plugin": { "name": "cdk-synth", "filter": { "version": "1.0.0" } }
       }
     }
   }'
@@ -187,11 +188,11 @@ new PipelineBuilder(stack, 'MyPipeline', {
       options: { repo: 'my-org/my-app', branch: 'main',
         connectionArn: 'arn:aws:codestar-connections:us-east-1:...:connection/...' },
     },
-    plugin: { name: 'cdk-synth', version: '1.0.0' },
+    plugin: { name: 'cdk-synth', filter: { version: '1.0.0' } },
   },
   stages: [
-    { stageName: 'Test', steps: [{ name: 'unit-tests', plugin: { name: 'jest', version: '1.0.0' } }] },
-    { stageName: 'Deploy', steps: [{ name: 'deploy-prod', plugin: { name: 'cdk-deploy', version: '1.0.0' }, env: { ENVIRONMENT: 'production' } }] },
+    { stageName: 'Test', steps: [{ name: 'unit-tests', plugin: { name: 'jest', filter: { version: '1.0.0' } } }] },
+    { stageName: 'Deploy', steps: [{ name: 'deploy-prod', plugin: { name: 'cdk-deploy', filter: { version: '1.0.0' } }, env: { ENVIRONMENT: 'production' } }] },
   ],
 });
 ```

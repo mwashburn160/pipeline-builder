@@ -9,7 +9,7 @@
 FROM pipeline-node-base:1.0
 
 # ─── Newman (Postman CLI runner) + reporters — pinned + baked ───
-RUN npm install -g newman@6.2.1 \
+RUN npm install -g newman@6.2.2 \
     newman-reporter-htmlextra@1.23.1 \
     newman-reporter-junitfull@1.1.1
 
@@ -22,4 +22,5 @@ ENV NEWMAN_TIMEOUT=60000
 ENV BAIL_ON_FAILURE=false
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema, VisibilitySchema, CatalogMetadataShape } from './common-schemas.js';
+import { PUBLISHER_HANDLE_PATTERN } from '../types/ecosystem.js';
 
 /**
  * Pipeline filter schema for query parameters
@@ -16,14 +17,37 @@ export const PipelineFilterSchema = BaseFilterSchema.extend({
 });
 
 /**
+ * Keys that look like plugin-reference fields but aren't: synth never reads
+ * them, so without a loud refusal the reference silently resolves to something
+ * other than what its author meant.
+ */
+const PLUGIN_REF_NON_FIELDS: Record<string, string> = {
+  version:
+    '`version` is not a plugin-reference field — it is ignored and the default version is used. '
+    + 'Pin or range the version with `filter: { version: "1.2.3" }` (also ^, ~, 1.x, 1.2, latest).',
+};
+
+/**
  * Plugin options schema (name-based selection)
  */
 const PluginOptionsSchema = z.object({
   name: z.string().min(1),
+  /**
+   * The publisher whose installed listing the reference resolves to
+   * (docs/plans/plugin-ecosystem.md §3.5). Absent: the org's own plugin, then
+   * its parent's, then the Official listing.
+   */
+  publisher: z.string().max(39).regex(PUBLISHER_HANDLE_PATTERN, 'publisher must be a publisher handle (lowercase letters, digits and single hyphens)').optional(),
   alias: z.string().optional(),
   filter: z.record(z.string(), z.unknown()).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
+}).passthrough().superRefine((ref, ctx) => {
+  for (const [key, message] of Object.entries(PLUGIN_REF_NON_FIELDS)) {
+    if (key in (ref as Record<string, unknown>)) {
+      ctx.addIssue({ code: 'custom', path: [key], message });
+    }
+  }
+});
 
 /**
  * Stage step schema
@@ -55,13 +79,17 @@ const StageStepSchema = z.object({
 });
 
 /**
- * Stage schema
+ * Stage schema. `passthrough()` like its siblings: a strict-by-default object
+ * here stripped every undeclared stage field before storage — including
+ * `environment`, which marks a stage as a DORA deploy.
  */
 const StageSchema = z.object({
   stageName: z.string().min(1),
   alias: z.string().optional(),
+  /** Deploy environment this stage targets (DORA deploy attribution, `pb.deploys`). */
+  environment: z.string().min(1).max(64).optional(),
   steps: z.array(StageStepSchema).min(1),
-});
+}).passthrough();
 
 /**
  * BuilderProps schema — structural validation for pipeline configuration.

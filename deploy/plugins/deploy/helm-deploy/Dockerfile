@@ -4,26 +4,32 @@
 # Includes kubectl and AWS CLI for EKS authentication
 
 # ─── Tool versions (override with --build-arg) ───
-ARG KUBECTL_VERSION=1.31.4
-ARG HELM_VERSION=3.16.4
+ARG KUBECTL_VERSION=1.37.0
+ARG HELM_VERSION=4.3.0
 
 FROM alpine/helm:${HELM_VERSION} AS helm-src
 
 FROM pipeline-aws-cli-base:1.0
+
+# Build steps below need root (apt, writes under /usr/local, /opt or /etc);
+# the image drops back to the unprivileged `plugin` user (uid 1000) at the end.
+USER root
 
 ARG KUBECTL_VERSION
 ARG HELM_VERSION
 
 # ─── kubectl ───
 # SHA256-verified — see deploy/kubectl-deploy/Dockerfile for the rationale.
-RUN ARCH=$(dpkg --print-architecture) \
-    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
-       -o /usr/local/bin/kubectl \
-    && curl -fsSL "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl.sha256" \
-       -o /tmp/kubectl.sha256 \
-    && echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c - \
-    && rm /tmp/kubectl.sha256 \
-    && chmod +x /usr/local/bin/kubectl
+ARG KUBECTL_SHA256_AMD64=6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
+ARG KUBECTL_SHA256_ARM64=922df28df248cc00a9e025f947704f1d1482de64ece54cfe57e61f19eaf1eef3
+RUN set -eux; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) arch=amd64; sum="${KUBECTL_SHA256_AMD64}" ;; \
+      arm64) arch=arm64; sum="${KUBECTL_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    fetch-verified "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" "$sum" /usr/local/bin/kubectl; \
+    chmod 0755 /usr/local/bin/kubectl
 
 # ─── Helm (copied from official image) ───
 COPY --from=helm-src /usr/bin/helm /usr/local/bin/helm
@@ -42,6 +48,7 @@ ENV HELM_REPO_NAME=""
 
 # Working directory for pipeline source
 WORKDIR /app
+USER 1000:1000
 
 # Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

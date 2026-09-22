@@ -38,7 +38,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 import { run } from './build-process.js';
@@ -184,9 +184,17 @@ export async function attachSupplyChain(params: AttachSupplyChainParams, opts?: 
 
 /** What identifies a plugin image to verify. */
 export interface PluginImageRef {
+  /** The owning org — its pull credential reads the image (unused for `public/*`). */
   orgId: string;
   name: string;
   imageDigest: string | null;
+  /**
+   * Namespace-relative repository the image lives at, as lookup resolved it
+   * (G30): `org-<id>/<name>` / `system/<name>` for the org's own row,
+   * `public/<publisher>/<name>` for a listed version. Absent for a row the
+   * service handles as its own (build, rescan): its owner's namespace.
+   */
+  imageRepository?: string | null;
 }
 
 /** digest-ref → verified-until (epoch ms). Only successes are cached. */
@@ -200,21 +208,28 @@ export function _resetSupplyChainState(): void {
   inFlight.clear();
 }
 
+const isPublicRepository = (repo: string | null | undefined): boolean => !!repo && repo.startsWith('public/');
+
 function refFor(plugin: PluginImageRef, registry: RegistryInfo): string {
   if (!plugin.imageDigest || !DIGEST_RE.test(plugin.imageDigest)) {
     throw new ImageVerificationError(
       `Plugin "${plugin.name}" has no signed image digest — rebuild it so the platform can sign it`);
   }
-  return `${imageRepository(plugin.name, registry, plugin.orgId)}@${plugin.imageDigest}`;
+  const repository = plugin.imageRepository
+    ? `${registry.host}:${registry.port}/${plugin.imageRepository}`
+    : imageRepository(plugin.name, registry, plugin.orgId);
+  return `${repository}@${plugin.imageDigest}`;
 }
 
 /**
- * Run a read-only cosign verification with a short-lived PULL credential for
- * the plugin's owning org.
+ * Run a read-only cosign verification with a short-lived PULL credential: the
+ * plugin's owning org's, or — for `public/*`, which every platform identity may
+ * pull — the system org's.
  */
 async function withPullCredential<T>(plugin: PluginImageRef, registry: RegistryInfo, fn: (env: Record<string, string>) => Promise<T>): Promise<T> {
   const cfg = getBuildCfg();
-  const dockerConfigDir = writeAuthConfig(registry, plugin.orgId, Math.ceil(cfg.pushTimeoutMs / 1000), 'pull');
+  const credentialOrg = isPublicRepository(plugin.imageRepository) ? SYSTEM_ORG_ID : plugin.orgId;
+  const dockerConfigDir = writeAuthConfig(registry, credentialOrg, Math.ceil(cfg.pushTimeoutMs / 1000), 'pull');
   try {
     return await fn({ DOCKER_CONFIG: dockerConfigDir, ...cosignEnv() });
   } finally {
@@ -286,6 +301,81 @@ export async function fetchImageSbom(plugin: PluginImageRef, registry: RegistryI
     }
   });
   return extractSpdxPredicate(out, plugin.name);
+}
+
+/** `public/<publisherHandle>/<name>` — the public plugin namespace (same shape as image-registry's plugin-signing). */
+const PUBLIC_REPOSITORY_RE = /^public\/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*\/[a-z0-9][a-z0-9._-]*$/;
+
+/** SBOMs are content-addressed by digest, so a verified one never goes stale. */
+const PUBLIC_SBOM_CACHE_MAX = 200;
+/** cosign runs the anonymous directory may have going at once (each is a process + registry pulls). */
+const PUBLIC_SBOM_MAX_CONCURRENT = 2;
+const publicSboms = new Map<string, Record<string, unknown>>();
+const publicSbomInFlight = new Map<string, Promise<Record<string, unknown>>>();
+
+/** Too many anonymous SBOM verifications are already running; the caller should retry. */
+export class SbomBusyError extends Error {
+  constructor() {
+    super('SBOM verification is busy, retry shortly');
+    this.name = 'SbomBusyError';
+  }
+}
+
+/** @internal Reset the public SBOM cache (tests only). */
+export function _resetPublicSbomCache(): void {
+  publicSboms.clear();
+  publicSbomInFlight.clear();
+}
+
+/**
+ * The SBOM of a PUBLISHED plugin image (`public/<handle>/<name>@<digest>`), for
+ * the anonymous directory (plugin-ecosystem §6a). Read from the signed
+ * attestation like {@link fetchImageSbom}. `public/*` is pull-open to every
+ * platform identity, so the pull credential carries the system org and no
+ * permission. Verified SBOMs are cached by digest, concurrent requests for one
+ * image share one cosign run, and at most {@link PUBLIC_SBOM_MAX_CONCURRENT}
+ * distinct runs go at once — beyond that {@link SbomBusyError}, so anonymous
+ * traffic can't fan out cosign processes.
+ */
+export async function fetchPublicImageSbom(
+  publicRepository: string, digest: string, registry: RegistryInfo,
+): Promise<Record<string, unknown>> {
+  if (!PUBLIC_REPOSITORY_RE.test(publicRepository) || !DIGEST_RE.test(digest)) {
+    throw new ImageVerificationError(`"${publicRepository}@${digest}" is not a published plugin image`);
+  }
+  const ref = `${registry.host}:${registry.port}/${publicRepository}@${digest}`;
+  const cached = publicSboms.get(ref);
+  if (cached) return cached;
+  const pending = publicSbomInFlight.get(ref);
+  if (pending) return pending;
+  if (publicSbomInFlight.size >= PUBLIC_SBOM_MAX_CONCURRENT) throw new SbomBusyError();
+
+  const name = publicRepository.split('/').pop() as string;
+  const key = verificationKey();
+  const cfg = getBuildCfg();
+  const fetchSbom = (async () => {
+    const dockerConfigDir = writeAuthConfig(registry, SYSTEM_ORG_ID, Math.ceil(cfg.pushTimeoutMs / 1000), 'pull');
+    let out: string;
+    try {
+      out = await run('cosign', [
+        'verify-attestation', '--key', key, '--type', 'spdxjson', '--insecure-ignore-tlog=true',
+        ...cosignRegistryFlags(registry),
+        ref,
+      ], cfg.pushTimeoutMs, { DOCKER_CONFIG: dockerConfigDir, ...cosignEnv() }, { captureStdout: true });
+    } catch (err) {
+      if (isCosignRejection(err)) throw new ImageVerificationError(`Plugin "${name}" has no verified SBOM attestation`);
+      throw err;
+    } finally {
+      fs.rmSync(dockerConfigDir, { recursive: true, force: true });
+    }
+    const sbom = extractSpdxPredicate(out, name);
+    if (publicSboms.size >= PUBLIC_SBOM_CACHE_MAX) publicSboms.delete(publicSboms.keys().next().value as string);
+    publicSboms.set(ref, sbom);
+    return sbom;
+  })().finally(() => { publicSbomInFlight.delete(ref); });
+
+  publicSbomInFlight.set(ref, fetchSbom);
+  return fetchSbom;
 }
 
 /**

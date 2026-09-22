@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { bakePlatformRegistry, registryOverrideFromBaseUrl } from '../src/utils/registry.js';
+import { bakePlatformRegistry, readStepManifest, registryOverrideFromBaseUrl } from '../src/utils/registry.js';
 
 describe('registryOverrideFromBaseUrl', () => {
   it.each([
@@ -44,5 +47,21 @@ describe('bakePlatformRegistry', () => {
     bakePlatformRegistry(props, undefined);
     bakePlatformRegistry(props, 'garbage');
     expect(props.registry).toBeUndefined();
+  });
+});
+
+describe('readStepManifest', () => {
+  it('reads the manifest the synth app wrote into the cloud assembly', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pb-manifest-'));
+    const steps = [{ stageName: 'test-wave', actionName: 'jest', pluginId: 'pl-1', pluginName: 'jest', pluginVersion: '1.0.0', imageDigest: null }];
+    writeFileSync(join(dir, 'pb-step-manifest.json'), JSON.stringify(steps));
+    await expect(readStepManifest(dir)).resolves.toEqual(steps);
+  });
+
+  it('returns undefined when absent or malformed (registration proceeds without it)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pb-manifest-'));
+    await expect(readStepManifest(dir)).resolves.toBeUndefined();
+    writeFileSync(join(dir, 'pb-step-manifest.json'), '{"not":"an array"}');
+    await expect(readStepManifest(dir)).resolves.toBeUndefined();
   });
 });

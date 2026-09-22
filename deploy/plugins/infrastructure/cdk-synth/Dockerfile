@@ -15,6 +15,12 @@
 # init-platform builds the bootstrap image before loading plugins, so this holds.
 FROM pipeline-bootstrap:1.0
 
+# The bootstrap image (node:24-slim) runs as root, so the build steps below
+# need no switch; the image still ends on uid 1000 (node:*-slim's stock `node`
+# user) like every other plugin. Global npm installs land under /usr/local —
+# root-owned but world-readable/executable.
+USER root
+
 # Extra runtimes for synthesizing CDK apps authored in Python or TypeScript
 # (the pipeline-builder boilerplate itself is compiled JS and needs neither, but
 # this plugin is a general CDK-synth environment). node:24-slim has no apt-retry
@@ -26,4 +32,5 @@ RUN apt-get update \
 RUN npm install -g typescript@6.0.3 ts-node@10.9.2
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

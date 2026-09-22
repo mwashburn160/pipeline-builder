@@ -1,12 +1,19 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError, ForbiddenError, entityEvents, createCacheService, createLogger, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
-import { CoreConstants, ComputeType, PluginType } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildPluginConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type PluginFilter } from '@pipeline-builder/pipeline-data';
+import { ConflictError, ErrorCode, ForbiddenError, NotFoundError, entityEvents, createCacheService, createLogger, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { CoreConstants, ComputeType, PluginType, pluginImageRepository } from '@pipeline-builder/pipeline-core';
+import {
+  CrudService, buildPluginConditions, getTenantContext, parseSemver, pluginResolutionOrderBy, runWithTenantContext,
+  satisfiesVersionSpec, schema, semverOrderBy, viewerCacheSegment, withTenantTx, withViewerContext, type PluginFilter,
+} from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, ne, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+
+import { installingOrgs } from './ecosystem/install-notify.js';
+import { listings as ecosystemListings, publishers as ecosystemPublishers, versions as ecosystemVersions } from './ecosystem/store.js';
+import { shouldBecomeDefault } from '../helpers/default-version.js';
 
 const logger = createLogger('plugin-service');
 
@@ -18,6 +25,18 @@ type TenantTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 export type Plugin = typeof schema.plugin.$inferSelect;
 export type PluginInsert = typeof schema.plugin.$inferInsert;
 export type PluginUpdate = Partial<Omit<Plugin, 'id' | 'createdAt' | 'createdBy'>>;
+
+/** The version fields {@link PluginService.findOrgsUsingVersion} reads. */
+export interface VersionUsageRef {
+  /** The row's id: its listing versions (published from it) reach their installers. */
+  id?: string;
+  orgId: string;
+  name: string;
+  version: string;
+  isDefault: boolean;
+  visibility: string | null;
+  buildType?: string | null;
+}
 
 // `toComplianceAttributes` (secret redaction for compliance events) is shared
 // in api-core — it was a byte-identical copy here + in pipeline-service, and a
@@ -98,6 +117,16 @@ export class PluginService extends CrudService<
 
   protected getProjectColumn(): AnyColumn | null {
     return null; // Plugins are org-scoped, not project-scoped
+  }
+
+  /**
+   * "Take one" ranking for lookups (`/plugins/lookup`, `/plugins/find`): the
+   * shared resolution order — own org, then parent org, then the system
+   * catalog; the default version; the HIGHEST semver — identical to the
+   * pipeline service's contract check (`pluginResolutionOrderBy`).
+   */
+  protected findFirstOrderBy(_filter: Partial<PluginFilter>, orgId?: string, parentOrgId?: string): SQL[] {
+    return pluginResolutionOrderBy(orgId, parentOrgId);
   }
 
   protected getOrgColumn(): AnyColumn {
@@ -294,9 +323,12 @@ export class PluginService extends CrudService<
   private selectVersionRow(tx: TenantTx, orgId: string, name: string, version: string) {
     return tx
       .select({
+        id: schema.plugin.id,
         visibility: schema.plugin.visibility,
         createdBy: schema.plugin.createdBy,
         deletedAt: schema.plugin.deletedAt,
+        frozenAt: schema.plugin.frozenAt,
+        isDefault: schema.plugin.isDefault,
       })
       .from(schema.plugin)
       .where(and(eq(schema.plugin.name, name), eq(schema.plugin.version, version), eq(schema.plugin.orgId, orgId)));
@@ -309,12 +341,382 @@ export class PluginService extends CrudService<
    * lock, which is the authoritative guarantee.
    */
   async assertDeployable(orgId: string, name: string, version: string, userId: string, access: WriteAccess): Promise<void> {
-    const [existing, currentDefaults] = await withTenantTx(async (tx) => [
-      (await this.selectVersionRow(tx, orgId, name, version))[0],
-      await this.selectLiveDefaults(tx, orgId, name),
-    ] as const);
-    if (existing) assertMayOverwritePlugin(existing, userId, access);
-    for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
+    await withTenantTx(async (tx) => {
+      const [existing] = await this.selectVersionRow(tx, orgId, name, version);
+      if (existing) {
+        assertMayOverwritePlugin(existing, userId, access);
+        await this.assertVersionMutable(tx, existing);
+      }
+      const currentDefaults = await this.selectLiveDefaults(tx, orgId, name);
+      if (shouldBecomeDefault(version, existing?.isDefault === true, currentDefaults)) {
+        for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
+      }
+    });
+  }
+
+  /**
+   * Refuse to change a version that is immutable (§3.4): FROZEN (a publish
+   * request references it — `frozen_at` set) or LISTED (a listing version was
+   * published from it). Unrequested private/org versions stay overwritable.
+   */
+  private async assertVersionMutable(tx: TenantTx, row: { id: string; frozenAt: Date | null }): Promise<void> {
+    const reason = await this.immutabilityReason(tx, row);
+    if (reason) {
+      throw new ConflictError(
+        reason === 'listed'
+          ? 'This plugin version is published to the ecosystem and is immutable. Upload a new version instead.'
+          : 'This plugin version is referenced by a publish request and is immutable. Upload a new version instead.',
+        ErrorCode.PLUGIN_VERSION_FROZEN,
+      );
+    }
+  }
+
+  /** Why a version is immutable (`frozen` / `listed`), or null when it isn't. */
+  private async immutabilityReason(tx: TenantTx, row: { id: string; frozenAt: Date | null }): Promise<'frozen' | 'listed' | null> {
+    if (row.frozenAt) return 'frozen';
+    return (await this.isListed(tx, row.id)) ? 'listed' : null;
+  }
+
+  /** Whether any listing version was published from this org row. */
+  private async isListed(tx: TenantTx, pluginId: string): Promise<boolean> {
+    const res = await tx.execute(sql`SELECT 1 FROM plugin_listing_versions WHERE source_plugin_id = ${pluginId} LIMIT 1`);
+    const rows = (res as { rows?: unknown[] }).rows ?? (res as unknown as unknown[]);
+    return Array.isArray(rows) && rows.length > 0;
+  }
+
+  /**
+   * Freeze a version (§3.4, G25): called when a publish request references it.
+   * The request pins `digest`; if the stored image digest differs the freeze
+   * fails closed (409 PLUGIN_DIGEST_MISMATCH) — what was reviewed must be what
+   * is published. Idempotent: an already-frozen version keeps its first
+   * `frozen_at`. `digest` is null for a version that produces no image.
+   *
+   * @throws NotFoundError when the version is not a live row of `orgId`.
+   */
+  async freezeVersion(orgId: string, pluginId: string, digest: string | null): Promise<Plugin> {
+    const frozen = await withTenantTx(async (tx) => {
+      const [row] = await tx
+        .select({ id: schema.plugin.id, imageDigest: schema.plugin.imageDigest })
+        .from(schema.plugin)
+        .where(and(eq(schema.plugin.id, pluginId), eq(schema.plugin.orgId, orgId), isNull(schema.plugin.deletedAt)))
+        .for('update');
+      if (!row) throw new NotFoundError('Plugin not found');
+      if ((row.imageDigest ?? null) !== (digest ?? null)) {
+        throw new ConflictError(
+          'The plugin version\'s image digest does not match the digest the request pinned.',
+          ErrorCode.PLUGIN_DIGEST_MISMATCH,
+        );
+      }
+      const [updated] = await tx
+        .update(schema.plugin)
+        .set({ frozenAt: sql`coalesce(${schema.plugin.frozenAt}, now())` })
+        .where(eq(schema.plugin.id, pluginId))
+        .returning();
+      return updated as Plugin;
+    });
+    await this.invalidate(frozen);
+    return frozen;
+  }
+
+  /**
+   * Whether `row` may be edited / deleted, and if not why. Used by the update,
+   * delete and yank routes. Runs in its own read transaction.
+   */
+  async versionImmutability(row: { id: string; frozenAt: Date | null }): Promise<'frozen' | 'listed' | null> {
+    return withTenantTx((tx) => this.immutabilityReason(tx, row));
+  }
+
+  /**
+   * Number of the org's live pipelines that reference this version: a step
+   * (or the synth step) naming the plugin whose `filter.version` spec it
+   * satisfies — or, for the default version, a reference with no version spec
+   * (those resolve to the default). Same JSON walk as `GET /plugin-usage`, plus
+   * the synth plugin and the version spec.
+   */
+  async countPipelinesUsing(orgId: string, plugin: { name: string; version: string; isDefault: boolean }): Promise<number> {
+    const res = await withTenantTx(async (tx) => tx.execute<{ spec: string | null; cnt: string | number }>(sql`
+      SELECT ref->'filter'->>'version' AS spec,
+             COUNT(DISTINCT p.id) AS cnt
+        FROM pipelines p,
+             LATERAL (
+               SELECT step->'plugin' AS ref
+                 FROM jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
+                      jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
+               UNION ALL
+               SELECT p.props->'synth'->'plugin'
+             ) AS refs
+       WHERE p.is_active = true
+         AND p.deleted_at IS NULL
+         AND p.org_id = ${orgId}
+         AND ref->>'name' = ${plugin.name}
+       GROUP BY ref->'filter'->>'version'
+    `));
+    const rows = (res as { rows?: Array<{ spec: string | null; cnt: string | number }> }).rows
+      ?? (res as unknown as Array<{ spec: string | null; cnt: string | number }>);
+    let total = 0;
+    for (const row of rows ?? []) {
+      const uses = row.spec == null ? plugin.isDefault : satisfiesVersionSpec(plugin.version, row.spec);
+      if (!uses) continue;
+      const n = typeof row.cnt === 'number' ? row.cnt : parseInt(String(row.cnt), 10);
+      if (Number.isFinite(n)) total += n;
+    }
+    return total;
+  }
+
+  /**
+   * Orgs whose pipelines use this version, for the §5b N14 deprecation notice.
+   * Runs ACROSS orgs (superadmin tenant context), so its result must only ever
+   * address the consuming orgs themselves — never be shown to the owner.
+   *
+   * Two audiences, unioned:
+   *  - the OWNER org's own use: its pipeline definitions naming the plugin
+   *    unqualified with a version spec this version satisfies (no spec ⇒ only
+   *    the default), and deployed step manifests with the exact name@version
+   *    from its own namespace — which also catches teams that deployed a
+   *    parent's shared plugin;
+   *  - the INSTALLING orgs (plan §3.2, W2) of every listing version published
+   *    FROM this row: active explicit installs whose range reaches the
+   *    version, plus — for an Official listing — orgs using it through the
+   *    implicit install. A `public` row no longer reaches any other org by
+   *    itself; only listings do.
+   */
+  async findOrgsUsingVersion(plugin: VersionUsageRef): Promise<string[]> {
+    const owner = plugin.orgId.toLowerCase();
+    const repo = pluginImageRepository(plugin);
+
+    const own = await runWithTenantContext({ isSuperAdmin: true }, async () => {
+      const defs = await withTenantTx(async (tx) => tx.execute<{ org_id: string; spec: string | null }>(sql`
+        SELECT DISTINCT p.org_id, ref->'filter'->>'version' AS spec
+          FROM pipelines p,
+               LATERAL (
+                 SELECT step->'plugin' AS ref
+                   FROM jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
+                        jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
+                 UNION ALL
+                 SELECT p.props->'synth'->'plugin'
+               ) AS refs
+         WHERE p.is_active = true
+           AND p.deleted_at IS NULL
+           AND ref->>'name' = ${plugin.name}
+           AND COALESCE(ref->>'publisher', '') = ''
+           AND p.org_id = ${owner}
+      `));
+      const m = schema.pipelineStepManifest;
+      const ownNamespace = sql`${m.pluginPublisher} IS NULL AND ${repo ? sql`(${m.imageRepository} = ${repo} OR ${m.orgId} = ${owner})` : sql`${m.orgId} = ${owner}`}`;
+      const deployed = await withTenantTx(async (tx) => tx
+        .selectDistinct({ orgId: m.orgId })
+        .from(m)
+        .where(and(eq(m.pluginName, plugin.name), eq(m.pluginVersion, plugin.version), ownNamespace)));
+
+      const orgs = new Set<string>();
+      const defRows = (defs as { rows?: Array<{ org_id: string; spec: string | null }> }).rows
+        ?? (defs as unknown as Array<{ org_id: string; spec: string | null }>);
+      for (const row of defRows ?? []) {
+        const uses = row.spec == null ? plugin.isDefault : satisfiesVersionSpec(plugin.version, row.spec);
+        if (uses && row.org_id) orgs.add(row.org_id.toLowerCase());
+      }
+      for (const row of deployed) if (row.orgId) orgs.add(row.orgId.toLowerCase());
+      return orgs;
+    });
+
+    if (plugin.id) {
+      for (const v of await ecosystemVersions.bySourcePlugins([plugin.id])) {
+        const listing = await ecosystemListings.byId(v.listingId);
+        const publisher = listing ? await ecosystemPublishers.byId(listing.publisherId) : null;
+        if (!listing || !publisher) continue;
+        for (const o of await installingOrgs(publisher, listing, v.version)) own.add(o.orgId);
+      }
+    }
+    return [...own].sort();
+  }
+
+  /**
+   * Delete a version (soft), with the W0.5 safety rules:
+   * - FROZEN (a pending publish request references it): never deletable
+   *   (409 PLUGIN_VERSION_FROZEN) — the request pins this exact version.
+   * - IN USE by the org's pipelines, or LISTED (a listing version was published
+   *   from it): refused with 409 PLUGIN_VERSION_IN_USE unless `force` — the route
+   *   pairs `force` with a step-up. A listing keeps serving its own
+   *   `public/*` copy, so deleting the org's source row doesn't break installs.
+   * Deleting the default promotes the next one ({@link promoteNextDefault}).
+   * The row's quota snapshot is cleared on the tombstone so the slot is refunded
+   * at most once (the route refunds `existing.quotaResetAt`). Returns the deleted
+   * row, or null when nothing in the caller's org matched.
+   */
+  async deleteVersion(existing: Plugin, orgId: string, userId: string, opts: { force: boolean }): Promise<{ deleted: Plugin | null; inUse: number; listed: boolean; promoted: Plugin | null }> {
+    const { frozen, listed, inUse } = await this.deleteBlockers(existing, orgId);
+    if (frozen) {
+      throw new ConflictError(
+        'This plugin version is referenced by a publish request and cannot be deleted.',
+        ErrorCode.PLUGIN_VERSION_FROZEN,
+      );
+    }
+    if ((inUse > 0 || listed) && !opts.force) {
+      const why = [
+        ...(inUse > 0 ? [`used by ${inUse} pipeline${inUse === 1 ? '' : 's'}`] : []),
+        ...(listed ? ['published to the ecosystem'] : []),
+      ].join(' and ');
+      throw new ConflictError(
+        `This plugin version is ${why}. Delete with force=true (requires re-authentication) to proceed.`,
+        ErrorCode.PLUGIN_VERSION_IN_USE,
+      );
+    }
+    const deleted = await this.delete(existing.id, orgId, userId);
+    if (deleted && existing.quotaResetAt) await this.clearQuotaSnapshot(existing.id);
+    const promoted = deleted && existing.isDefault ? await this.promoteNextDefault(orgId, existing, userId) : null;
+    return { deleted, inUse, listed, promoted };
+  }
+
+  /**
+   * What stands in the way of deleting `row` (W0.5): a pending publish request
+   * (`frozen`, never deletable), a listing published from it (`listed`), and
+   * the number of the org's pipelines resolving to it (`inUse`).
+   */
+  async deleteBlockers(row: Plugin, orgId: string): Promise<{ frozen: boolean; listed: boolean; inUse: number }> {
+    const reason = await this.versionImmutability(row);
+    return {
+      frozen: reason === 'frozen',
+      listed: reason === 'listed',
+      inUse: await this.countPipelinesUsing(orgId, row),
+    };
+  }
+
+  /** Forget a version's quota snapshot once its slot has been refunded. */
+  async clearQuotaSnapshot(pluginId: string): Promise<void> {
+    await withTenantTx((tx) => tx
+      .update(schema.plugin)
+      .set({ quotaResetAt: null })
+      .where(eq(schema.plugin.id, pluginId)));
+  }
+
+  /**
+   * Mark a version deprecated (W0.4) — or clear it. A deprecated version keeps
+   * resolving, but lookups carry a warning, synth prints it and AI selection
+   * stops offering it. `lifecycle` mirrors `deprecatedAt` for catalog filters.
+   * A yanked version stays yanked (its lifecycle is not overwritten).
+   */
+  async setDeprecated(
+    existing: Plugin,
+    orgId: string,
+    userId: string,
+    opts: { deprecated: boolean; message?: string | null },
+  ): Promise<Plugin | null> {
+    const now = new Date();
+    const yanked = existing.lifecycle === 'yanked' || existing.yankedAt !== null;
+    const updated = await withTenantTx(async (tx) => {
+      const [row] = await tx
+        .update(schema.plugin)
+        .set(opts.deprecated
+          ? {
+            deprecatedAt: existing.deprecatedAt ?? now,
+            deprecationMessage: opts.message ?? null,
+            ...(yanked ? {} : { lifecycle: 'deprecated' as const }),
+            updatedAt: now,
+            updatedBy: userId,
+          }
+          : {
+            deprecatedAt: null,
+            deprecationMessage: null,
+            ...(yanked || existing.lifecycle !== 'deprecated' ? {} : { lifecycle: 'production' as const }),
+            updatedAt: now,
+            updatedBy: userId,
+          })
+        .where(and(eq(schema.plugin.id, existing.id), eq(schema.plugin.orgId, orgId), isNull(schema.plugin.deletedAt)))
+        .returning();
+      return (row as Plugin | undefined) ?? null;
+    });
+    if (updated) await this.afterWrite(updated, userId);
+    return updated;
+  }
+
+  /**
+   * Yank a version (W0.4): it stops resolving for ranges / `latest` / the
+   * default, while an exact pin still finds it (and is told why). A LISTED
+   * version is yanked by the system org on request, never by the org (409
+   * PLUGIN_VERSION_FROZEN). Yanking the default promotes the next one.
+   */
+  async yankVersion(existing: Plugin, orgId: string, userId: string, reason: string): Promise<{ yanked: Plugin | null; promoted: Plugin | null }> {
+    if (await withTenantTx((tx) => this.isListed(tx, existing.id))) {
+      throw new ConflictError(
+        'This plugin version is published to the ecosystem; request a yank from the ecosystem instead.',
+        ErrorCode.PLUGIN_VERSION_FROZEN,
+      );
+    }
+    const now = new Date();
+    const yanked = await withTenantTx(async (tx) => {
+      const [row] = await tx
+        .update(schema.plugin)
+        .set({ lifecycle: 'yanked', yankedAt: now, yankReason: reason, isDefault: false, updatedAt: now, updatedBy: userId })
+        .where(and(eq(schema.plugin.id, existing.id), eq(schema.plugin.orgId, orgId), isNull(schema.plugin.deletedAt)))
+        .returning();
+      return (row as Plugin | undefined) ?? null;
+    });
+    if (yanked) await this.afterWrite(yanked, userId);
+    const promoted = yanked && existing.isDefault ? await this.promoteNextDefault(orgId, existing, userId) : null;
+    return { yanked, promoted };
+  }
+
+  /**
+   * After the default `removed` was deleted or yanked, make the next version
+   * the default: the highest live, active, stable, non-yanked version whose
+   * major is not above the removed one's (a new major is never auto-promoted,
+   * §3.4). No-op if a default already exists again (a concurrent deploy) or no
+   * candidate qualifies — resolution then falls back to the highest version.
+   */
+  async promoteNextDefault(orgId: string, removed: { name: string; version: string }, userId: string): Promise<Plugin | null> {
+    const removedMajor = parseSemver(removed.version)?.major ?? Number.MAX_SAFE_INTEGER;
+    const promoted = await withTenantTx(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${orgId} || ':' || ${removed.name}))`);
+      const live = await this.selectLiveDefaults(tx, orgId, removed.name);
+      if (live.length > 0) return null;
+
+      const candidates = await tx
+        .select({ id: schema.plugin.id, version: schema.plugin.version })
+        .from(schema.plugin)
+        .where(and(
+          eq(schema.plugin.orgId, orgId),
+          eq(schema.plugin.name, removed.name),
+          eq(schema.plugin.isActive, true),
+          isNull(schema.plugin.deletedAt),
+          isNull(schema.plugin.yankedAt),
+          ne(schema.plugin.lifecycle, 'yanked'),
+        ))
+        .orderBy(...semverOrderBy(schema.plugin.version));
+      const next = candidates.find((c) => {
+        const v = parseSemver(c.version);
+        return v !== null && v.prerelease.length === 0 && v.major <= removedMajor;
+      });
+      if (!next) return null;
+
+      const [row] = await tx
+        .update(schema.plugin)
+        .set({ isDefault: true, updatedAt: new Date(), updatedBy: userId })
+        .where(eq(schema.plugin.id, next.id))
+        .returning();
+      return (row as Plugin | undefined) ?? null;
+    });
+    if (promoted) await this.afterWrite(promoted, userId);
+    return promoted;
+  }
+
+  /** Post-write lifecycle for the service's own direct writes (cache + event). */
+  private async afterWrite(row: Plugin, userId: string): Promise<void> {
+    try {
+      await this.onAfterUpdate(row.id, row, userId);
+    } catch (err) {
+      logger.warn('Lifecycle hook failed', { error: errorMessage(err) });
+    }
+  }
+
+  /** Cache invalidation alone (no entity event) — for writes that change no
+   *  compliance-relevant attribute, like a freeze. */
+  private async invalidate(row: Plugin): Promise<void> {
+    try {
+      await pluginCache.invalidatePattern(`${row.orgId}:*`);
+      await pluginCache.invalidatePattern(`*:id:${row.id}`);
+    } catch (err) {
+      logger.debug('Cache invalidation failed', { orgId: row.orgId, error: errorMessage(err) });
+    }
   }
 
   /** The live default version(s) of `name` — the rows a deploy (or a promote
@@ -322,6 +724,8 @@ export class PluginService extends CrudService<
   private selectLiveDefaults(tx: TenantTx, orgId: string, name: string, exceptId?: string) {
     return tx
       .select({
+        id: schema.plugin.id,
+        version: schema.plugin.version,
         visibility: schema.plugin.visibility,
         createdBy: schema.plugin.createdBy,
         deletedAt: schema.plugin.deletedAt,
@@ -367,38 +771,51 @@ export class PluginService extends CrudService<
       // soft-delete state). Serialized by the advisory lock above, so the check
       // can't be raced by a concurrent deploy of the same name.
       // `version` falls back to the column default, which is what the INSERT would store.
-      const [existing] = await this.selectVersionRow(tx, data.orgId!, data.name, data.version ?? '1.0.0').for('update');
-      if (existing) assertMayOverwritePlugin(existing, userId, access);
+      const version = data.version ?? '1.0.0';
+      const [existing] = await this.selectVersionRow(tx, data.orgId!, data.name, version).for('update');
+      if (existing) {
+        assertMayOverwritePlugin(existing, userId, access);
+        // Authoritative immutability check (§3.4, G25): the upload route's
+        // pre-check is unlocked, so a publish request could freeze this version
+        // between that check and here. Re-checked under the advisory lock.
+        await this.assertVersionMutable(tx, existing);
+      }
 
-      // Lock the current live default(s) for this name. Deploying makes the new
-      // version the default, which takes that status away from the current one —
-      // a change to that row, so the caller needs the same write access to it as
-      // to an overwrite. Without this, any `plugins:write` member could demote
-      // another author's private plugin by uploading a version of the same name.
+      // Lock the current live default(s) for this name. Whether the upload takes
+      // over as the default is one rule (§3.4): not for a new major, a prerelease
+      // or an older version (see shouldBecomeDefault).
       const currentDefaults = await this.selectLiveDefaults(tx, data.orgId!, data.name)
         .for('update');
-      for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
+      const becomeDefault = shouldBecomeDefault(version, existing?.isDefault === true, currentDefaults);
 
-      // Unset the CURRENT default for this plugin name in the org. Scope to
-      // `isDefault = true` (mirrors pipeline-service) so we don't stamp
-      // updatedAt/updatedBy on every non-default version and churn their
-      // recently-updated ordering + cache keys.
-      await tx
-        .update(schema.plugin)
-        .set({
-          isDefault: false,
-          updatedAt: new Date(),
-          updatedBy: userId,
-        })
-        .where(
-          and(
-            eq(schema.plugin.name, data.name),
-            eq(schema.plugin.orgId, data.orgId!),
-            eq(schema.plugin.isDefault, true),
-          ),
-        );
+      if (becomeDefault) {
+        // Taking over the default is a change to the current default row(s), so
+        // the caller needs the same write access to them as to an overwrite.
+        // Without this, any `plugins:write` member could demote another author's
+        // private plugin by uploading a version of the same name.
+        for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
 
-      // Upsert the new version as default
+        // Unset the CURRENT default for this plugin name in the org. Scope to
+        // `isDefault = true` (mirrors pipeline-service) so we don't stamp
+        // updatedAt/updatedBy on every non-default version and churn their
+        // recently-updated ordering + cache keys.
+        await tx
+          .update(schema.plugin)
+          .set({
+            isDefault: false,
+            updatedAt: new Date(),
+            updatedBy: userId,
+          })
+          .where(
+            and(
+              eq(schema.plugin.name, data.name),
+              eq(schema.plugin.orgId, data.orgId!),
+              eq(schema.plugin.isDefault, true),
+            ),
+          );
+      }
+
+      // Upsert the version (default only per the rule above)
       const [upserted] = await tx
         .insert(schema.plugin)
         .values({
@@ -412,7 +829,7 @@ export class PluginService extends CrudService<
           // the conflict (re-upload) branch, so a re-upload never steals ownership.
           ownerId: userId,
           ownerType: 'user',
-          isDefault: true,
+          isDefault: becomeDefault,
           isActive: true,
           createdBy: userId,
         })
@@ -440,8 +857,38 @@ export class PluginService extends CrudService<
             // describes this row (null when the new version builds no image).
             imageDigest: data.imageDigest ?? null,
             imageSource: data.imageSource ?? null,
+            // The re-uploaded version's contract, docs and trust metadata
+            // (W0.2) replace the old ones — a re-upload is a new artefact.
+            requiredMetadata: data.requiredMetadata,
+            requiredVars: data.requiredVars,
+            metadataTypes: data.metadataTypes,
+            varsTypes: data.varsTypes,
+            smokeTest: data.smokeTest ?? null,
+            networkEgress: data.networkEgress,
+            readmeMd: data.readmeMd ?? null,
+            readmeHtml: data.readmeHtml ?? null,
+            license: data.license ?? null,
+            changelog: data.changelog ?? null,
+            homepageUrl: data.homepageUrl ?? null,
+            sourceUrl: data.sourceUrl ?? null,
+            documentationUrl: data.documentationUrl ?? null,
+            icon: data.icon ?? null,
+            // Catalog metadata + its provenance (§3.1a) describe THIS upload.
+            summary: data.summary ?? null,
+            displayName: data.displayName ?? null,
+            metadataSources: data.metadataSources ?? {},
+            // The re-upload charged its own quota slot; a later delete refunds that one.
+            quotaResetAt: data.quotaResetAt ?? null,
+            // Scan facts describe the OLD image; the build worker records the new
+            // image's (W0.6). Null until then, never stale.
+            vulnCritical: data.vulnCritical ?? null,
+            vulnHigh: data.vulnHigh ?? null,
+            vulnMedium: data.vulnMedium ?? null,
+            vulnLow: data.vulnLow ?? null,
+            scannedAt: data.scannedAt ?? null,
+            runAsRoot: data.runAsRoot ?? null,
             visibility: data.visibility,
-            isDefault: true,
+            isDefault: becomeDefault,
             isActive: true,
             updatedBy: userId,
             updatedAt: new Date(),

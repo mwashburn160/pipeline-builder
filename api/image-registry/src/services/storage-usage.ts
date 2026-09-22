@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { setGauge } from '@pipeline-builder/api-server';
+import { publicRepositoriesOwnedBy } from './public-publications.js';
 import {
   listRepositoriesUnderPrefix,
   listTags,
@@ -77,7 +79,90 @@ export async function computeStorageUsage(
   }
 
   // Walk the registry catalog and collect every repo whose name starts with `prefix`.
-  const reposBeingScanned = await listRepositoriesUnderPrefix(prefix);
+  // `quarantine/*` (anonymous submissions awaiting moderation) belongs to no
+  // tenant: it is counted ONLY when the quarantine namespace itself is asked for
+  // (the quarantine GC sweep's gauge), never inside a shorter prefix a tenant or
+  // admin rollup could pass (`q`, `` …).
+  const reposBeingScanned = (await listRepositoriesUnderPrefix(prefix))
+    .filter((r) => prefix.startsWith(QUARANTINE_PREFIX) || !r.startsWith(QUARANTINE_PREFIX));
+  const { bytes: totalBytes, blobs, incomplete } = await scanRepositories(reposBeingScanned);
+
+  const now = Date.now();
+  // Only cache a COMPLETE rollup — caching a partial (under-counted) total would
+  // serve a wrong "under budget" reading for the whole TTL.
+  if (!incomplete) {
+    cache.set(prefix, {
+      bytes: totalBytes,
+      repos: reposBeingScanned.length,
+      blobs,
+      computedAt: now,
+    });
+  }
+  // The whole public namespace's footprint (plugin ecosystem §9a) — refreshed
+  // whenever it is rolled up (the GC scheduler's sweep, or the admin route).
+  if (prefix === PUBLIC_PREFIX && !incomplete) setGauge(PUBLIC_STORAGE_GAUGE, {}, totalBytes);
+  return {
+    prefix,
+    bytes: totalBytes,
+    repos: reposBeingScanned.length,
+    blobs,
+    computedAt: now,
+    incomplete,
+  };
+}
+
+const PUBLIC_PREFIX = 'public/';
+const QUARANTINE_PREFIX = 'quarantine/';
+/** Gauge: unique blob bytes under `public/*`. */
+export const PUBLIC_STORAGE_GAUGE = 'registry_public_storage_bytes';
+
+/**
+ * An ORG's `storageBytes` rollup: its own `org-<id>/*` namespace PLUS every
+ * `public/<handle>/<name>` repository billed to it (plugin ecosystem G40 — the
+ * publisher pays for what it published, even after deleting its private copy).
+ * Blobs are deduplicated across the whole set: a public copy MOUNTS the org's
+ * blobs, so a layer shared by both is one set of bytes on disk and counted once.
+ *
+ * `incomplete` is also set when a publication record couldn't be read — the
+ * fail-closed push gate must not under-count an org because of it.
+ */
+export async function computeOrgStorageUsage(orgId: string, opts: { force?: boolean } = {}): Promise<StorageUsage> {
+  const orgPrefix = `org-${orgId}/`;
+  const key = `${ORG_ROLLUP_KEY}${orgId}`;
+  const cached = cache.get(key);
+  if (!opts.force && cached && Date.now() - cached.computedAt < CACHE_TTL_MS) {
+    return { prefix: orgPrefix, bytes: cached.bytes, repos: cached.repos, blobs: cached.blobs, computedAt: cached.computedAt, incomplete: false };
+  }
+
+  let recordsComplete = true;
+  let published: string[] = [];
+  try {
+    const owned = await publicRepositoriesOwnedBy(orgId);
+    published = owned.repositories;
+    recordsComplete = owned.complete;
+  } catch (err) {
+    recordsComplete = false;
+    logger.warn('Publication records unreadable during org storage rollup', { orgId, error: errorMessage(err) });
+  }
+  // `org-<id>/` can never match `quarantine/*`, and publication records only
+  // name `public/*` repos — anonymous-submission bytes are never billed to a tenant.
+  const repos = [...await listRepositoriesUnderPrefix(orgPrefix), ...published];
+  const scan = await scanRepositories(repos);
+  const incomplete = scan.incomplete || !recordsComplete;
+
+  const now = Date.now();
+  if (!incomplete) cache.set(key, { bytes: scan.bytes, repos: repos.length, blobs: scan.blobs, computedAt: now });
+  return { prefix: orgPrefix, bytes: scan.bytes, repos: repos.length, blobs: scan.blobs, computedAt: now, incomplete };
+}
+
+/** Cache-key namespace for org rollups (never a valid repo prefix). */
+const ORG_ROLLUP_KEY = 'org-rollup:';
+
+/**
+ * Sum unique blob bytes across `repos`. The shared core of every rollup;
+ * `incomplete` when anything couldn't be measured (see {@link StorageUsage}).
+ */
+async function scanRepositories(reposBeingScanned: string[]): Promise<{ bytes: number; blobs: number; incomplete: boolean }> {
 
   // Map each unique blob digest → EVERY repo known to reference it. Docker
   // Distribution scopes blob access per-repo (`/v2/<repo>/blobs/<digest>`), so a
@@ -192,31 +277,21 @@ export async function computeStorageUsage(
     }
   }
 
-  const now = Date.now();
-  // Only cache a COMPLETE rollup — caching a partial (under-counted) total would
-  // serve a wrong "under budget" reading for the whole TTL.
-  if (!incomplete) {
-    cache.set(prefix, {
-      bytes: totalBytes,
-      repos: reposBeingScanned.length,
-      blobs: blobRepos.size,
-      computedAt: now,
-    });
-  }
-  return {
-    prefix,
-    bytes: totalBytes,
-    repos: reposBeingScanned.length,
-    blobs: blobRepos.size,
-    computedAt: now,
-    incomplete,
-  };
+  return { bytes: totalBytes, blobs: blobRepos.size, incomplete };
 }
 
 /** Force-evict a cached rollup so the next call recomputes. Used by the
  *  GC endpoint after pruning so the dashboard shows the freed bytes. */
 export function invalidateStorageCache(prefix: string): void {
   cache.delete(prefix);
+  // An org namespace's bytes are also part of that org's combined rollup.
+  const org = /^org-([a-z0-9-]+)\/$/.exec(prefix);
+  if (org) cache.delete(`${ORG_ROLLUP_KEY}${org[1]}`);
+}
+
+/** Evict one org's combined (own + published) rollup. */
+export function invalidateOrgStorageCache(orgId: string): void {
+  cache.delete(`${ORG_ROLLUP_KEY}${orgId}`);
 }
 
 /**

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 3d53ac3a38761c3e080cc6c1d1ac9ee938a7b50d7b912a052c9b8c8a4c96e78b
+// SOURCE-SHA256: c03be72b7e96f3012006fd4041031f3714a2eed64925a3b3dba7721462f7c352
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -140,6 +140,14 @@ export const billingBundlesTopic: HelpTopic = {
               "✅"
             ],
             [
+              "Listing Pack",
+              "+10 public plugin-ecosystem listings (the listings count quota)",
+              "$4.99",
+              "$49.90",
+              "all tiers",
+              "✅"
+            ],
+            [
               "Standard Retention Pack",
               "+90 days standard pipeline-event retention",
               "$15",
@@ -196,7 +204,9 @@ export const billingBundlesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Member Seat and Pipeline Pack are the tier differentiators (seats and pipelines), so both are restricted to Team / Enterprise — a single-seat Developer/Pro can't cheaply stack them to undercut Team, and must upgrade instead. The other capacity packs (plugin/api/ai/storage) stay all-tier.",
+            "Member Seat and Pipeline Pack are the tier differentiators (seats and pipelines), so both are restricted to Team / Enterprise — a single-seat Developer/Pro can't cheaply stack them to undercut Team, and must upgrade instead. The other capacity packs (plugin/api/ai/storage/listing) stay all-tier.",
+            "Listing Pack raises the listings count quota — the number of active public listings an org's publisher can hold in the plugin ecosystem (tier base: Developer 3, Pro 10, Team 25, Enterprise 100; see plugin ecosystem plan §3.7). Installing plugins is free on every plan and needs no pack. Like plugins/pipelines it's a count, so removing packs below the org's current active-listing count is refused by the over-cap guard. A plan downgrade is different: it is never refused for listings — the listings stay listed, and new versions / listing updates are refused (security fixes excepted) until the org is back under its limit (notice N29). The limit is enforced when a publish request is submitted and again when it is approved; see Plugin Publishing.",
+            "Verified publishing is not sold. The verified_publisher feature (Team, Enterprise and billing-off instances) only makes an org eligible to apply for the Verified badge; the system org awards it after review. No bundle adds it. A Verified publisher whose plan drops below Team keeps the badge for a 30-day grace period, then returns to Community.",
             "Member Seat volume discounts. Seats are per-unit ($19.99 each), and the more you buy the cheaper each gets: ≥ 5 seats → 10% off · ≥ 15 → 20% · ≥ 40 → 30% (off the seat line). The discount is realized as a recurring usage credit (like a combo), so the provider still charges unit × quantity and the credit offsets the balance; the add-on preview shows a negative \"Member Seat volume discount\" line so totalCents reflects the net. Tiers are env-tunable via BILLING_BUNDLE_SEAT_VOLUME_TIERS.",
             "API Pack is available on every tier, since all tiers now have a finite API-call cap (Team 500k, Enterprise 900k) that can be topped up.",
             "Retention is a tier-aware, bundle-extendable entitlement. Each tier carries a baseline reporting-retention window — paid tiers default to 30 days for standard pipeline events and 180 days for DORA source, while the unlimited tier is unlimited retention (-1, history is never swept). The two retention packs stack the same way every other pack does — effective retention = tier baseline + Σ(pack grant × quantity). Billing computes that effective window and syncs it to the reporting service (dora_settings.event_retention_days / dora_retention_days), a sync leg alongside quotas → quota service and seats/features → platform. Buy Standard Retention Pack ×2 for +180 days of standard-event history.",

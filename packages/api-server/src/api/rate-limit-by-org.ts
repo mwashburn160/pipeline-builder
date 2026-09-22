@@ -16,6 +16,16 @@ export interface OrgRateLimitOptions {
   windowMs: number;
   /** Optional 429 message override. */
   message?: string;
+  /**
+   * What one bucket is (default `org`):
+   *  - `org`  — the verified org (an org service account gets its own bucket);
+   *  - `user` — the verified caller (`sub`), for per-person caps;
+   *  - `ip`   — the TRUSTED client IP (`req.ip`, resolved by the app's
+   *             `trust proxy` setting — never a raw forwarding header), for
+   *             per-address caps that a user can't reset by switching orgs.
+   * Every mode falls back to the client-IP bucket for an unauthenticated caller.
+   */
+  keyBy?: 'org' | 'user' | 'ip';
 }
 
 /**
@@ -36,7 +46,7 @@ export interface OrgRateLimitOptions {
  *     withRoute(handler));
  */
 export function rateLimitByOrg(opts: OrgRateLimitOptions) {
-  const { name, max, windowMs, message } = opts;
+  const { name, max, windowMs, message, keyBy = 'org' } = opts;
 
   const options: Parameters<typeof rateLimit>[0] = {
     max,
@@ -55,9 +65,12 @@ export function rateLimitByOrg(opts: OrgRateLimitOptions) {
     // bucket when unauthenticated so pre-auth traffic is still bounded.
     // Namespaced (`sa:`/`org:`/`ip:`) so no two id spaces can collide.
     keyGenerator: (req: Request): string => {
+      const ip = `ip:${ipKeyGenerator(req.ip || 'anon', 64)}`;
+      if (keyBy === 'ip') return ip;
+      if (keyBy === 'user') return req.user?.sub ? `user:${req.user.sub}` : ip;
       if (req.user?.principalType === 'service_account' && req.user.sub) return `sa:${req.user.sub}`;
       const orgId = req.user?.organizationId;
-      return orgId ? `org:${orgId.toLowerCase()}` : `ip:${ipKeyGenerator(req.ip || 'anon', 64)}`;
+      return orgId ? `org:${orgId.toLowerCase()}` : ip;
     },
     handler: (_req: Request, res: Response): void => {
       sendError(res, 429, message ?? `Too many ${name} requests, please slow down.`, ErrorCode.RATE_LIMIT_EXCEEDED);

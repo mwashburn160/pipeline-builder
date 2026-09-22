@@ -70,6 +70,10 @@ fi
 
 zip_files="plugin-spec.yaml"
 [ -f "$config" ] && zip_files="config.yaml $zip_files"
+# The plugin's README travels with it: the plugin service reads README.md from
+# the zip root (≤ 64 KB), stores it, and serves it as sanitized HTML on the
+# plugin's catalog and public directory pages (plugin-ecosystem W0.2).
+[ -f "$plugin_dir/README.md" ] && zip_files="$zip_files README.md"
 case "$build_type" in
   prebuilt)
     if [ -f "$image_tar" ]; then
@@ -101,6 +105,7 @@ needs_rebuild=false
 { [ "${REBUILD:-}" = "true" ] || [ ! -f "$zip_file" ]; } && needs_rebuild=true
 [ "$specfile" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
 [ -f "$config" ] && [ "$config" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
+[ -f "$plugin_dir/README.md" ] && [ "$plugin_dir/README.md" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true
 case "$build_type" in
   prebuilt)
     [ -f "$image_tar" ] && [ "$image_tar" -nt "$zip_file" ] 2>/dev/null && needs_rebuild=true ;;
@@ -131,17 +136,29 @@ fi
 
 # ---- Upload with retry ----
 
+# The Official catalog is shared through the plugin ECOSYSTEM, not through
+# system-org `visibility=public` (which no longer reaches other orgs): the
+# version is uploaded org-wide public in the system org and `publishRequest=true`
+# asks the plugin service to submit a publish request once its build completes.
+# Run as the `official-catalog-loader` service account (init-platform.sh), the
+# request is approved by the one-time bootstrap exception on a fresh instance,
+# and later by the Official catalog auto-approval rule when it is a gate-green
+# patch/minor update; anything else waits for two Ecosystem Managers.
+# A version that is already listed is immutable: its re-upload answers 409,
+# which curl_with_retry counts as "exists" (skipped).
+#
 # `|| _rc=$?` is required: curl_with_retry returns 1 (fail) / 2 (exists), and
 # under `set -e` a bare call would abort the worker before the dispatch below,
 # skipping the _count and corrupting the parent's summary.
 _rc=0
 curl_with_retry "$label" \
-  -X POST "${PLATFORM_BASE_URL}/api/plugin/upload" \
+  -X POST "${PLATFORM_BASE_URL}/api/plugins/upload" \
   --max-time "$UPLOAD_TIMEOUT" \
   -H "Authorization: Bearer ${JWT_TOKEN}" \
   -H "x-org-id: system" \
   -F "plugin=@${zip_file}" \
-  -F "visibility=public" || _rc=$?
+  -F "visibility=public" \
+  -F "publishRequest=true" || _rc=$?
 case "$_rc" in
   0) _count succeeded; exit 0 ;;
   2) _count skipped;   exit 2 ;;

@@ -11,9 +11,9 @@ import {
   requireAuth,
   withController,
 } from '../helpers/controller-helper.js';
-import { listRolesWithMembers, addUserToRole, removeUserFromRole, createRole, updateRole, deleteRole } from '../services/index.js';
+import { listRolesWithMembers, addUserToRole, removeUserFromRole, createRole, updateRole, deleteRole, ecosystemRoleName, notifyEcosystemManagerChange } from '../services/index.js';
 import type { ActorPermissionCeiling, RoleAssignmentActor } from '../services/index.js';
-import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_ASSIGN_EXCEEDS_CEILING } from '../services/roles-errors.js';
+import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } from '../services/roles-errors.js';
 import { validateBody, addRoleMemberSchema, createRoleSchema, updateRoleSchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-roles-controller');
@@ -154,12 +154,17 @@ export const addRoleMember = withController('Add role member', async (req, res) 
 
   const { userId } = await addUserToRole(id, roleId, body, assignmentActor(req, admin));
   logger.info(`[ADD ROLE MEMBER] User ${userId} assigned to role ${roleId} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  // The system org's Ecosystem Manager (plugin-ecosystem §5a.1): audited with
+  // its name (§5c) and announced to every superadmin + the user (N23).
+  const ecosystemRole = await ecosystemRoleName(id, roleId);
   audit(req, 'org.role.member.add', {
     targetType: 'user',
     targetId: userId,
     affectedOrgId: id,
     roleId,
+    ...(ecosystemRole ? { details: { role: ecosystemRole } } : {}),
   });
+  if (ecosystemRole) void notifyEcosystemManagerChange({ userId, added: true, actorUserId: req.user!.sub });
   sendSuccess(res, 200, { userId }, 'Member added to role');
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },
@@ -167,6 +172,8 @@ export const addRoleMember = withController('Add role member', async (req, res) 
   [RL_NOT_ORG_MEMBER]: { status: 400, message: 'User must be a member of the organization before joining a role' },
   [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can manage members of a superadmin role' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot assign a role granting permissions you do not hold yourself' },
+  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can manage members of an ecosystem-management role' },
+  [RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG]: { status: 400, message: 'An ecosystem-management role can only be held in the system organization' },
 });
 
 /** DELETE /organization/:id/roles/:roleId/members/:userId — remove from a Role.
@@ -188,17 +195,21 @@ export const removeRoleMember = withController('Remove role member', async (req,
     actorPermissions: req.user!.permissions ?? [],
   });
   logger.info(`[REMOVE ROLE MEMBER] User ${userId} removed from role ${roleId} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
+  const ecosystemRole = await ecosystemRoleName(id, roleId);
   audit(req, 'org.role.member.remove', {
     targetType: 'user',
     targetId: userId,
     affectedOrgId: id,
     roleId,
+    ...(ecosystemRole ? { details: { role: ecosystemRole } } : {}),
   });
+  if (ecosystemRole) void notifyEcosystemManagerChange({ userId, added: false, actorUserId: req.user!.sub });
   sendSuccess(res, 200, undefined, 'Member removed from role');
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },
   [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can manage members of a superadmin role' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot change membership of a role granting permissions you do not hold yourself' },
+  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can manage members of an ecosystem-management role' },
   [RL_CANNOT_REMOVE_SELF]: { status: 400, message: 'You cannot remove yourself from this role — it grants your own admin access. Have another admin do it, or assign a replacement first.' },
   [RL_LAST_PRIVILEGED_MEMBER]: { status: 400, message: 'Cannot remove the last member of this role — the organization would be left with no one in this role. Add another member first.' },
 });

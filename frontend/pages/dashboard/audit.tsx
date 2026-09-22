@@ -26,7 +26,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Activity, ArrowLeft, Download, Ban, X } from 'lucide-react';
+import { Activity, ArrowLeft, Download, Ban, X, Store, ShieldCheck } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage, type FilterField } from '@/hooks/useListPage';
 import { useQuery } from '@/hooks/useQuery';
@@ -51,6 +51,12 @@ import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { formatDateTime } from '@/lib/format';
+import {
+  AUDIT_QUICK_FILTERS,
+  auditQuickFilterActions,
+  isAuditQuickFilterKey,
+  type AuditQuickFilterKey,
+} from '@/lib/audit-quick-filters';
 
 const DEFAULT_LIMIT = 50;
 
@@ -80,7 +86,16 @@ const FILTER_FIELDS: FilterField[] = [
   { key: 'to', type: 'select', defaultValue: '' },
   { key: 'orgId', type: 'text', defaultValue: '' },
   { key: 'affectedOrgId', type: 'text', defaultValue: '' },
+  // Grouped quick filter (`ecosystem` | `moderation`) — a client-side union of
+  // several `action` queries; see `@/lib/audit-quick-filters`. Mutually
+  // exclusive with the free-text action search.
+  { key: 'group', type: 'select', defaultValue: '' },
 ];
+
+const QUICK_FILTER_ICONS: Record<AuditQuickFilterKey, typeof Store> = {
+  ecosystem: Store,
+  moderation: ShieldCheck,
+};
 
 /** A row id rendered as a button that narrows the list to it. */
 function FilterChip({ label, value, onFilter, title, children }: {
@@ -118,8 +133,8 @@ export default function AuditPage() {
     pageSize: DEFAULT_LIMIT,
     urlSync: true,
     fetcher: async (params, signal) => {
-      const { limit, offset, outcome, orgId, affectedOrgId, ...rest } = params;
-      const res = await api.listAuditEvents({
+      const { limit, offset, outcome, orgId, affectedOrgId, group, action: actionParam, ...rest } = params;
+      const base = {
         ...rest,
         // Org admins are pinned to their own org by the backend; these two are
         // sysadmin-only and never sent for anyone else — even if a deep-link
@@ -127,6 +142,11 @@ export default function AuditPage() {
         ...(isSuperAdmin && orgId ? { orgId } : {}),
         ...(isSuperAdmin && affectedOrgId ? { affectedOrgId } : {}),
         ...(outcome ? { outcome: outcome as 'success' | 'failure' } : {}),
+      };
+      const res = await api.listAuditEvents({
+        ...base,
+        ...(actionParam ? { action: actionParam } : {}),
+        ...(isAuditQuickFilterKey(group) ? { actions: auditQuickFilterActions(group) } : {}),
         limit: Number(limit),
         offset: Number(offset),
       }, { signal });
@@ -173,20 +193,35 @@ export default function AuditPage() {
   // affected-org filter when set, else the sysadmin's own org.
   const verifyOrgId = affectedOrgId || user?.organizationId || '';
 
-  const deniedActive = action === DENIED_ACTION;
-  const toggleDenied = () => updateFilter('action', deniedActive ? '' : DENIED_ACTION);
+  const group = isAuditQuickFilterKey(filters.group) ? filters.group : '';
+  const deniedActive = action === DENIED_ACTION && !group;
+  // Quick filters are mutually exclusive: each one clears the others (and the
+  // free-text action search, which the group union can't be combined with).
+  const toggleDenied = () => {
+    if (group) updateFilter('group', '');
+    updateFilter('action', deniedActive ? '' : DENIED_ACTION);
+  };
+  const toggleGroup = (key: AuditQuickFilterKey) => {
+    if (action) updateFilter('action', '');
+    updateFilter('group', group === key ? '' : key);
+  };
+  const onActionSearch = (v: string) => {
+    if (group && v) updateFilter('group', '');
+    updateFilter('action', v);
+  };
 
   // Count of applied filter fields — surfaced as a badge on the (collapsed)
   // filter toggle so users know a scope is in effect without expanding it.
   // Computed here rather than taken from the hook so the two sysadmin-only
   // scopes stay uncounted for an org admin who deep-linked one.
   const activeFilterCount = [
-    action, filters.actorId, filters.requestId, filters.outcome, filters.targetType,
+    action, group, filters.actorId, filters.requestId, filters.outcome, filters.targetType,
     filters.targetId, filters.impersonatorId, filters.roleId, filters.from, filters.to,
     affectedOrgId, orgIdFilter,
   ].filter(Boolean).length;
   // FilterBar's badge excludes the primary search (the action field).
-  const advancedFilterCount = activeFilterCount - (action ? 1 : 0);
+  // The group quick filter is surfaced by its own chip, so it's excluded too.
+  const advancedFilterCount = activeFilterCount - (action ? 1 : 0) - (group ? 1 : 0);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -220,7 +255,7 @@ export default function AuditPage() {
           shared FilterBar every other list page uses. */}
       <FilterBar
         searchValue={action}
-        onSearchChange={(v) => updateFilter('action', v)}
+        onSearchChange={onActionSearch}
         searchPlaceholder="Filter by action (substring match)"
         showAdvanced={filtersOpen}
         onToggleAdvanced={() => setFiltersOpen((o) => !o)}
@@ -247,6 +282,28 @@ export default function AuditPage() {
           <Ban className="w-3.5 h-3.5" />
           Denied attempts
         </button>
+
+        {(Object.values(AUDIT_QUICK_FILTERS)).map((qf) => {
+          const active = group === qf.key;
+          const Icon = QUICK_FILTER_ICONS[qf.key];
+          return (
+            <button
+              key={qf.key}
+              type="button"
+              onClick={() => toggleGroup(qf.key)}
+              aria-pressed={active}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                active
+                  ? 'border-info-border bg-info-bg text-info'
+                  : 'border-default bg-surface text-fg-muted hover:bg-surface-muted'
+              }`}
+              title={qf.title}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {qf.label}
+            </button>
+          );
+        })}
 
         {activeFilterCount > 0 && (
           <button

@@ -17,6 +17,11 @@ ARG COSIGN_SHA256_ARM64=426193b4c5da4d4d643e822f48fe0cc8a476ca1782a272704831f5a0
 ARG SYFT_VERSION=1.52.0
 ARG SYFT_SHA256_AMD64=caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d
 ARG SYFT_SHA256_ARM64=c46d5e4c28e12aa4c5becfaa343ef1c7f89045b6b895f2c21d471c62db09c706
+# grype matches syft 1.52 (same release train). Hashes from the release's
+# grype_<version>_checksums.txt.
+ARG GRYPE_VERSION=0.119.0
+ARG GRYPE_SHA256_AMD64=3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
+ARG GRYPE_SHA256_ARM64=29f0ec7c549ddb0e2b6a0ca714851f7399438afc399b80c12808e065edc9a8f8
 
 # =============================================================================
 # Plugin service image.
@@ -40,10 +45,14 @@ ARG COSIGN_SHA256_ARM64
 ARG SYFT_VERSION
 ARG SYFT_SHA256_AMD64
 ARG SYFT_SHA256_ARM64
+ARG GRYPE_VERSION
+ARG GRYPE_SHA256_AMD64
+ARG GRYPE_SHA256_ARM64
 # buildctl: connects to the rootless buildkitd sidecar to run the actual build.
 # crane:    pushes prebuilt `docker save` tarballs (buildctl cannot do that).
 # syft:     generates the SPDX SBOM of every pushed plugin image.
-# cosign:   signs each pushed digest and attaches the SBOM as a signed attestation.
+# cosign:   verifies plugin signatures and reads back the signed SBOM attestation.
+# grype:    scans that SBOM for known vulnerabilities (build + nightly rescan).
 # All download as static Linux binaries from upstream GitHub releases, each
 # checked against a pinned per-arch SHA-256 — these tools hold the plugin-signing
 # key and the registry push credential, so a swapped release asset must fail the build.
@@ -52,10 +61,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && case "${TARGETARCH:-amd64}" in \
          amd64) crane_arch=x86_64 \
                 buildkit_sum="${BUILDKIT_SHA256_AMD64}" crane_sum="${CRANE_SHA256_AMD64}" \
-                cosign_sum="${COSIGN_SHA256_AMD64}" syft_sum="${SYFT_SHA256_AMD64}" ;; \
+                cosign_sum="${COSIGN_SHA256_AMD64}" syft_sum="${SYFT_SHA256_AMD64}" \
+                grype_sum="${GRYPE_SHA256_AMD64}" ;; \
          arm64) crane_arch=arm64 \
                 buildkit_sum="${BUILDKIT_SHA256_ARM64}" crane_sum="${CRANE_SHA256_ARM64}" \
-                cosign_sum="${COSIGN_SHA256_ARM64}" syft_sum="${SYFT_SHA256_ARM64}" ;; \
+                cosign_sum="${COSIGN_SHA256_ARM64}" syft_sum="${SYFT_SHA256_ARM64}" \
+                grype_sum="${GRYPE_SHA256_ARM64}" ;; \
          *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; \
        esac \
     && arch="${TARGETARCH:-amd64}" \
@@ -72,7 +83,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && curl -fsSLo syft.tgz "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_${arch}.tar.gz" \
     && echo "${syft_sum}  syft.tgz" | sha256sum -c - \
     && tar -xzf syft.tgz -C /usr/local/bin syft \
-    && rm -f buildkit.tgz crane.tgz syft.tgz
+    && curl -fsSLo grype.tgz "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_${arch}.tar.gz" \
+    && echo "${grype_sum}  grype.tgz" | sha256sum -c - \
+    && tar -xzf grype.tgz -C /usr/local/bin grype \
+    && rm -f buildkit.tgz crane.tgz syft.tgz grype.tgz
 
 FROM node:${NODE_VERSION}-slim
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
@@ -81,6 +95,7 @@ COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildctl
 COPY --from=tools /usr/local/bin/crane /usr/local/bin/crane
 COPY --from=tools /usr/local/bin/cosign /usr/local/bin/cosign
 COPY --from=tools /usr/local/bin/syft /usr/local/bin/syft
+COPY --from=tools /usr/local/bin/grype /usr/local/bin/grype
 WORKDIR /app
 # F-0.3: node_modules is built OUTSIDE Docker by the docker:build script
 # (`pnpm deploy --filter plugin --prod --legacy .docker-build`) so the
@@ -90,7 +105,11 @@ WORKDIR /app
 COPY .docker-build/node_modules ./node_modules
 COPY .docker-build/package.json .
 COPY .docker-build/lib/ /app
-RUN mkdir -p /app/tmp /app/uploads && chown -R node:node /app/tmp /app/uploads
+# /var/cache/grype: the vulnerability DB (GRYPE_DB_CACHE_DIR). Every deploy
+# mounts a volume here; pre-creating it node-owned makes a fresh Docker named
+# volume inherit that ownership (k8s mounts a world-writable emptyDir).
+RUN mkdir -p /app/tmp /app/uploads /var/cache/grype \
+    && chown -R node:node /app/tmp /app/uploads /var/cache/grype
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1

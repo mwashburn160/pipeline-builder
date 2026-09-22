@@ -9,7 +9,7 @@
  * pipeline-data's drizzle connection.
  *
  * Verifies:
- * - Returns counts map keyed by plugin name.
+ * - Returns counts map keyed by plugin REFERENCE (`name`, or `publisher/name`).
  * - Coerces postgres COUNT() string results to numbers.
  * - Omits rows with null name or non-finite count.
  * - Forwards caller orgId (lowercased) to the SQL parameters.
@@ -21,6 +21,12 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockFindById = jest.fn();
 const mockExecute = jest.fn();
 
+// The listing half of lookup (plan §3.5) — unit-tested in installs-lookup.test.ts.
+jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
+  resolveListedLookup: jest.fn(async () => null),
+  shadowedListing: jest.fn(async () => null),
+  verifyListedImage: jest.fn(async () => undefined),
+}));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { findById: mockFindById, find: jest.fn(), findPaginated: jest.fn() },
 }));
@@ -41,6 +47,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: jest.fn(),
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId ?? 'org-1', userId: 'u-1' });
   },
@@ -53,6 +60,7 @@ jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
   ImageVerificationError: class extends Error {},
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
   CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
   Config: { get: () => ({}) },
   // The route was migrated from direct `db.execute(...)` to
@@ -65,6 +73,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
+  // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
+  isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
   // The route was migrated from direct `db.execute(...)` to
   // `withTenantTx(tx => tx.execute(...))`. The mock hands back a tx whose
   // execute funnels through the same mockExecute spy so per-test
@@ -147,12 +157,22 @@ describe('GET /plugins/plugin-usage', () => {
     expect(strings).toContain('org-zzz');
   });
 
+  it('keys qualified references by publisher/name (G17) and counts the synth plugin', async () => {
+    mockExecute.mockResolvedValue({ rows: [{ ref_key: 'lint', cnt: '2' }, { ref_key: 'acme/lint', cnt: '1' }] });
+    const res = mockRes();
+    await handler({ __orgId: 'org-a', query: {} } as any, res);
+    expect(res.json.mock.calls[0][0].data.counts).toEqual({ 'lint': 2, 'acme/lint': 1 });
+    const strings = collectStrings(mockExecute.mock.calls[0][0]).join(' ');
+    expect(strings).toContain("ref->>'publisher'");
+    expect(strings).toContain("p.props->'synth'->'plugin'");
+  });
+
   it('returns counts map keyed by plugin name', async () => {
     mockExecute.mockResolvedValue({
       rows: [
-        { name: 'snyk-scan', cnt: '5' },
-        { name: 'docker-build', cnt: '12' },
-        { name: 'pytest', cnt: '3' },
+        { ref_key: 'snyk-scan', cnt: '5' },
+        { ref_key: 'docker-build', cnt: '12' },
+        { ref_key: 'pytest', cnt: '3' },
       ],
     });
     const res = mockRes();
@@ -166,7 +186,7 @@ describe('GET /plugins/plugin-usage', () => {
 
   it('coerces string COUNT() results to numbers', async () => {
     mockExecute.mockResolvedValue({
-      rows: [{ name: 'jest-runner', cnt: '7' }],
+      rows: [{ ref_key: 'jest-runner', cnt: '7' }],
     });
     const res = mockRes();
     await handler({ __orgId: 'org-a', query: {} } as any, res);
@@ -187,8 +207,8 @@ describe('GET /plugins/plugin-usage', () => {
   it('omits rows with null/missing name', async () => {
     mockExecute.mockResolvedValue({
       rows: [
-        { name: 'good', cnt: '1' },
-        { name: null, cnt: '99' },
+        { ref_key: 'good', cnt: '1' },
+        { ref_key: null, cnt: '99' },
       ],
     });
     const res = mockRes();
@@ -200,8 +220,8 @@ describe('GET /plugins/plugin-usage', () => {
   it('omits rows with non-finite count', async () => {
     mockExecute.mockResolvedValue({
       rows: [
-        { name: 'good', cnt: '1' },
-        { name: 'bad', cnt: 'not-a-number' },
+        { ref_key: 'good', cnt: '1' },
+        { ref_key: 'bad', cnt: 'not-a-number' },
       ],
     });
     const res = mockRes();
@@ -212,7 +232,7 @@ describe('GET /plugins/plugin-usage', () => {
 
   it('falls back to bare-array drivers (rows in result.rows or top-level array)', async () => {
     // Some drivers return the rows array directly without a .rows wrapper.
-    mockExecute.mockResolvedValue([{ name: 'flat', cnt: 4 }]);
+    mockExecute.mockResolvedValue([{ ref_key: 'flat', cnt: 4 }]);
     const res = mockRes();
     await handler({ __orgId: 'org-a', query: {} } as any, res);
     const payload = res.json.mock.calls[0][0];

@@ -120,6 +120,40 @@ export interface BuildDuration {
   builds: number;
 }
 
+/**
+ * Plugin runtime report filters (W0.1). `publisher: null` selects own-org
+ * (publisher-less) plugins; an omitted field doesn't filter.
+ */
+export interface PluginRuntimeFilter {
+  name?: string;
+  publisher?: string | null;
+  version?: string;
+}
+
+/** Per plugin version runtime stats over a window (terminal ACTION runs). */
+export interface PluginRuntimeStats {
+  pluginPublisher: string | null;
+  pluginName: string;
+  pluginVersion: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  /** 0–100, one decimal. */
+  successPct: number;
+  /** Null when no run in the group carried a duration. */
+  p50Ms: number | null;
+  p95Ms: number | null;
+  lastRun: string;
+}
+
+/** Cross-org 30-day aggregate for one `(publisher, name)` listing. */
+export interface PluginRuntimeAggregate {
+  runs30d: number;
+  /** 0–1; null when there were no runs. */
+  successRate30d: number | null;
+  activeOrgCount30d: number;
+}
+
 export interface BuildFailure {
   pluginName: string;
   errorMessage: string;

@@ -73,6 +73,7 @@ the links below.
 - **Disaster recovery (RPO, what is NOT backed up)** — [Deploy Operations: What the data tier actually is](deploy-operations.md#what-the-data-tier-actually-is), [RPO and RTO](deploy-operations.md#rpo-and-rto), [What is NOT backed up](deploy-operations.md#what-is-not-backed-up), [Enabling the EKS backup CronJob](deploy-operations.md#eks--enabling-the-nightly-cronjob)
 - **Developer guide / getting started (dev)** — [Developer Guide](developer-guide.md), [Five ways to create a pipeline](developer-guide.md#five-ways-to-create-a-pipeline)
 - **Developer portal (catalog ownership, scorecards)** — [Developer Portal](developer-portal.md)
+- **Plugin ecosystem — publishing (publishers, listings, publish requests, trust tiers, Verified)** — [Plugin Publishing](plugin-publishing.md), [Plugins: Publishing to the ecosystem](plugins/README.md#publishing-to-the-ecosystem), [Architecture: Publishing](architecture-flow.md#flow-1b-publishing-to-the-plugin-ecosystem), [Runbook: Ecosystem moderation](runbooks/ecosystem-moderation.md)
 - **Discounts / promo codes / referrals** — [Billing Discounts](billing-discounts.md), [Promotions](billing-discounts.md#promotions)
 - **Docker registry (config, tags)** — [Env vars: Docker Registry](environment-variables.md#docker-registry), [Registry audit events](audit-events.md#registry-structured-log-events)
 - **DORA metrics (deploy freq, lead time, MTTR, CFR)** — [DORA Metrics](dora-metrics.md), [Performance levels](dora-metrics.md#performance-levels)
@@ -241,6 +242,8 @@ the links below.
 | [runbooks/access-key-cutover](runbooks/access-key-cutover.md) | Issuing personal access keys and provisioning the three machine credentials an AWS install needs |
 | [developer-guide](developer-guide.md) | Five ways to create a pipeline, plugin cut-and-paste patterns |
 | [developer-portal](developer-portal.md) | Catalog ownership, golden-path templates, scorecards |
+| [plugin-publishing](plugin-publishing.md) | Publisher profile, listings limits, publish requests, accept-or-edit metadata, review and auto-approval, pause |
+| [runbooks/ecosystem-moderation](runbooks/ecosystem-moderation.md) | Ecosystem Manager runbook: queue, SLAs, two-person approval, rules, takedown, re-sign |
 | [dora-metrics](dora-metrics.md) | Deploy freq, lead time, MTTR, change-fail rate, build health |
 | [incidents-webhook](incidents-webhook.md) | Incident webhook → automated post-deploy CFR + real MTTR |
 | [environment-variables](environment-variables.md) | Every env var by subsystem |

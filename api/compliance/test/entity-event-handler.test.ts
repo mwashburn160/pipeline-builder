@@ -96,7 +96,8 @@ describe('evaluateEntityEvent', () => {
     });
 
     expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('org-1', 'plugin', undefined);
-    expect(mockEvaluateRules).toHaveBeenCalledWith([{ id: 'r1' }], { name: 'p' }, []);
+    // Plugin targets get the derived image facts; `packages` is deferred to the build worker.
+    expect(mockEvaluateRules).toHaveBeenCalledWith([{ id: 'r1' }], { name: 'p', signed: false, scanned: false, tags: [] }, [], ['packages']);
     expect(result.evaluated).toBe(true);
     expect(result.blocked).toBe(false);
     expect(result.violations).toBe(0);
@@ -152,7 +153,7 @@ describe('evaluateEntityEvent', () => {
       eventType: 'deleted',
     });
 
-    expect(mockEvaluateRules).toHaveBeenCalledWith([{ id: 'r1' }], {}, []);
+    expect(mockEvaluateRules).toHaveBeenCalledWith([{ id: 'r1' }], { signed: false, scanned: false, tags: [] }, [], ['packages']);
   });
 
   it('returns evaluated:false when service throws', async () => {
@@ -231,8 +232,9 @@ describe('evaluateEntityEvent', () => {
     // ...and passed into evaluateRules (was a hardcoded [] before the fix).
     expect(mockEvaluateRules).toHaveBeenCalledWith(
       [{ id: 'r1' }],
-      { name: 'p' },
+      { name: 'p', signed: false, scanned: false, tags: [] },
       [{ id: 'ex1', ruleId: 'r1' }],
+      ['packages'],
     );
   });
 

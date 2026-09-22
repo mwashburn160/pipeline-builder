@@ -129,6 +129,15 @@ const HARD_DELETE_TABLES = [
   { table: schema.complianceRole, name: 'compliance_roles' },
   { table: schema.complianceReport, name: 'compliance_reports' },
   { table: schema.complianceReportSchedule, name: 'compliance_report_schedules' },
+  // Plugin ecosystem, org-scoped half: the org's step manifests, installs,
+  // consumption policy and advisory-delivery ledger. The instance-wide
+  // directory tables (publishers, listings, reviews, …) carry no org_id and are
+  // deliberately NOT here: a publisher and its listed versions outlive the org
+  // (listings go `unmaintained`, installed versions keep resolving, §3.6).
+  { table: schema.pipelineStepManifest, name: 'pipeline_step_manifests' },
+  { table: schema.pluginInstall, name: 'plugin_installs' },
+  { table: schema.pluginInstallPolicy, name: 'plugin_install_policies' },
+  { table: schema.pluginAdvisoryDelivery, name: 'plugin_advisory_deliveries' },
 ] as const;
 
 /** Every DB table name the org cascade covers (soft + hard). Exported so a

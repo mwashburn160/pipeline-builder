@@ -10,9 +10,10 @@
 FROM pipeline-python-base:1.0
 
 # TODO(confirm): confirm the intended pinned coverage / pytest versions.
-ARG COVERAGE_VERSION=7.6.10
-ARG PYTEST_VERSION=8.3.4
+ARG COVERAGE_VERSION=7.16.1
+ARG PYTEST_VERSION=9.1.1
 RUN pip3 install --no-cache-dir "coverage==${COVERAGE_VERSION}" "pytest==${PYTEST_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

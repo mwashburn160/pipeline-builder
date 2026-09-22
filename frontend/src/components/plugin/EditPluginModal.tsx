@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { formatDateTime } from '@/lib/format';
-import { useAsyncCallback } from '@/hooks/useAsync';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
@@ -12,13 +11,20 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { InfoAlert } from '@/components/ui/InfoAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
+import { WarningAlert } from '@/components/ui/WarningAlert';
 import api from '@/lib/api';
+import { ApiError } from '@/lib/api/errors';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { clearPluginCache } from '@/hooks/usePlugins';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { formatError, formatJSON, safeJSONParse } from '@/lib/constants';
-import { Plugin, Visibility } from '@/types';
+import { formatError } from '@/lib/constants';
+import { CATEGORY_DISPLAY_NAMES, PLUGIN_CATEGORIES } from '@/lib/plugin-categories';
+import {
+  CATALOG_FIELD_EDITOR, CATALOG_FIELD_HINTS, CATALOG_FIELD_LABELS, CATALOG_SOURCE_LABELS,
+  catalogValueToText, parseCatalogText,
+} from '@/lib/plugin-catalog';
+import { PLUGIN_CATALOG_FIELDS, type Plugin, type PluginCatalogField, type Visibility } from '@/types';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOwnerFields';
 import { useAuth } from '@/hooks/useAuth';
@@ -26,8 +32,8 @@ import { isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
 
 /** Props for the EditPluginModal component. */
 interface EditPluginModalProps {
-  /** The row to edit — a list summary is enough (the list omits the build
-   *  spec); the full record is fetched by id on mount and seeds the form. */
+  /** The row to edit — a list summary is enough; the full record (catalog
+   *  metadata, owner) is fetched by id on mount and seeds the form. */
   plugin: PluginSummary;
   /** Whether the current user may PUBLISH (make a plugin public) — gates the
    *  access-modifier control. Sourced from `can('plugins:publish')` (superadmins
@@ -39,59 +45,51 @@ interface EditPluginModalProps {
   onSaved: () => void;
 }
 
-/** The dirty-tracked fields, as the form renders them for a given record. */
-function dirtySnapshot(pl: Plugin) {
-  return {
-    name: pl.name,
-    description: pl.description || '',
-    keywords: pl.keywords?.join(', ') || '',
-    version: pl.version,
-    metadata: formatJSON(pl.metadata || {}),
-    pluginType: pl.pluginType,
-    computeType: pl.computeType,
-    env: formatJSON(pl.env || {}),
-    // Reassigning the owning team is a real edit — without it here, a discard
-    // click would drop that change with no prompt.
-    ownerId: pl.ownerId ?? null,
-    ownerType: pl.ownerType ?? null,
-  };
+type CatalogTexts = Record<PluginCatalogField, string>;
+
+/** A stored plugin's value for a catalog field (the README is stored as `readmeMd`). */
+function storedCatalogValue(pl: Plugin, field: PluginCatalogField): unknown {
+  return field === 'readme' ? pl.readmeMd : pl[field];
 }
 
-/** Modal for editing plugin metadata, configuration, and access settings. */
+/** The catalog fields as the form renders them for a given record. */
+function catalogTexts(pl: Plugin): CatalogTexts {
+  return Object.fromEntries(
+    PLUGIN_CATALOG_FIELDS.map((f) => [f, catalogValueToText(f, storedCatalogValue(pl, f))]),
+  ) as CatalogTexts;
+}
+
+const EMPTY_TEXTS = Object.fromEntries(PLUGIN_CATALOG_FIELDS.map((f) => [f, ''])) as CatalogTexts;
+
+/**
+ * Modal for editing a plugin's catalog details (the descriptive fields) and its
+ * operational settings (visibility, owner, active/default).
+ *
+ * The execution contract — commands, environment, secrets, compute, name,
+ * version — is not editable here: it changes only by uploading a new version
+ * (the API refuses those keys). Only CHANGED fields are sent.
+ */
 export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }: EditPluginModalProps) {
-  const [name, setName] = useState(plugin.name);
-  const [description, setDescription] = useState(plugin.description || '');
-  const [keywords, setKeywords] = useState(plugin.keywords?.join(', ') || '');
-  const [version, setVersion] = useState(plugin.version);
-  // Build-spec fields aren't on the list row; they seed from the full record below.
-  const [metadata, setMetadata] = useState(formatJSON({}));
-  const [pluginType, setPluginType] = useState(plugin.pluginType);
-  const [computeType, setComputeType] = useState(plugin.computeType);
-  const [env, setEnv] = useState(formatJSON({}));
-  const [confirmingMetadataWipe, setConfirmingMetadataWipe] = useState(false);
-  const [buildArgs, setBuildArgs] = useState(formatJSON({}));
-  const [installCommands, setInstallCommands] = useState('');
-  const [commands, setCommands] = useState('');
+  const [texts, setTexts] = useState<CatalogTexts>(EMPTY_TEXTS);
+  /** The form renders only once seeded from the fetched record — never with blanks
+   *  a quick user (or a save) could mistake for cleared fields. */
+  const [seeded, setSeeded] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<PluginCatalogField, string>>>({});
   const [isActive, setIsActive] = useState(plugin.isActive);
   const [isDefault, setIsDefault] = useState(plugin.isDefault);
-  const [primaryOutputDirectory, setPrimaryOutputDirectory] = useState('');
-  const [timeout, setPluginTimeout] = useState<string>(plugin.timeout != null ? String(plugin.timeout) : '');
-  const [failureBehavior, setFailureBehavior] = useState<'fail' | 'warn' | 'ignore'>(plugin.failureBehavior || 'fail');
-  const [secrets, setSecrets] = useState(formatJSON([]));
   const [visibility, setVisibility] = useState<Visibility>(plugin.visibility);
   // Catalog owner (person or team); the list row omits the owner columns, so it
   // seeds from the full record below. Reassigning it is admin-only server-side.
   const [owner, setOwner] = useState<CatalogOwner>({});
   const { user } = useAuth();
   const canAssignOwner = isOrgAdmin(user) || isSystemAdmin(user);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** A 409: this version's catalog details are frozen by a publish request / listing. */
+  const [frozenMessage, setFrozenMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const { execute: saveAsync, loading, error: saveError, clearError } = useAsyncCallback(
-    (data: Parameters<typeof api.updatePlugin>[1]) => api.updatePlugin(plugin.id, data),
-  );
-  const error = validationError || saveError;
 
-  // Track mount state so the success-close timer never calls onClose() after the
+  // Guards the post-save close timer so it can't call onClose() after the
   // parent has already torn the modal down (e.g. list refresh unmounts us).
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -99,11 +97,9 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     return () => { mountedRef.current = false; };
   }, []);
 
-  // Fetch full plugin by ID; useEntityFetch only re-fires on id change so
-  // a stale re-mount won't overwrite in-progress user edits.
-  //
-  // No list-row fallback: the row lacks the build spec, and saving a form seeded
-  // from it would wipe the plugin's commands/env/secrets.
+  // Fetch the full plugin by ID (the list row lacks the catalog metadata and
+  // owner); useEntityFetch only re-fires on id change so a stale re-mount won't
+  // overwrite in-progress user edits.
   const fetchPlugin = useCallback(async (id: string): Promise<Plugin> => {
     const response = await api.getPluginById(id);
     if (!response.data?.plugin) throw new Error(formatError(response, 'Failed to load plugin'));
@@ -111,134 +107,153 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   }, []);
   const { entity: fullPlugin, fetching, error: fetchError } = useEntityFetch<Plugin>(plugin.id, fetchPlugin);
 
-  // Seed editable fields once the full record loads (only fires when the
-  // fetched entity changes, not on every render).
+  // Seed editable fields once the full record loads.
   useEffect(() => {
     if (!fullPlugin) return;
-    setName(fullPlugin.name);
-    setDescription(fullPlugin.description || '');
-    setKeywords(fullPlugin.keywords?.join(', ') || '');
-    setVersion(fullPlugin.version);
-    setMetadata(formatJSON(fullPlugin.metadata || {}));
-    setPluginType(fullPlugin.pluginType);
-    setComputeType(fullPlugin.computeType);
-    setEnv(formatJSON(fullPlugin.env || {}));
-    setBuildArgs(formatJSON(fullPlugin.buildArgs || {}));
-    setInstallCommands(fullPlugin.installCommands?.join('\n') || '');
-    setCommands(fullPlugin.commands?.join('\n') || '');
+    setTexts(catalogTexts(fullPlugin));
     setIsActive(fullPlugin.isActive);
     setIsDefault(fullPlugin.isDefault);
-    setPrimaryOutputDirectory(fullPlugin.primaryOutputDirectory || '');
-    setPluginTimeout(fullPlugin.timeout != null ? String(fullPlugin.timeout) : '');
-    setFailureBehavior(fullPlugin.failureBehavior || 'fail');
-    setSecrets(formatJSON(fullPlugin.secrets || []));
     setVisibility(fullPlugin.visibility);
     setOwner({ ownerId: fullPlugin.ownerId, ownerType: fullPlugin.ownerType });
+    setSeeded(true);
   }, [fullPlugin]);
 
-  // The full record (fetched by id); null until it lands.
   const p = fullPlugin;
-  const loadingRecord = fetching || !p;
+  const loadingRecord = fetching || !p || !seeded;
+  const baseTexts = useMemo(() => (fullPlugin ? catalogTexts(fullPlugin) : null), [fullPlugin]);
 
-  // ~20 editable fields including hand-written JSON — a misplaced backdrop click
-  // used to discard the lot silently. The baseline is the FETCHED record (the
-  // form is seeded from it), not the first render's placeholders.
-  const baseline = useMemo(() => (fullPlugin ? JSON.stringify(dirtySnapshot(fullPlugin)) : null), [fullPlugin]);
-  const dirty = baseline !== null
-    && baseline !== JSON.stringify({
-      name, description, keywords, version, metadata, pluginType, computeType, env,
-      ownerId: owner.ownerId ?? null, ownerType: owner.ownerType ?? null,
+  const changedCatalogFields = baseTexts
+    ? PLUGIN_CATALOG_FIELDS.filter((f) => texts[f] !== baseTexts[f])
+    : [];
+  const ownerChanged = !!fullPlugin
+    && ((owner.ownerId ?? null) !== (fullPlugin.ownerId ?? null) || (owner.ownerType ?? null) !== (fullPlugin.ownerType ?? null));
+  const visibilityChanged = !!fullPlugin && visibility !== fullPlugin.visibility;
+  const isActiveChanged = !!fullPlugin && isActive !== fullPlugin.isActive;
+  const isDefaultChanged = !!fullPlugin && isDefault !== fullPlugin.isDefault;
+  // A misplaced backdrop click must not discard edits silently — including a
+  // lone owner reassignment.
+  const dirty = seeded && (changedCatalogFields.length > 0 || ownerChanged || visibilityChanged || isActiveChanged || isDefaultChanged);
+
+  const setText = (field: PluginCatalogField, value: string) => {
+    setTexts((prev) => ({ ...prev, [field]: value }));
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
     });
+  };
 
-  const handleSave = async ({ metadataWipeConfirmed = false }: { metadataWipeConfirmed?: boolean } = {}) => {
-    clearError();
-    setValidationError(null);
+  const handleSave = async () => {
+    setSaveError(null);
+    setFrozenMessage(null);
     setSuccess(null);
+    if (!fullPlugin) return;
 
-    const parsedMetadata = metadata.trim() ? safeJSONParse<Record<string, string | number | boolean> | null>(metadata, null) : {};
-    if (parsedMetadata === null) { setValidationError('Invalid JSON in metadata field'); return; }
+    // Only the fields that changed — light client checks first; the server is
+    // authoritative and its 400 message is shown as is.
+    const data: Parameters<typeof api.updatePlugin>[1] = {};
+    const errors: Partial<Record<PluginCatalogField, string>> = {};
+    for (const field of changedCatalogFields) {
+      const prevIcon = field === 'icon' ? fullPlugin.icon : null;
+      const parsed = parseCatalogText(field, texts[field], prevIcon);
+      if (parsed.ok) (data as Record<string, unknown>)[field] = parsed.value;
+      else errors[field] = `${CATALOG_FIELD_LABELS[field]} ${parsed.error}`;
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setSaveError('Fix the highlighted fields and try again.');
+      return;
+    }
+    if (visibilityChanged) data.visibility = visibility;
+    if (isActiveChanged) data.isActive = isActive;
+    if (isDefaultChanged) data.isDefault = isDefault;
+    // Owner is admin-only server-side and non-nullable in the schema, so only
+    // send it when this viewer may set it AND it resolves to a real id.
+    if (ownerChanged && canAssignOwner && owner.ownerId && owner.ownerType) {
+      data.ownerId = owner.ownerId;
+      data.ownerType = owner.ownerType;
+    }
 
-    const parsedEnv = env.trim() ? safeJSONParse<Record<string, string> | null>(env, null) : {};
-    if (parsedEnv === null) { setValidationError('Invalid JSON in env field'); return; }
-
-    const parsedBuildArgs = buildArgs.trim() ? safeJSONParse<Record<string, string> | null>(buildArgs, null) : {};
-    if (parsedBuildArgs === null) { setValidationError('Invalid JSON in build args field'); return; }
-
-    const parsedSecrets = secrets.trim() ? safeJSONParse<Array<{ name: string; required: boolean; description?: string }> | null>(secrets, null) : [];
-    if (parsedSecrets === null) { setValidationError('Invalid JSON in secrets field'); return; }
-
-    // I31: If user explicitly cleared the metadata textarea but the original
-    // record had metadata, confirm before wiping prior fields.
-    const originalHadMetadata = !!fullPlugin?.metadata && Object.keys(fullPlugin.metadata).length > 0;
-    const submittingEmpty = !metadata.trim() || Object.keys(parsedMetadata as Record<string, unknown>).length === 0;
-    if (originalHadMetadata && submittingEmpty && !metadataWipeConfirmed) {
-      // Pause the save and ask in-app (was `window.confirm`, which is unstyled
-      // and fires mid-save with no context about what's being wiped).
-      setConfirmingMetadataWipe(true);
+    if (Object.keys(data).length === 0) {
+      onClose();
       return;
     }
 
-    const response = await saveAsync({
-      name,
-      description,
-      keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
-      version,
-      metadata: parsedMetadata,
-      pluginType,
-      computeType,
-      env: parsedEnv,
-      buildArgs: parsedBuildArgs,
-      installCommands: installCommands.split('\n').filter(c => c.trim()),
-      commands: commands.split('\n').filter(c => c.trim()),
-      isActive,
-      isDefault,
-      visibility,
-      primaryOutputDirectory: primaryOutputDirectory.trim() || null,
-      timeout: timeout.trim() ? parseInt(timeout, 10) : null,
-      failureBehavior,
-      secrets: parsedSecrets,
-      // Owner is admin-only server-side and non-nullable in the schema, so only
-      // send it when this viewer may set it AND it resolves to a real id.
-      ...(canAssignOwner && owner.ownerId && owner.ownerType
-        ? { ownerId: owner.ownerId, ownerType: owner.ownerType }
-        : {}),
-    });
-
-    if (response?.success) {
-      setSuccess('Plugin updated successfully!');
-      // The pipeline builder's plugin picker caches the catalog — drop it.
-      clearPluginCache();
-      onSaved();
-      setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
+    setSaving(true);
+    try {
+      const response = await api.updatePlugin(plugin.id, data);
+      if (!mountedRef.current) return;
+      if (response?.success) {
+        setSuccess('Plugin updated successfully!');
+        // The pipeline builder's plugin picker caches the catalog — drop it.
+        clearPluginCache();
+        onSaved();
+        setTimeout(() => { if (mountedRef.current) onClose(); }, 1500);
+      } else {
+        setSaveError(formatError(response, 'Failed to update plugin'));
+      }
+    } catch (err) {
+      if (!mountedRef.current) return;
+      if (err instanceof ApiError && err.statusCode === 409) setFrozenMessage(err.message);
+      else setSaveError(formatError(err, 'Failed to update plugin'));
+    } finally {
+      if (mountedRef.current) setSaving(false);
     }
   };
 
   const footer = (
     <div className="flex justify-end space-x-3">
-      <Button variant="secondary" onClick={onClose} disabled={loading}>
+      <Button variant="secondary" onClick={onClose} disabled={saving}>
         Cancel
       </Button>
-      <Button onClick={() => void handleSave()} disabled={loading || loadingRecord}>
-        {loading ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
+      <Button onClick={() => void handleSave()} disabled={saving || loadingRecord}>
+        {saving ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
       </Button>
     </div>
   );
 
+  const renderCatalogField = (field: PluginCatalogField) => {
+    const label = CATALOG_FIELD_LABELS[field];
+    const source = p?.metadataSources?.[field];
+    const hint = [source ? `Source: ${CATALOG_SOURCE_LABELS[source]}` : null, CATALOG_FIELD_HINTS[field]]
+      .filter(Boolean).join(' · ') || undefined;
+    const kind = CATALOG_FIELD_EDITOR[field];
+    const value = texts[field];
+    const onChange = (v: string) => setText(field, v);
+    return (
+      <FormField key={field} label={label} hint={hint} error={fieldErrors[field]} className="mb-3">
+        {kind === 'textarea' ? (
+          <Textarea value={value} onChange={(e) => onChange(e.target.value)} rows={field === 'description' ? 3 : 5} disabled={saving} />
+        ) : kind === 'select' ? (
+          <Select value={value} onChange={(e) => onChange(e.target.value)} disabled={saving}>
+            <option value="">— None —</option>
+            {PLUGIN_CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_DISPLAY_NAMES[c]}</option>)}
+            {value && !(PLUGIN_CATEGORIES as readonly string[]).includes(value) && <option value={value}>{value}</option>}
+          </Select>
+        ) : (
+          <Input
+            type="text" value={value} onChange={(e) => onChange(e.target.value)} disabled={saving}
+            placeholder={kind === 'keywords' ? 'keyword1, keyword2, keyword3' : undefined}
+          />
+        )}
+      </FormField>
+    );
+  };
+
   return (
-    <>
-    {confirmingMetadataWipe && (
-      <ConfirmDialog
-        title="Clear all metadata?"
-        confirmLabel="Clear metadata"
-        tone="danger"
-        onCancel={() => setConfirmingMetadataWipe(false)}
-        onConfirm={() => { setConfirmingMetadataWipe(false); void handleSave({ metadataWipeConfirmed: true }); }}
-      >
-        <p>Saving with an empty metadata field wipes every metadata entry this plugin already has.</p>
-      </ConfirmDialog>
-    )}
     <Modal title="Edit plugin" onClose={onClose} maxWidth="max-w-2xl" tall footer={footer} dirty={dirty}>
-      <ErrorAlert message={error} />
+      <ErrorAlert message={saveError} />
+      {frozenMessage && (
+        <WarningAlert
+          message={(
+            <>
+              <span className="font-medium">Catalog details are frozen for this version.</span>{' '}
+              {frozenMessage} Visibility and status changes can still be saved on their own.
+            </>
+          )}
+        />
+      )}
       <SuccessAlert message={success} />
 
       {!p && fetchError ? (
@@ -251,6 +266,10 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
           <div className="border-b border-default pb-4">
             <h3 className="text-sm font-medium text-fg-muted mb-3">System information (read-only)</h3>
             <div className="grid grid-cols-2 gap-4">
+              <ReadonlyField label="Name" value={p.name} valueClassName="font-mono" />
+              <ReadonlyField label="Version" value={p.version} valueClassName="font-mono" />
+              <ReadonlyField label="Plugin type" value={p.pluginType} />
+              <ReadonlyField label="Compute type" value={p.computeType} />
               <ReadonlyField label="ID" value={p.id} valueClassName="font-mono" />
               <ReadonlyField label="Org ID" value={p.orgId} />
               <ReadonlyField label="Created by" value={p.createdBy} />
@@ -258,90 +277,17 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
               <ReadonlyField label="Updated by" value={p.updatedBy} />
               <ReadonlyField label="Updated at" value={formatDateTime(p.updatedAt)} />
               <ReadonlyField label="Image URI" value={p.uri} className="col-span-2" valueClassName="font-mono break-all" />
-              {p.dockerfile && (
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-fg-muted mb-1">Dockerfile</label>
-                  <pre className="text-xs text-fg-muted bg-surface-muted px-2 py-1 rounded-lg overflow-x-auto max-h-24">{p.dockerfile}</pre>
-                </div>
-              )}
             </div>
+            <InfoAlert
+              className="mt-3"
+              message="Commands, environment, secrets and compute are the plugin's execution contract. They change only by uploading a new version."
+            />
           </div>
 
-          {/* Core Information */}
+          {/* Catalog details */}
           <div className="border-b border-default pb-4">
-            <h3 className="text-sm font-medium text-fg-muted mb-3">Core information</h3>
-            <FormField label="Name" className="mb-3">
-              <Input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={loading} />
-            </FormField>
-            <FormField label="Description" className="mb-3">
-              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} disabled={loading} />
-            </FormField>
-            <FormField label="Keywords (comma-separated)" className="mb-3">
-              <Input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="keyword1, keyword2, keyword3" disabled={loading} />
-            </FormField>
-            <FormField label="Version" className="mb-3">
-              <Input type="text" value={version} onChange={(e) => setVersion(e.target.value)} disabled={loading} />
-            </FormField>
-          </div>
-
-          {/* Plugin Configuration */}
-          <div className="border-b border-default pb-4">
-            <h3 className="text-sm font-medium text-fg-muted mb-3">Plugin configuration</h3>
-            <div className="grid grid-cols-2 gap-4 mb-3">
-              <FormField label="Plugin type">
-                <Select value={pluginType} onChange={(e) => setPluginType(e.target.value)} disabled={loading}>
-                  <option value="CodeBuildStep">CodeBuildStep</option>
-                  <option value="ShellStep">ShellStep</option>
-                  <option value="ManualApprovalStep">ManualApprovalStep</option>
-                </Select>
-              </FormField>
-              <FormField label="Compute type">
-                <Select value={computeType} onChange={(e) => setComputeType(e.target.value)} disabled={loading}>
-                  <option value="SMALL">SMALL</option>
-                  <option value="MEDIUM">MEDIUM</option>
-                  <option value="LARGE">LARGE</option>
-                  <option value="X2_LARGE">X2_LARGE</option>
-                </Select>
-              </FormField>
-            </div>
-            <FormField label="Primary output directory" className="mb-3" hint="Directory where build artifacts are output (used for pipeline artifact tracking)">
-              <Input type="text" value={primaryOutputDirectory} onChange={(e) => setPrimaryOutputDirectory(e.target.value)} disabled={loading} placeholder="e.g. cdk.out, dist, build" />
-            </FormField>
-            <div className="grid grid-cols-2 gap-4 mb-3">
-              <FormField label="Timeout (minutes)" hint="Build timeout — blank = CodeBuild default (60 min)">
-                <Input type="number" value={timeout} onChange={(e) => setPluginTimeout(e.target.value)} disabled={loading} placeholder="60" min={1} />
-              </FormField>
-              <FormField label="Failure behavior" hint="What happens when this step fails">
-                <Select value={failureBehavior} onChange={(e) => setFailureBehavior(e.target.value as 'fail' | 'warn' | 'ignore')} disabled={loading}>
-                  <option value="fail">Fail (stop pipeline)</option>
-                  <option value="warn">Warn (log warning, continue)</option>
-                  <option value="ignore">Ignore (silently continue)</option>
-                </Select>
-              </FormField>
-            </div>
-            <FormField label="Metadata (JSON)" className="mb-3">
-              <Textarea value={metadata} onChange={(e) => setMetadata(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"key": "value"}' />
-            </FormField>
-            <FormField label="Secrets (JSON)" className="mb-3" hint='Array of {name, required, description}'>
-              <Textarea value={secrets} onChange={(e) => setSecrets(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='[{"name": "API_KEY", "required": true, "description": "API key for service"}]' />
-            </FormField>
-          </div>
-
-          {/* Build Configuration */}
-          <div className="border-b border-default pb-4">
-            <h3 className="text-sm font-medium text-fg-muted mb-3">Build configuration</h3>
-            <FormField label="Environment variables (JSON)" className="mb-3">
-              <Textarea value={env} onChange={(e) => setEnv(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"API_URL": "https://api.example.com"}' />
-            </FormField>
-            <FormField label="Build args (JSON)" hint="Docker build args; templatable via {{ pipeline.vars.* }}" className="mb-3">
-              <Textarea value={buildArgs} onChange={(e) => setBuildArgs(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder='{"APP_ENV": "{{ pipeline.vars.env }}"}' />
-            </FormField>
-            <FormField label="Install commands (one per line)" className="mb-3">
-              <Textarea value={installCommands} onChange={(e) => setInstallCommands(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder={"npm install\npip install -r requirements.txt"} />
-            </FormField>
-            <FormField label="Commands (one per line)" className="mb-3">
-              <Textarea value={commands} onChange={(e) => setCommands(e.target.value)} rows={3} className="font-mono text-xs" disabled={loading} placeholder={"npm run build\nnpm test"} />
-            </FormField>
+            <h3 className="text-sm font-medium text-fg-muted mb-3">Catalog details</h3>
+            {PLUGIN_CATALOG_FIELDS.map(renderCatalogField)}
           </div>
 
           {/* Access & Status */}
@@ -349,7 +295,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
             <h3 className="text-sm font-medium text-fg-muted mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
-                <VisibilitySelect value={visibility} onChange={setVisibility} canPublish={canPublish} disabled={loading} />
+                <VisibilitySelect value={visibility} onChange={setVisibility} canPublish={canPublish} disabled={saving} />
               </FormField>
               {/* Owner + team access — the same control the pipeline editor uses,
                   because the backend rules are the same: admin-only owner write,
@@ -359,21 +305,21 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
                 onChange={setOwner}
                 visibility={visibility}
                 canAssign={canAssignOwner}
-                personOwnerId={(p?.ownerType === 'user' && p?.ownerId) || p?.createdBy || ''}
+                personOwnerId={(p.ownerType === 'user' && p.ownerId) || p.createdBy || ''}
                 onShareWithTeams={canPublish ? () => setVisibility('public') : undefined}
                 entityNoun="plugins"
                 publishPermission="plugins:publish"
                 idPrefix="editPlugin"
-                disabled={loading}
+                disabled={saving}
               />
             </div>
             <div className="flex items-center space-x-6">
               <div className="flex items-center">
-                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={loading} />
+                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={saving} />
                 <label htmlFor="editIsActive" className="ml-2 block text-sm text-fg-muted">Active</label>
               </div>
               <div className="flex items-center">
-                <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={loading} />
+                <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={saving} />
                 <label htmlFor="editIsDefault" className="ml-2 block text-sm text-fg-muted">Default</label>
               </div>
             </div>
@@ -381,6 +327,5 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
         </div>
       )}
     </Modal>
-    </>
   );
 }

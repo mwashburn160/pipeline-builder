@@ -23,11 +23,21 @@ installCommands:
 commands:
   - |
     set -e
+    # golangci-lint v2 rejects v1 config files. Migrate a v1 config in the
+    # (ephemeral) build workspace so the lint still runs; the project should
+    # run `golangci-lint migrate` itself to make this a no-op.
+    for c in .golangci.yml .golangci.yaml; do
+      if [ -f "$c" ] && ! grep -qE '^version:[[:space:]]*"?2"?' "$c"; then
+        echo "WARNING: $c is a golangci-lint v1 config; migrating it for this run (run 'golangci-lint migrate' in your repo)"
+        golangci-lint migrate --config "$c"
+      fi
+    done
     echo "Running golangci-lint..."
-    # Report-only JSON (always written; never gates).
+    # Report-only JSON (always written; never gates). v2 selects formats via
+    # --output.<format>.path (v1's --out-format was removed).
     golangci-lint run \
       --timeout ${GOLANGCI_LINT_TIMEOUT} \
-      --out-format ${GOLANGCI_LINT_FORMAT} \
+      --output.${GOLANGCI_LINT_FORMAT}.path=stdout \
       > lint-reports/golangci-lint-results.json 2>/dev/null || true
     run-logged lint-reports/golangci-lint-summary.log -- golangci-lint run --timeout ${GOLANGCI_LINT_TIMEOUT}
   - "echo \"golangci-lint complete. Reports available in lint-reports/\""
@@ -35,3 +45,15 @@ env:
   # GO_VERSION is baked into pipeline-go-base (single-version model).
   GOLANGCI_LINT_TIMEOUT: 5m
   GOLANGCI_LINT_FORMAT: json
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://golangci-lint.run
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/quality/golangci-lint
+# icon: none — no mark in Simple Icons 16.32.0; no confirmed vendor press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "proxy.golang.org"
+    - "sum.golang.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
+import { WHATS_NEW } from '../src/lib/help/whats-new';
 import type { ReactNode } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import HelpPage from '../pages/dashboard/help';
@@ -130,6 +131,9 @@ describe('Help page — what\'s new', () => {
   it('renders the feed with dates', async () => {
     await renderHelp();
     const feed = screen.getByText(/what's new/i).closest('div')!;
-    expect(within(feed).getByText(/2026-05-28/)).toBeInTheDocument();
+    for (const entry of WHATS_NEW) {
+      expect(within(feed).getAllByText(new RegExp(entry.date)).length).toBeGreaterThan(0);
+      expect(within(feed).getByText(entry.title)).toBeInTheDocument();
+    }
   });
 });

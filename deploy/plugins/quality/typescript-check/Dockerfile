@@ -8,8 +8,9 @@
 FROM pipeline-node-base:1.0
 
 # TODO(confirm): pin the intended TypeScript version at build time.
-ARG TYPESCRIPT_VERSION=5.7.2
+ARG TYPESCRIPT_VERSION=6.0.3
 RUN npm install -g "typescript@${TYPESCRIPT_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

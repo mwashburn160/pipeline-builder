@@ -119,3 +119,14 @@ env:
   SLACK_CHANNEL: "{{ pipeline.vars.slackChannel | default: '' }}"
   CUSTOM_MESSAGE: ""
   MENTION_ON_FAILURE: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://api.slack.com/messaging/webhooks
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/notification/slack-notify
+# icon: none — Slack mark was removed from Simple Icons at Slack's request; no confirmed press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "hooks.slack.com"
+changelog: |
+  1.1.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

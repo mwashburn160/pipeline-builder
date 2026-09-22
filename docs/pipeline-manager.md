@@ -166,9 +166,13 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | `pipeline create` | Register a new pipeline definition with the platform |
 | `pipeline list` / `pipeline get` | Inspect pipelines registered to your organization |
 | `plugin list` / `plugin get` | Browse the plugin catalog and fetch a single plugin spec |
-| `plugin new` | Scaffold a local plugin directory (`config.yaml`, `plugin-spec.yaml`, starter `Dockerfile`) ready to edit and upload |
-| `plugin upload` | Publish a custom plugin spec + Dockerfile to the platform |
-| `plugin validate` | Validate a local plugin directory (spec + config + `{{ ... }}` templates) before upload — exits non-zero on any problem (CI-friendly) |
+| `plugin new` | Scaffold a plugin `FROM` a `pipeline-<eco>-base` image (`--base`, list them with `--list-bases`): a `Dockerfile` that follows the catalog rules, a `plugin-spec.yaml` with catalog metadata (summary, description, version `0.1.0`, category, license, `smokeTest`, optional curated `--icon`, a changelog entry), `README.md` and `LICENSE`. It passes `plugin validate` and `test-plugins.sh` as generated. See [Authoring a plugin](#author-test-and-publish-a-plugin) |
+| `plugin validate` | Validate a local plugin directory with the **server's** schemas (the spec and config schemas and the `{{ ... }}` contract, shared from api-core), then report every catalog field: its value, **where it would come from** (spec, README, Dockerfile label or generated) and whether it would be empty or invalid. `--lint` adds the catalog's Dockerfile rules; `--json` prints the report. Exits non-zero on any problem (CI-friendly) |
+| `plugin test` | Run the plugin's install and build commands locally in its image (built from the plugin's `Dockerfile`, or `--image`) against a sample `--workspace`, as the image's non-root user, with the spec's env and `--metadata` / `--var` / `--env` values. Secrets are passed from your environment by name and never printed. It applies `failureBehavior`, checks that `primaryOutputDirectory` exists and is not empty, runs the `smokeTest`, and exits non-zero on any failure |
+| `plugin publish` | Pre-flight (`plugin validate --lint`), a local scan preview (syft SBOM + grype, when installed), the accept-or-edit step for the detected catalog metadata, then one upload with `visibility=public` and `publishRequest=true`. `--yes` accepts everything detected, `--metadata <file.yaml>` supplies edits without prompting, and `--dry-run` uploads nothing. See [Plugin Publishing](plugin-publishing.md#publishing-from-the-cli) |
+| `plugin upload` | Upload a custom plugin package (`--file <zip>`) to the platform. The name and version always come from the package's `plugin-spec.yaml` and the organization from your session; `--public` uploads it as `public` (needs `plugins:publish`, otherwise it is `org`), `--dry-run` checks the file without uploading |
+| `plugin deprecate` | Deprecate one plugin version (`--id`, optional `--message` shown to its users). It keeps resolving, but synth warns, AI suggestions skip it, and orgs whose pipelines use it are notified. `--undo` clears it |
+| `plugin yank` | Yank one plugin version (`--id`, required `--reason`): ranges, `latest` and the default stop resolving to it; exact pins still resolve with a warning. Yanking the default promotes the next version. A version published to the ecosystem is refused (409) |
 | `template instantiate` | Render a golden-path pipeline template into concrete pipeline `props` — resolve it by `--name` (or `--id`), supply its declared inputs with repeatable `--input k=v` / `--inputs-file`, and write the result to `--output` (or stdout). **Creates nothing**: feed the props to `pipeline create --file`, which is where compliance and quota apply |
 | `template validate` | Parse and validate `{{ ... }}` templates in a pipeline or plugin spec (local file, registered pipeline by ID, or registered plugin by `name:version`) |
 | `org export` | Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only) |
@@ -302,6 +306,39 @@ pipeline-manager pipeline create --file pipeline-props.json --deploy --region us
 
 Pipe it instead of writing a file with `--json`, which suppresses all decorative
 output: `pipeline-manager template instantiate --name react-javascript -p react -o AcmeCorp --json | jq .stages`.
+
+### Author, test and publish a plugin
+
+```bash
+pipeline-manager plugin new --list-bases
+pipeline-manager plugin new --name acme-lint --category quality --base node --license MIT
+
+# Edit Dockerfile (install the tool via fetch-verified) and plugin-spec.yaml (commands), then:
+pipeline-manager plugin validate --dir ./acme-lint --lint
+pipeline-manager plugin test --dir ./acme-lint --workspace ./sample-app --metadata STAGE=dev
+pipeline-manager plugin publish --dir ./acme-lint
+```
+
+- **Bases.** The Dockerfile starts `FROM pipeline-<eco>-base` (`plugin`, `aws-cli`, `cpp`, `dotnet`, `go`, `jvm`, `node`, `php`, `python`, `ruby`, `rust`, `trivy`). `plugin test` and the scan preview build it locally, so build the bases first with `deploy/bin/build-plugin-images.sh`, or pass `--image`.
+- **Icons.** `--icon` takes a curated key from `deploy/plugins/_icons`. Curated marks are for Official listings and Verified publishers who own them. A Community listing uploads a raster icon or shows its monogram, so the default is none.
+- **`plugin test` is red, never green, when anything fails.** A step that fails under `failureBehavior: fail`, a missing or empty `primaryOutputDirectory`, an image that runs as root, a failed `smokeTest`, a required secret missing from your environment, or a `{{ ... }}` value you didn't supply all exit non-zero. `warn` and `ignore` behave as they do in the pipeline, and a security-category plugin always runs as `fail`.
+- **`plugin publish` never passes silently.** Without syft and grype on `PATH` it prints that the scan preview did not run (the platform still scans after the build). A critical vulnerability, a lint error or a missing license or README stops it before anything is uploaded. Without a terminal it needs `--yes` or `--metadata`.
+
+### Reference an ecosystem plugin
+
+A pipeline step can name a plugin by `publisher` as well as `name`. The CLI passes `publisher` through to lookup at synth.
+
+```yaml
+plugin: { name: trivy }                                                     # own org, parent org, then the Official listing
+plugin: { publisher: acme, name: terraform-plan, filter: { version: '^1' } } # only acme's listing, through your install
+```
+
+- A qualified reference resolves only that publisher's listing, and only through an install. Install it first (dashboard → Plugins, or `POST /api/plugins/installs`). Official listings (`pipeline-builder`) are installed implicitly.
+- `pipeline create` (and every other create or update path) refuses a qualified reference that isn't installed, is blocked by the org's consumption policy or can't resolve, with `400` and the per-step reasons. It also checks the plugin contract of listed versions.
+- Lookup verifies the image signature (and, for a listing, the signed trust tier and publisher) and returns `imageRepository`; synth pins `<repository>@<digest>`. Warnings such as `PLUGIN_SHADOWS_LISTING` or `PLUGIN_SECRETS_WITHHELD` are printed.
+- A qualified step's construct id is `<publisher>-<name>` (when it has no alias) and its default artifact alias is `<publisher>-<name>-alias`. Unqualified references are unchanged.
+
+See [Plugin Installing](plugin-installing.md) for installs, version policies and the resolution order.
 
 ### Schedule drift detection (cron)
 

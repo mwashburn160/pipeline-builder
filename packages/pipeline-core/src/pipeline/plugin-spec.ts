@@ -155,4 +155,49 @@ export interface PluginSpec {
    * Optional type declarations for vars keys (same semantics as `metadataTypes`).
    */
   readonly varsTypes?: Record<string, 'string' | 'number' | 'bool' | 'json'>;
+
+  /**
+   * Smoke-test command the build tooling runs against the built image.
+   * @example 'trivy --version'
+   */
+  readonly smokeTest?: string;
+
+  /**
+   * SPDX license identifier of the plugin (validated against an allowlist at upload).
+   * @example 'Apache-2.0'
+   */
+  readonly license?: string;
+
+  /** Release notes for this version (markdown, ≤ 32 KB). */
+  readonly changelog?: string;
+
+  /** Project homepage — `https:` only, no URL shorteners. */
+  readonly homepageUrl?: string;
+
+  /** Source repository — `https:` only, no URL shorteners. */
+  readonly sourceUrl?: string;
+
+  /** Documentation site — `https:` only, no URL shorteners. */
+  readonly documentationUrl?: string;
+
+  /**
+   * The catalog card's one-line summary (≤ 160). When absent it is derived from
+   * the first sentence of the description (plugin-ecosystem §3.1a).
+   */
+  readonly summary?: string;
+
+  /**
+   * Curated icon key (`deploy/plugins/_icons/<key>.svg`), or a key plus a
+   * corner badge key for language variants.
+   * @example 'trivy'
+   * @example { key: 'snyk', badge: 'python' }
+   */
+  readonly icon?: string | { key: string; badge?: string };
+
+  /**
+   * Declared network access, shown to consumers and compared in review.
+   * `egress`: the hostnames the plugin contacts (no scheme, port or path;
+   * one leading `*.` wildcard allowed), at most 50.
+   */
+  readonly network?: { egress?: string[] };
 }

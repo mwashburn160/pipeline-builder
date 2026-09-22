@@ -100,6 +100,7 @@ const realServer = {
   ...(await import(`${API_SERVER}/route-wrapper.js`)),
   ...(await import(`${API_SERVER}/rate-limit-by-org.js`)),
   ...(await import(`${API_SERVER}/quota-helpers.js`)),
+  ...(await import(`${API_SERVER}/metrics.js`)),
 };
 
 const app = express();
@@ -123,6 +124,20 @@ jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   waitForWorkerReady: jest.fn(async () => undefined),
   shutdownQueue: jest.fn(async () => undefined),
 }));
+// The anonymous-submission gate queue (plan §4) — index.ts starts its worker at boot.
+jest.unstable_mockModule('../src/queue/submission-build-queue.js', () => ({
+  startSubmissionWorker: jest.fn(),
+  shutdownSubmissionQueue: jest.fn(async () => undefined),
+  enqueueSubmissionBuild: jest.fn(async () => undefined),
+}));
+// The nightly vuln-rescan scheduler (W0.6) — index.ts builds + starts it at boot.
+const mockRescanScheduler = { start: jest.fn(), stop: jest.fn() };
+jest.unstable_mockModule('../src/queue/vuln-rescan.js', () => ({ createVulnRescanScheduler: () => mockRescanScheduler }));
+// The ecosystem-notification digest dispatcher (plan §5b) — index.ts builds + starts it at boot.
+jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
+  createEcosystemNotificationScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+  enqueueEcosystemNotification: async () => 'sent',
+}));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
   getHealthRedisConnection: () => ({ get: async () => null }),
   enqueueBuild: mockEnqueueBuild,
@@ -134,6 +149,23 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   getTierQueue: jest.fn(),
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({ purgeDlq: jest.fn(async () => 0) }));
+// Plugin-ecosystem upkeep scheduler + the boot-time Official-publisher assertion.
+const mockMaintenanceScheduler = { start: jest.fn(), stop: jest.fn() };
+jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
+  createEcosystemMaintenanceScheduler: () => mockMaintenanceScheduler,
+}));
+// The ecosystem gauge sampler (plan §9a) — index.ts builds + starts it at boot.
+jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({
+  createEcosystemMetricsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+  recordDecision: () => undefined,
+  recordSubmission: () => undefined,
+  recordSubmissionGateFailures: () => undefined,
+}));
+// The plugin_stats sweep (W4) — index.ts builds + starts it at boot.
+jest.unstable_mockModule('../src/services/ecosystem/stats.js', () => ({
+  createEcosystemStatsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+  refreshListingRating: async () => undefined,
+}));
 
 const tombstone = { id: '', orgId: 'org-1', name: 'p', version: '1.0.0', visibility: 'org', createdBy: 'user-1', keywords: [], installCommands: [], commands: [] };
 const pluginService = {
@@ -145,6 +177,12 @@ const pluginService = {
   update: jest.fn(async (id: string) => ({ ...tombstone, id })),
   assertDeployable: jest.fn(async () => undefined),
   purgeExpired: jest.fn(),
+  // W0.5 delete safety + W0.4/§3.1a immutability checks the write routes run.
+  findByIds: jest.fn(async (ids: string[]) => ids.map((id) => ({ ...tombstone, id }))),
+  deleteBlockers: jest.fn(async () => ({ frozen: false, listed: false, inUse: 0 })),
+  versionImmutability: jest.fn(async () => null),
+  clearQuotaSnapshot: jest.fn(async () => undefined),
+  promoteNextDefault: jest.fn(async () => null),
 };
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({
@@ -156,15 +194,21 @@ jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   deletePluginArtifact: jest.fn(async () => undefined),
   getPluginArtifactToFile: jest.fn(),
   pluginArtifactKey: (orgId: string, requestId: string) => `${orgId}/${requestId}.zip`,
+  pluginQuarantineBucket: () => 'plugin-quarantine',
+  submissionArtifactKey: (id: string) => `submissions/${id}.zip`,
 }));
 jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () => ({
   AIEmptyOutputError: class extends Error {},
+  dockerfileViolations: () => [],
   getAvailableProviders: () => [],
   generatePluginConfig: jest.fn(),
   streamPluginConfig: jest.fn(),
 }));
 
 await import('../src/index.js');
+// Captured at boot: the suite's clearMocks would reset it before any test runs.
+const rescanStartsAtBoot = mockRescanScheduler.start.mock.calls.length;
+const maintenanceStartsAtBoot = mockMaintenanceScheduler.start.mock.calls.length;
 
 const server = await new Promise<http.Server>((resolve) => {
   const s = app.listen(0, '127.0.0.1', () => resolve(s));
@@ -246,6 +290,16 @@ beforeEach(() => {
 });
 
 // -- Tests --------------------------------------------------------------------
+
+describe('boot', () => {
+  it('starts the nightly vulnerability rescan scheduler (W0.6)', () => {
+    expect(rescanStartsAtBoot).toBe(1);
+  });
+
+  it('starts the plugin-ecosystem maintenance scheduler (plan §3.3, §3.7)', () => {
+    expect(maintenanceStartsAtBoot).toBe(1);
+  });
+});
 
 describe('step-up gated routes share ONE step-up layer', () => {
   it('purge succeeds with a single step-up token', async () => {

@@ -68,3 +68,26 @@ describe('pipeline vars round-trip (form builder)', () => {
     expect(props?.vars).toEqual({ orgId: 'org-real-123', region: 'us-west-2' });
   });
 });
+
+describe('plugin publisher round-trip (W2 §3.5)', () => {
+  const rawProps = {
+    project: 'p',
+    organization: 'o',
+    synth: {
+      source: { type: 'github', options: { repo: 'a/b', branch: 'main' } },
+      plugin: { publisher: 'acme', name: 'terraform-plan', filter: { version: '^1' } },
+    },
+    stages: [{ stageName: 'scan', steps: [{ plugin: { name: 'trivy' } }] }],
+  };
+
+  it('parses and reassembles `publisher` (and omits it for unqualified references)', () => {
+    const state = propsToFormState(rawProps);
+    expect(state.synth.plugin.publisher).toBe('acme');
+    expect(state.stages[0].steps[0].plugin.publisher).toBe('');
+    const { props } = assembleBuilderProps(state, { skipValidation: true });
+    expect((props?.synth as { plugin: unknown }).plugin).toEqual({ publisher: 'acme', name: 'terraform-plan', filter: { version: '^1' } });
+    const step = (props?.stages as Array<{ steps: Array<{ plugin: Record<string, unknown> }> }>)[0].steps[0];
+    expect(step.plugin).toEqual({ name: 'trivy' });
+    expect(step.plugin).not.toHaveProperty('publisher');
+  });
+});

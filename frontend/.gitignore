@@ -39,3 +39,4 @@ dist
 junit.xml
 /coverage/
 /.next/
+/public/plugin-icons/

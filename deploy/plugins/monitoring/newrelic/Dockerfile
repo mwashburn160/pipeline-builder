@@ -14,6 +14,7 @@ ENV NR_USER=""
 
 # Working directory for pipeline source
 WORKDIR /app
+USER 1000:1000
 
 # Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

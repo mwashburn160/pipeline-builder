@@ -121,6 +121,34 @@ describe('backfillRbacRoles', () => {
     );
   });
 
+  it('re-syncs the system org Ecosystem Manager to ITS bundle, and keeps it out of the Member slot', async () => {
+    const { ECOSYSTEM_MANAGER_PERMISSIONS } = (await import('@pipeline-builder/api-core')) as unknown as {
+      ECOSYSTEM_MANAGER_PERMISSIONS: string[];
+    };
+    mockGroupFind.mockImplementation(findImpl(
+      [
+        { _id: 'gD', grantsRole: 'member', permissions: MEMBER_BUNDLE },
+        // Stale Ecosystem Manager: shares grantsRole 'member' but carries a named bundle.
+        { _id: 'gE', grantsRole: 'member', seedBundle: 'ecosystem_manager', permissions: ['plugins:read'] },
+      ],
+      [{ _id: 'gD', organizationId: 'sys', grantsRole: 'member' }],
+    ));
+    mockUoFind.mockReturnValue(selectLean([{ userId: 'u1', organizationId: 'sys', role: 'member' }]));
+    mockGmUpdateOne.mockResolvedValue({ upsertedCount: 0 });
+
+    await backfillRbacRoles();
+
+    // Only the Ecosystem Manager is rewritten — to its own bundle, never the member bundle.
+    expect(mockGroupUpdateOne).toHaveBeenCalledTimes(1);
+    const call = mockGroupUpdateOne.mock.calls[0] as [{ _id: string }, { $set: { permissions: string[] } }];
+    expect(call[0]).toEqual({ _id: 'gE' });
+    expect([...call[1].$set.permissions].sort()).toEqual([...ECOSYSTEM_MANAGER_PERMISSIONS].sort());
+    // Pass B's built-in lookup excludes named-bundle Roles, so no member is ever
+    // auto-assigned the Ecosystem Manager.
+    expect(mockGroupFind).toHaveBeenCalledWith(expect.objectContaining({ grantsRole: { $in: ['member', 'admin'] }, seedBundle: null }));
+    expect(mockGmUpdateOne).not.toHaveBeenCalledWith(expect.objectContaining({ roleId: 'gE' }), expect.anything(), expect.anything());
+  });
+
   it('is a clean no-op when every built-in Role is already in sync', async () => {
     // Both built-ins already carry the exact current bundle → nothing rewritten.
     mockGroupFind.mockImplementation(findImpl(

@@ -38,10 +38,12 @@ describe('availablePluginConditions — visibility ladder', () => {
     expect(sql).not.toMatch(/^\("plugins"\."visibility" = \$1/);
   });
 
-  it('includes the system org only at the public rung', () => {
-    const { sql, params } = render({ orgId: 'org-a', userId: 'user-1', isSuperAdmin: false }, 'org-a');
-    expect(sql).toContain('("plugins"."visibility" = $4 and "plugins"."org_id" = $5)');
-    expect(params.slice(3, 5)).toEqual(['public', SYSTEM_ORG_ID]);
+  it('never includes system-org rows (Official plugins reach tenants as listings)', () => {
+    // Plugin ecosystem (plan §3.1, G26): `public` on a system-org row no longer
+    // reaches other orgs; the Official catalog resolves as installed listings.
+    const { params } = render({ orgId: 'org-a', userId: 'user-1', isSuperAdmin: false }, 'org-a');
+    expect(params).not.toContain(SYSTEM_ORG_ID);
+    expect(params).toEqual(['org-a', 'private', 'user-1', true]);
   });
 
   it('keeps soft-deleted and inactive plugins out', () => {

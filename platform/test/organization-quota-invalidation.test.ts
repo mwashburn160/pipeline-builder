@@ -187,8 +187,9 @@ describe('setTier — tier downgrade invalidation', () => {
 
     const result = await setTier('root-1', 'pro');
 
-    // team → pro loses sso (the team-only tier feature); order-independent.
-    expect(result?.featuresRemoved?.slice().sort()).toEqual(['sso']);
+    // team → pro loses the team-only tier features (sso + verified_publisher
+    // eligibility); order-independent.
+    expect(result?.featuresRemoved?.slice().sort()).toEqual(['sso', 'verified_publisher']);
   });
 
   it('does NOT set featuresRemoved on an UPGRADE (pro → team)', async () => {

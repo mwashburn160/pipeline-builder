@@ -115,3 +115,69 @@ spec:
     # of the fleet at once.
     budgets:
       - nodes: "10%"
+---
+# =============================================================================
+# plugin-quarantine — the isolated build pool for anonymous plugin submissions
+# =============================================================================
+# docs/plans/plugin-ecosystem.md §4.2 "Isolated build pool" (W5): anonymous
+# submissions build on a SEPARATE node pool and buildkitd, never the shared
+# tenant one. The only pod that tolerates this taint is
+# k8s/plugin-quarantine-builder.yaml (which also nodeSelects this pool), so a
+# container escape from an anonymous build lands on a node running nothing but
+# other anonymous builds — no tenant build sidecar, no database, no service key.
+# (Cluster DaemonSets — ztunnel, istio-cni — tolerate every taint, which is what
+# keeps the pod inside the mesh's mTLS + AuthorizationPolicy boundary.)
+#
+# Same EKS-managed `default` NodeClass and instance terms as the pool above, so
+# nothing new (node role, access entry) has to exist for it.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: plugin-quarantine
+spec:
+  template:
+    metadata:
+      labels:
+        pipeline-builder/pool: plugin-quarantine
+    spec:
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: default
+      # Recycle quarantine nodes weekly, so nothing an escaped build left on a
+      # node outlives a week.
+      expireAfter: 168h
+      taints:
+        - key: pipeline-builder/quarantine
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        - key: "eks.amazonaws.com/instance-category"
+          operator: In
+          values: ["c", "m", "r"]
+        - key: "eks.amazonaws.com/instance-generation"
+          operator: Gt
+          values: ["4"]
+        - key: "eks.amazonaws.com/instance-cpu"
+          operator: Gt
+          values: ["2"]
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["on-demand"]
+  # A small, hard ceiling (the build-minute cap is SUBMISSION_BUILD_TIMEOUT_SECONDS;
+  # this bounds the EC2 capacity anonymous traffic can ever make us buy). One
+  # quarantine builder pod needs ~1 vCPU / 2Gi; 8 / 32Gi allows a replacement
+  # node during consolidation without letting the pool grow on its own.
+  limits:
+    cpu: "8"
+    memory: 32Gi
+  disruption:
+    # Nothing here is worth keeping: an empty or under-used quarantine node is
+    # reclaimed promptly, and a node is recycled at least weekly.
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+    budgets:
+      - nodes: "1"

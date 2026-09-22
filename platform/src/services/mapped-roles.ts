@@ -14,7 +14,7 @@
 
 import mongoose from 'mongoose';
 import { IGM_FORBIDDEN_GRANT } from './idp-mapping-errors.js';
-import { assertActorMayAssignRole } from './role-authority.js';
+import { assertActorMayAssignRole, carriesSystemOrgOnlyPermission } from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -39,7 +39,8 @@ export interface MappableRole {
  *      `grantsRole: 'superadmin'` is refused for EVERYONE, platform superadmins
  *      included (`IGM_FORBIDDEN_GRANT`). Org ownership is not expressible as a
  *      Role at all, and the provisioning path never writes `role: 'owner'`, so
- *      "a mapping can never grant owner" holds on both sides;
+ *      "a mapping can never grant owner" holds on both sides; a Role carrying a
+ *      system-org-only permission (the Ecosystem Manager) is refused the same way;
  *   3. the actor's own ceiling, exactly as a direct assignment enforces it
  *      (`RL_ASSIGN_EXCEEDS_CEILING`): a delegate holding only `roles:manage`
  *      cannot author a rule that grants capabilities they lack themselves.
@@ -64,6 +65,10 @@ export async function assertMappableRoleSet(
 
   for (const role of roles) {
     if (role.grantsRole === 'superadmin') throw new Error(IGM_FORBIDDEN_GRANT);
+    // Ecosystem governance (the system org's Ecosystem Manager) is a deliberate
+    // superadmin act on a named member, never something a directory keeps
+    // granting — refused for everyone, like the superadmin grant.
+    if (carriesSystemOrgOnlyPermission(role.permissions as string[] | undefined)) throw new Error(IGM_FORBIDDEN_GRANT);
     assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
   }
   return roles.map((r) => ({ id: String(r._id), name: r.name, grantsRole: r.grantsRole as RoleGrant }));

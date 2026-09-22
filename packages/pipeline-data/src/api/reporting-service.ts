@@ -16,6 +16,11 @@ import {
   getDoraTrend as doraTrend,
   getBuildHealth as buildHealth,
 } from './reporting/dora.js';
+import {
+  getPluginRuntime as pluginRuntime,
+  getPluginRuntimeAggregate as pluginRuntimeAggregate,
+  hasVerifiedPluginUse as verifiedPluginUse,
+} from './reporting/plugin-runtime.js';
 import { orgScope, runReport } from './reporting/query-scope.js';
 // Aliased: the module functions and the delegating methods below share names.
 import {
@@ -27,6 +32,7 @@ import type {
   ExecutionCount, TimeSeriesEntry, DurationStats, PipelineExecution, StageFailure, StageBottleneck,
   ActionFailure, ErrorEntry, PluginSummary, TypeComputeDistribution, VersionCount,
   BuildTimeSeriesEntry, BuildDuration, BuildFailure,
+  PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionOptions, ReportingRetentionCounts,
   DoraOptions, IncidentSettings, ReportingSettingsPatch, IncidentListItem, IncidentTestResult,
   DoraMetrics, DoraTrendPoint, BuildHealth, IncidentInput,
@@ -43,6 +49,7 @@ export type {
   BuildHealth, BuildHealthStage, DoraEnvMetrics, DoraLevel, DoraMetrics, DoraOptions, DoraTrendPoint,
   IncidentInput, IncidentListItem, IncidentSettings, IncidentTestResult,
   IngestEvent, IngestHealthStatus, IngestMetric, IngestResult,
+  PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionCounts, ReportingRetentionOptions, ReportingRetentionSettings,
   ReportingSettingsPatch,
 } from './reporting/types.js';
@@ -97,6 +104,35 @@ export class ReportingService {
 
       const idMap = new Map(registryRows.map(r => [r.pipelineId, r]));
 
+      // Plugin attribution (W0.1): stamp each action event with the plugin its
+      // (pipeline, stage, action) runs, from the step manifest the pipeline's
+      // last deploy registered. ONE manifest read per batch — every step of
+      // every pipeline with an attributable event — then an in-memory join.
+      // Names are compared post-scrub on both sides (the manifest stores them
+      // scrubbed the same way), so a scrubbed name still matches.
+      const attributable = (e: IngestEvent) =>
+        (e.eventType === 'ACTION' || e.eventType === 'BUILD')
+        && (e.eventSource === 'codepipeline' || e.eventSource === 'codebuild')
+        && !!e.stageName && !!e.actionName && idMap.has(e.pipelineId);
+      const stepKey = (pipelineId: string, stageName: string, actionName: string) =>
+        `${pipelineId}\u0000${stageName}\u0000${actionName}`;
+      const manifestPipelineIds = [...new Set(events.filter(attributable).map(e => e.pipelineId))];
+      const manifestRows = manifestPipelineIds.length > 0
+        ? await tx
+          .select({
+            pipelineId: schema.pipelineStepManifest.pipelineId,
+            orgId: schema.pipelineStepManifest.orgId,
+            stageName: schema.pipelineStepManifest.stageName,
+            actionName: schema.pipelineStepManifest.actionName,
+            pluginPublisher: schema.pipelineStepManifest.pluginPublisher,
+            pluginName: schema.pipelineStepManifest.pluginName,
+            pluginVersion: schema.pipelineStepManifest.pluginVersion,
+          })
+          .from(schema.pipelineStepManifest)
+          .where(inArray(schema.pipelineStepManifest.pipelineId, manifestPipelineIds))
+        : [];
+      const stepPlugins = new Map(manifestRows.map(m => [stepKey(m.pipelineId, m.stageName, m.actionName), m]));
+
       // Build insert batch (skip events whose pipeline isn't registered)
       const rows: Array<typeof schema.pipelineEvent.$inferInsert> = [];
       let skippedLocal = 0;
@@ -109,6 +145,15 @@ export class ReportingService {
           unregisteredLocal.push(event.pipelineId);
           continue;
         }
+
+        const stageName = scrubOptional(event.stageName);
+        const actionName = scrubOptional(event.actionName);
+        const step = attributable(event) && stageName && actionName
+          ? stepPlugins.get(stepKey(registry.pipelineId, stageName, actionName))
+          : undefined;
+        // Same-org guard: a manifest row is only ever written by the org that
+        // owns the pipeline, but the ingest runs cross-tenant, so don't lean on it.
+        const plugin = step && step.orgId === registry.orgId ? step : undefined;
 
         rows.push({
           // registry.pipelineId === event.pipelineId; use the registry's so the
@@ -128,8 +173,8 @@ export class ReportingService {
           // promoted from the CodePipeline detail — same untrusted-AWS-derived
           // origin as errorMessage below, so scrub them at this persistence
           // boundary too (a stage named with an ARN/12-digit id must not persist).
-          stageName: scrubOptional(event.stageName),
-          actionName: scrubOptional(event.actionName),
+          stageName,
+          actionName,
           // HARD CONSTRAINT: an AWS account id must NEVER be persisted. This is
           // the DURABLE persistence boundary and must not trust upstream:
           // CodePipeline/CodeBuild failure detail & messages routinely carry
@@ -149,6 +194,11 @@ export class ReportingService {
           // shaped); commitCount is a plain integer. Neither needs scrubbing.
           commitTimestamp: event.commitTimestamp ? new Date(event.commitTimestamp) : undefined,
           commitCount: event.commitCount,
+          // Plugin attribution from the step manifest (NULL for non-plugin
+          // actions and for pipelines deployed before the manifest existed).
+          pluginPublisher: plugin?.pluginPublisher ?? null,
+          pluginName: plugin?.pluginName ?? null,
+          pluginVersion: plugin?.pluginVersion ?? null,
           detail: event.detail !== undefined
             ? scrubAwsIdentifiers(event.detail)
             : undefined,
@@ -610,6 +660,27 @@ export class ReportingService {
         LIMIT ${limit}
       `).then(r => drizzleRows<BuildFailure>(r.rows)));
     return runReport(`${orgId}:build-failures:${from}:${to}:${limit}`, multi, exec);
+  }
+
+  // ── Plugin runtime telemetry (W0.1) — see ./reporting/plugin-runtime.ts ──
+
+  /**
+   * 2.7 Plugin runtime: per plugin version runs, success rate and p50/p95
+   * duration over `[from, to]`, from the manifest-attributed ACTION events.
+   * Rollup-aware.
+   */
+  async getPluginRuntime(orgId: string, from: string, to: string, filter?: PluginRuntimeFilter, orgIds?: string[]): Promise<PluginRuntimeStats[]> {
+    return pluginRuntime(orgId, from, to, filter, orgIds);
+  }
+
+  /** Cross-org 30-day runtime aggregate for a `(publisher, name)` listing (plugin_stats input). Service callers only. */
+  async getPluginRuntimeAggregate(publisher: string, name: string): Promise<PluginRuntimeAggregate> {
+    return pluginRuntimeAggregate(publisher, name);
+  }
+
+  /** Review "verified use": `orgId` ran `(publisher, name)` successfully within 90 days. Service callers only. */
+  async hasVerifiedPluginUse(orgId: string, publisher: string, name: string): Promise<boolean> {
+    return verifiedPluginUse(orgId, publisher, name);
   }
 
   // ── Category 3: DORA write paths (post-deploy outcomes + ingest health) ──

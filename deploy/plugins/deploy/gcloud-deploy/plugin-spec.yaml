@@ -116,3 +116,15 @@ env:
   GCP_PROJECT: ""
   GCP_REGION: us-central1
   DEPLOY_TYPE: app-engine
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://cloud.google.com/sdk
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/deploy/gcloud-deploy
+icon: googlecloud
+network:
+  egress:
+    - "*.googleapis.com"
+    - "oauth2.googleapis.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

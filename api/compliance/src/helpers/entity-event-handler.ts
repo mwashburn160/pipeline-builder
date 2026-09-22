@@ -4,6 +4,7 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import type { RuleTarget } from '@pipeline-builder/pipeline-data';
 import { logComplianceCheck } from './compliance-check-log.js';
+import { withPluginImageFacts } from './plugin-image-attributes.js';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
@@ -63,7 +64,12 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
       event.entityId,
     );
 
-    const result = evaluateRules(rules, event.attributes || {}, exemptions);
+    // A plugin event carries the stored row; derive the image facts the plugin
+    // rules read (`signed`, `scanned`, …) exactly as the live checks send them.
+    const { attributes, deferredFields } = ruleTarget === 'plugin'
+      ? withPluginImageFacts(event.attributes || {})
+      : { attributes: event.attributes || {}, deferredFields: [] };
+    const result = evaluateRules(rules, attributes, exemptions, deferredFields);
 
     logComplianceCheck(
       event.orgId,

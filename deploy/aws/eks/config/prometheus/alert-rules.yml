@@ -246,6 +246,22 @@ groups:
           summary: "Plugin build queue depth above 50"
           description: "{{ $value }} jobs waiting for 15+ minutes — check worker health."
 
+      - alert: PluginVulnRescanStale
+        # The nightly vulnerability rescan (W0.6) exports the epoch of its last
+        # COMPLETED pass from every plugin pod. Stale for 36h ⇒ passes are failing
+        # (usually the grype DB refresh) or the leader-locked scheduler stopped,
+        # and scan facts compliance evaluates are going out of date. Absent when
+        # PLUGIN_RESCAN_ENABLED=false, so nothing fires then.
+        expr: (time() - max(plugin_vuln_rescan_last_completed_timestamp_seconds)) > 129600
+        for: 30m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Plugin vulnerability rescan has not completed in 36h"
+          description: "Last completed pass {{ $value | humanizeDuration }} ago — check the plugin service's vuln-rescan logs and grype DB updates."
+
       - alert: PluginQueueProcessingSlow
         expr: |
           histogram_quantile(0.95,
@@ -270,6 +286,154 @@ groups:
         annotations:
           summary: "Dead-letter queue has more than 10 jobs"
           description: "{{ $value }} jobs in the DLQ — these failed all retries and need triage."
+
+      # ---- Plugin ecosystem (docs/plans/plugin-ecosystem.md §9a) ----
+      # The gauges are sampled by EVERY plugin replica (a plain scheduler, no
+      # leader lock), so `max()` reads the current value whichever pod was
+      # scraped. N22 emails the Ecosystem Managers once per breached request;
+      # these rules are the paging half. Runbook: docs/runbooks/ecosystem-moderation.md.
+      - alert: EcosystemSecurityLaneSLABreach
+        # Security-fix lane (a version or yank linked to an advisory): 4-hour SLA.
+        expr: max(ecosystem_requests_sla_breached{lane="security"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Security-fix publish request past its 4h moderation SLA"
+          description: "{{ $value }} security-lane request(s) have waited more than 4 hours for an Ecosystem Manager. Installers stay on the vulnerable version until one is decided — open the Ecosystem console's queue (security lane first)."
+
+      - alert: EcosystemStandardLaneSLABreach
+        # Standard lane: 2 business days (48h).
+        expr: max(ecosystem_requests_sla_breached{lane="standard"}) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Publish requests past the 48h moderation SLA"
+          description: "{{ $value }} standard-lane request(s) are older than 48 hours. Check the queue and the approver headcount (two-person requests need two different managers)."
+
+      - alert: EcosystemResignFailures
+        # A failed re-sign leaves an image with a stale trust annotation; the job
+        # resumes on the next 15-minute pass, so a single blip self-heals.
+        expr: sum(increase(ecosystem_resign_failures_total[1h])) > 3
+        for: 15m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Plugin image re-signs are failing"
+          description: "{{ $value | humanize }} re-sign failures in the last hour. The plugin service's ecosystem-resign logs name the image; usually image-registry or its signing key is unhealthy."
+
+      - alert: EcosystemResignStalled
+        # Jobs queued but no image re-signed for 2h: the leader-locked
+        # maintenance scheduler stopped, or every attempt fails.
+        expr: max(ecosystem_resign_jobs_pending) > 0 and on() (sum(increase(ecosystem_resign_images_total[2h])) or on() vector(0)) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Plugin re-sign job stalled"
+          description: "Re-sign jobs are queued but nothing was re-signed in 2h, so tier or suspension changes are not yet reflected in image annotations. Check the ecosystem-maintenance scheduler and image-registry."
+
+      - alert: EcosystemApproverShortage
+        # Two-person approval needs two different approvers; below that a
+        # superadmin must act as the second one on every such request.
+        expr: max(ecosystem_approvers{permission="plugins:moderate",kind="holders"}) < 2
+        for: 1h
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Fewer than 2 Ecosystem Managers"
+          description: "Only {{ $value }} system-org member(s) hold plugins:moderate. Plan for at least 3 (two-person approval plus holiday cover); a superadmin assigns the Ecosystem Manager role on the console's Ecosystem Managers tab."
+
+      - alert: EcosystemNotificationsDropped
+        # A queued ecosystem notice was given up on after its retries (the
+        # in-app copy may still have been delivered).
+        expr: sum(increase(ecosystem_notification_dropped_total[1h])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Plugin-ecosystem notices are being dropped"
+          description: "{{ $value | humanize }} queued ecosystem notice(s) dropped in the last hour after repeated relay failures. Check platform's /internal/notify-email and SMTP."
+
+      # ---- Anonymous plugin submissions (plan §4.2 / §9a, W5) ----
+      # Metrics from api/plugin: plugin_submission_backlog (gauge: submissions in
+      # pending_review), plugin_submission_gate_failures_total{gate}. The 2-business-
+      # day moderation SLA for the `submission` request kind is already paged by
+      # EcosystemStandardLaneSLABreach; these catch VOLUME and ABUSE.
+      - alert: SubmissionBacklogHigh
+        expr: max(plugin_submission_backlog) > 25
+        for: 1h
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Anonymous submission backlog is high"
+          description: "{{ $value }} anonymous plugin submissions are awaiting gates or moderation. Check the Ecosystem console queue (submission kind) and the quarantine builder; if this is a flood, set ANONYMOUS_SUBMISSIONS_ENABLED=false (runbook: docs/runbooks/ecosystem-moderation.md, Anonymous submissions)."
+
+      - alert: SubmissionGateFailureSpike
+        # One gate failing a lot in an hour is either an attack probing a gate
+        # (heuristics, secrets, license) or a broken gate (vuln scan, smoke test
+        # infrastructure) failing every honest submission.
+        expr: sum by (gate) (increase(plugin_submission_gate_failures_total[1h])) > 10
+        for: 10m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Anonymous submissions failing the {{ $labels.gate }} gate"
+          description: "{{ $value | humanize }} submissions failed the {{ $labels.gate }} gate in the last hour. Heuristics/secrets spikes suggest abuse (consider disabling the flag); vuln-scan or smoke-test spikes suggest a broken gate (grype DB, quarantine builder)."
+
+      - alert: PluginLookupRefusalSpike
+        # §3.3 / §9a: synth lookups refused because a signature (or its tier
+        # annotation) doesn't verify, or a listing's tier is outside an org's
+        # policy. A burst is a tampered/re-pushed image or a stale re-sign job.
+        expr: sum by (reason) (increase(plugin_lookup_refusals_total{reason=~"signature|tier"}[1h])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Plugin lookups refused ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} plugin lookups were refused for {{ $labels.reason }} in the last hour. signature: an image no longer matches its platform signature (tampered, re-pushed, or a failed re-sign); tier: signed tier annotations out of step with listings (runbook: docs/runbooks/ecosystem-moderation.md)."
+
+      - alert: OfficialAutoApprovalAnomaly
+        # §3.0.3 / §9a: the seeded "Official catalog" rule (label = the rule's
+        # NAME — keep in step if it is renamed) hitting its 50/day cap, or
+        # approving at >4x its 7-day hourly average. Either is possible rule abuse
+        # (a compromised catalog-loader credential) or a runaway loader.
+        expr: |
+          sum(increase(ecosystem_auto_approvals_total{rule="Official catalog"}[24h])) >= 45
+          or
+          (
+            sum(increase(ecosystem_auto_approvals_total{rule="Official catalog"}[1h])) > 10
+            and
+            sum(increase(ecosystem_auto_approvals_total{rule="Official catalog"}[1h]))
+              > 4 * (sum(increase(ecosystem_auto_approvals_total{rule="Official catalog"}[7d])) / 168)
+          )
+        for: 5m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Official catalog auto-approvals are anomalous"
+          description: "{{ $value | humanize }} Official catalog auto-approvals (near the 50/day cap or far above the usual rate). Review recent plugin.request.auto-approve audit events; OFFICIAL_AUTO_APPROVAL_ENABLED=false stops the rule immediately."
 
       # ---- Registry ----
       # Uses the platform-wide `http_requests_total` counter (emitted by

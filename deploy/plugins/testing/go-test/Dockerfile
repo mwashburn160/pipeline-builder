@@ -12,4 +12,5 @@ ARG GO_JUNIT_REPORT_VERSION=2.1.0
 RUN go install "github.com/jstemmer/go-junit-report/v2@v${GO_JUNIT_REPORT_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

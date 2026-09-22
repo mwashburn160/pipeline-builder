@@ -59,6 +59,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getAIProviderModels: jest.fn((id: string) => (AI_CATALOG as any)[id]?.models ?? []),
 }));
 
+const mockResolvableListings = jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const tx = { select: jest.fn().mockReturnThis(), from: jest.fn().mockReturnThis(), where: jest.fn<(...a: any[]) => any>().mockResolvedValue([]) };
   return {
@@ -66,6 +67,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     schema: { plugin: {} },
     withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
     // Visibility-ladder predicate pieces plugin-lookup-service links against.
+    // Listing resolution (plugin ecosystem W2): no listings unless a test sets some.
+    OFFICIAL_PUBLISHER_HANDLE: 'pipeline-builder',
+    drizzleListingSource: () => ({ liveListings: async () => [], publishersByIds: async () => [] }),
+    getTenantContext: () => undefined,
+    runWithTenantContext: (_c: unknown, fn: () => unknown) => fn(),
+    resolvableListings: (...a: unknown[]) => mockResolvableListings(...a),
     buildPluginConditions: () => [],
     withViewerContext: (f: unknown) => f,
   };

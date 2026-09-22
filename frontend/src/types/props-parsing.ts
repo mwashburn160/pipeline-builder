@@ -52,6 +52,7 @@ function parsePluginOptions(obj: unknown): FormPluginOptions {
   const p = obj as AnyRecord;
   const filter = (p.filter as AnyRecord) || {};
   return {
+    publisher: String(p.publisher || ''),
     name: String(p.name || ''),
     alias: String(p.alias || ''),
     filter: {

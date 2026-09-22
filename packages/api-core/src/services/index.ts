@@ -49,3 +49,4 @@ export * from './token-revocation.js';
 export * from './sse-ticket-store.js';
 export * from './service-boot.js';
 export * from './notification-channels.js';
+export * from './ecosystem-notify-client.js';

@@ -70,3 +70,16 @@ env:
   VERACODE_APP_NAME: ""
   VERACODE_SEVERITY_THRESHOLD: Medium
   VERACODE_ARTIFACT: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.veracode.com
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/veracode
+# icon: none — Veracode mark was removed from Simple Icons at the vendor's request; no confirmed press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "api.veracode.com"
+    - "analysiscenter.veracode.com"
+    - "*.veracode.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

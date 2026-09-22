@@ -34,3 +34,15 @@ commands:
     else
       echo "No test framework detected. Skipping tests."
     fi
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://www.ruby-lang.org
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/language/ruby
+icon: ruby
+network:
+  egress:
+    - "rubygems.org"
+    - "index.rubygems.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

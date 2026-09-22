@@ -74,3 +74,15 @@ commands:
 env:
   # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
   PACKAGE_MANAGER: auto
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://www.python.org
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/language/python
+icon: python
+network:
+  egress:
+    - "pypi.org"
+    - "files.pythonhosted.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

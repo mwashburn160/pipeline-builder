@@ -32,3 +32,15 @@ commands:
 env:
   # DOTNET_VERSION is baked into pipeline-dotnet-base (single-version model).
   SNYK_SEVERITY_THRESHOLD: high
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.snyk.io/snyk-cli
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/snyk-dotnet
+icon: { key: snyk, badge: dotnet }
+network:
+  egress:
+    - "api.snyk.io"
+    - "api.nuget.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

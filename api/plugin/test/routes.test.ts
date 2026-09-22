@@ -18,6 +18,12 @@ const mockFindPaginated = jest.fn();
 const mockFind = jest.fn();
 const mockFindById = jest.fn();
 
+// The listing half of lookup (plan §3.5) — unit-tested in installs-lookup.test.ts.
+jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
+  resolveListedLookup: jest.fn(async () => null),
+  shadowedListing: jest.fn(async () => null),
+  verifyListedImage: jest.fn(async () => undefined),
+}));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     findPaginated: mockFindPaginated,
@@ -75,6 +81,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: jest.fn(),
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -101,6 +108,7 @@ jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
   ImageVerificationError: class extends Error {},
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
   schema: { plugin: {} },
   Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },
   CoreConstants: {
@@ -111,6 +119,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   schema: { plugin: {} },
+  // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
+  isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
     CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',

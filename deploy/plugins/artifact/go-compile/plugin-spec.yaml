@@ -33,3 +33,15 @@ env:
   CGO_ENABLED: "0"
   GOOS: linux
   GOARCH: amd64
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://go.dev
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/artifact/go-compile
+icon: go
+network:
+  egress:
+    - "proxy.golang.org"
+    - "sum.golang.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

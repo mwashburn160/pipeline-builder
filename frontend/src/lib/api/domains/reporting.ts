@@ -376,6 +376,16 @@ export function reportingApi(core: ApiCore) {
       return core.request<ApiResponse<{ plugins: Array<{ plugin_name: string; avg_ms: number; max_ms: number; builds: number }> }>>(`/api/reports/plugins/build-duration${buildQuery(params)}`, { signal: opts?.signal });
     },
 
+    /** How plugins behave when pipelines RUN them: runs/succeeded/failed per plugin version. */
+    getPluginRuntimeSuccessRate: async (params?: { from?: string; to?: string; name?: string; publisher?: string; version?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ plugins: Array<{ pluginPublisher: string | null; pluginName: string; pluginVersion: string; runs: number; succeeded: number; failed: number; successPct: number; lastRun: string }> }>>(`/api/reports/plugins/runtime-success-rate${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
+    /** Run-time step duration (p50/p95) per plugin version. */
+    getPluginRuntimeDuration: async (params?: { from?: string; to?: string; name?: string; publisher?: string; version?: string; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ plugins: Array<{ pluginPublisher: string | null; pluginName: string; pluginVersion: string; runs: number; p50Ms: number | null; p95Ms: number | null }> }>>(`/api/reports/plugins/runtime-duration${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
     /** Plugin build failures. System-admin only on the backend. */
     getBuildFailures: async (params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ failures: Array<{ plugin_name: string; error_message: string; occurrences: number; last_seen: string }> }>>(`/api/reports/plugins/build-failures${buildQuery(params)}`, { signal: opts?.signal });

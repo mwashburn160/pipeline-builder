@@ -44,16 +44,16 @@ new PipelineBuilder(stack, 'MyPipeline', {
   organization: 'my-org',
   synth: {
     source: { type: 'github', options: { repo: 'my-org/my-app', branch: 'main' } },
-    plugin: { name: 'cdk-synth', version: '1.0.0' },
+    plugin: { name: 'cdk-synth', filter: { version: '1.0.0' } },
   },
   stages: [
     {
       stageName: 'Test',
-      steps: [{ plugin: { name: 'jest', version: '1.0.0' } }],
+      steps: [{ plugin: { name: 'jest', filter: { version: '1.0.0' } } }],
     },
     {
       stageName: 'Deploy',
-      steps: [{ plugin: { name: 'cdk-deploy', version: '1.0.0' }, env: { ENVIRONMENT: 'production' } }],
+      steps: [{ plugin: { name: 'cdk-deploy', filter: { version: '1.0.0' } }, env: { ENVIRONMENT: 'production' } }],
     },
   ],
 });
@@ -173,11 +173,11 @@ stages: [
     stageName: 'Quality',
     steps: [
       {
-        plugin: { name: 'eslint', version: '1.0.0' },
+        plugin: { name: 'eslint', filter: { version: '1.0.0' } },
         failureBehavior: 'warn',              // Don't block pipeline on lint failures
       },
       {
-        plugin: { name: 'prettier', version: '1.0.0' },
+        plugin: { name: 'prettier', filter: { version: '1.0.0' } },
         failureBehavior: 'warn',
       },
     ],
@@ -186,7 +186,7 @@ stages: [
     stageName: 'Test',
     steps: [
       {
-        plugin: { name: 'jest', version: '1.0.0' },
+        plugin: { name: 'jest', filter: { version: '1.0.0' } },
         timeout: 30,                           // Minutes
         env: { NODE_ENV: 'test' },
       },
@@ -196,7 +196,7 @@ stages: [
     stageName: 'Deploy',
     steps: [
       {
-        plugin: { name: 'cdk-deploy', version: '1.0.0' },
+        plugin: { name: 'cdk-deploy', filter: { version: '1.0.0' } },
         position: 'post',                     // Run after stage deployment
         env: { ENVIRONMENT: 'production' },
       },
@@ -227,12 +227,10 @@ stages: [
 ```typescript
 plugin: {
   name: 'jest',                    // Required: registered plugin name
-  version: '1.0.0',               // Pin a specific version
   alias: 'jest-unit',             // Alias for multiple uses of same plugin
-  filter: {                        // Optional query filter
-    visibility: 'public',
-    isActive: true,
-  },
+  filter: {                        // Optional lookup filter
+    version: '^1.2',               // Pin or range the version: 1.2.3, ^1, ~1.2, 1.x, latest
+  },                               // (omit it to use the plugin's default version)
   metadata: {                      // Plugin-level metadata overrides
     'aws:cdk:codebuild:buildenvironment:computetype': 'BUILD_GENERAL1_MEDIUM',
   },
@@ -366,7 +364,7 @@ new PipelineBuilder(stack, 'Pipeline', {
     steps: [{
       plugin: {
         name: 'snyk-nodejs',    // Plugin declares: secrets: [{ name: 'SNYK_TOKEN', required: true }]
-        version: '1.0.0',
+        filter: { version: '1.0.0' },
       },
     }],
   }],

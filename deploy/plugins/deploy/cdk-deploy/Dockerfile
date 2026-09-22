@@ -7,27 +7,28 @@
 # ca-certificates, gnupg, wget, unzip, zip, xz-utils + apt mirror swap +
 # retry hardening). Adds Node.js, Python, Docker CLI, AWS CLI, AWS CDK.
 
-ARG NODE_VERSION=24.15.0
+ARG NODE_VERSION=24.21.0
 FROM pipeline-aws-cli-base:1.0
+
+# Build steps below need root (apt, writes under /usr/local, /opt or /etc);
+# the image drops back to the unprivileged `plugin` user (uid 1000) at the end.
+USER root
 ARG NODE_VERSION
 
 # Python (for Python CDK apps).
 RUN apt-retry-install python3 python3-pip
 
-# Node.js — installed from official tarball (apt-based NodeSource is too flaky;
-# see _base/_snyk-base/Dockerfile rationale).
+# Node.js — official tarball, pinned version + pinned digest (nodejs.org
+# SHASUMS256.txt for this release), installed under /usr/local.
+ARG NODE_SHA256_AMD64=6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff
+ARG NODE_SHA256_ARM64=724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5
 RUN set -eux; \
-    ARCH=$(uname -m); \
-    case "$ARCH" in \
-      x86_64)  NODE_ARCH=x64 ;; \
-      aarch64) NODE_ARCH=arm64 ;; \
-      *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) NODE_ARCH=x64;   sum="${NODE_SHA256_AMD64}" ;; \
+      arm64) NODE_ARCH=arm64; sum="${NODE_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac; \
-    for i in 1 2 3 4 5; do \
-      curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" -o /tmp/node.tar.gz \
-        && break \
-        || { echo "node tarball attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
-    done; \
+    fetch-verified "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" "$sum" /tmp/node.tar.gz; \
     tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1; \
     rm /tmp/node.tar.gz; \
     node --version; \
@@ -35,21 +36,25 @@ RUN set -eux; \
     corepack enable
 
 # Docker CLI — required for CDK Docker image assets.
-RUN install -m 0755 -d /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-       -o /etc/apt/keyrings/docker.asc \
-    && chmod a+r /etc/apt/keyrings/docker.asc \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+# Signing key pinned by fingerprint (Docker's published CE release key).
+RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings/docker.gpg \
+       9DC858229FC7DD38854AE2D88D81803C0EBFCD88 \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
        https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
        > /etc/apt/sources.list.d/docker.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends docker-ce-cli \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-retry-install docker-ce-cli
 
-# AWS CLI v2.
+# AWS CLI v2 — inherited from pipeline-aws-cli-base.
 
 # AWS CDK + TS toolchain. Versions pinned for reproducibility.
-RUN npm install -g aws-cdk@2.1126.0 typescript@6.0.3 ts-node@10.9.2
+RUN npm install -g aws-cdk@2.1142.0 typescript@6.0.3 ts-node@10.9.2
+
+# Runtime `npm install -g` (the spec installs yarn/pnpm for projects that use
+# them) goes to a prefix the plugin user owns: the Node install under
+# /usr/local stays root-owned, so it works with and without CodeBuild `run-as`.
+RUN install -d -o 1000 -g 1000 /opt/npm-global
+ENV NPM_CONFIG_PREFIX=/opt/npm-global
+ENV PATH="/opt/npm-global/bin:${PATH}"
 
 # ─── Runtime configuration defaults ───
 ENV CDK_DEPLOY_ACTION=deploy
@@ -60,4 +65,5 @@ ENV CDK_HOTSWAP=false
 ENV CDK_OUTPUTS_FILE=cdk-outputs.json
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

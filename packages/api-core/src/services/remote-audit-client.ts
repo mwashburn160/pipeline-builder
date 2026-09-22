@@ -210,6 +210,96 @@ export const REMOTE_AUDIT_ACTIONS = [
   // length, outcome), never the raw query text.
   'ask.query',
   'ask.agent.turn',
+  // Plugin ecosystem (docs/plans/plugin-ecosystem.md §5c). Governance actions
+  // are recorded with `orgId` = the system org; `affectedOrgId` is the
+  // publisher's org (listing/version/review/advisory/publisher moderation) or
+  // the installing org (installs + policy). Anonymous submissions use the
+  // `ANONYMOUS_ACTOR_ID` actor with `details.submissionId`. `details` carry ids,
+  // versions, digests, tier, state and reason codes only — never review bodies,
+  // README content, secrets or emails.
+  // Publishers.
+  'publisher.create',
+  'publisher.update',
+  'publisher.terms.accept',
+  'publisher.verify.request',
+  'publisher.verify.approve',
+  'publisher.verify.reject',
+  'publisher.tier.change',
+  'publisher.suspend',
+  'publisher.unsuspend',
+  'publisher.transfer.request',
+  'publisher.transfer.accept',
+  'publisher.transfer.decline',
+  'publisher.transfer.approve',
+  'publisher.transfer.reject',
+  'publisher.profile-change.approve',
+  'publisher.profile-change.reject',
+  // Publish requests (tenant → system org). `details.kind` names the request.
+  'plugin.request.submit',
+  'plugin.request.withdraw',
+  'plugin.request.approve',
+  'plugin.request.second-approve',
+  'plugin.request.reject',
+  'plugin.request.auto-approve',
+  // Listings and versions (system org, except the tenant pause).
+  'plugin.listing.publish',
+  'plugin.listing.unlist',
+  'plugin.listing.update',
+  'plugin.listing.state.change',
+  'plugin.listing.pause',
+  'plugin.listing.unpause',
+  'plugin.version.pause',
+  'plugin.version.yank',
+  'plugin.version.unyank',
+  'plugin.version.deprecate',
+  'plugin.collection.update',
+  // Ecosystem configuration (system org).
+  'ecosystem.auto-approval-rule.create',
+  'ecosystem.auto-approval-rule.update',
+  'ecosystem.auto-approval-rule.delete',
+  'ecosystem.reserved-name.update',
+  'ecosystem.sla.update',
+  // Public registry namespace (`public/*`): copy + sign + attest on publish,
+  // the tier-change/suspension re-sign job, tag removal on yank/takedown, and
+  // the retention sweep.
+  'registry.image.publish',
+  'registry.image.resign',
+  'registry.image.yank',
+  'registry.image.gc',
+  // Installs and the installing org's consumption policy (org-local).
+  'plugin.install.request',
+  'plugin.install.approve',
+  'plugin.install.deny',
+  'plugin.install.create',
+  'plugin.install.upgrade',
+  'plugin.install.remove',
+  'org.plugin-install-policy.update',
+  // Reviews and replies.
+  'plugin.review.create',
+  'plugin.review.update',
+  'plugin.review.delete',
+  'plugin.review.report',
+  'plugin.review.hold',
+  'plugin.review.release',
+  'plugin.review.remove',
+  'plugin.review.anonymize',
+  'plugin.review.reply.create',
+  'plugin.review.reply.update',
+  'plugin.review.reply.delete',
+  // Anonymous submissions.
+  'plugin.submission.create',
+  'plugin.submission.verify',
+  'plugin.submission.gate-fail',
+  'plugin.submission.approve',
+  'plugin.submission.reject',
+  'plugin.submission.claim',
+  'plugin.submission.expire',
+  // Security advisories (publish/withdraw are system-org only; update = a
+  // moderator editing a draft before it is published).
+  'plugin.advisory.create',
+  'plugin.advisory.update',
+  'plugin.advisory.publish',
+  'plugin.advisory.withdraw',
 ] as const;
 
 export type RemoteAuditAction = typeof REMOTE_AUDIT_ACTIONS[number];

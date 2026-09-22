@@ -17,7 +17,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { describe, it, expect } from '@jest/globals';
-import { wrapCommandsForFailureBehavior } from '../src/core/pipeline-helpers.js';
+import { wrapCommandsForFailureBehavior } from '../src/core/metadata-helpers.js';
 
 /** Run the commands as CodeBuild would — one shell, in order, `set -e`. */
 function run(commands: string[]): { status: number | null; stdout: string } {

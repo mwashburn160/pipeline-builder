@@ -10,7 +10,11 @@ FROM pipeline-dotnet-base:1.0
 
 # TODO(confirm): pin the intended security-scan (Security Code Scan) version.
 ARG SECURITY_SCAN_VERSION=5.6.7
-RUN dotnet tool install --global security-scan --version "${SECURITY_SCAN_VERSION}"
+# Installed into ${DOTNET_ROOT}/tools (on PATH via the base, owned by uid 1000)
+# rather than `--global` (~/.dotnet/tools of whichever user built the image,
+# which is not on PATH and unreadable to a different runtime user).
+RUN dotnet tool install security-scan --tool-path "${DOTNET_ROOT}/tools" --version "${SECURITY_SCAN_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

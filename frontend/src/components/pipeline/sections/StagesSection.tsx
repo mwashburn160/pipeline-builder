@@ -1,5 +1,6 @@
 import { FormBuilderState, FormStage, FormStep } from '@/types/form-types';
 import { type Plugin } from '@/types';
+import type { CatalogEntry } from '@/types/plugin-installs';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import CollapsibleSection from '../editors/CollapsibleSection';
@@ -30,6 +31,8 @@ interface StagesSectionProps {
   synth?: FormBuilderState['synth'];
   /** Plugin list for looking up primaryOutputDirectory. */
   plugins?: Plugin[];
+  /** Catalog listings (installed / implicit Official) — their resolved primaryOutputDirectory. */
+  catalog?: CatalogEntry[];
 }
 
 /**
@@ -43,7 +46,7 @@ interface StagesSectionProps {
 export default function StagesSection({
   stages, onAddStage, onRemoveStage, onStageFieldChange,
   onAddStep, onRemoveStep, onStepChange, disabled, errors = {},
-  synth, plugins = [],
+  synth, plugins = [], catalog = [],
 }: StagesSectionProps) {
   return (
     <CollapsibleSection title={`Pipeline Stages (${stages.length})`} hasContent={stages.length > 0}>
@@ -134,7 +137,7 @@ export default function StagesSection({
                       disabled={disabled}
                       errorPrefix={`stages.${stageIdx}.steps.${stepIdx}`}
                       errors={errors}
-                      availableArtifacts={synth ? computeAvailableArtifacts(synth, stages, plugins, stageIdx, stepIdx) : []}
+                      availableArtifacts={synth ? computeAvailableArtifacts(synth, stages, { plugins, catalog }, stageIdx, stepIdx) : []}
                     />
                   </div>
                 ))}

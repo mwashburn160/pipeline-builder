@@ -57,7 +57,7 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DC_VERSION` | `12.0.0` | Dc Version |
+| `DC_VERSION` | `13.0.0` | Dc Version |
 | `DC_FAIL_ON_CVSS` | `7` | Dc Fail On Cvss |
 | `DC_FORMAT` | `JSON` | Dc Format |
 | `DC_SUPPRESSION_FILE` | _none_ | Dc Suppression File |
@@ -75,7 +75,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "dependency-check",
   "plugin": "dependency-check",
   "env": {
-    "DC_VERSION": "12.0.0",
+    "DC_VERSION": "13.0.0",
     "DC_FAIL_ON_CVSS": "7",
     "DC_FORMAT": "JSON",
     "DC_SUPPRESSION_FILE": "<your-dc_suppression_file>"

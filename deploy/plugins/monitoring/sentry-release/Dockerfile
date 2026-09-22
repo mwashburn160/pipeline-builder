@@ -2,21 +2,22 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Creates Sentry releases, associates commits, and uploads source maps
 # Requires @sentry/cli for release management
+#
+# Thin layer over pipeline-node-base (one pinned, checksum-verified Node 24 +
+# npm) — replaces the NodeSource `setup_24.x | bash` installer (unpinned, and
+# a remote script piped into a root shell).
 
-FROM pipeline-plugin-base:24.04
+FROM pipeline-node-base:1.0
 
-# ─── Node.js 24 for sentry-cli ───
-# NOTE: NodeSource setup script piped to bash is major-pinned (24.x) but not exact;
-# no concrete patch version to pin here. Left as-is.
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && corepack enable
+# corepack ships with Node 24; enabling it writes shims into the uid-1000-owned
+# ${NODE_HOME}/bin — no root needed.
+RUN corepack enable
 
 # ─── Sentry CLI ───
-# NOTE: @sentry/cli is unpinned (installs latest). Pin to `@sentry/cli@<x.y.z>` for
-# reproducible builds once a target version is chosen.
-RUN npm install -g @sentry/cli
+# Pinned (was an unpinned `npm install -g @sentry/cli`). The platform binary
+# arrives as an npm optional dependency, integrity-checked by npm.
+ARG SENTRY_CLI_VERSION=3.8.0
+RUN npm install -g "@sentry/cli@${SENTRY_CLI_VERSION}" && sentry-cli --version
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — SENTRY_AUTH_TOKEN injected at runtime via CodeBuild secrets
@@ -27,6 +28,7 @@ ENV SENTRY_SOURCEMAPS_PATH=""
 
 # Working directory for pipeline source
 WORKDIR /app
+USER 1000:1000
 
 # Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

@@ -28,8 +28,17 @@ import type { UserPreferences } from '@/types';
 
 export type NotificationPrefs = UserPreferences['notifications'];
 
+/** Ecosystem emails default ON — each key is an opt-OUT (plan §5b). */
+export const DEFAULT_ECOSYSTEM_NOTIFICATION_PREFS: NotificationPrefs['ecosystem'] = {
+  reviewsEmail: true,
+  upgradesEmail: true,
+  installsEmail: true,
+  moderationDigestEmail: true,
+};
+
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   muteQuotaWarnings: false,
+  ecosystem: DEFAULT_ECOSYSTEM_NOTIFICATION_PREFS,
 };
 
 /** The preference slices the UI reads. */
@@ -63,8 +72,23 @@ export function preferencesStorageKey(userId: string | undefined, orgId: string 
 /** Fallback when localStorage is unavailable. */
 const memory = new Map<string, StoredRecord>();
 
-function normalizeNotifications(raw: Partial<NotificationPrefs> | null | undefined): NotificationPrefs {
-  return { muteQuotaWarnings: raw?.muteQuotaWarnings === true };
+/** A missing or non-boolean key falls back to its default. */
+function normalizeEcosystem(raw: Partial<NotificationPrefs['ecosystem']> | null | undefined): NotificationPrefs['ecosystem'] {
+  const out = { ...DEFAULT_ECOSYSTEM_NOTIFICATION_PREFS };
+  for (const k of Object.keys(out) as (keyof NotificationPrefs['ecosystem'])[]) {
+    const v = raw?.[k];
+    if (typeof v === 'boolean') out[k] = v;
+  }
+  return out;
+}
+
+function normalizeNotifications(
+  raw: (Omit<Partial<NotificationPrefs>, 'ecosystem'> & { ecosystem?: Partial<NotificationPrefs['ecosystem']> | null }) | null | undefined,
+): NotificationPrefs {
+  return {
+    muteQuotaWarnings: raw?.muteQuotaWarnings === true,
+    ecosystem: normalizeEcosystem(raw?.ecosystem),
+  };
 }
 
 function normalizeFavorites(raw: unknown): string[] {

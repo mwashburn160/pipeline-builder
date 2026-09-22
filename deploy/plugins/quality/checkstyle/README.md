@@ -21,7 +21,7 @@ Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHECKSTYLE_VERSION` | `10.21.1` | Checkstyle Version |
+| `CHECKSTYLE_VERSION` | `14.1.0` | Checkstyle Version |
 | `CHECKSTYLE_CONFIG` | `google` | Checkstyle Config |
 
 ## Output
@@ -37,7 +37,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "checkstyle",
   "plugin": "checkstyle",
   "env": {
-    "CHECKSTYLE_VERSION": "10.21.1",
+    "CHECKSTYLE_VERSION": "14.1.0",
     "CHECKSTYLE_CONFIG": "google"
   }
 }

@@ -303,7 +303,22 @@ export interface UserPreferences {
   notifications: {
     /** Hide the quota banner while usage is only nearing a limit. */
     muteQuotaWarnings: boolean;
+    /** Plugin-ecosystem EMAIL opt-outs (plan §5b). In-app messages are always
+     *  delivered, and transactional / security notices ignore these. */
+    ecosystem: EcosystemNotificationPrefs;
   };
+}
+
+/** Per-user ecosystem email preferences (`ecosystem.*.email`), all default on. */
+export interface EcosystemNotificationPrefs {
+  /** `ecosystem.reviews.email` — new reviews on your listings, replies to your review. */
+  reviewsEmail: boolean;
+  /** `ecosystem.upgrades.email` — new versions & auto-updates (weekly digest), deprecations. */
+  upgradesEmail: boolean;
+  /** `ecosystem.installs.email` — install requests and install decisions. */
+  installsEmail: boolean;
+  /** `ecosystem.moderationDigest.email` — daily moderation digest (system-org Ecosystem Managers). */
+  moderationDigestEmail: boolean;
 }
 
 export interface UserOrgMembership {
@@ -395,14 +410,14 @@ export interface QuotaSummary {
 /**
  * Quota + tier identifiers — re-exported from api-core so the frontend union
  * can't drift from the backend's. The local copy previously listed only 4 of
- * the 9 quota types, silently under-typing quota responses.
+ * the 10 quota types, silently under-typing quota responses.
  */
 export type { QuotaType, QuotaTier, Visibility, Criticality, EntityLink, Lifecycle, OwnerType, TemplateInput };
 
 /**
  * The quota kinds the dashboard currently surfaces — a curated subset of the
  * backend's full `QuotaType` (which also tracks `storageBytes`, `dashboards`,
- * `alertRules`, `alertDestinations`, `idpConfigs`). Key display/config maps by
+ * `alertRules`, `alertDestinations`, `idpConfigs`, `listings`). Key display/config maps by
  * {@link DisplayedQuotaType} so they needn't enumerate quota kinds the UI does
  * not render. The `satisfies` clause fails the build if any entry stops being a
  * valid `QuotaType`, so this list can't silently drift either.
@@ -655,6 +670,59 @@ export interface QueueStatus extends QueueCounts {
 }
 
 /**
+ * The descriptive (editable) catalog fields of a plugin version, in display
+ * order — mirrors `PLUGIN_CATALOG_FIELDS` in api-core's
+ * `validation/plugin-catalog-metadata.ts`. Everything else on a plugin is its
+ * execution contract and changes only with a new upload.
+ */
+export const PLUGIN_CATALOG_FIELDS = [
+  'displayName', 'summary', 'description', 'category', 'keywords', 'license',
+  'homepageUrl', 'sourceUrl', 'documentationUrl', 'icon', 'changelog', 'readme',
+] as const;
+export type PluginCatalogField = typeof PLUGIN_CATALOG_FIELDS[number];
+
+/** Where a catalog field's value came from (`user` = edited by a person). */
+export type PluginMetadataSource = 'spec' | 'readme' | 'dockerfile' | 'derived' | 'user';
+
+/** Curated icon / badge key, as stored. */
+export interface PluginIcon { key: string; badge?: string }
+
+/**
+ * Catalog EDITS — the upload's `metadata` part and the descriptive keys of a
+ * `PUT /plugins/:id` body. Only edited fields are present; `null` clears one.
+ */
+export interface PluginCatalogEdits {
+  displayName?: string | null;
+  summary?: string | null;
+  description?: string | null;
+  category?: string | null;
+  keywords?: string[] | null;
+  license?: string | null;
+  homepageUrl?: string | null;
+  sourceUrl?: string | null;
+  documentationUrl?: string | null;
+  icon?: string | PluginIcon | null;
+  changelog?: string | null;
+  readme?: string | null;
+}
+
+/** One field of a `POST /plugins/inspect` result. */
+export interface PluginInspectField {
+  field: PluginCatalogField;
+  /** string | string[] (keywords) | {key, badge?} (icon) | null. */
+  value: unknown;
+  source: Exclude<PluginMetadataSource, 'user'> | null;
+  /** Why the detected value was refused (then `value` is null). */
+  error: string | null;
+}
+
+/** `POST /plugins/inspect` payload: a dry-run parse of a plugin package. */
+export interface PluginInspectResult {
+  plugin: { name: string; version: string; pluginType: string; buildType: string };
+  fields: PluginInspectField[];
+}
+
+/**
  * Plugin model
  */
 export interface Plugin {
@@ -721,6 +789,24 @@ export interface Plugin {
   labels?: Record<string, string>;
   links?: EntityLink[];
 
+  // Catalog metadata (plugin-ecosystem §3.1a): detected from the package, then
+  // accepted or edited. `metadataSources` records where each field came from.
+  displayName?: string | null;
+  summary?: string | null;
+  license?: string | null;
+  homepageUrl?: string | null;
+  sourceUrl?: string | null;
+  documentationUrl?: string | null;
+  icon?: PluginIcon | null;
+  changelog?: string | null;
+  readmeMd?: string | null;
+  readmeHtml?: string | null;
+  metadataSources?: Partial<Record<PluginCatalogField, PluginMetadataSource>>;
+  deprecatedAt?: string | null;
+  deprecationMessage?: string | null;
+  yankedAt?: string | null;
+  yankReason?: string | null;
+
   // Access and visibility
   visibility: Visibility;
   isDefault: boolean;
@@ -750,6 +836,31 @@ export interface BuilderProps {
 }
 
 /**
+ * An existing catalog plugin the AI plugin generator judged similar to the
+ * prompt (`similarPlugins` on `POST /plugins/generate` and the stream's `done`
+ * event). A hint to reuse it rather than generate a duplicate.
+ */
+export interface SimilarPlugin {
+  id: string;
+  name: string;
+  version: string;
+  category: string | null;
+  /** Card one-liner, or a truncated description. */
+  summary: string | null;
+  keywords: string[];
+}
+
+/** The `done` payload of AI plugin generation. */
+export interface PluginGenerationDone<TConfig> {
+  config: TConfig;
+  dockerfile: string;
+  /** Closest existing catalog plugins; empty when none (or the lookup failed). */
+  similarPlugins?: SimilarPlugin[];
+  /** Catalog Dockerfile rules the generated Dockerfile breaks (non-root USER, fetch-verified downloads, …); empty when compliant. */
+  dockerfileViolations?: string[];
+}
+
+/**
  * Typed views for AI-generated BuilderProps structure.
  * Used by GitUrlTab to safely access nested plugin references
  * within the loosely-typed BuilderProps.synth / BuilderProps.stages.
@@ -757,6 +868,8 @@ export interface BuilderProps {
 
 /** Plugin reference as it appears in AI-generated BuilderProps JSON. */
 export interface GeneratedPluginRef {
+  /** Publisher handle of an installed listing; absent = unqualified reference. */
+  publisher?: string;
   name: string;
   alias?: string;
   filter?: Record<string, unknown>;

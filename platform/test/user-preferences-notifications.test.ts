@@ -98,7 +98,7 @@ describe('userProfileService preferences', () => {
   it('defaults muteQuotaWarnings to false for a user who never saved preferences', async () => {
     mockFindOne.mockReturnValue(lean(null));
     await expect(userProfileService.getPreferences('u1', 'org-1')).resolves.toEqual({
-      favorites: [], recents: [], notifications: { muteQuotaWarnings: false },
+      favorites: [], recents: [], notifications: { muteQuotaWarnings: false, ecosystem: { reviewsEmail: true, upgradesEmail: true, installsEmail: true, moderationDigestEmail: true } },
     });
   });
 
@@ -110,7 +110,18 @@ describe('userProfileService preferences', () => {
       { $set: { 'notifications.muteQuotaWarnings': true } },
       expect.objectContaining({ upsert: true }),
     );
-    expect(view.notifications).toEqual({ muteQuotaWarnings: true });
+    expect(view.notifications).toEqual({ muteQuotaWarnings: true, ecosystem: { reviewsEmail: true, upgradesEmail: true, installsEmail: true, moderationDigestEmail: true } });
+  });
+
+  it('sets individual ecosystem email opt-outs (plugin-ecosystem §5b); only an explicit false opts out', async () => {
+    mockFindOneAndUpdate.mockReturnValue(lean({ notifications: { ecosystem: { reviewsEmail: false } } }));
+    const view = await userProfileService.updatePreferences('u1', 'org-1', { notifications: { ecosystem: { reviewsEmail: false, upgradesEmail: true } } });
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { userId: 'u1', organizationId: 'org-1' },
+      { $set: { 'notifications.ecosystem.reviewsEmail': false, 'notifications.ecosystem.upgradesEmail': true } },
+      expect.objectContaining({ upsert: true }),
+    );
+    expect(view.notifications.ecosystem).toEqual({ reviewsEmail: false, upgradesEmail: true, installsEmail: true, moderationDigestEmail: true });
   });
 
   it('saving favorites does not touch notification preferences', async () => {
@@ -121,6 +132,11 @@ describe('userProfileService preferences', () => {
 });
 
 describe('PUT /user/preferences — notifications validation', () => {
+  it('accepts ecosystem email opt-outs', async () => {
+    await put({ notifications: { ecosystem: { moderationDigestEmail: false } } });
+    expect(mockFindOneAndUpdate).toHaveBeenCalled();
+  });
+
   it('accepts a boolean muteQuotaWarnings', async () => {
     const res = await put({ notifications: { muteQuotaWarnings: true } });
     expect(mockFindOneAndUpdate).toHaveBeenCalled();
@@ -132,6 +148,10 @@ describe('PUT /user/preferences — notifications validation', () => {
     ['an array', { notifications: [true] }],
     ['a non-boolean value', { notifications: { muteQuotaWarnings: 'true' } }],
     ['an unknown preference', { notifications: { muteEverything: true } }],
+    ['a non-object ecosystem', { notifications: { ecosystem: true } }],
+    ['an array ecosystem', { notifications: { ecosystem: [false] } }],
+    ['an unknown ecosystem preference', { notifications: { ecosystem: { advisoriesEmail: false } } }],
+    ['a non-boolean ecosystem value', { notifications: { ecosystem: { reviewsEmail: 'no' } } }],
   ])('rejects %s with 400 and writes nothing', async (_label, body) => {
     const res = mockRes();
     await (updatePreferences as unknown as (req: any, res: any) => Promise<void>)(

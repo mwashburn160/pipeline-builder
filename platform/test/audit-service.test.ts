@@ -250,3 +250,26 @@ describe('auditService.createEvent', () => {
   });
 });
 
+
+describe('buildAuditQuery — action groups', () => {
+  it('matches a group with anchored prefix/exact semantics', async () => {
+    const { buildAuditQuery } = await import('../src/services/audit-service.js');
+    const q = buildAuditQuery({ actions: ['plugin.listing.', 'org.plugin-install-policy.update'] }) as { action: { $in: RegExp[] } };
+    const [prefix, exact] = q.action.$in;
+    expect(prefix.test('plugin.listing.create')).toBe(true);
+    expect(prefix.test('x.plugin.listing.create')).toBe(false);
+    expect(exact.test('org.plugin-install-policy.update')).toBe(true);
+    expect(exact.test('org.plugin-install-policy.updated')).toBe(false);
+    // Regex metacharacters in an entry are literal.
+    const dots = buildAuditQuery({ actions: ['a.b'] }) as { action: { $in: RegExp[] } };
+    expect(dots.action.$in[0].test('axb')).toBe(false);
+  });
+
+  it('ANDs a group with the substring `action` filter, next to the org-admin $or', async () => {
+    const { buildAuditQuery } = await import('../src/services/audit-service.js');
+    const q = buildAuditQuery({ orgIdOrAffected: 'o1', action: 'approve', actions: ['plugin.request.'] });
+    expect(q.$or).toBeDefined();
+    expect(q.$and).toHaveLength(2);
+    expect(q.action).toBeUndefined();
+  });
+});

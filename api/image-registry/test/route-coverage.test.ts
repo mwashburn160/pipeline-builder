@@ -20,6 +20,7 @@ import {
   declaredAuditActions,
   findInternalRouteViolations,
   findRouteCoverageViolations,
+  findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/lib/testing/route-coverage.js';
@@ -52,6 +53,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'all',
     reason: 'The Docker registry token endpoint (Distribution token-auth spec) — pre-auth by design: it verifies `Authorization: Basic` credentials itself (resolveIdentity, rate-limited per IP + username) and mints the scoped registry JWT, so it cannot sit behind requireAuth or a permission a caller does not yet have.',
   },
+  {
+    method: 'POST',
+    path: '/internal/plugin-publications/verify-cache/invalidate',
+    waive: 'audit',
+    reason: 'Drops in-memory signature-verification cache entries so the next lookup re-verifies. It changes no durable state; the actions that trigger it (yank, takedown, tier re-sign) are audited themselves (registry.image.yank / registry.image.resign). Still plugin-only via requireInternalService.',
+  },
 ];
 
 /**
@@ -65,6 +72,18 @@ const EXCEPTIONS: RouteCoverageException[] = [
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/internal/plugin-signatures', callers: ['plugin'] },
+  // Plugin-ecosystem public/* publications (§3.3): the plugin service drives the
+  // copy + fresh sign on approval, the tier re-sign job, yank, GC and verification.
+  { method: 'POST', path: '/internal/plugin-publications', callers: ['plugin'] },
+  { method: 'POST', path: '/internal/plugin-publications/resign', callers: ['plugin'] },
+  { method: 'POST', path: '/internal/plugin-publications/yank', callers: ['plugin'] },
+  { method: 'POST', path: '/internal/plugin-publications/retag', callers: ['plugin'] },
+  { method: 'POST', path: '/internal/plugin-publications/gc', callers: ['plugin'] },
+  { method: 'GET', path: '/internal/plugin-publications/verify', callers: ['plugin'] },
+  { method: 'POST', path: '/internal/plugin-publications/verify-cache/invalidate', callers: ['plugin'] },
+  // Anonymous submissions (§4.2 / W5): the plugin service drops a decided or
+  // expired submission's quarantined build.
+  { method: 'DELETE', path: '/internal/quarantine/:submissionId', callers: ['plugin'] },
 ];
 
 let table: RouteTableEntry[];
@@ -87,6 +106,14 @@ describe('image-registry route coverage', () => {
   it('gates every write route on a permission and declares its audit action', () => {
     const { violations } = findRouteCoverageViolations(table, EXCEPTIONS);
     expect(violations).toEqual([]);
+  });
+
+  // Plugin-ecosystem governance (plan §3.0): every route gated on a
+  // system-org-only permission (plugins:moderate, publishers:verify) must also
+  // run requireSystemOrg and demand aal2 — use requireEcosystemPermission. No
+  // exception list: passes today, bites the day a governance route lacks it.
+  it('guards every ecosystem-governance route to the system org with aal2', () => {
+    expect(findSystemOrgGuardViolations(table)).toEqual([]);
   });
 
   it('has no stale coverage exceptions', () => {

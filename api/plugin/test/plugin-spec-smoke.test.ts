@@ -53,3 +53,30 @@ describe('plugin-spec smoke test: existing plugins must validate', () => {
     },
   );
 });
+
+describe('validatePluginTemplates (upload wrapper of api-core checkPluginTemplates)', () => {
+  it('throws one ValidationError grouping every issue by kind', () => {
+    const spec = YAML.parse([
+      'name: bad', 'version: 1.0.0', 'pluginType: CodeBuildStep',
+      'requiredVars: [n]',
+      'commands:',
+      '  - "echo {{ pipeline.metadata.env }} {{ pipeline.vars.n | number }} {{ bogus.x }}"',
+    ].join('\n'));
+    let message = '';
+    try { validatePluginTemplates(spec); } catch (err) { message = (err as Error).message; }
+    expect(message).toMatch(/^Template validation failed \(1\):\n {2}• \[commands\[0\]:1:\d+\] .*unknown scope root 'bogus'/);
+    expect(message).toContain('Plugin spec uses template paths not declared in contract (1):\n  • pipeline.metadata.env is not declared');
+    expect(message).toContain('Plugin spec has type mismatches between coercion filters and declared types (1):');
+  });
+
+  it('passes a declared, typed contract', () => {
+    const spec = {
+      name: 'ok',
+      version: '1.0.0',
+      commands: ['echo {{ pipeline.vars.n | number }} {{ pipeline.metadata.x | default: "a" }}'],
+      requiredVars: ['n'],
+      varsTypes: { n: 'number' },
+    };
+    expect(() => validatePluginTemplates(spec as never)).not.toThrow();
+  });
+});

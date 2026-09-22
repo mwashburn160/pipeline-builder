@@ -68,8 +68,9 @@ spec:
       protocol: HBONE
 ---
 # -- platform ----------------------------------------------------------------
-# POST /internal/notify-email — compliance relays notification emails through
-# platform, which holds the SMTP credentials.
+# POST /internal/notify-email — compliance relays notification emails, and the
+# plugin service relays plugin-ecosystem notices (plan §5b), through platform,
+# which holds the SMTP credentials and the user directory.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -86,10 +87,44 @@ spec:
         - source:
             notPrincipals:
               - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/plugin
       to:
         - operation:
             methods: ["POST"]
             paths: ["/internal/notify-email"]
+    # GET /internal/notify-email/status — `{ enabled }`, the precondition the
+    # plugin service checks before serving anonymous submissions (§4.2).
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/internal/notify-email/status"]
+---
+# GET /internal/ecosystem/* — the plugin service's plugin-ecosystem governance
+# reads (plan §3.0.1 approver count, §3.7 Verified eligibility: verified
+# domains and owner MFA). Counts and domain names only.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-ecosystem
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            paths: ["/internal/ecosystem/*"]
 ---
 # POST /audit/events — every non-platform service forwards its audit trail here.
 # The audit log is evidence, so the callers are enumerated rather than "anything
@@ -304,3 +339,107 @@ spec:
         - operation:
             methods: ["POST"]
             paths: ["/internal/plugin-signatures"]
+---
+# /internal/plugin-publications* — the public/* namespace operations (publish =
+# copy + fresh sign with tier/publisher annotations, resign, retag, yank, gc,
+# verify, verify-cache invalidate). The plugin service drives them when the
+# system org decides a publish request. Any other caller could mint or strip
+# a trust tier on a published image, so only the plugin identity may reach them.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: image-registry-internal-plugin-publications
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: image-registry
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            methods: ["GET", "POST"]
+            paths: ["/internal/plugin-publications", "/internal/plugin-publications/*"]
+---
+# DELETE /internal/quarantine/:submissionId — the plugin service drops an
+# anonymous submission's quarantined build once it is decided or expired.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: image-registry-internal-quarantine
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: image-registry
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            paths: ["/internal/quarantine/*"]
+---
+# -- plugin-quarantine-builder (anonymous plugin submissions, §4.2 / W5) -----
+# The quarantine builder's only legitimate waypoint hop is image-registry's
+# registry-token realm (GET /token) during a push/pull. Deny it every other
+# path on image-registry, and every other waypoint-fronted Service outright —
+# NetworkPolicy lets it reach the waypoint pod, and the waypoint's own identity
+# is admitted by those Services' ALLOW policies, so without these a RUN step in
+# an anonymous build could call platform/quota/… through the waypoint.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: image-registry-quarantine-builder-token-only
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: image-registry
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/plugin-quarantine-builder
+      to:
+        - operation:
+            notPaths: ["/token"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: quarantine-builder-deny-waypoint-services
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+    - group: ""
+      kind: Service
+      name: message
+    - group: ""
+      kind: Service
+      name: compliance
+    - group: ""
+      kind: Service
+      name: quota
+    - group: ""
+      kind: Service
+      name: reporting
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/plugin-quarantine-builder

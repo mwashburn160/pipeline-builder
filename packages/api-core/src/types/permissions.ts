@@ -36,6 +36,21 @@ export type Permission =
   | 'plugins:read'
   | 'plugins:write'
   | 'plugins:publish'
+  // Plugin ecosystem (docs/plans/plugin-ecosystem.md §5a). Org-assignable:
+  //  - `plugins:install`        — install/upgrade/uninstall listings (or REQUEST
+  //                               an install when the org's policy needs approval).
+  //  - `plugin_installs:manage` — the org's consumption policy + deciding install
+  //                               requests WITHIN the org (org-local only).
+  //  - `publishers:manage`      — the org's publisher profile + submitting
+  //                               ecosystem requests (every decision is system-org).
+  // System-org-only (see SYSTEM_ORG_ONLY_PERMISSIONS):
+  //  - `plugins:moderate`       — decide publish requests, moderate, yank, advisories.
+  //  - `publishers:verify`      — publisher tiers, profile changes, transfers.
+  | 'plugins:install'
+  | 'plugin_installs:manage'
+  | 'publishers:manage'
+  | 'plugins:moderate'
+  | 'publishers:verify'
   // Compliance
   | 'compliance:read'
   | 'compliance:write'
@@ -94,6 +109,8 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'pipelines:read', 'pipelines:write', 'pipelines:publish',
   'templates:read', 'templates:write', 'templates:publish',
   'plugins:read', 'plugins:write', 'plugins:publish',
+  'plugins:install', 'plugin_installs:manage', 'publishers:manage',
+  'plugins:moderate', 'publishers:verify',
   'compliance:read', 'compliance:write',
   'members:manage', 'roles:manage', 'invitations:manage', 'service_accounts:manage',
   'dashboards:read', 'dashboards:write',
@@ -130,6 +147,8 @@ export const PERMISSION_GATES: readonly string[] = [
   'requirePermission',
   'requireAllPermissions',
   'requirePermissionOrService',
+  // The plugin-ecosystem governance chain (system org + permission + aal2).
+  'requireEcosystemPermission',
   // The single runtime primitive every gate above delegates to; also called
   // directly where a controller branches on a capability rather than rejecting.
   'userHasPermission',
@@ -170,6 +189,11 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   { id: 'plugins:read', label: 'View plugins', description: 'View plugins and builds', category: 'Plugins' },
   { id: 'plugins:write', label: 'Manage plugins', description: 'Create, upload, edit, and delete plugins', category: 'Plugins' },
   { id: 'plugins:publish', label: 'Publish plugins', description: 'Make plugins public (org-wide/catalog visibility)', category: 'Plugins' },
+  { id: 'plugins:install', label: 'Install plugins', description: 'Install, upgrade, and uninstall ecosystem plugins (or request an install when your org requires approval)', category: 'Plugin Ecosystem' },
+  { id: 'plugin_installs:manage', label: 'Manage plugin installs', description: "Set your org's plugin consumption policy and approve or deny install requests within the org", category: 'Plugin Ecosystem' },
+  { id: 'publishers:manage', label: 'Manage publisher profile', description: "Manage your org's publisher profile and submit publish, verification, transfer, and advisory requests", category: 'Plugin Ecosystem' },
+  { id: 'plugins:moderate', label: 'Moderate the plugin ecosystem', description: 'Decide publish requests, moderate submissions and reviews, yank versions, and publish advisories (system org only)', category: 'Plugin Ecosystem' },
+  { id: 'publishers:verify', label: 'Verify publishers', description: 'Approve Verified applications, publisher tier and profile changes, and ownership transfers (system org only)', category: 'Plugin Ecosystem' },
   { id: 'compliance:read', label: 'View compliance', description: 'View compliance rules, policies, and scans', category: 'Compliance' },
   { id: 'compliance:write', label: 'Manage compliance', description: 'Create and edit rules, policies, and exemptions', category: 'Compliance' },
   { id: 'members:manage', label: 'Manage members', description: 'Add, remove, and change roles of org members', category: 'Members & Access' },
@@ -241,21 +265,42 @@ export const SUPERADMIN_ONLY_PERMISSIONS: readonly Permission[] = [
 ];
 
 /**
+ * Permissions that govern the PLUGIN ECOSYSTEM and may be held only inside the
+ * system org (docs/plans/plugin-ecosystem.md §3.0, §5a). Like
+ * {@link SUPERADMIN_ONLY_PERMISSIONS} they are in no member/admin/owner bundle
+ * and are never grantable through a custom Role in ANY org (platform
+ * `sanitizePermissions` refuses them). The only holders are superadmins
+ * (implicit-all) and members of the built-in "Ecosystem Manager" Role, which is
+ * seeded in the system org alone from {@link ECOSYSTEM_MANAGER_PERMISSIONS} and
+ * assignable only by a superadmin.
+ */
+export const SYSTEM_ORG_ONLY_PERMISSIONS: readonly Permission[] = [
+  'plugins:moderate',
+  'publishers:verify',
+];
+
+/** Whether `permission` may be held only inside the system org. */
+export function isSystemOrgOnlyPermission(permission: string): boolean {
+  return (SYSTEM_ORG_ONLY_PERMISSIONS as readonly string[]).includes(permission);
+}
+
+/**
  * Permissions an org may assign via a CUSTOM Role — every permission except the
- * {@link SUPERADMIN_ONLY_PERMISSIONS}. Custom-Role create/update validates the
- * requested permission set against this (see platform roles-service).
+ * {@link SUPERADMIN_ONLY_PERMISSIONS} and {@link SYSTEM_ORG_ONLY_PERMISSIONS}.
+ * Custom-Role create/update validates the requested permission set against this
+ * (see platform roles-service).
  */
 export const ORG_ASSIGNABLE_PERMISSIONS: readonly Permission[] =
-  ALL_PERMISSIONS.filter((p) => !SUPERADMIN_ONLY_PERMISSIONS.includes(p));
+  ALL_PERMISSIONS.filter((p) => isOrgAssignablePermission(p));
 
 /** Whether `permission` may be granted through a user-authored custom Role. */
 export function isOrgAssignablePermission(permission: Permission): boolean {
-  return !SUPERADMIN_ONLY_PERMISSIONS.includes(permission);
+  return !SUPERADMIN_ONLY_PERMISSIONS.includes(permission) && !isSystemOrgOnlyPermission(permission);
 }
 
 /**
  * Category → permissions for the custom-Role AUTHORING picker: the catalog minus
- * the {@link SUPERADMIN_ONLY_PERMISSIONS}, with any now-empty category dropped
+ * the non-assignable permissions, with any now-empty category dropped
  * (so "Registry" disappears). The grouped view of
  * {@link ORG_ASSIGNABLE_PERMISSIONS}.
  */
@@ -324,8 +369,10 @@ export function intersectPermissions(
  *   read elsewhere. No member/role/billing management, no compliance/alert
  *   authoring, and no `:publish` on any catalog.
  * - `admin`   — full org administration: every ORG-ASSIGNABLE permission (i.e.
- *   ALL_PERMISSIONS minus the {@link SUPERADMIN_ONLY_PERMISSIONS}, so `registry:*`
- *   stay superadmin-implicit-only and are NOT granted to org admins).
+ *   ALL_PERMISSIONS minus the {@link SUPERADMIN_ONLY_PERMISSIONS} and the
+ *   {@link SYSTEM_ORG_ONLY_PERMISSIONS}, so `registry:*` stay
+ *   superadmin-implicit-only and ecosystem moderation stays with the system
+ *   org's Ecosystem Managers — neither is granted to org admins).
  * - `owner`   — same as admin (ownership itself — transfer/delete — is gated
  *   separately, not via a permission).
  */
@@ -333,6 +380,7 @@ const MEMBER_PERMISSIONS: readonly Permission[] = [
   'pipelines:read', 'pipelines:write',
   'templates:read', 'templates:write',
   'plugins:read', 'plugins:write',
+  'plugins:install',
   'compliance:read',
   'dashboards:read',
   'observability:read',
@@ -355,6 +403,22 @@ export const ROLE_PERMISSIONS: Record<OrgRole, readonly Permission[]> = {
   admin: ADMIN_PERMISSIONS,
   owner: ADMIN_PERMISSIONS,
 };
+
+/**
+ * Seed bundle for the built-in "Ecosystem Manager" Role — seeded ONLY in the
+ * system org (docs/plans/plugin-ecosystem.md §5a.1). It carries the
+ * {@link SYSTEM_ORG_ONLY_PERMISSIONS} plus the reads a moderator needs (the
+ * in-app catalog, in-app notices, the moderation-SLA dashboard) and nothing
+ * tenant-facing: no `registry:*`, no `members:manage`. The Role grants the
+ * coarse `member` label and never sets `isSuperAdmin`.
+ */
+export const ECOSYSTEM_MANAGER_PERMISSIONS: readonly Permission[] = [
+  'plugins:read',
+  'plugins:moderate',
+  'publishers:verify',
+  'messages:read',
+  'observability:read',
+];
 
 // =============================================================================
 // Resolution
@@ -390,6 +454,27 @@ export function resolveUserPermissions(
     }
   }
   return ALL_PERMISSIONS.filter(p => perms.has(p));
+}
+
+/**
+ * Confine a resolved permission list to what may be held in the token's ACTIVE
+ * org: outside the system org every {@link SYSTEM_ORG_ONLY_PERMISSIONS} entry is
+ * dropped (docs/plans/plugin-ecosystem.md §5a, G22). Applied at token issue on
+ * top of {@link resolveUserPermissions} — including a superadmin's implicit-all —
+ * so a token minted in a tenant org never CLAIMS `plugins:moderate` /
+ * `publishers:verify`, even if a hand-written Role document somehow carried
+ * them there. (Superadmins still pass `hasPermission` via the flag; the
+ * ecosystem route gate additionally requires the system org, so that bypass
+ * never reaches a governance route from a tenant org either.)
+ *
+ * Takes a boolean rather than an org id so this module stays dependency-free
+ * (the frontend imports it); callers decide with api-core `isSystemOrgId`.
+ */
+export function confinePermissionsToOrg<P extends string>(
+  permissions: readonly P[],
+  activeOrgIsSystemOrg: boolean,
+): P[] {
+  return activeOrgIsSystemOrg ? [...permissions] : permissions.filter((p) => !isSystemOrgOnlyPermission(p));
 }
 
 /** Whether a resolved permission list grants `permission` (superadmin ⇒ always). */

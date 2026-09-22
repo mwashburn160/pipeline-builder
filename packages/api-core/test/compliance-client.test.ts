@@ -89,6 +89,15 @@ describe('compliance-client (fail-closed enforcement gate)', () => {
       expect(typeof options.timeout).toBe('number');
       expect(options.headers).toMatchObject({ 'x-org-id': 'org1', 'Authorization': 'Bearer t' });
     });
+
+    it('sends deferredFields only when some are named', async () => {
+      const client = await loadClient(false);
+      mockPost.mockResolvedValue({ statusCode: 200, body: { data: PASS } });
+      await client.validatePlugin('org1', { name: 'p' }, 'Bearer t', undefined, 'p', 'upload', ['signed', 'packages']);
+      await client.validatePlugin('org1', { name: 'p' }, 'Bearer t', undefined, 'p', 'build', []);
+      expect(mockPost.mock.calls[0][1]).toMatchObject({ action: 'upload', deferredFields: ['signed', 'packages'] });
+      expect(mockPost.mock.calls[1][1]).not.toHaveProperty('deferredFields');
+    });
   });
 
   describe('COMPLIANCE_BYPASS on (fail-open)', () => {
@@ -108,5 +117,73 @@ describe('compliance-client (fail-closed enforcement gate)', () => {
       expect(result.passed).toBe(true);
       expect(result.blocked).toBe(false);
     });
+  });
+});
+
+describe('derivePluginImageCompliance (the one definition of signed/scanned)', () => {
+  const DIGEST = `sha256:${'a'.repeat(64)}`;
+  async function load() {
+    jest.resetModules();
+    return import('../src/services/compliance-client.js');
+  }
+
+  it('an image plugin with a signed digest and a scan sends the real facts', async () => {
+    const { derivePluginImageCompliance } = await load();
+    const { attributes, deferredFields } = derivePluginImageCompliance({
+      buildType: 'build_image',
+      pluginType: 'CodeBuildStep',
+      imageDigest: DIGEST,
+      scannedAt: new Date(),
+      vulnCritical: 1,
+      vulnHigh: 2,
+      vulnMedium: 0,
+      vulnLow: 5,
+      runAsRoot: false,
+      keywords: ['node'],
+      labels: { team: 'core' },
+    }, ['openssl', 'zlib']);
+    expect(attributes).toEqual({
+      tags: ['node', 'team=core'],
+      signed: true,
+      scanned: true,
+      vulnCritical: 1,
+      vulnHigh: 2,
+      vulnMedium: 0,
+      vulnLow: 5,
+      runAsRoot: false,
+      packages: ['openssl', 'zlib'],
+    });
+    expect(deferredFields).toEqual([]);
+  });
+
+  it('unscanned sends scanned=false and NO counts (a numeric rule cannot pass on a missing value)', async () => {
+    const { derivePluginImageCompliance } = await load();
+    const { attributes } = derivePluginImageCompliance({
+      buildType: 'build_image',
+      pluginType: 'CodeBuildStep',
+      imageDigest: DIGEST,
+      scannedAt: null,
+      vulnCritical: null,
+      vulnHigh: null,
+      runAsRoot: true,
+    }, null);
+    expect(attributes).toEqual({ tags: [], signed: true, scanned: false, runAsRoot: true });
+  });
+
+  it('no digest is unsigned; unknown packages are deferred on paths without the SBOM', async () => {
+    const { derivePluginImageCompliance } = await load();
+    const { attributes, deferredFields } = derivePluginImageCompliance({
+      buildType: 'prebuilt', pluginType: 'CodeBuildStep', imageDigest: null, scannedAt: null,
+    });
+    expect(attributes.signed).toBe(false);
+    expect(attributes).not.toHaveProperty('packages');
+    expect(deferredFields).toEqual(['packages']);
+  });
+
+  it('a plugin with no image of its own is unsigned, unscanned, package-less — nothing deferred', async () => {
+    const { derivePluginImageCompliance } = await load();
+    const { attributes, deferredFields } = derivePluginImageCompliance({ buildType: 'metadata_only', pluginType: 'CodeBuildStep', keywords: ['x'] });
+    expect(attributes).toEqual({ tags: ['x'], signed: false, scanned: false, packages: [] });
+    expect(deferredFields).toEqual([]);
   });
 });

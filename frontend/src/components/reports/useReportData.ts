@@ -24,7 +24,7 @@ import type { ExecutionCountRow } from '@/types';
 import type { DoraMetrics, DoraTrendPoint, DeploymentRow, BuildHealth, IngestHealthResponse, ReportRetention } from '@/lib/api/domains/reporting';
 import type {
   TimelineEntry, DurationStat, StageBottleneck, StageFailure, ActionFailure, ErrorEntry,
-  PluginSummary, PluginDistribution, BuildSuccessEntry, BuildDurationStat, BuildFailure, PluginVersion,
+  PluginSummary, PluginDistribution, BuildSuccessEntry, BuildDurationStat, BuildFailure, PluginRuntimeRow, PluginVersion,
 } from './types';
 
 // ─── Retention / effective-max ──────────────────────────
@@ -205,7 +205,7 @@ export function usePipelinesData(subTab: PipelineSubTab, filters: SharedFilters)
 
 // ─── Plugins tab ────────────────────────────────────────
 
-export type PluginSubTab = 'overview' | 'builds' | 'versions';
+export type PluginSubTab = 'overview' | 'builds' | 'runs' | 'versions';
 
 export interface PluginsData extends TabDataStatus {
   pluginSummary: PluginSummary | null;
@@ -213,7 +213,24 @@ export interface PluginsData extends TabDataStatus {
   buildTimeline: BuildSuccessEntry[];
   buildDurations: BuildDurationStat[];
   buildFailures: BuildFailure[];
+  pluginRuntime: PluginRuntimeRow[];
   pluginVersions: PluginVersion[];
+}
+
+/** Join the two runtime routes (each projects half of one aggregate) on publisher/name/version. */
+export function joinPluginRuntime(
+  rates: Array<Omit<PluginRuntimeRow, 'p50Ms' | 'p95Ms'>>,
+  durations: Array<Pick<PluginRuntimeRow, 'pluginPublisher' | 'pluginName' | 'pluginVersion' | 'p50Ms' | 'p95Ms'>>,
+): PluginRuntimeRow[] {
+  const key = (r: { pluginPublisher: string | null; pluginName: string; pluginVersion: string }) =>
+    `${r.pluginPublisher ?? ''}/${r.pluginName}@${r.pluginVersion}`;
+  const byKey = new Map(durations.map((d) => [key(d), d]));
+  return rates
+    .map((r) => {
+      const d = byKey.get(key(r));
+      return { ...r, p50Ms: d?.p50Ms ?? null, p95Ms: d?.p95Ms ?? null };
+    })
+    .sort((a, b) => b.runs - a.runs);
 }
 
 export function usePluginsData(subTab: PluginSubTab, filters: SharedFilters): PluginsData {
@@ -235,10 +252,17 @@ export function usePluginsData(subTab: PluginSubTab, filters: SharedFilters): Pl
     (await api.getBuildDuration(range, { signal })).data?.plugins ?? []);
   const buildFailures = useSlice(builds && !!filters.systemAdmin, key, async (signal) =>
     (await api.getBuildFailures({ limit: 10, ...range }, { signal })).data?.failures ?? []);
+  const runtime = useSlice(subTab === 'runs', key, async (signal) => {
+    const [rates, durations] = await Promise.all([
+      api.getPluginRuntimeSuccessRate(range, { signal }),
+      api.getPluginRuntimeDuration(range, { signal }),
+    ]);
+    return joinPluginRuntime(rates.data?.plugins ?? [], durations.data?.plugins ?? []);
+  });
   const versions = useSlice(subTab === 'versions', '', async (signal) =>
     (await api.getPluginVersions({ signal })).data?.plugins ?? []);
 
-  const status = useTabStatus([summary, distribution, buildTimeline, buildDurations, buildFailures, versions]);
+  const status = useTabStatus([summary, distribution, buildTimeline, buildDurations, buildFailures, runtime, versions]);
 
   return {
     pluginSummary: summary.data ?? null,
@@ -246,6 +270,7 @@ export function usePluginsData(subTab: PluginSubTab, filters: SharedFilters): Pl
     buildTimeline: buildTimeline.data ?? [],
     buildDurations: buildDurations.data ?? [],
     buildFailures: buildFailures.data ?? [],
+    pluginRuntime: runtime.data ?? [],
     pluginVersions: versions.data ?? [],
     ...status,
   };

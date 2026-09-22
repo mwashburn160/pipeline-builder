@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 75020436a789e6496b87028c8a23cc2f49be5c0f6c9f88e52dfa88681e63c42b
+// SOURCE-SHA256: 5a8c14ffa0f247e89e98f2d5243220574dffcad592c088264ec2b85a3a0dbe89
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -70,7 +70,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "also seeds Super Admin. A startup backfill re-syncs each built-in Role's permission set to the current catalog, so new permissions reach existing orgs."
+          "content": "also seeds Super Admin and Ecosystem Manager (see Ecosystem Manager). A startup backfill re-syncs each built-in Role's permission set to the current catalog, so new permissions reach existing orgs."
         },
         {
           "type": "list",
@@ -190,7 +190,17 @@ export const permissionsTopic: HelpTopic = {
             [
               "Plugins",
               "plugins:read, plugins:write, plugins:publish",
-              ":publish allows the public rung"
+              ":publish allows the public rung, and submitting plugin-ecosystem publish requests for the org's public versions"
+            ],
+            [
+              "Plugin ecosystem",
+              "plugins:install, plugin_installs:manage, publishers:manage",
+              "Plugin ecosystem. plugins:install (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only requests an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or breaking version also needs plugin_installs:manage. plugin_installs:manage (admin/owner): the org's consumption policy (PUT /plugins/install-policy, step-up; org.plugin-install-policy.update), approving and denying install requests within the org (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices (Plugin Installing). publishers:manage (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and submitting publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org (Plugin Publishing). plugins:publish also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only plugins:read. Installing is free on every plan and no consumption control is plan-gated."
+            ],
+            [
+              "Plugin ecosystem (system org only)",
+              "plugins:moderate, publishers:verify",
+              "System-org only — never grantable to a custom Role in any org; held only through the built-in Ecosystem Manager Role or as a Super Admin. See the carve-out below."
             ],
             [
               "Compliance",
@@ -259,6 +269,45 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "System-org-only carve-out. plugins:moderate / publishers:verify are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the registry pair. They govern the plugin ecosystem, which only the system org may manage or approve (plan §3.0). They're in no member/admin/owner bundle and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every org — the system org and a Super Admin author included. The only holders are Super Admins (implicit-all) and members of the system org's built-in Ecosystem Manager Role."
+        },
+        {
+          "type": "text",
+          "content": "The class is enforced in four places, each tested (platform/test/ecosystem-manager-isolation.test.ts walks every path a tenant could try — custom Role, assignment, invitation, IdP mapping, token):"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Authoring — sanitizePermissions refuses them in any custom Role.",
+            "Assignment — only a Super Admin may assign or unassign a Role carrying"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "them, and only inside the system org (below)."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Token issue — confinePermissionsToOrg drops them from the permissions"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "claim of every token whose active org is not the system org (user tokens, exchanged keys and service-account tokens alike) — even a Super Admin's implicit-all, and even if a hand-written Role document carried them there."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Routes — requireEcosystemPermission(...) (below) requires the system"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "org as the caller's active org, the permission, and an MFA-grade session."
+        },
+        {
+          "type": "text",
           "content": "Built-in Role bundles"
         },
         {
@@ -269,7 +318,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "templates:* (read/write), plugins:* (read/write), compliance:read, dashboards:read, observability:read, reports:read, messages:read/write, billing:read, quotas:read. No :publish, no management, no :rollup."
+          "content": "templates:* (read/write), plugins:* (read/write), plugins:install, compliance:read, dashboards:read, observability:read, reports:read, messages:read/write, billing:read, quotas:read. No :publish, no management, no :rollup."
         },
         {
           "type": "list",
@@ -279,12 +328,75 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "the Super-Admin-only registry pair). Includes pipelines:publish, templates:publish, plugins:publish, and reports:rollup."
+          "content": "the Super-Admin-only registry pair and the system-org-only ecosystem pair). Includes pipelines:publish, templates:publish, plugins:publish, reports:rollup, plugin_installs:manage and publishers:manage."
         },
         {
           "type": "list",
           "items": [
-            "Super Admin — implicit-all, including registry:*."
+            "Ecosystem Manager (system org only) — ECOSYSTEM_MANAGER_PERMISSIONS:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "plugins:read, plugins:moderate, publishers:verify, messages:read, observability:read. See below."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Super Admin — implicit-all, including registry:*, plugins:moderate and"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "publishers:verify."
+        },
+        {
+          "type": "text",
+          "content": "Ecosystem Manager (system org only)"
+        },
+        {
+          "type": "text",
+          "content": "The built-in Role for the people who run the plugin ecosystem (plan §5a.1): deciding publish requests, publisher tiers and profile changes, transfers, yanks and advisories, and moderating anonymous submissions and reviews. They are the only non-superadmins anywhere who hold the system-org-only permissions, and they get no platform superadmin powers."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Property",
+            "Value"
+          ],
+          "rows": [
+            [
+              "Exists in",
+              "The system org only. Seeded by seedDefaultRoles next to Super Admin, Admin and Member when the system org is created; never seeded in a tenant org or team. The org creator is not added to it."
+            ],
+            [
+              "Immutable",
+              "system: true — it can't be renamed, edited or deleted (RL_SYSTEM_IMMUTABLE). The startup backfill re-syncs it to ECOSYSTEM_MANAGER_PERMISSIONS (it is marked seedBundle: 'ecosystem_manager', which is also what keeps it out of the Member-floor lookups it shares grantsRole: 'member' with)."
+            ],
+            [
+              "grantsRole",
+              "member — no admin rights over the system org, and it never sets User.isSuperAdmin."
+            ],
+            [
+              "Permissions",
+              "plugins:read, plugins:moderate, publishers:verify, messages:read (in-app notices), observability:read (the moderation-SLA dashboard). Nothing tenant-facing: no registry:*, no members:manage."
+            ],
+            [
+              "Who can assign it",
+              "Super Admins only. Assigning or unassigning any Role that carries a system-org-only permission is refused for everyone else — an admin or owner of the system org included — with RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN (403). Such a Role can only be held inside the system org (RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG, 400). The same ceiling applies to service-account Role sets, and an IdP group mapping can never grant it (IGM_FORBIDDEN_GRANT, like the Super Admin Role)."
+            ],
+            [
+              "Audit",
+              "Assignment and removal are org.role.member.add / org.role.member.remove with affectedOrgId = the system org and details.role = 'Ecosystem Manager'."
+            ],
+            [
+              "Notifications",
+              "Every Super Admin and the affected user get N23 (in-app + email, can't be turned off) when someone is added or removed. Holders are the Moderators recipients of the other ecosystem notices (plan §5b); with nobody in the role, Super Admins receive them."
+            ],
+            [
+              "Console",
+              "The admin console's Ecosystem section (Ecosystem Manager assignment for Super Admins; the publish queue and publisher verification as the workflows land) appears only while the active org is the system org and the user holds plugins:moderate or publishers:verify. Tenant users never see it — this is a governance boundary, so the nav hides it rather than locking it. A holder without an MFA-grade session sees an enrol prompt instead."
+            ]
           ]
         }
       ]
@@ -339,6 +451,14 @@ export const permissionsTopic: HelpTopic = {
             [
               "requireOrgAdminAssurance({ machines })",
               "the org's \"administrative actions require MFA\" policy: while it is on (the org_admin_aal claim), a single-factor session gets 401 MFA_REQUIRED; machines: 'allow' lets PATs / service accounts through, 'refuse' answers them 403 HUMAN_SESSION_REQUIRED. A no-op while the policy is off"
+            ],
+            [
+              "requireSystemOrg",
+              "the caller's active org (token organizationId) must be the system org — compared by id, never by name. A token minted in a tenant org is refused 403 SYSTEM_ORG_REQUIRED even for the same person, Super Admins included; refusals increment system_org_guard_refused_total and emit authz.denied (required: 'system-org')"
+            ],
+            [
+              "requireEcosystemPermission(p, …)",
+              "the gate for a plugin-ecosystem governance route: requireSystemOrg + requirePermission(p, …) + requireAssurance({ minAssurance: 2 }). Only takes system-org-only permissions (throws at definition time otherwise). Destructive actions add requireStepUp on top"
             ],
             [
               "audited('<action>')",
@@ -428,6 +548,10 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "— with no exception list: a peer-service API a browser can reach is the failure that rule exists to prevent."
+        },
+        {
+          "type": "text",
+          "content": "The plugin and image-registry tests also run findSystemOrgGuardViolations (the governance check, plan §3.0): any route whose permission gate names a system-org-only permission must also run requireSystemOrg and require aal: 2 — again with no exception list. It passes on a table with no governance route, so it is wired in before the first one exists and bites the day one lands without requireEcosystemPermission."
         },
         {
           "type": "text",
@@ -734,7 +858,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "POST / PUT / DELETE require roles:manage. Custom-Role authoring validates the requested permissions against the org-assignable set (the registry carve-out is rejected) and against the author's own permissions (the permission ceiling above) — a request granting a permission the author lacks is rejected 403."
+          "content": "POST / PUT / DELETE require roles:manage. Custom-Role authoring validates the requested permissions against the org-assignable set (the registry and system-org-only carve-outs are rejected) and against the author's own permissions (the permission ceiling above) — a request granting a permission the author lacks is rejected 403."
         },
         {
           "type": "text",

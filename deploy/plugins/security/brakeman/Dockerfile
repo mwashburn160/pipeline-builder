@@ -8,8 +8,9 @@
 FROM pipeline-ruby-base:1.0
 
 # TODO(confirm): confirm the intended pinned brakeman version at build time.
-ARG BRAKEMAN_VERSION=6.2.2
+ARG BRAKEMAN_VERSION=8.0.6
 RUN gem install brakeman -v "${BRAKEMAN_VERSION}" --no-document
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

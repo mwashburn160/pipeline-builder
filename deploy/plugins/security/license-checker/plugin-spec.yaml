@@ -59,3 +59,19 @@ commands:
   - "echo \"License scan complete. Reports available in license-reports/\""
 env:
   LICENSE_DENY: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://github.com/davglass/license-checker
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/license-checker
+# icon: none — no mark in Simple Icons 16.32.0; no confirmed vendor press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "registry.npmjs.org"
+    - "registry.yarnpkg.com"
+    - "pypi.org"
+    - "files.pythonhosted.org"
+    - "rubygems.org"
+    - "index.rubygems.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

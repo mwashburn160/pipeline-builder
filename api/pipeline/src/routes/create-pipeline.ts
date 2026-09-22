@@ -7,6 +7,7 @@ import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/ap
 import { replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
+import { findPluginContractViolations, formatContractViolations } from '../helpers/plugin-contract-check.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService, type PipelineInsert } from '../services/pipeline-service.js';
 
@@ -48,6 +49,13 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         validatePipelineTemplates(body);
       } catch (err) {
         return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
+      }
+
+      // Plugin contracts (W0.2): every plugin step's required metadata/vars
+      // present with the declared types — refused here, not at synth.
+      const contractViolations = await findPluginContractViolations(body.props, orgId, req.user?.parentOrganizationId);
+      if (contractViolations.length > 0) {
+        return sendError(res, 400, formatContractViolations(contractViolations), ErrorCode.TEMPLATE_CONTRACT_VIOLATION, { steps: contractViolations });
       }
 
       // Unspecified visibility defaults to `org`, NOT `private`: a pipeline is a

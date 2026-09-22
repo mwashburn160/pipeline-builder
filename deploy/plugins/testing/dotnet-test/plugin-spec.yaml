@@ -38,3 +38,14 @@ commands:
   - "echo \"dotnet test complete. Reports available in test-reports/\""
 env:
   CONFIGURATION: "Release"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://learn.microsoft.com/dotnet/core/tools/dotnet-test
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/testing/dotnet-test
+icon: dotnet
+network:
+  egress:
+    - "api.nuget.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

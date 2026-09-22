@@ -9,9 +9,10 @@
 FROM pipeline-python-base:1.0
 
 # TODO(confirm): confirm the intended pinned pytest / pytest-cov versions.
-ARG PYTEST_VERSION=8.3.4
-ARG PYTEST_COV_VERSION=6.0.0
+ARG PYTEST_VERSION=9.1.1
+ARG PYTEST_COV_VERSION=7.1.0
 RUN pip3 install --no-cache-dir "pytest==${PYTEST_VERSION}" "pytest-cov==${PYTEST_COV_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

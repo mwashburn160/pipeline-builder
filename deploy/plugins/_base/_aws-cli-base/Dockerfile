@@ -15,26 +15,29 @@
 # saves ~500 MB across the fleet via Docker layer dedup, and gives one place
 # to bump the AWS CLI version or add SHA256 verification.
 #
-# Note: AWS CLI v2 is multi-platform; the install script auto-detects ARCH.
-# We don't pin a specific version because AWS releases breaking changes
-# rarely on v2; if you need to pin, override AWS_CLI_VERSION at build time.
+# Pinned: AWS CLI v2 version + per-arch SHA-256 (AWS publishes a PGP .sig
+# per zip but no checksum file; the digests below were computed from the
+# official awscli.amazonaws.com versioned zips). Bump all three together.
 
 FROM pipeline-plugin-base:24.04
 
-ARG AWS_CLI_VERSION="latest"
+ARG AWS_CLI_VERSION=2.36.49
+ARG AWS_CLI_SHA256_AMD64=6b51b62d232217350e72d8f2493f47d3461239d011d1d5eef960dfcd8cb07069
+ARG AWS_CLI_SHA256_ARM64=2dec26fdaff2f5e34961ea98f456297104f73d8409fc3599c8f2909c6e27a07e
 
+USER root
 RUN set -eux; \
-    ARCH=$(uname -m); \
-    if [ "$AWS_CLI_VERSION" = "latest" ]; then \
-      _url="https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip"; \
-    else \
-      _url="https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}-${AWS_CLI_VERSION}.zip"; \
-    fi; \
-    for i in 1 2 3 4 5; do \
-      curl -fsSL "$_url" -o /tmp/awscli.zip && break \
-        || { echo "AWS CLI download attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
-    done; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) arch=x86_64;  sum="${AWS_CLI_SHA256_AMD64}" ;; \
+      arm64) arch=aarch64; sum="${AWS_CLI_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac; \
+    fetch-verified "https://awscli.amazonaws.com/awscli-exe-linux-${arch}-${AWS_CLI_VERSION}.zip" "$sum" /tmp/awscli.zip; \
     unzip -q /tmp/awscli.zip -d /tmp; \
     /tmp/aws/install; \
     rm -rf /tmp/aws /tmp/awscli.zip; \
     aws --version
+
+WORKDIR /app
+USER 1000:1000
+CMD ["bash"]

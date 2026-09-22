@@ -20,32 +20,20 @@ installCommands:
   - |
     set -e
     if [ -f /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} ]; then
-      ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /usr/local/bin/hadolint
+      ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /opt/hadolint/bin/hadolint
     else
-      echo "Hadolint ${HADOLINT_VERSION} not pre-installed, downloading..."
-      case "$(uname -m)" in
-        x86_64) _HL_ARCH=x86_64 ;;
-        aarch64|arm64) _HL_ARCH=arm64 ;;
-        *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-      esac
-      curl -fsSL https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-${_HL_ARCH} \
-        -o /usr/local/bin/hadolint && chmod +x /usr/local/bin/hadolint
+      echo "ERROR: Hadolint ${HADOLINT_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/hadolint/versions | sed 's/^hadolint-//' | tr '\n' ' ')" >&2
+      exit 1
     fi
   - hadolint --version
   # Dockle version selection
   - |
     set -e
     if [ -f /opt/dockle/versions/dockle-${DOCKLE_VERSION} ]; then
-      ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /usr/local/bin/dockle
+      ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /opt/dockle/bin/dockle
     else
-      echo "Dockle ${DOCKLE_VERSION} not pre-installed, downloading..."
-      case "$(uname -m)" in
-        x86_64) _DK_ARCH=64bit ;;
-        aarch64|arm64) _DK_ARCH=ARM64 ;;
-        *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
-      esac
-      curl -fsSL https://github.com/goodwithtech/dockle/releases/download/v${DOCKLE_VERSION}/dockle_${DOCKLE_VERSION}_Linux-${_DK_ARCH}.tar.gz \
-        | tar -xz -C /tmp && mv /tmp/dockle /usr/local/bin/dockle
+      echo "ERROR: Dockle ${DOCKLE_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/dockle/versions | sed 's/^dockle-//' | tr '\n' ' ')" >&2
+      exit 1
     fi
   - dockle --version
 commands:
@@ -78,7 +66,7 @@ commands:
     fi
   - "echo \"Docker lint complete. Reports available in docker-lint-reports/\""
 env:
-  HADOLINT_VERSION: "2.12.0"
+  HADOLINT_VERSION: "2.15.1"
   DOCKLE_VERSION: "0.4.15"
   DOCKER_IMAGE: ""
   HADOLINT_FORMAT: json
@@ -88,3 +76,12 @@ env:
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and produces a deterministic version output.
 smokeTest: "hadolint --version && dockle --version"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://github.com/hadolint/hadolint
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/docker-lint
+# icon: none — runs Hadolint/Dockle, which have no mark in Simple Icons; Docker's mark would misattribute the tool (monogram; see _icons/SOURCES.md)
+# network.egress: none declared — the step contacts no fixed external host
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

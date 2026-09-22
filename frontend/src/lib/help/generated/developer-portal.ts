@@ -1,6 +1,6 @@
 // GENERATED FROM docs/developer-portal.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dc6a488f1a90f644984798e62f147b04fa1afd9fd88c243b926139596ee1d4ed
+// SOURCE-SHA256: adea1d2f469554945dd546d535e8229be276a61558e8bb2be2b14ca1f3322126
 // SPDX-License-Identifier: Apache-2.0
 import { LayoutDashboard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -82,6 +82,18 @@ export const developerPortalTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The command palette (⌘K) searches actual resources — pipelines and plugins by name/keywords — not just page names, so you can jump straight to a resource without knowing which page it lives on."
+        },
+        {
+          "type": "text",
+          "content": "Plugin catalog: listings and installs"
+        },
+        {
+          "type": "text",
+          "content": "The plugins a developer can use are the org's own plugins plus the ecosystem listings the org has installed. The in-app catalog (dashboard → Plugins) shows every listing with the org's install state: installed or not, the version a new synth resolves to, whether installing needs approval, and whether the org's consumption policy blocks it. Official listings (publisher pipeline-builder) count as installed for every org through the implicit install. See Plugin Installing. Each listing also shows a 0–100 health score (runtime success, vulnerabilities, freshness, signing, smoke test, docs and rating); see Health score."
+        },
+        {
+          "type": "text",
+          "content": "Shadowing warning. An own-org plugin with the same name as an Official listing wins for unqualified references (plugin: { name: trivy }). The Plugins page flags that plugin, the pipeline editor flags each step that uses it, and lookup warns PLUGIN_SHADOWS_LISTING. GET /api/plugins/shadowing lists every shadowed name. Add publisher: pipeline-builder to a step to use the listing instead."
         }
       ]
     },

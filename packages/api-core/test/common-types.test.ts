@@ -17,6 +17,7 @@ describe('VALID_QUOTA_TYPES', () => {
     expect(VALID_QUOTA_TYPES).toEqual([
       'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
       'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
+      'listings',
     ]);
   });
 });

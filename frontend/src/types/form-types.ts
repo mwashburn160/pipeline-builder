@@ -48,6 +48,12 @@ export interface FormPluginFilter {
 
 /** Plugin selection with an optional alias, filter criteria, and per-plugin metadata. */
 export interface FormPluginOptions {
+  /**
+   * Publisher handle of an installed listing (`acme`), or '' for an unqualified
+   * reference (own org, then parent, then the Official catalog). An explicit
+   * publisher resolves ONLY that publisher's listing, through an install (§3.5).
+   */
+  publisher: string;
   name: string;
   alias: string;
   filter: FormPluginFilter;
@@ -246,7 +252,7 @@ export function createEmptyPluginFilter(): FormPluginFilter {
  * @returns An empty {@link FormPluginOptions}.
  */
 export function createEmptyPlugin(): FormPluginOptions {
-  return { name: '', alias: '', filter: createEmptyPluginFilter(), metadata: [] };
+  return { publisher: '', name: '', alias: '', filter: createEmptyPluginFilter(), metadata: [] };
 }
 
 let _idCounter = 0;

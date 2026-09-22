@@ -1,0 +1,12 @@
+# Grafana dashboard provisioning: every *.json next to this file is loaded as
+# a read-only dashboard in the "Pipeline Builder" folder. Edit the JSON in
+# source control (UI edits are not persisted across a re-provision).
+apiVersion: 1
+providers:
+  - name: pipeline-builder
+    folder: Pipeline Builder
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards

@@ -3,8 +3,8 @@
 
 import { createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler } from '@pipeline-builder/api-core';
 import { listRepositoriesUnderPrefix } from './registry-client.js';
-import { runRegistryGc } from './registry-gc.js';
-import { invalidateStorageCache } from './storage-usage.js';
+import { runQuarantineGc, runRegistryGc } from './registry-gc.js';
+import { computeStorageUsage, invalidateStorageCache } from './storage-usage.js';
 
 const logger = createLogger('gc-scheduler');
 
@@ -20,6 +20,12 @@ const ORG_PREFIX = 'org-';
 const LOCK_KEY = 'image-registry:gc-scheduler:leader';
 
 let scheduler: Scheduler | null = null;
+let quarantineScheduler: Scheduler | null = null;
+
+/** Leader-lock key of the quarantine sweep (independent of the org sweep's). */
+const QUARANTINE_LOCK_KEY = 'image-registry:quarantine-gc:leader';
+/** The quarantine sweep's cadence — a quarter of a day keeps the 30-day bound tight. */
+const QUARANTINE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 interface SchedulerOptions {
   /** Whether the scheduler should be active. Defaults to false; opt in via env. */
@@ -78,6 +84,14 @@ async function sweepOnce(maxAgeDays: number): Promise<void> {
     const slash = r.indexOf('/');
     if (slash === -1) continue;
     orgPrefixes.add(r.slice(0, slash + 1));
+  }
+
+  // Refresh the `public/*` footprint gauge (plugin ecosystem §9a). The public
+  // namespace itself is NOT swept — see isAgeGcExempt in registry-gc.ts.
+  try {
+    await computeStorageUsage('public/', { force: true });
+  } catch (err) {
+    logger.warn('GC sweep: public storage rollup failed', { error: errorMessage(err) });
   }
 
   if (orgPrefixes.size === 0) {
@@ -161,5 +175,43 @@ export function stopGcScheduler(): void {
   if (scheduler) {
     scheduler.stop();
     scheduler = null;
+  }
+}
+
+/**
+ * Start the ALWAYS-ON quarantine sweep (anonymous plugin submissions, plugin
+ * ecosystem §4.2 / W5): every 6h, delete `quarantine/*` repos older than 30
+ * days (runQuarantineGc). Unlike the org sweep this is not opt-in — quarantined
+ * builds are disposable by definition and the 30-day bound is a retention
+ * promise (plan §8), not an operator preference. The plugin service deletes a
+ * submission's repo as soon as it is decided (DELETE /internal/quarantine/:id);
+ * this is the backstop. Idempotent; stops on SIGTERM.
+ */
+export function startQuarantineGcScheduler(): void {
+  if (quarantineScheduler) return;
+  const cfg = readConfig();
+  const lockClient = createEnvRedisLock();
+  quarantineScheduler = createScheduler({
+    name: 'quarantine-gc',
+    intervalMs: QUARANTINE_INTERVAL_MS,
+    startupDelayMs: cfg.startupDelayMs,
+    run: async () => {
+      try {
+        await runQuarantineGc();
+      } catch (err) {
+        logger.warn('Quarantine GC sweep failed', { error: errorMessage(err) });
+      }
+    },
+    ...(lockClient ? { lock: { redis: () => lockClient, key: QUARANTINE_LOCK_KEY, ttlMs: cfg.lockTtlMs } } : {}),
+  });
+  quarantineScheduler.start();
+  process.once('SIGTERM', stopQuarantineGcScheduler);
+}
+
+/** Stop the quarantine sweep. Exported for tests / clean shutdown. */
+export function stopQuarantineGcScheduler(): void {
+  if (quarantineScheduler) {
+    quarantineScheduler.stop();
+    quarantineScheduler = null;
   }
 }

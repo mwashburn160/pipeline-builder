@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { Boxes, ShieldCheck, Star, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Ban, Boxes, ShieldCheck, Star, Trash2 } from 'lucide-react';
 import { AccessCell } from '@/components/ui/AccessCell';
 import { Badge } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -12,7 +12,10 @@ import { IconButton } from '@/components/ui/IconButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { CATEGORY_DISPLAY_NAMES, type PluginCategory } from '@/lib/plugin-categories';
+import { pluginUsageKey, shadowingMessage } from '@/lib/plugin-installs';
 import { registryHrefFor } from './PluginDetailModal';
+import { PluginLifecycleBadges } from './PluginLifecycleBadges';
+import { lifecycleActionsFor, type PluginLifecycleAction } from './PluginLifecycleModal';
 import { pluginProducesImage } from './PluginSupplyChain';
 
 /**
@@ -44,8 +47,11 @@ interface PluginColumnOptions {
   onToggleSelect: (id: string) => void;
   favorites: Set<string>;
   onToggleFavorite: (id: string) => void;
-  /** Name → number of the org's pipelines referencing the plugin. */
+  /** Reference → number of the org's pipelines using it (`name` for the
+   *  unqualified references own plugins answer to; see `pluginUsageKey`). */
   usage: Record<string, number>;
+  /** Plugin id → the Official listing its name shadows (`GET /plugins/shadowing`). */
+  shadowed?: ReadonlyMap<string, { publisherHandle: string; name: string }>;
   /** Per-row write gate (visibility rung + `plugins:write`). */
   canWriteRow: (plugin: PluginSummary) => boolean;
   /** Sysadmins get the registry cross-link. */
@@ -53,12 +59,21 @@ interface PluginColumnOptions {
   onView: (plugin: PluginSummary) => void;
   onEdit: (plugin: PluginSummary) => void;
   onDelete: (plugin: PluginSummary) => void;
+  /** Deprecate / clear deprecation / yank a version (writable rows only). */
+  onLifecycle: (plugin: PluginSummary, action: PluginLifecycleAction) => void;
 }
+
+/** Label + icon of each version-lifecycle row action. */
+const LIFECYCLE_ACTION_UI: Record<PluginLifecycleAction, { label: string; Icon: typeof Archive }> = {
+  deprecate: { label: 'Deprecate version', Icon: Archive },
+  undeprecate: { label: 'Clear deprecation', Icon: ArchiveRestore },
+  yank: { label: 'Yank version', Icon: Ban },
+};
 
 /** Columns of the plugins catalog table. */
 export function usePluginColumns({
-  selectable, selectedIds, onToggleSelect, favorites, onToggleFavorite, usage,
-  canWriteRow, showRegistryLink, onView, onEdit, onDelete,
+  selectable, selectedIds, onToggleSelect, favorites, onToggleFavorite, usage, shadowed,
+  canWriteRow, showRegistryLink, onView, onEdit, onDelete, onLifecycle,
 }: PluginColumnOptions): Column<PluginSummary>[] {
   return useMemo(() => [
     ...(selectable ? [{
@@ -103,7 +118,8 @@ export function usePluginColumns({
       header: 'Name',
       sortValue: (p) => p.name,
       render: (p) => {
-        const used = usage[p.name] ?? 0;
+        const used = usage[pluginUsageKey({ name: p.name })] ?? 0;
+        const shadows = shadowed?.get(p.id);
         return (
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -127,6 +143,12 @@ export function usePluginColumns({
                 </span>
               ))}
               {!p.isActive && <Badge color="red">Inactive</Badge>}
+              {shadows && (
+                <span title={shadowingMessage(shadows.name, shadows.publisherHandle)} className="inline-block" data-testid="shadowing-badge">
+                  <Badge color="yellow">Shadows Official</Badge>
+                </span>
+              )}
+              <PluginLifecycleBadges plugin={p} />
               {used > 0 && (
                 <span title={`Referenced by ${used} pipeline${used === 1 ? '' : 's'} in your org`} className="inline-block">
                   <Badge color="blue">Used by {used}</Badge>
@@ -283,6 +305,14 @@ export function usePluginColumns({
                 <Boxes className="w-4 h-4" />
               </Link>
             )}
+            {writable && lifecycleActionsFor(plugin).map((action) => {
+              const { label, Icon } = LIFECYCLE_ACTION_UI[action];
+              return (
+                <IconButton key={action} tone={action === 'yank' ? 'danger' : 'default'} title={label} aria-label={label} onClick={() => onLifecycle(plugin, action)}>
+                  <Icon className="h-4 w-4" />
+                </IconButton>
+              );
+            })}
             {writable && (
               <IconButton tone="danger" title="Delete plugin" aria-label="Delete plugin" onClick={() => onDelete(plugin)}>
                 <Trash2 className="h-4 w-4" />
@@ -292,5 +322,5 @@ export function usePluginColumns({
         );
       },
     },
-  ], [selectable, selectedIds, onToggleSelect, favorites, onToggleFavorite, usage, canWriteRow, showRegistryLink, onView, onEdit, onDelete]);
+  ], [selectable, selectedIds, onToggleSelect, favorites, onToggleFavorite, usage, shadowed, canWriteRow, showRegistryLink, onView, onEdit, onDelete, onLifecycle]);
 }

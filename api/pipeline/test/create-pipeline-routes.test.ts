@@ -27,6 +27,14 @@ const mockSendQuotaReserveDenied = jest.fn((res: any, _t: string, r: any) => {
   res.status(429).json({ success: false, statusCode: 429, quota: r.quota });
 });
 
+// Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here
+// and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
+const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
+jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  findPluginContractViolations: (...args: unknown[]) => mockFindContractViolations(...args),
+  formatContractViolations: (v: unknown[]) => `Pipeline does not meet the contract of ${v.length} plugin step(s)`,
+}));
+
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     createAsDefaultReportInserted: async (...args: unknown[]) => ({
@@ -118,6 +126,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   replaceNonAlphanumeric: jest.fn((str: string, replacement: string) =>
     str.replace(/[^a-zA-Z0-9]/g, replacement),
   ),
@@ -213,6 +222,36 @@ describe('POST /pipelines (create)', () => {
       }),
     }),
     );
+  });
+
+  it('returns 400 TEMPLATE_CONTRACT_VIOLATION listing each step, before reserving quota', async () => {
+    const steps = [
+      { path: 'synth', step: 'synth', plugin: 'cdk-synth', version: '1.0.0', missing: ['vars.branch'], invalid: [] },
+      {
+        path: 'stages[0].steps[0]',
+        step: 'deploy/helm',
+        plugin: 'helm',
+        version: '2.0.0',
+        missing: [],
+        invalid: [{ key: 'metadata.replicas', expected: 'number', message: 'pipeline metadata.replicas must be a number, got "two"' }],
+      },
+    ];
+    mockFindContractViolations.mockResolvedValueOnce(steps);
+    const props = { synth: { plugin: { name: 'cdk-synth' } } };
+    const res = mockRes();
+    await handler(mockReq({ body: { project: 'my-project', organization: 'my-org', props } }), res);
+
+    expect(mockFindContractViolations).toHaveBeenCalledWith(props, expect.any(String), undefined);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'TEMPLATE_CONTRACT_VIOLATION', steps }));
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockCreateAsDefault).not.toHaveBeenCalled();
+  });
+
+  it('passes a team caller\'s parent org to the contract resolution', async () => {
+    mockCreateAsDefault.mockResolvedValue({ id: 'uuid-1', visibility: 'org' });
+    await handler(mockReq({ user: { parentOrganizationId: 'parent-org' } }), mockRes());
+    expect(mockFindContractViolations).toHaveBeenCalledWith(undefined, expect.any(String), 'parent-org');
   });
 
   it('emits an attributed pipeline.create audit event after a successful create', async () => {

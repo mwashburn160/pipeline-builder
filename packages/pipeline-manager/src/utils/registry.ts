@@ -4,7 +4,7 @@
 import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { parsePlatformBaseUrl } from '@pipeline-builder/pipeline-core';
+import { parsePlatformBaseUrl, STEP_MANIFEST_FILE, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
 import { resolveAwsRegion } from './aws-env.js';
 import { printInfo } from './output-utils.js';
 import { defaultPipelineName } from '../config/cli.constants.js';
@@ -76,6 +76,13 @@ export interface RegistryPayload {
   project: string;
   organization: string;
   stackName: string;
+  /**
+   * Which plugin each CodePipeline action runs, as the synth recorded it (W0.1).
+   * Present only on a registration that follows a deploy; the platform then
+   * replaces the pipeline's step manifest with it. Absent (a manual `pipeline
+   * register`) leaves the stored manifest untouched.
+   */
+  steps?: StepManifestEntry[];
 }
 
 /** Pipeline fields needed to construct a RegistryPayload. */
@@ -115,6 +122,21 @@ export async function buildRegistryPayload(
     organization: pipeline.organization,
     stackName,
   };
+}
+
+/**
+ * Read the step manifest the synth app wrote into the cloud assembly
+ * (`<output>/pb-step-manifest.json`). Returns undefined when there is none or
+ * it is unreadable — registration then proceeds without it and the platform
+ * keeps the previous manifest, so a telemetry gap never blocks a deploy.
+ */
+export async function readStepManifest(outputDir: string): Promise<StepManifestEntry[] | undefined> {
+  try {
+    const parsed: unknown = JSON.parse(await fs.readFile(join(outputDir, STEP_MANIFEST_FILE), 'utf8'));
+    return Array.isArray(parsed) ? parsed as StepManifestEntry[] : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

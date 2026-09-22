@@ -64,6 +64,9 @@ function NavBar() {
           Pipeline Builder
         </a>
         <div className="flex items-center gap-2">
+          <Link href="/plugins" className="hidden sm:inline-flex text-sm font-medium text-fg-muted hover:text-fg px-2 py-1.5">
+            Browse plugins
+          </Link>
           <button onClick={toggleDark} className="p-2 text-fg-muted hover:text-fg transition-colors" aria-label="Toggle dark mode">
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
@@ -78,6 +81,7 @@ function NavBar() {
       {/* Mobile menu */}
       {mobileOpen && (
         <div className="sm:hidden border-t border-default bg-surface px-6 py-4 space-y-3">
+          <Link href="/plugins" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Browse plugins</Link>
           <a href="#signin" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Sign in</a>
           <Link href="/auth/register" onClick={() => setMobileOpen(false)} className="block btn btn-primary text-sm text-center">Get started</Link>
         </div>

@@ -297,6 +297,8 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
             commands,
             visibility,
             buildType: 'build_image',
+            // The period this deploy's `plugins` slot was charged to (W0.5 refund on delete).
+            quotaResetAt: reservation.quota.resetAt ?? null,
           },
         });
 

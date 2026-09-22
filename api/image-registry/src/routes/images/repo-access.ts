@@ -22,6 +22,14 @@ import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
  *   - `system/*` and `library/*` are pull-open to any authenticated caller;
  *     writing them is superadmin-only, except the system org may write
  *     `system/*` (it owns that namespace, as in the token authorizer);
+ *   - `public/*` (listed plugin versions, plugin ecosystem §3.3) is pull-open
+ *     and APPEND-ONLY: nobody writes it through this API, superadmins included —
+ *     only the internal publish/yank/gc routes do, as the management identity;
+ *   - `registry-meta/*` (this service's bookkeeping) is closed to everyone;
+ *   - `quarantine/*` (anonymous plugin submissions awaiting moderation, plugin
+ *     ecosystem §4.2) is closed to everyone here — never listed, read or written
+ *     through this API, superadmins included. Only the plugin service principal
+ *     touches it, over the registry token flow and the internal routes;
  *   - any other/unrecognized namespace is superadmin-only.
  *
  * They are enforced regardless of who holds the permission, so the tenant
@@ -40,23 +48,37 @@ export function repoTenant(repo: string): string | null {
   return m ? m[1] : null;
 }
 
+/** True for an anonymous-submission `quarantine/<submissionId>` repository (or the bare prefix). */
+export function isQuarantineRepo(repo: string): boolean {
+  return repo.startsWith('quarantine/');
+}
+
 /**
  * The org that OWNS `repo` — the org id of an `org-<id>/...` repo, the system org
- * for `system/...` — or undefined for org-less shared namespaces (`library/...`,
- * anything unrecognized). Used as the audit `affectedOrgId`.
+ * for `system/...` and for `quarantine/...` (moderation is the system org's
+ * decision, so only a system-org service token may sign or publish from it) —
+ * or undefined for org-less shared namespaces (`library/...`, anything
+ * unrecognized). Used as the audit `affectedOrgId`.
  */
 export function repoOwnerOrgId(repo: string): string | undefined {
   const tenant = repoTenant(repo);
   if (tenant !== null) return tenant;
-  return repo.startsWith('system/') ? SYSTEM_ORG_ID : undefined;
+  return repo.startsWith('system/') || isQuarantineRepo(repo) ? SYSTEM_ORG_ID : undefined;
 }
 
 function ownsTenant(user: RepoAccessUser | undefined, tenant: string): boolean {
   return !!user?.organizationId && user.organizationId.toLowerCase() === tenant;
 }
 
+/** Namespaces no user may write through the images API — superadmins included. */
+function isAppendOnlyOrClosed(repo: string): boolean {
+  return repo.startsWith('public/') || repo.startsWith('registry-meta/') || isQuarantineRepo(repo);
+}
+
 /** True when `user` may READ (list/pull/inspect) `repo`. */
 export function canReadRepo(user: RepoAccessUser | undefined, repo: string): boolean {
+  if (repo.startsWith('registry-meta/') || isQuarantineRepo(repo)) return false;
+  if (repo.startsWith('public/')) return !!user;
   if (user?.isSuperAdmin) return true;
   const tenant = repoTenant(repo);
   if (tenant !== null) return ownsTenant(user, tenant);
@@ -69,6 +91,7 @@ export function canReadRepo(user: RepoAccessUser | undefined, repo: string): boo
 
 /** True when `user` may WRITE (push/delete/copy-target) `repo`. */
 export function canWriteRepo(user: RepoAccessUser | undefined, repo: string): boolean {
+  if (isAppendOnlyOrClosed(repo)) return false;
   if (user?.isSuperAdmin) return true;
   const tenant = repoTenant(repo);
   if (tenant !== null) return ownsTenant(user, tenant);

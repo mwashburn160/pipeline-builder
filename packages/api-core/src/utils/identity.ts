@@ -41,6 +41,17 @@ export function normalizeOrgId(orgId: string | undefined | null): string | undef
 export const SYSTEM_ACTOR_ID = 'system';
 
 /**
+ * The actor id written for an UNAUTHENTICATED actor: an anonymous public plugin
+ * submission (docs/plans/plugin-ecosystem.md §4, §5c — the event carries
+ * `details.submissionId` for correlation and is recorded against the system
+ * org; the submitter's email, hashed or otherwise, never appears in the audit
+ * trail) and platform's pre-auth `device.authorize.start` (a device-login code
+ * requested before anyone has signed in). Distinct from {@link SYSTEM_ACTOR_ID}, which means "no person
+ * involved", not "a person we don't know".
+ */
+export const ANONYMOUS_ACTOR_ID = 'anonymous';
+
+/**
  * The actor id to stamp on an audit event, from a route context.
  *
  * Route handlers used to reach back into `req.user.sub` themselves, with

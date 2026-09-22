@@ -10,10 +10,13 @@ import {
   PERMISSION_CATALOG,
   ROLE_PERMISSIONS,
   SUPERADMIN_ONLY_PERMISSIONS,
+  SYSTEM_ORG_ONLY_PERMISSIONS,
+  ECOSYSTEM_MANAGER_PERMISSIONS,
   READ_ONLY_PERMISSIONS,
   hasPermission,
   intersectPermissions,
   isOrgAssignablePermission,
+  isSystemOrgOnlyPermission,
   normalizePermissionSubset,
   isValidPermission,
   permissionLabel,
@@ -245,6 +248,61 @@ describe('org:settings split → org:impersonation', () => {
 
   it('is NOT granted to members — it decides who may view the org\'s data', () => {
     expect(ROLE_PERMISSIONS.member).not.toContain('org:impersonation');
+  });
+});
+
+describe('plugin ecosystem permissions (docs/plans/plugin-ecosystem.md §5a)', () => {
+  const ORG_ASSIGNABLE = ['plugins:install', 'plugin_installs:manage', 'publishers:manage'] as const;
+
+  it('adds every ecosystem permission to the catalog', () => {
+    for (const p of [...ORG_ASSIGNABLE, ...SYSTEM_ORG_ONLY_PERMISSIONS]) {
+      expect(ALL_PERMISSIONS).toContain(p);
+      expect(PERMISSION_CATALOG.find((m) => m.id === p)?.category).toBe('Plugin Ecosystem');
+    }
+  });
+
+  it('plugins:install is in the member, admin and owner bundles', () => {
+    for (const bundle of [ROLE_PERMISSIONS.member, ROLE_PERMISSIONS.admin, ROLE_PERMISSIONS.owner]) {
+      expect(bundle).toContain('plugins:install');
+    }
+  });
+
+  it('plugin_installs:manage and publishers:manage are admin/owner only', () => {
+    for (const p of ['plugin_installs:manage', 'publishers:manage'] as const) {
+      expect(ORG_ASSIGNABLE_PERMISSIONS).toContain(p);
+      expect(ROLE_PERMISSIONS.admin).toContain(p);
+      expect(ROLE_PERMISSIONS.owner).toContain(p);
+      expect(ROLE_PERMISSIONS.member).not.toContain(p);
+    }
+  });
+
+  it('SYSTEM_ORG_ONLY_PERMISSIONS are moderate + verify, in no built-in bundle and never org-assignable', () => {
+    expect([...SYSTEM_ORG_ONLY_PERMISSIONS]).toEqual(['plugins:moderate', 'publishers:verify']);
+    for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) {
+      expect(isSystemOrgOnlyPermission(p)).toBe(true);
+      expect(isOrgAssignablePermission(p)).toBe(false);
+      expect(ORG_ASSIGNABLE_PERMISSIONS).not.toContain(p);
+      expect(SUPERADMIN_ONLY_PERMISSIONS).not.toContain(p);
+      for (const bundle of Object.values(ROLE_PERMISSIONS)) expect(bundle).not.toContain(p);
+      expect(ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((m) => m.id))).not.toContain(p);
+    }
+    for (const p of ORG_ASSIGNABLE) expect(isSystemOrgOnlyPermission(p)).toBe(false);
+  });
+
+  it('superadmins hold the system-org-only permissions implicitly', () => {
+    const perms = resolveUserPermissions(null, true);
+    for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) expect(perms).toContain(p);
+  });
+
+  it('ECOSYSTEM_MANAGER_PERMISSIONS: system-org-only perms + moderator reads, nothing tenant-facing', () => {
+    expect([...ECOSYSTEM_MANAGER_PERMISSIONS].sort()).toEqual(
+      ['messages:read', 'observability:read', 'plugins:moderate', 'plugins:read', 'publishers:verify'],
+    );
+    for (const p of ECOSYSTEM_MANAGER_PERMISSIONS) expect(isValidPermission(p)).toBe(true);
+    for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) expect(ECOSYSTEM_MANAGER_PERMISSIONS).toContain(p);
+    for (const p of ['members:manage', 'roles:manage', 'registry:read', 'registry:write'] as const) {
+      expect(ECOSYSTEM_MANAGER_PERMISSIONS).not.toContain(p);
+    }
   });
 });
 

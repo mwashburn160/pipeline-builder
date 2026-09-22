@@ -22,7 +22,7 @@ import {
   authRoutes, deviceAuthRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes,
   invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes,
   orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes,
-  scimRoutes, mfaResetAdminRoutes,
+  scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes,
 } from './index.js';
 
 /**
@@ -72,6 +72,7 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/invitation', invitationRoutes);
   app.use('/audit', auditRoutes);
   app.use('/internal/notify-email', notifyEmailRoutes);
+  app.use('/internal/ecosystem', ecosystemInternalRoutes);
   app.use('/config', configRoutes);
   // The relay's own bucket, mounted ahead of the tenant-facing limiter so the
   // two never share a budget.

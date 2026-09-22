@@ -148,7 +148,9 @@ function assemblePluginFilter(filter: FormPluginOptions['filter']): Record<strin
  * only when they contain non-empty values.
  */
 function assemblePluginOptions(plugin: FormPluginOptions): Record<string, unknown> {
-  const result: Record<string, unknown> = { name: plugin.name };
+  const result: Record<string, unknown> = {};
+  if (plugin.publisher.trim()) result.publisher = plugin.publisher.trim();
+  result.name = plugin.name;
   if (plugin.alias) result.alias = plugin.alias;
   const filter = assemblePluginFilter(plugin.filter);
   if (filter) result.filter = filter;

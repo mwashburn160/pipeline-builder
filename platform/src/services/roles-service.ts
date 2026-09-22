@@ -18,10 +18,10 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { assertActorMayAssignRole, permissionsForGrantsRole } from './role-authority.js';
+import { assertActorMayAssignRole, builtinRolePermissions } from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
-import type { RoleGrant } from '../models/index.js';
+import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
 const logger = createLogger('roles-service');
 
@@ -37,19 +37,35 @@ export interface RoleWithMembers {
   members: Array<{ id: string; username: string; email: string }>;
 }
 
+/** A built-in Role to seed. `seedBundle` names a bundle that replaces the
+ *  `grantsRole` one (see `builtinRolePermissions`). */
+interface BuiltinRoleSpec { name: string; grantsRole: RoleGrant; seedBundle?: RoleSeedBundle }
+
 /** Default Roles seeded into every new org. The system org also gets the
- *  Super Admin Role (prepended) — see {@link seedDefaultRoles}. */
-const DEFAULT_ROLES: Array<{ name: string; grantsRole: RoleGrant }> = [
+ *  Super Admin Role (prepended) and the Ecosystem Manager Role (appended) —
+ *  see {@link seedDefaultRoles}. */
+const DEFAULT_ROLES: BuiltinRoleSpec[] = [
   { name: 'Admin', grantsRole: 'admin' },
   { name: 'Member', grantsRole: 'member' },
 ];
-const SUPERADMINS_ROLE = { name: 'Super Admin', grantsRole: 'superadmin' as RoleGrant };
+const SUPERADMINS_ROLE: BuiltinRoleSpec = { name: 'Super Admin', grantsRole: 'superadmin' };
+/** The system org's ecosystem-governance Role (docs/plans/plugin-ecosystem.md
+ *  §5a.1): the coarse `member` grant (no admin over the system org, never
+ *  `isSuperAdmin`) plus api-core `ECOSYSTEM_MANAGER_PERMISSIONS`. Assignable
+ *  only by a platform superadmin; the org creator is NOT added to it. */
+export const ECOSYSTEM_MANAGER_ROLE_NAME = 'Ecosystem Manager';
+const ECOSYSTEM_MANAGER_ROLE: BuiltinRoleSpec = {
+  name: ECOSYSTEM_MANAGER_ROLE_NAME,
+  grantsRole: 'member',
+  seedBundle: 'ecosystem_manager',
+};
 
 /**
  * Seed the default permission Roles for a freshly-created org and assign the
  * creator the right Role(s). For a normal org: Admin + Member,
- * creator → Admin. For the **system** org: also Super Admin, and the
- * creator joins **Super Admin + Admin** and is flagged
+ * creator → Admin. For the **system** org: also Super Admin and Ecosystem
+ * Manager (never seeded anywhere else), and the creator joins
+ * **Super Admin + Admin** (not Ecosystem Manager) and is flagged
  * `User.isSuperAdmin` (this is how the bootstrap user becomes a platform admin
  * via Roles). The creator's `UserOrganization.role` stays `owner` — owner
  * ranks above any Role-granted role.
@@ -60,25 +76,31 @@ export async function seedDefaultRoles(
   opts: { isSystemOrg?: boolean } = {},
   session?: mongoose.ClientSession,
 ): Promise<void> {
-  const specs = opts.isSystemOrg ? [SUPERADMINS_ROLE, ...DEFAULT_ROLES] : DEFAULT_ROLES;
+  const specs = opts.isSystemOrg
+    ? [SUPERADMINS_ROLE, ...DEFAULT_ROLES, ECOSYSTEM_MANAGER_ROLE]
+    : DEFAULT_ROLES;
 
   const created = await Role.create(
     // Each built-in Role is seeded WITH its own explicit permission bundle
-    // (Admin/Super Admin → admin bundle, Member → member bundle) so a fresh org's
-    // Roles are self-describing — the runtime resolver reads a Role's own
-    // `permissions[]`, never a role-derived baseline.
+    // (Admin/Super Admin → admin bundle, Member → member bundle, Ecosystem
+    // Manager → its named bundle) so a fresh org's Roles are self-describing —
+    // the runtime resolver reads a Role's own `permissions[]`, never a
+    // role-derived baseline.
     specs.map((s) => ({
       organizationId,
       name: s.name,
       grantsRole: s.grantsRole,
-      permissions: permissionsForGrantsRole(s.grantsRole),
+      permissions: builtinRolePermissions(s),
       system: true,
+      ...(s.seedBundle ? { seedBundle: s.seedBundle } : {}),
     })),
     { session, ordered: true },
   );
   // Key built-in Roles by their stable `grantsRole` (not the display name) so the
-  // creator-join logic is independent of the human-facing Role names.
-  const byGrant = new Map(created.map((g) => [g.grantsRole, g]));
+  // creator-join logic is independent of the human-facing Role names. Named-bundle
+  // Roles (Ecosystem Manager) are excluded: the creator never joins them, and
+  // they share `grantsRole: 'member'` with the Member Role.
+  const byGrant = new Map(created.filter((g) => !g.seedBundle).map((g) => [g.grantsRole, g]));
 
   const joinGrants: RoleGrant[] = opts.isSystemOrg ? ['superadmin', 'admin'] : ['admin'];
   const assignments = joinGrants
@@ -166,7 +188,8 @@ export async function recomputeUserOrgRole(
  * a new plain-member org membership calls this to make the Member floor explicit.
  *
  * The built-in Member Role is located by its stable `grantsRole: 'member'` (not
- * its display name), so renaming Roles never breaks this. Idempotent: the
+ * its display name), so renaming Roles never breaks this; `seedBundle: null`
+ * excludes the system org's Ecosystem Manager, which shares that grant. Idempotent: the
  * assignment is upserted (`$setOnInsert`), so re-invocation is a no-op. Holding
  * the Member Role alongside a higher Role (Admin) is fine — {@link recomputeUserOrgRole}
  * still derives the highest `grantsRole`, so a user in both keeps `admin`. No-op
@@ -178,7 +201,7 @@ export async function ensureBaselineRole(
   organizationId: OrgId,
   session?: mongoose.ClientSession,
 ): Promise<void> {
-  const memberRole = await Role.findOne({ organizationId, grantsRole: 'member', system: true })
+  const memberRole = await Role.findOne({ organizationId, grantsRole: 'member', system: true, seedBundle: null })
     .session(session ?? null).select('_id').lean();
   if (!memberRole) {
     logger.warn('ensureBaselineRole: org has no built-in Member Role; baseline Role not applied', {

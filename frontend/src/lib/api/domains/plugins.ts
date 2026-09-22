@@ -4,7 +4,9 @@
 import type { ApiCore } from '../core';
 import { buildQuery, API_URL } from '../util';
 import { ApiError } from '../errors';
-import type { ApiResponse, OwnerType, Plugin, QueueStatus , Visibility } from '@/types';
+import type {
+  ApiResponse, Criticality, EntityLink, Lifecycle, OwnerType, Plugin, PluginCatalogEdits, PluginInspectResult, QueueStatus, Visibility,
+} from '@/types';
 
 /**
  * Page envelope of the build-queue listings (`/plugins/queue/failed`, `/dlq`).
@@ -30,6 +32,8 @@ export const PLUGIN_LIST_FIELDS = [
   'id', 'orgId', 'name', 'description', 'keywords', 'category', 'version', 'pluginType', 'computeType',
   'timeout', 'failureBehavior', 'visibility', 'isDefault', 'isActive', 'createdBy', 'createdAt', 'updatedAt',
   'buildType', 'imageDigest', 'imageSource',
+  // Version lifecycle (W0.4): the Deprecated / Yanked badges and their actions.
+  'deprecatedAt', 'deprecationMessage', 'yankedAt', 'yankReason',
 ] as const satisfies ReadonlyArray<keyof Plugin>;
 
 /** A plugin row as the list view receives it (see {@link PLUGIN_LIST_FIELDS}). */
@@ -96,12 +100,48 @@ export function pluginsApi(core: ApiCore) {
       return { blob: await res.blob(), filename: match?.[1] ?? 'sbom.spdx.json' };
     },
 
-    uploadPlugin: async (file: File, visibility: Visibility, options?: { signal?: AbortSignal }) => {
+    /**
+     * Dry-run parse of a plugin package (`POST /plugins/inspect`): every
+     * descriptive catalog field with its detected value, source and — when the
+     * detected value failed validation — the reason. Builds and stores nothing.
+     * Multipart like the upload, so a raw fetch; errors rebuilt from the envelope.
+     */
+    inspectPlugin: async (file: File, options?: { signal?: AbortSignal }): Promise<PluginInspectResult> => {
+      await core.ensureFreshToken();
+      const formData = new FormData();
+      formData.append('plugin', file);
+      const response = await fetch(`${API_URL}/api/plugins/inspect`, {
+        method: 'POST',
+        headers: core.authHeaders(),
+        body: formData,
+        credentials: 'same-origin',
+        signal: options?.signal,
+      });
+      const data = await response.json().catch(() => ({})) as { message?: string; code?: string; data?: PluginInspectResult };
+      if (response.status >= 400 || !data.data?.fields) {
+        throw new ApiError(data.message || 'Could not read the plugin package', response.status >= 400 ? response.status : 500, data.code);
+      }
+      return data.data;
+    },
+
+    /**
+     * Upload a plugin package. `catalogEdits` are the catalog fields the user
+     * EDITED in the Catalog details step (only those; `null` clears one) and go
+     * as the `metadata` JSON part — omitted entirely when there are none, which
+     * accepts every detected value.
+     */
+    uploadPlugin: async (
+      file: File,
+      visibility: Visibility,
+      options?: { signal?: AbortSignal; catalogEdits?: PluginCatalogEdits },
+    ) => {
       await core.ensureFreshToken();
 
       const formData = new FormData();
       formData.append('plugin', file);
       formData.append('visibility', visibility);
+      const edits = options?.catalogEdits;
+      if (edits && Object.keys(edits).length > 0) formData.append('metadata', JSON.stringify(edits));
 
       const response = await fetch(`${API_URL}/api/plugins/upload`, {
         method: 'POST',
@@ -203,26 +243,21 @@ export function pluginsApi(core: ApiCore) {
      *
      * `ownerId`/`ownerType` are admin-only server-side (a plain member's values
      * are dropped, not rejected), and the `public` rung needs `plugins:publish`.
+     *
+     * Only the descriptive catalog fields and the operational ones are
+     * accepted: the execution contract (commands, env, secrets, compute, name,
+     * version, …) changes only by uploading a new version, and the server
+     * refuses those keys with a 400. A version frozen by a publish request or
+     * listing returns 409 for descriptive edits.
      */
-    updatePlugin: async (id: string, data: {
-      name?: string;
-      description?: string;
-      keywords?: string[];
-      version?: string;
-      metadata?: Record<string, string | number | boolean>;
-      pluginType?: string;
-      computeType?: string;
-      env?: Record<string, string>;
-      buildArgs?: Record<string, string>;
-      installCommands?: string[];
-      commands?: string[];
+    updatePlugin: async (id: string, data: PluginCatalogEdits & {
       visibility?: Visibility;
       isDefault?: boolean;
       isActive?: boolean;
-      primaryOutputDirectory?: string | null;
-      timeout?: number | null;
-      failureBehavior?: 'fail' | 'warn' | 'ignore';
-      secrets?: Array<{ name: string; required: boolean; description?: string }>;
+      lifecycle?: Lifecycle;
+      criticality?: Criticality | null;
+      labels?: Record<string, string>;
+      links?: EntityLink[];
       /** Catalog owner: a user id (`ownerType: 'user'`) or a team org id
        *  (`ownerType: 'team'`). Not nullable — the server schema requires a
        *  non-empty string, so ownership is reassigned, never cleared. */
@@ -232,6 +267,33 @@ export function pluginsApi(core: ApiCore) {
       return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
+      });
+    },
+
+    /**
+     * Deprecate a version (`deprecated` defaults to true), or clear it with
+     * `{ deprecated: false }`. It keeps resolving, but lookups carry a warning,
+     * synth prints it, AI selection stops offering it, and the org approvers of
+     * every org whose pipelines use it are notified. `plugins:write`, plus
+     * `plugins:publish` for a public version.
+     */
+    deprecatePlugin: async (id: string, data: { deprecated?: boolean; message?: string } = {}) => {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}/deprecate`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    /**
+     * Yank a version: ranges, `latest` and the default stop resolving to it; an
+     * exact pin still resolves, with a warning carrying `reason`. Yanking the
+     * default promotes the next version. There is no un-yank here; a version
+     * published to the ecosystem answers 409 (request the yank there).
+     */
+    yankPlugin: async (id: string, reason: string) => {
+      return core.request<ApiResponse<{ plugin: Plugin; promotedDefault?: { id: string; version: string } }>>(`/api/plugins/${id}/yank`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
       });
     },
 
@@ -274,14 +336,15 @@ export function pluginsApi(core: ApiCore) {
     },
 
     bulkUpdatePlugins: async (ids: string[], data: Record<string, unknown>) => {
-      return core.request<ApiResponse<{ updated: number }>>('/api/plugins/bulk/update', {
+      return core.request<ApiResponse<{ updated: number; skipped?: Array<{ id: string; reason: 'frozen' | 'listed'; statusCode: 409; code: string }> }>>('/api/plugins/bulk/update', {
         method: 'PUT',
         body: JSON.stringify({ ids, data }),
       });
     },
 
-    /** Counts pipelines (in caller's org) that reference each plugin name.
-     *  Plugins with zero usage are absent from the map. */
+    /** Counts pipelines (in caller's org) that reference each plugin, keyed by
+     *  the REFERENCE: `name` for unqualified references, `publisher/name` for
+     *  qualified ones (see `pluginUsageKey`). Zero-usage plugins are absent. */
     getPluginUsage: async () => {
       return core.request<ApiResponse<{ counts: Record<string, number> }>>('/api/plugins/plugin-usage');
     },
@@ -318,7 +381,9 @@ export function pluginsApi(core: ApiCore) {
     },
 
     /**
-     * Stream AI plugin generation with progressive partial results.
+     * Stream AI plugin generation with progressive partial results. The `done`
+     * event's data is a `PluginGenerationDone` (config, dockerfile, and the
+     * `similarPlugins` reuse hint).
      */
     streamPluginGeneration: async function*(prompt: string, provider: string, model: string, apiKey?: string) {
       yield* core.streamRequest('/api/plugins/generate/stream', {

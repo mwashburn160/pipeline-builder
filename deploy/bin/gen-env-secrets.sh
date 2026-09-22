@@ -251,6 +251,7 @@ pb_check_alert_delivery() {
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
   local pg pgapp mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
+  local powsecret emailhash
   # No token secret is generated here any more: every token is asymmetrically
   # signed and its private key is a FILE, never an env value — the user-token key
   # from deploy/bin/token-signing-keys.sh (or KMS), and the per-service internal
@@ -264,6 +265,11 @@ pb_gen_env_secrets() {
   # The services' Postgres login (DB_USER, a NOSUPERUSER NOBYPASSRLS role that
   # postgres-init.sql creates) gets its OWN password — never the superuser's.
   pgapp=$(openssl rand -base64 24 | tr -d '=+/')
+  # The anonymous public plugin directory's Postgres login (ecosystem_public_reader,
+  # view-only on public_listings / public_listed_versions; created by
+  # postgres-init.sql and seeded into pgbouncer's userlist). Its own password —
+  # never DB_PASSWORD's — so the public read path holds no tenant-capable login.
+  pgreader=$(openssl rand -base64 24 | tr -d '=+/')
   # Bearer token for the Alertmanager -> platform per-org alert relay.
   alerttoken=$(openssl rand -base64 32 | tr -d '=+/')
   mongo=$(openssl rand -base64 24 | tr -d '=+/')
@@ -283,10 +289,19 @@ pb_gen_env_secrets() {
   grafana=$(openssl rand -base64 24 | tr -d '=+/')
   # Kiali's session-signing key must be EXACTLY 16/24/32 bytes; hex 16 = 32 chars.
   kiali=$(openssl rand -hex 16)
+  # Anonymous plugin submissions (docs/plans/plugin-ecosystem.md §4.2, W5): the
+  # HMAC key that signs proof-of-work challenges, and the HMAC key the submitter
+  # email is hashed under (rate limits + update ownership without storing the
+  # address in the clear). Generated even while ANONYMOUS_SUBMISSIONS_ENABLED is
+  # off, so flipping the flag never boots the plugin service on a placeholder —
+  # it refuses to (fail closed) when the flag is on and either is missing.
+  powsecret=$(openssl rand -base64 32 | tr -d '=+/')
+  emailhash=$(openssl rand -base64 32 | tr -d '=+/')
   sed -i.bak \
     -e "s|SECRET_ENCRYPTION_KEY=CHANGE_ME_generate_with_openssl_rand_base64_32|SECRET_ENCRYPTION_KEY=${seckey}|" \
     -e "s|POSTGRES_PASSWORD=CHANGE_ME|POSTGRES_PASSWORD=${pg}|" \
     -e "s|^DB_PASSWORD=CHANGE_ME$|DB_PASSWORD=${pgapp}|" \
+    -e "s|^ECOSYSTEM_PUBLIC_READER_PASSWORD=CHANGE_ME$|ECOSYSTEM_PUBLIC_READER_PASSWORD=${pgreader}|" \
     -e "s|^ALERT_WEBHOOK_INSTANCE_TOKEN=CHANGE_ME$|ALERT_WEBHOOK_INSTANCE_TOKEN=${alerttoken}|" \
     -e "s|MONGO_INITDB_ROOT_PASSWORD=CHANGE_ME|MONGO_INITDB_ROOT_PASSWORD=${mongo}|" \
     -e "s|mongodb://mongo:CHANGE_ME@|mongodb://mongo:${mongo}@|g" \
@@ -301,6 +316,8 @@ pb_gen_env_secrets() {
     -e "s|PLUGIN_S3_SECRET_KEY=CHANGE_ME|PLUGIN_S3_SECRET_KEY=${s3plugin}|" \
     -e "s|GRAFANA_ADMIN_PASSWORD=CHANGE_ME|GRAFANA_ADMIN_PASSWORD=${grafana}|" \
     -e "s|KIALI_SIGNING_KEY=CHANGE_ME|KIALI_SIGNING_KEY=${kiali}|" \
+    -e "s|^SUBMISSION_POW_SECRET=CHANGE_ME$|SUBMISSION_POW_SECRET=${powsecret}|" \
+    -e "s|^SUBMISSION_EMAIL_HASH_SECRET=CHANGE_ME$|SUBMISSION_EMAIL_HASH_SECRET=${emailhash}|" \
     -e "s|GHCR_USER=mwashburn160|GHCR_USER=${ghcr_user}|" \
     "$env_file"
   rm -f "$env_file.bak"
@@ -310,7 +327,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

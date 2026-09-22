@@ -13,3 +13,6 @@ export * from './feature-flags.js';
 export * from './permissions.js';
 export * from './metadata-keys.js';
 export * from './audit-events.js';
+export * from './ecosystem-notifications.js';
+export * from './ecosystem.js';
+export * from './plugin-health.js';

@@ -507,8 +507,14 @@ const apiServer = new PackageProject({
     // require-in-the-middle path doesn't cover ESM services).
     '@opentelemetry/instrumentation@0.221.0',
     '@opentelemetry/api@1.9.1',
+    // Server-side untrusted-markdown renderer (`lib/markdown.js`, plugin
+    // READMEs / advisories / reviews — docs/plans/plugin-ecosystem.md G6).
+    // ESM-only; reached through the subpath, never the package root.
+    'unified@11.0.5', 'remark-parse@11.0.0', 'remark-gfm@4.0.1', 'remark-rehype@11.1.2',
+    'rehype-sanitize@6.0.0', 'rehype-stringify@10.0.1',
   ],
   devDeps: [
+    '@types/hast@3.0.4',
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.3',
     '@types/compression@1.8.1', '@types/cors@2.8.19', 'jsonwebtoken@9.0.3', '@types/jsonwebtoken@9.0.10',
     '@types/swagger-ui-express@4.1.8', '@types/node@26.1.2', `typescript@${typescriptVersion}`,
@@ -770,6 +776,15 @@ const frontend = new FrontEndProject({
 });
 // Regenerate the in-app help topics from docs/*.md (single source of truth).
 frontend.addScripts({ 'generate:help': 'node scripts/generate-help.mjs' });
+// Curated plugin icons (plugin-ecosystem §6a.1): deploy/plugins/_icons/*.svg are
+// linted and copied into public/plugin-icons/ under content-hashed names, and the
+// manifest src/generated/plugin-icons.ts is rewritten. Runs BEFORE `next build`
+// on the host — the frontend image only copies public/, and deploy/plugins/ is
+// outside its Docker context. The hashed copies are build output (gitignored);
+// the manifest is committed and drift-tested.
+frontend.addScripts({ 'generate:plugin-icons': 'node scripts/generate-plugin-icons.mjs' });
+frontend.preCompileTask.exec('node scripts/generate-plugin-icons.mjs');
+frontend.gitignore.exclude('/public/plugin-icons/');
 // Type-check the test suites before running them. ts-jest only TRANSPILES, so
 // nothing else ever checked them: tsconfig.test.json sat on the removed
 // `moduleResolution: node10` (a fatal config error, so `tsc` never got as far as

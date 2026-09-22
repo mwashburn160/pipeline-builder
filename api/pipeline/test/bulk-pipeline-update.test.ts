@@ -19,6 +19,14 @@ const mockFindByIds = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue
 const mockEmitAudit = jest.fn();
 const mockValidatePipeline = jest.fn<(...a: any[]) => Promise<any>>();
 
+// Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here
+// and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
+const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
+jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  findPluginContractViolations: (...args: unknown[]) => mockFindContractViolations(...args),
+  formatContractViolations: (v: unknown[]) => `Pipeline does not meet the contract of ${v.length} plugin step(s)`,
+}));
+
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     update: mockUpdate,
@@ -238,5 +246,48 @@ describe('PUT /pipelines/bulk/update — compliance re-check (shared with single
     await handler(mockReq({ ids: [ID1, ID2], data: { description: 'x' } }), mockRes());
     expect(mockValidatePipeline).not.toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Plugin contracts (W0.2): the shared bulk-update props are checked once; bulk
+// create checks each item and reports a violation in errors[] before reserving
+// any quota for it.
+describe('bulk routes — plugin contract enforcement', () => {
+  const violation = { path: 'synth', step: 'synth', plugin: 'cdk-synth', version: '1.0.0', missing: ['vars.branch'], invalid: [] };
+
+  beforeEach(() => {
+    mockFindContractViolations.mockReset().mockResolvedValue([]);
+    mockUpdate.mockReset().mockImplementation(async (id: string) => ({ id }));
+    mockFindByIds.mockReset().mockResolvedValue([]);
+    mockSendSuccess.mockClear();
+  });
+
+  it('bulk update refuses props that break a plugin contract, updating nothing', async () => {
+    mockFindContractViolations.mockResolvedValue([violation]);
+    const res = mockRes();
+    await getHandler('put', '/bulk/update')(mockReq({ ids: [ID1, ID2], data: { props: { synth: {} } } }), res);
+
+    expect(mockFindContractViolations).toHaveBeenCalledWith({ synth: {} }, 'test-org', undefined);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('bulk update skips the contract check when props are not changing', async () => {
+    await getHandler('put', '/bulk/update')(mockReq({ ids: [ID1], data: { description: 'x' } }), mockRes());
+    expect(mockFindContractViolations).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('bulk create reports a contract violation per item and reserves no quota for it', async () => {
+    mockFindContractViolations.mockResolvedValue([violation]);
+    const { reserveQuota } = await import('@pipeline-builder/api-core') as any;
+    await getHandler('post', '/bulk/create')(mockReq({
+      pipelines: [{ project: 'p', organization: 'o', props: { synth: {} } }],
+    }), mockRes());
+
+    expect(reserveQuota).not.toHaveBeenCalled();
+    const [, , payload] = mockSendSuccess.mock.calls[0];
+    expect(payload.failed).toBe(1);
+    expect(payload.errors).toEqual([{ index: 0, error: 'Pipeline does not meet the contract of 1 plugin step(s)' }]);
   });
 });

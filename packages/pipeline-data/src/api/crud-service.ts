@@ -399,17 +399,31 @@ export abstract class CrudService<
   }
 
   /**
+   * ORDER BY for {@link findFirst}, so "take one" is deterministic rather than
+   * whatever row the planner meets first: the default row, then the newest,
+   * then id as the final tiebreak. Services override it to rank by their own
+   * notion of "best match" (plugins: own org first, then semver).
+   */
+  protected findFirstOrderBy(_filter: Partial<TFilter>, _orgId?: string, _parentOrgId?: string): SQL[] {
+    const { isDefault, createdAt, id } = this.cols;
+    return [desc(isDefault), ...(createdAt ? [desc(createdAt)] : []), asc(id)];
+  }
+
+  /**
    * Find the FIRST entity matching `filter` — a bounded (`LIMIT 1`) variant of
    * `find` for the "match by filter, take one" read paths (e.g. `GET /find`), so
-   * they don't `SELECT` every matching org row just to return `[0]`.
+   * they don't `SELECT` every matching org row just to return `[0]`. Ranked by
+   * {@link findFirstOrderBy}.
    */
   async findFirst(filter: Partial<TFilter>, orgId?: string, parentOrgId?: string): Promise<TEntity | null> {
     const conditions = this.buildConditions(filter, orgId, parentOrgId);
+    const orderBy = this.findFirstOrderBy(filter, orgId, parentOrgId);
 
     const results = await this.runRead(parentOrgId, () => withTenantTx(async (tx) => tx
       .select()
       .from(this.schema)
       .where(and(...conditions))
+      .orderBy(...orderBy)
       .limit(1).then(r => drizzleRows<TEntity>(r))));
 
     return results[0] || null;

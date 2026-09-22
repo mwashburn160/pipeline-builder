@@ -2,23 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ErrorCode, errorMessage } from '@pipeline-builder/api-core';
+import { pluginArtifactAlias, pluginLookupFilter } from '@pipeline-builder/pipeline-core';
 import { ApiClient } from './api-client.js';
 import { printWarning } from './output-utils.js';
 
 /** Minimal plugin reference shape — matches PluginOptions from pipeline-core. */
 interface PluginRef {
   name: string;
+  /** Publisher handle of an installed listing (plugin ecosystem §3.5). */
+  publisher?: string;
   alias?: string;
   filter?: Record<string, unknown>;
 }
 
 /**
- * Cache key matching `PluginLookup.normalize()`: explicit alias when set,
- * otherwise `${name}-alias`. Must stay in sync with the consumers in
- * pipeline-core/plugin-lookup.ts and pipeline-builder.ts that read this map.
+ * Cache key matching `PluginLookup.normalize()`: the explicit alias when set,
+ * otherwise `[<publisher>-]<name>-alias` — pipeline-core's
+ * `pluginArtifactAlias`, the one rule every consumer of this map uses.
  */
 function cacheKey(ref: PluginRef): string {
-  return ref.alias || `${ref.name}-alias`;
+  return pluginArtifactAlias(ref);
 }
 
 /**
@@ -38,7 +41,8 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
     const key = cacheKey(r);
     // The name the lookup will TARGET — an explicit `filter.name` wins (see
     // below), so two refs that resolve to the same plugin are not a collision.
-    const target = (r.filter?.name as string | undefined) ?? r.name;
+    const name = (r.filter?.name as string | undefined) ?? r.name;
+    const target = r.publisher ? `${r.publisher}/${name}` : name;
     const holder = seen.get(key);
     if (holder !== undefined) {
       // One alias can only ever mean one plugin. Deduplicating on the alias
@@ -71,10 +75,38 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
   return refs;
 }
 
-/** The plugin service's 409 `IMAGE_VERIFICATION_FAILED` answer from `/plugins/lookup`. */
-function isImageVerificationFailure(err: unknown): boolean {
+/**
+ * The lifecycle warning messages a `/plugins/lookup` answer carries
+ * (`warnings: [{ code, message }]` beside `plugin`). Tolerates the same
+ * envelopes as the plugin unwrap; anything malformed yields none.
+ */
+export function lookupWarningsOf(body: unknown): string[] {
+  const warnings = (body as { warnings?: unknown } | undefined)?.warnings;
+  if (!Array.isArray(warnings)) return [];
+  return warnings
+    .map((w) => (w && typeof w === 'object' ? (w as { message?: unknown }).message : undefined))
+    .filter((m): m is string => typeof m === 'string' && m.length > 0);
+}
+
+/**
+ * Lookup refusals that must STOP the synth rather than fall back to
+ * deploy-time resolution: an image whose signature doesn't verify, and a
+ * listing the org can't use (not installed, blocked by its policy, yanked or
+ * suspended — plugin ecosystem §3.2, §3.4). Falling back would quietly turn
+ * each into an unresolved step that fails at run time instead of now.
+ */
+const FATAL_LOOKUP_CODES: readonly string[] = [
+  ErrorCode.IMAGE_VERIFICATION_FAILED,
+  ErrorCode.PLUGIN_NOT_INSTALLED,
+  ErrorCode.PLUGIN_BLOCKED_BY_POLICY,
+  ErrorCode.PLUGIN_UNAVAILABLE,
+];
+
+/** The error code of a plugin service answer, when it is one of {@link FATAL_LOOKUP_CODES}. */
+function fatalLookupCode(err: unknown): string | null {
   const data = (err as { response?: { data?: unknown } } | undefined)?.response?.data;
-  return !!data && typeof data === 'object' && (data as { code?: unknown }).code === ErrorCode.IMAGE_VERIFICATION_FAILED;
+  const code = data && typeof data === 'object' ? (data as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && FATAL_LOOKUP_CODES.includes(code) ? code : null;
 }
 
 /**
@@ -103,6 +135,7 @@ export async function resolvePluginsForProps(
 
   await Promise.all(refs.map(async (ref) => {
     const key = cacheKey(ref);
+    const label = ref.publisher ? `${ref.publisher}/${ref.name}` : ref.name;
     // The plugin NAME lives on the ref (a sibling of `filter`), NOT inside the
     // filter object — but the lookup matches on the filter. A filter without
     // `name` (e.g. `{version, visibility, isActive, isDefault}`) matches ANY
@@ -110,7 +143,8 @@ export async function resolvePluginsForProps(
     // (seen: `dockerfile-multi-provider`). That made the synth and every step
     // resolve to the WRONG plugin. So when the filter omits `name`, fall back to
     // the ref's plugin name; an explicit filter `name` still takes precedence.
-    const filter = { name: ref.name, ...(ref.filter ?? { isActive: true, isDefault: true }) };
+    // Shared with the pipeline service's contract check (same filter, same plugin).
+    const filter = pluginLookupFilter(ref);
     try {
       const res = await client.post<unknown>('/api/plugins/lookup', { filter });
       // Unwrap the plugin record from whatever envelope the response middleware
@@ -126,19 +160,27 @@ export async function resolvePluginsForProps(
         ?? (res as { plugin?: unknown }).plugin // { plugin }
         ?? data // { data: Plugin }
         ?? res; // bare Plugin
+      // Lifecycle warnings (deprecated / yanked-but-pinned) ride next to the
+      // plugin in the same envelope: `{ data: { plugin, warnings } }`.
+      for (const warning of lookupWarningsOf(data ?? res)) {
+        printWarning(`Plugin "${label}": ${warning}`);
+      }
       if (plugin && typeof plugin === 'object' && (plugin as { name?: string }).name) {
         resolved[key] = plugin;
       } else {
-        printWarning(`Plugin "${ref.name}" lookup returned no record — falling back to deploy-time resolution`);
+        printWarning(`Plugin "${label}" lookup returned no record — falling back to deploy-time resolution`);
       }
     } catch (err) {
-      // A plugin whose image signature doesn't verify is NOT an outage to ride
-      // out: falling back would quietly turn it into an unresolved step. Stop.
-      if (isImageVerificationFailure(err)) {
-        throw new Error(`Plugin "${ref.name}" image failed signature verification: ${errorMessage(err)}`);
+      // A plugin whose image signature doesn't verify, or a listing the org
+      // can't use, is NOT an outage to ride out: falling back would quietly
+      // turn it into an unresolved step. Stop.
+      const fatal = fatalLookupCode(err);
+      if (fatal === ErrorCode.IMAGE_VERIFICATION_FAILED) {
+        throw new Error(`Plugin "${label}" image failed signature verification: ${errorMessage(err)}`);
       }
+      if (fatal) throw new Error(`Plugin "${label}" can't be used (${fatal}): ${errorMessage(err)}`);
       const msg = errorMessage(err);
-      printWarning(`Plugin "${ref.name}" pre-resolution failed (${msg}) — falling back to deploy-time resolution`);
+      printWarning(`Plugin "${label}" pre-resolution failed (${msg}) — falling back to deploy-time resolution`);
     }
   }));
 

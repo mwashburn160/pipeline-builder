@@ -202,6 +202,25 @@ describe('authorizeScope', () => {
       .toEqual(['pull']);
   });
 
+  it('grants a TEAM pull-only on its parent org namespace (parent public plugins)', () => {
+    const team = { type: 'jwt' as const, orgId: 'acme-team', parentOrgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false, canWritePlugins: true };
+    expect(authorizeScope(team, { type: 'repository', name: 'org-acme/shared-plugin', actions: ['pull', 'push'] }))
+      .toEqual(['pull']);
+    // Its own namespace keeps full access.
+    expect(authorizeScope(team, { type: 'repository', name: 'org-acme-team/mine', actions: ['pull', 'push'] }))
+      .toEqual(['pull', 'push']);
+  });
+
+  it('does not treat a parent-id prefix as a grant on a look-alike org (org-acme vs org-acmecorp)', () => {
+    const team = { type: 'jwt' as const, orgId: 'acme-team', parentOrgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false };
+    expect(authorizeScope(team, { type: 'repository', name: 'org-acmecorp/x', actions: ['pull'] })).toEqual([]);
+  });
+
+  it('gives a root org (no parentOrgId) nothing on another org namespace', () => {
+    const root = { type: 'jwt' as const, orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false };
+    expect(authorizeScope(root, { type: 'repository', name: 'org-acme-team/x', actions: ['pull'] })).toEqual([]);
+  });
+
   it('denies access to a different orgs repo for non-admin', () => {
     const granted = authorizeScope( { type: 'jwt', orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false },
       { type: 'repository', name: 'org-other/their-plugin', actions: ['pull'] },
@@ -333,6 +352,92 @@ describe('authorizeAndIssue', () => {
     const decoded = jwt.verify(result.token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
       access: unknown[];
     };
+    expect(decoded.access).toEqual([]);
+  });
+});
+
+// Plugin ecosystem §3.3: `public/*` is pull-open and append-only; `registry-meta/*`
+// (the publication records) is closed to every external identity.
+describe('authorizeScope — public/* and registry-meta/*', () => {
+  const identities = {
+    member: { type: 'jwt' as const, orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false },
+    pluginWriter: { type: 'jwt' as const, orgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false, canWritePlugins: true },
+    systemOrg: { type: 'jwt' as const, orgId: '000000000000000000000001', userId: 'u1', isAdmin: true, isSuperAdmin: false, canWritePlugins: true },
+    team: { type: 'jwt' as const, orgId: 'acme-team', parentOrgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false, canWritePlugins: true },
+    superAdmin: { type: 'jwt' as const, orgId: 'platform', userId: 'root', isAdmin: true, isSuperAdmin: true, canWritePlugins: true },
+  };
+
+  it.each(Object.entries(identities))('grants %s PULL ONLY on public/* — never push or delete', (_name, identity) => {
+    expect(authorizeScope(identity, { type: 'repository', name: 'public/acme/scanner', actions: ['pull', 'push', 'delete', '*'] }))
+      .toEqual(['pull']);
+  });
+
+  it('grants the publisher itself nothing but pull on its own public listing', () => {
+    expect(authorizeScope(identities.pluginWriter, { type: 'repository', name: 'public/acme/scanner', actions: ['push'] })).toEqual([]);
+  });
+
+  it.each(Object.entries(identities))('grants %s NOTHING on registry-meta/*, pull included', (_name, identity) => {
+    expect(authorizeScope(identity, { type: 'repository', name: 'registry-meta/publications/acme/scanner', actions: ['pull', 'push'] }))
+      .toEqual([]);
+  });
+
+  it('lets only the management identity write public/* and registry-meta/*', () => {
+    const management = { type: 'management' as const };
+    expect(authorizeScope(management, { type: 'repository', name: 'public/acme/scanner', actions: ['pull', 'push'] }))
+      .toEqual(['pull', 'push']);
+    expect(authorizeScope(management, { type: 'repository', name: 'registry-meta/publications/acme/scanner', actions: ['pull', 'push'] }))
+      .toEqual(['pull', 'push']);
+  });
+
+  it('issues a token whose access carries only pull on public/*, even for a superadmin asking for push', async () => {
+    const result = await authorizeAndIssue(identities.superAdmin,
+      [
+        { type: 'repository', name: 'public/acme/scanner', actions: ['pull', 'push'] },
+        { type: 'repository', name: 'registry-meta/publications/acme/scanner', actions: ['pull'] },
+      ],
+      'root',
+    );
+    const decoded = jwt.verify(result.token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
+      access: Array<{ name: string; actions: string[] }>;
+    };
+    expect(decoded.access).toEqual([{ type: 'repository', name: 'public/acme/scanner', actions: ['pull'] }]);
+  });
+});
+
+// Anonymous plugin submissions (plugin ecosystem §4.2 / W5): `quarantine/*`
+// belongs to the plugin SERVICE principal alone — push AND pull — and every
+// other identity, a superadmin and the system org included, gets nothing.
+describe('authorizeScope — quarantine/*', () => {
+  const REPO = 'quarantine/0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';
+  const pluginService = {
+    type: 'jwt' as const, orgId: '000000000000000000000001', userId: 'service:plugin', isAdmin: false, isSuperAdmin: false, canWritePlugins: true, serviceName: 'plugin',
+  };
+  const others = {
+    member: { type: 'jwt' as const, orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false },
+    orgAdmin: { type: 'jwt' as const, orgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false, canWritePlugins: true },
+    systemOrgAdmin: { type: 'jwt' as const, orgId: '000000000000000000000001', userId: 'u1', isAdmin: true, isSuperAdmin: false, canWritePlugins: true },
+    superAdmin: { type: 'jwt' as const, orgId: 'platform', userId: 'root', isAdmin: true, isSuperAdmin: true, canWritePlugins: true },
+    otherService: { ...pluginService, userId: 'service:pipeline', serviceName: 'pipeline' },
+    // A USER token whose sub happens to read `service:plugin` carries no serviceName (auth-resolver).
+    lookalikeUser: { type: 'jwt' as const, orgId: '000000000000000000000001', userId: 'service:plugin', isAdmin: true, isSuperAdmin: true, canWritePlugins: true },
+  };
+
+  it('grants the plugin service principal pull + push (never delete)', () => {
+    expect(authorizeScope(pluginService, { type: 'repository', name: REPO, actions: ['pull', 'push', 'delete', '*'] }))
+      .toEqual(['pull', 'push']);
+  });
+
+  it.each(Object.entries(others))('grants %s NOTHING on quarantine/*, pull included', (_name, identity) => {
+    expect(authorizeScope(identity, { type: 'repository', name: REPO, actions: ['pull', 'push'] })).toEqual([]);
+  });
+
+  it('does not widen the plugin service anywhere else (tenant namespaces keep their own rules)', () => {
+    expect(authorizeScope(pluginService, { type: 'repository', name: 'org-acme/app', actions: ['pull', 'push'] })).toEqual([]);
+  });
+
+  it('issues a superadmin token with NO quarantine access', async () => {
+    const result = await authorizeAndIssue(others.superAdmin, [{ type: 'repository', name: REPO, actions: ['pull'] }], 'root');
+    const decoded = jwt.verify(result.token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as { access: unknown[] };
     expect(decoded.access).toEqual([]);
   });
 });

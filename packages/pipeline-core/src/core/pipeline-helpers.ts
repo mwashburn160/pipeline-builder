@@ -1,18 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { Duration, SecretValue, Stack } from 'aws-cdk-lib';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType as CDKComputeType, LinuxBuildImage, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { CodeBuildStep, ManualApprovalStep, ShellStep } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';
-import { pluginArtifactAlias, type ArtifactKey } from './artifact-manager.js';
+import { type ArtifactKey } from './artifact-manager.js';
 import { metadataForShellStep, metadataForCodeBuildStep, metadataForBuildEnvironment, networkConfigFromMetadata } from './metadata-builder.js';
-import { extractMetadataEnv, merge } from './metadata-helpers.js';
+import { STEP_BOOTSTRAP_CMD, extractMetadataEnv, merge, wrapCommandsForFailureBehavior } from './metadata-helpers.js';
 import { resolveNetwork } from './network.js';
 import { PluginType, ComputeType, type MetaDataType } from './pipeline-types.js';
+import { pluginArtifactAlias } from './plugin-contract.js';
+import { PLUGIN_IMAGE_REPOSITORY_RE } from './step-manifest.js';
 import { Config, CoreConstants } from '../config/app-config.js';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types.js';
 import { resolvePluginTemplates } from '../template/plugin-resolver.js';
@@ -27,51 +29,12 @@ const log = createLogger('pipeline-helpers');
  *   2. non-namespaced metadata keys — e.g. PYTHON_VERSION, WORKDIR
  *   3. customEnv — per-step custom env vars (highest priority)
  */
-const BOOTSTRAP_CMD = 'export WORKDIR=${WORKDIR:-./}; cd ${WORKDIR}';
-
 function buildEnv(plugin: Plugin, metadata: MetaDataType, customEnv?: Record<string, string>): Record<string, string> {
   return {
     ...(plugin.env ?? {}),
     ...extractMetadataEnv(metadata),
     ...(customEnv ?? {}),
   };
-}
-
-/**
- * Wrap build commands based on failure behavior.
- * - 'fail' (default): No wrapping — commands fail the pipeline naturally.
- * - 'warn': Run commands with `set +e`, capture failures, log warnings, continue.
- * - 'ignore': Append `|| true` to each command — failures are silently swallowed.
- *
- * Only applied to build commands, not install commands (install failures should always stop the build).
- */
-/** @internal Exported so a test can run the rendered commands through a real shell. */
-export function wrapCommandsForFailureBehavior(commands: string[], behavior?: 'fail' | 'warn' | 'ignore'): string[] {
-  if (!behavior || behavior === 'fail') return commands;
-
-  // Group each command and close the group on its OWN line. Appending the
-  // handler as text after the command broke on two ordinary inputs:
-  //  - a trailing `# comment` commented the handler out, so
-  //    `npm audit # informational || true` exited 1 and failed a step marked
-  //    `ignore` (or `warn`);
-  //  - a heredoc whose last line is its terminator became `EOF || true`, which
-  //    is not a terminator, so the heredoc never closed.
-  // The newline ends any comment and leaves a terminator alone on its line;
-  // `$?` inside the handler is still the command's own exit status.
-  const grouped = (cmd: string): string => `{ ${cmd}\n}`;
-
-  if (behavior === 'ignore') {
-    return commands.map(cmd => `${grouped(cmd)} || true`);
-  }
-
-  // 'warn': run all commands, capture failures, but don't stop
-  return [
-    'set +e',
-    '_STEP_EXIT=0',
-    ...commands.map(cmd => `${grouped(cmd)} || { echo "WARNING: Command failed with exit code $?"; _STEP_EXIT=1; }`),
-    'set -e',
-    'if [ "$_STEP_EXIT" -ne 0 ]; then echo "WARNING: One or more commands in this step failed"; fi',
-  ];
 }
 
 /**
@@ -89,12 +52,12 @@ function buildCommands(plugin: Plugin, custom?: StepCustomization, failureBehavi
 
   return {
     installCommands: [
-      BOOTSTRAP_CMD,
+      STEP_BOOTSTRAP_CMD,
       ...(custom?.preInstallCommands ?? []),
       ...(plugin.installCommands ?? []),
       ...(custom?.postInstallCommands ?? []),
     ],
-    commands: [BOOTSTRAP_CMD, ...wrapCommandsForFailureBehavior(userCommands, failureBehavior)],
+    commands: [STEP_BOOTSTRAP_CMD, ...wrapCommandsForFailureBehavior(userCommands, failureBehavior)],
   };
 }
 
@@ -265,6 +228,18 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
     );
   }
 
+  // The repository comes from lookup (G30): `public/<publisher>/<name>` for a
+  // listed plugin (the read-only copy every org may pull), `org-<id>/<name>`
+  // for the org's own. Never derived here from the record's owner — a listing's
+  // image doesn't live in its publisher's namespace.
+  const repository = (plugin as Plugin & { imageRepository?: string | null }).imageRepository;
+  if (!repository || !PLUGIN_IMAGE_REPOSITORY_RE.test(repository)) {
+    throw new Error(
+      `Plugin "${plugin.name}:${plugin.version}" has no image repository from the plugin lookup. ` +
+      'Resolve plugins through the platform (`pipeline-manager pipeline synth` / the lookup custom resource).',
+    );
+  }
+
   let registry;
   try {
     registry = Config.get('registry');
@@ -300,26 +275,15 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
     return undefined;
   }
 
-  // Compose the image URI. Namespace by ownership:
-  //   - Plugins owned by the system org → `system/<name>:<version>`.
-  //     pipeline-image-registry's token service grants pull on `system/*`
-  //     to any authenticated org user (read-only catalog of shared plugins).
-  //   - Plugins owned by a tenant org → `org-<orgId>/<name>:<version>`.
-  //     The token service grants pull,push only to members of that org.
-  // The plugin's own `orgId` (not the caller's) decides the namespace —
-  // tenant pipelines pulling shared system plugins still get the `system/`
-  // path because that's where the image actually lives.
+  // Compose the image URI from the lookup's repository, pinned by digest.
+  // The token service grants pull on `public/*` to every authenticated
+  // identity and on `org-<id>/*` to that org (and its teams).
   // Use the external pull host/port: this image URI is consumed by AWS
   // CodeBuild (out-of-cluster), which can't resolve the in-cluster
   // `registry:5000` ClusterIP. Fall back to `host`/`port` for single-host /
   // in-cluster-only deploys where no separate pull host is configured.
   const { host: pullHost, portPart } = resolveExternalPullTarget(registry);
-  // Must match the PUSH side (api/plugin pluginUri) exactly, or a system
-  // plugin's image is pushed to `system/…` but this synth pulls from
-  // `org-<objectid>/…` → build-time pull failure. `SYSTEM_ORG_ID` is the
-  // well-known ObjectId (NOT the string 'system').
-  const namespace = plugin.orgId === SYSTEM_ORG_ID ? 'system' : `org-${plugin.orgId}`;
-  const imageUri = `${pullHost}${portPart}/${namespace}/${plugin.name}@${plugin.imageDigest}`;
+  const imageUri = `${pullHost}${portPart}/${repository}@${plugin.imageDigest}`;
 
   // CodeBuild reads `pipeline-builder/<orgId>/registry-push` and sends its
   // `username`/`password` fields as HTTP Basic to the registry. The registry

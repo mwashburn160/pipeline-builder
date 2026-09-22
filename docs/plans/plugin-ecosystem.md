@@ -1,6 +1,6 @@
 # Plan: Plugin Ecosystem
 
-**Status:** PLAN, rev 2.6 — no code yet (2026-09-21; rev 2.5: plans and limits D15, implicit Official installs D16, docs and help G47; rev 2.6: category and vendor icons G49–G51, D17)
+**Status:** PLAN, rev 2.7 — build in progress (2026-09-21; rev 2.5: plans and limits D15, implicit Official installs D16, docs and help G47; rev 2.6: category and vendor icons G49–G51, D17; rev 2.7: Official catalog auto-approval G52, D18; rev 2.8: catalog metadata detected from the package then accepted or edited, G53–G56, D19)
 **Goal:** turn the plugin catalog from "what the platform ships plus what each org
 uploads for itself" into a public ecosystem:
 
@@ -15,7 +15,7 @@ convention).
 
 ---
 
-## 0. Review log: gaps found and what changed (rev 2: G1–G24; rev 2.4: G25–G46; rev 2.5: G47–G48; rev 2.6: G49–G51)
+## 0. Review log: gaps found and what changed (rev 2: G1–G24; rev 2.4: G25–G46; rev 2.5: G47–G48; rev 2.6: G49–G51; rev 2.7: G52; rev 2.8: G53–G56)
 
 Rev 1 was reviewed against the code. Findings marked **(verified)** were checked in
 the source.
@@ -72,6 +72,11 @@ the source.
 | G49 | **No plugin or category icons (verified).** Neither `plugin-spec.yaml` nor the `plugins` table has an icon field; category cards in §6a mentioned an icon with no source. A directory of 119 text-only cards is hard to scan. | Medium | §6a.1: a lucide glyph per category, and a vendor logo per plugin from a curated, committed icon set, with a fixed fallback chain. |
 | G50 | **Vendor logos are trademarks, and the free set has holes (verified).** Simple Icons (CC0, 3,461 logos) covers about 85 of the 119 plugins, but several vendors had their marks **removed** at their request: AWS (~9 plugins), Microsoft/Azure/Teams, Slack, SonarCloud (7), Semgrep, Veracode, Fortify, Mend, Playwright, Oracle. | Medium (legal) | Per-icon source and license recorded; vendor press-kit marks only where their terms allow; otherwise a generated monogram. Nominative use only, never implying endorsement; honour removal requests (§6a.1, D17). |
 | G51 | **A logo can impersonate a vendor.** A Community "trivy-scanner" wearing Aqua's Trivy logo looks official, which undoes the trust tiers. Uploaded SVG is also an XSS vector. | High | Curated vendor marks are reserved for Official listings and Verified publishers who own the mark. Everyone else gets an uploaded **raster** icon (re-encoded server-side, moderated like the README) or a monogram. The tier badge always sits next to the icon (§6a.1). |
+| G52 | **Routine Official updates would stall.** Once the bootstrap exception closes, every new version the loader (`init-platform.sh` → `load-plugins.sh`) submits needs two Ecosystem Manager approvals, although it already passed PR review and plugin CI. Operators would re-run the loader and see nothing change, and Official plugins would lag behind their repo. | Medium (operations) | A seeded **Official catalog auto-approval rule** (§3.0.3): gate-green patch/minor versions of *existing* Official listings, submitted by the dedicated loader identity, are auto-approved; everything that adds risk still needs two people. |
+| G53 | **Nothing supplies a listing's `summary` (verified).** The card's one-line summary is required on a listing (`plugin_listings.summary`, ≤ 300), but the plugin spec has no `summary` field, so nothing fills it. | High (blocks W1) | New optional spec field `summary` (≤ 160). If it's absent, the summary is taken from the first sentence of `description`, then from the Dockerfile's `org.opencontainers.image.description` (§3.1a). |
+| G54 | **Metadata can only be changed by rebuilding (verified).** The upload body accepts only `visibility`; every catalog field comes from the zip. Fixing a typo in a summary or a link means cutting a new version, and the plan's publish request carried no metadata of its own. | Medium (author UX) | Metadata the package declares is **detected and pre-filled**, and the user **accepts or edits** each field at upload, at publish request and at listing update (§3.1a, D19). |
+| G55 | **A Dockerfile's own descriptive labels were ignored.** Many plugins already declare OCI labels (`org.opencontainers.image.title` / `description` / `licenses` / `source` / `url` / `documentation`). Authors were asked to repeat them in the spec. | Low | The upload parses the plugin's **own** Dockerfile `LABEL` instructions statically, as a lower-priority source. Labels inherited from base images are never used, because they describe the base image, not the plugin (§3.1a). |
+| G56 | **An edit could change what runs.** A generic "edit metadata" form next to the spec invites editing commands, secrets, egress or compute type without a new version, which would bypass immutability (§3.4) and the review diff. | High | Only **descriptive** fields are editable. Execution-contract fields stay spec-only, so changing one is always a new version with a new digest (§3.1a). |
 | G23 | **Incomplete audit catalog.** Audit actions were mentioned piecemeal, with no anonymous-actor sentinel and no `affectedOrgId` rules. | Medium | §5c: full action catalog, actor and `affectedOrgId` rules, details redaction, and the lists to update. |
 
 ---
@@ -113,7 +118,7 @@ permissions (§5a).
 | Ecosystem decision | Who decides |
 |---|---|
 | A listing (new plugin) enters the directory | System org: approve or reject a **publish request** |
-| A new version of a listing becomes installable | System org: approve or reject a **version request**, manually or through **auto-approval rules the system org configures** (e.g. a patch release from a Verified publisher that passes every gate). A version that fixes a published advisory takes the **security-fix lane**: priority queue, 4-hour SLA, immediate N24. |
+| A new version of a listing becomes installable | System org: approve or reject a **version request**, manually or through **auto-approval rules the system org configures** (e.g. a patch release from a Verified publisher that passes every gate, or a gate-green patch/minor Official update from the catalog loader, §3.0.3). A version that fixes a published advisory takes the **security-fix lane**: priority queue, 4-hour SLA, immediate N24. |
 | A listing's metadata changes (summary, category, description, links, logo) | System org: approve a `listing_update` request (auto-approval allowed for Verified text-only edits) |
 | A publisher's tier (Community → Verified, …) | System org |
 | A publisher's handle or display name (impersonation risk) | System org approves the change |
@@ -143,7 +148,8 @@ permissions (§5a).
   approver must not be the person who uploaded that version.
 - **Two-person approval** (a second Ecosystem Manager or superadmin confirms,
   following the existing two-person MFA-reset pattern) for:
-  - Official listing and version approvals;
+  - Official listing approvals, and Official version approvals not covered by
+    the Official catalog auto-approval rule (§3.0.3);
   - tier changes to Verified;
   - unyank;
   - lifting a suspension or takedown;
@@ -170,6 +176,53 @@ Each request shows diffs against the previous **approved** version:
 For a first listing it also shows the publisher's history and tier. For an
 anonymous submission it adds the heuristics report. Auto-approval uses exactly
 these diffs.
+
+#### 3.0.3 Official catalog auto-approval (G52, D18)
+
+The Official catalog is code in this repository. Every change to it already
+passed PR review and the plugin CI (`test-plugins.sh --build`, the icon lint,
+pinned and checksum-verified downloads, W0.7). A second human re-approving the
+same diff adds little, so routine updates are auto-approved by a **seeded
+system-org rule**. Anything that adds risk still goes to two-person review.
+
+A `new_version` request is auto-approved only when **all** of these hold:
+
+| Condition | Why |
+|---|---|
+| The listing already exists under the `pipeline-builder` publisher | A brand-new Official listing is implicitly installed for every org (D16), so it always gets human review. |
+| The request was submitted by the **Official catalog loader** identity (a dedicated system-org service account used by `load-plugin-worker.sh`), not by an interactive user | Keeps "a superadmin uploads and approves alone" closed (G27). |
+| The version is a **patch or minor** bump over the latest listed version and isn't marked `breaking` | Majors never flow automatically (implicit installs use policy `minor`, §3.1). |
+| Signed, SBOM attested and scanned, with **no new critical or high** vulnerabilities compared with the previous listed version | "Every gate green", measured as a delta, not as absolute counts. |
+| **No new** declared secrets, `network.egress` hosts or `requiredMetadata`/`requiredVars`, and no change from non-root to root | These are the changes that widen what the plugin can do in a customer's CodeBuild. |
+| The pinned request digest is the digest the loader built from `deploy/plugins/**` | Stops a swapped image from riding the rule (G25). |
+
+**When the rule fires:**
+
+- The request is approved by `SYSTEM_ACTOR_ID` and audited as
+  `plugin.request.auto-approve` with `details.autoRuleId` and a summary of the
+  diff (§3.0.2).
+- Ecosystem Managers get N25 in-app, and the request shows in the console's
+  "auto-approved" view. Any of them can yank the version or disable the rule
+  afterwards.
+- **Rate caps:** at most **1** auto-approved version per listing per day and
+  **50** per day across the catalog. Requests above a cap wait in the normal
+  queue, so one bad loader run can't rewrite the catalog.
+- The §9a "auto-approval rate anomaly" alert covers this rule.
+
+**Always sent to two-person review:** new Official listings; majors or
+`breaking` versions; any regression in secrets, egress, required inputs, root
+or vulnerabilities; `listing_update` (icon and metadata) requests; anything
+submitted by a person rather than the loader.
+
+**Controls:**
+
+- The rule is an ordinary auto-approval rule, so disabling it is a system-org
+  action, and re-enabling or widening it needs two-person approval (§3.0.1).
+- Instance flag `OFFICIAL_AUTO_APPROVAL_ENABLED` (default **on**, §9) turns the
+  rule off entirely, so a regulated self-hosted operator can require two-person
+  review for every Official change.
+- Fresh installs still use the **bootstrap exception** (§3.1) for the initial
+  load. The rule covers every later `init-platform.sh` re-run.
 
 **Enforcement:**
 
@@ -214,8 +267,15 @@ these diffs.
   seeds the Official catalog. While the instance has **zero listings**, those
   requests are auto-approved by `SYSTEM_ACTOR_ID` with `details.bootstrap = true`
   and audited. After the first listing exists, the exception is closed for
-  good. `load-plugin-worker.sh` stops sending `visibility=public` as its way of
-  sharing, and submits requests instead.
+  good. (As built, W0.8: builds finish in parallel, so "zero listings" is
+  judged when the load STARTS: the window opens with the first loader request
+  of an empty instance and stays open for `ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS`,
+  default 24; it closes for good when that elapses, when any manager decides a
+  request, or when the instance already had listings.) `load-plugin-worker.sh` stops sending `visibility=public` as its way of
+  sharing, and submits requests instead, as the **Official catalog loader**
+  service account. Later loads are covered by the Official catalog
+  auto-approval rule (§3.0.3): gate-green patch/minor updates go live without a
+  queue; new listings and riskier updates wait for two approvals.
 - A **listing** is a plugin *name* published by a publisher: `(publisher, name)`,
   summary, category, latest README, license, links, state (`listed`,
   `unmaintained`, `suspended`, `transferred`) and stats. Reviews, installs and
@@ -225,11 +285,13 @@ these diffs.
   tenant with `plugins:publish` **requests** it for a `public` version, and the
   system org **approves** it (§3.0). Nothing a tenant does alone puts a plugin in
   the directory.
-- `plugin_publish_requests(id, publisherId, listingId?, pluginId, version, digest /* pinned, G25 */, kind /* new_listing | new_version | listing_update | yank | unpause | transfer | claim | profile_change | advisory */, securityFixAdvisoryId?, payload jsonb, status /* pending | pending_second_approval | approved | rejected | withdrawn */, submittedBy, decidedBy, secondApprovedBy?, reason, autoRuleId?, createdAt, decidedAt)`
+- `plugin_publish_requests(id, publisherId, listingId?, pluginId, version, digest /* pinned, G25 */, kind /* new_listing | new_version | listing_update | yank | unpause | transfer | claim | profile_change | verify | advisory | moderation (system-org two-person actions: unsuspend, unyank, relist, tier to Verified) */, securityFixAdvisoryId?, payload jsonb, status /* pending | pending_second_approval | approved | rejected | withdrawn */, submittedBy, decidedBy, secondApprovedBy?, reason, autoRuleId?, createdAt, decidedAt)`
   is the single queue the Ecosystem console works from.
 - **Listing metadata (G36):** summary, category, description, links and logo
   change only through `listing_update` requests. Links must be `https`,
   shorteners are refused, and they render `rel="nofollow ugc noopener"`.
+  How the values are proposed (detected from the package, then accepted or
+  edited) is §3.1a.
 
 | Tier | Who | How they get it | Badge |
 |---|---|---|---|
@@ -239,6 +301,103 @@ these diffs.
 | **Unverified** | **anyone, not logged in**; lands under the platform-owned `community` publisher | anonymous submission (§4) that passed automated gates **and** human moderation | Community · unverified |
 
 Pending, rejected and quarantined submissions are **never** listed or resolvable.
+
+### 3.1a Catalog metadata: detected from the package, then accepted or edited (rev 2.8, G53–G56, D19)
+
+**Rule:** whatever the plugin package already says about itself is detected
+and pre-filled. The user either **accepts** each value or **edits** it before
+it is saved or submitted. The package supplies the defaults, and the user has
+the last word on descriptive fields only.
+
+**Sources, highest priority first** (the first non-empty value wins, per field):
+
+| Field | 1. `plugin-spec.yaml` | 2. `README.md` | 3. The plugin's own Dockerfile `LABEL` |
+|---|---|---|---|
+| `summary` (new, ≤ 160) | `summary` | — | — (then the first sentence of the resolved `description`) |
+| `description` | `description` | first paragraph | `org.opencontainers.image.description` |
+| `displayName` | — (name) | first `# heading` | `org.opencontainers.image.title` |
+| `license` | `license` | — | `org.opencontainers.image.licenses` (must be one allowed SPDX id) |
+| `homepageUrl` | `homepageUrl` | — | `org.opencontainers.image.url` |
+| `sourceUrl` | `sourceUrl` | — | `org.opencontainers.image.source` |
+| `documentationUrl` (new) | `documentationUrl` | — | `org.opencontainers.image.documentation` |
+| `category`, `keywords`, `icon`, `changelog` | spec | — | — |
+| long description (README) | — | `README.md` | — |
+
+- **Dockerfile labels are parsed statically** from the uploaded Dockerfile's
+  `LABEL` instructions (after line continuations, with quotes handled). Values
+  containing `$` are ignored, because build arguments aren't known at upload.
+  **Inherited labels are never used:** the built image's config carries the base
+  image's labels too, and those describe the base image, not the plugin (G55).
+  Label values count as untrusted text, the same as the spec.
+- **Editable (descriptive) fields:** summary, description, display name,
+  category, keywords, license, the three links, icon (within the tier rules of
+  §6a.1), changelog, and the README (a markdown editor with the same server-side
+  sanitized preview and size cap as an uploaded README).
+- **Never editable (execution contract, G56):** commands, install commands,
+  env, build args, secrets, required metadata/vars and their types, network
+  egress, compute type, plugin type, primary output directory, smoke test,
+  timeout and failure behaviour. They come only from the spec. Changing one
+  means a new version, a new digest and a review diff (§3.0.2, §3.4). The API
+  refuses these keys in a metadata payload with 400, so the refusal isn't left to
+  the UI.
+- **One validator for both paths.** A detected value and a typed value pass the
+  same Zod schema, shared from api-core with the CLI:
+  - length caps;
+  - SPDX allowlist;
+  - category enum;
+  - ≤ 10 keywords of ≤ 32 characters each;
+  - links `https` only, no shorteners, no credentials in the URL.
+
+  If a detected value fails validation, it is shown **blank with the reason**
+  rather than silently dropped.
+- **Provenance is recorded.** Each version stores `metadataSources`
+  (`{ field: 'spec' | 'readme' | 'dockerfile' | 'derived' | 'user' }`). The
+  zip's original spec stays untouched in `spec_snapshot`. Moderators see, per
+  field, whether a value came from the package or was typed in the form. User-edited
+  **links** are highlighted in the review diff, since a changed link is how a
+  phishing edit would look (G36).
+
+**Where the accept-or-edit step appears:**
+
+1. **Upload (in-app catalog, W0).** `POST /plugins/inspect` parses the zip without
+   building it and returns every detected field with its source and any
+   validation error. It uses the same zip bounds as upload, is rate limited, and
+   stores nothing. The upload dialog shows a **Catalog details** step: each
+   field shows the detected value, a source badge (Spec / README / Dockerfile /
+   Generated) and **Accept** or **Edit**, plus **Accept all**. `POST /plugins`
+   takes an optional `metadata` JSON part with the edited fields. When the part
+   is absent, every detected value is accepted, so scripts and the Official
+   loader keep working unchanged.
+2. **After upload.** `PUT /plugins/:id` edits the same descriptive fields of an
+   unlisted version (it already covers description, keywords and category; W0
+   extends it to the full list above and refuses contract keys). A **listed**
+   version's metadata is frozen with the version. Changing the listing goes
+   through step 4.
+3. **New listing request (W1).** The request form is pre-filled from the
+   version's effective metadata. The publisher accepts or edits each field,
+   and the request's `payload.metadata` carries the result and its provenance. A
+   card preview shows exactly how the directory will render it, with the icon,
+   tier badge and highlighted summary.
+4. **Listing update (W1).** When a **new version's** detected metadata differs from
+   the live listing, the publisher is offered a pre-filled `listing_update`
+   showing only the changed fields, each with **Accept** / **Keep current** /
+   **Edit**. Nothing flows to the live listing silently; declining leaves the
+   listing as it is. The publisher can also start a `listing_update` at any time
+   from the listing page, pre-filled with the current values.
+5. **Anonymous submission (W5).** The submission form runs the same inspect step
+   and shows the same accept-or-edit fields. Moderation sees the provenance
+   badges.
+6. **CLI (W6).**
+   - `pipeline-manager plugin publish` prints the detected metadata with its
+     sources and prompts to accept or edit each field.
+   - `--yes` accepts everything detected.
+   - `--metadata <file.yaml>` supplies edits non-interactively.
+   - `plugin validate` reports which fields would be empty or invalid.
+- **Official catalog loader:** non-interactive, so it accepts everything detected.
+  The spec in the repo is the source of truth, reviewed in PRs. A loader
+  update whose detected metadata differs from the listing goes as a
+  `listing_update` that the Official auto-approval rule covers only for
+  text-only changes. Link and icon changes wait for two approvals (§3.0.3).
 
 ### 3.2 Consumption: installs and org policy
 
@@ -251,7 +410,7 @@ returns it". The model follows compliance subscriptions:
   publisher marked `breaking` without re-approval.
 - **Org consumption policy** (org-local; it decides only what *this* org's
   pipelines may use and never affects the ecosystem, §3.0), set by holders of
-  `plugin-installs:manage` and inherited by teams:
+  `plugin_installs:manage` and inherited by teams:
   - `allowedTiers` (default: Official + Verified);
   - `requireApprovalToInstall` (default on for Community and Unverified; an org
     admin approves in the UI and the requester is notified);
@@ -412,7 +571,7 @@ installing would reduce adoption.
 
 ```mermaid
 flowchart LR
-  A[Anonymous submitter] -->|POST /public/plugin-submissions<br/>zip + email + PoW| Q[(Quarantine<br/>bucket, 30-day expiry)]
+  A[Anonymous submitter] -->|POST /api/public/plugin-submissions<br/>zip + email + PoW| Q[(Quarantine<br/>bucket, 30-day expiry)]
   Q --> V[Email verification<br/>magic link]
   V --> G1[Static gates<br/>spec · contract · lint · license]
   G1 --> B[Isolated build pool<br/>no creds · mirror-only egress]
@@ -517,7 +676,7 @@ plugin_advisories(id, listing_id, affected_range, severity, summary, cve_ids tex
 | `plugins:read` *(existing)* | Browse the in-app catalog; **write a review** | member, admin, owner | Reviews also need a **human session**: service accounts and exchanged access keys get `HUMAN_SESSION_REQUIRED`. |
 | `plugins:publish` *(existing)* | **Submit** new-listing and new-version requests for the org's `public` versions; withdraw a pending request; **pause** own listings and versions | admin, owner | Approval is system-org only (§3.0). |
 | `plugins:install` **new** | Install, upgrade or uninstall listings. When org policy requires approval, this only **requests** an install. | member, admin, owner | Members can request; approvers decide. |
-| `plugin-installs:manage` **new** | Edit the org's **consumption** policy (§3.2); approve or deny install requests **within the org**; receive advisory and upgrade notices | admin, owner | Org-local only; not ecosystem management (§3.0, D13). Team orgs: holders on the team, or on the root org when the policy is inherited. Policy changes require **step-up**. |
+| `plugin_installs:manage` **new** | Edit the org's **consumption** policy (§3.2); approve or deny install requests **within the org**; receive advisory and upgrade notices | admin, owner | Org-local only; not ecosystem management (§3.0, D13). Team orgs: holders on the team, or on the root org when the policy is inherited. Policy changes require **step-up**. |
 | `publishers:manage` **new** | Create the publisher profile and accept terms; edit description and links (post-moderated); **request** handle or display-name changes, Verified status, yanks, unpausing, transfers and advisory publication; accept an incoming transfer; reply to reviews | admin, owner | Requests only; every decision is system-org (§3.0). Transfer requests and accepts require **step-up**. |
 
 ### System-org-only permissions (new class, G22)
@@ -580,7 +739,7 @@ the permissions are already separate, so a split later is only a seed change.
 |---|---|
 | **Submitter** | The anonymous submission's verified email. Decrypted only to send, and only for §4 transactional messages and takedown. |
 | **Requester** | The user who took the action. |
-| **Org approvers** | Active members of the org holding `plugin-installs:manage` (org-local install decisions only). For a team whose policy is inherited, the team's holders; if there are none, the root org's holders. If nobody holds it, the org's owners. |
+| **Org approvers** | Active members of the org holding `plugin_installs:manage` (org-local install decisions only). For a team whose policy is inherited, the team's holders; if there are none, the root org's holders. If nobody holds it, the org's owners. |
 | **Publisher managers** | Active members of the publisher's org holding `publishers:manage`; if none, the owners. |
 | **Installing orgs** | For every org with an active install of the affected listing and version: that org's **org approvers**. |
 | **Moderators** | Members of the system org's **Ecosystem Manager** role (§5a.1): holders of `plugins:moderate`, or `publishers:verify` for publisher applications. If the role is empty, superadmins. |
@@ -677,7 +836,7 @@ enforces it).
 | Area | Actions |
 |---|---|
 | Publishers | `publisher.create`, `publisher.update`, `publisher.terms.accept`, `publisher.verify.request`, `publisher.verify.approve`, `publisher.verify.reject`, `publisher.tier.change`, `publisher.suspend`, `publisher.unsuspend`, `publisher.terms.accept` (`details.termsVersion`), `publisher.transfer.request`, `publisher.transfer.accept`, `publisher.transfer.decline`, `publisher.transfer.approve`, `publisher.transfer.reject`, `publisher.profile-change.approve`, `publisher.profile-change.reject` |
-| Publish requests (tenant → system) | `plugin.request.submit` (`details.kind`: `new_listing` / `new_version` / `listing_update` / `yank` / `unpause` / `transfer` / `claim` / `profile_change` / `advisory`; `details.digest`; `details.securityFix`), `plugin.request.withdraw`, `plugin.request.approve`, `plugin.request.second-approve`, `plugin.request.reject`, `plugin.request.auto-approve` (actor `SYSTEM_ACTOR_ID`, `details.autoRuleId`, or `details.bootstrap = true` for the one-time catalog seed) |
+| Publish requests (tenant → system) | `plugin.request.submit` (`details.kind`: `new_listing` / `new_version` / `listing_update` / `yank` / `unpause` / `transfer` / `claim` / `profile_change` / `advisory`; `details.digest`; `details.securityFix`), `plugin.request.withdraw`, `plugin.request.approve`, `plugin.request.second-approve`, `plugin.request.reject`, `plugin.request.auto-approve` (actor `SYSTEM_ACTOR_ID`, `details.autoRuleId` plus a diff summary, or `details.bootstrap = true` for the one-time catalog seed) |
 | Listings and versions (system org, except pause) | `plugin.listing.publish` (on approval; carries `digest`, `tier`), `plugin.listing.unlist`, `plugin.listing.update`, `plugin.listing.state.change` (`unmaintained` / `suspended` / `listed`), `plugin.listing.pause` / `plugin.listing.unpause` (tenant pause; unpause on approval), `plugin.version.pause`, `plugin.version.yank`, `plugin.version.unyank`, `plugin.version.deprecate`, `plugin.collection.update` (featured/curated) |
 | Ecosystem configuration (system org) | `ecosystem.auto-approval-rule.create` / `.update` / `.delete`, `ecosystem.reserved-name.update`, `ecosystem.sla.update` |
 | Registry | `registry.image.sign` *(exists)*, `registry.image.publish` **new** (copy to `public/*` + fresh sign + SBOM attest), `registry.image.resign` **new** (tier change / suspension re-sign job), `registry.image.yank` **new** (`public/*` tag removal on yank or takedown), `registry.image.gc` **new** (`public/*` retention sweep, per G40) |
@@ -723,6 +882,16 @@ M, W4 M, W5 L, W6 M, W7 S, W8 M), plus ongoing **moderation staffing** (§9a).
    - the loader imports the 117 existing `README.md` files (G18);
    - optional `network.egress` (declared hostnames) in the spec, shown to
      consumers and compared in review and auto-approval (G35);
+   - **catalog metadata detection with accept-or-edit (§3.1a, D19):**
+     - spec `summary` (G53) and `documentationUrl`;
+     - static parsing of the plugin's own Dockerfile OCI `LABEL`s (G55);
+     - `metadataSources` provenance per version;
+     - `POST /plugins/inspect` (dry-run parse);
+     - the optional `metadata` part on upload;
+     - `PUT /plugins/:id` covering every descriptive field and refusing
+       contract keys (G56);
+     - the upload dialog's **Catalog details** step (Accept / Edit /
+       Accept all, with source badges);
    - enforce the contract at pipeline create.
 3. **Semver ranges** in `query-builders.ts`; no auto-promotion of majors.
 4. **Lifecycle that does something:**
@@ -766,12 +935,22 @@ M, W4 M, W5 L, W6 M, W7 S, W8 M), plus ongoing **moderation staffing** (§9a).
   a README and a passing vuln gate); system-org routes approve or reject them.
   Approval runs the image-registry copy + tier re-sign (§3.3) and makes the
   version immutable (§3.4).
-- **Auto-approval rules** (system-org configured; default: patch/minor versions
-  of an already-approved listing from a **Verified** publisher that pass every
-  gate with no new secrets and no new egress) and tenant **pause**.
+- **Auto-approval rules** (system-org configured) and tenant **pause**. Two
+  rules are seeded at system-org creation:
+  - **Verified updates:** patch/minor versions of an already-approved listing
+    from a **Verified** publisher that pass every gate with no new secrets and
+    no new egress;
+  - **Official catalog** (§3.0.3): gate-green patch/minor updates of existing
+    Official listings from the catalog loader service account, with the rate
+    caps and the `OFFICIAL_AUTO_APPROVAL_ENABLED` flag.
 - **Governance test** (§3.0 enforcement), **separation of duties** and two-person
-  approval (§3.0.1), the **review diff view** (§3.0.2), the security-fix lane,
+  approval (§3.0.1), the **review diff view** (§3.0.2, with per-field metadata
+  provenance and user-edited links highlighted), the security-fix lane,
   `listing_update` requests, and the re-sign job (§3.3).
+- **Accept-or-edit metadata on requests (§3.1a):** the new-listing and
+  `listing_update` forms are pre-filled from the version's effective metadata,
+  show a live card preview, and offer a changed-fields-only `listing_update`
+  when a new version's detected metadata differs from the listing.
 - Token service: pull on `public/*` for all authenticated identities; push by
   image-registry only.
 - Verified-publisher application and review, handle/display-name changes and
@@ -809,9 +988,49 @@ M, W4 M, W5 L, W6 M, W7 S, W8 M), plus ongoing **moderation staffing** (§9a).
   annotation.
 - Rekey `plugin-usage`, AI selection (include installed listings) and
   placeholder creation (can't take a listed name) on `(publisher, name)` (G17).
-- Permissions `plugins:install` and `plugin-installs:manage` (§5a); notifications
+- Permissions `plugins:install` and `plugin_installs:manage` (§5a); notifications
   N11–N14, N26 and N27 (§5b); audit `plugin.install.*` and `org.plugin-install-policy.update` (§5c).
 - Upgrade notices include the changelog and vuln delta.
+
+**As built (W2, 2026-09-21):**
+- **One resolver.** pipeline-data `api/plugin-resolution.ts` holds every decision
+  (policy merge, install mode, version choice, advisory ranges, the run record)
+  as pure functions over a `ListingDataSource`; the plugin service's lookup, the
+  pipeline service's contract check / AI list / placeholder guard / step
+  manifest all use it. The `systemCatalogScope` stopgap is deleted: plugins set
+  `systemCatalog: false`, so a system-org row never reaches another org.
+- **Install ranges** use `plugin_installs.pinned_version` as the install's
+  BASELINE for every policy (`pinned` = it, `patch` = `~`, `minor` = `^`,
+  `latest` = stable ≥ it, never crossing a `breaking` version). The implicit
+  Official install's range is the lowest live major (`<major>.x`); an explicit
+  `filter.version` on the reference replaces it (an explicit install's range
+  is only ever narrowed). `resolved_version` is recorded by lookup for the
+  org's own explicit installs (the pause rule). Yanked listing versions never
+  resolve (a pin fails `PLUGIN_UNAVAILABLE`/`yanked`).
+- **Teams:** a team's own policy row is merged with the root's (stricter wins);
+  an active own install wins over the root's inherited one; a team can't
+  change its root's installs.
+- **Lookup** (`/plugins/lookup`, `/plugins/find`): own rows first (unqualified),
+  then the listing; a listed image is verified through image-registry
+  `/verify` and its signed `pb.trust`/`pb.publisher` must equal the publisher's
+  current tier/handle. Answers carry `source`, `publisher`, `imageRepository`
+  and `install`; synth (`resolvePluginImage`) refuses a record without an
+  `imageRepository`.
+- **Pipeline create/update** reports a qualified (or Official-fallback)
+  reference that can't resolve as a step `refusal` in the
+  `TEMPLATE_CONTRACT_VIOLATION` 400. There is no `pipeline-manager validate`
+  command; the CLI stops synth on `PLUGIN_NOT_INSTALLED` /
+  `PLUGIN_BLOCKED_BY_POLICY` / `PLUGIN_UNAVAILABLE`.
+- **Unyank** re-tags through image-registry `POST /internal/plugin-publications/retag`
+  from the listing version (repository + digest); the yank mirroring onto the
+  Official source row is deleted.
+- **Notices:** N13/N27 are decided at publication (in range → N27, else N13,
+  immediate for a breaking/major); installing orgs = active explicit installs +
+  implicit Official users (pipeline definitions / step manifests, minus
+  policy opt-outs and blocks). `notifyModerationAction` takes an optional
+  `listing`/`version`; without one it fans out publisher-wide.
+- Version specs accept npm partial carets/tildes (`^1`, `~1.2`), which the
+  directory's copyable reference writes.
 
 ### W3 — Public plugin directory (M; W3a ships with W0)
 
@@ -830,7 +1049,7 @@ for writes (§5a). Needs W0.1 and W3.
 
 ### W5 — Anonymous submissions (L; last, flag default off)
 
-The §4 flow: submission API, magic link, PoW, quarantine bucket, isolated build
+The §4 flow: submission API (with the §3.1a inspect + accept-or-edit metadata step), magic link, PoW, quarantine bucket, isolated build
 pool (all four deploy targets; the local targets run it on the same node with
 the same policies), gates, moderation console (`plugins:moderate`),
 `community` publisher, claim, takedown. Notifications N1–N5, N22 and audit
@@ -845,9 +1064,22 @@ moderation can't be bypassed (G19).
 - `plugin new` scaffolds from `pipeline-<eco>-base` with `USER`, `smokeTest`,
   README, license, changelog and an `icon` (picked from the curated set, or a
   placeholder for an uploaded one).
-- CLI `validate` uses the server's Zod schema (shared from api-core).
-- `plugin publish` with a local pre-flight (lint, scan preview).
+- CLI `validate` uses the server's Zod schema (shared from api-core), and reports
+  which catalog fields would be empty or invalid and where each value would come
+  from (§3.1a).
+- `plugin publish` with a local pre-flight (lint, scan preview) and the §3.1a
+  accept-or-edit prompt (`--yes` accepts everything detected; `--metadata <file>`
+  supplies edits).
 - AI generation gets catalog context ("similar plugins exist") to curb duplicates.
+- One implementation per check, shared from api-core: the `{{ }}` template
+  contract (`checkPluginTemplates`: upload, `plugin validate`/`test`/`publish`,
+  `template validate`), the catalog lint (`lintPluginDockerfile` /
+  `lintPluginSpec`: CLI and AI generation) and the base-image list
+  (`PLUGIN_BASE_IMAGES`: `plugin new` and the AI prompt). AI generation prompts
+  with the Dockerfile rules and returns `dockerfileViolations` for its draft. A
+  jest drift guard keeps `test-plugins.sh`'s enum and limit copies equal to the
+  api-core schema. `plugin upload` sends only what the server reads (`--file`,
+  `--public`).
 
 ### W7 — Quality signals (S)
 
@@ -920,7 +1152,9 @@ moderation can't be bypassed (G19).
     columns (no `org_id`, `created_by`, `env` values or build args).
   An RLS policy grants that role those rows and nothing else. A test proves the
   role can't read any other row or column.
-- **API:** `GET /public/plugins?q&category&tier&license&computeType&needsSecrets&minRating&sort&cursor`
+- **API:** `GET /api/public/plugins?q&category&tier&license&computeType&needsSecrets&minRating&sort&cursor`
+  (under `/api/public/`, not `/public/`: every target's nginx already routes
+  `location /public/` to the frontend's static assets)
   returns items, facet counts and `nextCursor`.
   - Strict parameter whitelist; public rows only.
   - Never returns tenant fields (`orgId`, `createdBy`, any non-listed data).
@@ -1167,10 +1401,11 @@ block on advisories would leave no emergency brake.
 
 | Flag (instance env) | Default | Effect when off |
 |---|---|---|
-| `PUBLIC_DIRECTORY_ENABLED` | on | `/plugins` and `/public/plugins*` return 404 |
+| `PUBLIC_DIRECTORY_ENABLED` | on | `/plugins` and `/api/public/plugins*` return 404 |
 | `PLUGIN_PUBLISHING_ENABLED` | on (hosted) / off (self-hosted) | tenants can't submit publish requests; existing listings still resolve |
 | `PLUGIN_REVIEWS_ENABLED` | on | reviews read-only |
 | `ANONYMOUS_SUBMISSIONS_ENABLED` | **off** | submission API 404; the Submit button becomes a sign-in link |
+| `OFFICIAL_AUTO_APPROVAL_ENABLED` | on | the Official catalog auto-approval rule (§3.0.3) never fires; every Official update waits for two-person approval |
 
 Per-publisher **suspend** and per-listing **suspend/yank** are the targeted kill
 switches. All are admin actions, audited, and take effect at the next lookup (the
@@ -1196,7 +1431,8 @@ verify cache is invalidated).
   - a spike in lookup refusals for signature or tier reasons (possible tampering);
   - advisory fan-out over 15 min;
   - a re-sign job stalled;
-  - auto-approval rate anomalies (possible rule abuse).
+  - auto-approval rate anomalies (possible rule abuse), per rule, including
+    the Official catalog rule hitting its daily caps.
 - **Staffing:** at launch, about 0.5 FTE of Ecosystem Managers (with ≥ 50%
   auto-approval and about 100 requests a week), with at least **3** role
   holders so two-person approval and holiday cover work. Revisit monthly from
@@ -1237,6 +1473,8 @@ verify cache is invalidated).
 | D15 | Product packaging: which plans can publish, install and be Verified? (G41) | **Recommended (rev 2.5), §3.7:** install, review and all safety controls on **every** plan. **Publishing on every plan** within a `listings` limit (3 / 10 / 25 / 100). **Verified eligibility** on Team and Enterprise only, earned through review and never purchasable. No paid priority review. Downgrades keep listings listed, freeze non-security updates while over the limit, and give Verified a 30-day grace period. |
 | D16 | Official plugins auto-installed for every org? (G26) | **Recommended (rev 2.5):** yes, as a **virtual implicit install** (no rows; resolution fallback; policy `minor`; majors never automatic). Orgs can override with an explicit install, opt out entirely (`officialInstalls: explicit`) or block individual listings (`blockedListings`). An org's own same-name plugin still wins, with a shadowing warning. Rejected: explicit installs for everything (breaks every existing pipeline), and seeding install rows at org creation (misses later Official plugins, and adds rows for nothing). |
 | D17 | Vendor logos (G50, G51): where do they come from, and who may use them? | **Recommended (rev 2.6):** Simple Icons (CC0) first, vendor press-kit marks only where the vendor's terms allow, monograms otherwise; curated marks only on Official listings and on Verified publishers who own the mark; Community listings upload raster icons or get a monogram. Rejected: letting any publisher pick any logo (impersonation), and accepting SVG uploads (XSS). |
+| D19 | Where does catalog metadata come from, and who has the last word? (G53–G56) | **DECIDED (2026-09-21), §3.1a:** the package's own declarations are detected and pre-filled (spec, then README, then the plugin's own Dockerfile OCI labels), and the user **accepts or edits** each field at upload, publish request, listing update and anonymous submission. Only descriptive fields are editable; execution-contract fields are spec-only (a change is a new version). Each field's source is recorded and shown to moderators. Rejected: package-only metadata (typo fixes need a rebuild, G54), free-form edits of any field (bypasses immutability, G56), and using inherited image labels (they describe the base image). |
+| D18 | Should routine Official catalog updates skip two-person approval once the bootstrap exception closes? (G52) | **Recommended (rev 2.7), §3.0.3:** yes, through a seeded auto-approval rule limited to gate-green patch/minor updates of existing Official listings submitted by the catalog loader service account, with no new secrets, egress, required inputs, root or vulnerabilities, rate-capped at 1 per listing and 50 per day, and switchable off with `OFFICIAL_AUTO_APPROVAL_ENABLED`. New Official listings, majors and riskier updates keep two-person approval. Rejected: two-person approval for every Official version (routine loads stall, G52), and exempting the system org from the queue entirely (reopens G26/G27). |
 
 ## 12. Non-goals
 
@@ -1264,7 +1502,7 @@ verify cache is invalidated).
 
 | Doc | Audience | In help? |
 |---|---|---|
-| `docs/plugin-publishing.md`: publisher profile, terms, plans and `listings` limits, requests and review diffs, pause, security-fix lane, Verified eligibility | Publishers | **Yes:** new manifest entry `plugin-publishing` (group *Building*). Kept at the top level of `docs/`, not under `docs/plugins/`, so the manifest can include it. |
+| `docs/plugin-publishing.md`: catalog metadata (detected sources and precedence, accept-or-edit, editable vs contract fields, §3.1a), publisher profile, terms, plans and `listings` limits, requests and review diffs, pause, security-fix lane, Verified eligibility | Publishers | **Yes:** new manifest entry `plugin-publishing` (group *Building*). Kept at the top level of `docs/`, not under `docs/plugins/`, so the manifest can include it. |
 | `docs/plugin-installing.md`: the directory, installs and version policies, implicit Official installs, consumption policy (`officialInstalls`, `blockedListings`), trust tiers, advisories, reviews | Consumers and org admins | **Yes:** new manifest entry `plugin-installing` (group *Building*) |
 | `docs/runbooks/ecosystem-moderation.md`: queues and SLAs, two-person approval, conflict of interest, takedown, re-sign job, bootstrap exception, staffing | Ecosystem Managers | **No:** staff runbook, linked from the Ecosystem console |
 

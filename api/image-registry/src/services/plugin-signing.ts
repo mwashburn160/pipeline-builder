@@ -18,22 +18,50 @@
  */
 
 import { execFile } from 'child_process';
-import { randomBytes } from 'crypto';
+import { createPublicKey, randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
 import { createLogger } from '@pipeline-builder/api-core';
 
-import { mintRepositoryPushToken } from './registry-client.js';
+import {
+  deleteManifest,
+  headManifest,
+  mintRepositoryPullToken,
+  mintRepositoryPushToken,
+} from './registry-client.js';
 import { config } from '../config/index.js';
 
 const logger = createLogger('plugin-signing');
 
-/** Only plugin repositories are signed: `system/<name>` or `org-<orgId>/<name>`. */
-const PLUGIN_REPO_RE = /^(system|org-[a-z0-9]+)\/[a-z0-9][a-z0-9._-]*$/;
+/**
+ * A publisher handle / plugin name as ONE registry path component (the
+ * Distribution grammar: lowercase alphanumerics joined by `.`, `_`, `__` or
+ * runs of `-`).
+ */
+export const PUBLISHER_HANDLE_RE = /^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$/;
+const PLUGIN_NAME_PATTERN = '[a-z0-9][a-z0-9._-]*';
+/**
+ * Plugin repositories that are signed: a build's private copy (`system/<name>`,
+ * `org-<orgId>/<name>`), an anonymous submission's quarantined build
+ * (`quarantine/<submissionId>`, plugin ecosystem §4.2 — signed so its SBOM
+ * attestation can be carried into `public/community/<name>` on approval), or a
+ * listed version's public copy (`public/<publisherHandle>/<name>`, §3.3).
+ */
+const PLUGIN_REPO_RE = new RegExp(
+  `^(system|org-[a-z0-9]+|quarantine|public/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)/${PLUGIN_NAME_PATTERN}$`,
+);
+/** `quarantine/<submissionId>` — one lowercase path component (a submission uuid). */
+const QUARANTINE_REPO_RE = /^quarantine\/[a-z0-9][a-z0-9-]{0,127}$/;
+const PUBLIC_REPO_RE = new RegExp(`^public/([a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)/(${PLUGIN_NAME_PATTERN})$`);
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const MAX_STDERR_BYTES = 1024 * 1024;
+/** `verify-attestation` prints the whole signed SBOM (base64, in a DSSE envelope). */
+const MAX_STDOUT_BYTES = 96 * 1024 * 1024;
+
+/** SPDX predicate type cosign records for `--type spdxjson`. */
+const SPDX_PREDICATE_TYPE = 'https://spdx.dev/Document';
 
 export class PluginSigningError extends Error {
   constructor(message: string) {
@@ -42,8 +70,36 @@ export class PluginSigningError extends Error {
   }
 }
 
+/**
+ * cosign RAN and said no (non-zero exit): no signature / attestation verifies.
+ * Distinct from an infrastructure failure (binary missing, timeout, key
+ * unreadable), which stays a plain {@link PluginSigningError}.
+ */
+export class CosignRejectedError extends PluginSigningError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CosignRejectedError';
+  }
+}
+
 export function isPluginRepository(repository: string): boolean {
   return PLUGIN_REPO_RE.test(repository);
+}
+
+/** True for an anonymous submission's `quarantine/<submissionId>` repository. */
+export function isQuarantineRepository(repository: string): boolean {
+  return QUARANTINE_REPO_RE.test(repository);
+}
+
+/** True for a `public/<publisherHandle>/<name>` repository. */
+export function isPublicRepository(repository: string): boolean {
+  return PUBLIC_REPO_RE.test(repository);
+}
+
+/** `{ handle, name }` of a `public/<handle>/<name>` repository, or null. */
+export function parsePublicRepository(repository: string): { handle: string; name: string } | null {
+  const m = PUBLIC_REPO_RE.exec(repository);
+  return m ? { handle: m[1], name: m[2] } : null;
 }
 
 export function isSha256Digest(digest: string): boolean {
@@ -103,9 +159,38 @@ function signingKey(): Promise<SigningKey> {
   return importLocalKey();
 }
 
+let localPublicKeyFile: string | null = null;
+
+/**
+ * The key cosign VERIFIES with. KMS: the same alias (cosign fetches the public
+ * half). Local: the public half DERIVED from the signing PEM — no second file
+ * to keep in sync, and nothing to drift after a rotation.
+ */
+function verificationKeyRef(): string {
+  if (config.pluginSigning.mode === 'kms') return kmsKeyRef();
+  if (!localPublicKeyFile) {
+    const keyFile = config.pluginSigning.keyFile;
+    if (!fs.existsSync(keyFile)) {
+      throw new PluginSigningError(`Plugin signing key not found at ${keyFile} (run deploy/bin/plugin-signing-keys.sh)`);
+    }
+    let pub: string;
+    try {
+      pub = createPublicKey(fs.readFileSync(keyFile, 'utf-8')).export({ format: 'pem', type: 'spki' }).toString();
+    } catch (err) {
+      throw new PluginSigningError(`Plugin signing key at ${keyFile} is not a readable private key: ${(err as Error).message}`);
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-cosign-pub-'));
+    const file = path.join(dir, 'plugin-signing.pub');
+    fs.writeFileSync(file, pub);
+    localPublicKeyFile = file;
+  }
+  return localPublicKeyFile;
+}
+
 /** @internal Reset the imported-key memo (tests only). */
 export function _resetPluginSigningState(): void {
   localKeyImport = null;
+  localPublicKeyFile = null;
 }
 
 // -----------------------------------------------------------------------------
@@ -117,19 +202,23 @@ export function _resetPluginSigningState(): void {
  * this container — point it at scratch (nothing here contacts public Sigstore).
  * stderr is kept for the error message only; it never carries key material.
  */
-function cosign(args: string[], env: Record<string, string>): Promise<void> {
+function cosign(args: string[], env: Record<string, string>, opts: { captureStdout?: boolean } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('cosign', args, {
       timeout: config.pluginSigning.timeoutMs,
-      maxBuffer: MAX_STDERR_BYTES,
+      maxBuffer: opts.captureStdout ? MAX_STDOUT_BYTES : MAX_STDERR_BYTES,
       env: { ...process.env, TUF_ROOT: path.join(os.tmpdir(), 'pb-sigstore'), ...env },
-    }, (err, _stdout, stderr) => {
+    }, (err, stdout, stderr) => {
       if (err) {
         const detail = String(stderr || err.message).trim().split('\n').slice(-5).join(' | ');
-        reject(new PluginSigningError(`cosign ${args[0]} failed: ${detail}`));
+        const message = `cosign ${args[0]} failed: ${detail}`;
+        // A numeric exit code (and no kill) means cosign ran and rejected;
+        // ENOENT / a timeout kill is infrastructure.
+        const exited = typeof (err as { code?: unknown }).code === 'number' && !(err as { killed?: boolean }).killed;
+        reject(exited ? new CosignRejectedError(message) : new PluginSigningError(message));
         return;
       }
-      resolve();
+      resolve(String(stdout ?? ''));
     });
   });
 }
@@ -146,8 +235,8 @@ function registryFlags(): string[] {
  * cosign's registry client sends as `Authorization: Bearer` directly, so no
  * token-realm round trip is needed. Caller removes the directory.
  */
-async function writeRepositoryCredential(repository: string): Promise<string> {
-  const token = await mintRepositoryPushToken(repository);
+async function writeRepositoryCredential(repository: string, access: 'push' | 'pull' = 'push'): Promise<string> {
+  const token = access === 'push' ? await mintRepositoryPushToken(repository) : await mintRepositoryPullToken(repository);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-signcfg-'));
   const host = `${config.registry.host}:${config.registry.port}`;
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ auths: { [host]: { registrytoken: token } } }));
@@ -159,44 +248,223 @@ async function writeRepositoryCredential(repository: string): Promise<string> {
 // -----------------------------------------------------------------------------
 
 export interface SignPluginImageParams {
-  /** Namespace-relative repository: `system/<name>` or `org-<orgId>/<name>`. */
+  /** Namespace-relative repository: `system/<name>`, `org-<orgId>/<name>` or `public/<handle>/<name>`. */
   repository: string;
   /** The pushed digest to sign (`sha256:…`). */
   digest: string;
   /** SPDX JSON SBOM of that digest, attached as a signed attestation. */
   sbom: Record<string, unknown>;
+  /**
+   * Signed annotations (`cosign sign -a k=v`) — the public namespace records the
+   * trust tier and publisher here (`pb.trust`, `pb.publisher`), so a tier edited
+   * in the database without a re-sign no longer matches what verifies.
+   */
+  annotations?: Record<string, string>;
+}
+
+/** Signed-annotation keys the public namespace carries (plugin ecosystem §3.3). */
+export const TRUST_ANNOTATION = 'pb.trust';
+export const PUBLISHER_ANNOTATION = 'pb.publisher';
+
+function annotationArgs(annotations: Record<string, string> | undefined): string[] {
+  return Object.entries(annotations ?? {}).flatMap(([k, v]) => ['-a', `${k}=${v}`]);
+}
+
+function refOf(repository: string, digest: string): string {
+  return `${config.registry.host}:${config.registry.port}/${repository}@${digest}`;
+}
+
+function assertSignable(repository: string, digest: string): void {
+  if (!isPluginRepository(repository)) throw new PluginSigningError(`Not a plugin repository: ${repository}`);
+  if (!isSha256Digest(digest)) throw new PluginSigningError(`Malformed digest: ${digest}`);
+}
+
+/** Run one cosign step under a throwaway repository-scoped credential. */
+async function withCredential<T>(repository: string, access: 'push' | 'pull', fn: (env: Record<string, string>) => Promise<T>): Promise<T> {
+  const dockerConfigDir = await writeRepositoryCredential(repository, access);
+  try {
+    return await fn({ DOCKER_CONFIG: dockerConfigDir });
+  } finally {
+    fs.rmSync(dockerConfigDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Remove the existing cosign signature manifest (`sha256-<hex>.sig`) of
+ * `repository@digest`, so the next `cosign sign` leaves exactly ONE signature
+ * — the one carrying the current annotations. cosign APPENDS signatures, so
+ * without this a re-sign would leave the old tier verifying alongside the new.
+ */
+async function dropSignature(repository: string, digest: string): Promise<void> {
+  const tag = `sha256-${digest.slice('sha256:'.length)}.sig`;
+  const existing = await headManifest(repository, tag);
+  if (!existing) return;
+  try {
+    await deleteManifest(repository, existing.digest);
+  } catch (err) {
+    const status = (err as { response?: { status?: number } }).response?.status;
+    if (status !== 404) throw err;
+  }
 }
 
 /**
  * Sign `repository@digest` and attach `sbom` as a signed SPDX attestation.
  * The caller has already confirmed the manifest exists in the repository.
+ *
+ * In the public namespace the signature is REPLACED rather than appended
+ * (exactly one signature, carrying the current annotations) and the SBOM
+ * attestation is written with `--replace`, so re-publishing is idempotent.
  */
-export async function signPluginImage({ repository, digest, sbom }: SignPluginImageParams): Promise<void> {
-  if (!isPluginRepository(repository)) throw new PluginSigningError(`Not a plugin repository: ${repository}`);
-  if (!isSha256Digest(digest)) throw new PluginSigningError(`Malformed digest: ${digest}`);
+export async function signPluginImage({ repository, digest, sbom, annotations }: SignPluginImageParams): Promise<void> {
+  assertSignable(repository, digest);
 
   const key = await signingKey();
-  const ref = `${config.registry.host}:${config.registry.port}/${repository}@${digest}`;
+  const ref = refOf(repository, digest);
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-sign-'));
   const predicate = path.join(workDir, 'sbom.spdx.json');
   fs.writeFileSync(predicate, JSON.stringify(sbom));
+  const isPublic = isPublicRepository(repository);
 
   try {
+    if (isPublic) await dropSignature(repository, digest);
     // One short-lived credential per cosign step — each is bounded by the
     // signing timeout, and a registry token only lives a few minutes.
     for (const args of [
-      ['sign', '--key', key.key, '--tlog-upload=false', '--yes', ...registryFlags(), ref],
-      ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', predicate, '--tlog-upload=false', '--yes', ...registryFlags(), ref],
+      ['sign', '--key', key.key, ...annotationArgs(annotations), '--tlog-upload=false', '--yes', ...registryFlags(), ref],
+      ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', predicate,
+        ...(isPublic ? ['--replace'] : []), '--tlog-upload=false', '--yes', ...registryFlags(), ref],
     ]) {
-      const dockerConfigDir = await writeRepositoryCredential(repository);
-      try {
-        await cosign(args, { DOCKER_CONFIG: dockerConfigDir, ...key.env });
-      } finally {
-        fs.rmSync(dockerConfigDir, { recursive: true, force: true });
-      }
+      await withCredential(repository, 'push', (env) => cosign(args, { ...env, ...key.env }));
     }
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
   }
-  logger.info('Signed plugin image', { repository, digest, mode: config.pluginSigning.mode });
+  logger.info('Signed plugin image', { repository, digest, mode: config.pluginSigning.mode, annotated: !!annotations });
+}
+
+/**
+ * Re-sign an already-published `public/*` image with new annotations (tier
+ * change, publisher suspension / unsuspension, ownership transfer). The SBOM
+ * attestation is untouched — it describes the content, which didn't change.
+ * Idempotent: the previous signature is replaced, never stacked.
+ */
+export async function resignPublicImage(repository: string, digest: string, annotations: Record<string, string>): Promise<void> {
+  assertSignable(repository, digest);
+  if (!isPublicRepository(repository)) throw new PluginSigningError(`Not a public repository: ${repository}`);
+  const key = await signingKey();
+  await dropSignature(repository, digest);
+  await withCredential(repository, 'push', (env) => cosign(
+    ['sign', '--key', key.key, ...annotationArgs(annotations), '--tlog-upload=false', '--yes', ...registryFlags(), refOf(repository, digest)],
+    { ...env, ...key.env },
+  ));
+  logger.info('Re-signed public plugin image', { repository, digest });
+}
+
+/**
+ * Read the SPDX SBOM of `repository@digest` from its SIGNED attestation —
+ * verified against the plugin-signing key, so what is re-attested in `public/*`
+ * is exactly what the platform generated and signed at build time (a caller
+ * can't substitute its own). Throws {@link CosignRejectedError} when no SPDX
+ * attestation verifies.
+ */
+export async function readSignedSbom(repository: string, digest: string): Promise<Record<string, unknown>> {
+  assertSignable(repository, digest);
+  const key = verificationKeyRef();
+  const out = await withCredential(repository, 'pull', (env) => cosign(
+    ['verify-attestation', '--key', key, '--type', 'spdxjson', '--insecure-ignore-tlog=true', ...registryFlags(), refOf(repository, digest)],
+    env,
+    { captureStdout: true },
+  ));
+  const predicate = extractSpdxPredicate(out);
+  if (!predicate) throw new CosignRejectedError(`No SPDX SBOM attestation verifies for ${repository}@${digest}`);
+  return predicate;
+}
+
+/**
+ * `cosign verify-attestation` prints one DSSE envelope per verified attestation,
+ * one per line. Return the SPDX predicate of the LAST one (a rebuild re-attests
+ * the same digest; cosign lists attestations oldest-first), or null.
+ */
+export function extractSpdxPredicate(stdout: string): Record<string, unknown> | null {
+  let predicate: Record<string, unknown> | null = null;
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    try {
+      const envelope = JSON.parse(trimmed) as { payload?: string };
+      if (!envelope.payload) continue;
+      const statement = JSON.parse(Buffer.from(envelope.payload, 'base64').toString('utf-8')) as {
+        predicateType?: string;
+        predicate?: unknown;
+      };
+      if (statement.predicateType === SPDX_PREDICATE_TYPE && statement.predicate && typeof statement.predicate === 'object') {
+        predicate = statement.predicate as Record<string, unknown>;
+      }
+    } catch {
+      // Not an envelope line — ignore rather than fail on stray output.
+    }
+  }
+  return predicate;
+}
+
+/** One verified cosign simple-signing payload, reduced to what callers use. */
+export interface VerifiedSignature {
+  /** `critical.identity.docker-reference` — the repository the signature was made for. */
+  dockerReference?: string;
+  /** `critical.image.docker-manifest-digest`. */
+  manifestDigest?: string;
+  /** `optional` — the `-a k=v` annotations. */
+  annotations: Record<string, string>;
+}
+
+/**
+ * Verify `repository@digest`'s signature against the plugin-signing key and
+ * return every verified payload. Returns `[]` when nothing verifies (cosign
+ * rejected); throws {@link PluginSigningError} on an infrastructure failure.
+ */
+export async function verifyPluginSignature(repository: string, digest: string): Promise<VerifiedSignature[]> {
+  assertSignable(repository, digest);
+  const key = verificationKeyRef();
+  let out: string;
+  try {
+    out = await withCredential(repository, 'pull', (env) => cosign(
+      ['verify', '--key', key, '--insecure-ignore-tlog=true', '--output', 'json', ...registryFlags(), refOf(repository, digest)],
+      env,
+      { captureStdout: true },
+    ));
+  } catch (err) {
+    if (err instanceof CosignRejectedError) return [];
+    throw err;
+  }
+  return parseVerifyOutput(out);
+}
+
+/** Parse `cosign verify --output json` (a JSON array of simple-signing payloads). */
+export function parseVerifyOutput(stdout: string): VerifiedSignature[] {
+  const start = stdout.indexOf('[');
+  if (start === -1) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout.slice(start, stdout.lastIndexOf(']') + 1));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map((p) => {
+    const payload = (p ?? {}) as {
+      critical?: { identity?: { 'docker-reference'?: unknown }; image?: { 'docker-manifest-digest'?: unknown } };
+      optional?: Record<string, unknown> | null;
+    };
+    const annotations: Record<string, string> = {};
+    for (const [k, v] of Object.entries(payload.optional ?? {})) {
+      if (typeof v === 'string') annotations[k] = v;
+    }
+    const ref = payload.critical?.identity?.['docker-reference'];
+    const md = payload.critical?.image?.['docker-manifest-digest'];
+    return {
+      ...(typeof ref === 'string' && { dockerReference: ref }),
+      ...(typeof md === 'string' && { manifestDigest: md }),
+      annotations,
+    };
+  });
 }

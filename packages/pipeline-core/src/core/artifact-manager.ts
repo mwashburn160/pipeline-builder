@@ -12,23 +12,6 @@ export interface ArtifactKey {
 }
 
 /**
- * The plugin-alias SEGMENT of an artifact key: the explicit alias, or
- * `${name}-alias` when there is none. THE rule — the frontend's artifact picker
- * (`frontend/src/lib/artifact-keys.ts`), the CLI's pre-resolver and
- * `PluginLookup.normalize` all build keys this way.
- *
- * The two places that REGISTER keys used to disagree with it, in opposite
- * directions: stage steps registered the bare name (`nodejs-build`, no suffix)
- * and the synth step suffixed an explicit alias (`my-synth-alias`). Any step
- * whose input artifact was picked in the UI then failed synth with "No artifact
- * registered", because the key it asked for was never the key that had been
- * stored.
- */
-export function pluginArtifactAlias(plugin: { name: string; alias?: string }): string {
-  return plugin.alias || `${plugin.name}-alias`;
-}
-
-/**
  * Manages build step artifacts with hierarchical key-based lookup.
  * Keys follow the pattern: stageName:stageAlias:pluginName:pluginAlias:outputDirectory
  *

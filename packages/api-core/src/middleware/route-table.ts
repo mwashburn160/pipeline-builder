@@ -51,6 +51,9 @@ export type RouteGate =
    *  policy is on (`requireOrgAdminAssurance`). `machines` says what a machine
    *  credential meets on the route while the policy is on. */
   | { kind: 'orgAdminAssurance'; machines: OrgAdminAssuranceMachines }
+  /** The caller's ACTIVE org must be the system org (`requireSystemOrg`) — the
+   *  plugin-ecosystem governance boundary (docs/plans/plugin-ecosystem.md §3.0). */
+  | { kind: 'systemOrg' }
   | { kind: 'feature'; feature: string }
   | { kind: 'scope'; scope: string }
   | { kind: 'audit'; actions: readonly string[] };
@@ -172,6 +175,12 @@ export interface RouteTableEntry {
    * the table of a service that uses no such gate is unchanged.
    */
   orgAdminAssurance?: { machines: OrgAdminAssuranceMachines };
+  /**
+   * Present (always `true`) when the chain runs `requireSystemOrg`: only a
+   * caller whose active org is the system org gets through. Absent otherwise,
+   * so the table of a service with no ecosystem-governance route is unchanged.
+   */
+  systemOrg?: true;
   features: string[];
   scopes: string[];
   audit: string[];
@@ -248,6 +257,7 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
           machines: entry.orgAdminAssurance?.machines === 'refuse' || g.machines === 'refuse' ? 'refuse' : 'allow',
         };
         break;
+      case 'systemOrg': entry.systemOrg = true; break;
       case 'feature': if (!entry.features.includes(g.feature)) entry.features.push(g.feature); break;
       case 'scope': if (!entry.scopes.includes(g.scope)) entry.scopes.push(g.scope); break;
       case 'audit': for (const a of g.actions) if (!entry.audit.includes(a)) entry.audit.push(a); break;

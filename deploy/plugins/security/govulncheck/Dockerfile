@@ -8,8 +8,9 @@
 FROM pipeline-go-base:1.0
 
 # TODO(confirm): confirm the intended pinned govulncheck version at build time.
-ARG GOVULNCHECK_VERSION=1.1.4
+ARG GOVULNCHECK_VERSION=1.8.0
 RUN go install "golang.org/x/vuln/cmd/govulncheck@v${GOVULNCHECK_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

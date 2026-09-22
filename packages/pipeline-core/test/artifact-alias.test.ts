@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { pluginArtifactAlias } from '../src/core/artifact-manager.js';
+import { pluginArtifactAlias, pluginStepIdAlias, sanitizePublisher } from '../src/core/plugin-contract.js';
 
 describe('pluginArtifactAlias', () => {
   it('suffixes the name when there is no alias (the stage-step case that registered the bare name)', () => {
@@ -28,5 +28,24 @@ describe('pluginArtifactAlias', () => {
     // The picker uses `||`; a `??` here would register `…::cdk.out` for an
     // empty alias while the UI asked for `…:cdk-synth-alias:cdk.out`.
     expect(pluginArtifactAlias({ name: 'cdk-synth', alias: '' })).toBe('cdk-synth-alias');
+  });
+});
+
+describe('publisher references (plugin ecosystem §3.5)', () => {
+  it('puts the publisher in the key and the construct id of a qualified reference', () => {
+    expect(pluginArtifactAlias({ name: 'lint', publisher: 'acme' })).toBe('acme-lint-alias');
+    expect(pluginStepIdAlias({ name: 'lint', publisher: 'acme' })).toBe('acme-lint');
+  });
+
+  it('leaves an unqualified reference (and any explicit alias) exactly as it was', () => {
+    expect(pluginStepIdAlias({ name: 'lint' })).toBe('lint');
+    expect(pluginStepIdAlias({ name: 'lint', publisher: 'acme', alias: 'l' })).toBe('l');
+    expect(pluginStepIdAlias({ name: 'lint', alias: '' })).toBe('');
+    expect(pluginArtifactAlias({ name: 'lint', publisher: 'acme', alias: 'l' })).toBe('l');
+  });
+
+  it('sanitizes a publisher to construct-id characters', () => {
+    expect(sanitizePublisher('acme.corp/x')).toBe('acme-corp-x');
+    expect(sanitizePublisher('acme_1-x')).toBe('acme_1-x');
   });
 });

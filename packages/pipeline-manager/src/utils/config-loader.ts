@@ -24,12 +24,10 @@ const defaultConfig: Omit<Config, 'auth'> = {
   api: {
     baseUrl: 'https://localhost:8443',
     timeout: 30_000,
-    pipelineUrl: '/api/pipeline',
-    pipelineListUrl: '/api/pipelines',
+    pipelineUrl: '/api/pipelines',
     pipelineTemplateUrl: '/api/pipeline-templates',
-    pluginUrl: '/api/plugin',
-    pluginListUrl: '/api/plugins',
-    pluginUploadUrl: '/api/plugin/upload',
+    pluginUrl: '/api/plugins',
+    pluginUploadUrl: '/api/plugins/upload',
     rejectUnauthorized: true,
   },
 };

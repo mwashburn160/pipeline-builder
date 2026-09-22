@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Safe ZIP extraction (zip-bomb + path-traversal defense), split out from
+ * Safe ZIP extraction (zip-bomb, path-traversal and link/device-entry defense), split out from
  * plugin-spec so it can be reused WITHOUT pulling in the spec-validation module
  * (and its pipeline-core template deps). The build worker uses {@link
  * extractZipToDir} to re-materialize a build context downloaded from object
@@ -38,6 +38,23 @@ export function extractionLimits(): { maxBytes: number; maxEntries: number } {
   const maxBytes = envInt('PLUGIN_MAX_EXTRACT_BYTES', maxUploadMb * 1024 * 1024 * maxRatio, { min: 1 });
   const maxEntries = envInt('PLUGIN_MAX_EXTRACT_ENTRIES', 10000, { min: 1 });
   return { maxBytes, maxEntries };
+}
+
+/** Unix file-type bits of st_mode (as zip external attributes carry them). */
+/** One past the permission bits: st_mode % this = permissions, the rest = S_IFMT type. */
+const S_IFMT_UNIT = 0o10000;
+const S_IFREG = 0o100000;
+const S_IFDIR = 0o040000;
+
+function describeFileType(type: number): string {
+  switch (type) {
+    case 0o120000: return 'symbolic link';
+    case 0o140000: return 'socket';
+    case 0o060000: return 'block device';
+    case 0o020000: return 'character device';
+    case 0o010000: return 'FIFO';
+    default: return `special file (mode ${type.toString(8)})`;
+  }
 }
 
 /** Read specific text entries and extract all files in a single pass. */
@@ -86,6 +103,21 @@ export async function readAndExtractZip(
         if (entryCount > maxEntries) {
           return rejectOnce(new ValidationError(
             `ZIP exceeds the maximum entry count (${maxEntries}) — refusing to extract (possible zip bomb)`,
+          ));
+        }
+
+        // -- Entry type (E11) -------------------------------------------------
+        // Only regular files and directories. The high 16 bits of the external
+        // attributes carry the Unix st_mode for zips made on Unix; a symlink,
+        // hard-link/device/FIFO/socket type is refused outright rather than
+        // written out as a regular file whose meaning changed (a symlink's
+        // target text) — no build context ever needs one.
+        // Arithmetic rather than bit ops (no-bitwise): mode = high 16 bits, type = its top 4 bits.
+        const unixMode = Math.floor(entry.externalFileAttributes / 0x10000) % 0x10000;
+        const fileType = unixMode - (unixMode % S_IFMT_UNIT);
+        if (fileType !== 0 && fileType !== S_IFREG && fileType !== S_IFDIR) {
+          return rejectOnce(new ValidationError(
+            `ZIP entry ${entry.fileName} is a ${describeFileType(fileType)} — only regular files and directories are allowed`,
           ));
         }
 

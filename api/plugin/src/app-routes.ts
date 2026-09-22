@@ -8,13 +8,22 @@ import type { Express } from 'express';
 import { createBulkPluginRoutes } from './routes/bulk-plugin.js';
 import { createDeletePluginRoutes } from './routes/delete-plugin.js';
 import { createDeployGeneratedPluginRoutes } from './routes/deploy-generated-plugin.js';
+import { createEcosystemConsoleRoutes } from './routes/ecosystem-console.js';
 import { createGeneratePluginRoutes } from './routes/generate-plugin.js';
+import { createInstallRoutes } from './routes/installs.js';
+import { createPublicDirectoryRoutes } from './routes/public-directory.js';
+import { createPublicSubmissionRoutes } from './routes/public-submissions.js';
+import { createPublisherRoutes } from './routes/publisher.js';
 import { createPurgePluginRoutes } from './routes/purge-plugin.js';
 import { createQueueStatusRoutes } from './routes/queue-status.js';
 import { createReadPluginRoutes } from './routes/read-plugins.js';
 import { createRestorePluginRoutes } from './routes/restore-plugin.js';
+import { createReviewRoutes } from './routes/reviews.js';
 import { createUpdatePluginRoutes } from './routes/update-plugin.js';
 import { createUploadPluginRoutes } from './routes/upload-plugin.js';
+import { createVersionLifecycleRoutes } from './routes/version-lifecycle.js';
+import { registerAdvisoryHooks } from './services/ecosystem/advisories.js';
+import { initEcosystem } from './services/ecosystem/context.js';
 
 /** Dependencies the route factories need. */
 export interface PluginRouteDeps {
@@ -28,6 +37,22 @@ export interface PluginRouteDeps {
  * the one production serves.
  */
 export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRouteDeps): void {
+  // The ecosystem services (publishers, publish requests) read the `listings`
+  // quota through the same client the routes use.
+  initEcosystem({ quotaService });
+  // Security-flagged review reports open private advisory drafts (W8 ↔ W4 seam).
+  registerAdvisoryHooks();
+
+  // -- Anonymous public directory (plugin-ecosystem §6a). Its own prefix, no
+  //    auth by design, never behind the authenticated chain below. nginx maps
+  //    `/api/public/*` here with credentials stripped.
+  // Anonymous plugin submissions (§4) — BEFORE the directory so its
+  // availability gate and rate limit are its own (flag off ⇒ 404 here, whatever
+  // the directory's state). Quarantine only: nothing it does reaches a
+  // `plugins` row or `public/*` without two-person moderation.
+  app.use('/public/plugin-submissions', createPublicSubmissionRoutes());
+  app.use('/public', createPublicDirectoryRoutes());
+
   // -- Upload route FIRST — manages its own middleware (auth → orgId →
   //    plugins:write → rate limit → multer → tenant scope). Must be registered
   //    before the shared chain below so no auth/quota middleware runs on a
@@ -47,6 +72,20 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // Gates added by a mount are PREFIX layers, so they also run for every request
   // that falls through to a later mount — the order below is load-bearing.
   app.use('/plugins', ...createAuthenticatedWithOrgRoute());
+
+  // -- Plugin ecosystem (plan §3.0) — BEFORE the read routes so `/:id` can't
+  //    catch "ecosystem" / "publisher" / "publish-requests". Each route owns
+  //    its gate: the console is system-org only (requireEcosystemPermission =
+  //    system org + plugins:moderate / publishers:verify + aal2); the publisher
+  //    routes only submit requests or restrict the caller's own listings.
+  app.use('/plugins/ecosystem', createEcosystemConsoleRoutes());
+  app.use('/plugins', createPublisherRoutes());
+  // Installs + the org consumption policy + the in-app catalog (plan §3.2) —
+  // org-local, each route owns its gate; before the read routes for `/:id`.
+  app.use('/plugins', createInstallRoutes());
+  // Reviews and ratings (plan §5) — each route owns its gate (plugins:read or
+  // publishers:manage, a human session, per-user/org/IP throttles).
+  app.use('/plugins', createReviewRoutes());
 
   // -- Queue status routes (MUST be before read routes so `/:id` can't catch "queue").
   //    Every route owns its gate (requireSystemAdmin for the cross-org operator
@@ -70,6 +109,7 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
 
   // -- Write routes — + plugins:write, ONE mount so the gate runs once --------
   //   - update / delete: plugins:write (delete's per-row publish gate is in-handler).
+  //   - deprecate / yank (version lifecycle, W0.4): plugins:write.
   //   - bulk: + `bulk_operations`, attached per route inside the router so the
   //     feature gate can't leak onto purge/restore. Mounted BEFORE `requireStepUp`
   //     so bulk calls don't require (and aren't blocked by) a step-up token.
@@ -83,10 +123,13 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
     '/plugins',
     requirePermission('plugins:write'),
     createUpdatePluginRoutes(),
-    createDeletePluginRoutes(),
-    createBulkPluginRoutes(),
+    createVersionLifecycleRoutes(),
+    // DELETE /:id layers its OWN step-up, only for `?force=true`, and answers
+    // the request itself — so the shared step-up below never re-consumes its jti.
+    createDeletePluginRoutes(quotaService),
+    createBulkPluginRoutes(quotaService),
     requireStepUp,
-    createPurgePluginRoutes(),
+    createPurgePluginRoutes(quotaService),
     createRestorePluginRoutes(),
   );
 }

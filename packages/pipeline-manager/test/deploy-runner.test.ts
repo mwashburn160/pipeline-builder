@@ -6,6 +6,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 const mockExecuteCdk = jest.fn<() => { success: boolean; duration: number }>();
 const mockBuildRegistryPayload = jest.fn<() => Promise<{ pipelineId: string }>>();
 const mockWritePendingIntent = jest.fn<() => Promise<string>>();
+const mockReadStepManifest = jest.fn<() => Promise<unknown[] | undefined>>();
 
 jest.unstable_mockModule('../src/utils/cdk-utils.js', () => ({
   __esModule: true,
@@ -16,6 +17,7 @@ jest.unstable_mockModule('../src/utils/registry.js', () => ({
   __esModule: true,
   buildRegistryPayload: (...a: unknown[]) => mockBuildRegistryPayload(...(a as [])),
   writePendingIntent: (...a: unknown[]) => mockWritePendingIntent(...(a as [])),
+  readStepManifest: (...a: unknown[]) => mockReadStepManifest(...(a as [])),
 }));
 // Silence + avoid real fs (ensureOutputDirectory) during the test.
 jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
@@ -45,6 +47,7 @@ describe('runDeploy', () => {
     mockExecuteCdk.mockReturnValue({ success: true, duration: 5 });
     mockBuildRegistryPayload.mockResolvedValue({ pipelineId: 'p-1' });
     mockWritePendingIntent.mockResolvedValue('/tmp/intent.json');
+    mockReadStepManifest.mockResolvedValue(undefined);
   });
 
   it('runs `cdk deploy` (with the approval level) then registers the ARN via the platform client', async () => {
@@ -82,6 +85,16 @@ describe('runDeploy', () => {
     await expect(runDeploy({ ...BASE, platformClient: { post }, platformPipelineUrl: '/api/pipelines' }))
       .resolves.toBeUndefined();
     expect(mockWritePendingIntent).toHaveBeenCalledWith({ pipelineId: 'p-1' });
+  });
+
+  it('ships the synth step manifest from --output with the registration (and the pending intent)', async () => {
+    const steps = [{ stageName: 'test-wave', actionName: 'jest', pluginId: 'pl-1', pluginName: 'jest', pluginVersion: '1.0.0', imageDigest: null }];
+    mockReadStepManifest.mockResolvedValue(steps);
+    const post = jest.fn<() => Promise<unknown>>().mockRejectedValue(new Error('503'));
+    await runDeploy({ ...BASE, platformClient: { post }, platformPipelineUrl: '/api/pipelines' });
+    expect(mockReadStepManifest).toHaveBeenCalledWith('cdk.out');
+    expect(post).toHaveBeenCalledWith('/api/pipelines/registry', { pipelineId: 'p-1', steps });
+    expect(mockWritePendingIntent).toHaveBeenCalledWith({ pipelineId: 'p-1', steps });
   });
 
   it('skips registration when the pipeline has no orgId', async () => {

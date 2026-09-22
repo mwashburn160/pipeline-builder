@@ -53,11 +53,21 @@ const attributesSchema = z.record(z.string(), z.unknown())
     { message: `attributes must not exceed ${MAX_ATTRIBUTE_DEPTH} levels of nesting` },
   );
 
+/**
+ * Attributes the caller cannot know yet — rules reading them are skipped (not
+ * passed) and the caller evaluates them in a later check. The plugin service
+ * defers the image facts (`signed`, `scanned`, `vuln*`, `runAsRoot`,
+ * `packages`) at upload and re-validates with the real values after the build
+ * worker has pushed, signed and scanned the image.
+ */
+const deferredFieldsSchema = z.array(z.string().min(1).max(64)).max(32);
+
 const ValidateSchema = z.object({
   attributes: attributesSchema,
   entityId: z.string().uuid().optional(),
   entityName: z.string().max(255).optional(),
   action: z.string().max(50).optional(),
+  deferredFields: deferredFieldsSchema.optional(),
 });
 
 const DryRunSchema = z.object({
@@ -78,6 +88,7 @@ async function validateEntity(
   isDryRun: boolean,
   isSuperAdmin: boolean,
   parentOrgId?: string,
+  deferredFields: readonly string[] = [],
 ) {
   // Sysadmins are exempt from compliance rules — they manage the rules
   // and the operator-curated content the rules apply against; running
@@ -102,7 +113,7 @@ async function validateEntity(
   const exemptions = entityId
     ? await complianceExemptionService.getActiveExemptionsForEntity(orgId, entityId)
     : [];
-  const result = evaluateRules(rules, attributes, exemptions);
+  const result = evaluateRules(rules, attributes, exemptions, deferredFields);
 
   // Write audit log (skip for dry-runs). Log failures but don't block.
   if (!isDryRun) {
@@ -163,15 +174,18 @@ export function createValidateRoutes(): Router {
     router.post(`/${target}`, requireValidateAccess, withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const validation = validateBody(req, ValidateSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-      const { attributes, entityId, entityName, action } = validation.value;
+      const { attributes, entityId, entityName, action, deferredFields } = validation.value;
 
       const parentOrgId = await resolveParentForValidate(req, orgId);
       const result = await validateEntity(
         orgId, userId, target, action || defaultAction, entityId, entityName,
-        attributes, false, isSystemAdmin(req), parentOrgId,
+        attributes, false, isSystemAdmin(req), parentOrgId, deferredFields,
       );
       ctx.log('COMPLETED', `${target} compliance check`, {
-        blocked: result.blocked, violations: result.violations.length, warnings: result.warnings.length,
+        blocked: result.blocked,
+        violations: result.violations.length,
+        warnings: result.warnings.length,
+        ...(deferredFields?.length ? { deferredFields } : {}),
       });
       return sendSuccess(res, 200, result);
     }));

@@ -8,6 +8,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plugin } from '@/types';
+import type { CatalogEntry, ShadowingEntry } from '@/types/plugin-installs';
 import api from '@/lib/api';
 import { CACHE_TTL_MS, formatError } from '@/lib/constants';
 import { PLUGIN_CATEGORIES, CATEGORY_DISPLAY_NAMES } from '@/lib/plugin-categories';
@@ -44,8 +45,25 @@ export function clearPluginCache() {
   cachedPlugins = null;
   cacheTimestamp = 0;
   pendingFetch = null;
+  cachedCatalog = null;
+  catalogTimestamp = 0;
+  pendingCatalog = null;
   cacheGeneration += 1;
 }
+
+/**
+ * The in-app catalog the pipeline editor resolves listings from, plus the
+ * org's shadowing report. Same cache rules (and the same generation guard) as
+ * the plugin list: after W2, `GET /plugins` returns only the org's own rows, so
+ * Official and installed listings reach the editor only through here.
+ */
+interface CatalogSnapshot {
+  entries: CatalogEntry[];
+  shadowing: ShadowingEntry[];
+}
+let cachedCatalog: CatalogSnapshot | null = null;
+let catalogTimestamp = 0;
+let pendingCatalog: Promise<CatalogSnapshot> | null = null;
 
 /** A group of plugins under a shared category label. */
 export interface PluginGroup {
@@ -112,6 +130,60 @@ export function usePlugins(enabled = true) {
   }, [enabled, fetchPlugins]);
 
   return { plugins, isLoading, error, refetch: fetchPlugins };
+}
+
+const EMPTY_CATALOG: CatalogSnapshot = { entries: [], shadowing: [] };
+
+/**
+ * Fetches and caches the org's catalog entries (every listed listing with its
+ * install state) and the shadowing report. Each half fails soft on its own — a
+ * catalog outage must not take the editor's own-plugin list down with it.
+ */
+export function usePluginCatalog(enabled = true) {
+  const [snapshot, setSnapshot] = useState<CatalogSnapshot>(cachedCatalog ?? EMPTY_CATALOG);
+  const [isLoading, setIsLoading] = useState(false);
+  const fetchedRef = useRef(false);
+
+  const fetchCatalog = useCallback(async () => {
+    if (cachedCatalog && Date.now() - catalogTimestamp < CACHE_TTL_MS) {
+      setSnapshot(cachedCatalog);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      if (!pendingCatalog) {
+        const startedAt = cacheGeneration;
+        pendingCatalog = (async () => {
+          try {
+            const [catalog, shadowing] = await Promise.all([
+              api.getPluginCatalog().then((r) => r.data?.listings ?? []).catch(() => [] as CatalogEntry[]),
+              api.getPluginShadowing().then((r) => r.data?.shadowing ?? []).catch(() => [] as ShadowingEntry[]),
+            ]);
+            const fetched = { entries: catalog, shadowing };
+            if (startedAt === cacheGeneration) {
+              cachedCatalog = fetched;
+              catalogTimestamp = Date.now();
+            }
+            return fetched;
+          } finally {
+            if (startedAt === cacheGeneration) pendingCatalog = null;
+          }
+        })();
+      }
+      setSnapshot(await pendingCatalog);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (enabled && !fetchedRef.current) {
+      fetchedRef.current = true;
+      void fetchCatalog();
+    }
+  }, [enabled, fetchCatalog]);
+
+  return { entries: snapshot.entries, shadowing: snapshot.shadowing, isLoading, refetch: fetchCatalog };
 }
 
 /**

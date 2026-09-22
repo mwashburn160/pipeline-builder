@@ -1,24 +1,85 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, isSystemOrgId, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested, parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
+import { incCounter, withRoute, incrementQuotaFromCtx } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
-import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
-import { withTenantTx } from '@pipeline-builder/pipeline-data';
+import { Config, CoreConstants, pluginImageRepository } from '@pipeline-builder/pipeline-core';
+import { isVersionRange, withTenantTx } from '@pipeline-builder/pipeline-data';
 import type { PluginFilter } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
 import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';
+import { resolveListedLookup, shadowedListing, verifyListedImage } from '../services/ecosystem/installs.js';
 import { pluginService } from '../services/plugin-service.js';
 
 /** The caller's parent-org id (org→team hierarchy), carried in the JWT; absent
  *  for root orgs. Centralizes the one cast the read handlers all need. */
 function parentOrgIdOf(req: Request): string | undefined {
   return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+}
+
+/** A warning attached to a lookup answer (W0.4 lifecycle; W2 listings; W8 advisories). */
+export interface LookupWarning {
+  code: 'PLUGIN_DEPRECATED' | 'PLUGIN_YANKED' | 'PLUGIN_SHADOWS_LISTING' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED' | 'PLUGIN_ADVISORY';
+  message: string;
+}
+
+/** The lifecycle warnings a resolved version carries (empty for a healthy one). */
+export function lookupWarnings(plugin: {
+  name: string;
+  version: string;
+  lifecycle?: string | null;
+  yankedAt?: Date | string | null;
+  yankReason?: string | null;
+  deprecatedAt?: Date | string | null;
+  deprecationMessage?: string | null;
+}): LookupWarning[] {
+  const ref = `${plugin.name}@${plugin.version}`;
+  const warnings: LookupWarning[] = [];
+  if (plugin.yankedAt || plugin.lifecycle === 'yanked') {
+    warnings.push({
+      code: 'PLUGIN_YANKED',
+      message: `Plugin ${ref} is yanked${plugin.yankReason ? `: ${plugin.yankReason}` : ''}. It resolves only because it is pinned exactly; move to a supported version.`,
+    });
+  }
+  if (plugin.deprecatedAt || plugin.lifecycle === 'deprecated') {
+    warnings.push({
+      code: 'PLUGIN_DEPRECATED',
+      message: `Plugin ${ref} is deprecated${plugin.deprecationMessage ? `: ${plugin.deprecationMessage}` : ''}.`,
+    });
+  }
+  return warnings;
+}
+
+/**
+ * The filter a single-plugin RESOLUTION runs with: the name matches exactly
+ * (`trivy` never resolves to `trivy-scan`), and a yanked version is excluded
+ * unless the caller pinned it exactly — by id or by an exact version (ranges
+ * already exclude yanked versions in the query builder).
+ */
+export function resolutionFilter(filter: PluginFilter): PluginFilter {
+  const pinned = filter.id !== undefined || (filter.version !== undefined && !isVersionRange(filter.version));
+  return {
+    ...filter,
+    ...(filter.name !== undefined ? { nameMatch: 'exact' as const } : {}),
+    ...(pinned ? {} : { excludeYanked: true }),
+  };
+}
+
+/** Lookup refusal reasons, as `plugin_lookup_refusals_total{reason}` reports them (§9a). */
+const LOOKUP_REFUSAL_REASONS: Record<string, string> = { yanked: 'yank', blocked_listing: 'policy' };
+
+/**
+ * Count a refused lookup (synth resolving a plugin it may not use): a failed
+ * signature, or a tier / yank / advisory / policy / install refusal. The
+ * PluginLookupRefusalSpike alert watches the signature and tier reasons.
+ */
+export function recordLookupRefusal(reason: string): void {
+  incCounter('plugin_lookup_refusals_total', { reason: LOOKUP_REFUSAL_REASONS[reason] ?? reason });
 }
 
 /**
@@ -35,37 +96,42 @@ export function createReadPluginRoutes(
   const router: Router = Router();
 
   // GET /plugins/plugin-usage — counts pipelines (in caller's org) that
-  // reference each plugin name. Used by the plugin-list "Used by N pipelines"
-  // badge. Returns { counts: { [pluginName]: number } }; plugins with zero
-  // usage are absent from the map.
+  // reference each plugin, keyed by the REFERENCE (plugin ecosystem G17): the
+  // bare `name` for an unqualified reference (the org's own plugin, or the
+  // Official listing it falls back to) and `publisher/name` for a qualified
+  // one. Used by the "Used by N pipelines" badges on the org's plugins and on
+  // catalog listings. Returns { counts: { [key]: number } }; zero-usage keys
+  // are absent. Counts the synth plugin too.
   //
   // Lives on the plugin service (not pipeline) because the consumer is the
   // plugins dashboard. The query reads the shared `pipeline` table via the
   // pipeline-data drizzle connection — both services share the same Postgres.
   router.get('/plugin-usage', requirePermission('plugins:read'), withRoute(async ({ res, ctx, orgId }) => {
-    // Explicit per-org scoping (defense-in-depth). `withTenantTx` SET LOCALs
-    // `app.org_id`, so once FORCE ROW LEVEL SECURITY lands the RLS policy on
-    // `pipelines` will also scope this. But RLS is documented as currently
-    // running in owner-BYPASS mode (see pipeline-data tenancy.ts), so we bind
-    // the query to the caller's org here — mirroring how the plugin lookup /
-    // ai-generation services scope via an explicit condition — and keep the
-    // predicate as belt-and-suspenders even after FORCE RLS is enabled. The
-    // route-context `orgId` is already lowercased to match stored org ids.
-    const rows = await withTenantTx(async (tx) => tx.execute<{ name: string; cnt: string | number }>(sql`
-      SELECT step->'plugin'->>'name' AS name,
+    // Explicit per-org scoping (defense-in-depth) on top of `withTenantTx`'s
+    // `app.org_id`, mirroring how the lookup and ai-generation services scope.
+    // The route-context `orgId` is already lowercased to match stored org ids.
+    const rows = await withTenantTx(async (tx) => tx.execute<{ ref_key: string; cnt: string | number }>(sql`
+      SELECT CASE WHEN COALESCE(ref->>'publisher', '') = '' THEN ref->>'name'
+                  ELSE (ref->>'publisher') || '/' || (ref->>'name') END AS ref_key,
              COUNT(DISTINCT p.id) AS cnt
         FROM pipelines p,
-             jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
-             jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
+             LATERAL (
+               SELECT step->'plugin' AS ref
+                 FROM jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
+                      jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
+               UNION ALL
+               SELECT p.props->'synth'->'plugin'
+             ) AS refs
        WHERE p.is_active = true
+         AND p.deleted_at IS NULL
          AND p.org_id = ${orgId}
-         AND step->'plugin'->>'name' IS NOT NULL
-       GROUP BY step->'plugin'->>'name'
+         AND ref->>'name' IS NOT NULL
+       GROUP BY 1
     `));
     const counts: Record<string, number> = {};
-    for (const row of rows.rows ?? rows as unknown as Array<{ name: string; cnt: string | number }>) {
+    for (const row of rows.rows ?? rows as unknown as Array<{ ref_key: string; cnt: string | number }>) {
       const n = typeof row.cnt === 'number' ? row.cnt : parseInt(String(row.cnt), 10);
-      if (row.name && Number.isFinite(n)) counts[row.name] = n;
+      if (row.ref_key && Number.isFinite(n)) counts[row.ref_key] = n;
     }
     ctx.log('COMPLETED', 'Computed plugin usage', { distinct: Object.keys(counts).length });
     res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
@@ -111,6 +177,15 @@ export function createReadPluginRoutes(
   // body; `/find` GET reads it from query string. Same `PluginFilterSchema`
   // whitelist as the listing endpoint so callers can't smuggle internal
   // fields (`deletedAt`, `orgId`) to peek at soft-deleted rows.
+  //
+  // Resolution order (plugin ecosystem §3.5):
+  //   - no `publisher`: the org's own plugin row, then (a team) its parent's
+  //     shared row, then the Official listing through the org's install
+  //     (explicit, or the implicit one, D16). An own row that shadows an
+  //     Official listing answers with a PLUGIN_SHADOWS_LISTING warning;
+  //   - `publisher`: ONLY that publisher's listing, through an install.
+  // A listed version answers with its `public/*` imageRepository, verified
+  // with its signed tier annotation (G30, §3.3).
   const respondWithSinglePlugin = async (
     filter: PluginFilter,
     req: Request, res: Response, orgId: string,
@@ -120,25 +195,76 @@ export function createReadPluginRoutes(
     // Org → team hierarchy: a team org also sees its parent's public plugins
     // (mirrors the list path). No-op for root orgs (claim absent).
     const parentOrgId = parentOrgIdOf(req);
-    const result = await pluginService.findFirst(filter, orgId, parentOrgId);
-    if (!result) return sendEntityNotFound(res, 'Plugin');
-    // These are the endpoints synth resolves plugins through, and synth pins
-    // CodeBuild to the returned `imageDigest` — so never hand out a digest whose
-    // signature doesn't verify against the plugin-signing key (or a plugin that
-    // needs an image but has no signed digest at all).
-    if (pluginRequiresImage(result)) {
-      try {
-        await verifyImageSignature(result, Config.get('registry'));
-      } catch (err) {
-        if (!(err instanceof ImageVerificationError)) throw err;
-        ctx.log('WARN', 'Plugin image failed verification', { id: result.id, name: result.name, error: err.message });
-        return sendError(res, 409, err.message, ErrorCode.IMAGE_VERIFICATION_FAILED);
+    const scope = { orgId, ...(parentOrgId ? { rootOrgId: parentOrgId } : {}) };
+    const { publisher, ...rowFilter } = filter;
+    const done = (plugin: Record<string, unknown>, warnings: LookupWarning[], id: unknown, name: unknown) => {
+      ctx.log('COMPLETED', 'Plugin lookup', { id, name, ...(publisher ? { publisher } : {}), ...(warnings.length ? { warnings: warnings.map((w) => w.code) } : {}) });
+      incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
+      if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
+      return sendSuccess(res, 200, { plugin, warnings });
+    };
+    const verificationFailed = (err: unknown, id: unknown, name: unknown) => {
+      if (!(err instanceof ImageVerificationError)) throw err;
+      recordLookupRefusal('signature');
+      ctx.log('WARN', 'Plugin image failed verification', { id, name, error: err.message });
+      return sendError(res, 409, err.message, ErrorCode.IMAGE_VERIFICATION_FAILED);
+    };
+
+    if (!publisher) {
+      const result = await pluginService.findFirst(resolutionFilter(rowFilter), orgId, parentOrgId);
+      if (result) {
+        const imageRepository = pluginImageRepository(result);
+        // These are the endpoints synth resolves plugins through, and synth pins
+        // CodeBuild to the returned `imageDigest` — so never hand out a digest whose
+        // signature doesn't verify against the plugin-signing key (or a plugin that
+        // needs an image but has no signed digest at all).
+        if (pluginRequiresImage(result)) {
+          try {
+            await verifyImageSignature({ ...result, imageRepository }, Config.get('registry'));
+          } catch (err) {
+            return verificationFailed(err, result.id, result.name);
+          }
+        }
+        // Deprecated / yanked-but-pinned versions still resolve, with a warning the
+        // caller surfaces (synth prints it).
+        const warnings = lookupWarnings(result);
+        if (rowFilter.name && !isSystemOrgId(orgId)) {
+          const listing = await shadowedListing(scope, result.name);
+          if (listing) {
+            warnings.push({
+              code: 'PLUGIN_SHADOWS_LISTING',
+              message: `Your organization's plugin ${result.name} shadows the Official listing ${listing.publisher}/${listing.name}. `
+                + `Reference it with publisher: ${listing.publisher} to use the listing instead.`,
+            });
+          }
+        }
+        return done({ ...shapePlugin(result), source: 'org', publisher: null, imageRepository }, warnings, result.id, result.name);
       }
     }
-    ctx.log('COMPLETED', 'Plugin lookup', { id: result.id, name: result.name });
-    incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
-    if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
-    return sendSuccess(res, 200, { plugin: shapePlugin(result) });
+
+    // Listings resolve by name (an `id` pins an org row, which didn't match).
+    if (typeof rowFilter.name !== 'string' || rowFilter.id !== undefined) return sendEntityNotFound(res, 'Plugin');
+    const listed = await resolveListedLookup(scope, { ...(publisher ? { publisher } : {}), name: rowFilter.name, ...(rowFilter.version ? { version: rowFilter.version } : {}) });
+    if (listed && 'refused' in listed) {
+      const { status, code, message, details } = listed.refused;
+      recordLookupRefusal(typeof details.reason === 'string' ? details.reason : String(code));
+      ctx.log('WARN', 'Plugin lookup refused', { name: rowFilter.name, publisher, code });
+      return sendError(res, status, message, code, details);
+    }
+    if (!listed) {
+      return publisher
+        ? sendError(res, 404, `No listing ${publisher}/${rowFilter.name}.`, ErrorCode.NOT_FOUND)
+        : sendEntityNotFound(res, 'Plugin');
+    }
+    const record = listed.record as Record<string, unknown> & { buildType: string; pluginType: string };
+    if (pluginRequiresImage(record)) {
+      try {
+        await verifyListedImage(listed.resolution);
+      } catch (err) {
+        return verificationFailed(err, record.id, record.name);
+      }
+    }
+    return done(record, listed.resolution.warnings, record.id, record.name);
   };
 
   router.post('/lookup', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {

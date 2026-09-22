@@ -16,6 +16,14 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockFindById = jest.fn();
 const mockUpdate = jest.fn();
 
+// Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here
+// and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
+const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
+jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  findPluginContractViolations: (...args: unknown[]) => mockFindContractViolations(...args),
+  formatContractViolations: (v: unknown[]) => `Pipeline does not meet the contract of ${v.length} plugin step(s)`,
+}));
+
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     findById: mockFindById,
@@ -91,6 +99,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   allowedScopeRoots: () => () => true,
   validateTemplates: () => ({ valid: true, errors: [] }),
   detectCycles: () => [],
@@ -217,6 +226,28 @@ describe('PUT /pipelines/:id (update)', () => {
       'VALIDATION_ERROR',
     );
     expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('returns 400 TEMPLATE_CONTRACT_VIOLATION when new props break a plugin contract', async () => {
+    mockFindContractViolations.mockResolvedValueOnce([
+      { path: 'stages[0].steps[0]', step: 'deploy/helm', plugin: 'helm', version: '1.0.0', missing: ['metadata.namespace'], invalid: [] },
+    ]);
+    const props = { synth: { plugin: { name: 'cdk-synth' } } };
+    const res = mockRes();
+    await handler(mockReq({ body: { props } }), res);
+
+    expect(mockFindContractViolations).toHaveBeenCalledWith(props, 'org-1', undefined);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'TEMPLATE_CONTRACT_VIOLATION' }));
+    expect(mockFindById).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('skips the plugin-contract check when props are not being updated', async () => {
+    mockFindById.mockResolvedValue(existingPipeline);
+    mockUpdate.mockResolvedValue(existingPipeline);
+    await handler(mockReq(), mockRes());
+    expect(mockFindContractViolations).not.toHaveBeenCalled();
   });
 
   it('returns 404 when pipeline not found', async () => {

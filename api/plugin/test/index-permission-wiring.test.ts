@@ -39,6 +39,12 @@ const ROUTERS = {
   bulk: { __router: 'bulk' },
   restore: { __router: 'restore' },
   purge: { __router: 'purge' },
+  publicDirectory: { __router: 'publicDirectory' },
+  publicSubmissions: { __router: 'publicSubmissions' },
+  publisher: { __router: 'publisher' },
+  installs: { __router: 'installs' },
+  ecosystemConsole: { __router: 'ecosystemConsole' },
+  reviews: { __router: 'reviews' },
 } as const;
 
 /** Stand-ins for the shared middleware so their placement can be asserted. */
@@ -67,6 +73,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+  incCounter: jest.fn(),
   createApp: () => ({ app, sseManager: {} }),
   runServer: jest.fn(),
   // Pass the handler through — this suite inspects mount/middleware wiring, not
@@ -85,6 +92,19 @@ jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
   waitForWorkerReady: jest.fn(async () => undefined),
   shutdownQueue: jest.fn(async () => undefined),
 }));
+// The anonymous-submission gate queue (plan §4) — index.ts starts its worker at boot.
+jest.unstable_mockModule('../src/queue/submission-build-queue.js', () => ({
+  startSubmissionWorker: jest.fn(),
+  shutdownSubmissionQueue: jest.fn(async () => undefined),
+  enqueueSubmissionBuild: jest.fn(async () => undefined),
+}));
+// The nightly vuln-rescan scheduler (W0.6) — index.ts builds + starts it at boot.
+jest.unstable_mockModule('../src/queue/vuln-rescan.js', () => ({ createVulnRescanScheduler: () => null }));
+// The ecosystem-notification digest dispatcher (plan §5b) — index.ts builds + starts it at boot.
+jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
+  createEcosystemNotificationScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+  enqueueEcosystemNotification: async () => 'sent',
+}));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ getHealthRedisConnection: jest.fn() }));
 
 jest.unstable_mockModule('../src/routes/bulk-plugin.js', () => ({ createBulkPluginRoutes: () => ROUTERS.bulk }));
@@ -97,10 +117,35 @@ jest.unstable_mockModule('../src/routes/update-plugin.js', () => ({ createUpdate
 jest.unstable_mockModule('../src/routes/upload-plugin.js', () => ({ createUploadPluginRoutes: () => ROUTERS.upload }));
 jest.unstable_mockModule('../src/routes/restore-plugin.js', () => ({ createRestorePluginRoutes: () => ROUTERS.restore }));
 jest.unstable_mockModule('../src/routes/purge-plugin.js', () => ({ createPurgePluginRoutes: () => ROUTERS.purge }));
+jest.unstable_mockModule('../src/routes/public-directory.js', () => ({ createPublicDirectoryRoutes: () => ROUTERS.publicDirectory }));
+jest.unstable_mockModule('../src/routes/public-submissions.js', () => ({ createPublicSubmissionRoutes: () => ROUTERS.publicSubmissions }));
 // Purge-scheduler deps the index now imports — mock so the real pipeline-data
 // barrel / pluginService aren't pulled into this wiring test.
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ createSoftDeletePurgeScheduler: () => null }));
+const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ ...actualData, createSoftDeletePurgeScheduler: () => null }));
+jest.unstable_mockModule('../src/routes/publisher.js', () => ({ createPublisherRoutes: () => ROUTERS.publisher }));
+jest.unstable_mockModule('../src/routes/installs.js', () => ({ createInstallRoutes: () => ROUTERS.installs }));
+jest.unstable_mockModule('../src/routes/ecosystem-console.js', () => ({ createEcosystemConsoleRoutes: () => ROUTERS.ecosystemConsole }));
+jest.unstable_mockModule('../src/routes/reviews.js', () => ({ createReviewRoutes: () => ROUTERS.reviews }));
+// The real module (EcosystemError, callerFromRequest …) with boot wiring stubbed.
+const realEcosystemContext = await import('../src/services/ecosystem/context.js');
+jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ ...realEcosystemContext, initEcosystem: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/publishers.js', () => ({ ensureOfficialPublisher: jest.fn(async () => ({})) }));
+// app-routes registers the review → advisory seam at mount; the advisory service itself is not under test.
+jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ registerAdvisoryHooks: jest.fn(), deprecateListedFromSource: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
+  createEcosystemMaintenanceScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+}));
+// The ecosystem gauge sampler (plan §9a) — index.ts builds + starts it at boot.
+jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({
+  createEcosystemMetricsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+  recordDecision: () => undefined,
+}));
+// The plugin_stats sweep (W4) — index.ts builds + starts it at boot.
+jest.unstable_mockModule('../src/services/ecosystem/stats.js', () => ({
+  createEcosystemStatsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+}));
 
 await import('../src/index.js');
 
@@ -167,6 +212,57 @@ describe('src/index.ts — plugins:write enforcement', () => {
     expect(useCalls.indexOf(mountFor(ROUTERS.upload))).toBeLessThan(chainAt);
     for (const name of ['queueStatus', 'generate', 'deploy', 'read', 'update', 'delete', 'bulk', 'purge', 'restore'] as const) {
       expect(useCalls.indexOf(mountFor(ROUTERS[name]))).toBeGreaterThan(chainAt);
+    }
+  });
+});
+
+describe('src/index.ts — plugin ecosystem (plan §3.0)', () => {
+  it('mounts the Ecosystem console on /plugins/ecosystem and the publisher routes on /plugins, after the auth chain and before the read routes', () => {
+    const chainAt = useCalls.findIndex((c) => c.includes(AUTH_CHAIN));
+    const readAt = useCalls.indexOf(mountFor(ROUTERS.read));
+    const consoleMount = mountFor(ROUTERS.ecosystemConsole);
+    const publisherMount = mountFor(ROUTERS.publisher);
+    const installsMount = mountFor(ROUTERS.installs);
+    const reviewsMount = mountFor(ROUTERS.reviews);
+    expect(consoleMount).toEqual(['/plugins/ecosystem', ROUTERS.ecosystemConsole]);
+    expect(publisherMount).toEqual(['/plugins', ROUTERS.publisher]);
+    // Installs + consumption policy (W2) — before `/:id` can catch "installs".
+    expect(installsMount).toEqual(['/plugins', ROUTERS.installs]);
+    // Reviews (W4) — before `/:id` can catch "reviews".
+    expect(reviewsMount).toEqual(['/plugins', ROUTERS.reviews]);
+    for (const mount of [consoleMount, publisherMount, installsMount, reviewsMount]) {
+      expect(useCalls.indexOf(mount)).toBeGreaterThan(chainAt);
+      expect(useCalls.indexOf(mount)).toBeLessThan(readAt);
+    }
+  });
+
+  it('puts no mount-level gate on the ecosystem routers (every route owns its own)', () => {
+    expect(gatesBefore(ROUTERS.ecosystemConsole)).toEqual([]);
+    expect(gatesBefore(ROUTERS.publisher)).toEqual([]);
+    expect(gatesBefore(ROUTERS.installs)).toEqual([]);
+    expect(gatesBefore(ROUTERS.reviews)).toEqual([]);
+  });
+});
+
+describe('src/index.ts — anonymous public directory', () => {
+  it('mounts /public on its own prefix, BEFORE the auth chain, with no gate of any kind', () => {
+    const args = mountFor(ROUTERS.publicDirectory);
+    expect(args).toEqual(['/public', ROUTERS.publicDirectory]);
+    const chainAt = useCalls.findIndex((c) => c.includes(AUTH_CHAIN));
+    expect(useCalls.indexOf(args)).toBeLessThan(chainAt);
+  });
+
+  it('mounts the anonymous submission API on its own prefix, before the directory and the auth chain', () => {
+    const args = mountFor(ROUTERS.publicSubmissions);
+    expect(args).toEqual(['/public/plugin-submissions', ROUTERS.publicSubmissions]);
+    expect(useCalls.indexOf(args)).toBeLessThan(useCalls.indexOf(mountFor(ROUTERS.publicDirectory)));
+    expect(useCalls.indexOf(args)).toBeLessThan(useCalls.findIndex((c) => c.includes(AUTH_CHAIN)));
+  });
+
+  it('never shares the /plugins prefix, so no /plugins gate can leak onto it (or it onto them)', () => {
+    for (const call of useCalls) {
+      if (call.includes(ROUTERS.publicDirectory)) continue;
+      expect(call[0]).not.toBe('/public');
     }
   });
 });

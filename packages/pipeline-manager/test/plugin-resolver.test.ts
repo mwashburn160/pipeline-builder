@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 import type { ApiClient } from '../src/utils/api-client.js';
-import { resolvePluginsForProps } from '../src/utils/plugin-resolver.js';
+import { lookupWarningsOf, resolvePluginsForProps } from '../src/utils/plugin-resolver.js';
 
 /** Minimal props with one stage-step plugin ref. */
 function propsWithPlugin(name: string, filter?: Record<string, unknown>) {
@@ -93,6 +93,14 @@ describe('resolvePluginsForProps — image signature verification', () => {
     const client = clientRejecting(409, { success: false, code: 'IMAGE_VERIFICATION_FAILED', message: 'failed signature verification' });
     await expect(resolvePluginsForProps(client, propsWithPlugin('java-corretto')))
       .rejects.toThrow(/java-corretto" image failed signature verification/);
+  });
+
+  // A listing the org can't use (plugin ecosystem §3.2, §3.4) is not an outage
+  // either: the synth stops with the refusal.
+  it.each(['PLUGIN_NOT_INSTALLED', 'PLUGIN_BLOCKED_BY_POLICY', 'PLUGIN_UNAVAILABLE'])('aborts on %s', async (code) => {
+    const client = clientRejecting(403, { success: false, code, message: 'acme/lint is not installed' });
+    await expect(resolvePluginsForProps(client, { stages: [{ steps: [{ plugin: { publisher: 'acme', name: 'lint' } }] }] }))
+      .rejects.toThrow(new RegExp(`"acme/lint" can't be used \\(${code}\\)`));
   });
 
   it('still falls back (non-fatal) on an ordinary lookup failure', async () => {
@@ -194,5 +202,50 @@ describe('resolvePluginsForProps — alias collisions', () => {
       { name: 'legacy-name', alias: 'build', filter: { name: 'java-corretto' } },
       { name: 'java-corretto', alias: 'build' },
     ))).resolves.toBeDefined();
+  });
+});
+
+describe('lookupWarningsOf — lifecycle warnings synth prints (plugin-ecosystem W0.4)', () => {
+  it('reads the messages beside the plugin in the lookup answer', () => {
+    expect(lookupWarningsOf({
+      plugin: PLUGIN,
+      warnings: [
+        { code: 'PLUGIN_DEPRECATED', message: 'Plugin java-corretto@1.0.0 is deprecated: Use 2.x.' },
+        { code: 'PLUGIN_YANKED', message: '' },
+        'junk',
+      ],
+    })).toEqual(['Plugin java-corretto@1.0.0 is deprecated: Use 2.x.']);
+  });
+
+  it('yields none for a missing or malformed warnings field', () => {
+    expect(lookupWarningsOf({ plugin: PLUGIN })).toEqual([]);
+    expect(lookupWarningsOf({ warnings: 'nope' })).toEqual([]);
+    expect(lookupWarningsOf(undefined)).toEqual([]);
+  });
+
+  it('still resolves the plugin when the answer carries warnings', async () => {
+    const client = clientReturning({ success: true, data: { plugin: PLUGIN, warnings: [{ code: 'PLUGIN_DEPRECATED', message: 'deprecated' }] } });
+    const resolved = await resolvePluginsForProps(client, propsWithPlugin('java-corretto'));
+    expect((resolved['java-corretto-alias'] as { name?: string })?.name).toBe('java-corretto');
+  });
+});
+
+describe('resolvePluginsForProps — publisher references (§3.5)', () => {
+  it('sends the publisher and keys the result by <publisher>-<name>-alias', async () => {
+    const sink: Array<Record<string, unknown>> = [];
+    const resolved = await resolvePluginsForProps(
+      clientCapturing({ data: { plugin: { ...PLUGIN, name: 'lint', publisher: 'acme' } } }, sink),
+      { stages: [{ steps: [{ plugin: { publisher: 'acme', name: 'lint', filter: { version: '^1.0.0' } } }] }] },
+    );
+    expect(sink).toEqual([{ name: 'lint', publisher: 'acme', version: '^1.0.0' }]);
+    expect(Object.keys(resolved)).toEqual(['acme-lint-alias']);
+  });
+
+  it('treats the same name from two publishers as two plugins, and one alias for both as a collision', async () => {
+    const both = { stages: [{ steps: [{ plugin: { name: 'lint' } }, { plugin: { publisher: 'acme', name: 'lint' } }] }] };
+    const resolved = await resolvePluginsForProps(clientReturning({ data: { plugin: PLUGIN } }), both);
+    expect(Object.keys(resolved).sort()).toEqual(['acme-lint-alias', 'lint-alias']);
+    const clash = { stages: [{ steps: [{ plugin: { name: 'lint', alias: 'l' } }, { plugin: { publisher: 'acme', name: 'lint', alias: 'l' } }] }] };
+    await expect(resolvePluginsForProps(clientReturning({ data: { plugin: PLUGIN } }), clash)).rejects.toThrow(/alias "l" is used for two different plugins/);
   });
 });

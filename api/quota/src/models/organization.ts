@@ -25,6 +25,8 @@ export interface QuotaLimits {
   alertRules: number;
   alertDestinations: number;
   idpConfigs: number;
+  /** Active plugin-ecosystem listings (count quota). */
+  listings: number;
 }
 
 export interface QuotaUsageTracking {
@@ -49,6 +51,9 @@ export interface QuotaUsageTracking {
   alertRules: QuotaUsage;
   alertDestinations: QuotaUsage;
   idpConfigs: QuotaUsage;
+  /** Active plugin-ecosystem listings — incremented when a listing is
+   *  published, decremented when it is unlisted. */
+  listings: QuotaUsage;
 }
 
 export interface OrganizationDocument extends Document {
@@ -128,6 +133,7 @@ const organizationSchema = new Schema<OrganizationDocument>( {
     alertRules: { type: Number, default: config.quota.defaults.alertRules },
     alertDestinations: { type: Number, default: config.quota.defaults.alertDestinations },
     idpConfigs: { type: Number, default: config.quota.defaults.idpConfigs },
+    listings: { type: Number, default: config.quota.defaults.listings },
   },
   usage: {
     plugins: { type: quotaUsageSchema, default: defaultUsage },
@@ -139,6 +145,7 @@ const organizationSchema = new Schema<OrganizationDocument>( {
     alertRules: { type: quotaUsageSchema, default: defaultUsage },
     alertDestinations: { type: quotaUsageSchema, default: defaultUsage },
     idpConfigs: { type: quotaUsageSchema, default: defaultUsage },
+    listings: { type: quotaUsageSchema, default: defaultUsage },
   },
 },
 { collection: 'organizations' },

@@ -50,3 +50,16 @@ commands:
   - "echo \"Cargo publish complete.\""
 env:
   CARGO_DRY_RUN: "false"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://doc.rust-lang.org/cargo/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/artifact/cargo-publish
+icon: rust
+network:
+  egress:
+    - "index.crates.io"
+    - "static.crates.io"
+    - "crates.io"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

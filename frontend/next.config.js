@@ -108,6 +108,14 @@ const nextConfig = {
         ],
       },
       {
+        // Curated plugin icons: content-hashed file names (scripts/generate-plugin-icons.mjs),
+        // so a changed logo is a new URL and the old one can be cached forever.
+        source: '/plugin-icons/(.*)',
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
+      {
         // Cache static assets aggressively
         source: '/_next/static/(.*)',
         headers: [

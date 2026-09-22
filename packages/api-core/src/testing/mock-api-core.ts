@@ -79,8 +79,8 @@ export class MockNotFoundError extends MockAppError {
 
 /** Mirrors api-core's ConflictError (409 / CONFLICT). */
 export class MockConflictError extends MockAppError {
-  constructor(message?: string) {
-    super(409, 'CONFLICT', message);
+  constructor(message?: string, code = 'CONFLICT') {
+    super(409, code, message);
     this.name = 'ConflictError';
   }
 }

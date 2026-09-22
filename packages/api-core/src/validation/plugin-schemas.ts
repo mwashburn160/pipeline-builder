@@ -3,12 +3,16 @@
 
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema, VisibilitySchema, CatalogMetadataShape } from './common-schemas.js';
+import { PluginCatalogEditsSchema } from './plugin-catalog-metadata.js';
+import { PUBLISHER_HANDLE_PATTERN } from '../types/ecosystem.js';
 
 /**
  * Plugin filter schema for query parameters
  */
 export const PluginFilterSchema = BaseFilterSchema.extend({
   name: z.string().min(1).optional(),
+  /** Resolve through this publisher's installed listing (§3.5); lookup only. */
+  publisher: z.string().max(39).regex(PUBLISHER_HANDLE_PATTERN).optional(),
   version: z.string().min(1).optional(),
   orgId: z.string().min(1).optional(),
   pluginType: z.string().optional(),
@@ -48,38 +52,37 @@ export const PluginCreateSchema = z.object({
 });
 
 /**
- * Plugin update schema
+ * Plugin update schema (`PUT /plugins/:id`).
+ *
+ * DESCRIPTIVE catalog fields only (§3.1a, G56) plus the version's operational
+ * flags and developer-portal metadata. Execution-contract keys (commands, env,
+ * secrets, compute type, …) are never accepted — the route refuses them with a
+ * 400 naming the keys before this schema runs, and `.strict()` refuses anything
+ * else unknown rather than silently dropping it.
  */
 export const PluginUpdateSchema = z.object({
   ...CatalogMetadataShape,
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  keywords: z.array(z.string()).optional(),
-  category: z.string().min(1).optional(),
-  version: z.string().min(1).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  pluginType: z.string().optional(),
-  computeType: z.string().optional(),
-  primaryOutputDirectory: z.string().nullable().optional(),
-  env: z.record(z.string(), z.string()).optional(),
-  buildArgs: z.record(z.string(), z.string()).optional(),
-  installCommands: z.array(z.string()).optional(),
-  commands: z.array(z.string()).optional(),
+  ...PluginCatalogEditsSchema.shape,
   isActive: BooleanQuerySchema.optional(),
   isDefault: BooleanQuerySchema.optional(),
   visibility: VisibilitySchema.optional(),
-  timeout: z.number().int().positive().nullable().optional(),
-  failureBehavior: z.enum(['fail', 'warn', 'ignore']).optional(),
-  secrets: z.array(z.object({
-    name: z.string().min(1),
-    required: z.boolean(),
-    description: z.string().optional(),
-  })).optional(),
-});
+}).strict();
 
 /**
  * Plugin upload body schema (multipart form-data text fields)
  */
 export const PluginUploadBodySchema = z.object({
   visibility: VisibilitySchema.optional(),
+  /**
+   * Catalog metadata edits as a JSON object (a {@link PluginCatalogEditsSchema}
+   * document). Absent ⇒ every value detected from the package is accepted.
+   */
+  metadata: z.string().max(256 * 1024).optional(),
+  /**
+   * `true`: once the build completes, submit a publish request (new listing, or
+   * new version of the org's existing listing) for the built version as the
+   * uploader (docs/plans/plugin-ecosystem.md §3.1). Needs `plugins:publish` and
+   * `visibility=public`. The Official catalog loader always sets it.
+   */
+  publishRequest: z.enum(['true', 'false']).optional(),
 });

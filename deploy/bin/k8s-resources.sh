@@ -108,9 +108,11 @@ pb_create_app_secrets() {
   # rotating". docs/runbooks/secret-rotation.md
   # postgres-secret is read BY KEY only (postgres, its exporter, pgbouncer, backup): the
   # superuser pair for init/backup, the DB_USER app-role pair for postgres-init.sql and
-  # pgbouncer's userlist. App pods get DB_USER/DB_PASSWORD from app-env/app-secrets and
+  # pgbouncer's userlist, and the view-only ecosystem_public_reader password (the public
+  # plugin directory's pooled login; postgres-init.sql creates the role from it). App pods get DB_USER/DB_PASSWORD from app-env/app-secrets and
   # must never envFrom this Secret (it would hand them the RLS-bypassing superuser).
-  pb_secret postgres-secret      --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD"
+  pb_secret postgres-secret      --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD" \
+    --from-literal=ECOSYSTEM_PUBLIC_READER_PASSWORD="${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}"
   pb_secret mongodb-secret       --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
   pb_secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
   pb_secret pgadmin-secret       --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
@@ -255,4 +257,5 @@ pb_create_config_maps() {
   pb_configmap thanos-objstore     --from-file=objstore.yml="$_config/thanos/objstore.yml"
   pb_configmap alertmanager-config --from-file=alertmanager.yml="$_config/alertmanager/alertmanager.yml"
   pb_configmap promtail-config     --from-file=promtail-config.yml="$_config/promtail/promtail-config.yml"
+  pb_configmap grafana-dashboards  --from-file=dashboards.yaml="$_config/grafana/dashboards/dashboards.yaml" --from-file=plugin-ecosystem.json="$_config/grafana/dashboards/plugin-ecosystem.json"
 }

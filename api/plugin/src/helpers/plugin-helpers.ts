@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { normalizeArrayFields, SYSTEM_ORG_ID, type Visibility } from '@pipeline-builder/api-core';
+import { normalizeArrayFields, SYSTEM_ORG_ID, type MetadataSources, type Visibility } from '@pipeline-builder/api-core';
 import { type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
+import type { PluginContractValueType, PluginIcon } from '@pipeline-builder/pipeline-data';
 
 import type { BuildRequest, BuildType } from './docker-build.js';
-import type { WriteAccess } from '../services/plugin-service.js';
+import type { PluginInsert, WriteAccess } from '../services/plugin-service.js';
 
 /** Plugin config parsed from config.yaml in the ZIP root. */
 export interface PluginConfig {
@@ -71,7 +72,13 @@ export function shapePlugin<P extends PluginRow>(plugin: P): P & { uri?: string 
 // Build job types & factory
 
 /** Plugin record data stored in the BullMQ job for DB insertion. */
-export interface PluginRecordData {
+export interface PluginRecordData extends PluginDocFields {
+  /**
+   * ISO `resetAt` of the quota period the upload's `plugins` slot was charged
+   * to (the `quota_reset_at` column). A string, not a Date: the record rides a
+   * BullMQ job as JSON. {@link toPluginInsert} converts it.
+   */
+  quotaResetAt?: string | null;
   orgId: string;
   name: string;
   description: string | null;
@@ -93,6 +100,48 @@ export interface PluginRecordData {
   buildType: BuildType;
   secrets: Array<{ name: string; required: boolean; description?: string }>;
 }
+
+/**
+ * The spec's execution-contract fields persisted with every version (W0.2):
+ * validated at upload, stored verbatim, never editable (G56). Built by
+ * `specContractFields` (plugin-spec.ts).
+ */
+export interface PluginContractFields {
+  requiredMetadata: string[];
+  requiredVars: string[];
+  metadataTypes: Record<string, PluginContractValueType>;
+  varsTypes: Record<string, PluginContractValueType>;
+  smokeTest: string | null;
+  networkEgress: string[];
+}
+
+/**
+ * The descriptive catalog columns (§3.1a) other than description / category /
+ * keywords (which sit on the record itself): detected from the package, then
+ * accepted or edited. Built by `catalogColumns` (catalog-metadata.ts).
+ */
+export interface PluginCatalogDocFields {
+  summary: string | null;
+  displayName: string | null;
+  readmeMd: string | null;
+  /** `readmeMd` rendered once, server-side, to sanitized HTML (the only form served). */
+  readmeHtml: string | null;
+  license: string | null;
+  changelog: string | null;
+  homepageUrl: string | null;
+  sourceUrl: string | null;
+  documentationUrl: string | null;
+  icon: PluginIcon | null;
+  /** Per-field provenance (`spec | readme | dockerfile | derived | user`). */
+  metadataSources: MetadataSources;
+}
+
+/**
+ * Everything persisted with a version beyond its run config: the contract plus
+ * the catalog documentation. Plain data so it survives the BullMQ trip to the
+ * build worker.
+ */
+export interface PluginDocFields extends PluginContractFields, PluginCatalogDocFields {}
 
 /** Failure classification for DLQ routing. */
 export type FailureCategory = 'retryable' | 'permanent';
@@ -127,6 +176,24 @@ export interface PluginBuildJobData {
    * no-op — the old period already reset to 0, so there is nothing to refund.
    */
   reservedResetAt?: string;
+  /**
+   * Set when the upload asked for a publish request (`publishRequest=true`,
+   * plugin ecosystem §3.1): once the version is deployed the worker submits a
+   * new-listing / new-version request AS this caller (snapshotted at upload).
+   */
+  publish?: { caller: PublishCaller };
+}
+
+/** The uploader, snapshotted for the post-build publish request (see `services/ecosystem/context.ts` `Caller`). */
+export interface PublishCaller {
+  userId: string;
+  orgId: string;
+  parentOrgId?: string;
+  principalType: string;
+  name?: string;
+  isSuperAdmin: boolean;
+  permissions: readonly string[];
+  features: readonly string[];
 }
 
 /** Parameters for creating a plugin build job. */
@@ -141,7 +208,30 @@ interface CreateBuildJobParams {
    *  {@link PluginBuildJobData.reservedResetAt}). Threaded through so the
    *  terminal-failure refund is period-safe. */
   reservedResetAt?: string;
+  /** Submit a publish request after the build (see {@link PluginBuildJobData.publish}). */
+  publish?: { caller: PublishCaller };
 }
+
+/** A version that declares no contract and ships no documentation. */
+export const EMPTY_DOC_FIELDS: PluginDocFields = {
+  requiredMetadata: [],
+  requiredVars: [],
+  metadataTypes: {},
+  varsTypes: {},
+  smokeTest: null,
+  networkEgress: [],
+  summary: null,
+  displayName: null,
+  readmeMd: null,
+  readmeHtml: null,
+  license: null,
+  changelog: null,
+  homepageUrl: null,
+  sourceUrl: null,
+  documentationUrl: null,
+  icon: null,
+  metadataSources: {},
+};
 
 /** Create a PluginBuildJobData with defaults applied. */
 export function createBuildJobData(params: CreateBuildJobParams): PluginBuildJobData {
@@ -164,7 +254,22 @@ export function createBuildJobData(params: CreateBuildJobParams): PluginBuildJob
       failureBehavior: 'fail',
       buildType: 'build_image',
       secrets: [],
+      ...EMPTY_DOC_FIELDS,
       ...pluginRecord,
     },
+  };
+}
+
+/**
+ * A job/route plugin record as the row `deployVersion` writes: the JSON-safe
+ * quota snapshot becomes a Date, and `extra` (the worker's image + scan facts)
+ * is layered on top.
+ */
+export function toPluginInsert(record: PluginRecordData, extra: Partial<PluginInsert> = {}): PluginInsert {
+  const { quotaResetAt, ...rest } = record;
+  return {
+    ...rest,
+    quotaResetAt: quotaResetAt ? new Date(quotaResetAt) : null,
+    ...extra,
   };
 }

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/metadata-keys.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 90b01a4c0e3f82e0727a8cb8f061b72613c5ebc69102d57ca846d43c62dcbc01
+// SOURCE-SHA256: 0176f96f80b85c3da046d2cbb524aad2a4c23630e837cbba5fc8dffb8a1eb834
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -21,7 +21,7 @@ export const metadataKeysTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Metadata keys let you override default behavior at three levels: pipeline-wide (via global), per-stage, or per-step (via metadata on individual plugin references)."
+          "content": "Metadata keys let you override default behavior pipeline-wide (global, defaults.metadata, synth.metadata) or per step (a step's plugin.metadata and metadata). See Scope Levels. In a JSON pipeline, use the key's string value (aws:cdk:…); the MetadataKeys constants are for TypeScript."
         },
         {
           "type": "text",
@@ -47,7 +47,7 @@ export const metadataKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This reference catalogs the MetadataKeys constants (and their interchangeable raw string values) that customize CodePipeline and CodeBuild resources at synth time, imported from @pipeline-builder/pipeline-core. It's for authors building pipelines who need to override defaults — compute, VPC networking, IAM roles, security groups, notifications, operations, and encryption — at the pipeline, stage, or step scope. Keys are grouped by the construct they target; each group states which of the three consumption mechanisms (construct prop, typed config, or custom synth) applies. See How keys are consumed for the routing details and Scope Levels for override precedence."
+          "content": "This reference catalogs the MetadataKeys constants (and their interchangeable raw string values) that customize CodePipeline and CodeBuild resources at synth time, imported from @pipeline-builder/pipeline-core. It's for authors building pipelines who need to override defaults — compute, VPC networking, IAM roles, security groups, notifications, operations, and encryption — at the pipeline or step scope. Keys are grouped by the construct they target; each group states which of the three consumption mechanisms (construct prop, typed config, or custom synth) applies. See How keys are consumed for the routing details and Scope Levels for override precedence."
         }
       ]
     },
@@ -585,7 +585,7 @@ export const metadataKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Metadata keys can be applied at different scopes. More specific scopes override broader ones."
+          "content": "Metadata keys can be applied at different scopes. More specific scopes override broader ones (last wins)."
         },
         {
           "type": "table",
@@ -596,21 +596,25 @@ export const metadataKeysTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "Global",
-              "BuilderProps.global",
-              "All steps in the pipeline"
+              "Pipeline",
+              "global, then defaults.metadata, then synth.metadata (merged in that order)",
+              "Every step in the pipeline, including synth"
             ],
             [
-              "Stage",
-              "Stage-level metadata",
-              "All steps in that stage"
+              "Plugin reference",
+              "A step's plugin.metadata",
+              "That step"
             ],
             [
               "Step",
-              "Step-level metadata",
+              "A step's metadata",
               "That specific build step only"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "There is no stage-level metadata: a stage groups steps (stageName, steps, optional environment), and each step carries its own. The merged pipeline metadata is also the {{ metadata.* }} template scope, and the scope a plugin's requiredMetadata contract is checked against at pipeline create and at synth."
         }
       ]
     },
@@ -620,7 +624,7 @@ export const metadataKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Keys are merged (global → stage → step) into a single metadata map, then routed by one of three mechanisms:"
+          "content": "Keys are merged (pipeline → plugin reference → step) into a single metadata map, then routed by one of three mechanisms:"
         },
         {
           "type": "list",
@@ -663,7 +667,7 @@ export const metadataKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "import { MetadataKeys } from '@pipeline-builder/pipeline-core';\nimport { PipelineBuilder } from '@pipeline-builder/pipeline-core/cdk';\nimport { Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';\n\nconst codeBuildRole = new Role(stack, 'CodeBuildRole', {\n  assumedBy: new ServicePrincipal('codebuild.amazonaws.com'),\n});\n\nnew PipelineBuilder(stack, 'Pipeline', {\n  project: 'secure-app',\n  organization: 'enterprise',\n  global: {\n    [MetadataKeys.CROSS_ACCOUNT_KEYS]: true,\n    [MetadataKeys.DOCKER_ENABLED_FOR_SYNTH]: true,\n    [MetadataKeys.SELF_MUTATION]: true,\n  },\n  synth: {\n    source: {\n      type: 'codestar',\n      options: {\n        repo: 'enterprise/secure-app',\n        branch: 'main',\n        connectionArn: 'arn:aws:codestar-connections:...',\n      },\n    },\n    plugin: { name: 'cdk-synth', version: '1.0.0' },\n    metadata: {\n      [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,\n      [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',\n      [MetadataKeys.TIMEOUT]: '60',\n    },\n  },\n});",
+          "content": "import { MetadataKeys } from '@pipeline-builder/pipeline-core';\nimport { PipelineBuilder } from '@pipeline-builder/pipeline-core/cdk';\nimport { Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';\n\nconst codeBuildRole = new Role(stack, 'CodeBuildRole', {\n  assumedBy: new ServicePrincipal('codebuild.amazonaws.com'),\n});\n\nnew PipelineBuilder(stack, 'Pipeline', {\n  project: 'secure-app',\n  organization: 'enterprise',\n  global: {\n    [MetadataKeys.CROSS_ACCOUNT_KEYS]: true,\n    [MetadataKeys.DOCKER_ENABLED_FOR_SYNTH]: true,\n    [MetadataKeys.SELF_MUTATION]: true,\n  },\n  synth: {\n    source: {\n      type: 'codestar',\n      options: {\n        repo: 'enterprise/secure-app',\n        branch: 'main',\n        connectionArn: 'arn:aws:codestar-connections:...',\n      },\n    },\n    plugin: { name: 'cdk-synth', filter: { version: '1.0.0' } },\n    metadata: {\n      [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,\n      [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',\n      [MetadataKeys.TIMEOUT]: '60',\n    },\n  },\n});",
           "language": "typescript"
         },
         {

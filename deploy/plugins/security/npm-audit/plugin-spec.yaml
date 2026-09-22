@@ -35,3 +35,15 @@ commands:
   - "echo \"Dependency audit complete. Reports available in audit-reports/\""
 env:
   AUDIT_LEVEL: high
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.npmjs.com/cli/commands/npm-audit
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/npm-audit
+icon: npm
+network:
+  egress:
+    - "registry.npmjs.org"
+    - "registry.yarnpkg.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

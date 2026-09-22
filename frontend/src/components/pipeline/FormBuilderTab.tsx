@@ -3,7 +3,7 @@ import { BuilderProps } from '@/types';
 import { FormBuilderState } from '@/types/form-types';
 import { propsToFormState } from '@/types/props-parsing';
 import { useFormBuilderState } from '@/hooks/useFormBuilderState';
-import { usePlugins } from '@/hooks/usePlugins';
+import { usePlugins, usePluginCatalog } from '@/hooks/usePlugins';
 import PipelineConfigSection from './sections/PipelineConfigSection';
 import SynthSection from './sections/SynthSection';
 import DefaultsSection from './sections/DefaultsSection';
@@ -90,6 +90,9 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
     const isDirty = pristineRef.current !== serializedState;
     useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
     const { plugins } = usePlugins();
+    // After W2 the Official catalog is not in `GET /plugins`: listings (installed
+    // or implicit Official) come from the catalog, for artifact-key output dirs.
+    const { entries: catalog } = usePluginCatalog();
     const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([0]));
 
     useImperativeHandle(ref, () => ({
@@ -229,6 +232,7 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
         errors={validationErrors}
         synth={state.synth}
         plugins={plugins}
+        catalog={catalog}
       />
     );
 

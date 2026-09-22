@@ -1,8 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
+import { pluginImageRepository, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
+import {
+  drizzleListingSource, installModeFor, listingBlock, loadOrgInstallContext, runWithTenantContext, schema, withTenantTx,
+} from '@pipeline-builder/pipeline-data';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
 export const PR_PIPELINE_NOT_OWNED = 'PR_PIPELINE_NOT_OWNED';
 export const PR_REGISTRY_OWNED_BY_OTHER_ORG = 'PR_REGISTRY_OWNED_BY_OTHER_ORG';
@@ -15,6 +19,124 @@ export interface RegistryUpsertInput {
   project?: string;
   organization?: string;
   stackName?: string;
+  /**
+   * The synth's step manifest (W0.1). When present, the pipeline's stored
+   * manifest is REPLACED with it in the same tx as the registry upsert; when
+   * absent (a manual register), the stored manifest is left as is.
+   */
+  steps?: StepManifestEntry[];
+  /** The caller's parent (root) org when it is a team: its installs apply (G33). */
+  parentOrgId?: string;
+}
+
+type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
+
+/** What a manifest row records about a step's plugin. */
+interface ManifestPlugin {
+  publisher: string | null;
+  name: string;
+  version: string;
+  imageDigest: string | null;
+  imageRepository: string | null;
+}
+
+/**
+ * The LISTED versions among `ids` that the org actually reaches (plugin
+ * ecosystem §3.5): a listing version the synth resolved through an install —
+ * explicit (the org's own, or its root org's for a team) or the implicit
+ * Official one — and that the org's policy doesn't block. Attributed to the
+ * listing's publisher, with its `public/*` repository. Read ELEVATED (the
+ * ecosystem tables, and a team's root-org install rows), scoped by the
+ * explicit org ids; everything else about the entry is the caller's own.
+ */
+async function listedStepPlugins(ids: string[], orgId: string, parentOrgId?: string): Promise<Map<string, ManifestPlugin>> {
+  const out = new Map<string, ManifestPlugin>();
+  if (ids.length === 0) return out;
+  return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(async (tx) => {
+    const V = schema.pluginListingVersion;
+    const versions = await tx
+      .select({ id: V.id, listingId: V.listingId, version: V.version, imageDigest: V.imageDigest, imageRepository: V.imageRepository })
+      .from(V)
+      .where(inArray(V.id, ids));
+    if (versions.length === 0) return out;
+    const source = drizzleListingSource(tx);
+    const scope = { orgId, ...(parentOrgId ? { rootOrgId: parentOrgId } : {}) };
+    const listings = await source.liveListings({ ids: [...new Set(versions.map((v) => v.listingId))] });
+    const publishers = await source.publishersByIds([...new Set(listings.map((l) => l.publisherId))]);
+    const ctx = await loadOrgInstallContext(source, scope);
+    for (const v of versions) {
+      const listing = listings.find((l) => l.id === v.listingId);
+      const publisher = listing ? publishers.find((p) => p.id === listing.publisherId) : undefined;
+      if (!listing || !publisher || listingBlock(ctx.policy, publisher, listing)) continue;
+      if ('code' in installModeFor(publisher, listing, ctx.installs, ctx.policy, scope)) continue;
+      out.set(v.id, { publisher: publisher.handle, name: listing.name, version: v.version, imageDigest: v.imageDigest, imageRepository: v.imageRepository });
+    }
+    return out;
+  }));
+}
+
+/**
+ * Replace a pipeline's step manifest. The CLI's entries are trusted only for
+ * the pipeline's own shape (stage/action names — it can only mislabel its own
+ * pipeline); everything that feeds cross-org stats and verified use comes from
+ * the record the entry's `pluginId` names: the caller's own `plugins` row (read
+ * under its RLS scope — own org; no publisher), or a listing version it reaches
+ * through an install (`listed`, attributed to the listing's publisher). An
+ * entry naming anything else is dropped, so an org can't attribute its runs to
+ * someone else's plugin.
+ */
+async function replaceStepManifest(tx: Tx, pipelineId: string, orgId: string, steps: StepManifestEntry[], listed: Map<string, ManifestPlugin>): Promise<number> {
+  await tx.delete(schema.pipelineStepManifest).where(eq(schema.pipelineStepManifest.pipelineId, pipelineId));
+  if (steps.length === 0) return 0;
+
+  const pluginIds = [...new Set(steps.map((s) => s.pluginId))].filter((id) => !listed.has(id));
+  const rows = pluginIds.length === 0 ? [] : await tx
+    .select({
+      id: schema.plugin.id,
+      orgId: schema.plugin.orgId,
+      name: schema.plugin.name,
+      version: schema.plugin.version,
+      imageDigest: schema.plugin.imageDigest,
+      buildType: schema.plugin.buildType,
+    })
+    .from(schema.plugin)
+    .where(inArray(schema.plugin.id, pluginIds));
+  const byId = new Map<string, ManifestPlugin>(listed);
+  for (const p of rows) {
+    byId.set(p.id, {
+      publisher: null,
+      name: p.name,
+      version: p.version,
+      imageDigest: p.imageDigest,
+      imageRepository: p.imageDigest ? pluginImageRepository(p) : null,
+    });
+  }
+
+  // Keyed on the PK so a duplicated (stage, action) can't fail the insert.
+  // Names are scrubbed exactly as event ingest scrubs the event's names, so
+  // the ingest join compares like with like.
+  const manifest = new Map<string, typeof schema.pipelineStepManifest.$inferInsert>();
+  const updatedAt = new Date();
+  for (const step of steps) {
+    const plugin = byId.get(step.pluginId);
+    if (!plugin) continue;
+    const stageName = scrubAwsIdentifiersFromString(step.stageName);
+    const actionName = scrubAwsIdentifiersFromString(step.actionName);
+    manifest.set(`${stageName}\u0000${actionName}`, {
+      pipelineId,
+      orgId,
+      stageName,
+      actionName,
+      pluginPublisher: plugin.publisher,
+      pluginName: plugin.name,
+      pluginVersion: plugin.version,
+      imageDigest: plugin.imageDigest,
+      imageRepository: plugin.imageRepository,
+      updatedAt,
+    });
+  }
+  if (manifest.size > 0) await tx.insert(schema.pipelineStepManifest).values([...manifest.values()]);
+  return manifest.size;
 }
 
 class PipelineRegistryService {
@@ -49,7 +171,10 @@ class PipelineRegistryService {
    * Throws PR_PIPELINE_NOT_OWNED or PR_REGISTRY_OWNED_BY_OTHER_ORG.
    */
   async upsert(input: RegistryUpsertInput) {
-    const { pipelineId, orgId, pipelineName, region, project, organization, stackName } = input;
+    const { pipelineId, orgId, pipelineName, region, project, organization, stackName, steps, parentOrgId } = input;
+    // Listed versions the steps name, resolved (elevated, read-only) BEFORE the
+    // tenant transaction below.
+    const listed = steps ? await listedStepPlugins([...new Set(steps.map((s) => s.pluginId))], orgId, parentOrgId) : new Map<string, ManifestPlugin>();
 
     // All operations run in one tx so an attacker can't race the gate checks
     // against the insert under a withdrawn pipeline binding.
@@ -101,7 +226,8 @@ class PipelineRegistryService {
           },
         })
         .returning();
-      return result;
+      const manifestSteps = steps ? await replaceStepManifest(tx, pipelineId, orgId, steps, listed) : undefined;
+      return { ...result, ...(manifestSteps !== undefined ? { manifestSteps } : {}) };
     });
   }
 
@@ -138,19 +264,31 @@ class PipelineRegistryService {
     });
   }
 
-  /** Hard-delete a registry row scoped to the caller's org. Returns the deleted row or null. */
+  /**
+   * Hard-delete a registry row scoped to the caller's org, and the pipeline's
+   * step manifest with it — a deregistered pipeline no longer runs, and a
+   * leftover manifest would keep its image digests "referenced" for the
+   * `public/*` GC guard forever. Returns the deleted row or null.
+   */
   async delete(id: string, orgId: string) {
-    const [deleted] = await withTenantTx(async (tx) => tx
-      .delete(schema.pipelineRegistry)
-      .where(and(
-        eq(schema.pipelineRegistry.id, id),
-        eq(schema.pipelineRegistry.orgId, orgId),
-      ))
-      .returning({
-        id: schema.pipelineRegistry.id,
-        pipelineId: schema.pipelineRegistry.pipelineId,
-      }));
-    return deleted ?? null;
+    return withTenantTx(async (tx) => {
+      const [deleted] = await tx
+        .delete(schema.pipelineRegistry)
+        .where(and(
+          eq(schema.pipelineRegistry.id, id),
+          eq(schema.pipelineRegistry.orgId, orgId),
+        ))
+        .returning({
+          id: schema.pipelineRegistry.id,
+          pipelineId: schema.pipelineRegistry.pipelineId,
+        });
+      if (!deleted) return null;
+      await tx.delete(schema.pipelineStepManifest).where(and(
+        eq(schema.pipelineStepManifest.pipelineId, deleted.pipelineId),
+        eq(schema.pipelineStepManifest.orgId, orgId),
+      ));
+      return deleted;
+    });
   }
 }
 

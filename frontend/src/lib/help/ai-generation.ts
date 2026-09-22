@@ -17,7 +17,7 @@ export const aiGenerationTopic: HelpTopic = {
         {
           type: 'text',
           content:
-            'Pipeline Builder can generate complete pipeline and plugin configurations from a natural language prompt. Describe what you need and the AI creates the full config including source setup, build stages, and plugin references.',
+            'Pipeline Builder can generate complete pipeline and plugin configurations from a natural language prompt. Describe what you need and the AI creates the full config including source setup, build stages, and plugin references. It only picks plugin versions that are current: deprecated and yanked versions are never chosen.',
         },
       ],
     },

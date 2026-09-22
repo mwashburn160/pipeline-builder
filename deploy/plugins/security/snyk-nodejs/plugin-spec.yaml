@@ -38,3 +38,16 @@ env:
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and reports a version. Exit non-zero = test fail.
 smokeTest: "which snyk && node --version"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.snyk.io/snyk-cli
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/snyk-nodejs
+icon: { key: snyk, badge: nodejs }
+network:
+  egress:
+    - "api.snyk.io"
+    - "registry.npmjs.org"
+    - "registry.yarnpkg.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

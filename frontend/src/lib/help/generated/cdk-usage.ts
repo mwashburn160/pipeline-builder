@@ -1,6 +1,6 @@
 // GENERATED FROM docs/cdk-usage.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a09e209710a7d866e717cb4eaf3b305c659ddc937456c687fa9d45e19d47eb5b
+// SOURCE-SHA256: 2aa8fee977a94f476f91561e88ff7a5a0df9a92d0ca9caeb57e4c0757e12b9ac
 // SPDX-License-Identifier: Apache-2.0
 import { Boxes } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -63,7 +63,7 @@ export const cdkUsageTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "import { App, Stack } from 'aws-cdk-lib';\nimport { PipelineBuilder } from '@pipeline-builder/pipeline-core/cdk';\n\nconst app = new App();\nconst stack = new Stack(app, 'MyPipelineStack', {\n  env: { account: '123456789012', region: 'us-east-1' },\n});\n\nnew PipelineBuilder(stack, 'MyPipeline', {\n  project: 'my-app',\n  organization: 'my-org',\n  synth: {\n    source: { type: 'github', options: { repo: 'my-org/my-app', branch: 'main' } },\n    plugin: { name: 'cdk-synth', version: '1.0.0' },\n  },\n  stages: [\n    {\n      stageName: 'Test',\n      steps: [{ plugin: { name: 'jest', version: '1.0.0' } }],\n    },\n    {\n      stageName: 'Deploy',\n      steps: [{ plugin: { name: 'cdk-deploy', version: '1.0.0' }, env: { ENVIRONMENT: 'production' } }],\n    },\n  ],\n});",
+          "content": "import { App, Stack } from 'aws-cdk-lib';\nimport { PipelineBuilder } from '@pipeline-builder/pipeline-core/cdk';\n\nconst app = new App();\nconst stack = new Stack(app, 'MyPipelineStack', {\n  env: { account: '123456789012', region: 'us-east-1' },\n});\n\nnew PipelineBuilder(stack, 'MyPipeline', {\n  project: 'my-app',\n  organization: 'my-org',\n  synth: {\n    source: { type: 'github', options: { repo: 'my-org/my-app', branch: 'main' } },\n    plugin: { name: 'cdk-synth', filter: { version: '1.0.0' } },\n  },\n  stages: [\n    {\n      stageName: 'Test',\n      steps: [{ plugin: { name: 'jest', filter: { version: '1.0.0' } } }],\n    },\n    {\n      stageName: 'Deploy',\n      steps: [{ plugin: { name: 'cdk-deploy', filter: { version: '1.0.0' } }, env: { ENVIRONMENT: 'production' } }],\n    },\n  ],\n});",
           "language": "typescript"
         },
         {
@@ -229,7 +229,7 @@ export const cdkUsageTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "stages: [\n  {\n    stageName: 'Quality',\n    steps: [\n      {\n        plugin: { name: 'eslint', version: '1.0.0' },\n        failureBehavior: 'warn',              // Don't block pipeline on lint failures\n      },\n      {\n        plugin: { name: 'prettier', version: '1.0.0' },\n        failureBehavior: 'warn',\n      },\n    ],\n  },\n  {\n    stageName: 'Test',\n    steps: [\n      {\n        plugin: { name: 'jest', version: '1.0.0' },\n        timeout: 30,                           // Minutes\n        env: { NODE_ENV: 'test' },\n      },\n    ],\n  },\n  {\n    stageName: 'Deploy',\n    steps: [\n      {\n        plugin: { name: 'cdk-deploy', version: '1.0.0' },\n        position: 'post',                     // Run after stage deployment\n        env: { ENVIRONMENT: 'production' },\n      },\n    ],\n  },\n],",
+          "content": "stages: [\n  {\n    stageName: 'Quality',\n    steps: [\n      {\n        plugin: { name: 'eslint', filter: { version: '1.0.0' } },\n        failureBehavior: 'warn',              // Don't block pipeline on lint failures\n      },\n      {\n        plugin: { name: 'prettier', filter: { version: '1.0.0' } },\n        failureBehavior: 'warn',\n      },\n    ],\n  },\n  {\n    stageName: 'Test',\n    steps: [\n      {\n        plugin: { name: 'jest', filter: { version: '1.0.0' } },\n        timeout: 30,                           // Minutes\n        env: { NODE_ENV: 'test' },\n      },\n    ],\n  },\n  {\n    stageName: 'Deploy',\n    steps: [\n      {\n        plugin: { name: 'cdk-deploy', filter: { version: '1.0.0' } },\n        position: 'post',                     // Run after stage deployment\n        env: { ENVIRONMENT: 'production' },\n      },\n    ],\n  },\n],",
           "language": "typescript"
         },
         {
@@ -315,7 +315,7 @@ export const cdkUsageTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "plugin: {\n  name: 'jest',                    // Required: registered plugin name\n  version: '1.0.0',               // Pin a specific version\n  alias: 'jest-unit',             // Alias for multiple uses of same plugin\n  filter: {                        // Optional query filter\n    visibility: 'public',\n    isActive: true,\n  },\n  metadata: {                      // Plugin-level metadata overrides\n    'aws:cdk:codebuild:buildenvironment:computetype': 'BUILD_GENERAL1_MEDIUM',\n  },\n}",
+          "content": "plugin: {\n  name: 'jest',                    // Required: registered plugin name\n  alias: 'jest-unit',             // Alias for multiple uses of same plugin\n  filter: {                        // Optional lookup filter\n    version: '^1.2',               // Pin or range the version: 1.2.3, ^1, ~1.2, 1.x, latest\n  },                               // (omit it to use the plugin's default version)\n  metadata: {                      // Plugin-level metadata overrides\n    'aws:cdk:codebuild:buildenvironment:computetype': 'BUILD_GENERAL1_MEDIUM',\n  },\n}",
           "language": "typescript"
         }
       ]
@@ -478,7 +478,7 @@ export const cdkUsageTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "new PipelineBuilder(stack, 'Pipeline', {\n  project: 'my-app',\n  organization: 'acme',\n  orgId: 'org-abc123',        // Enables per-org secret resolution\n  synth: { ... },\n  stages: [{\n    stageName: 'Security',\n    steps: [{\n      plugin: {\n        name: 'snyk-nodejs',    // Plugin declares: secrets: [{ name: 'SNYK_TOKEN', required: true }]\n        version: '1.0.0',\n      },\n    }],\n  }],\n});",
+          "content": "new PipelineBuilder(stack, 'Pipeline', {\n  project: 'my-app',\n  organization: 'acme',\n  orgId: 'org-abc123',        // Enables per-org secret resolution\n  synth: { ... },\n  stages: [{\n    stageName: 'Security',\n    steps: [{\n      plugin: {\n        name: 'snyk-nodejs',    // Plugin declares: secrets: [{ name: 'SNYK_TOKEN', required: true }]\n        filter: { version: '1.0.0' },\n      },\n    }],\n  }],\n});",
           "language": "typescript"
         },
         {

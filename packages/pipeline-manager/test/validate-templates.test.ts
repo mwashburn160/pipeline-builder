@@ -75,7 +75,7 @@ describe('validate-templates CLI', () => {
 
   it('--file on a valid plugin spec exits 0', async () => {
     const file = tmpFile(
-      'name: test-plugin\nversion: 1.0.0\npluginType: CodeBuildStep\ncommands:\n  - "echo {{ pipeline.metadata.env }}"\n',
+      'name: test-plugin\nversion: 1.0.0\npluginType: CodeBuildStep\nrequiredMetadata: [env]\ncommands:\n  - "echo {{ pipeline.metadata.env }}"\n',
     );
     // Should not throw (no process.exit(1))
     await expect(runCli(['--file', file])).resolves.toBeDefined();
@@ -90,16 +90,25 @@ describe('validate-templates CLI', () => {
     fs.unlinkSync(file);
   });
 
+  it('--file applies the plugin contract the upload applies (undeclared metadata exits 1)', async () => {
+    const file = tmpFile(
+      'name: undeclared\nversion: 1.0.0\npluginType: CodeBuildStep\ncommands:\n  - "echo {{ pipeline.metadata.env }}"\n',
+    );
+    await expect(runCli(['--file', file])).rejects.toThrow(/__EXIT_1__/);
+    fs.unlinkSync(file);
+  });
+
   it('--plugin fetches and validates a remote plugin', async () => {
     const getMock = jest.fn().mockResolvedValue({
       plugin: {
         name: 'remote',
         pluginType: 'CodeBuildStep',
         commands: ['echo {{ pipeline.metadata.env }}'],
+        requiredMetadata: ['env'],
       },
     });
     mockCreateAuthenticatedClientAsync.mockResolvedValue({
-      getConfig: () => ({ api: { pluginUrl: 'https://p.example.com/api/plugin' } }),
+      getConfig: () => ({ api: { pluginUrl: 'https://p.example.com/api/plugins' } }),
       get: getMock,
     });
     await expect(runCli(['--plugin', 'remote:1.0.0'])).resolves.toBeDefined();

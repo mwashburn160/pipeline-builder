@@ -668,6 +668,30 @@
     @apply text-sm font-medium text-danger hover:text-danger-strong transition-colors;
   }
 
+  /* ---- Plugin README (public directory) ----
+     The HTML is rendered and sanitized SERVER-side (rehype-sanitize allowlist);
+     these rules only give its plain elements readable typography in both themes. */
+  .pb-readme {
+    @apply text-sm leading-relaxed text-fg max-w-none;
+    overflow-wrap: anywhere;
+  }
+  .pb-readme > * + * { @apply mt-3; }
+  .pb-readme h1 { @apply text-2xl font-bold mt-6; }
+  .pb-readme h2 { @apply text-xl font-semibold mt-6 pb-1 border-b border-default; }
+  .pb-readme h3 { @apply text-base font-semibold mt-5; }
+  .pb-readme h4, .pb-readme h5, .pb-readme h6 { @apply text-sm font-semibold mt-4; }
+  .pb-readme a { color: var(--pb-brand); @apply underline; }
+  .pb-readme ul { @apply list-disc pl-6 space-y-1; }
+  .pb-readme ol { @apply list-decimal pl-6 space-y-1; }
+  .pb-readme code { @apply rounded bg-surface-muted px-1 py-0.5 font-mono text-xs; }
+  .pb-readme pre { @apply overflow-x-auto rounded-lg bg-surface-muted p-3 text-xs; }
+  .pb-readme pre code { @apply bg-transparent p-0; }
+  .pb-readme blockquote { @apply border-l-4 border-default pl-3 text-fg-muted; }
+  .pb-readme table { @apply block overflow-x-auto border-collapse text-xs; }
+  .pb-readme th, .pb-readme td { @apply border border-default px-2 py-1 text-left; }
+  .pb-readme img { @apply max-w-full h-auto; }
+  .pb-readme hr { @apply border-default; }
+
   .skeleton {
     position: relative;
     overflow: hidden;

@@ -33,6 +33,11 @@ describe('PluginFilterSchema', () => {
     const result = PluginFilterSchema.safeParse({ isActive: true, isDefault: false });
     expect(result.success).toBe(true);
   });
+
+  it('accepts a publisher handle and refuses a malformed one', () => {
+    expect(PluginFilterSchema.safeParse({ name: 'lint', publisher: 'acme-corp' }).success).toBe(true);
+    expect(PluginFilterSchema.safeParse({ name: 'lint', publisher: 'Acme' }).success).toBe(false);
+  });
 });
 
 describe('PluginCreateSchema', () => {
@@ -85,8 +90,8 @@ describe('PluginCreateSchema', () => {
 });
 
 describe('PluginUpdateSchema', () => {
-  it('allows partial updates', () => {
-    const result = PluginUpdateSchema.safeParse({ name: 'new-name' });
+  it('allows partial descriptive + operational updates', () => {
+    const result = PluginUpdateSchema.safeParse({ summary: 'One line.', keywords: ['test', 'ci'], isActive: false, homepageUrl: null });
     expect(result.success).toBe(true);
   });
 
@@ -95,13 +100,15 @@ describe('PluginUpdateSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('validates nested fields', () => {
-    const result = PluginUpdateSchema.safeParse({
-      env: { NODE_ENV: 'production' },
-      commands: ['npm test'],
-      keywords: ['test', 'ci'],
-    });
-    expect(result.success).toBe(true);
+  it('refuses execution-contract keys and anything unknown (strict, G56)', () => {
+    for (const body of [{ name: 'new-name' }, { commands: ['npm test'] }, { env: { A: 'b' } }, { bogus: 1 }]) {
+      expect(PluginUpdateSchema.safeParse(body).success).toBe(false);
+    }
+  });
+
+  it('applies the shared catalog validator to descriptive fields', () => {
+    expect(PluginUpdateSchema.safeParse({ license: 'WTFPL' }).success).toBe(false);
+    expect(PluginUpdateSchema.safeParse({ category: 'security', documentationUrl: 'https://docs.acme.io' }).success).toBe(true);
   });
 });
 
@@ -117,5 +124,10 @@ describe('PluginUploadBodySchema', () => {
 
   it('accepts empty body (all optional)', () => {
     expect(PluginUploadBodySchema.safeParse({}).success).toBe(true);
+  });
+
+  it('accepts the catalog `metadata` part as JSON text', () => {
+    expect(PluginUploadBodySchema.safeParse({ metadata: '{"summary":"x"}' }).success).toBe(true);
+    expect(PluginUploadBodySchema.safeParse({ metadata: { summary: 'x' } }).success).toBe(false);
   });
 });

@@ -55,6 +55,8 @@ const MANIFEST = [
   { id: 'deployment', icon: 'Server', title: 'Deployment', description: 'Install with the pipeline-manager CLI, plus Local, Minikube, and AWS guides', doc: 'aws-deployment.md' },
   { id: 'cli-reference', icon: 'Terminal', title: 'CLI Reference', description: 'Pipeline Manager CLI commands and usage', doc: 'pipeline-manager.md' },
   { id: 'onboarding', icon: 'Rocket', title: 'Onboarding an Organization', description: 'First admin: login, org, members, access keys, event reporting, first pipeline', doc: 'onboarding.md' },
+  { id: 'plugin-publishing', icon: 'Store', title: 'Plugin Publishing', description: 'Publish plugins to the ecosystem: publisher profile, listings limits, publish requests, accept-or-edit metadata, review', doc: 'plugin-publishing.md' },
+  { id: 'plugin-installing', icon: 'PackagePlus', title: 'Plugin Installing', description: 'Use ecosystem plugins: the catalog, installs and version policies, implicit Official installs, consumption policy, publisher references', doc: 'plugin-installing.md' },
   { id: 'developer-portal', icon: 'LayoutDashboard', title: 'Developer Portal', description: 'Catalog ownership, My Services, golden-path templates, maturity scorecards', doc: 'developer-portal.md' },
   { id: 'authentication', icon: 'Lock', title: 'Authentication & SSO', description: 'Sign-in, MFA and assurance, enterprise SSO (OIDC / SAML), sessions and machine credentials', doc: 'authentication.md' },
   { id: 'permissions', icon: 'UserCog', title: 'Roles & Permissions', description: 'Permission catalog, built-in Roles, enforcement, session invalidation', doc: 'permissions.md' },

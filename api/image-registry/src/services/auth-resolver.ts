@@ -3,7 +3,7 @@
 
 import {
   createLogger, exchangeApiKey, getServiceAuthHeader, hasValidIdentityClaims, isAccessTokenRevoked,
-  isOpaqueApiKey, isServiceTokenDenied, verifyBearerToken, SYSTEM_ORG_ID,
+  isOpaqueApiKey, isServiceTokenDenied, serviceNameOf, verifyBearerToken, SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import { z } from 'zod';
@@ -33,7 +33,22 @@ const PlatformLoginResponseSchema = z.object({
  * producible via any external auth path.
  */
 export type Identity =
-  | { type: 'jwt'; orgId: string; userId: string; isAdmin: boolean; isSuperAdmin: boolean; canWritePlugins: boolean }
+  | {
+    type: 'jwt';
+    orgId: string;
+    userId: string;
+    isAdmin: boolean;
+    isSuperAdmin: boolean;
+    canWritePlugins: boolean;
+    /** A team's direct parent org (signed `parentOrganizationId` claim) — grants PULL on its namespace. */
+    parentOrgId?: string;
+    /**
+     * The internal service a SERVICE token names (`sub: service:<name>`, bound to
+     * that service's own signing key — see api-core `serviceNameOf`). Absent for
+     * every user / service-account token. Gates the `quarantine/*` namespace.
+     */
+    serviceName?: string;
+  }
   | { type: 'management' };
 
 /**
@@ -45,6 +60,9 @@ export type Identity =
 interface PlatformJwtPayload {
   sub: string;
   organizationId?: string;
+  /** Set when the active org is a team: its direct parent org (the org whose
+   *  `public` plugins the team resolves, see api/plugin read-plugins.ts). */
+  parentOrganizationId?: string;
   isAdmin?: boolean;
   isSuperAdmin?: boolean;
   /** Resolved permission ids on the access token — gates raw-namespace push. */
@@ -186,9 +204,19 @@ async function verifyPlatformJwt(token: string): Promise<Identity | null> {
       logger.warn('Rejecting revoked platform JWT (tokenVersion behind current)', { sub: decoded.sub });
       return null;
     }
+    // A malformed parent id is dropped rather than failing the whole identity:
+    // it only ever WIDENS pull, so losing it degrades to own-namespace access.
+    const parentOrgId = decoded.parentOrganizationId && ORG_ID_PATTERN.test(decoded.parentOrganizationId)
+      ? decoded.parentOrganizationId
+      : undefined;
+    // Only a SERVICE token names a service; the verifier already bound `sub` to
+    // the signing key, so this cannot be claimed by a user token.
+    const serviceName = decoded.principalType === 'service' ? serviceNameOf(decoded) : undefined;
     return {
       type: 'jwt',
       orgId: decoded.organizationId,
+      ...(parentOrgId ? { parentOrgId } : {}),
+      ...(serviceName ? { serviceName } : {}),
       userId: decoded.sub,
       isAdmin: !!decoded.isAdmin,
       isSuperAdmin: !!decoded.isSuperAdmin,

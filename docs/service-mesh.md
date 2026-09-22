@@ -120,7 +120,8 @@ right workload identity.
   `istio.io/use-waypoint` label on the **Service**) to exactly the six Services
   that expose an internal route: `platform`, `message`, `compliance`, `quota`,
   `reporting`, `image-registry` (`POST /internal/plugin-signatures` — plugin-image
-  signing, `plugin` only). Not namespace-wide, which would put an Envoy hop in front of the
+  signing — and `/internal/plugin-publications*` — the `public/*` namespace
+  operations; both `plugin` only). Not namespace-wide, which would put an Envoy hop in front of the
   datastores too. It needs the Kubernetes Gateway API CRDs, which
   `istioctl install` does not ship — each target's setup installs the standard
   channel (`GATEWAY_API_VERSION`, pinned) when they are absent.
@@ -148,6 +149,24 @@ right workload identity.
 The caller lists here are reviewed against the one authoritative list in each
 service's route-coverage test (`findInternalRouteViolations`), which checks the
 declaration against the code in both directions.
+
+**Plugin ecosystem callers.** The plugin service is a caller of four internal
+surfaces:
+
+- `platform POST /internal/notify-email` (with `compliance`): plugin-ecosystem
+  notices (N6–N10, N22, N24, N25, N28, N29), resolved to recipients by platform;
+- `platform GET /internal/ecosystem/*` (`plugin` only): the Verified
+  application's eligibility facts (the publisher org's DNS-verified domains and
+  whether its owners have a second factor) and the Ecosystem Manager approver
+  count (holders of the decision permission, minus conflicts of interest);
+- `image-registry /internal/plugin-publications*` (`plugin` only, DENY policy
+  `image-registry-internal-plugin-publications`): publishing an approved version
+  into `public/*`, re-signing, re-tagging an unyanked version, yanking,
+  verifying and collecting published images;
+- `platform GET /organization/:id/members/:userId/exists`, a service-principal
+  membership probe (not an `/internal` path, so no DENY policy): the Ecosystem
+  console's separation-of-duties check asks whether a manager belongs to the
+  org that submitted a request.
 
 ### aws specifics
 

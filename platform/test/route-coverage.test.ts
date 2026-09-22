@@ -242,7 +242,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/internal/notify-email',
     waive: 'all',
-    reason: 'INTERNAL service-to-service email relay (#14: requireServiceAuth + requireInternalService({ callers: [compliance] })); it sends a templated message and persists nothing.',
+    reason: 'INTERNAL service-to-service notification relay (#14: requireServiceAuth + requireInternalService({ callers: [compliance, plugin] })); it sends email/in-app notices and persists nothing of its own.',
   },
   {
     method: 'POST',
@@ -337,7 +337,13 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * the code in both directions.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  { method: 'POST', path: '/internal/notify-email', callers: ['compliance'] },
+  // compliance's notification channels + the plugin ecosystem's notices (§5b).
+  { method: 'POST', path: '/internal/notify-email', callers: ['compliance', 'plugin'] },
+  // Whether outbound email is on — the anonymous-submission API's precondition (§4.2).
+  { method: 'GET', path: '/internal/notify-email/status', callers: ['plugin'] },
+  // The plugin ecosystem's governance reads (§3.0.1 approver count, §3.7 Verified eligibility).
+  { method: 'GET', path: '/internal/ecosystem/publisher-eligibility/:orgId', callers: ['plugin'] },
+  { method: 'GET', path: '/internal/ecosystem/approvers', callers: ['plugin'] },
   // Every non-platform service forwards its audit trail here; platform writes
   // its own events locally and never calls this.
   {

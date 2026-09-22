@@ -1,5 +1,5 @@
 title: Self-Service CI/CD for AWS
-description: Self-service AWS CodePipeline platform — developers ship compliant CI/CD pipelines in minutes via dashboard, CLI, CDK, or AI prompt, while platform teams enforce policy-as-code guardrails, governance, and per-team isolation.
+description: Self-hosted, self-service AWS CodePipeline platform. Developers ship compliant CI/CD pipelines in minutes from a dashboard, CLI, CDK, or AI prompt, while platform teams govern them with policy-as-code, golden-path templates, a signed plugin ecosystem, and per-org isolation.
 tagline: Self-service CI/CD for AWS
 
 # Custom domain (see CNAME): the site is served at the domain ROOT, so baseurl
@@ -50,11 +50,12 @@ defaults:
       path: ""
     values:
       # Site-wide default social card (1200x630). Matches the homepage
-      # "Self-Service CI/CD for AWS" message. Governance-themed pages
-      # (compliance, audit-events, organization-benefits) override this with
-      # /assets/og-image-solution.png via their own `image:` front matter.
-      # Alternate solution headlines: og-image-solution-b.png ("Guardrails for
-      # Platform Teams"), og-image-solution-c.png ("Secure by Default").
+      # "Self-Service CI/CD for AWS" message. Pages override it via their own
+      # `image:` front matter: governance pages use og-image-solution.png,
+      # compliance and audit-events their own cards, and the plugin pages
+      # og-image-plugins.png. Alternate headlines: og-image-solution-b.png
+      # ("Guardrails for Platform Teams"), og-image-solution-c.png ("Secure by
+      # Default"). Regenerate every card with `node scripts/gen-og-images.mjs`.
       image: /assets/og-image.png
       author: Mark Washburn
 
@@ -68,6 +69,7 @@ exclude:
   - deploy/
   - .projen/
   - projenrc/
+  - scripts/
   - "*.ts"
   - "*.json"
   - "*.yml"

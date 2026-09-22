@@ -12,15 +12,24 @@
  * is a ceiling the other two can walk around.
  */
 
-import { isOrgAssignablePermission, isValidPermission, ROLE_PERMISSIONS } from '@pipeline-builder/api-core';
+import {
+  ECOSYSTEM_MANAGER_PERMISSIONS,
+  isOrgAssignablePermission,
+  isSystemOrgId,
+  isSystemOrgOnlyPermission,
+  isValidPermission,
+  ROLE_PERMISSIONS,
+} from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import {
   RL_ASSIGN_EXCEEDS_CEILING,
   RL_INVALID_PERMISSION,
   RL_PERMISSION_EXCEEDS_CEILING,
   RL_PERMISSION_NOT_ASSIGNABLE,
+  RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG,
+  RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN,
 } from './roles-errors.js';
-import type { RoleGrant } from '../models/index.js';
+import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
 /** An org id in either of the two forms Mongoose accepts. */
 export type OrgId = string | mongoose.Types.ObjectId;
@@ -34,6 +43,38 @@ export type UserId = string | mongoose.Types.ObjectId;
  *  both map to the full `admin` bundle. */
 export function permissionsForGrantsRole(role: RoleGrant): string[] {
   return role === 'member' ? [...ROLE_PERMISSIONS.member] : [...ROLE_PERMISSIONS.admin];
+}
+
+/**
+ * The permission bundle a BUILT-IN Role carries. A Role with a `seedBundle`
+ * (today only the system org's "Ecosystem Manager") carries that named bundle;
+ * every other built-in Role carries the bundle for its `grantsRole`. Used by the
+ * seeder and the startup re-sync so neither can flatten the Ecosystem Manager's
+ * bundle into the plain Member bundle it shares a `grantsRole` with.
+ */
+export function builtinRolePermissions(role: { grantsRole: RoleGrant; seedBundle?: RoleSeedBundle | null }): string[] {
+  if (role.seedBundle === 'ecosystem_manager') return [...ECOSYSTEM_MANAGER_PERMISSIONS];
+  return permissionsForGrantsRole(role.grantsRole);
+}
+
+/** Whether a Role's permission list carries any system-org-only permission
+ *  (`plugins:moderate`, `publishers:verify` — see api-core
+ *  `SYSTEM_ORG_ONLY_PERMISSIONS`). */
+export function carriesSystemOrgOnlyPermission(rolePermissions: readonly string[] | undefined): boolean {
+  return (rolePermissions ?? []).some((p) => isSystemOrgOnlyPermission(p));
+}
+
+/**
+ * Target-side guard for a Role carrying a system-org-only permission: such a
+ * Role may be held only inside the system org (docs/plans/plugin-ecosystem.md
+ * §5a). The seeder only creates one there and custom Roles can never carry the
+ * permissions, so this is defence in depth against a hand-written document.
+ * Throws `RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG`.
+ */
+export function assertSystemOrgOnlyRoleInSystemOrg(rolePermissions: readonly string[] | undefined, orgId: OrgId): void {
+  if (carriesSystemOrgOnlyPermission(rolePermissions) && !isSystemOrgId(String(orgId))) {
+    throw new Error(RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG);
+  }
 }
 
 /**
@@ -54,9 +95,11 @@ export interface ActorPermissionCeiling {
  *
  * Three gates: (1) every entry must be a known api-core permission
  * (`RL_INVALID_PERMISSION`); (2) it must be ORG-ASSIGNABLE — the superadmin-only
- * registry permissions (`registry:read`/`registry:write`) are REJECTED
- * (`RL_PERMISSION_NOT_ASSIGNABLE`) so an org admin can't mint a Role that grants
- * a platform-operator capability; and (3) it must be within the ACTOR's own
+ * registry permissions (`registry:read`/`registry:write`) and the
+ * system-org-only ecosystem permissions (`plugins:moderate`/`publishers:verify`)
+ * are REJECTED (`RL_PERMISSION_NOT_ASSIGNABLE`) in EVERY org, the system org
+ * and superadmin actors included, so no custom Role can ever carry a
+ * platform-operator or ecosystem-governance capability; and (3) it must be within the ACTOR's own
  * permission ceiling — a non-superadmin can only grant permissions they
  * themselves hold (`RL_PERMISSION_EXCEEDS_CEILING`), so a delegated
  * `roles:manage` holder can't mint + self-assign privileges they lack (e.g.
@@ -110,8 +153,17 @@ export interface RoleAssignmentActor {
  * for symmetry) a capability you don't hold yourself. Throws
  * `RL_ASSIGN_EXCEEDS_CEILING` otherwise. Note the `superadmin`-granting-Role gate
  * is separate and stricter (only a platform superadmin, checked by the callers).
+ *
+ * A Role carrying a SYSTEM-ORG-ONLY permission (the system org's "Ecosystem
+ * Manager") is stricter still: only a platform superadmin may assign, unassign,
+ * edit or delete it — an org admin of the system org included is refused
+ * (`RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN`). Checked BEFORE the org-admin
+ * bypass, so every caller of this ceiling inherits it.
  */
 export function assertActorMayAssignRole(rolePermissions: readonly string[] | undefined, actor: RoleAssignmentActor): void {
+  if (carriesSystemOrgOnlyPermission(rolePermissions) && !actor.isSuperAdmin) {
+    throw new Error(RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN);
+  }
   if (actor.isSuperAdmin || actor.isOrgAdmin) return;
   const held = new Set(actor.permissions);
   for (const p of rolePermissions ?? []) {

@@ -293,7 +293,7 @@ const quotaUsageSchema = new Schema<QuotaUsage>(
 type PersistedQuotaKey = Exclude<keyof QuotaTierLimits, 'eventRetentionDays' | 'doraRetentionDays'>;
 const PERSISTED_QUOTA_KEYS = [
   'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
-  'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'seats',
+  'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'listings', 'seats',
 ] as const satisfies readonly PersistedQuotaKey[];
 type _AllPersistedKeysCovered =
   Exclude<PersistedQuotaKey, (typeof PERSISTED_QUOTA_KEYS)[number]> extends never
@@ -468,6 +468,13 @@ const organizationSchema = new Schema<OrganizationDocument>(
       idpConfigs: {
         type: Number,
         default: () => QUOTA_TIERS[DEFAULT_TIER].limits.idpConfigs,
+        min: -1,
+      },
+      // Active plugin-ecosystem listings the org publishes (count quota;
+      // docs/plans/plugin-ecosystem.md §3.7). Raised by `listing_pack`.
+      listings: {
+        type: Number,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.listings,
         min: -1,
       },
       // Max org members. NOT usage-tracked (no counter) — enforced live at

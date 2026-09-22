@@ -1,6 +1,6 @@
 // GENERATED FROM docs/templates.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 573084bf73c6fc344adf2a126c32251f52db9de64475c32eddc2757e9b52e1b3
+// SOURCE-SHA256: c16baed768da55f6707bd7ddd52d87ce082d749693efc13ee90262e2e5b49ae0
 // SPDX-License-Identifier: Apache-2.0
 import { Braces } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -213,6 +213,52 @@ export const templatesTopic: HelpTopic = {
         {
           "type": "text",
           "content": "If a template uses | default: '...', the key is treated as optional and can be omitted from requiredMetadata / requiredVars."
+        },
+        {
+          "type": "text",
+          "content": "How the contract is enforced on pipelines"
+        },
+        {
+          "type": "text",
+          "content": "The contract is stored with each plugin version, and every pipeline create and update (single and bulk) is checked against it:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Each plugin step (synth.plugin and every stages[].steps[].plugin) is resolved the same way synth resolves it (see Plugin references below). Listed versions from the ecosystem are checked too.",
+            "pipeline.metadata is global, then defaults.metadata, then synth.metadata (the last one wins). Every key in requiredMetadata must be present there, and every key in requiredVars must be present in vars. Absent, null and \"\" all count as missing.",
+            "A supplied key with a declared type in metadataTypes / varsTypes must coerce the way its filter would: number is numeric, bool is one of true/false/1/0/yes/no, and json is a JSON string. Objects and arrays are never valid, because they can't be interpolated. A value that is still a {{ … }} template isn't type-checked, since it's resolved later.",
+            "A pipeline that fails is refused with 400 TEMPLATE_CONTRACT_VIOLATION. steps[] lists every failing step (path, step, plugin, version, missing[], invalid[]).",
+            "An unqualified reference that doesn't resolve isn't a contract error: synth reports an unknown plugin itself. A qualified reference (with publisher) that isn't installed, is blocked by the org's consumption policy or can't resolve is refused at create and update with 400 and the per-step reasons.",
+            "Synth runs the same check on each resolved plugin, so a props file that never went through the API fails at synth with the same list."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Plugin references: publisher and version ranges"
+        },
+        {
+          "type": "text",
+          "content": "A step's plugin names the plugin, and optionally its publisher and a version range:"
+        },
+        {
+          "type": "code",
+          "content": "plugin: { name: trivy }                                                     # unqualified\nplugin: { name: trivy, filter: { version: '^1' } }                          # unqualified, 1.x\nplugin: { publisher: acme, name: terraform-plan, filter: { version: '^1' } } # qualified: acme's listing\nplugin: { publisher: pipeline-builder, name: trivy }                        # the Official listing, by name",
+          "language": "yaml"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Unqualified references resolve your own org's plugin first, then (for a team) the parent org's shared plugin, then the Official listing through the org's install (explicit, else implicit). An own-org plugin with the same name as an Official listing wins; lookup warns PLUGIN_SHADOWS_LISTING.",
+            "Qualified references resolve only that publisher's listing, and only through an install. Own-org plugins are never considered.",
+            "Version ranges go in filter.version: an exact version, ^1, ~1.4, 1.x, 1.2 or latest. A version key beside name is refused. Without one, an own-org plugin resolves its default version.",
+            "For a listing, the range is the install's version policy, narrowed by filter.version. A range outside the install fails with PLUGIN_NOT_INSTALLED (reason version_outside_install). For an implicit Official install, filter.version replaces the implicit <major>.x range.",
+            "Yanked listing versions never resolve; versions blocked by the org's advisory policy are skipped."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "publisher, name and filter are identity fields and aren't templatable. See Plugin Installing."
         }
       ]
     },
@@ -500,7 +546,7 @@ export const templatesTopic: HelpTopic = {
             ],
             [
               "TEMPLATE_CONTRACT_VIOLATION",
-              "Pipeline is missing a key declared in a referenced plugin's requiredMetadata / requiredVars"
+              "Pipeline create/update: a plugin step's required metadata/vars key is missing, or a supplied value doesn't match metadataTypes/varsTypes. steps[] lists each failing step's missing[] and invalid[]"
             ],
             [
               "TEMPLATE_SIZE_EXCEEDED",

@@ -19,6 +19,7 @@ const QUOTA_LABELS: Record<QuotaType, string> = {
   alertRules: 'Alert rule',
   alertDestinations: 'Alert destination',
   idpConfigs: 'IdP configuration',
+  listings: 'Plugin listing',
 };
 
 /**

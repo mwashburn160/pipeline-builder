@@ -60,7 +60,7 @@ export function listPlugins(program: Command): void {
     .action((options) => runListEntity<Plugin, PluginFilterParams>(program, options, {
       labelPlural: 'Plugins',
       responseKey: 'plugins',
-      listUrl: (config) => config.api.pluginListUrl,
+      listUrl: (config) => config.api.pluginUrl,
       commandName: 'list-plugins',
       buildFilters: (options, base) => {
         const filters: PluginFilterParams = { ...base };

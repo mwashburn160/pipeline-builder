@@ -15,6 +15,8 @@ import { Construct } from 'constructs';
 import type { PluginOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
 import { UniqueId } from '../core/id-generator.js';
+import { pluginArtifactAlias, pluginLookupFilter } from '../core/plugin-contract.js';
+import { PLACEHOLDER_PLUGIN_ID } from '../core/step-manifest.js';
 
 const log = createLogger('plugin-lookup');
 
@@ -153,7 +155,7 @@ export class PluginLookup extends Construct {
     // name, version, commands, env, etc. at synth time, so the resulting CFN
     // template can ship with the real CodeBuild image baked in.
     const cacheKey = props.alias || props.name;
-    const preResolved = this._resolvedPlugins?.[cacheKey];
+    const preResolved = this._resolvedPlugins?.[cacheKey] as (Plugin & { publisher?: string | null }) | undefined;
     // The map is keyed by ALIAS, so check it actually holds THIS plugin. Two
     // steps sharing an alias across different plugins used to get the first
     // one's record back — the second step silently ran the wrong image and
@@ -167,6 +169,15 @@ export class PluginLookup extends Construct {
       throw new Error(
         `Plugin alias "${cacheKey}" resolves to "${preResolved.name}", not "${targetName}". `
         + 'Each alias must name exactly one plugin.',
+      );
+    }
+    // A qualified reference must have resolved to THAT publisher's listing
+    // (an unqualified one may resolve to the org's own plugin or the Official
+    // listing, §3.5).
+    if (preResolved && props.publisher && preResolved.publisher !== props.publisher) {
+      throw new Error(
+        `Plugin alias "${cacheKey}" resolves to ${preResolved.publisher ? `${preResolved.publisher}/` : 'your organization\'s '}${preResolved.name}, `
+        + `not ${props.publisher}/${targetName}. Each alias must name exactly one plugin.`,
       );
     }
     if (preResolved) {
@@ -266,28 +277,18 @@ export class PluginLookup extends Construct {
    * Access control (orgId scoping, public/private visibility) is handled by
    * the platform's access control query builder based on the JWT's organizationId.
    */
-  private defaultFilter(name: string): PluginFilter {
-    return {
-      name,
-      isActive: true,
-      isDefault: true,
-    };
-  }
-
   private normalize(plugin: string | PluginOptions): PluginOptions {
-    if (typeof plugin === 'string') {
-      return {
-        name: plugin,
-        filter: this.defaultFilter(plugin),
-        alias: `${plugin}-alias`,
-      };
-    }
-
+    const ref: PluginOptions = typeof plugin === 'string' ? { name: plugin } : plugin;
     return {
-      name: plugin.name,
-      alias: plugin.alias ?? `${plugin.name}-alias`,
-      filter: plugin.filter ?? this.defaultFilter(plugin.name),
-      metadata: plugin.metadata,
+      name: ref.name,
+      ...(ref.publisher ? { publisher: ref.publisher } : {}),
+      // The resolver cache key: the explicit alias, else `[<publisher>-]<name>-alias`.
+      alias: pluginArtifactAlias(ref),
+      // The same filter the CLI pre-resolver and the pipeline service's
+      // contract check send (`pluginLookupFilter`): name + publisher, then
+      // the reference's own filter, else the default version.
+      filter: pluginLookupFilter({ name: ref.name, publisher: ref.publisher, filter: ref.filter as Record<string, unknown> | undefined }) as PluginFilter,
+      metadata: ref.metadata,
     };
   }
 
@@ -311,7 +312,7 @@ export class PluginLookup extends Construct {
   private static basePlugin(): Plugin {
     const now = new Date();
     return {
-      id: '00000000-0000-0000-0000-000000000000',
+      id: PLACEHOLDER_PLUGIN_ID,
       orgId: SYSTEM_ORG_ID,
       createdBy: 'system',
       createdAt: now,
@@ -349,6 +350,37 @@ export class PluginLookup extends Construct {
       deletedAt: null,
       deletedBy: null,
       purgeAfter: null,
+      quotaResetAt: null,
+      summary: null,
+      displayName: null,
+      documentationUrl: null,
+      metadataSources: {},
+      requiredMetadata: [],
+      requiredVars: [],
+      metadataTypes: {},
+      varsTypes: {},
+      smokeTest: null,
+      networkEgress: [],
+      readmeMd: null,
+      readmeHtml: null,
+      license: null,
+      changelog: null,
+      homepageUrl: null,
+      sourceUrl: null,
+      icon: null,
+      uploadedIcon: null,
+      vulnCritical: null,
+      vulnHigh: null,
+      vulnMedium: null,
+      vulnLow: null,
+      scannedAt: null,
+      runAsRoot: null,
+      breaking: false,
+      frozenAt: null,
+      yankedAt: null,
+      yankReason: null,
+      deprecatedAt: null,
+      deprecationMessage: null,
     };
   }
 

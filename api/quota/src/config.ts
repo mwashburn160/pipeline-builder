@@ -22,6 +22,8 @@ interface QuotaDefaults {
   alertRules: number;
   alertDestinations: number;
   idpConfigs: number;
+  /** Active plugin-ecosystem listings (count quota). -1 = unlimited. */
+  listings: number;
 }
 
 interface AppConfig {
@@ -73,6 +75,7 @@ export const config: AppConfig = {
       alertRules: envInt('QUOTA_DEFAULT_ALERT_RULES', DEV.alertRules),
       alertDestinations: envInt('QUOTA_DEFAULT_ALERT_DESTINATIONS', DEV.alertDestinations),
       idpConfigs: envInt('QUOTA_DEFAULT_IDP_CONFIGS', DEV.idpConfigs),
+      listings: envInt('QUOTA_DEFAULT_LISTINGS', DEV.listings),
     },
     // Guarded: a raw parseInt turned a typo'd QUOTA_RESET_DAYS into NaN, which
     // made every getNextResetDate() an Invalid Date. Clamp to >= 1 day.

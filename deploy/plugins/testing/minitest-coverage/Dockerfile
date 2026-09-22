@@ -9,8 +9,9 @@
 FROM pipeline-ruby-base:1.0
 
 # TODO(confirm): confirm the intended pinned simplecov version at build time.
-ARG SIMPLECOV_VERSION=0.22.0
+ARG SIMPLECOV_VERSION=1.3.0
 RUN gem install simplecov -v "${SIMPLECOV_VERSION}" --no-document
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

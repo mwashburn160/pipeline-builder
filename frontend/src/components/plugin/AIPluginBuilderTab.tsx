@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
+import { WarningAlert } from '@/components/ui/WarningAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
@@ -15,7 +16,7 @@ import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
 import { AI_MAX_PROMPT_LENGTH, formatError, formatJSON } from '@/lib/constants';
-import type { Visibility } from '@/types';
+import type { PluginGenerationDone, SimilarPlugin, Visibility } from '@/types';
 
 /** Props for the AIPluginBuilderTab component. */
 interface AIPluginBuilderTabProps {
@@ -43,6 +44,55 @@ interface GeneratedConfig {
   env?: Record<string, string>;
 }
 
+/**
+ * "Similar plugins already exist" hint from the generator's catalog lookup:
+ * nudges the user to reuse an existing plugin instead of deploying a duplicate.
+ * Renders nothing when the list is empty.
+ */
+export function SimilarPluginsNotice({ plugins }: { plugins: SimilarPlugin[] }) {
+  if (plugins.length === 0) return null;
+  return (
+    <WarningAlert
+      message={
+        <>
+          Similar plugins already exist:{' '}
+          {plugins.map((p, i) => (
+            <span key={p.id}>
+              {i > 0 && ', '}
+              <span className="font-mono font-medium">{p.name}</span>
+              {p.category && <span className="text-xs"> ({p.category})</span>}
+            </span>
+          ))}
+          . Consider reusing one of them instead of deploying a duplicate.
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * The catalog's Dockerfile rules the generated Dockerfile breaks (the same
+ * static checks `test-plugins.sh` and `pipeline-manager plugin validate` run).
+ * Deploying still works — the build doesn't enforce them — but the plugin
+ * can't be listed in the directory until they're fixed.
+ */
+export function DockerfileViolationsNotice({ violations }: { violations: string[] }) {
+  if (violations.length === 0) return null;
+  return (
+    <WarningAlert
+      message={
+        <>
+          The generated Dockerfile breaks {violations.length === 1 ? 'a catalog rule' : `${violations.length} catalog rules`}:
+          <ul className="list-disc ml-5 mt-1 space-y-0.5">
+            {violations.map((v) => <li key={v} className="text-xs">{v}</li>)}
+          </ul>
+          <span className="text-xs">Regenerate with a more specific prompt, or fix the Dockerfile before publishing it to the directory.</span>
+        </>
+      }
+    />
+  );
+}
+
 /** AI-powered plugin builder that generates config and Dockerfile from a natural language prompt. */
 export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, onClose }: AIPluginBuilderTabProps) {
   const [prompt, setPrompt] = useState('');
@@ -52,6 +102,8 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
   // Generated output
   const [generatedConfig, setGeneratedConfig] = useState<GeneratedConfig | null>(null);
   const [generatedDockerfile, setGeneratedDockerfile] = useState<string | null>(null);
+  const [similarPlugins, setSimilarPlugins] = useState<SimilarPlugin[]>([]);
+  const [dockerfileViolations, setDockerfileViolations] = useState<string[]>([]);
 
   // Visibility — `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
@@ -95,16 +147,20 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
     setSuccess(null);
     setGeneratedConfig(null);
     setGeneratedDockerfile(null);
+    setSimilarPlugins([]);
+    setDockerfileViolations([]);
 
     const keyToUse = ai.customApiKey.trim() || undefined;
 
-    await generate<{ config: GeneratedConfig; dockerfile: string }>({
+    await generate<PluginGenerationDone<GeneratedConfig>>({
       stream: isAskAgentProvider(ai.selectedProvider)
         ? streamAgentDraft('plugin', prompt.trim(), ai.selectedModel)
         : api.streamPluginGeneration(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
       onDone: (data) => {
         setGeneratedConfig(data.config);
         setGeneratedDockerfile(data.dockerfile);
+        setSimilarPlugins(data.similarPlugins ?? []);
+        setDockerfileViolations(data.dockerfileViolations ?? []);
         setStreamPreview(null);
       },
       onSettled: () => setStreamPreview(null),
@@ -255,13 +311,22 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
       {/* Generated Output */}
       {generatedConfig && generatedDockerfile && (
         <div className="space-y-4">
+          <SimilarPluginsNotice plugins={similarPlugins} />
+          <DockerfileViolationsNotice violations={dockerfileViolations} />
+
           {/* Plugin Config Preview */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="label">Generated plugin configuration</label>
-              <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-                Ready to deploy
-              </span>
+              {dockerfileViolations.length === 0 ? (
+                <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                  Ready to deploy
+                </span>
+              ) : (
+                <span className="text-xs text-warning-strong font-medium">
+                  Review the Dockerfile
+                </span>
+              )}
             </div>
             <pre className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
               {formatJSON(generatedConfig)}

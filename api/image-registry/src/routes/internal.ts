@@ -5,21 +5,30 @@ import {
   actorId,
   audited,
   ErrorCode,
+  getParam,
   requireInternalService,
   sendBadRequest,
   sendError,
   sendSuccess,
+  SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import express, { Router, type RequestHandler } from 'express';
 
-import { repoOwnerOrgId } from './images/repo-access.js';
+import { isQuarantineRepo, repoOwnerOrgId } from './images/repo-access.js';
+import { registerPublicationRoutes } from './internal-publications.js';
 import { emitImageRegistryAudit } from '../services/audit.js';
-import { isPluginRepository, isSha256Digest, PluginSigningError, signPluginImage } from '../services/plugin-signing.js';
+import {
+  isPluginRepository, isPublicRepository, isQuarantineRepository, isSha256Digest, PluginSigningError, signPluginImage,
+} from '../services/plugin-signing.js';
 import { headManifest } from '../services/registry-client.js';
+import { deleteQuarantineRepository, QUARANTINE_PREFIX } from '../services/registry-gc.js';
 
 /** Path of the signing route — also excluded from the app's global 1mb JSON parser. */
 export const PLUGIN_SIGNATURES_PATH = '/internal/plugin-signatures';
+
+/** Base path (under `/internal`) of the quarantine-namespace delete hook. */
+export const QUARANTINE_PATH = '/quarantine';
 
 /**
  * An SPDX document for a large image (thousands of packages) runs to several MB;
@@ -33,6 +42,11 @@ const SBOM_BODY_LIMIT = '32mb';
  *
  *  - POST /internal/plugin-signatures — plugin → sign a pushed plugin image
  *    digest and attach its SBOM as a signed attestation.
+ *  - /internal/plugin-publications* — plugin → the public namespace
+ *    (publish / resign / yank / gc / verify); see internal-publications.ts.
+ *  - DELETE /internal/quarantine/:submissionId — plugin → drop an anonymous
+ *    submission's quarantined build (`quarantine/<submissionId>`) once it is
+ *    decided or expired.
  */
 export function createInternalRoutes(): Router {
   const router: Router = Router();
@@ -47,8 +61,12 @@ export function createInternalRoutes(): Router {
     express.json({ limit: SBOM_BODY_LIMIT }) as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const { repository, digest, sbom } = (req.body ?? {}) as { repository?: unknown; digest?: unknown; sbom?: unknown };
-      if (typeof repository !== 'string' || !isPluginRepository(repository)) {
-        return sendBadRequest(res, 'repository must be system/<name> or org-<orgId>/<name>', ErrorCode.VALIDATION_ERROR);
+      // `public/*` is signed only by the publish/resign routes (fresh, annotated).
+      // `quarantine/<submissionId>` is signed so its SBOM attestation survives into
+      // the approved public copy; it is owned by the system org (repoOwnerOrgId).
+      if (typeof repository !== 'string' || !isPluginRepository(repository) || isPublicRepository(repository)
+        || (isQuarantineRepo(repository) && !isQuarantineRepository(repository))) {
+        return sendBadRequest(res, 'repository must be system/<name>, org-<orgId>/<name> or quarantine/<submissionId>', ErrorCode.VALIDATION_ERROR);
       }
       if (typeof digest !== 'string' || !isSha256Digest(digest)) {
         return sendBadRequest(res, 'digest must be sha256:<64 hex>', ErrorCode.VALIDATION_ERROR);
@@ -94,6 +112,46 @@ export function createInternalRoutes(): Router {
       return sendSuccess(res, 200, { repository, digest, signed: true });
     }),
   );
+
+  // Anonymous plugin submissions (plugin ecosystem §4.2 / W5): the plugin
+  // service's hook for a submission that reached a terminal state (rejected,
+  // gate_failed, expired, or approved once the publish copied it out). Deletes
+  // every manifest in `quarantine/<submissionId>`; idempotent (a gone repo →
+  // `deleted: 0`). The 30-day age sweep (startQuarantineGcScheduler) is the
+  // backstop. Audited as `registry.gc` — a destructive namespace prune.
+  router.delete(
+    `${QUARANTINE_PATH}/:submissionId`,
+    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    audited('registry.gc') as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const submissionId = getParam(req.params, 'submissionId');
+      const repository = `${QUARANTINE_PREFIX}${submissionId ?? ''}`;
+      if (!submissionId || !isQuarantineRepository(repository)) {
+        return sendBadRequest(res, 'submissionId must be one lowercase path component (the submission id)', ErrorCode.VALIDATION_ERROR);
+      }
+      // Moderation state is the system org's: the plugin mints this call's token for it.
+      if (req.user?.organizationId?.toLowerCase() !== SYSTEM_ORG_ID) {
+        return sendError(res, 403, 'Forbidden: quarantine repositories are managed under the system org.', ErrorCode.ORG_MISMATCH);
+      }
+      const result = await deleteQuarantineRepository(repository, 'requested');
+      ctx.log('COMPLETED', 'Deleted quarantine repository', { repository, deleted: result.deleted });
+      if (result.deleted > 0) {
+        emitImageRegistryAudit({
+          action: 'registry.gc',
+          actorId: actorId({}),
+          orgId: SYSTEM_ORG_ID,
+          affectedOrgId: SYSTEM_ORG_ID,
+          outcome: 'success',
+          targetType: 'registry-namespace',
+          targetId: repository,
+          details: { prefix: QUARANTINE_PREFIX, repo: repository, manifestsDeleted: result.deleted, reason: 'requested' },
+        });
+      }
+      return sendSuccess(res, 200, result);
+    }),
+  );
+
+  registerPublicationRoutes(router);
 
   return router;
 }

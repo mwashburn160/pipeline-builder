@@ -232,6 +232,13 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // can't be resolved leave them NULL and lead time reports `unknown`.
   commitTimestamp: timestamp('commit_timestamp', { withTimezone: true }),
   commitCount: integer('commit_count'),
+  // Per-plugin runtime telemetry (W0.1): the plugin an ACTION/BUILD event ran,
+  // joined at ingest from `pipeline_step_manifests` on (pipeline_id,
+  // stage_name, action_name). `pluginPublisher` is NULL for an own-org plugin;
+  // all three are NULL for non-plugin actions and unrecorded synths.
+  pluginPublisher: varchar('plugin_publisher', { length: 39 }),
+  pluginName: varchar('plugin_name', { length: 255 }),
+  pluginVersion: varchar('plugin_version', { length: 50 }),
   detail: jsonb('detail').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -292,6 +299,11 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // MIGRATION REQUIRED: drizzle-kit generate.
   orgEnvCompletedIdx: index('event_org_env_completed_idx')
     .on(table.orgId, table.environment, table.completedAt),
+  // Per-plugin runtime reporting (success rate / duration per plugin version).
+  // Partial: the bulk of non-plugin events is never indexed.
+  pluginIdx: index('event_plugin_idx')
+    .on(table.pluginPublisher, table.pluginName, table.pluginVersion, table.completedAt)
+    .where(sql`plugin_name IS NOT NULL`),
 }));
 
 /**

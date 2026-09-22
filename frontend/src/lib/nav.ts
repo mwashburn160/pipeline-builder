@@ -40,8 +40,11 @@ import {
   Wrench,
   Percent,
   Megaphone,
+  Store,
+  BadgeCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { ECOSYSTEM_CONSOLE_PERMISSIONS } from './ecosystem-access';
 
 // ---------------------------------------------------------------------------
 // Single source of truth for dashboard navigation.
@@ -67,6 +70,20 @@ export interface NavItem {
    *  it, so a deep link renders one honest "no access" state instead of the
    *  chrome plus a 403 per panel. Hiding a link was never a gate. */
   requiredPermission?: string;
+  /** Show when the viewer holds ANY of these permissions (superadmins bypass).
+   *  Checked in addition to `requiredPermission`. Not derived into a page gate:
+   *  the one page using it (the Ecosystem console) enforces the same rule
+   *  itself, see `src/lib/ecosystem-access.ts`. */
+  requiredAnyPermission?: readonly string[];
+  /**
+   * Show ONLY while the active org is the system org — HIDDEN elsewhere, never
+   * locked. This is a governance boundary (plan §3.0: only the system org
+   * manages the plugin ecosystem), not a plan upsell: no tenant can ever earn
+   * access, so there is nothing to discover and a locked row would only
+   * advertise an internal surface. It also hides the row from a superadmin who
+   * has switched into a tenant org — they are acting as that tenant there.
+   */
+  systemOrgOnly?: boolean;
   /** The feature entitlement this page needs (per-user/tier feature flag, e.g.
    *  `sso`). Sourced from the FeaturesProvider (`useFeatures().isEnabled`);
    *  superadmins hold every entitlement. Distinct from `requiresBillingEnabled`
@@ -165,6 +182,16 @@ export const NAV_SECTIONS: NavSection[] = [
       // Golden-path template gallery — instantiate a governed pipeline from a starter.
       { title: 'Templates', href: '/dashboard/templates', icon: LayoutTemplate, requiredPermission: 'templates:read' },
       { title: 'Plugins', href: '/dashboard/plugins', icon: Puzzle, requiredPermission: 'plugins:read' },
+      // The org's plugin-ecosystem publisher: profile, listings, publish
+      // requests. Readable with `plugins:read`; each write control checks its own
+      // permission (`plugins:publish` / `publishers:manage`), as the server does.
+      {
+        title: 'Publisher',
+        href: '/dashboard/publisher',
+        icon: BadgeCheck,
+        requiredPermission: 'plugins:read',
+        keywords: 'publish publisher ecosystem listing directory marketplace verified',
+      },
     ],
   },
   {
@@ -277,6 +304,18 @@ export const NAV_SECTIONS: NavSection[] = [
       // Settings". The route was renamed to match (forward-only, no redirect
       // from the old /dashboard/admin/platform-settings path).
       { title: 'Settings', href: '/dashboard/admin/settings', icon: SlidersHorizontal, systemAdminOnly: true },
+      // Plugin-ecosystem governance console (moderation, publisher verification,
+      // Ecosystem Manager roster). System org only, and only for Ecosystem
+      // Managers and superadmins — HIDDEN (not locked) everywhere else; see
+      // `systemOrgOnly`.
+      {
+        title: 'Ecosystem',
+        href: '/dashboard/admin/ecosystem',
+        icon: Store,
+        systemOrgOnly: true,
+        requiredAnyPermission: ECOSYSTEM_CONSOLE_PERMISSIONS,
+        keywords: 'ecosystem moderation moderate publish queue publisher verification ecosystem manager marketplace',
+      },
     ],
   },
   {
@@ -318,6 +357,9 @@ export interface NavVisibilityContext {
   isSuperAdmin: boolean;
   hasPermission: (perm: string) => boolean;
   billingEnabled?: boolean;
+  /** The ACTIVE org is the system org (`isSystemOrgActive`). Absent ⇒ false,
+   *  so a caller that forgets it fails closed for `systemOrgOnly` items. */
+  isSystemOrg?: boolean;
   /** Feature-entitlement check (useFeatures().isEnabled). Superadmins get all
    *  features, so this may be omitted for them. Only used by
    *  {@link navItemLockedFeature} — an entitlement never hides an item. */
@@ -338,6 +380,9 @@ export function isNavItemVisible(item: NavItem, ctx: NavVisibilityContext): bool
   if (item.systemAdminOnly && !ctx.isSuperAdmin) return false;
   if (item.adminOnly && !ctx.isAdmin) return false;
   if (item.requiredPermission && !ctx.hasPermission(item.requiredPermission)) return false;
+  if (item.requiredAnyPermission && !item.requiredAnyPermission.some((p) => ctx.hasPermission(p))) return false;
+  // Governance boundary: hidden (not locked) outside the system org.
+  if (item.systemOrgOnly && !ctx.isSystemOrg) return false;
   if (item.requiresBillingEnabled && !ctx.billingEnabled) return false;
   return true;
 }

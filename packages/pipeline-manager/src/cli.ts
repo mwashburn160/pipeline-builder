@@ -20,13 +20,16 @@ import { listPlugins } from './commands/list-plugins.js';
 import { login } from './commands/login.js';
 import { newPlugin } from './commands/new-plugin.js';
 import { orgExport } from './commands/org-export.js';
+import { deprecatePlugin, yankPlugin } from './commands/plugin-lifecycle.js';
 import { provision } from './commands/provision.js';
+import { publishPlugin } from './commands/publish-plugin.js';
 import { redriveEvents } from './commands/redrive-events.js';
 import { register } from './commands/register.js';
 import { setupEvents } from './commands/setup-events.js';
 import { status } from './commands/status.js';
 import { storeToken } from './commands/store-token.js';
 import { synth } from './commands/synth.js';
+import { testPlugin } from './commands/test-plugin.js';
 import { uploadPlugin } from './commands/upload-plugin.js';
 import { validatePlugin } from './commands/validate-plugin.js';
 import { validateTemplatesCommand } from './commands/validate-templates.js';
@@ -168,7 +171,7 @@ function registerCommands(): void {
 Command groups:
   auth      Authenticate and manage credentials (login, pat)
   pipeline  Create, inspect, and deploy pipelines (create, list, get, register, synth, deploy)
-  plugin    Author, validate, and publish plugins (new, validate, upload, get, list)
+  plugin    Author, validate, and publish plugins (new, validate, test, publish, upload, get, list, deprecate, yank)
   template  Instantiate golden-path pipeline templates and validate {{ ... }} syntax (instantiate, validate)
   infra     Set up and operate platform infrastructure (bootstrap, setup-events, redrive-events, store-token, provision)
   audit     Operator audits, cron-friendly (tokens, stacks)
@@ -195,7 +198,7 @@ Examples:
   $ ${APP_NAME} pipeline get --id pipe-123 --format json
   $ ${APP_NAME} pipeline create -f props.json --deploy --profile production
   $ ${APP_NAME} template instantiate -n react-javascript -p react -o acme --input orgId=<uuid> --output props.json
-  $ ${APP_NAME} plugin upload --file plugin.zip --organization acme
+  $ ${APP_NAME} plugin upload --file plugin.zip
   $ ${APP_NAME} infra store-token --days 30 --region us-east-1
   $ ${APP_NAME} infra bootstrap --account 123456789012 --region us-east-1
   $ ${APP_NAME} pipeline deploy --id pipe-123 --profile production
@@ -239,10 +242,14 @@ Run '${APP_NAME} <group> --help' to see a group's subcommands.
   // plugin — author, validate, and publish plugins
   const plugin = program.command('plugin').description('Author, validate, and publish plugins');
   newPlugin(plugin); // plugin new — scaffold a local plugin directory
-  validatePlugin(plugin); // plugin validate — validate a local plugin before upload
+  validatePlugin(plugin); // plugin validate — the server's schemas + the catalog-metadata report
+  testPlugin(plugin); // plugin test — run install + build commands locally in the image
+  publishPlugin(plugin); // plugin publish — pre-flight, scan preview, accept-or-edit, publish request
   uploadPlugin(plugin); // plugin upload — upload and deploy
   getPlugin(plugin); // plugin get
   listPlugins(plugin); // plugin list
+  deprecatePlugin(plugin); // plugin deprecate — deprecate (or --undo) a version
+  yankPlugin(plugin); // plugin yank — stop a version resolving for new synths
 
   // template — instantiate golden-path pipeline templates, validate {{ ... }} syntax
   const template = program.command('template').description('Instantiate pipeline templates and validate {{ ... }} template syntax');

@@ -198,3 +198,51 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(policy).not.toContain('169.254');
   });
 });
+
+/**
+ * Plugin-ecosystem operations (docs/plans/plugin-ecosystem.md §9a): the alert
+ * rules and the "Plugin ecosystem" Grafana dashboard ship on EVERY target —
+ * the docker compose stack included — and the dashboard is one file copied
+ * byte-for-byte, so a panel fixed on one target can't silently drift.
+ */
+describe('plugin ecosystem operations', () => {
+  const ALL_TARGETS = [...K8S_TARGETS, 'deploy/local/docker'];
+  const dashboardPath = (target: string) => (target === 'deploy/local/docker'
+    ? `${target}/config/grafana/provisioning/dashboards`
+    : `${target}/config/grafana/dashboards`);
+
+  it.each(ALL_TARGETS)('%s alerts on SLA breaches (incl. the 4h security lane), re-sign failures and approver shortage', (target) => {
+    const rules = read(`${target}/config/prometheus/alert-rules.yml`);
+    for (const alert of ['EcosystemSecurityLaneSLABreach', 'EcosystemStandardLaneSLABreach', 'EcosystemResignFailures', 'EcosystemResignStalled', 'EcosystemApproverShortage']) {
+      expect(rules).toContain(`alert: ${alert}`);
+    }
+    const security = rules.slice(rules.indexOf('alert: EcosystemSecurityLaneSLABreach'));
+    expect(security).toContain('ecosystem_requests_sla_breached{lane="security"}');
+    expect(security.slice(0, security.indexOf('- alert:', 10))).toContain('severity: critical');
+  });
+
+  it('ships one identical dashboard and provider on every target', () => {
+    const [first, ...rest] = ALL_TARGETS.map((t) => read(`${dashboardPath(t)}/plugin-ecosystem.json`));
+    for (const other of rest) expect(other).toBe(first);
+    const dashboard = JSON.parse(first!) as { uid: string; title: string; panels: Array<{ targets?: Array<{ expr: string }> }> };
+    expect(dashboard).toMatchObject({ uid: 'plugin-ecosystem', title: 'Plugin ecosystem' });
+    const exprs = dashboard.panels.flatMap((p) => p.targets ?? []).map((t) => t.expr).join('\n');
+    for (const metric of ['ecosystem_requests_pending', 'ecosystem_requests_oldest_pending_age_seconds', 'ecosystem_decisions_total', 'ecosystem_auto_approvals_total', 'ecosystem_resign_images_total', 'ecosystem_notifications_total']) {
+      expect(exprs).toContain(metric);
+    }
+    for (const t of ALL_TARGETS) expect(read(`${dashboardPath(t)}/dashboards.yaml`)).toContain('path: /etc/grafana/provisioning/dashboards');
+  });
+
+  it.each(K8S_TARGETS)('%s mounts the grafana-dashboards ConfigMap its setup script creates', (target) => {
+    const grafana = read(`${target}/k8s/grafana.yaml`);
+    expect(grafana).toContain('mountPath: /etc/grafana/provisioning/dashboards');
+    expect(grafana).toContain('name: grafana-dashboards');
+    const setup = target.includes('minikube') ? read(`${target}/bin/setup.sh`) : read('deploy/bin/k8s-resources.sh');
+    expect(setup).toMatch(/configmap\s+grafana-dashboards/);
+    expect(setup).toContain('grafana/dashboards/plugin-ecosystem.json');
+  });
+
+  it('compose mounts the provisioning directory the dashboards live in', () => {
+    expect(read('deploy/local/docker/docker-compose.yml')).toContain('./config/grafana/provisioning:/etc/grafana/provisioning:ro');
+  });
+});

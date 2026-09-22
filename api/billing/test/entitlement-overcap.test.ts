@@ -4,9 +4,9 @@
 /**
  * Unit tests for the REAL checkEntitlementOvercap (docs/billing-bundles.md §8):
  * whether an add-on change would drop a COUNT quota's cap below current pooled
- * usage. Guards seats (platform) + plugins/pipelines (quota); fails OPEN when a
- * usage read errors. Base tier limits come from the api-core mock
- * (seats 10 / plugins 50 / pipelines 5); with no add-ons the effective caps ARE
+ * usage. Guards seats (platform) + plugins/pipelines/listings (quota); fails OPEN
+ * when a usage read errors. Base tier limits come from the api-core mock
+ * (seats 10 / plugins 50 / pipelines 5 / listings 3); with no add-ons the effective caps ARE
  * those base limits, so we drive overages purely via the mocked usage reads.
  */
 
@@ -17,6 +17,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 let seatUsed: number | null = 0;
 let pluginsUsed: number | null = 0;
 let pipelinesUsed: number | null = 0;
+let listingsUsed: number | null = 0;
 let transportFailure = false;
 
 const mockGet = jest.fn(async (path: string) => {
@@ -30,7 +31,7 @@ const mockGet = jest.fn(async (path: string) => {
   }
   // /quotas/:orgId/:type → the pooled used count for that type
   const type = path.split('/').pop();
-  const used = type === 'plugins' ? pluginsUsed : pipelinesUsed;
+  const used = type === 'plugins' ? pluginsUsed : type === 'listings' ? listingsUsed : pipelinesUsed;
   return { statusCode: 200, body: { data: { status: used === null ? {} : { used } } } };
 });
 
@@ -81,7 +82,7 @@ const { checkEntitlementOvercap } = await import('../src/helpers/billing-helpers
 
 beforeEach(() => {
   jest.clearAllMocks();
-  seatUsed = 0; pluginsUsed = 0; pipelinesUsed = 0; transportFailure = false;
+  seatUsed = 0; pluginsUsed = 0; pipelinesUsed = 0; listingsUsed = 0; transportFailure = false;
 });
 
 describe('checkEntitlementOvercap', () => {
@@ -106,14 +107,20 @@ describe('checkEntitlementOvercap', () => {
     ]));
   });
 
+  it('flags a listings overage (removing a listing_pack below active listings)', async () => {
+    listingsUsed = 7; // base cap 3
+    const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
+    expect(overages).toContainEqual({ quotaType: 'listings', currentUsage: 7, targetCap: 3, overage: 4 });
+  });
+
   it('does not flag usage exactly at the cap (boundary)', async () => {
-    seatUsed = 10; pluginsUsed = 50; pipelinesUsed = 5;
+    seatUsed = 10; pluginsUsed = 50; pipelinesUsed = 5; listingsUsed = 3;
     const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
     expect(overages).toEqual([]);
   });
 
   it('fails OPEN (no overages) when a usage read returns no value', async () => {
-    seatUsed = null; pluginsUsed = null; pipelinesUsed = null;
+    seatUsed = null; pluginsUsed = null; pipelinesUsed = null; listingsUsed = null;
     const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
     expect(overages).toEqual([]);
   });

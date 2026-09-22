@@ -60,7 +60,10 @@ export type FeatureFlag =
   // = CI/CD best-practice set; `compliance_advanced` = SOC2/PCI/CIS framework
   // libraries (requires Standard). INCLUDED in Enterprise/Unlimited.
   | 'compliance_standard'
-  | 'compliance_advanced';
+  | 'compliance_advanced'
+  // Plugin ecosystem: eligibility to APPLY for Verified publisher status
+  // (Team and up; awarded by system-org review, never sold as an add-on).
+  | 'verified_publisher';
 
 /**
  * The feature flags that gate curated compliance content sets. Derived from the
@@ -80,6 +83,7 @@ export const ALL_FEATURE_FLAGS: ReadonlyArray<FeatureFlag> = [
   'team_usage_analytics',
   'compliance_standard',
   'compliance_advanced',
+  'verified_publisher',
 ];
 
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
@@ -92,4 +96,5 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   team_usage_analytics: { label: 'Team usage analytics', description: 'Per-team usage breakdown across the org → team subtree' },
   compliance_standard: { label: 'Standard Compliance', description: 'Curated CI/CD best-practice compliance rule library' },
   compliance_advanced: { label: 'Advanced Compliance', description: 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)' },
+  verified_publisher: { label: 'Verified Publisher Eligibility', description: 'Apply for the Verified badge on your plugin-ecosystem publisher (awarded by system-org review)' },
 };

@@ -20,11 +20,10 @@ installCommands:
   - |
     set -e
     if [ -f /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} ]; then
-      ln -sf /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} /usr/local/bin/gitleaks
+      ln -sf /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} /opt/gitleaks/bin/gitleaks
     else
-      echo "Gitleaks ${GITLEAKS_VERSION} not pre-installed, downloading..."
-      curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz \
-        | tar -xz -C /tmp && mv /tmp/gitleaks /usr/local/bin/gitleaks
+      echo "ERROR: Gitleaks ${GITLEAKS_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/gitleaks/versions | sed 's/^gitleaks-//' | tr '\n' ' ')" >&2
+      exit 1
     fi
   - gitleaks version
   - trufflehog --version
@@ -39,7 +38,7 @@ commands:
     echo "Running Gitleaks ${SCAN_MODE} scan..."
     # gitleaks v8.19+ deprecated `detect --source . [--no-git]` in favor of the
     # `dir` (filesystem, no git history) and `git` (git history) subcommands —
-    # the old form errors on newer releases (we pin v8.22.0). Path is positional.
+    # the old form errors on newer releases (we pin v8.30.1). Path is positional.
     case "${SCAN_MODE}" in
       directory)
         gitleaks dir . \
@@ -64,7 +63,7 @@ commands:
       > secrets-reports/trufflehog-results.json 2>&1
   - "echo \"Secret scan complete. Reports available in secrets-reports/\""
 env:
-  GITLEAKS_VERSION: "8.22.0"
+  GITLEAKS_VERSION: "8.30.1"
   SCAN_MODE: directory
   GITLEAKS_CONFIG: ""
   REPORT_FORMAT: json
@@ -72,3 +71,12 @@ env:
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and produces a deterministic version output.
 smokeTest: "gitleaks version && trufflehog --version"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://gitleaks.io
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/git-secrets
+# icon: none — no mark in Simple Icons 16.32.0; no confirmed vendor press-kit permission (monogram; see _icons/SOURCES.md)
+# network.egress: none declared — the step contacts no fixed external host
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

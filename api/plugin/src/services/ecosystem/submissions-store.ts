@@ -1,0 +1,104 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Data access for anonymous public submissions (docs/plans/plugin-ecosystem.md
+ * §4): the `plugin_submissions` rows, and the directory reads the name gate
+ * needs (the most-installed listings, the Official/Verified listing names).
+ *
+ * ELEVATED like the rest of the ecosystem store (store.ts): `plugin_submissions`
+ * is instance-wide and app-role-only, and nothing here is reachable except
+ * through the submission service, which owns every authorization decision
+ * (an anonymous caller only ever reaches a row through a token hash).
+ *
+ * Plain queries; time windows are filtered in memory (the table is small and
+ * the in-memory test double speaks only the operators store.ts uses).
+ */
+
+import {
+  runWithTenantContext,
+  schema,
+  withTenantTx,
+  type PluginListing,
+  type PluginSubmission,
+  type PluginSubmissionInsert,
+  type SubmissionStatus,
+} from '@pipeline-builder/pipeline-data';
+import { and, desc, eq, gte, inArray } from 'drizzle-orm';
+
+type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
+
+/** One elevated transaction (the store.ts rule; kept local so this module stands alone). */
+function elevated<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(fn));
+}
+
+const first = <T>(rows: T[]): T | null => rows[0] ?? null;
+const S = () => schema.pluginSubmission;
+
+export const submissions = {
+  byId: (id: string): Promise<PluginSubmission | null> =>
+    elevated(async (tx) => first(await tx.select().from(S()).where(eq(S().id, id)))),
+  byVerifyTokenHash: (hash: string): Promise<PluginSubmission | null> =>
+    elevated(async (tx) => first(await tx.select().from(S()).where(eq(S().verifyTokenHash, hash)))),
+  byStatusTokenHash: (hash: string): Promise<PluginSubmission | null> =>
+    elevated(async (tx) => first(await tx.select().from(S()).where(eq(S().statusTokenHash, hash)))),
+  list: (filter: { statuses?: SubmissionStatus[]; listingId?: string; limit?: number } = {}): Promise<PluginSubmission[]> =>
+    elevated(async (tx) => {
+      const where = [];
+      if (filter.statuses?.length) where.push(inArray(S().status, filter.statuses));
+      if (filter.listingId) where.push(eq(S().listingId, filter.listingId));
+      return tx.select().from(S()).where(and(...where)).orderBy(desc(S().createdAt)).limit(filter.limit ?? 5_000);
+    }),
+  /** Submissions created since `since` by this email hash (the per-email daily cap). */
+  countByEmailSince: (emailHash: string, since: Date): Promise<number> =>
+    elevated(async (tx) => (await tx.select({ id: S().id }).from(S()).where(and(eq(S().emailHash, emailHash), gte(S().createdAt, since)))).length),
+  /** Submissions created since `since` from this client-IP hash (the per-IP daily cap). */
+  countByIpSince: (ipHash: string, since: Date): Promise<number> =>
+    elevated(async (tx) => (await tx.select({ id: S().id }).from(S()).where(and(eq(S().clientIpHash, ipHash), gte(S().createdAt, since)))).length),
+  insert: (values: PluginSubmissionInsert): Promise<PluginSubmission> =>
+    elevated(async (tx) => (await tx.insert(S()).values(values).returning())[0] as PluginSubmission),
+  update: (id: string, patch: Partial<PluginSubmissionInsert>): Promise<PluginSubmission | null> =>
+    elevated(async (tx) => first(await tx.update(S()).set({ ...patch, updatedAt: new Date() }).where(eq(S().id, id)).returning())),
+  /**
+   * Move a submission on, but only from `fromStatus` — the optimistic lock
+   * that makes verify single-use and stops a gate run and an expiry from both
+   * deciding one row. Null when it was no longer in that status.
+   */
+  transition: (id: string, fromStatus: SubmissionStatus, patch: Partial<PluginSubmissionInsert>): Promise<PluginSubmission | null> =>
+    elevated(async (tx) => first(await tx.update(S()).set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(S().id, id), eq(S().status, fromStatus))).returning())),
+  remove: (id: string): Promise<void> =>
+    elevated(async (tx) => { await tx.delete(S()).where(eq(S().id, id)); }),
+};
+
+/** How many of the most-installed listings the confusable-name check compares against (§4.2). */
+export const TOP_LISTINGS_FOR_NAMES = 100;
+
+/**
+ * The names of the {@link TOP_LISTINGS_FOR_NAMES} most-installed listings
+ * (install_count > 0 — a listing nobody installed isn't a typosquatting
+ * target), with their listing and publisher ids so a caller can exclude its own.
+ */
+export async function topInstalledListings(limit = TOP_LISTINGS_FOR_NAMES): Promise<Array<Pick<PluginListing, 'id' | 'name' | 'publisherId'>>> {
+  return elevated(async (tx) => {
+    const stats = (await tx.select().from(schema.pluginStats))
+      .filter((s) => (s.installCount ?? 0) > 0)
+      .sort((a, b) => (b.installCount ?? 0) - (a.installCount ?? 0))
+      .slice(0, limit);
+    if (stats.length === 0) return [];
+    const rows = await tx.select().from(schema.pluginListing).where(inArray(schema.pluginListing.id, stats.map((s) => s.listingId)));
+    return rows.map((l) => ({ id: l.id, name: l.name, publisherId: l.publisherId }));
+  });
+}
+
+/** Listings named `name` under any Official or Verified publisher (they own the name, §4.2). */
+export async function trustedListingsNamed(name: string): Promise<PluginListing[]> {
+  return elevated(async (tx) => {
+    const rows = await tx.select().from(schema.pluginListing).where(eq(schema.pluginListing.name, name));
+    if (rows.length === 0) return [];
+    const pubs = await tx.select().from(schema.publisher).where(inArray(schema.publisher.id, [...new Set(rows.map((l) => l.publisherId))]));
+    const trusted = new Set(pubs.filter((p) => p.tier === 'official' || p.tier === 'verified').map((p) => p.id));
+    return rows.filter((l) => trusted.has(l.publisherId));
+  });
+}

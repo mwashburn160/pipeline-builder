@@ -67,7 +67,7 @@ const MAPPING_ERROR_MAP = {
   [IGM_GROUP_TAKEN]: { status: 409, message: 'A mapping for this group already exists' },
   [IGM_NOT_FOUND]: { status: 404, message: 'Group mapping not found' },
   [IGM_LIMIT]: { status: 409, message: `An organization can hold at most ${MAX_MAPPINGS_PER_ORG} group mappings` },
-  [IGM_FORBIDDEN_GRANT]: { status: 403, message: 'A group mapping cannot grant organization ownership or platform-administrator authority' },
+  [IGM_FORBIDDEN_GRANT]: { status: 403, message: 'A group mapping cannot grant organization ownership, platform-administrator or ecosystem-management authority' },
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more roles do not exist in this organization' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot map a role granting permissions you do not hold yourself' },
 } as const;

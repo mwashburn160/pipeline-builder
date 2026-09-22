@@ -386,3 +386,139 @@ tests:
       - eval_time: 2h
         alertname: FidoMdsLoadFailing
         exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # Plugin ecosystem (§9a). The security-fix lane pages after 5m; the gauge is
+  # sampled by every plugin replica, so two pods reporting the same breach must
+  # still produce ONE alert (max()), and a drained queue (0) must stay quiet.
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'ecosystem_requests_sla_breached{lane="security",service="plugin",pod="plugin-aaa"}'
+        values: '0 0 1+0x20'
+      - series: 'ecosystem_requests_sla_breached{lane="security",service="plugin",pod="plugin-bbb"}'
+        values: '0 0 1+0x20'
+      - series: 'ecosystem_requests_sla_breached{lane="standard",service="plugin",pod="plugin-aaa"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: EcosystemSecurityLaneSLABreach
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: EcosystemSecurityLaneSLABreach
+        exp_alerts:
+          - exp_labels: { severity: critical, component: plugin-ecosystem, tenancy: platform }
+            exp_annotations:
+              summary: "Security-fix publish request past its 4h moderation SLA"
+              description: "1 security-lane request(s) have waited more than 4 hours for an Ecosystem Manager. Installers stay on the vulnerable version until one is decided — open the Ecosystem console's queue (security lane first)."
+      - eval_time: 20m
+        alertname: EcosystemStandardLaneSLABreach
+        exp_alerts: []
+
+  # EcosystemResignStalled — queued jobs with no re-sign for 2h fire; a job that
+  # is making progress must not, even when the counter series only appears once
+  # the first image was re-signed.
+  - interval: 5m
+    input_series:
+      - series: 'ecosystem_resign_jobs_pending{service="plugin",pod="plugin-aaa"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: EcosystemResignStalled
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin-ecosystem, tenancy: platform }
+            exp_annotations:
+              summary: "Plugin re-sign job stalled"
+              description: "Re-sign jobs are queued but nothing was re-signed in 2h, so tier or suspension changes are not yet reflected in image annotations. Check the ecosystem-maintenance scheduler and image-registry."
+  - interval: 5m
+    input_series:
+      - series: 'ecosystem_resign_jobs_pending{service="plugin",pod="plugin-aaa"}'
+        values: '1+0x60'
+      - series: 'ecosystem_resign_images_total{scope="publisher",service="plugin",pod="plugin-aaa"}'
+        values: '0+10x60'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: EcosystemResignStalled
+        exp_alerts: []
+
+  # EcosystemApproverShortage — one Ecosystem Manager fires after an hour; three do not.
+  - interval: 5m
+    input_series:
+      - series: 'ecosystem_approvers{permission="plugins:moderate",kind="holders",service="plugin",pod="plugin-aaa"}'
+        values: '1+0x20'
+      - series: 'ecosystem_approvers{permission="publishers:verify",kind="holders",service="plugin",pod="plugin-aaa"}'
+        values: '3+0x20'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: EcosystemApproverShortage
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin-ecosystem, tenancy: platform }
+            exp_annotations:
+              summary: "Fewer than 2 Ecosystem Managers"
+              description: "Only 1 system-org member(s) hold plugins:moderate. Plan for at least 3 (two-person approval plus holiday cover); a superadmin assigns the Ecosystem Manager role on the console's Ecosystem Managers tab."
+
+  # SubmissionBacklogHigh — 30 submissions waiting for an hour fires; 10 do not.
+  - interval: 5m
+    input_series:
+      - series: 'plugin_submission_backlog{service="plugin",pod="plugin-aaa"}'
+        values: '30+0x20'
+      - series: 'plugin_submission_backlog{service="plugin",pod="plugin-bbb"}'
+        values: '30+0x20'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: SubmissionBacklogHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin-ecosystem, tenancy: platform }
+            exp_annotations:
+              summary: "Anonymous submission backlog is high"
+              description: "30 anonymous plugin submissions are awaiting gates or moderation. Check the Ecosystem console queue (submission kind) and the quarantine builder; if this is a flood, set ANONYMOUS_SUBMISSIONS_ENABLED=false (runbook: docs/runbooks/ecosystem-moderation.md, Anonymous submissions)."
+  - interval: 5m
+    input_series:
+      - series: 'plugin_submission_backlog{service="plugin",pod="plugin-aaa"}'
+        values: '10+0x20'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: SubmissionBacklogHigh
+        exp_alerts: []
+
+  # SubmissionGateFailureSpike — per gate: 24/h on heuristics fires, 2/h on license does not.
+  - interval: 5m
+    input_series:
+      - series: 'plugin_submission_gate_failures_total{gate="heuristics",service="plugin",pod="plugin-aaa"}'
+        values: '0+2x24'
+      - series: 'plugin_submission_gate_failures_total{gate="license",service="plugin",pod="plugin-aaa"}'
+        values: '0+0.2x24'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: SubmissionGateFailureSpike
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin-ecosystem, tenancy: platform, gate: heuristics }
+            exp_annotations:
+              summary: "Anonymous submissions failing the heuristics gate"
+              description: "24 submissions failed the heuristics gate in the last hour. Heuristics/secrets spikes suggest abuse (consider disabling the flag); vuln-scan or smoke-test spikes suggest a broken gate (grype DB, quarantine builder)."
+
+  # PluginLookupRefusalSpike — 12/h signature refusals fire; 2/h tier refusals do not.
+  - interval: 5m
+    input_series:
+      - series: 'plugin_lookup_refusals_total{reason="signature",service="plugin",pod="plugin-aaa"}'
+        values: '0+1x24'
+      - series: 'plugin_lookup_refusals_total{reason="tier",service="plugin",pod="plugin-aaa"}'
+        values: '0+0.2x24'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: PluginLookupRefusalSpike
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin-ecosystem, tenancy: platform, reason: signature }
+            exp_annotations:
+              summary: "Plugin lookups refused (signature)"
+              description: "12 plugin lookups were refused for signature in the last hour. signature: an image no longer matches its platform signature (tampered, re-pushed, or a failed re-sign); tier: signed tier annotations out of step with listings (runbook: docs/runbooks/ecosystem-moderation.md)."
+
+  # OfficialAutoApprovalAnomaly — a steady ~1/h Official catalog rate stays quiet.
+  - interval: 1h
+    input_series:
+      - series: 'ecosystem_auto_approvals_total{rule="Official catalog",kind="new_version",service="plugin",pod="plugin-aaa"}'
+        values: '0+1x200'
+    alert_rule_test:
+      - eval_time: 190h
+        alertname: OfficialAutoApprovalAnomaly
+        exp_alerts: []

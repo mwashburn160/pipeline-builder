@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, errorMessage, runConcurrent } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, ErrorCode, errorMessage, runConcurrent } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
-import { findExistingPluginNames } from './plugin-lookup-service.js';
+import { findExistingPluginNames, findListedNames } from './plugin-lookup-service.js';
 
 const logger = createLogger('auto-plugin');
 
@@ -56,11 +56,14 @@ export function extractPluginNames(props: Record<string, unknown>): string[] {
   // tool for the synth step) is provisioned out-of-band; including it here
   // would trigger creating-plugins on every generated pipeline and break the
   // "skip auto-creation when no stages" guarantee.
-  const stages = props.stages as Array<{ steps?: Array<{ plugin?: { name?: unknown } }> }> | undefined;
+  const stages = props.stages as Array<{ steps?: Array<{ plugin?: { name?: unknown; publisher?: unknown } }> }> | undefined;
   if (!Array.isArray(stages)) return [];
   for (const stage of stages) {
     if (!Array.isArray(stage.steps)) continue;
     for (const step of stage.steps) {
+      // A `publisher` reference names an ecosystem listing — resolved through an
+      // install, never an org plugin — so it never gets a placeholder.
+      if (typeof step.plugin?.publisher === 'string' && step.plugin.publisher) continue;
       const name = step.plugin?.name;
       if (typeof name === 'string' && name) names.add(name);
     }
@@ -127,10 +130,25 @@ export async function autoCreateMissingPlugins(
     return;
   }
 
+  // A placeholder can't take the name of a LISTED plugin (G17): the listing IS
+  // that plugin — the org installs it (or references it with its publisher)
+  // instead of getting a failing stand-in that would shadow it.
+  const listed = await findListedNames(missing);
+  const refused = missing.filter((n) => listed.has(n)).map((name) => ({
+    name,
+    error: `${ErrorCode.PLUGIN_NAME_LISTED}: "${name}" is a listed plugin (${listed.get(name)!.map((h) => `${h}/${name}`).join(', ')}). `
+      + 'Install it, or reference it with its publisher, instead of creating a placeholder.',
+  }));
+  const toCreate = missing.filter((n) => !listed.has(n));
+  if (toCreate.length === 0) {
+    emit({ type: 'creating-plugins', data: { creating: [], existing, builds: refused } });
+    return;
+  }
+
   // Auto-create missing plugins via plugin service — cap concurrency so a
   // generation with many plugins doesn't fan out unbounded requests.
   const pluginClient = getPluginClient();
-  const builds = await runConcurrent(missing, 5, async (name) => {
+  const builds = await runConcurrent(toCreate, 5, async (name) => {
     // Reject any name that isn't a strict `[a-z0-9-]+` token BEFORE it reaches
     // the shell command / Dockerfile interpolation. This is validate-and-reject,
     // not escape: an out-of-allowlist name is never sent to the plugin service.
@@ -166,5 +184,5 @@ export async function autoCreateMissingPlugins(
     }
   });
 
-  emit({ type: 'creating-plugins', data: { creating: missing, existing, builds } });
+  emit({ type: 'creating-plugins', data: { creating: toCreate, existing, builds: [...refused, ...builds] } });
 }

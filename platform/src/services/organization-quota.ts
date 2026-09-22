@@ -357,6 +357,9 @@ export async function checkTierOvercap(
   // field, read that field straight off the shared org docs (the prior
   // behavior — same underlying Mongo counters) so a transient outage doesn't
   // silently under-count and wave a stranding downgrade through.
+  // `listings` is deliberately NOT guarded: a publisher over its new plan's
+  // listing limit keeps every listing listed and is only refused NEW version /
+  // listing-update requests (docs/plans/plugin-ecosystem.md §3.7 "Downgrade").
   const COUNT_QUOTAS = ['plugins', 'pipelines', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'] as const;
   // Only the dims the NEW tier actually caps (limit !== -1) can be over-cap; a
   // field left unlimited is `continue`-skipped below and contributes nothing. So
@@ -375,7 +378,7 @@ export async function checkTierOvercap(
     // Service unavailable for this field: degrade to the shared org-doc sum.
     if (!fallbackRows) {
       fallbackRows = await Organization.find({ _id: { $in: scopeIds } })
-        .select('usage.plugins usage.pipelines usage.dashboards usage.alertRules usage.alertDestinations usage.idpConfigs').lean();
+        .select('usage.plugins usage.pipelines usage.dashboards usage.alertRules usage.alertDestinations usage.idpConfigs usage.listings').lean();
     }
     return fallbackRows.reduce((sum, r) => {
       const usage = r.usage as unknown as Record<string, { used?: number } | undefined> | undefined;

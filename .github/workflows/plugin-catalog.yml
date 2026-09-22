@@ -1,0 +1,166 @@
+name: plugin-catalog
+
+# Official plugin catalog hygiene (docs/plans/plugin-ecosystem.md W0.7).
+#
+#   static — deploy/bin/test-plugins.sh over EVERY plugin: spec schema + catalog
+#            metadata (license, URLs, egress, icon key, README/changelog caps) and
+#            Dockerfile hygiene (final USER non-root, no pipe-to-shell installers,
+#            every download through fetch-verified). Cheap, no Docker.
+#   build  — `test-plugins.sh --build` (docker build + launch + uid != 0 + the
+#            spec's smokeTest) for ONLY the plugins this PR touches — or every
+#            plugin when a shared base under deploy/plugins/_base/ (or the test
+#            script itself) changes. Bases are built first, in the same order as
+#            deploy/bin/build-plugin-images.sh (pipeline-plugin-base:24.04, then
+#            the pipeline-<eco>-base:1.0 family bases), but only the ones the
+#            selected plugins reference. Nothing is pushed anywhere.
+#
+# NOTE: hand-authored (not projen-managed), same as plugin-urls.yml. Builds hit
+# third-party download hosts; a vendor outage fails the build job (by design —
+# fetch-verified never falls back to an unverified copy), so re-run on a flake.
+on:
+  pull_request:
+    paths:
+      - 'deploy/plugins/**'
+      - 'deploy/bin/test-plugins.sh'
+      - 'deploy/bin/common.sh'
+      - 'deploy/codebuild/bootstrap/**'
+      - '.github/workflows/plugin-catalog.yml'
+  workflow_dispatch: {}
+
+permissions: read-all
+
+concurrency:
+  group: plugin-catalog-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: static checks (all plugins)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # ubuntu-latest ships mikefarah yq v4, which test-plugins.sh requires;
+      # fail loudly here if the image ever stops providing it.
+      - name: Check yq
+        run: yq --version
+
+      - name: Validate every plugin (spec + metadata + Dockerfile hygiene)
+        run: bash deploy/bin/test-plugins.sh
+
+  select:
+    name: select plugins to build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+      any: ${{ steps.pick.outputs.any }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      # Changed plugin dirs = deploy/plugins/<category>/<plugin>/… paths in the
+      # PR diff whose plugin still exists and has a Dockerfile. A change to a
+      # shared base, the test script or the bootstrap image selects every
+      # plugin. Output: one matrix entry per category (space-separated plugin
+      # list), so a base change fans out across parallel runners.
+      - name: Pick changed plugins
+        id: pick
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          all_plugins() {
+            find deploy/plugins -mindepth 3 -maxdepth 3 -name Dockerfile \
+              -not -path 'deploy/plugins/_*' \
+              | sed -E 's|^deploy/plugins/([^/]+/[^/]+)/Dockerfile$|\1|' | sort
+          }
+          if [ -z "${BASE_SHA:-}" ]; then
+            # workflow_dispatch: no PR base — build everything.
+            selected="$(all_plugins)"
+          else
+            changed="$(git diff --name-only "${BASE_SHA}...HEAD")"
+            if printf '%s\n' "$changed" | grep -qE '^(deploy/plugins/_base/|deploy/bin/test-plugins\.sh$|deploy/bin/common\.sh$|deploy/codebuild/bootstrap/)'; then
+              selected="$(all_plugins)"
+            else
+              selected="$(printf '%s\n' "$changed" \
+                | sed -nE 's|^deploy/plugins/([^_/][^/]*/[^/]+)/.*|\1|p' \
+                | sort -u \
+                | while read -r p; do [ -f "deploy/plugins/$p/Dockerfile" ] && echo "$p"; done || true)"
+            fi
+          fi
+          matrix="$(printf '%s\n' "$selected" | sed '/^$/d' \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))
+                | group_by(split("/")[0])
+                | map({category: (.[0] | split("/")[0]), plugins: join(" ")})')"
+          echo "Selected: $(printf '%s\n' "$selected" | sed '/^$/d' | wc -l) plugin(s)"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          if [ "$matrix" = "[]" ]; then echo "any=false" >> "$GITHUB_OUTPUT"; else echo "any=true" >> "$GITHUB_OUTPUT"; fi
+
+  build:
+    name: build + smoke (${{ matrix.category }})
+    needs: [static, select]
+    if: needs.select.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.select.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      # Base + plugin images for a whole category do not fit the runner's
+      # default free disk; drop preinstalled SDKs this job never uses.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af >/dev/null
+          df -h /
+
+      # Build only the bases the selected plugins reference (FROM or
+      # COPY --from), root base first — the same order build-plugin-images.sh
+      # uses. Family bases all build FROM pipeline-plugin-base:24.04.
+      - name: Build base images
+        env:
+          PLUGINS: ${{ matrix.plugins }}
+        run: |
+          set -euo pipefail
+          needed="$(for p in $PLUGINS; do cat "deploy/plugins/$p/Dockerfile"; done \
+            | grep -oE 'pipeline-[a-z0-9-]+-base:1\.0|pipeline-bootstrap:1\.0' | sort -u || true)"
+          echo "::group::pipeline-plugin-base:24.04"
+          docker build --progress plain -t pipeline-plugin-base:24.04 deploy/plugins/_base/_plugin-base
+          echo "::endgroup::"
+          for tag in $needed; do
+            case "$tag" in
+              pipeline-bootstrap:1.0) ctx=deploy/codebuild/bootstrap ;;
+              *) name="${tag%%:*}"; ctx="deploy/plugins/_base/_${name#pipeline-}" ;;
+            esac
+            echo "::group::${tag}"
+            docker build --progress plain -t "$tag" "$ctx"
+            echo "::endgroup::"
+          done
+
+      # test-plugins.sh --build: docker build, launch, runtime uid != 0, and the
+      # spec's smokeTest. Every plugin runs even after a failure; the step fails
+      # at the end if any did.
+      - name: Build and smoke-test plugins
+        env:
+          PLUGINS: ${{ matrix.plugins }}
+        run: |
+          set -uo pipefail
+          failed=""
+          for p in $PLUGINS; do
+            echo "::group::${p}"
+            bash deploy/bin/test-plugins.sh --build "$p" || failed="${failed} ${p}"
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "::error::plugin build/smoke failed:${failed}"
+            exit 1
+          fi

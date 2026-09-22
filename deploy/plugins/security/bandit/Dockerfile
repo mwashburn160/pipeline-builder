@@ -8,8 +8,9 @@
 FROM pipeline-python-base:1.0
 
 # TODO(confirm): confirm the intended pinned bandit version at build time.
-ARG BANDIT_VERSION=1.8.0
+ARG BANDIT_VERSION=1.9.4
 RUN pip3 install --no-cache-dir "bandit==${BANDIT_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

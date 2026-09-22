@@ -20,11 +20,10 @@ installCommands:
   - |
     set -e
     if [ -f /opt/k6/versions/k6-${K6_VERSION} ]; then
-      ln -sf /opt/k6/versions/k6-${K6_VERSION} /usr/local/bin/k6
+      ln -sf /opt/k6/versions/k6-${K6_VERSION} /opt/k6/bin/k6
     else
-      echo "k6 ${K6_VERSION} not pre-installed, downloading..."
-      curl -fsSL https://github.com/grafana/k6/releases/download/v${K6_VERSION}/k6-v${K6_VERSION}-linux-amd64.tar.gz \
-        | tar -xz -C /tmp && mv /tmp/k6-v${K6_VERSION}-linux-amd64/k6 /usr/local/bin/k6
+      echo "ERROR: k6 ${K6_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/k6/versions | sed 's/^k6-//' | tr '\n' ' ')" >&2
+      exit 1
     fi
   - k6 version
   - |
@@ -61,7 +60,7 @@ commands:
       ${THRESHOLD_ARG}
   - "echo \"k6 load test complete. Reports available in k6-reports/\""
 env:
-  K6_VERSION: "0.56.0"
+  K6_VERSION: "2.3.0"
   K6_SCRIPT: ""
   K6_VUS: "10"
   K6_DURATION: "30s"
@@ -70,3 +69,12 @@ env:
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and produces a deterministic version output.
 smokeTest: "k6 version"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://grafana.com/docs/k6/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/testing/k6
+icon: k6
+# network.egress: none declared — the step contacts no fixed external host
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

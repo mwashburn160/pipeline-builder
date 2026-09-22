@@ -398,7 +398,14 @@ export function authApi(core: ApiCore) {
     },
 
     /** PUT /user/preferences — update favorites, recents and/or notification preferences for the active org. */
-    updatePreferences: async (patch: { favorites?: string[]; recents?: string[]; notifications?: Partial<UserPreferences['notifications']> }) => {
+    updatePreferences: async (patch: {
+      favorites?: string[];
+      recents?: string[];
+      /** Partial at both levels: `ecosystem` may carry just the keys being changed. */
+      notifications?: Partial<Omit<UserPreferences['notifications'], 'ecosystem'>> & {
+        ecosystem?: Partial<UserPreferences['notifications']['ecosystem']>;
+      };
+    }) => {
       return core.request<ApiResponse<{ preferences: UserPreferences }>>('/api/user/preferences', {
         method: 'PUT',
         body: JSON.stringify(patch),

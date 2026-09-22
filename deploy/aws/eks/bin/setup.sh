@@ -141,6 +141,16 @@ if ! kubectl wait --for=condition=Ready nodepool/pipeline-builder --timeout=120s
   exit 1
 fi
 echo "  NodePool pipeline-builder ready (ceiling: 48 cpu / 96Gi)"
+# The anonymous-submission build pool (same file). Not Ready means the
+# plugin-quarantine-builder pod stays Pending — submissions then fail closed
+# (the plugin service never falls back to the tenant buildkitd), so this is a
+# warning, not a deploy failure: everything else works without it.
+if ! kubectl wait --for=condition=Ready nodepool/plugin-quarantine --timeout=120s >/dev/null 2>&1; then
+  echo "  WARNING: NodePool plugin-quarantine is not Ready — anonymous plugin submissions" >&2
+  echo "           cannot build until it is. Check: kubectl describe nodepool plugin-quarantine" >&2
+else
+  echo "  NodePool plugin-quarantine ready (ceiling: 8 cpu / 32Gi, tainted pipeline-builder/quarantine)"
+fi
 
 # ---- Phase 1c: addons (after the NodePool, so they have somewhere to run) ----
 # Split out of cluster.yaml on purpose — see the comments in cluster/addons.yaml.

@@ -9,11 +9,20 @@ import FormData from 'form-data';
 import ora from 'ora';
 import pico from 'picocolors';
 import { FILE_SIZE_LIMITS, formatFileSize } from '../config/cli.constants.js';
-import { type Plugin, type PluginResponse } from '../types/index.js';
 import { printCommandHeader, printSslWarning, createAuthenticatedClient, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler.js';
 import { fileExists, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
-import { extractSingleResponse } from '../utils/response-utils.js';
+import { unwrapEnvelope } from '../utils/response-utils.js';
+
+/** The upload route's success payload (`POST /plugins/upload`). */
+interface PluginUploadResult {
+  requestId?: string;
+  pluginName?: string;
+  version?: string;
+  /** Present only on 201 (metadata-only plugin, deployed without a build). */
+  pluginId?: string;
+  buildType?: string;
+}
 
 const { bold, green } = pico;
 
@@ -21,18 +30,17 @@ const { bold, green } = pico;
  * Registers the `upload-plugin` command with the CLI program.
  *
  * Validates a local plugin ZIP file (size, extension, readability),
- * builds a multipart form, and uploads it to the platform API.
- * Plugin name and version can be auto-detected from the package
- * or overridden via CLI flags.
+ * builds a multipart form, and uploads it to the platform API. The
+ * plugin's name and version always come from the package's
+ * `plugin-spec.yaml`, and the organization from the signed-in session.
  *
  * @param program - The root Commander program instance to attach the command to.
  *
  * @example
  * ```bash
- * cli plugin upload --file plugin.zip --organization acme
- * cli plugin upload --file plugin.zip --organization acme --public
- * cli plugin upload --file plugin.zip --organization acme --name my-plugin --version 1.0.0
- * cli plugin upload --file plugin.zip --organization acme --no-verify-ssl
+ * cli plugin upload --file plugin.zip
+ * cli plugin upload --file plugin.zip --public
+ * cli plugin upload --file plugin.zip --no-verify-ssl
  * ```
  */
 export function uploadPlugin(program: Command): void {
@@ -40,12 +48,7 @@ export function uploadPlugin(program: Command): void {
     .command('upload')
     .description('Upload and deploy a plugin package')
     .requiredOption('-f, --file <file>', 'Path to plugin ZIP file')
-    .requiredOption('-o, --organization <organization>', 'Organization name')
-    .option('-n, --name <name>', 'Plugin name (optional, extracted from package if not provided)')
-    .option('-v, --version <version>', 'Plugin version (optional, extracted from package if not provided)')
-    .option('--public', 'Make plugin publicly accessible', false)
-    .option('--active', 'Set plugin as active', true)
-    .option('--no-active', 'Upload the plugin as inactive'))
+    .option('--public', 'Make plugin publicly accessible (needs plugins:publish)', false))
     .option('--dry-run', 'Validate file without uploading', false)
     .action(async (options) => {
       const executionId = printCommandHeader('Upload Plugin');
@@ -55,23 +58,13 @@ export function uploadPlugin(program: Command): void {
         // Display parameters
         printInfo('Upload parameters', {
           file: options.file,
-          organization: options.organization,
-          name: options.name || '(auto-detect)',
-          version: options.version || '(auto-detect)',
           public: options.public ? 'Yes' : 'No',
-          active: options.active ? 'Yes' : 'No',
           dryRun: options.dryRun,
           verifySsl: options.verifySsl,
         });
 
         // Security warning for SSL verification disabled
         printSslWarning(options.verifySsl);
-
-        // Validate organization
-        if (!options.organization || typeof options.organization !== 'string' || options.organization.trim().length === 0) {
-          printError('Invalid organization name', { provided: options.organization });
-          throw new ValidationError('Organization must be a non-empty string', 'organization', options.organization);
-        }
 
         // Validate file path
         if (!options.file || typeof options.file !== 'string' || options.file.trim().length === 0) {
@@ -137,29 +130,6 @@ export function uploadPlugin(program: Command): void {
 
         printSuccess('Plugin file validated');
 
-        // Validate version format if provided. Allows -prerelease and +build
-        // metadata (valid semver) to match validate-plugin and the DB constraint.
-        if (options.version) {
-          const versionRegex = /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/;
-          if (!versionRegex.test(options.version)) {
-            printWarning('Version format may be invalid', {
-              provided: options.version,
-              expected: 'semantic version (e.g., 1.0.0, 1.2.3-beta.1)',
-            });
-          }
-        }
-
-        // Validate name format if provided
-        if (options.name) {
-          const nameRegex = /^[a-z0-9-]+$/;
-          if (!nameRegex.test(options.name)) {
-            printWarning('Plugin name format may be invalid', {
-              provided: options.name,
-              expected: 'lowercase alphanumeric with dashes (e.g., my-plugin-name)',
-            });
-          }
-        }
-
         // Dry run mode
         if (options.dryRun) {
           console.log('');
@@ -169,11 +139,7 @@ export function uploadPlugin(program: Command): void {
           printKeyValue({
             File: filePath,
             Size: sizeFormatted,
-            Organization: options.organization,
-            Name: options.name || '(will be auto-detected)',
-            Version: options.version || '(will be auto-detected)',
             Public: options.public ? 'Yes' : 'No',
-            Active: options.active ? 'Yes' : 'No',
           });
 
           return;
@@ -196,12 +162,10 @@ export function uploadPlugin(program: Command): void {
           filename: path.basename(filePath),
           contentType: 'application/zip',
         });
-        formData.append('organization', options.organization);
-
-        if (options.name) formData.append('name', options.name);
-        if (options.version) formData.append('version', options.version);
-        formData.append('isPublic', options.public ? 'true' : 'false');
-        formData.append('isActive', options.active ? 'true' : 'false');
+        // The upload API reads `visibility` (private | org | public); without
+        // it the version is `org`. `public` needs plugins:publish. Name and
+        // version come from the package's spec; the org from the session.
+        if (options.public) formData.append('visibility', 'public');
 
         // Make API request
         const endpoint = config.api.pluginUploadUrl;
@@ -212,11 +176,11 @@ export function uploadPlugin(program: Command): void {
         console.log('');
 
         const spinner = ora('Uploading plugin...').start();
-        let rawResponse: PluginResponse;
+        let rawResponse: unknown;
         let duration: number;
         try {
           const startTime = Date.now();
-          rawResponse = await client.postForm<PluginResponse>(endpoint, formData);
+          rawResponse = await client.postForm<unknown>(endpoint, formData);
           duration = Date.now() - startTime;
           spinner.succeed('Plugin uploaded');
         } catch (error) {
@@ -224,40 +188,24 @@ export function uploadPlugin(program: Command): void {
           throw error;
         }
 
-        const response = extractSingleResponse<Plugin>(rawResponse, 'plugin', 'name');
-
-        if (!response) {
-          printError('No valid plugin data in response', {
-            responseKeys: rawResponse ? Object.keys(rawResponse) : '(null)',
+        const response = unwrapEnvelope(rawResponse) as PluginUploadResult;
+        if (!response.pluginName) {
+          printError('No valid upload result in response', {
+            responseKeys: Object.keys(response).join(', ') || '(none)',
           });
-          throw new Error('Upload failed - no valid plugin data received');
+          throw new Error('Upload failed - no valid upload result received');
         }
 
+        // 201: a metadata-only plugin, deployed directly (has a pluginId).
+        // 202: the image build was queued; the worker persists the version.
+        const queued = !response.pluginId;
         console.log('');
-        printSection('Plugin Uploaded Successfully');
-
-        // Display plugin information
+        printSection(queued ? 'Plugin Build Queued' : 'Plugin Deployed');
         printKeyValue({
-          'Plugin ID': green(bold(response.id)),
-          'Name': response.name,
-          'Version': response.version,
-          'Organization': response.organization,
-          'Description': response.description || '(not set)',
-        });
-
-        console.log('');
-        printKeyValue({
-          'File URL': response.fileUrl || '(not available)',
-          'File Size': response.fileSize ? `${(response.fileSize / 1024).toFixed(2)} KB` : '(not available)',
-          'Checksum': response.checksum ? `${response.checksum.substring(0, 16)}...` : '(not available)',
-        });
-
-        console.log('');
-        printKeyValue({
-          'Public': response.isPublic ? 'Yes' : 'No',
-          'Active': response.isActive ? 'Yes' : 'No',
-          'Created At': response.createdAt || '(not available)',
-          'Uploaded By': response.uploadedBy || '(not available)',
+          'Plugin': green(bold(`${response.pluginName}@${response.version ?? '?'}`)),
+          ...(response.pluginId ? { 'Plugin ID': response.pluginId } : {}),
+          'Request ID': response.requestId ?? '(not available)',
+          'Visibility': options.public ? 'public' : 'org',
         });
 
         console.log('');
@@ -267,30 +215,13 @@ export function uploadPlugin(program: Command): void {
           'Status': green('✓ Success'),
         });
 
-        // Print additional information if available
-        if (response.metadata) {
-          console.log('');
-          printInfo('Plugin metadata available', {
-            keys: Object.keys(response.metadata).length,
-          });
-        }
-
-        // Print deployment logs URL if available
-        const resp = response as unknown as Record<string, unknown>;
-        const requestId = resp['X-Request-Id'] || resp.requestId;
-        if (requestId) {
-          console.log('');
-          printInfo('Deployment logs available', {
-            requestId,
-            url: `${config.api.baseUrl}/logs/${requestId}`,
-          });
-        }
-
         // Next steps
         console.log('');
         printInfo('Next steps', {
-          view: `Use "get-plugin --id ${response.id}" to view plugin details`,
-          list: 'Use "list-plugins" to see all plugins',
+          ...(response.pluginId
+            ? { view: `Use "plugin get --id ${response.pluginId}" to view plugin details` }
+            : { build: 'The version appears in "plugin list" once its image build completes' }),
+          list: 'Use "plugin list" to see all plugins',
         });
 
       } catch (error) {
@@ -301,11 +232,7 @@ export function uploadPlugin(program: Command): void {
             command: 'upload-plugin',
             executionId,
             file: options.file,
-            organization: options.organization,
-            name: options.name,
-            version: options.version,
             public: options.public,
-            active: options.active,
             verifySsl: options.verifySsl,
           },
         });

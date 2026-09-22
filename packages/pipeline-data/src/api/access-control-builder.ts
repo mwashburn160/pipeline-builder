@@ -135,6 +135,19 @@ export interface BaseAccessFilter {
 /** Fail-closed predicate: matches no rows. */
 const NO_ROWS: SQL = sql`false`;
 
+/** Per-entity tuning of {@link AccessControlQueryBuilder}. */
+export interface AccessControlOptions {
+  /**
+   * Whether the SYSTEM org's `public` rung reaches callers in other orgs (and
+   * anonymous callers). Default true: the system org's sample pipelines,
+   * templates and dashboards are visible from every org. Plugins set it false:
+   * since the plugin ecosystem (plan §3.1, G26) the Official catalog reaches
+   * other orgs only as LISTINGS resolved through installs, never through
+   * `visibility = 'public'` on a `plugins` row.
+   */
+  systemCatalog?: boolean;
+}
+
 /**
  * Generic access control query builder for multi-tenant entities.
  *
@@ -153,6 +166,7 @@ export class AccessControlQueryBuilder<
 > {
   constructor(
     private schema: TSchema,
+    private options: AccessControlOptions = {},
   ) {}
 
   /**
@@ -171,6 +185,10 @@ export class AccessControlQueryBuilder<
    * always see everything you are entitled to, or a freshly-created private row
    * would vanish from its own author's listing.
    *
+   * An entity can drop the system-org branch with `systemCatalog: false`
+   * ({@link AccessControlOptions}): plugins do, so a system-org plugin reaches
+   * other orgs only as an Official listing (plugin ecosystem §3.1, G26).
+   *
    * An explicit `visibility` filter NARROWS within that set, never widens it —
    * so `?visibility=public` still surfaces the system-org catalog.
    *
@@ -188,8 +206,12 @@ export class AccessControlQueryBuilder<
     const conditions: SQL[] = [];
     const requested = filter.visibility;
 
+    const systemCatalog = this.options.systemCatalog !== false;
+
     if (!orgId) {
-      // No org context — only the system org's public catalog.
+      // No org context — only the system org's public catalog (nothing at all
+      // for an entity without one).
+      if (!systemCatalog) return [NO_ROWS];
       conditions.push(eq(this.schema.orgId, SYSTEM_ORG_ID));
       conditions.push(eq(this.schema.visibility, 'public'));
       // An anonymous caller asking for a narrower rung gets nothing, rather than
@@ -207,11 +229,12 @@ export class AccessControlQueryBuilder<
       : and(eq(this.schema.orgId, normalizedOrgId), or(ne(this.schema.visibility, 'private'), ownDraftsOnly)!)!;
 
     // Rows from OTHER orgs are only ever visible at the `public` rung.
-    const otherOrgScopes = [eq(this.schema.orgId, SYSTEM_ORG_ID)];
+    const otherOrgScopes: SQL[] = [];
+    if (systemCatalog) otherOrgScopes.push(eq(this.schema.orgId, SYSTEM_ORG_ID));
     if (parentOrgId) otherOrgScopes.push(eq(this.schema.orgId, parentOrgId.toLowerCase()));
-    const otherOrgsPublic = and(eq(this.schema.visibility, 'public'), or(...otherOrgScopes)!)!;
-
-    conditions.push(or(ownOrg, otherOrgsPublic)!);
+    conditions.push(otherOrgScopes.length > 0
+      ? or(ownOrg, and(eq(this.schema.visibility, 'public'), or(...otherOrgScopes)!)!)!
+      : ownOrg);
 
     if (requested !== undefined) conditions.push(eq(this.schema.visibility, requested));
 

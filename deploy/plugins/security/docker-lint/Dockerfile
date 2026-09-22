@@ -4,8 +4,8 @@
 # Validates Dockerfile quality and CIS benchmark compliance
 
 # ─── Tool versions (override with --build-arg) ───
-ARG HADOLINT_VERSION=2.12.0
-ARG HADOLINT_PREV_VERSION=2.10.0
+ARG HADOLINT_VERSION=2.15.1
+ARG HADOLINT_PREV_VERSION=2.14.0
 ARG DOCKLE_VERSION=0.4.15
 ARG DOCKLE_PREV_VERSION=0.4.14
 
@@ -15,6 +15,10 @@ FROM goodwithtech/dockle:v${DOCKLE_VERSION} AS dockle-default
 FROM goodwithtech/dockle:v${DOCKLE_PREV_VERSION} AS dockle-prev
 
 FROM pipeline-plugin-base:24.04
+
+# Build steps below need root (apt, writes under /usr/local, /opt or /etc);
+# the image drops back to the unprivileged `plugin` user (uid 1000) at the end.
+USER root
 
 # Re-declare ARGs after FROM so they're available in this stage
 ARG HADOLINT_VERSION
@@ -26,13 +30,23 @@ ARG DOCKLE_PREV_VERSION
 RUN mkdir -p /opt/hadolint/versions
 COPY --from=hadolint-default /bin/hadolint /opt/hadolint/versions/hadolint-${HADOLINT_VERSION}
 COPY --from=hadolint-prev /bin/hadolint /opt/hadolint/versions/hadolint-${HADOLINT_PREV_VERSION}
-RUN ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /usr/local/bin/hadolint
+# The active version is a symlink in /opt/hadolint/bin (first on PATH, owned by the
+# plugin user) so the spec's runtime HADOLINT_VERSION switch can re-point it without root.
+RUN install -d -o 1000 -g 1000 /opt/hadolint/bin \
+    && ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /opt/hadolint/bin/hadolint \
+    && chown -h 1000:1000 /opt/hadolint/bin/hadolint
+ENV PATH="/opt/hadolint/bin:${PATH}"
 
 # ─── Dockle — Container image security linter (copied from official image) ───
 RUN mkdir -p /opt/dockle/versions
 COPY --from=dockle-default /usr/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_VERSION}
 COPY --from=dockle-prev /usr/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_PREV_VERSION}
-RUN ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /usr/local/bin/dockle
+# The active version is a symlink in /opt/dockle/bin (first on PATH, owned by the
+# plugin user) so the spec's runtime DOCKLE_VERSION switch can re-point it without root.
+RUN install -d -o 1000 -g 1000 /opt/dockle/bin \
+    && ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /opt/dockle/bin/dockle \
+    && chown -h 1000:1000 /opt/dockle/bin/dockle
+ENV PATH="/opt/dockle/bin:${PATH}"
 
 # ─── Runtime configuration defaults ───
 ENV HADOLINT_VERSION=${HADOLINT_VERSION}
@@ -44,6 +58,7 @@ ENV HADOLINT_SEVERITY=warning
 
 # Working directory for pipeline source
 WORKDIR /app
+USER 1000:1000
 
 # Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

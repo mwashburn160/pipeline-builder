@@ -11,16 +11,12 @@ export interface ApiConfig {
   timeout?: number;
   /** Extended timeout for plugin upload requests (large files). */
   uploadTimeout?: number;
-  /** URL path for single-pipeline CRUD operations. */
+  /** URL path of the pipelines API: list/query at the root, one pipeline at `/{id}`. */
   pipelineUrl: string;
-  /** URL path for pipeline list/query operations. */
-  pipelineListUrl: string;
   /** URL path for the golden-path pipeline-template catalog (list/get/instantiate). */
   pipelineTemplateUrl: string;
-  /** URL path for single-plugin CRUD operations. */
+  /** URL path of the plugins API: list/query at the root, one plugin at `/{id}`. */
   pluginUrl: string;
-  /** URL path for plugin list/query operations. */
-  pluginListUrl: string;
   /** URL path for plugin upload (multipart POST). */
   pluginUploadUrl: string;
   /** When `false`, disables TLS certificate verification. */

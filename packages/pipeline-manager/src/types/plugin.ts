@@ -154,6 +154,30 @@ export interface Plugin extends PluginBase {
    * User who uploaded the plugin
    */
   uploadedBy?: string;
+
+  /** Whether this version is the default for its name. */
+  isDefault?: boolean;
+
+  /** When the version was deprecated (still resolves, with a warning). */
+  deprecatedAt?: string | null;
+
+  /** The publisher's deprecation message. */
+  deprecationMessage?: string | null;
+
+  /** When the version was yanked (ranges, `latest` and the default skip it). */
+  yankedAt?: string | null;
+
+  /** Why the version was yanked. */
+  yankReason?: string | null;
+}
+
+/**
+ * Response of `POST /plugins/:id/yank`: the yanked version, plus the version
+ * promoted to default when the yanked one was the default.
+ */
+export interface PluginYankResponse {
+  plugin: Plugin;
+  promotedDefault?: { id: string; version: string };
 }
 
 /**

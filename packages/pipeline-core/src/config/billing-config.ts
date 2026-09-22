@@ -467,6 +467,13 @@ function loadBundles(): BundleConfig[] {
     b('api_pack', 'API Pack (+100k)', '100,000 additional API calls / period', { apiCalls: 100_000 }, 1999, ALL, 3),
     b('ai_pack', 'AI Pack (+2.5k)', '2,500 additional AI calls / period', { aiCalls: 2500 }, 1999, ALL, 4),
     b('storage_pack', 'Storage Pack (+10 GB)', '10 GB additional registry storage', { storageBytes: 10 * BUNDLE_GB }, 1999, ALL, 5),
+    // Plugin-ecosystem publishing capacity (docs/plans/plugin-ecosystem.md §3.7):
+    // +10 active public listings on top of the tier's `listings` count quota.
+    // Not a tier differentiator (installing is free everywhere, and Verified is
+    // earned by review, not bought), so it's sold on every tier. $4.99/mo
+    // (annual ≈ 10× = $49.90/yr). Removing packs below the org's active listing
+    // count is refused by billing's over-cap guard.
+    b('listing_pack', 'Listing Pack (+10)', '10 additional public plugin-ecosystem listings', { listings: 10 }, 499, ALL, 6),
     // NOTE: `sso` is NOT sold as an add-on. It is a TIER feature from Team up
     // (TIER_FEATURES.team) and nothing below Team can buy it. The bundle that
     // used to exist here was $40/mo on Pro only — Pro ($39) + the add-on came to

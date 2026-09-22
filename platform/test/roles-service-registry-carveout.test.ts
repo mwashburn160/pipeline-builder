@@ -84,6 +84,23 @@ describe('createRole registry carve-out', () => {
     expect(role.permissions).toEqual(['pipelines:read', 'pipelines:write']);
   });
 
+  it('rejects the system-org-only ecosystem permissions in EVERY org, the system org and a superadmin included', async () => {
+    for (const orgId of ['org-1', '000000000000000000000001']) {
+      for (const p of ['plugins:moderate', 'publishers:verify']) {
+        await expect(
+          createRole(orgId, { name: 'Moderators', permissions: ['plugins:read', p] }, SUPERADMIN_ACTOR),
+        ).rejects.toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
+      }
+    }
+    expect(mockRoleCreate).not.toHaveBeenCalled();
+  });
+
+  it('accepts the org-assignable ecosystem permissions (install, install policy, publisher profile)', async () => {
+    const perms = ['plugins:install', 'plugin_installs:manage', 'publishers:manage'];
+    const role = await createRole('org-1', { name: 'Plugin Stewards', permissions: perms }, SUPERADMIN_ACTOR);
+    expect(role.permissions).toEqual(perms);
+  });
+
   it('still rejects an unknown permission with RL_INVALID_PERMISSION', async () => {
     await expect(
       createRole('org-1', { name: 'Bogus', permissions: ['not:a:permission'] }, SUPERADMIN_ACTOR),

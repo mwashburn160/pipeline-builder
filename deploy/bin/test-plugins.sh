@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validate all plugins: spec schema, Dockerfile structure, optional Docker build.
+# Validate all plugins: spec schema + catalog metadata, Dockerfile structure and
+# supply-chain hygiene (non-root final USER, no pipe-to-shell installers, every
+# download through fetch-verified), optional Docker build + smoke run.
 #
 # Usage:
 #   ./test-plugins.sh                       # test all plugins
 #   ./test-plugins.sh language/java         # test a specific plugin
 #   ./test-plugins.sh --spec-only           # only validate specs (no Docker checks)
 #   ./test-plugins.sh --build               # build Docker images (slow)
+#   PLUGINS_DIR=/tmp/p ./test-plugins.sh security/my-scan  # a tree outside the repo
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
 
-PLUGINS_DIR="$DEPLOY_DIR/plugins"
+# PLUGINS_DIR overrides the catalog root (a `<category>/<plugin>` tree), e.g. to
+# check a scaffold from `pipeline-manager plugin new` outside the repo.
+PLUGINS_DIR="${PLUGINS_DIR:-$DEPLOY_DIR/plugins}"
 SPEC_ONLY=false
 BUILD_IMAGES=false
 SPECIFIC_PLUGIN=""
@@ -52,10 +57,37 @@ done
 REQUIRED_FIELDS=("name" "description" "keywords" "category" "version" "pluginType" "computeType")
 CODEBUILD_FIELDS=("primaryOutputDirectory" "dockerfile" "installCommands" "commands")
 V2_FIELDS=("timeout" "failureBehavior" "secrets")
-VALID_COMPUTE_TYPES=("SMALL" "MEDIUM" "LARGE")
-VALID_PLUGIN_TYPES=("CodeBuildStep" "ManualApprovalStep")
+# Enums mirror the Zod schema in packages/api-core/src/validation/plugin-spec-schema.ts exactly —
+# a value the upload API rejects must fail here first. Every list and limit
+# below is checked against api-core by
+# packages/pipeline-manager/test/test-plugins-constants.test.ts (drift guard).
+VALID_COMPUTE_TYPES=("SMALL" "MEDIUM" "LARGE" "X2_LARGE")
+VALID_PLUGIN_TYPES=("CodeBuildStep" "ShellStep" "ManualApprovalStep")
 VALID_FAILURE_BEHAVIORS=("fail" "warn" "ignore")
-VALID_CATEGORIES=("language" "security" "quality" "monitoring" "artifact" "deploy" "infrastructure" "testing" "notification" "ai" "unknown")
+VALID_CATEGORIES=("language" "security" "quality" "monitoring" "artifact" "deploy" "infrastructure" "testing" "notification" "ai")
+VALID_BUILD_TYPES=("build_image" "prebuilt" "metadata_only")
+
+# Catalog documentation + trust metadata (docs/plans/plugin-ecosystem.md W0.2).
+# Mirrors packages/api-core/src/validation/plugin-spec-schema.ts and plugin-catalog-metadata.ts — keep them in sync.
+README_MAX_BYTES=$((64 * 1024))
+CHANGELOG_MAX_BYTES=$((32 * 1024))
+EGRESS_MAX_HOSTS=50
+SPDX_LICENSE_IDS=(
+  "Apache-2.0" "MIT" "MIT-0" "ISC" "0BSD" "Unlicense" "CC0-1.0" "Zlib" "BSL-1.0"
+  "BSD-2-Clause" "BSD-3-Clause"
+  "MPL-2.0" "EPL-1.0" "EPL-2.0"
+  "LGPL-2.1-only" "LGPL-2.1-or-later" "LGPL-3.0-only" "LGPL-3.0-or-later"
+  "GPL-2.0-only" "GPL-2.0-or-later" "GPL-3.0-only" "GPL-3.0-or-later"
+  "AGPL-3.0-only" "AGPL-3.0-or-later"
+  "CC-BY-4.0" "CC-BY-SA-4.0" "Python-2.0" "PostgreSQL" "Artistic-2.0"
+  "BUSL-1.1" "Elastic-2.0" "SSPL-1.0"
+  "LicenseRef-Proprietary"
+)
+URL_SHORTENER_HOSTS=("bit.ly" "t.co" "tinyurl.com" "goo.gl" "ow.ly" "is.gd" "buff.ly" "rebrand.ly" "cutt.ly" "shorturl.at")
+ICON_KEY_RE='^[a-z0-9-]+$'
+# Bare DNS hostname, optionally one leading `*.` label; lowercase only (the TS
+# regex has no `i` flag). No scheme, port, path, userinfo or IP literal.
+EGRESS_HOST_RE='^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$'
 
 # Literal membership test. Replaces `[[ " ${arr[*]} " =~ " $v " ]]`, whose
 # quoted RHS is still a regex — a value with a metachar (e.g. SM.LL) would
@@ -65,6 +97,233 @@ _in_list() {
   local _x
   for _x in "$@"; do [ "$_x" = "$_needle" ] && return 0; done
   return 1
+}
+
+# Lowercase via tr — keeps the script runnable on macOS's stock bash 3.2 (no ${v,,}).
+_lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# _yq <expr> <file> — mikefarah yq, empty string (not an abort under set -e)
+# when the expression errors.
+_yq() { yq eval "$1" "$2" 2>/dev/null || true; }
+
+# _project_url_problem <url> — why <url> is not an acceptable homepageUrl /
+# sourceUrl, or nothing when it is. Mirrors projectUrlProblem() in
+# plugin-catalog-metadata.ts: absolute https URL, no embedded credentials, host (or any
+# parent domain of it) not a known URL shortener.
+_project_url_problem() {
+  local _url="$1" _rest _auth _host _label _suffix
+  if [ "${#_url}" -gt 2048 ]; then echo "must be at most 2048 characters"; return; fi
+  case "$(_lower "${_url%%://*}")://" in
+    https://) ;;
+    *://) if [[ "$_url" == *://* ]]; then echo "must use https"; else echo "must be an absolute URL"; fi; return ;;
+  esac
+  _rest="${_url#*://}"
+  _auth="${_rest%%[/?#]*}"
+  if [ -z "$_auth" ]; then echo "must be an absolute URL"; return; fi
+  if [[ "$_auth" == *@* ]]; then echo "must not embed credentials"; return; fi
+  _host="$(_lower "${_auth%%:*}")"; _host="${_host%.}"
+  if [ -z "$_host" ]; then echo "must be an absolute URL"; return; fi
+  # The host itself and every parent domain (a.b.bit.ly → b.bit.ly → bit.ly).
+  _suffix="$_host"
+  while [[ "$_suffix" == *.* ]]; do
+    for _label in "${URL_SHORTENER_HOSTS[@]}"; do
+      if [ "$_suffix" = "$_label" ]; then echo "must not use a URL shortener (${_host})"; return; fi
+    done
+    _suffix="${_suffix#*.}"
+  done
+}
+
+# validate_metadata <specfile> <plugin_dir> <fqn> — the documentation + trust
+# metadata the upload API enforces (api-core plugin-spec-schema.ts + plugin-catalog-metadata.ts). Every
+# field is optional there; each is validated only when present. The icon KEY
+# format is checked here; whether the icon file exists is not.
+validate_metadata() {
+  local specfile="$1" plugin_dir="$2" fqn="$3"
+  local _t _v _n _h _bad
+
+  # Every probe below goes through _yq, which maps a yq error to "" (field
+  # absent). Prove yq can actually read this spec first, so a broken yq (or a
+  # dockerized wrapper that can't see the path) fails loudly instead of
+  # silently skipping every metadata check.
+  if ! yq eval '.' "$specfile" >/dev/null 2>&1; then
+    log_fail "plugin-spec.yaml is not readable by yq (invalid YAML or unusable yq)" "$fqn"
+    return
+  fi
+
+  # license — SPDX id from the allowlist (case-sensitive).
+  if [ "$(_yq 'has("license")' "$specfile")" = "true" ]; then
+    _v="$(_yq '.license' "$specfile")"
+    if [ "$(_yq '.license | type' "$specfile")" = "!!str" ] && _in_list "$_v" "${SPDX_LICENSE_IDS[@]}"; then
+      log_pass "Valid license: ${_v}"
+    else
+      log_fail "Invalid license: '${_v}' (must be a supported SPDX id, e.g. Apache-2.0, MIT)" "$fqn"
+    fi
+  fi
+
+  # homepageUrl / sourceUrl — https, no credentials, no shortener.
+  local _field _problem
+  for _field in homepageUrl sourceUrl; do
+    [ "$(_yq "has(\"${_field}\")" "$specfile")" = "true" ] || continue
+    _v="$(_yq ".${_field}" "$specfile")"
+    if [ "$(_yq ".${_field} | type" "$specfile")" != "!!str" ]; then
+      log_fail "Invalid ${_field}: must be a string" "$fqn"; continue
+    fi
+    _problem="$(_project_url_problem "$_v")"
+    if [ -n "$_problem" ]; then
+      log_fail "Invalid ${_field}: ${_problem} (${_v})" "$fqn"
+    else
+      log_pass "Valid ${_field}"
+    fi
+  done
+
+  # changelog — string, ≤ CHANGELOG_MAX_BYTES (UTF-8 bytes).
+  if [ "$(_yq 'has("changelog")' "$specfile")" = "true" ]; then
+    if [ "$(_yq '.changelog | type' "$specfile")" != "!!str" ]; then
+      log_fail "Invalid changelog: must be a string" "$fqn"
+    else
+      _n=$(_yq '.changelog' "$specfile" | wc -c | tr -d ' ')
+      if [ "$_n" -gt "$CHANGELOG_MAX_BYTES" ]; then
+        log_fail "changelog is ${_n} bytes (max ${CHANGELOG_MAX_BYTES})" "$fqn"
+      else
+        log_pass "changelog within ${CHANGELOG_MAX_BYTES} bytes"
+      fi
+    fi
+  fi
+
+  # README.md (plugin dir = zip root) — ≤ README_MAX_BYTES.
+  if [ -f "${plugin_dir}/README.md" ]; then
+    _n=$(wc -c < "${plugin_dir}/README.md" | tr -d ' ')
+    if [ "$_n" -gt "$README_MAX_BYTES" ]; then
+      log_fail "README.md is ${_n} bytes (max ${README_MAX_BYTES})" "$fqn"
+    else
+      log_pass "README.md within ${README_MAX_BYTES} bytes"
+    fi
+  fi
+
+  # icon — a key string, or { key, badge? } with nothing else; keys ^[a-z0-9-]+$ (≤ 64).
+  if [ "$(_yq 'has("icon")' "$specfile")" = "true" ]; then
+    _t="$(_yq '.icon | type' "$specfile")"
+    _bad=""
+    case "$_t" in
+      '!!str')
+        _v="$(_yq '.icon' "$specfile")"
+        { [ "${#_v}" -le 64 ] && [[ "$_v" =~ $ICON_KEY_RE ]]; } || _bad="icon key '${_v}' must match ${ICON_KEY_RE} (≤ 64 chars)"
+        ;;
+      '!!map')
+        for _h in $(_yq '.icon | keys | .[]' "$specfile"); do
+          case "$_h" in key|badge) ;; *) _bad="icon has unknown field '${_h}' (allowed: key, badge)" ;; esac
+        done
+        if [ -z "$_bad" ]; then
+          for _field in key badge; do
+            [ "$(_yq ".icon | has(\"${_field}\")" "$specfile")" = "true" ] || { [ "$_field" = key ] && _bad="icon.key is required"; continue; }
+            _v="$(_yq ".icon.${_field}" "$specfile")"
+            { [ "$(_yq ".icon.${_field} | type" "$specfile")" = "!!str" ] && [ "${#_v}" -le 64 ] && [[ "$_v" =~ $ICON_KEY_RE ]]; } \
+              || _bad="icon.${_field} '${_v}' must match ${ICON_KEY_RE} (≤ 64 chars)"
+          done
+        fi
+        ;;
+      *) _bad="icon must be a key string or { key, badge }" ;;
+    esac
+    if [ -n "$_bad" ]; then log_fail "Invalid icon: ${_bad}" "$fqn"; else log_pass "Valid icon key"; fi
+  fi
+
+  # network — { egress: [bare hostnames] } only; ≤ EGRESS_MAX_HOSTS entries.
+  if [ "$(_yq 'has("network")' "$specfile")" = "true" ]; then
+    _bad=""
+    if [ "$(_yq '.network | type' "$specfile")" != "!!map" ]; then
+      _bad="network must be a mapping"
+    else
+      for _h in $(_yq '.network | keys | .[]' "$specfile"); do
+        [ "$_h" = "egress" ] || _bad="network has unknown field '${_h}' (allowed: egress)"
+      done
+      if [ -z "$_bad" ] && [ "$(_yq '.network | has("egress")' "$specfile")" = "true" ]; then
+        if [ "$(_yq '.network.egress | type' "$specfile")" != "!!seq" ]; then
+          _bad="network.egress must be a list"
+        else
+          _n="$(_yq '.network.egress | length' "$specfile")"
+          if [ "${_n:-0}" -gt "$EGRESS_MAX_HOSTS" ]; then
+            _bad="network.egress has ${_n} hosts (max ${EGRESS_MAX_HOSTS})"
+          elif [ "$(_yq '[.network.egress[] | select(type != "!!str")] | length' "$specfile")" != "0" ]; then
+            _bad="network.egress entries must be strings"
+          else
+            for _h in $(_yq '.network.egress[]' "$specfile"); do
+              if [ "${#_h}" -gt 253 ] || ! [[ "$_h" =~ $EGRESS_HOST_RE ]]; then
+                _bad="network.egress '${_h}' must be a bare hostname (no scheme, port or path; one leading *. allowed)"
+                break
+              fi
+            done
+          fi
+        fi
+      fi
+    fi
+    if [ -n "$_bad" ]; then log_fail "Invalid ${_bad}" "$fqn"; else log_pass "Valid network.egress"; fi
+  fi
+}
+
+# ---- Dockerfile hygiene helpers ----
+
+# _dockerfile_instructions <Dockerfile> — one logical instruction per line:
+# comment lines dropped (Docker strips them even inside a `\` continuation)
+# and continuations joined, so the checks below see what BuildKit executes.
+_dockerfile_instructions() {
+  awk '
+    /^[[:space:]]*#/ { next }
+    {
+      line = $0
+      if (line ~ /\\[[:space:]]*$/) { sub(/\\[[:space:]]*$/, "", line); buf = buf line " "; next }
+      buf = buf line
+      if (buf ~ /[^[:space:]]/) print buf
+      buf = ""
+    }
+    END { if (buf ~ /[^[:space:]]/) print buf }
+  ' "$1"
+}
+
+# _final_user <Dockerfile> — the last USER in the FINAL build stage (empty when
+# that stage sets none and would silently inherit its base's).
+_final_user() {
+  _dockerfile_instructions "$1" | awk '
+    toupper($1) == "FROM" { user = ""; next }
+    toupper($1) == "USER" { user = $2 }
+    END { print user }
+  '
+}
+
+# _pipe_installers <Dockerfile> — RUN instructions that pipe into a shell
+# (`curl … | bash`, `wget -O- … | sh`): unpinned remote code executed as-is.
+_pipe_installers() {
+  _dockerfile_instructions "$1" | awk '
+    toupper($1) == "RUN" && $0 ~ /(^|[^|])\|[[:space:]]*(sudo[[:space:]]+)?(\/usr)?(\/bin\/)?(ba|da|z|k)?sh([[:space:]]|$)/ { print }
+  '
+}
+
+# _raw_downloads <Dockerfile> — curl/wget DOWNLOADS in RUN instructions (the
+# command carries a URL, a $-expanded URL, or an output flag). Every download
+# must go through `fetch-verified <url> <digest> <dest>` (or `fetch-apt-key`
+# for an apt signing key); a bare `curl --version` is not a download. Also
+# flags `ADD <url>` without `--checksum=`.
+_raw_downloads() {
+  _dockerfile_instructions "$1" | awk '
+    toupper($1) == "ADD" && $0 ~ /https?:\/\// && $0 !~ /--checksum=/ { print "ADD " $0; next }
+    toupper($1) != "RUN" { next }
+    {
+      s = $0
+      sub(/^[[:space:]]*[Rr][Uu][Nn][[:space:]]+/, "", s)
+      n = split(s, parts, /&&|\|\||;|\||\$\(|`|\(|\{/)
+      for (i = 1; i <= n; i++) {
+        c = parts[i]
+        while (1) {
+          sub(/^[[:space:]]+/, "", c)
+          if (match(c, /^(if|then|do|else|elif|while|until|!|sudo|exec|command|time|--[a-z-]+(=[^[:space:]]*)?|[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*)[[:space:]]+/)) {
+            c = substr(c, RLENGTH + 1)
+          } else break
+        }
+        if (c ~ /^(curl|wget)([[:space:]]|$)/ && (c ~ /:\/\// || c ~ /\$/ || c ~ /[[:space:]](-o|-O|--output|--output-document)([[:space:]=]|$)/)) {
+          print c
+        }
+      }
+    }
+  '
 }
 
 # ---- Validation functions ----
@@ -149,7 +408,7 @@ validate_spec() {
     local fb
     fb=$(get_spec_field failureBehavior "$specfile")
     if ! _in_list "$fb" "${VALID_FAILURE_BEHAVIORS[@]}"; then
-      log_fail "Invalid failureBehavior: ${fb} (expected: fail|warn|ignore)" "$fqn"
+      log_fail "Invalid failureBehavior: ${fb} (expected: ${VALID_FAILURE_BEHAVIORS[*]})" "$fqn"
       all_pass=false
     else
       log_pass "Valid failureBehavior: ${fb}"
@@ -210,6 +469,23 @@ validate_spec() {
     fi
   fi
 
+  validate_metadata "$specfile" "$plugin_dir" "$fqn"
+
+  # No runtime tool downloads. A spec that fetches a release archive at build
+  # time runs an unpinned, unverified binary — exactly what the Dockerfile's
+  # fetch-verified rule forbids. Tools are baked into the image; a version the
+  # image doesn't carry must fail (see "Version switches" in plugins/README.md).
+  # API calls (`curl -s … -w "%{http_code}"`) don't match: only release-archive
+  # and GitHub-release URLs do.
+  local downloads
+  downloads=$(grep -nE '(curl|wget)[[:space:]].*https?://[^[:space:]"]*(releases/download/|\.tar\.gz|\.tgz|\.tar\.xz|\.zip)' "$specfile" || true)
+  if [ -n "$downloads" ]; then
+    log_fail "Downloads a tool at runtime (bake it into the image via fetch-verified): $(echo "$downloads" | head -1 | cut -c1-160)" "$fqn"
+    all_pass=false
+  else
+    log_pass "No runtime tool downloads"
+  fi
+
   if $all_pass; then log_pass "Spec schema valid"; fi
 }
 
@@ -238,6 +514,37 @@ validate_dockerfile() {
     log_pass "No secrets in ENV/ARG"
   fi
 
+  # Final stage must end as a non-root user, stated in the plugin's OWN
+  # Dockerfile (never inherited implicitly): `USER 1000:1000` — the base's
+  # unprivileged `plugin` user — or another non-root name/uid.
+  local final_user user_part
+  final_user="$(_final_user "$dockerfile")"
+  user_part="${final_user%%:*}"
+  if [ -z "$final_user" ]; then
+    log_fail "Final stage sets no USER (end with \`USER 1000:1000\`)" "$fqn"
+  elif [ "$user_part" = "root" ] || [ "$user_part" = "0" ]; then
+    log_fail "Final stage runs as root (USER ${final_user}); end with \`USER 1000:1000\`" "$fqn"
+  else
+    log_pass "Final USER is non-root (${final_user})"
+  fi
+
+  # No pipe-to-shell installers.
+  local offenders
+  offenders="$(_pipe_installers "$dockerfile")"
+  if [ -n "$offenders" ]; then
+    log_fail "Pipes a download into a shell (use a pinned release via fetch-verified, a fetch-apt-key apt repo, or an ecosystem base): $(echo "$offenders" | head -1 | cut -c1-160)" "$fqn"
+  else
+    log_pass "No pipe-to-shell installers"
+  fi
+
+  # Every download goes through fetch-verified (pinned version + digest).
+  offenders="$(_raw_downloads "$dockerfile")"
+  if [ -n "$offenders" ]; then
+    log_fail "Raw download not via fetch-verified: $(echo "$offenders" | head -1 | cut -c1-160)" "$fqn"
+  else
+    log_pass "All downloads checksum-verified (fetch-verified)"
+  fi
+
   if grep -q "apt-get install" "$dockerfile" 2>/dev/null; then
     if grep -q "rm -rf /var/lib/apt/lists" "$dockerfile" 2>/dev/null; then
       log_pass "Has apt cache cleanup"
@@ -264,6 +571,15 @@ validate_dockerfile() {
         log_pass "Image launches"
       else
         log_fail "Image fails to launch (broken CMD/ENTRYPOINT or shell)" "$fqn"
+      fi
+
+      # The image's effective runtime uid must not be root.
+      local run_uid
+      run_uid=$(docker run --rm --entrypoint=/bin/sh "$tag" -c 'id -u' 2>/dev/null || true)
+      if [ -n "$run_uid" ] && [ "$run_uid" != "0" ]; then
+        log_pass "Image runs as uid ${run_uid}"
+      else
+        log_fail "Image runs as root (uid '${run_uid}')" "$fqn"
       fi
 
       local smoke
@@ -307,11 +623,13 @@ validate_config() {
 
   local bt
   bt=$(get_spec_field buildType "$config")
-  case "$bt" in
-    build_image|prebuilt|metadata_only) log_pass "Valid buildType: ${bt}" ;;
-    "") log_fail "Missing buildType in config.yaml" "$fqn" ;;
-    *)  log_fail "Invalid buildType: ${bt} (expected build_image, prebuilt, or metadata_only)" "$fqn" ;;
-  esac
+  if [ -z "$bt" ]; then
+    log_fail "Missing buildType in config.yaml" "$fqn"
+  elif _in_list "$bt" "${VALID_BUILD_TYPES[@]}"; then
+    log_pass "Valid buildType: ${bt}"
+  else
+    log_fail "Invalid buildType: ${bt} (expected: ${VALID_BUILD_TYPES[*]})" "$fqn"
+  fi
 }
 
 test_plugin() {
@@ -355,11 +673,13 @@ echo "========================"
 echo "  Plugins: ${PLUGINS_DIR}"
 echo "  Mode:    $([ "$SPEC_ONLY" = true ] && echo "spec-only" || echo "full")$([ "$BUILD_IMAGES" = true ] && echo " +docker-build" || echo "")"
 
-# --build reads the spec's optional smokeTest via yq and runs images via docker.
-# Assert both up front: without this a missing yq silently yields an empty
-# smokeTest (the test is skipped, reported green) instead of failing loudly.
+# The catalog-metadata checks (and --build's smokeTest lookup) read the spec via
+# yq; --build also needs docker. Assert up front: without this a missing yq
+# silently yields empty values (checks skipped, reported green) instead of
+# failing loudly.
+preflight yq
 if [ "$BUILD_IMAGES" = true ]; then
-  preflight docker yq
+  preflight docker
 fi
 
 if [ -n "$SPECIFIC_PLUGIN" ]; then

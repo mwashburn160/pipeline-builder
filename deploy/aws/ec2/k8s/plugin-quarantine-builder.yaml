@@ -1,0 +1,178 @@
+---
+# =============================================================================
+# Quarantine builder — the ISOLATED buildkitd for anonymous plugin submissions
+# =============================================================================
+# docs/plans/plugin-ecosystem.md §4.2 "Isolated build pool" (W5). The plugin
+# service builds a not-logged-in submitter's zip here — and ONLY here: it is
+# addressed through PLUGIN_QUARANTINE_BUILDKIT_ADDR
+# (tcp://plugin-quarantine-builder:1234) and there is no fallback to the tenant
+# buildkitd sidecar in the plugin pod. The image is pushed to
+# quarantine/<submissionId>, which only the plugin service principal may pull or
+# push (image-registry authorizeScope).
+#
+# The build runs code from someone who has not even logged in, so this pod gets
+# NOTHING that could be turned into a credential:
+#   - its own ServiceAccount, with automountServiceAccountToken: false on both
+#     the SA and the pod, and no Pod Identity association / IRSA annotation;
+#   - no env at all (no envFrom app-env/app-secrets), enableServiceLinks: false
+#     (no *_SERVICE_HOST topology in the environment), and no volumes except its
+#     own emptyDir state and its read-only buildkitd.toml;
+#   - registry push credentials never live here: buildctl in the plugin pod hands
+#     a short-lived, quarantine/-scoped registry token over the build session.
+# Network (networkpolicy.yaml + istio.yaml + istio-internal-routes.yaml):
+#   ingress only from the plugin pod on :1234; egress only DNS, the in-cluster
+#   registry (+ image-registry's /token realm) and public package mirrors on
+#   443/80 with link-local/RFC1918/CGNAT carved out. The FQDN allow-list (the
+#   plugin-shared-egress-allow list) is the opt-in Cilium layer in
+#   cilium-network-policies.yaml.
+# platform/test/deploy-quarantine-builder-contract.test.ts pins every property
+# above in all three k8s targets and in docker-compose.
+# =============================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: plugin-quarantine-builder
+  labels:
+    app: plugin-quarantine-builder
+    app.kubernetes.io/part-of: pipeline-builder
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plugin-quarantine-builder
+  labels:
+    app: plugin-quarantine-builder
+spec:
+  type: ClusterIP
+  ports:
+    - port: 1234
+      targetPort: 1234
+      protocol: TCP
+      name: tcp-buildkit
+  selector:
+    app: plugin-quarantine-builder
+
+---
+# Its OWN buildkitd.toml: the docker.io → in-cluster registry mirror and the
+# registry's plain-HTTP setting, nothing else. A small layer cache — every build
+# here is a one-off.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plugin-quarantine-builder-config
+  labels:
+    app: plugin-quarantine-builder
+data:
+  buildkitd.toml: |
+    [worker.oci]
+      gc = true
+      reservedSpace = "1GB"
+      maxUsedSpace = "4GB"
+      minFreeSpace = "2GB"
+
+    [registry."docker.io"]
+      mirrors = ["registry:5000"]
+
+    [registry."registry:5000"]
+      http = true
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plugin-quarantine-builder
+  labels:
+    app: plugin-quarantine-builder
+    app.kubernetes.io/component: build-sandbox
+spec:
+  # One replica: submission builds are rare and serialized by the plugin
+  # service's queue. Recreate so a rollout never runs two sandboxes at once.
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: plugin-quarantine-builder
+  template:
+    metadata:
+      labels:
+        app: plugin-quarantine-builder
+        app.kubernetes.io/component: build-sandbox
+    spec:
+      serviceAccountName: plugin-quarantine-builder
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      # Single-node target: it shares the node with the stack (there is no
+      # second pool to isolate it on); the network and identity isolation below
+      # and in networkpolicy.yaml / istio.yaml are the same as on EKS.
+      containers:
+        - name: buildkitd
+          image: moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88  # moby/buildkit:v0.32.1-rootless
+          args:
+            - --addr
+            - tcp://0.0.0.0:1234
+            - --oci-worker-no-process-sandbox
+            - --config
+            - /home/user/.config/buildkit/buildkitd.toml
+          ports:
+            - containerPort: 1234
+              name: tcp-buildkit
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            # Rootless buildkit's minimum (same as the tenant sidecar in
+            # plugin.yaml): Unconfined seccomp for rootlesskit's unshare, and
+            # SETUID/SETGID in the bounding set for newuidmap/newgidmap.
+            seccompProfile:
+              type: Unconfined
+            capabilities:
+              drop: ["ALL"]
+              add: ["SETUID", "SETGID"]
+          volumeMounts:
+            - name: buildkit-state
+              mountPath: /home/user/.local/share/buildkit
+            - name: buildkitd-config
+              mountPath: /home/user/.config/buildkit
+              readOnly: true
+          resources:
+            # Smaller than the tenant sidecar: a submission is one plugin image,
+            # and SUBMISSION_BUILD_TIMEOUT_SECONDS bounds its wall clock.
+            limits:
+              cpu: "1000m"
+              memory: 2Gi
+              ephemeral-storage: 12Gi
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+          startupProbe:
+            exec:
+              command: ["buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 20
+          livenessProbe:
+            exec:
+              command: ["buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        # Layer cache + build state; lost on restart by design (nothing here is
+        # worth keeping, and a restart wipes anything a build left behind).
+        - name: buildkit-state
+          emptyDir:
+            sizeLimit: 10Gi
+        - name: buildkitd-config
+          configMap:
+            name: plugin-quarantine-builder-config

@@ -82,7 +82,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 const { seedDefaultRoles, recomputeUserOrgRole, ensureBaselineRole, assertActorMayAssignBuiltinAdmin } = await import('../src/services/roles-service.js');
 const { listRolesWithMembers, getUserRolePermissions, addUserToRole, removeUserFromRole, updateRole } = await import('../src/services/role-crud.js');
 const { grantPlatformAdmin, revokePlatformAdmin } = await import('../src/services/platform-admin-roles.js');
-const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING } = await import('../src/services/roles-errors.js');
+const { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SUPERADMIN_ROLE_MISSING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } = await import('../src/services/roles-errors.js');
+const { ECOSYSTEM_MANAGER_PERMISSIONS } = await import('@pipeline-builder/api-core') as unknown as { ECOSYSTEM_MANAGER_PERMISSIONS: readonly string[] };
 
 // Actor contexts for Role ASSIGNMENT (add/remove member). The 4th arg to
 // addUserToRole is now the actor context, not a bare boolean: superadmin and
@@ -100,8 +101,8 @@ const { resolveUserPermissions } = await import('@pipeline-builder/api-core') as
 };
 
 // Role.create echoes back the docs with a name-derived _id.
-const echoCreate = () => mockGroupCreate.mockImplementation((docs: Array<{ name: string; grantsRole: string }>) =>
-  Promise.resolve(docs.map((d) => ({ _id: `g-${d.name}`, name: d.name, grantsRole: d.grantsRole }))));
+const echoCreate = () => mockGroupCreate.mockImplementation((docs: Array<{ name: string; grantsRole: string; seedBundle?: string }>) =>
+  Promise.resolve(docs.map((d) => ({ _id: `g-${d.name}`, name: d.name, grantsRole: d.grantsRole, seedBundle: d.seedBundle }))));
 // find(...).session(...).select(...).lean()
 const findReturns = (mock: jest.Mock, rows: unknown[]) =>
   mock.mockReturnValue({ session: () => ({ select: () => ({ lean: () => Promise.resolve(rows) }) }) });
@@ -143,6 +144,7 @@ describe('seedDefaultRoles', () => {
     await seedDefaultRoles('org-1', 'u1', {});
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; system: boolean }>;
+    // A tenant org never gets the Ecosystem Manager Role.
     expect(seeded.map((g) => g.name)).toEqual(['Admin', 'Member']);
     expect(seeded.every((g) => g.system)).toBe(true);
 
@@ -183,11 +185,93 @@ describe('seedDefaultRoles', () => {
     await seedDefaultRoles('000000000000000000000001', 'u1', { isSystemOrg: true });
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string }>;
-    expect(seeded.map((g) => g.name)).toEqual(['Super Admin', 'Admin', 'Member']);
+    expect(seeded.map((g) => g.name)).toEqual(['Super Admin', 'Admin', 'Member', 'Ecosystem Manager']);
 
     const assignments = mockGmCreate.mock.calls[0][0] as Array<{ roleId: string }>;
     expect(assignments.map((m) => m.roleId)).toEqual(['g-Super Admin', 'g-Admin']);
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: true } }, expect.anything());
+  });
+
+  it('seeds the Ecosystem Manager Role ONLY in the system org: member grant, its own bundle, creator not added', async () => {
+    await seedDefaultRoles('000000000000000000000001', 'u1', { isSystemOrg: true });
+
+    const seeded = mockGroupCreate.mock.calls[0][0] as Array<{
+      name: string; grantsRole: string; permissions: string[]; system: boolean; seedBundle?: string;
+    }>;
+    const em = seeded.find((g) => g.name === 'Ecosystem Manager')!;
+    expect(em.grantsRole).toBe('member'); // never admin, never superadmin
+    expect(em.system).toBe(true); // immutable like every built-in Role
+    expect(em.seedBundle).toBe('ecosystem_manager');
+    expect([...em.permissions].sort()).toEqual([...ECOSYSTEM_MANAGER_PERMISSIONS].sort());
+    expect(em.permissions).toContain('plugins:moderate');
+    expect(em.permissions).toContain('publishers:verify');
+    expect(em.permissions).not.toContain('members:manage');
+    expect(em.permissions).not.toContain('registry:read');
+    // The Member Role keeps the plain member bundle (no ecosystem permissions).
+    const member = seeded.find((g) => g.name === 'Member')!;
+    expect(member.permissions).not.toContain('plugins:moderate');
+    expect(member.seedBundle).toBeUndefined();
+
+    const assignments = mockGmCreate.mock.calls[0][0] as Array<{ roleId: string }>;
+    expect(assignments.map((m) => m.roleId)).not.toContain('g-Ecosystem Manager');
+  });
+});
+
+describe('Ecosystem Manager assignment (system-org-only permissions)', () => {
+  const SYSTEM = '000000000000000000000001';
+  const emRole = { _id: 'gE', grantsRole: 'member', name: 'Ecosystem Manager', permissions: [...ECOSYSTEM_MANAGER_PERMISSIONS] };
+  const systemOrgAdmin = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] as readonly string[] };
+
+  it('SECURITY: a system-org admin (non-superadmin) cannot assign the Ecosystem Manager Role', async () => {
+    mockGroupFindOne.mockResolvedValue(emRole);
+    await expect(addUserToRole(SYSTEM, 'gE', { userId: 'u1' }, systemOrgAdmin))
+      .rejects.toThrow(RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN);
+    expect(mockGmUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('SECURITY: a delegate holding every ecosystem permission still cannot assign it', async () => {
+    mockGroupFindOne.mockResolvedValue(emRole);
+    await expect(addUserToRole(SYSTEM, 'gE', { userId: 'u1' }, delegateActor([...ECOSYSTEM_MANAGER_PERMISSIONS, 'roles:manage'])))
+      .rejects.toThrow(RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN);
+  });
+
+  it('a platform superadmin can assign it to a system-org member', async () => {
+    mockGroupFindOne.mockResolvedValue(emRole);
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'u1' }) });
+    mockUoFindOne
+      .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'm1' }) })
+      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+    mockGmUpdateOne.mockResolvedValue({});
+    findReturns(mockGmFind, [{ roleId: 'gE' }]);
+    findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
+
+    await expect(addUserToRole(SYSTEM, 'gE', { userId: 'u1' }, superAdminActor)).resolves.toEqual({ userId: 'u1' });
+    expect(mockGmUpdateOne).toHaveBeenCalled();
+    // A member-granting Role: the recompute never flags isSuperAdmin.
+    expect(mockUserUpdateOne).not.toHaveBeenCalledWith(expect.anything(), { $set: { isSuperAdmin: true } }, expect.anything());
+  });
+
+  it('SECURITY: refuses a Role carrying a system-org-only permission outside the system org, even for a superadmin', async () => {
+    mockGroupFindOne.mockResolvedValue({ ...emRole, _id: 'gX' });
+    await expect(addUserToRole('org-1', 'gX', { userId: 'u1' }, superAdminActor))
+      .rejects.toThrow(RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG);
+    expect(mockGmUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('SECURITY: unassigning is superadmin-only too (even with no actor permission context)', async () => {
+    mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve(emRole) });
+    await expect(removeUserFromRole(SYSTEM, 'gE', 'victim', { actorUserId: 'admin', actorIsSuperAdmin: false, actorIsOrgAdmin: true }))
+      .rejects.toThrow(RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN);
+    expect(mockGmDeleteOne).not.toHaveBeenCalled();
+  });
+
+  it('a platform superadmin can unassign it', async () => {
+    mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve(emRole) });
+    findReturns(mockGmFind, []);
+    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+
+    await removeUserFromRole(SYSTEM, 'gE', 'u1', { actorUserId: 'sa', actorIsSuperAdmin: true, actorPermissions: [] });
+    expect(mockGmDeleteOne).toHaveBeenCalledWith({ userId: 'u1', roleId: 'gE' }, { session: expect.anything() });
   });
 });
 

@@ -1080,6 +1080,19 @@ All endpoints require authentication and org context. Time range defaults to las
 | `GET /api/reports/plugins/build-success-rate` | Docker build success rate over time | `interval`, `from`, `to` |
 | `GET /api/reports/plugins/build-duration` | Build time per plugin | `from`, `to` |
 | `GET /api/reports/plugins/build-failures` | Build failure reasons (top N) | `from`, `to`, `limit` |
+| `GET /api/reports/plugins/runtime-success-rate` | Runtime success rate per plugin version (pipeline runs) | `from`, `to`, `name`, `publisher`, `version` |
+| `GET /api/reports/plugins/runtime-duration` | Runtime p50/p95 duration per plugin version | `from`, `to`, `name`, `publisher`, `version` |
+
+**Plugin runtime telemetry.** The runtime reports describe how plugins behave when your pipelines run them. The build reports cover building the plugin images. In the dashboard, **Reports → Plugins → Runs** shows both runtime reports as one table per plugin version (runs, success rate, p50/p95 duration, last run), with CSV export. Here is how the data gets there:
+
+1. When `pipeline-manager pipeline deploy` synthesizes a pipeline, it records a **step manifest**: which plugin (`publisher`, `name`, `version`, image digest) each CodePipeline stage and action runs. It writes it as `pb-step-manifest.json` in the cloud assembly.
+2. After the deploy, the manifest is sent with the `POST /api/pipelines/registry` registration. The platform re-reads name, version and digest from the plugin row (the CLI's claim isn't trusted), then replaces the pipeline's rows in `pipeline_step_manifests`.
+3. Event ingest joins each ACTION/BUILD event on `(pipeline, stage, action)`. It stamps `plugin_publisher`, `plugin_name` and `plugin_version` onto `pipeline_events`.
+
+- A **run** is a terminal ACTION event: `SUCCEEDED` or `FAILED`. Canceled and superseded actions aren't counted.
+- `publisher` is `pipeline-builder` for the Official catalog and empty for your org's own plugins. To select only your own plugins, pass `?publisher=` with an empty value.
+- A pipeline deployed before this existed has no manifest, so its events carry no plugin until its next deploy.
+- These reports are rollup-aware (`?includeDescendants=true` with `reports:rollup`) and capped by your retention window.
 
 **Common query parameters:**
 

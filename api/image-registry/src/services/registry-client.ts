@@ -141,6 +141,16 @@ export function mintRepositoryPushToken(repository: string): Promise<string> {
 }
 
 /**
+ * A management bearer token for PULL only on ONE repository — handed to cosign
+ * for read-only verification (`cosign verify` / `verify-attestation`). Never
+ * cached or reused beyond the one operation.
+ */
+export function mintRepositoryPullToken(repository: string): Promise<string> {
+  encodeRepoName(repository);
+  return mintManagementToken([{ type: 'repository', name: repository, actions: ['pull'] }]);
+}
+
+/**
  * Return an axios instance pre-authed with a bearer token scoped to the given
  * repo + actions, reusing a cached instance (and its token) until the reuse
  * window elapses. See {@link authedClientCache}.
@@ -278,6 +288,49 @@ export async function putManifest( name: string,
     { headers: { 'Content-Type': mediaType } },
   );
   return { digest: headers['docker-content-digest'] as string };
+}
+
+/**
+ * DELETE a TAG (`/v2/<name>/manifests/<tag>`), leaving the manifest it pointed
+ * at — and every blob — in place. Distribution v3 (OCI distribution-spec 1.1)
+ * supports deleting a tag reference; v2 answered 400/405 UNSUPPORTED. Used by
+ * the public-namespace yank: pipelines pin plugin images BY DIGEST, so the
+ * content must stay pullable after the version tag goes.
+ */
+export async function deleteTag(name: string, tag: string): Promise<void> {
+  if (isValidDigest(tag)) throw new Error(`deleteTag takes a tag, not a digest: ${tag}`);
+  const c = await authedClient([{ type: 'repository', name, actions: ['delete'] }]);
+  await c.delete(`/v2/${encodeRepoName(name)}/manifests/${encodeURIComponent(tag)}`);
+}
+
+/**
+ * Upload a small blob (monolithic: POST to open an upload session, then one PUT
+ * with the bytes + digest). Skipped when the blob is already in the repository.
+ * For tiny metadata blobs only — layers go through the normal push path.
+ */
+export async function uploadSmallBlob(name: string, digest: string, bytes: Buffer): Promise<void> {
+  if (!isValidDigest(digest)) throw new Error(`Invalid digest format: ${digest}`);
+  const c = await authedClient([{ type: 'repository', name, actions: ['push', 'pull'] }]);
+  try {
+    await c.head<unknown>(`/v2/${encodeRepoName(name)}/blobs/${encodeURIComponent(digest)}`);
+    return; // already present
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
+  const started = await c.post<unknown>(`/v2/${encodeRepoName(name)}/blobs/uploads/`, null, {
+    validateStatus: (s) => s === 202,
+  });
+  const location = started.headers.location as string | undefined;
+  if (!location) throw new Error(`Registry opened no upload session for ${name}`);
+  // Location is absolute or registry-relative; either way resolve it against the
+  // registry base (never follow a location to another host).
+  const url = new URL(location, baseURL);
+  if (url.origin !== new URL(baseURL).origin) throw new Error(`Upload location ${url.origin} is not the registry`);
+  url.searchParams.set('digest', digest);
+  await c.put<unknown>(`${url.pathname}${url.search}`, bytes, {
+    headers: { 'Content-Type': 'application/octet-stream' },
+    validateStatus: (s) => s === 201,
+  });
 }
 
 /**

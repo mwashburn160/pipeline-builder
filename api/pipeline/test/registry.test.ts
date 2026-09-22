@@ -51,6 +51,15 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
+const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
+/** The listing data source the manifest's listed-version check reads (W2). */
+const mockListingSource = {
+  liveListings: jest.fn(async (): Promise<unknown[]> => []),
+  publishersByIds: jest.fn(async (): Promise<unknown[]> => []),
+  installsForOrgs: jest.fn(async (): Promise<unknown[]> => []),
+  policiesForOrgs: jest.fn(async (): Promise<unknown[]> => []),
+};
+const mockRunWithTenantContext = jest.fn((_ctx: unknown, fn: () => unknown) => fn());
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   // pipeline-registry-service was migrated to withTenantTx — hand the tx the
   // same spies registry.test.ts already tracks so existing assertions hold.
@@ -59,7 +68,15 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     select: mockSelect,
     delete: mockDelete,
   }),
+  runWithTenantContext: mockRunWithTenantContext,
+  drizzleListingSource: () => mockListingSource,
+  loadOrgInstallContext: actualData.loadOrgInstallContext,
+  installModeFor: actualData.installModeFor,
+  listingBlock: actualData.listingBlock,
   schema: {
+    pluginListingVersion: { id: 'id', listingId: 'listing_id', version: 'version', imageDigest: 'image_digest', imageRepository: 'image_repository', _table: 'plugin_listing_versions' },
+    pipelineStepManifest: { pipelineId: 'pipeline_id', orgId: 'org_id', _table: 'pipeline_step_manifests' },
+    plugin: { id: 'id', orgId: 'org_id', name: 'name', version: 'version', imageDigest: 'image_digest', buildType: 'build_type' },
     pipelineRegistry: {
       pipelineId: 'pipeline_id',
       orgId: 'org_id',
@@ -78,6 +95,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   and: (...args: unknown[]) => ({ _kind: 'and', args }),
   eq: (col: unknown, val: unknown) => ({ _kind: 'eq', col, val }),
+  inArray: (col: unknown, vals: unknown[]) => ({ _kind: 'inArray', col, vals }),
   desc: (col: unknown) => ({ _kind: 'desc', col }),
   // Capture the tagged-template SQL so tests can assert on COALESCE-style
   // conditional updates (e.g. region is preserved, not nulled, on partial re-register).
@@ -425,6 +443,160 @@ describe('POST /pipelines/registry', () => {
       await deleteHandler({ params: { id: 'missing' } }, res);
 
       expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    });
+  });
+
+  // W0.1 step manifest: a post-deploy registration carries the synth's
+  // (stage, action) → plugin map and REPLACES the stored one in the same tx.
+  describe('step manifest', () => {
+    const DIGEST = `sha256:${'a'.repeat(64)}`;
+    const step = (over: Record<string, unknown> = {}) => ({
+      stageName: 'test-wave',
+      actionName: 'stage_abc_test-wave_jest_1',
+      pluginId: '11111111-1111-4111-8111-111111111111',
+      pluginName: 'jest',
+      pluginVersion: '9.9.9',
+      imageDigest: null,
+      ...over,
+    });
+
+    /** listing versions (read first, elevated), then select #1 pipeline, #2 existing registry, #3 plugin rows. Captures manifest inserts. */
+    function wireManifest(pluginRows: Array<Record<string, unknown>>, listingVersionRows: Array<Record<string, unknown>> = []) {
+      let call = 0;
+      mockSelect.mockImplementation(() => ({
+        from: jest.fn().mockImplementation((table: any) => ({
+          where: jest.fn().mockImplementation(() => {
+            if (table?._table === 'plugin_listing_versions') return Promise.resolve(listingVersionRows);
+            call++;
+            if (call === 1) return Promise.resolve([{ id: 'p-1' }]);
+            if (call === 2) return Promise.resolve([]);
+            return Promise.resolve(pluginRows);
+          }),
+        })),
+      }));
+      const manifestValues = jest.fn().mockResolvedValue(undefined);
+      mockInsert.mockImplementation((table: any) => (table?._table === 'pipeline_step_manifests'
+        ? { values: manifestValues }
+        : { values: jest.fn().mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate }) }));
+      const manifestDeleteWhere = jest.fn().mockResolvedValue(undefined);
+      mockDelete.mockReturnValue({ where: manifestDeleteWhere });
+      return { manifestValues, manifestDeleteWhere };
+    }
+
+    it('replaces the manifest with rows resolved from the plugin records (not the CLI claim)', async () => {
+      // `jest` is a listed Official version the org reaches implicitly; `lint` its own row.
+      mockListingSource.liveListings.mockResolvedValueOnce([{ id: 'l-jest', publisherId: 'pub-o', name: 'jest', state: 'listed' }]);
+      mockListingSource.publishersByIds.mockResolvedValueOnce([{ id: 'pub-o', handle: 'pipeline-builder', tier: 'official', suspendedAt: null }]);
+      const { manifestValues, manifestDeleteWhere } = wireManifest([
+        { id: '22222222-2222-4222-8222-222222222222', orgId: 'acme', name: 'lint', version: '1.0.0', imageDigest: null, buildType: 'metadata_only' },
+      ], [
+        { id: '11111111-1111-4111-8111-111111111111', listingId: 'l-jest', version: '2.0.0', imageDigest: DIGEST, imageRepository: 'public/pipeline-builder/jest' },
+      ]);
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await getHandler('post')({
+        body: {
+          pipelineId: 'p-1',
+          pipelineName: 'acme-pipeline',
+          steps: [
+            step(),
+            step({ actionName: 'lint', pluginId: '22222222-2222-4222-8222-222222222222', pluginName: 'lint' }),
+            // Names a plugin the caller can't see (RLS returned no row) → dropped.
+            step({ actionName: 'foreign', pluginId: '33333333-3333-4333-8333-333333333333' }),
+          ],
+        },
+      }, res);
+
+      expect(manifestDeleteWhere).toHaveBeenCalledWith({ _kind: 'eq', col: 'pipeline_id', val: 'p-1' });
+      const rows = manifestValues.mock.calls[0][0] as Array<Record<string, unknown>>;
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toEqual(expect.objectContaining({
+        pipelineId: 'p-1',
+        orgId: 'acme',
+        stageName: 'test-wave',
+        actionName: 'stage_abc_test-wave_jest_1',
+        // A listed version → its publisher and public/* copy; version from the RECORD, not the claimed 9.9.9.
+        pluginPublisher: 'pipeline-builder',
+        pluginName: 'jest',
+        pluginVersion: '2.0.0',
+        imageDigest: DIGEST,
+        imageRepository: 'public/pipeline-builder/jest',
+      }));
+      // Own-org plugin → no publisher; image-less → no repository.
+      expect(rows[1]).toEqual(expect.objectContaining({ pluginPublisher: null, pluginName: 'lint', imageDigest: null, imageRepository: null }));
+      expect(mockRunWithTenantContext).toHaveBeenCalledWith({ isSuperAdmin: true }, expect.any(Function));
+      expect(mockEmitPipelineAudit.mock.calls[0][0]).toEqual(expect.objectContaining({
+        details: expect.objectContaining({ manifestSteps: 2 }),
+      }));
+    });
+
+    it('drops a listed version the org does not reach (not installed / blocked), and records an own row\'s own namespace', async () => {
+      mockListingSource.liveListings.mockResolvedValueOnce([
+        { id: 'l-acme', publisherId: 'pub-a', name: 'scan', state: 'listed' },
+        { id: 'l-blocked', publisherId: 'pub-o', name: 'trivy', state: 'listed' },
+      ]);
+      mockListingSource.publishersByIds.mockResolvedValueOnce([
+        { id: 'pub-a', handle: 'acme', tier: 'verified', suspendedAt: null },
+        { id: 'pub-o', handle: 'pipeline-builder', tier: 'official', suspendedAt: null },
+      ]);
+      mockListingSource.policiesForOrgs.mockResolvedValueOnce([{ orgId: 'acme', blockedListings: [{ publisher: 'pipeline-builder', name: 'trivy' }] }]);
+      const { manifestValues } = wireManifest([
+        { id: '44444444-4444-4444-8444-444444444444', orgId: 'acme', name: 'own', version: '1.0.0', imageDigest: DIGEST, buildType: 'build_image' },
+      ], [
+        { id: '11111111-1111-4111-8111-111111111111', listingId: 'l-acme', version: '1.0.0', imageDigest: DIGEST, imageRepository: 'public/acme/scan' },
+        { id: '22222222-2222-4222-8222-222222222222', listingId: 'l-blocked', version: '1.0.0', imageDigest: DIGEST, imageRepository: 'public/pipeline-builder/trivy' },
+        { id: '33333333-3333-4333-8333-333333333333', listingId: 'l-gone', version: '1.0.0', imageDigest: DIGEST, imageRepository: 'public/x/y' },
+      ]);
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await getHandler('post')({
+        user: { parentOrganizationId: 'root-1' },
+        body: {
+          pipelineId: 'p-1',
+          pipelineName: 'acme-pipeline',
+          steps: [
+            step(),
+            step({ actionName: 'b', pluginId: '22222222-2222-4222-8222-222222222222' }),
+            step({ actionName: 'c', pluginId: '33333333-3333-4333-8333-333333333333' }),
+            step({ actionName: 'd', pluginId: '44444444-4444-4444-8444-444444444444' }),
+          ],
+        },
+      }, res);
+      const rows = manifestValues.mock.calls[0][0] as Array<Record<string, unknown>>;
+      expect(rows).toEqual([expect.objectContaining({ actionName: 'd', pluginPublisher: null, imageRepository: 'org-acme/own' })]);
+      expect(mockListingSource.installsForOrgs).toHaveBeenCalledWith(['acme', 'root-1']);
+    });
+
+    it('an empty steps array clears the manifest', async () => {
+      const { manifestValues, manifestDeleteWhere } = wireManifest([]);
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline', steps: [] } }, res);
+      expect(manifestDeleteWhere).toHaveBeenCalled();
+      expect(manifestValues).not.toHaveBeenCalled();
+    });
+
+    it('a registration without steps leaves the stored manifest untouched', async () => {
+      const { manifestDeleteWhere } = wireManifest([]);
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline' } }, res);
+      expect(manifestDeleteWhere).not.toHaveBeenCalled();
+      expect(sendSuccess).toHaveBeenCalled();
+    });
+
+    it('rejects a malformed manifest entry', async () => {
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'x', steps: [step({ pluginId: 'not-a-uuid' })] } }, res);
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    it('deregistering a pipeline drops its manifest too', async () => {
+      const manifestWhere = jest.fn().mockResolvedValue(undefined);
+      mockDelete
+        .mockReturnValueOnce({ where: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([{ id: 'reg-1', pipelineId: 'p-1' }]) }) })
+        .mockReturnValueOnce({ where: manifestWhere });
+      const stack = router.stack.find((l: any) => l.route?.path === '/registry/:id' && l.route?.methods?.delete)?.route?.stack;
+      const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+      await stack[stack.length - 1].handle({ params: { id: 'reg-1' } }, res);
+      expect(manifestWhere).toHaveBeenCalledWith(expect.objectContaining({ _kind: 'and' }));
     });
   });
 });

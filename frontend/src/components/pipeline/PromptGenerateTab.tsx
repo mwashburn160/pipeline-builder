@@ -1,6 +1,6 @@
 import { useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { Sparkles, ChevronDown, Plug } from 'lucide-react';
-import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
+import { BuilderProps, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
@@ -11,6 +11,7 @@ import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
+import { applyPluginPick, pickName, type PluginPick } from '@/lib/plugin-installs';
 import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
@@ -41,7 +42,7 @@ interface PromptGenerateTabProps {
 /** Props for the inline plugin review section. */
 interface PluginReviewSectionProps {
   props: BuilderProps;
-  onPluginChange: (path: string, pluginName: string, plugin: Plugin | null) => void;
+  onPluginChange: (path: string, pluginName: string, pick: PluginPick | null) => void;
   disabled?: boolean;
 }
 
@@ -70,8 +71,9 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
           <div className="pt-3">
             <PluginNameCombobox
               value={synth?.plugin?.name ?? ''}
+              publisher={synth?.plugin?.publisher}
               onChange={(name) => onPluginChange('synth', name, null)}
-              onSelectPlugin={(plugin) => onPluginChange('synth', plugin.name, plugin)}
+              onSelectPlugin={(pick) => onPluginChange('synth', pickName(pick), pick)}
               disabled={disabled}
               label="Synth plugin"
             />
@@ -86,8 +88,9 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
                   <PluginNameCombobox
                     key={`${si}-${stepIdx}`}
                     value={step.plugin?.name ?? ''}
+                    publisher={step.plugin?.publisher}
                     onChange={(name) => onPluginChange(`stages.${si}.steps.${stepIdx}`, name, null)}
-                    onSelectPlugin={(plugin) => onPluginChange(`stages.${si}.steps.${stepIdx}`, plugin.name, plugin)}
+                    onSelectPlugin={(pick) => onPluginChange(`stages.${si}.steps.${stepIdx}`, pickName(pick), pick)}
                     disabled={disabled}
                     label={`Step ${stepIdx + 1} Plugin`}
                   />
@@ -121,7 +124,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
     const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
 
     /** Update a plugin reference at the given path when the user swaps via combobox. */
-    const handlePluginChange = useCallback((path: string, pluginName: string, plugin: Plugin | null) => {
+    const handlePluginChange = useCallback((path: string, pluginName: string, pick: PluginPick | null) => {
       if (!generatedProps) return;
       const updated = structuredClone(generatedProps);
 
@@ -140,17 +143,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
 
       target.name = pluginName;
 
-      if (plugin) {
-        target.filter = {
-          id: plugin.id,
-          orgId: plugin.orgId,
-          version: plugin.version,
-          visibility: plugin.visibility,
-          isDefault: plugin.isDefault,
-          isActive: plugin.isActive,
-        };
-        target.alias = undefined;
-      }
+      if (pick) applyPluginPick(target, pick);
 
       setGeneratedProps(updated);
       setPreviewJson(formatJSON(updated));

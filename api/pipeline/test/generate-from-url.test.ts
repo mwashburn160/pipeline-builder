@@ -149,6 +149,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     },
   }),
   schema: {
+    pluginStats: { listingId: 'listingId', ratingBayes: 'ratingBayes', ratingCount: 'ratingCount', healthScore: 'healthScore' },
     plugin: {
       name: 'name',
       description: 'description',
@@ -164,6 +165,11 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     },
   },
 }));
+const mockResolvableListings = jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []);
+const mockGenListingSource = {
+  liveListings: jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []),
+  publishersByIds: jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []),
+};
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   CoreConstants: {
     SSE_STREAM_TIMEOUT_MS: 300000,
@@ -190,6 +196,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     },
   }),
   schema: {
+    pluginStats: { listingId: 'listingId', ratingBayes: 'ratingBayes', ratingCount: 'ratingCount', healthScore: 'healthScore' },
     plugin: {
       name: 'name',
       description: 'description',
@@ -205,6 +212,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     },
   },
   // Visibility-ladder predicate pieces plugin-lookup-service links against.
+  // Listing resolution (plugin ecosystem W2): no listings unless a test sets some.
+  OFFICIAL_PUBLISHER_HANDLE: 'pipeline-builder',
+  drizzleListingSource: () => mockGenListingSource,
+  getTenantContext: () => undefined,
+  runWithTenantContext: (_c: unknown, fn: () => unknown) => fn(),
+  resolvableListings: (...a: unknown[]) => mockResolvableListings(...a),
   buildPluginConditions: () => [],
   withViewerContext: (f: unknown) => f,
 }));;
@@ -748,6 +761,59 @@ describe('POST /generate/from-url/stream', () => {
   });
 
   // Auto-plugin creation  mixed existing and missing
+
+  it('never creates a placeholder for a LISTED name, and counts an implicitly installed Official plugin as existing (G17)', async () => {
+    const out = {
+      project: 'app',
+      organization: 'test',
+      description: 'd',
+      keywords: [],
+      synth: { source: { type: 'github', options: { repo: 'test/app' } }, plugin: { name: 'cdk-synth' } },
+      stages: [{ stageName: 'Build', steps: [{ plugin: { name: 'trivy' } }, { plugin: { name: 'terraform-plan' } }, { plugin: { name: 'fresh' } }] }],
+    };
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], out));
+    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
+    // `trivy` resolves through the implicit Official install …
+    mockResolvableListings.mockResolvedValueOnce([
+      { publisher: { handle: 'pipeline-builder', tier: 'official' }, listing: { name: 'trivy', keywords: [], category: 'security', summary: null }, resolved: { version: '1.0.0', specSnapshot: {}, deprecatedAt: null } },
+    ]);
+    // … and `terraform-plan` is listed by acme but not installed.
+    mockGenListingSource.liveListings.mockResolvedValueOnce([{ id: 'l-tf', publisherId: 'pub-a', name: 'terraform-plan' }]);
+    mockGenListingSource.publishersByIds.mockResolvedValueOnce([{ id: 'pub-a', handle: 'acme' }]);
+    mockPluginClientPost.mockResolvedValue({ statusCode: 202, body: { data: { requestId: 'r-1' } } });
+
+    const res = mockSseRes();
+    await handler(mockReq(), res);
+    const creating = parseSseEvents(res.chunks).find((e: any) => e.type === 'creating-plugins') as any;
+    expect(creating.data.existing).toEqual(['trivy']);
+    expect(creating.data.creating).toEqual(['fresh']);
+    expect(creating.data.builds).toEqual([
+      { name: 'terraform-plan', error: expect.stringMatching(/^PLUGIN_NAME_LISTED: "terraform-plan" is a listed plugin \(acme\/terraform-plan\)/) },
+      { name: 'fresh', requestId: 'r-1' },
+    ]);
+    expect(mockPluginClientPost).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates nothing when every missing name is listed', async () => {
+    const out = {
+      project: 'app',
+      organization: 'test',
+      description: 'd',
+      keywords: [],
+      synth: { source: { type: 'github', options: { repo: 'test/app' } }, plugin: { name: 'cdk-synth' } },
+      stages: [{ stageName: 'Build', steps: [{ plugin: { name: 'terraform-plan' } }] }],
+    };
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], out));
+    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
+    mockGenListingSource.liveListings.mockResolvedValueOnce([{ id: 'l-tf', publisherId: 'pub-a', name: 'terraform-plan' }, { id: 'l-x', publisherId: 'pub-gone', name: 'terraform-plan' }]);
+    mockGenListingSource.publishersByIds.mockResolvedValueOnce([{ id: 'pub-a', handle: 'acme' }]);
+    const res = mockSseRes();
+    await handler(mockReq(), res);
+    const creating = parseSseEvents(res.chunks).find((e: any) => e.type === 'creating-plugins') as any;
+    expect(creating.data.creating).toEqual([]);
+    expect(creating.data.builds).toHaveLength(1);
+    expect(mockPluginClientPost).not.toHaveBeenCalled();
+  });
 
   it('creates only missing plugins when some already exist', async () => {
     const finalOutputWithPlugins = {

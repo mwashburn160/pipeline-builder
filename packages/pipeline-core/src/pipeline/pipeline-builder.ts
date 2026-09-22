@@ -17,11 +17,12 @@ import { PipelineConfiguration } from './pipeline-configuration.js';
 import { PluginLookup } from './plugin-lookup.js';
 import { SourceBuilder } from './source-builder.js';
 import { StageBuilder } from './stage-builder.js';
+import { StepManifestRecorder } from './step-manifest-recorder.js';
 import type { StageOptions, SynthOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
 import { lambdaArchitecture, lambdaRuntime, lambdaTimeout } from '../config/aws-config-cdk.js';
 import type { RegistryConfig } from '../config/config-types.js';
-import { ArtifactManager, pluginArtifactAlias } from '../core/artifact-manager.js';
+import { ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
 import {
   asInt,
@@ -37,9 +38,11 @@ import { resolveNetwork, networkConfigFromEnv } from '../core/network.js';
 import { createCodeBuildStep, getComputeType, resolveDefaultBuildImage } from '../core/pipeline-helpers.js';
 import { MetadataKeys, TriggerType } from '../core/pipeline-types.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
+import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias } from '../core/plugin-contract.js';
 import type { RoleConfig } from '../core/role-types.js';
 import { resolveRole } from '../core/role.js';
 import { resolveSecurityGroup } from '../core/security-group.js';
+import type { StepManifestEntry } from '../core/step-manifest.js';
 
 const PIPELINE_EVENT_MAP: Record<string, PipelineNotificationEvents> = {
   FAILED: PipelineNotificationEvents.PIPELINE_EXECUTION_FAILED,
@@ -279,6 +282,12 @@ export interface BuilderProps {
 export class PipelineBuilder extends Construct {
   public readonly pipeline: CodePipeline;
   public readonly config: PipelineConfiguration;
+  /**
+   * Which plugin each CodePipeline action runs (W0.1), read off the built
+   * pipeline. The CLI ships it with the registry registration so event ingest
+   * can attribute action outcomes to a plugin version.
+   */
+  public readonly stepManifest: StepManifestEntry[];
 
   constructor(scope: Construct, id: string, props: BuilderProps) {
     super(scope, id);
@@ -343,8 +352,7 @@ export class PipelineBuilder extends Construct {
       // pluginLookup.plugin() reads `resolvedPlugins` internally and returns
       // the cached entry when present — so calling it always wins over
       // bootstrap() when pre-resolution succeeded.
-      const synthCacheKey =
-      this.config.plugin.alias || `${this.config.plugin.name}-alias`;
+      const synthCacheKey = pluginArtifactAlias(this.config.plugin);
       const plugin = props.resolvedPlugins?.[synthCacheKey]
         ? pluginLookup.plugin(this.config.plugin)
         : pluginLookup.bootstrap();
@@ -355,7 +363,10 @@ export class PipelineBuilder extends Construct {
       // config so the synth step, every stage step, and the source token all
       // resolve against the same snapshot (see PipelineConfiguration.getPipelineScope).
       const pipelineScope = this.config.getPipelineScope();
+      // Contract (W0.2) — see StageBuilder.resolveStep.
+      assertPluginContract(plugin, contractScopeFromTemplateScope(pipelineScope), 'synth');
 
+      const stepManifest = new StepManifestRecorder();
       const synth = createCodeBuildStep({
         ...this.config.synthCustomization,
         id: uniqueId.generate('cdk:synth'),
@@ -376,6 +387,7 @@ export class PipelineBuilder extends Construct {
         orgId: props.orgId,
         pipelineScope,
       });
+      stepManifest.record(synth, plugin);
 
       // Resolve pipeline-level defaults into codeBuildDefaults
       // Build the per-org platform secret name for CodeBuild env vars
@@ -428,6 +440,7 @@ export class PipelineBuilder extends Construct {
           artifactManager,
           orgId: props.orgId,
           pipelineScope,
+          stepManifest,
         });
         stageBuilder.addStages(this.pipeline, props.stages);
       }
@@ -468,6 +481,7 @@ export class PipelineBuilder extends Construct {
       // Build the internal pipeline before accessing its properties
       this.pipeline.buildPipeline();
       const cdkPipeline = this.pipeline.pipeline;
+      this.stepManifest = stepManifest.entries(cdkPipeline);
       const meta = this.config.metadata.merged;
 
       // ── Pipeline-level Variables (CodePipeline V2) ──

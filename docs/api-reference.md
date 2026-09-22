@@ -89,8 +89,8 @@ answer before any credential exists:
 | `GET` | `/pipelines` | List pipelines (filterable, paginated) |
 | `GET` | `/pipelines/find` | Find one pipeline by query |
 | `GET` | `/pipelines/:id` | Get by ID |
-| `POST` | `/pipelines` | Create pipeline |
-| `PUT` | `/pipelines/:id` | Update pipeline |
+| `POST` | `/pipelines` | Create pipeline. A plugin reference with `publisher` that isn't installed, is blocked by the org's consumption policy or can't resolve → 400 with the per-step reasons; the plugin contract is checked for listed versions too |
+| `PUT` | `/pipelines/:id` | Update pipeline (same plugin-reference checks as create) |
 | `DELETE` | `/pipelines/:id` | Delete pipeline |
 | `GET` | `/pipelines/providers` | List AI providers |
 | `POST` | `/pipelines/generate` | AI-generate pipeline from prompt (consumes `aiCalls` quota) |
@@ -105,24 +105,117 @@ answer before any credential exists:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/plugins` | List plugins (filterable, paginated) |
-| `GET` | `/plugins/find` | Find one plugin by query (verifies the image signature first — 409 `IMAGE_VERIFICATION_FAILED` if it doesn't verify) |
+| `GET` | `/plugins/find` | Find one plugin by query, including `publisher` (verifies the image signature first — 409 `IMAGE_VERIFICATION_FAILED` if it doesn't verify). Same resolution and `{ plugin, warnings }` answer as `/plugins/lookup` |
 | `GET` | `/plugins/:id` | Get by ID |
 | `GET` | `/plugins/:id/sbom` | Download the plugin image's SPDX JSON SBOM, read from its signed attestation (404 no image, 409 `IMAGE_VERIFICATION_FAILED`) |
-| `POST` | `/plugins` | Upload plugin (ZIP multipart) |
-| `POST` | `/plugins/lookup` | Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through: verifies the image signature and returns `imageDigest`, which synth pins CodeBuild to; 409 `IMAGE_VERIFICATION_FAILED` otherwise |
-| `PUT` | `/plugins/:id` | Update plugin |
+| `POST` | `/plugins` | Upload plugin (ZIP multipart). Optional `metadata` part: a JSON object of catalog edits (see [Catalog metadata](plugins/README.md#catalog-metadata)); absent ⇒ every detected value is accepted. Execution-contract keys in it → 400. Optional `publishRequest=true` (needs `plugins:publish` and `visibility=public`): once the build completes, submit a new-listing / new-version publish request for the version as the uploader ([Plugin Publishing](plugin-publishing.md)) |
+| `POST` | `/plugins/inspect` | Dry-run parse of a plugin ZIP: every catalog field with its detected `value`, `source` (`spec` / `readme` / `dockerfile` / `derived`) and validation `error`. Builds and stores nothing; same zip limits as upload; rate limited; `plugins:write` |
+| `POST` | `/plugins/lookup` | Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through. Without `publisher`: own org → parent org's shared plugin → the Official listing `pipeline-builder/<name>` through the org's install (explicit, else implicit). With `publisher`: only that publisher's listing, only through an install (403 `PLUGIN_NOT_INSTALLED` / `PLUGIN_BLOCKED_BY_POLICY`, 409 `PLUGIN_UNAVAILABLE` otherwise). A listing's version range is the install's, narrowed by `filter.version`; yanked listing versions never resolve. Verifies the image signature (and, for a listing, the signed tier and publisher) and returns `imageDigest`, which synth pins CodeBuild to; 409 `IMAGE_VERIFICATION_FAILED` otherwise. Answer: `{ plugin, warnings }` — `plugin` carries `publisher`, `publisherTier`, `listingId`, `imageRepository`, `source` (`org` \| `listing`) and `install` (`explicit` \| `implicit` \| `null`); `warnings` may list `PLUGIN_SHADOWS_LISTING`, `PLUGIN_SECRETS_WITHHELD`, `LISTING_UNMAINTAINED`, `PLUGIN_DEPRECATED`, `PLUGIN_YANKED`, which synth prints |
+| `PUT` | `/plugins/:id` | Update a version's descriptive catalog fields (summary, description, displayName, category, keywords, license, links, icon, changelog, readme) and operational flags (visibility, isActive, isDefault, lifecycle, criticality, labels, links, owner). Execution-contract keys (commands, env, secrets, computeType, …) → 400; they change only with a new version. Catalog edits on a frozen or listed version → 409 `PLUGIN_VERSION_FROZEN` |
+| `POST` | `/plugins/:id/deprecate` | `{ deprecated?: boolean, message?: string }` — deprecate (or un-deprecate) a version: it keeps resolving with a warning and AI selection stops offering it |
+| `POST` | `/plugins/:id/yank` | `{ reason }` — stop a version resolving for ranges, `latest` and the default (an exact pin still resolves, with a warning); yanking the default promotes the next. A listed version → 409 (yank it through the ecosystem) |
 | `PUT` | `/plugins/bulk/update` | Bulk-update plugins (strict whitelist of mutable fields) |
-| `DELETE` | `/plugins/:id` | Delete plugin |
+| `POST` | `/plugins/bulk/delete` | Bulk soft-delete; versions that are frozen, listed or in use are skipped (`skipped: [{ id, reason }]`), each deleted slot is refunded and deleted defaults are replaced |
+| `DELETE` | `/plugins/:id` | Delete a version. In use by the org's pipelines or listed → 409 `PLUGIN_VERSION_IN_USE` unless `?force=true` with a step-up token; referenced by a pending publish request → 409 `PLUGIN_VERSION_FROZEN`. Deleting the default promotes the next default; the `plugins` quota slot is refunded while its period is current |
 | `GET` | `/plugins/providers` | List AI providers |
-| `POST` | `/plugins/generate` | AI-generate plugin from prompt (consumes `aiCalls` quota) |
+| `POST` | `/plugins/generate` | AI-generate plugin from prompt (consumes `aiCalls` quota). Also returns `similarPlugins` (see below) |
 | `POST` | `/plugins/generate/stream` | Stream AI plugin generation as SSE (consumes `aiCalls` quota) |
 | `POST` | `/plugins/deploy-generated` | Build and deploy AI-generated plugin |
-| `GET` | `/plugins/plugin-usage` | Counts pipelines (in caller's org) referencing each plugin name |
+| `GET` | `/plugins/plugin-usage` | Counts pipelines (in caller's org) referencing each plugin: keyed by `name` for unqualified references and `publisher/name` for qualified ones |
 | `GET` | `/plugins/queue/status` | Build queue counts (admin only) |
 | `GET` | `/plugins/queue/failed` | Failed build jobs (org-scoped for non-system admins) |
 | `GET` | `/plugins/queue/dlq` | Dead letter queue jobs (org-scoped for non-system admins) |
 | `POST` | `/plugins/queue/dlq/:jobId/replay` | Replay a single DLQ job (admin only, tenant-checked) |
 | `DELETE` | `/plugins/queue/dlq` | Purge all DLQ jobs (system admin only) |
+
+### Plugin Ecosystem: publishers and publish requests
+
+Tenant routes: each only submits a request or narrows the caller's own reach; every decision belongs to the system org ([Plugin Publishing](plugin-publishing.md)).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/plugins/publisher` | The org's publisher (or `null`), `isRootOrg`, `terms: { currentVersion, accepted }`, `verifiedEligible`, `listingsQuota: { used, limit }`, `publishingEnabled` (`plugins:read`) |
+| `POST` | `/plugins/publisher` | Claim a handle: `{ handle, displayName, description?, homepageUrl?, termsVersion }` → 201. Reserved → 409 `PUBLISHER_HANDLE_RESERVED`; taken → 409 `DUPLICATE_ENTRY`; team org → 403 `PUBLISHER_ROOT_ORG_REQUIRED` (`publishers:manage`) |
+| `PATCH` | `/plugins/publisher` | `{ description?, homepageUrl? }` — handle and display name change only through a `profile_change` request (`publishers:manage`) |
+| `POST` | `/plugins/publisher/terms` | `{ termsVersion }` — accept the terms in force (`publishers:manage`) |
+| `GET` | `/plugins/publisher/listings` | The publisher's listings with their versions and open-request counts (`plugins:read`) |
+| `POST` | `/plugins/publisher/listings/:listingId/pause` | `{ version? }` — pause the listing (no new installs) or one version, at once; unpausing is a request (`plugins:publish`) |
+| `GET` | `/plugins/publisher/incoming-transfers` | Open transfers offered to the org's publisher (`publishers:manage`) |
+| `GET` | `/plugins/publish-requests` | The publisher's requests; `?status=open\|pending\|approved\|rejected\|withdrawn` (`plugins:read`) |
+| `GET` | `/plugins/publish-requests/draft?pluginId=` | The request form for a version: `kind` (`new_listing` / `new_version`), the submit `gates`, the effective catalog metadata with each field's source (and, for a new version, the live listing's value), and the changed-fields `listingUpdateOffer` (`plugins:publish`) |
+| `POST` | `/plugins/publish-requests` | Submit `{ kind, … }`: `new_listing` / `new_version` `{ pluginId, metadata?, securityFixAdvisoryId?, breaking? }`, `listing_update` `{ listingId, metadata, sources? }`, `yank` `{ listingId, version, reason }`, `unpause` `{ listingId, version? }`, `transfer` `{ listingId, target: { targetPublisherHandle } }`, `claim` `{ target: { handle } \| { listingId } }`, `profile_change` `{ target: { handle?, displayName? } }`, `verify` `{ application: { domain?, notes? } }` (eligibility checked automatically: 403 `VERIFIED_PLAN_REQUIRED`, 409 `VERIFIED_DOMAIN_REQUIRED` / `VERIFIED_OWNER_MFA_REQUIRED`, 503 when it can't be checked; `details.checks`) → 201 `{ request, autoApproved }`. Version kinds pin the image digest and freeze the version. Failing gates → 409 `PUBLISH_GATE_FAILED` (`details.gates`); listings limit → 429 `QUOTA_EXCEEDED` (`details.quotaType: listings`); stale terms → 403 `PUBLISHER_TERMS_REQUIRED`. Version / update / yank / unpause need `plugins:publish`; the rest `publishers:manage` |
+| `POST` | `/plugins/publish-requests/:id/withdraw` | Withdraw an open request (releases the version freeze) |
+| `POST` | `/plugins/publish-requests/:id/transfer-response` | `{ accept }` — the receiving publisher accepts (then the system org decides) or declines a transfer (`publishers:manage` + step-up) |
+
+### Plugin Ecosystem: installs and consumption policy
+
+Org-local: each route acts only on the caller's org and decides only what its pipelines may use. Installing is free on every plan ([Plugin Installing](plugin-installing.md)).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/plugins/catalog` | The in-app catalog: every listing with the org's install state, resolved version, `requiresApproval`, `blocked`, the pipeline `reference` and `shadowedBy`; `?q=&category=&installed=` (`plugins:read`) |
+| `GET` | `/plugins/listings/:publisher/:name/install-state` | One listing's catalog entry plus its versions (breaking, yanked, paused, deprecated, vulnerability counts) and the caller's `canInstall` / `canManage` (`plugins:read`) |
+| `GET` | `/plugins/installs` | The org's installs (a team's include the root's, marked `inherited`); `?status=active\|pending_approval\|denied\|all&implicit=true` adds the implicit Official installs (`id: null`) (`plugins:read`) |
+| `POST` | `/plugins/installs` | `{ publisher, name, versionPolicy?, version? }` → 201 with status `active`, or `pending_approval` when the policy requires approval for the tier and the caller lacks `plugin_installs:manage`. `versionPolicy`: `pinned` \| `patch` \| `minor` (default) \| `latest`. Paused listing → 409 `PLUGIN_UNAVAILABLE`; disallowed tier or blocked listing → 403 `PLUGIN_BLOCKED_BY_POLICY` (`plugins:install`) |
+| `PATCH` | `/plugins/installs/:id` | `{ versionPolicy?, version? }` — upgrade or change the policy. Crossing a major or `breaking` version on an approval-required tier needs `plugin_installs:manage` (`plugins:install`) |
+| `DELETE` | `/plugins/installs/:id` | Uninstall, or withdraw a pending request. An explicit Official install falls back to the implicit one (`plugins:install`) |
+| `POST` | `/plugins/installs/:id/approve` | Approve a pending request; the requester is told (N12) (`plugin_installs:manage`) |
+| `POST` | `/plugins/installs/:id/deny` | Deny a pending request; the requester is told (N12) (`plugin_installs:manage`) |
+| `GET` | `/plugins/install-policy` | The org's saved `policy`, the `effective` one (a team's merged with its root's), `inheritsFromRoot` and `canEdit` (`plugins:read`) |
+| `PUT` | `/plugins/install-policy` | `{ allowedTiers, requireApprovalTiers, secretsAllowedTiers, blockOnAdvisory, officialInstalls, blockedListings }` — a team's policy can only be stricter than its root's (`plugin_installs:manage` + step-up) |
+| `GET` | `/plugins/shadowing` | Own-org plugins whose name shadows an Official listing for unqualified references (`plugins:read`) |
+
+Install errors: 403 `PLUGIN_NOT_INSTALLED` (`details.reason`: `not_installed` / `pending_approval` / `denied` / `official_explicit` / `version_outside_install`), 403 `PLUGIN_BLOCKED_BY_POLICY` (`tier` / `blocked_listing` / `advisory`), 409 `PLUGIN_UNAVAILABLE` (`yanked` / `suspended` / `paused`), 409 `PLUGIN_NAME_LISTED` (an auto-created placeholder can't take a listed name). See [Error Handling](error-handling.md#plugin-ecosystem-codes).
+
+### Plugin Ecosystem: reviews and ratings
+
+Signed-in users review listings; writes need a PERSON (`requireAssurance({ minAssurance: 1 })`: service accounts and access keys → 403 `HUMAN_SESSION_REQUIRED`), are throttled per user and per org (new reviews also 20 a day per org and per trusted client IP), and are refused with 403 `PLUGIN_REVIEWS_DISABLED` while `PLUGIN_REVIEWS_ENABLED` is off. Markdown is rendered server-side (no raw HTML, no images, links `rel="nofollow ugc noopener"`). See [Plugin Installing](plugin-installing.md#reviews-and-ratings).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/public/plugins/:publisher/:name/reviews` | Anonymous: published reviews, `?sort=helpful\|recent\|highest\|lowest&rating=1..5&cursor=&limit=` (≤ 50) → `{ reviews, total, nextCursor }`; each review carries `author.displayName` only (`null` once anonymized), `verifiedUse`, `helpfulCount`, `edited` and the publisher `reply`. 404 when the listing isn't public |
+| `GET` | `/plugins/listings/:publisher/:name/review-state` | The caller's `myReview` (with its status and a removal's `moderationReason`), `helpfulReviewIds`, `reportedReviewIds`, `canReview` / `reviewBlockedReason` (`own_publisher` \| `reviews_disabled` \| `machine_credential`), `canReply`, `verifiedUse` (`plugins:read`) |
+| `POST` | `/plugins/listings/:publisher/:name/reviews` | `{ rating: 1..5, title? (≤ 120), body? (Markdown ≤ 5000), version? }` → 201. One per user per listing (409 `DUPLICATE_ENTRY`); 403 `REVIEW_SELF_PROMOTION` from the publisher's own org or a team under it; 429 `RATE_LIMIT_EXCEEDED` (`details.reason: org_daily_limit`). Too many links or a burst of unverified reviews → saved as `held` (`plugins:read` + person) |
+| `PATCH` | `/plugins/reviews/:id` | The author edits `{ rating?, title?, body?, version? }`; the prior text goes to history; 409 `CONFLICT` once removed (`plugins:read` + person) |
+| `DELETE` | `/plugins/reviews/:id` | The author deletes (`plugins:read` + person) |
+| `PUT` / `DELETE` | `/plugins/reviews/:id/helpful` | Vote, or unvote, "helpful" → `{ helpfulCount, voted }`; not on your own review or your own org's listing; not audited (`plugins:read` + person) |
+| `POST` | `/plugins/reviews/:id/report` | `{ category: spam \| abuse \| off_topic \| security, reason? (≤ 2000) }` → `{ reported: true }`. Three reporters hold the review; a `security` report holds it at once, notifies the publisher's managers and the moderators privately (N19) and opens a private advisory draft (`plugins:read` + person) |
+| `PUT` / `DELETE` | `/plugins/reviews/:id/reply` | The publisher's one public reply `{ body }` (Markdown ≤ 5000); only managers of the listing's own publisher org (`publishers:manage` + person) |
+
+The catalog (`/plugins/catalog`) and install state (`/plugins/listings/:publisher/:name/install-state` → `entry`) carry `rating` (`{ score, count }` or `null`) and `installCount`; the public listing detail adds `recentRating` (the score over the last two minor versions).
+
+### Plugin Ecosystem: Ecosystem console (system org only)
+
+Every route: active org = the system org, `plugins:moderate` and/or `publishers:verify`, and an MFA-grade session (aal2); a tenant-org token → 403 `SYSTEM_ORG_REQUIRED`. See the [moderation runbook](runbooks/ecosystem-moderation.md).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/plugins/ecosystem/overview` | Approver standing (`approvers.moderate` / `approvers.verify`: Ecosystem Manager holders, eligible and superadmin counts, with `belowMinimum` < 3 and `belowTwoPerson` < 2; `count: null` when platform can't answer), pending counts by lane, bootstrap-exception state, `OFFICIAL_AUTO_APPROVAL_ENABLED`, terms version, queued re-sign jobs, and the review queue (`reviews.held`, `reviews.reported`) |
+| `GET` | `/plugins/ecosystem/requests` | The queue: `?status=open\|pending\|pending_second_approval\|auto\|approved\|rejected\|withdrawn\|decided&kind=&lane=&limit=`; each item carries its SLA, `requiresTwoPerson`, `requiresStepUp`, `requiredPermission` and the caller's `conflictOfInterest` |
+| `GET` | `/plugins/ecosystem/requests/:id` | The request plus its review diff: metadata with provenance (user-edited links highlighted), contract / vulnerability / Dockerfile / SBOM deltas against the previous approved version, gates, publisher history, auto-approval verdict. An open request adds `approvers` (who could still decide it, minus the requester's conflicts); an open Verified application adds `eligibility`, a live re-check of plan, verified domain and owner MFA |
+| `POST` | `/plugins/ecosystem/requests/:id/approve` | `{ note? }` — first approval of a two-person request (→ `pending_second_approval`, N28) or the only approval (executes). Step-up for yank, transfer, claim, profile change, Verified and moderation requests. 403 `SEPARATION_OF_DUTIES` for your own org's request, your own upload or your own first approval |
+| `POST` | `/plugins/ecosystem/requests/:id/second-approve` | The second approval, by a different manager; executes the request |
+| `POST` | `/plugins/ecosystem/requests/:id/reject` | `{ reason }` — reject (the publisher is told) |
+| `GET` | `/plugins/ecosystem/publishers` | Publishers with listing counts; `?tier=&suspended=&q=` |
+| `POST` | `/plugins/ecosystem/publishers/:id/suspend` | `{ reason }` — suspend at once and re-sign with the lowest trust (`publishers:verify` + step-up) |
+| `POST` | `/plugins/ecosystem/publishers/:id/unsuspend` | Opens a two-person moderation request |
+| `POST` | `/plugins/ecosystem/publishers/:id/tier` | `{ tier: verified \| community, reason }` — to Verified: two-person request; to Community: at once, with a re-sign |
+| `GET` | `/plugins/ecosystem/listings` | Listings with versions; `?state=&publisherId=&q=` (`plugins:moderate`) |
+| `POST` | `/plugins/ecosystem/listings/:id/state` | `{ state: listed \| unmaintained \| suspended, reason }` — lifting a suspension is a two-person request (step-up) |
+| `POST` | `/plugins/ecosystem/listings/:id/versions/:version/yank` | `{ reason }` — yank at once: stops resolving, removes the `public/*` tag, tells the publisher (step-up) |
+| `POST` | `/plugins/ecosystem/listings/:id/versions/:version/unyank` | `{ reason }` — opens a two-person moderation request (step-up) |
+| `POST` | `/plugins/ecosystem/resign` | `{ reason }` — queue a re-sign of every published image (after a plugin-signing key rotation) (step-up) |
+| `GET` | `/plugins/ecosystem/rules` | Auto-approval rules with pending changes and today's approval counts |
+| `POST` | `/plugins/ecosystem/rules` | `{ name, conditions }` — created disabled; its enable waits for a second manager (step-up) |
+| `PATCH` | `/plugins/ecosystem/rules/:id` | `{ name?, enabled?, conditions? }` — narrowing applies at once; enabling or widening becomes the rule's `pendingChange` (step-up) |
+| `POST` | `/plugins/ecosystem/rules/:id/approve-change` | Apply a pending change (a manager other than the proposer) (step-up) |
+| `DELETE` | `/plugins/ecosystem/rules/:id` | Delete a rule (step-up) |
+| `GET` / `PUT` / `DELETE` | `/plugins/ecosystem/reserved-names[/:name]` | Reserved handles / listing names; `PUT` body `{ reason?, publisherId? }` |
+| `GET` | `/plugins/ecosystem/reviews` | The review moderation queue: `?queue=open` (default: held reviews plus reviews with unresolved reports) or `removed`; each item has the listing, author display name and user id (never the org), `holdReason` (`reports` \| `burst` \| `filter` \| `security` \| `moderator`), its reports and the publisher reply (`plugins:moderate`) |
+| `POST` | `/plugins/ecosystem/reviews/:id/hold` | `{ reason }` — take a published review out of the directory and the score |
+| `POST` | `/plugins/ecosystem/reviews/:id/release` | `{ note? }` — publish a held review (N15 to the publisher) or clear a published one's reports; resolves its reports |
+| `POST` | `/plugins/ecosystem/reviews/:id/remove` | `{ reason }` — remove for good; the author is told why (N18) |
+| `POST` | `/plugins/ecosystem/reviews/:id/remove-reply` | `{ reason }` — delete the publisher's reply |
 
 ### Compliance Service
 
@@ -367,7 +460,7 @@ curl "https://localhost:8443/api/plugins/find?name=node-build&version=1.0.0" \
 curl -X PUT "https://localhost:8443/api/plugins/<id>" \
   -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
   -H "Content-Type: application/json" \
-  -d '{"description": "Updated plugin", "computeType": "LARGE", "isDefault": true}'
+  -d '{"summary": "Scans images for CVEs.", "homepageUrl": "https://trivy.dev", "isDefault": true}'
 ```
 
 **Delete:**
@@ -398,7 +491,7 @@ curl -X POST https://localhost:8443/api/pipelines \
           "type": "github",
           "options": { "repo": "my-org/my-app", "branch": "main" }
         },
-        "plugin": { "name": "cdk-synth", "version": "1.0.0" }
+        "plugin": { "name": "cdk-synth", "filter": { "version": "1.0.0" } }
       }
     }
   }'
@@ -431,6 +524,10 @@ curl -X POST https://localhost:8443/api/pipelines/generate \
 
 **Generate + deploy plugin:**
 
+Before generating, the service looks up the closest existing plugins the caller can already see (up to 5, matched on name, keywords, category and description; deprecated and yanked versions are skipped). The model is told not to duplicate them. The response returns them as `similarPlugins: [{ id, name, version, category, summary, keywords }]`, and on the stream they arrive in the `done` event's data. This is only a hint: if the lookup fails, generation still runs and `similarPlugins` is `[]`.
+
+The model is told to follow the catalog's [Dockerfile rules](../deploy/plugins/README.md#dockerfile-rules-enforced): `FROM` a `pipeline-<eco>-base` image, downloads only through `fetch-verified` with pinned digests, no pipe-to-shell installers, and a final `USER 1000:1000`. The generated Dockerfile is then checked with the same static lint as `pipeline-manager plugin validate --lint`, and the response (and the stream's `done` event) carries `dockerfileViolations: string[]`: every rule it breaks, empty when it complies. Review and fix them before deploying.
+
 ```bash
 # Step 1: Generate
 curl -X POST https://localhost:8443/api/plugins/generate \
@@ -451,7 +548,7 @@ curl -X POST https://localhost:8443/api/plugins/deploy-generated \
     "version": "1.0.0",
     "commands": ["npm run build"],
     "installCommands": ["npm ci"],
-    "dockerfile": "FROM node:20-slim\n..."
+    "dockerfile": "FROM pipeline-node-base:1.0\nWORKDIR /app\nUSER 1000:1000\n"
   }'
 ```
 
@@ -521,3 +618,5 @@ Pipeline execution and plugin build analytics. Time ranges default to the last 3
 | `GET` | `/reports/plugins/build-success-rate` | Docker build success rate over time |
 | `GET` | `/reports/plugins/build-duration` | Build time per plugin |
 | `GET` | `/reports/plugins/build-failures` | Build failure reasons (top N) |
+| `GET` | `/reports/plugins/runtime-success-rate` | Runtime success rate per plugin version, from pipeline runs |
+| `GET` | `/reports/plugins/runtime-duration` | Runtime p50/p95 duration per plugin version |

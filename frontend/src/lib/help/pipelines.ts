@@ -50,7 +50,10 @@ export const pipelinesTopic: HelpTopic = {
   --project my-app \\
   --organization my-org \\
   --name my-app-pipeline \\
-  --access private
+  --visibility private
+
+# Create and deploy in one go
+pipeline-manager pipeline create --file ./pipeline-props.json --deploy
 
 # Preview without creating
 pipeline-manager pipeline create --file ./pipeline-props.json --project my-app --organization my-org --dry-run`,
@@ -123,16 +126,16 @@ pipeline-manager pipeline deploy --id <pipeline-id> --synth`,
         "connectionArn": "arn:aws:codestar-connections:..."
       }
     },
-    "plugin": { "name": "cdk-synth", "version": "1.0.0" }
+    "plugin": { "name": "cdk-synth", "filter": { "version": "1.0.0" } }
   },
   "stages": [
     {
       "stageName": "Test",
-      "steps": [{ "name": "unit-tests", "plugin": { "name": "jest-test", "version": "1.0.0" } }]
+      "steps": [{ "name": "unit-tests", "plugin": { "name": "jest-test", "filter": { "version": "1.0.0" } } }]
     },
     {
       "stageName": "Deploy",
-      "steps": [{ "name": "deploy", "plugin": { "name": "cdk-deploy", "version": "1.0.0" } }]
+      "steps": [{ "name": "deploy", "plugin": { "name": "cdk-deploy", "filter": { "version": "1.0.0" } } }]
     }
   ]
 }`,
@@ -140,65 +143,68 @@ pipeline-manager pipeline deploy --id <pipeline-id> --synth`,
       ],
     },
     {
+      id: 'plugin-references',
+      title: 'Plugin References & Contracts',
+      blocks: [
+        {
+          type: 'list',
+          items: [
+            'A step names its plugin: { "name": "trivy" }. Add "filter": { "version": "^1" } for a version range (exact, ^, ~, 1.x, 1.2 or latest); without one the plugin\'s default version is used. A new major never becomes the default on its own.',
+            'To use another publisher\'s listing, add its handle: { "publisher": "acme", "name": "terraform-plan", "filter": { "version": "^1" } }. That resolves only acme\'s listing, and only through your organization\'s install; your own plugins are never considered. "publisher": "pipeline-builder" names the Official listing.',
+            'Without a publisher, resolution goes: your organization\'s own plugin, then (for a team) the parent organization\'s shared plugin, then the Official listing through your install (Official plugins are installed implicitly).',
+            'Shadowing: if your organization has its own plugin with an Official listing\'s name, yours wins. The pipeline editor flags each step that uses it and synth warns PLUGIN_SHADOWS_LISTING; add "publisher": "pipeline-builder" to use the listing instead.',
+            'For a listing, the version range is the install\'s version policy, narrowed by filter.version (for an implicit Official install, filter.version replaces the default range). Yanked listing versions never resolve.',
+            'Create and update refuse a publisher reference that isn\'t installed, is blocked by your organization\'s consumption policy or can\'t resolve (400, with each step\'s reason). See the Plugin Installing topic.',
+            'If a plugin declares requiredMetadata / requiredVars (with types), the pipeline must supply them: a create or update that doesn\'t is refused with 400 TEMPLATE_CONTRACT_VIOLATION, listing each step\'s missing and ill-typed keys. Synth runs the same check.',
+            'Deprecated plugin versions still resolve but print a warning at synth; yanked versions are skipped unless the step pins that exact version.',
+            'Each deploy records which plugin version every step runs, so Reports → Plugins → Runs can show per-plugin success rates and durations.',
+          ],
+        },
+      ],
+    },
+    {
       id: 'metadata-keys',
-      title: 'Metadata Keys Reference',
+      title: 'Metadata',
       blocks: [
         {
           type: 'text',
           content:
-            'Metadata keys control pipeline behavior at the global or step level. Set these in the "metadata" or "global" fields of your pipeline configuration.',
-        },
-        {
-          type: 'text',
-          content: 'Pipeline Behavior',
+            'Metadata keys override CodePipeline and CodeBuild defaults — compute, privileged mode, VPC networking, IAM roles, notifications, encryption. Later scopes win:',
         },
         {
           type: 'table',
-          headers: ['Key', 'Values', 'Description'],
+          headers: ['Scope', 'Where to set', 'Applies to'],
           rows: [
-            ['SELF_MUTATION', 'true / false', 'Enable the pipeline to update itself when its definition changes'],
-            ['CROSS_ACCOUNT_KEYS', 'true / false', 'Use KMS keys for cross-account deployments'],
-            ['PUBLISH_ASSETS_IN_PARALLEL', 'true / false', 'Publish CDK assets in parallel for faster deployments'],
-            ['USE_CHANGE_SETS', 'true / false', 'Use CloudFormation change sets instead of direct deployments'],
+            ['Pipeline', 'global, then defaults.metadata, then synth.metadata', 'Every step, including synth'],
+            ['Plugin reference', 'a step\'s plugin.metadata', 'That step'],
+            ['Step', 'a step\'s metadata', 'That step'],
           ],
         },
         {
           type: 'text',
-          content: 'Docker',
+          content: 'In a JSON pipeline use each key\'s string value; the MetadataKeys constant names are for TypeScript. For example:',
         },
         {
-          type: 'table',
-          headers: ['Key', 'Values', 'Description'],
-          rows: [
-            ['DOCKER_ENABLED_FOR_SYNTH', 'true / false', 'Enable Docker during the synth step (required for Docker-based builds)'],
-            ['DOCKER_ENABLED_FOR_SELF_MUTATION', 'true / false', 'Enable Docker during the self-mutation step'],
-            ['DOCKER_CREDENTIALS', 'string', 'ARN or name of the Docker Hub credentials secret'],
-            ['PRIVILEGED', 'true / false', 'Run CodeBuild in privileged mode (needed for Docker-in-Docker)'],
-          ],
+          type: 'code',
+          language: 'json',
+          content: `"global": {
+  "aws:cdk:pipelines:codepipeline:selfmutation": "true",
+  "aws:cdk:notifications:topic:arn": "arn:aws:sns:us-east-1:123456789012:pipeline-events"
+},
+"stages": [{
+  "stageName": "Build",
+  "steps": [{
+    "plugin": { "name": "docker-build" },
+    "metadata": {
+      "aws:cdk:codebuild:buildenvironment:privileged": "true",
+      "aws:cdk:codebuild:buildenvironment:computetype": "BUILD_GENERAL1_LARGE"
+    }
+  }]
+}]`,
         },
         {
-          type: 'text',
-          content: 'Network',
-        },
-        {
-          type: 'table',
-          headers: ['Key', 'Values', 'Description'],
-          rows: [
-            ['NETWORK_TYPE', 'string', 'Network configuration type (e.g., "VPC")'],
-            ['NETWORK_VPC_ID', 'string', 'VPC ID to run CodeBuild actions in a private network'],
-            ['NETWORK_SUBNET_IDS', 'string', 'Comma-separated list of subnet IDs for CodeBuild'],
-          ],
-        },
-        {
-          type: 'text',
-          content: 'Notifications',
-        },
-        {
-          type: 'table',
-          headers: ['Key', 'Values', 'Description'],
-          rows: [
-            ['NOTIFICATION_TOPIC_ARN', 'string', 'SNS topic ARN to receive pipeline event notifications'],
-          ],
+          type: 'note',
+          content: 'The full key list, grouped by the construct each key configures, is in the Metadata Keys topic. There is no stage-level metadata.',
         },
       ],
     },

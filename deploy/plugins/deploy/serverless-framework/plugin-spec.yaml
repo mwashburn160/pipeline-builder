@@ -60,3 +60,18 @@ env:
   SLS_STAGE: dev
   SLS_REGION: ""
   SLS_SERVICE_PATH: "."
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://www.serverless.com
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/deploy/serverless-framework
+icon: serverless
+network:
+  egress:
+    - "*.amazonaws.com"
+    - "registry.npmjs.org"
+    - "registry.yarnpkg.com"
+    - "pypi.org"
+    - "files.pythonhosted.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

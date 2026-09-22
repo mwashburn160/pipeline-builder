@@ -12,17 +12,24 @@
 
 FROM pipeline-rust-base:1.0
 
+# Writes under /usr/local need root; dropped to uid 1000 at the end.
+USER root
+
 # TODO(confirm): confirm the intended pinned Snyk CLI version at build time.
-ARG SNYK_VERSION=1.1298.0
+# Digests are Snyk's published <binary>.sha256 files for this version.
+ARG SNYK_VERSION=1.1307.3
+ARG SNYK_SHA256_AMD64=36fd42eab22ca275bddd2a67c83b51efc358dc2c29dcf53f7a98d3797c93c621
+ARG SNYK_SHA256_ARM64=4f91cfc09204403f2cfa05e9ee5dfa044c24ce78b75220437f86243a32e5317e
 RUN set -eux; \
-    case "$(uname -m)" in \
-      x86_64)  snyk_bin=snyk-linux ;; \
-      aarch64) snyk_bin=snyk-linux-arm64 ;; \
-      *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) snyk_bin=snyk-linux;       sum="${SNYK_SHA256_AMD64}" ;; \
+      arm64) snyk_bin=snyk-linux-arm64; sum="${SNYK_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://static.snyk.io/cli/v${SNYK_VERSION}/${snyk_bin}" -o /usr/local/bin/snyk; \
-    chmod +x /usr/local/bin/snyk; \
+    fetch-verified "https://static.snyk.io/cli/v${SNYK_VERSION}/${snyk_bin}" "$sum" /usr/local/bin/snyk; \
+    chmod 0755 /usr/local/bin/snyk; \
     snyk --version
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

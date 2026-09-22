@@ -26,3 +26,14 @@ commands:
     run-logged security-reports/security-scan.log -- \
       security-scan . --excl-proj=*test*
   - "echo \"Security scan complete. Reports available in security-reports/\""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://security-code-scan.github.io
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/dotnet-security-scan
+icon: dotnet
+network:
+  egress:
+    - "api.nuget.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

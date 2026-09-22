@@ -8,6 +8,8 @@
 
 FROM pipeline-plugin-base:24.04
 
+USER root
+
 # C/C++ toolchain + build systems + analysis tools. (git/curl/jq/unzip are in
 # _plugin-base; not repeated here.)
 RUN apt-retry-install build-essential cmake clang ninja-build pkg-config \
@@ -27,4 +29,5 @@ ENV BUILD_TYPE=Release
 RUN gcc --version | head -1 && cmake --version | head -1 && conan --version && meson --version
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

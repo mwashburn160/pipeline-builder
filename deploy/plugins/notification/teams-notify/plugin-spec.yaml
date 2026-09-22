@@ -148,3 +148,15 @@ env:
   PIPELINE_BRANCH: "{{ pipeline.vars.branch | default: '' }}"
   CUSTOM_MESSAGE: ""
   MENTION_ON_FAILURE: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/notification/teams-notify
+# icon: none — Microsoft/Azure marks were removed from Simple Icons at Microsoft's request; no confirmed press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "*.webhook.office.com"
+    - "*.logic.azure.com"
+changelog: |
+  1.1.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

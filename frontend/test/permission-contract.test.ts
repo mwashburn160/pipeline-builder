@@ -38,6 +38,8 @@ interface RouteEntry {
   /** Named carve-outs the assurance gate allows (see AssuranceOptions.exempt). */
   assuranceExempt?: string[];
   features: string[]; scopes: string[]; orgAdminAssurance?: boolean;
+  /** `requireSystemOrg` runs: only a caller whose active org is the system org. */
+  systemOrg?: boolean;
 }
 
 /**
@@ -47,6 +49,7 @@ interface RouteEntry {
 function authorizationOf(e: RouteEntry): string {
   const parts: string[] = [];
   if (e.systemAdmin) parts.push('sysadmin');
+  if (e.systemOrg) parts.push('system-org');
   for (const g of e.permissions ?? []) {
     parts.push(`${g.mode}(${[...g.permissions].sort().join('|')})${g.allowService ? '+svc' : ''}`);
   }

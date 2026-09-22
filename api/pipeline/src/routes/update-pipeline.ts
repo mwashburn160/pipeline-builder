@@ -6,6 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
+import { findPluginContractViolations, formatContractViolations } from '../helpers/plugin-contract-check.js';
 import { emitPipelineAudit } from '../services/audit.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
@@ -36,6 +37,14 @@ export function createUpdatePipelineRoutes(): Router {
       validatePipelineTemplates(body);
     } catch (err) {
       return sendBadRequest(res, (err as Error).message, ErrorCode.TEMPLATE_VALIDATION_FAILED);
+    }
+
+    // Plugin contracts (W0.2) — only new props can change what the steps get.
+    if (body.props) {
+      const contractViolations = await findPluginContractViolations(body.props, orgId, req.user?.parentOrganizationId);
+      if (contractViolations.length > 0) {
+        return sendError(res, 400, formatContractViolations(contractViolations), ErrorCode.TEMPLATE_CONTRACT_VIOLATION, { steps: contractViolations });
+      }
     }
 
     ctx.log('INFO', 'Pipeline update request received', { id });

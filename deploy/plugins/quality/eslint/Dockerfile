@@ -9,8 +9,9 @@
 FROM pipeline-node-base:1.0
 
 # TODO(confirm): pin the intended ESLint version at build time.
-ARG ESLINT_VERSION=9.15.0
+ARG ESLINT_VERSION=10.11.0
 RUN npm install -g "eslint@${ESLINT_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

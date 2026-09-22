@@ -8,7 +8,7 @@ import { mountRoutes } from './app-routes.js';
 import { config } from './config/index.js';
 import { PLUGIN_SIGNATURES_PATH } from './routes/internal.js';
 import { getAuditClient } from './services/audit.js';
-import { startGcScheduler } from './services/gc-scheduler.js';
+import { startGcScheduler, startQuarantineGcScheduler } from './services/gc-scheduler.js';
 
 const logger = createLogger('pipeline-image-registry');
 
@@ -46,6 +46,9 @@ runServer(app, {
     // REGISTRY_GC_ENABLED=true; no-op otherwise so existing deployments
     // don't see surprise traffic on the registry.
     startGcScheduler();
+    // Always-on: anonymous-submission builds (`quarantine/*`) are removed 30
+    // days after their build even if the plugin service's delete hook missed.
+    startQuarantineGcScheduler();
   },
 });
 

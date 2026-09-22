@@ -66,3 +66,14 @@ env:
   HELM_REGISTRY: ""
   HELM_REGISTRY_TYPE: oci
   CHART_VERSION: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://helm.sh
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/artifact/helm-push
+icon: helm
+network:
+  egress:
+    - "github.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

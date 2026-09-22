@@ -5,6 +5,10 @@
 
 FROM pipeline-plugin-base:24.04
 
+# Build steps below need root (apt, writes under /usr/local, /opt or /etc);
+# the image drops back to the unprivileged `plugin` user (uid 1000) at the end.
+USER root
+
 # System dependencies. python3 + pip are needed for the Codecov CLI;
 # they replace the prior nvm + node install that existed only to run the
 # now-deprecated `npm install -g codecov` package.
@@ -14,7 +18,7 @@ RUN apt-retry-install python3 python3-pip
 # `npm install -g codecov` was deprecated by Codecov in 2023; the maintained
 # replacement is `codecov-cli` from PyPI (smaller image, fewer transitive
 # deps, no Node toolchain required). Pin for reproducibility.
-RUN pip3 install --break-system-packages --no-cache-dir codecov-cli==11.2.8
+RUN pip3 install --break-system-packages --no-cache-dir codecov-cli==11.3.1
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — CODECOV_TOKEN must be injected at runtime
@@ -24,6 +28,7 @@ ENV CODECOV_FILE=""
 
 # Working directory for pipeline source
 WORKDIR /app
+USER 1000:1000
 
 # Default entrypoint — overridden by CodeBuildStep commands
 CMD ["bash"]

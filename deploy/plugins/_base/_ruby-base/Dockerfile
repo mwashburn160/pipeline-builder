@@ -24,10 +24,19 @@ FROM ruby:${RUBY_VERSION}
 # honest-gating (run-logged) + apt retry tooling as every other plugin. The ruby
 # image is Debian, so apt-retry-install works here too.
 COPY --from=pipeline-plugin-base:24.04 \
-     /usr/local/bin/run-logged /usr/local/bin/apt-retry-install /usr/local/bin/
+     /usr/local/bin/run-logged /usr/local/bin/apt-retry-install \
+     /usr/local/bin/fetch-verified /usr/local/bin/fetch-apt-key /usr/local/bin/
 
-# A stable GEM_HOME on PATH so a plugin's `gem install <tool>` lands on PATH.
-RUN mkdir -p /opt/gems
+# The same non-root `plugin` user (uid/gid 1000) as pipeline-plugin-base (the
+# Debian ruby image has no uid-1000 user). A stable GEM_HOME on PATH, owned by
+# that user, so a plugin's `gem install <tool>` / `bundle install` lands on
+# PATH and works non-root. BUNDLE_APP_CONFIG (the official image points it at
+# /usr/local/bundle) is handed over too so `bundle config` can write.
+RUN set -eux; \
+    groupadd --gid 1000 plugin; \
+    useradd --uid 1000 --gid 1000 --create-home --home-dir /home/plugin --shell /bin/bash plugin; \
+    install -d -o 1000 -g 1000 /opt/gems /app; \
+    chown -R 1000:1000 /usr/local/bundle
 ENV GEM_HOME=/opt/gems
 ENV PATH="${GEM_HOME}/bin:${PATH}"
 # Re-declare the ARG in this stage to surface it as a runtime env knob.
@@ -42,4 +51,5 @@ RUN ruby --version && gem --version && bundle --version \
     && ruby -ropenssl -e 'puts "openssl ok: #{OpenSSL::OPENSSL_VERSION}"'
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

@@ -17,7 +17,7 @@ SonarCloud code quality and security analysis for Python projects using AWS CDK 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SONAR_SCANNER_VERSION` | `12.0` | Sonar Scanner Version |
+| `SONAR_SCANNER_VERSION` | `12.2` | Sonar Scanner Version |
 | `SONAR_ORGANIZATION` | `` | Sonar Organization |
 | `SONAR_PROJECT_KEY` | `` | Sonar Project Key |
 
@@ -34,7 +34,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "sonarcloud-python",
   "plugin": "sonarcloud-python",
   "env": {
-    "SONAR_SCANNER_VERSION": "12.0",
+    "SONAR_SCANNER_VERSION": "12.2",
     "SONAR_ORGANIZATION": "",
     "SONAR_PROJECT_KEY": ""
   }

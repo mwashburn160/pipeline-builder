@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { apiKeyService } from './api-key-service.js';
 import { authService } from './auth-service.js';
@@ -11,7 +11,7 @@ import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, type NotificationPreferences, type RefreshSession, UserPreferences } from '../models/index.js';
+import { User, Organization, UserOrganization, type EcosystemEmailPreferences, type NotificationPreferences, type RefreshSession, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('user-profile-service');
@@ -27,16 +27,28 @@ export interface UserPreferencesView {
 export interface PreferencesPatch {
   favorites?: string[];
   recents?: string[];
-  notifications?: Partial<NotificationPreferences>;
+  notifications?: {
+    muteQuotaWarnings?: boolean;
+    ecosystem?: Partial<EcosystemEmailPreferences>;
+  };
 }
 
+type StoredNotifications = { muteQuotaWarnings?: boolean; ecosystem?: Partial<EcosystemEmailPreferences> };
+
 function toPreferencesView(
-  doc: { favorites?: string[]; recents?: string[]; notifications?: Partial<NotificationPreferences> } | null | undefined,
+  doc: { favorites?: string[]; recents?: string[]; notifications?: StoredNotifications } | null | undefined,
 ): UserPreferencesView {
+  // Ecosystem emails default ON: only an explicit `false` opts out.
+  const eco = doc?.notifications?.ecosystem;
   return {
     favorites: doc?.favorites ?? [],
     recents: doc?.recents ?? [],
-    notifications: { muteQuotaWarnings: doc?.notifications?.muteQuotaWarnings === true },
+    notifications: {
+      muteQuotaWarnings: doc?.notifications?.muteQuotaWarnings === true,
+      ecosystem: Object.fromEntries(
+        ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES.map((f) => [f, eco?.[f] !== false]),
+      ) as EcosystemEmailPreferences,
+    },
   };
 }
 
@@ -342,6 +354,9 @@ class UserProfileService {
     if (patch.recents !== undefined) set.recents = clean(patch.recents, this.MAX_RECENTS);
     if (patch.notifications?.muteQuotaWarnings !== undefined) {
       set['notifications.muteQuotaWarnings'] = patch.notifications.muteQuotaWarnings;
+    }
+    for (const [field, value] of Object.entries(patch.notifications?.ecosystem ?? {})) {
+      if (typeof value === 'boolean') set[`notifications.ecosystem.${field}`] = value;
     }
     const doc = await UserPreferences.findOneAndUpdate(
       { userId, organizationId },

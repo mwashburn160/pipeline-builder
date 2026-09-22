@@ -20,11 +20,10 @@ installCommands:
   - |
     set -e
     if [ -f /opt/trivy/versions/trivy-${TRIVY_VERSION} ]; then
-      ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
+      ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /opt/trivy/bin/trivy
     else
-      echo "Trivy ${TRIVY_VERSION} not pre-installed, downloading..."
-      curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz \
-        | tar -xz -C /tmp && mv /tmp/trivy /usr/local/bin/trivy
+      echo "ERROR: Trivy ${TRIVY_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/trivy/versions | sed 's/^trivy-//' | tr '\n' ' ')" >&2
+      exit 1
     fi
   - trivy --version
 commands:
@@ -35,3 +34,16 @@ env:
   TRIVY_VERSION: "0.69.3"
   TRIVY_SEVERITY: HIGH,CRITICAL
   TRIVY_FORMAT: json
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://trivy.dev
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/trivy
+icon: trivy
+network:
+  egress:
+    - "mirror.gcr.io"
+    - "ghcr.io"
+    - "pkg-containers.githubusercontent.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

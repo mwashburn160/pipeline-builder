@@ -132,6 +132,36 @@ commands:
 
 If a template uses `| default: '...'`, the key is treated as **optional** and can be omitted from `requiredMetadata` / `requiredVars`.
 
+### How the contract is enforced on pipelines
+
+The contract is stored with each plugin version, and every pipeline create and update (single and bulk) is checked against it:
+
+- Each plugin step (`synth.plugin` and every `stages[].steps[].plugin`) is resolved the same way synth resolves it (see [Plugin references](#plugin-references-publisher-and-version-ranges) below). Listed versions from the ecosystem are checked too.
+- `pipeline.metadata` is `global`, then `defaults.metadata`, then `synth.metadata` (the last one wins). Every key in `requiredMetadata` must be present there, and every key in `requiredVars` must be present in `vars`. Absent, `null` and `""` all count as missing.
+- A supplied key with a declared type in `metadataTypes` / `varsTypes` must coerce the way its filter would: `number` is numeric, `bool` is one of `true/false/1/0/yes/no`, and `json` is a JSON string. Objects and arrays are never valid, because they can't be interpolated. A value that is still a `{{ … }}` template isn't type-checked, since it's resolved later.
+- A pipeline that fails is refused with `400 TEMPLATE_CONTRACT_VIOLATION`. `steps[]` lists every failing step (`path`, `step`, `plugin`, `version`, `missing[]`, `invalid[]`).
+- An unqualified reference that doesn't resolve isn't a contract error: synth reports an unknown plugin itself. A **qualified** reference (with `publisher`) that isn't installed, is blocked by the org's consumption policy or can't resolve is refused at create and update with `400` and the per-step reasons.
+- Synth runs the same check on each resolved plugin, so a props file that never went through the API fails at synth with the same list.
+
+### Plugin references: `publisher` and version ranges
+
+A step's `plugin` names the plugin, and optionally its publisher and a version range:
+
+```yaml
+plugin: { name: trivy }                                                     # unqualified
+plugin: { name: trivy, filter: { version: '^1' } }                          # unqualified, 1.x
+plugin: { publisher: acme, name: terraform-plan, filter: { version: '^1' } } # qualified: acme's listing
+plugin: { publisher: pipeline-builder, name: trivy }                        # the Official listing, by name
+```
+
+- **Unqualified** references resolve your own org's plugin first, then (for a team) the parent org's shared plugin, then the Official listing through the org's install (explicit, else implicit). An own-org plugin with the same name as an Official listing wins; lookup warns `PLUGIN_SHADOWS_LISTING`.
+- **Qualified** references resolve only that publisher's listing, and only through an install. Own-org plugins are never considered.
+- **Version ranges** go in `filter.version`: an exact version, `^1`, `~1.4`, `1.x`, `1.2` or `latest`. A `version` key beside `name` is refused. Without one, an own-org plugin resolves its default version.
+- For a listing, the range is the install's version policy, narrowed by `filter.version`. A range outside the install fails with `PLUGIN_NOT_INSTALLED` (reason `version_outside_install`). For an implicit Official install, `filter.version` replaces the implicit `<major>.x` range.
+- Yanked listing versions never resolve; versions blocked by the org's advisory policy are skipped.
+
+`publisher`, `name` and `filter` are identity fields and aren't templatable. See [Plugin Installing](plugin-installing.md).
+
 ---
 
 ## Example: pipeline-level self-references
@@ -388,7 +418,7 @@ All template errors map to HTTP `400` with one of these codes:
 | `TEMPLATE_CYCLE` | Self-referencing pipeline has a cycle across metadata/vars fields |
 | `TEMPLATE_TYPE_MISMATCH` | Path resolved to an object where a scalar was expected |
 | `TEMPLATE_SECRETS_RESERVED` | Reserved `secrets.*` path — use the plugin's `secrets:` yaml field instead |
-| `TEMPLATE_CONTRACT_VIOLATION` | Pipeline is missing a key declared in a referenced plugin's `requiredMetadata` / `requiredVars` |
+| `TEMPLATE_CONTRACT_VIOLATION` | Pipeline create/update: a plugin step's required `metadata`/`vars` key is missing, or a supplied value doesn't match `metadataTypes`/`varsTypes`. `steps[]` lists each failing step's `missing[]` and `invalid[]` |
 | `TEMPLATE_SIZE_EXCEEDED` | Field exceeded 4 KiB or path depth exceeded 5 |
 | `TEMPLATE_VALIDATION_FAILED` | Batched umbrella — one or more of the above present in a single doc |
 

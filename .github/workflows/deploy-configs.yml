@@ -1,0 +1,32 @@
+name: deploy-configs
+
+# Validates every deploy target's observability configs (Loki, Prometheus +
+# rule tests, Alertmanager, docker-compose) against the pinned image digests,
+# plus cross-target drift guards. These configs are otherwise only parsed at
+# container boot, so a rejected key shows up as a crash-loop on fresh provision.
+# See deploy/bin/validate-configs.sh.
+on:
+  pull_request:
+    paths:
+      - 'deploy/**/config/**'
+      - 'deploy/**/k8s/**'
+      - 'deploy/local/docker/docker-compose.yml'
+      - 'deploy/local/docker/.env.example'
+      - 'deploy/bin/validate-configs.sh'
+      - '.github/workflows/deploy-configs.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/**/config/**'
+      - 'deploy/**/k8s/**'
+      - 'deploy/local/docker/docker-compose.yml'
+      - 'deploy/local/docker/.env.example'
+      - 'deploy/bin/validate-configs.sh'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deploy configs
+        run: deploy/bin/validate-configs.sh

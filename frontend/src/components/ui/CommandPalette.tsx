@@ -8,6 +8,7 @@ import { useFeatures } from '@/hooks/useFeatures';
 import { useBillingEnabled } from '@/hooks/useBillingEnabled';
 import { hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { NAV_SECTIONS, QUICK_ACTIONS, isNavItemVisible, navItemLockedFeature } from '@/lib/nav';
+import { isSystemOrgActive } from '@/lib/ecosystem-access';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { runQuery } from '@/lib/query-cache';
@@ -96,7 +97,7 @@ export function CommandPalette({
     // the pages the sidebar shows — no separate hand-maintained list to drift.
     // The section label doubles as a search keyword (e.g. "platform" surfaces
     // every admin page) so users can find a page by area, not just name.
-    const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: string) => hasPermission(user, p), billingEnabled, isFeatureEnabled };
+    const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: string) => hasPermission(user, p), billingEnabled, isFeatureEnabled, isSystemOrg: isSystemOrgActive(user) };
     const navItems: CommandItem[] = NAV_SECTIONS.flatMap((section) =>
       section.items
         .filter((item) => isNavItemVisible(item, navCtx))

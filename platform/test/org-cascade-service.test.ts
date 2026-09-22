@@ -67,6 +67,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     complianceRole: { orgId: 'compliance_roles.org_id' },
     complianceReport: { orgId: 'compliance_reports.org_id' },
     complianceReportSchedule: { orgId: 'compliance_report_schedules.org_id' },
+    pipelineStepManifest: { orgId: 'pipeline_step_manifests.org_id' },
+    pluginInstall: { orgId: 'plugin_installs.org_id' },
+    pluginInstallPolicy: { orgId: 'plugin_install_policies.org_id' },
+    pluginAdvisoryDelivery: { orgId: 'plugin_advisory_deliveries.org_id' },
   },
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
   // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the
@@ -306,11 +310,11 @@ describe('cascadeDeleteOrg', () => {
     }
   });
 
-  it('hard-deletes the 18 tables without deleted_at', async () => {
+  it('hard-deletes the 22 tables without deleted_at', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // 18 hard-delete tables (14 + 4 DORA/reporting: deployment_outcomes,
-    // incidents, ingest_health, dora_settings)
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(18);
+    // 22 hard-delete tables (14 + 4 DORA/reporting: deployment_outcomes,
+    // incidents, ingest_health, dora_settings + 4 org-scoped plugin ecosystem)
+    expect(mockDeleteChain.where).toHaveBeenCalledTimes(22);
   });
 
   it('drops mongo invitations + audit events + idp configs + saml sessions', async () => {
@@ -474,7 +478,7 @@ describe('cascadeDeleteOrg', () => {
     expect(entries.filter((e) => e.ok === true).length).toBe(entries.length - 1);
     // Other tables still got their delete chains called.
     expect(mockUpdateChain.where).toHaveBeenCalledTimes(9);
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(18);
+    expect(mockDeleteChain.where).toHaveBeenCalledTimes(22);
   });
 
   it('flags an orphaned per-org KMS key (audit event + report) but does NOT auto-delete it', async () => {
@@ -513,7 +517,7 @@ describe('exportOrg', () => {
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
-    expect(Object.keys(dump.postgres).length).toBe(27); // 9 soft + 18 hard
+    expect(Object.keys(dump.postgres).length).toBe(31); // 9 soft + 22 hard
     expect(dump.mongo.invitations).toHaveLength(1);
     expect(dump.mongo.auditEvents).toHaveLength(1);
     expect(dump.orgId).toBe('org-acme');

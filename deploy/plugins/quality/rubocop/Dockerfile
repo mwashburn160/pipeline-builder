@@ -8,8 +8,9 @@
 FROM pipeline-ruby-base:1.0
 
 # TODO(confirm): confirm the intended pinned rubocop version at build time.
-ARG RUBOCOP_VERSION=1.71.0
+ARG RUBOCOP_VERSION=1.91.0
 RUN gem install rubocop -v "${RUBOCOP_VERSION}" --no-document
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

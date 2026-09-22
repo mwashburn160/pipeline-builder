@@ -16,7 +16,10 @@
  *     with no exception list — a peer-service API a browser can reach is the
  *     failure this rule exists to prevent. {@link findInternalRouteViolations}
  *     then checks each service's internal routes against the caller list it
- *     declares (the same list the Istio policies name).
+ *     declares (the same list the Istio policies name);
+ *   - a route gated on a SYSTEM-ORG-ONLY ecosystem permission must also run
+ *     `requireSystemOrg` and require an MFA-grade session
+ *     ({@link findSystemOrgGuardViolations}, plugin-ecosystem §3.0).
  *
  * Anything that legitimately can't satisfy a rule — health/metrics probes, signed
  * webhooks, public auth endpoints, internal service-principal hooks, handler-level
@@ -32,6 +35,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { isWriteMethod, type RouteTableEntry } from '../middleware/route-table.js';
+import { isSystemOrgOnlyPermission } from '../types/permissions.js';
 
 /** A rule a route is allowed not to satisfy, with the reason it is exempt. */
 export interface RouteCoverageException {
@@ -178,6 +182,37 @@ export function findInternalRouteViolations(
     if (entry.internalCallers.length === 0) continue;
     if (!declaredByKey.has(key(entry.method, entry.path))) {
       violations.push(`${key(entry.method, entry.path)}: gated by requireInternalService but not declared (add it here and to the mesh policy)`);
+    }
+  }
+  return violations;
+}
+
+/**
+ * The plugin-ecosystem GOVERNANCE check (docs/plans/plugin-ecosystem.md §3.0):
+ * only the system org manages or approves the ecosystem, so every route whose
+ * permission gate names a system-org-only permission (`plugins:moderate`,
+ * `publishers:verify` — api-core `SYSTEM_ORG_ONLY_PERMISSIONS`) must ALSO run
+ * `requireSystemOrg` and demand an MFA-grade session (`minAssurance: 2`).
+ * `requireEcosystemPermission` provides all three; this catches a hand-rolled
+ * chain that forgot one.
+ *
+ * It has no exception list on purpose: there is no legitimate route that
+ * exercises ecosystem-governance authority from a tenant org or a weak session.
+ * A table with no such route passes, so a service wires it in before its first
+ * governance route exists and the check bites the day one lands.
+ */
+export function findSystemOrgGuardViolations(table: readonly RouteTableEntry[]): string[] {
+  const violations: string[] = [];
+  for (const entry of table) {
+    const governed = entry.permissions.flatMap((g) => g.permissions).filter((p) => isSystemOrgOnlyPermission(p));
+    if (governed.length === 0) continue;
+    const where = `${entry.method} ${entry.path}`;
+    const perms = [...new Set(governed)].join(', ');
+    if (entry.systemOrg !== true) {
+      violations.push(`${where}: gated on system-org-only ${perms} without requireSystemOrg — a tenant-org token would reach it (use requireEcosystemPermission)`);
+    }
+    if (entry.minAssurance < 2) {
+      violations.push(`${where}: gated on system-org-only ${perms} without an MFA-grade session (minAssurance 2) — use requireEcosystemPermission`);
     }
   }
   return violations;

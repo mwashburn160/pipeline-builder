@@ -59,3 +59,14 @@ commands:
 env:
   GG_SCAN_TYPE: path
   GG_EXIT_ZERO: "false"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.gitguardian.com/ggshield-docs/getting-started
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/gitguardian
+# icon: none — no mark in Simple Icons 16.32.0; no confirmed vendor press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "api.gitguardian.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -14,4 +14,5 @@ FROM pipeline-dotnet-base:1.0
 ENV NUGET_SOURCE=https://api.nuget.org/v3/index.json
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

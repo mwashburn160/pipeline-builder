@@ -10,6 +10,8 @@
  * - Dependent rules (dependsOnRule — only evaluate if referenced rule passed)
  * - Computed fields ($count, $length, $keys, $lines)
  * - Exemption skipping
+ * - Deferred fields (rules reading an attribute the caller can't know yet are
+ *   skipped, to be evaluated by the caller's later check)
  * - Effective date filtering
  * - Priority ordering (highest priority first)
  */
@@ -251,19 +253,45 @@ function orderRulesForEvaluation(rules: EvaluableRule[]): EvaluableRule[] {
 }
 
 /**
+ * The top-level attribute a rule field reads: `$count(packages)` → `packages`,
+ * `props.stages` → `props`, `$count($keys(env))` → `env`.
+ */
+export function rootAttribute(fieldPath: string): string {
+  const computed = fieldPath.match(/^\$\w+\((.+)\)$/);
+  if (computed) return rootAttribute(computed[1]!);
+  return fieldPath.split('.')[0]!;
+}
+
+/** Whether any predicate of `rule` reads one of `deferred`'s attributes. */
+function readsDeferredField(rule: EvaluableRule, deferred: ReadonlySet<string>): boolean {
+  if (deferred.size === 0) return false;
+  const fields = rule.conditions && rule.conditions.length > 0
+    ? rule.conditions.map((c) => c.field)
+    : [rule.field];
+  return fields.some((f) => !!f && deferred.has(rootAttribute(f)));
+}
+
+/**
  * Evaluate all rules against an entity.
  *
  * @param rules - Active rules for the entity's org+target
  * @param entity - Entity attributes as key-value pairs
  * @param exemptions - Active exemptions for this entity (optional)
+ * @param deferredFields - Attributes the caller cannot know yet (e.g. a plugin's
+ *   image signature and scan before its build ran). Rules reading them are
+ *   SKIPPED — counted in `rulesSkipped`, never recorded as passed, so their
+ *   dependents are skipped too. The caller owns evaluating them later: the
+ *   plugin build worker re-validates once the image facts are real.
  * @returns RuleValidationResult with violations, warnings, and pass/block status
  */
 export function evaluateRules(
   rules: EvaluableRule[],
   entity: Record<string, unknown>,
   exemptions: ActiveExemption[] = [],
+  deferredFields: readonly string[] = [],
 ): RuleValidationResult {
   const now = new Date();
+  const deferred = new Set(deferredFields);
   const violations: Violation[] = [];
   const warnings: Violation[] = [];
   const exemptionsApplied: string[] = [];
@@ -281,6 +309,12 @@ export function evaluateRules(
   for (const rule of sortedRules) {
     // Skip rules outside effective date range
     if (!isRuleEffective(rule, now)) {
+      rulesSkipped++;
+      continue;
+    }
+
+    // A rule over a not-yet-known attribute can neither pass nor fail here.
+    if (readsDeferredField(rule, deferred)) {
       rulesSkipped++;
       continue;
     }

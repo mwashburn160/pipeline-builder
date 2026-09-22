@@ -20,11 +20,19 @@ import {
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 
-import { AIEmptyOutputError, getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service.js';
+import {
+  AIEmptyOutputError, dockerfileViolations, getAvailableProviders, generatePluginConfig, streamPluginConfig,
+} from '../services/ai-plugin-generation-service.js';
+import { findSimilarPlugins } from '../services/similar-plugin-lookup.js';
 
 const logger = createLogger('generate-plugin');
+
+/** The caller's parent-org id (org→team hierarchy), carried in the JWT; absent for root orgs. */
+function parentOrgIdOf(req: Request): string | undefined {
+  return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+}
 
 /**
  * Create and register AI plugin generation routes.
@@ -40,6 +48,11 @@ const logger = createLogger('generate-plugin');
  * route here, not to the parent '/plugins' mount, so they can't leak onto
  * sibling `GET /plugins` reads. Auth + orgId is still applied at the mount in
  * app-routes.ts, which reads require anyway.
+ *
+ * Both generate routes first look up the closest existing catalog plugins
+ * (`findSimilarPlugins`, fail-soft to `[]`), tell the model not to duplicate
+ * them, and return them as `similarPlugins` (the `done` event's data on the
+ * stream) so the UI can point the user at a plugin to reuse.
  *
  * @returns Express Router with AI generation endpoints
  */
@@ -78,19 +91,25 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         model,
       });
 
+      const similarPlugins = await findSimilarPlugins(prompt, orgId, parentOrgIdOf(req));
       const result = await generatePluginConfig({
         prompt: prompt.trim(),
         orgId,
         provider,
         model,
         ...(apiKey ? { apiKey }: {}),
+        similarPlugins,
       });
 
       ctx.log('COMPLETED', 'AI plugin generation completed');
 
+      // The catalog Dockerfile rules the draft breaks (empty when compliant):
+      // returned, never accepted silently.
       return sendSuccess(res, 200, {
         config: result.config,
         dockerfile: result.dockerfile,
+        dockerfileViolations: result.dockerfileViolations,
+        similarPlugins,
       });
     } catch (error) {
       const message = errorMessage(error);
@@ -135,12 +154,14 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
 
       const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
 
+      const similarPlugins = await findSimilarPlugins(prompt, orgId, parentOrgIdOf(req));
       const result = streamPluginConfig({
         prompt: prompt.trim(),
         orgId,
         provider,
         model,
         ...(apiKey ? { apiKey }: {}),
+        similarPlugins,
       });
 
       for await (const partialObject of result.partialOutputStream) {
@@ -168,6 +189,8 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
                 env: config.env ?? undefined,
               },
               dockerfile,
+              dockerfileViolations: dockerfileViolations(dockerfile),
+              similarPlugins,
             },
           })}\n\n`);
         }

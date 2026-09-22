@@ -24,9 +24,14 @@ function parseOptionalDate(raw: unknown): Date | undefined | null {
  *  `plugin.build.timeout`). Hoisted so the ingest path doesn't recompile it. */
 const FAILURE_ACTION = /\.(failed|timeout)$/;
 
+/** `GET /audit?actions=`: a bounded list of action names / `prefix.` entries. */
+const MAX_ACTION_GROUP = 25;
+const ACTION_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+
 /**
  * GET /audit - List audit events (admin only, org-scoped for org admins)
- * Query: action, actorId, targetType, targetId, roleId, impersonatorId,
+ * Query: action, actions (comma-separated group: `foo.` prefix or exact action,
+ * at most 25 entries), actorId, targetType, targetId, roleId, impersonatorId,
  * requestId, outcome, from, to, offset, limit — plus orgId / affectedOrgId for
  * sysadmins (an org admin is always pinned to their own org).
  */
@@ -38,6 +43,13 @@ export const listAuditEvents = withController('List audit events', async (req, r
   // return `string | string[] | ParsedQs` — `parseQueryString` collapses
   // all of those to `string | undefined`.
   const action = parseQueryString(req.query.action);
+  const actionsRaw = parseQueryString(req.query.actions);
+  const actions = actionsRaw
+    ? actionsRaw.split(',').map((a) => a.trim()).filter((a) => a.length > 0)
+    : [];
+  if (actions.length > MAX_ACTION_GROUP || actions.some((a) => a.length > 100 || !ACTION_PATTERN.test(a))) {
+    return sendError(res, 400, `actions must be at most ${MAX_ACTION_GROUP} comma-separated action names or prefixes`);
+  }
   const targetType = parseQueryString(req.query.targetType);
   const targetId = parseQueryString(req.query.targetId);
   const affectedOrgId = parseQueryString(req.query.affectedOrgId);
@@ -74,6 +86,7 @@ export const listAuditEvents = withController('List audit events', async (req, r
   if (actorId) filter.actorId = actorId;
 
   if (action) filter.action = action;
+  if (actions.length > 0) filter.actions = actions;
   if (targetType) filter.targetType = targetType;
   if (targetId) filter.targetId = targetId;
   if (roleId) filter.roleId = roleId;

@@ -257,6 +257,18 @@ echo ""
 echo "=== Creating the setup service account ==="
 setup_service_account_key
 
+# ---- Official catalog loader service account --------------------------------
+# The Official plugin catalog is published through the plugin ecosystem's
+# request queue (plan §3.1, §3.0.3), not by sharing system-org plugins with
+# `visibility=public`. load-plugins.sh uploads each plugin as this dedicated
+# account with `publishRequest=true`: on a fresh instance the one-time bootstrap
+# exception approves the initial catalog; on every later run the seeded
+# Official auto-approval rule approves gate-green patch/minor updates, and
+# anything riskier waits for two Ecosystem Managers in the Ecosystem console.
+echo ""
+echo "=== Creating the Official catalog loader service account ==="
+official_loader_service_account_key
+
 # Build + publish the CodeBuild bootstrap image (pipeline-bootstrap:1.0).
 # Backs CODEBUILD_DEFAULT_IMAGE so cold-start synth runs against an image
 # with pipeline-manager pre-installed, instead of paying ~30s for the
@@ -444,7 +456,7 @@ if _truthy "$LOAD_PLUGINS"; then
     fi
   fi
 
-  # No re-authentication needed here any more: the setup service-account key is
+  # No re-authentication needed here any more: the loader service-account key is
   # opaque and valid for 24h, so a long base-image build can no longer outlive
   # the credential the upload uses (the old flow re-ran `login` because a
   # 15-minute access token routinely expired mid-build).
@@ -458,7 +470,7 @@ if _truthy "$LOAD_PLUGINS"; then
 
   # shellcheck disable=SC2086
   PLATFORM_BASE_URL="$PLATFORM_BASE_URL" \
-    PLATFORM_TOKEN="$SETUP_SA_KEY" \
+    PLATFORM_TOKEN="$LOADER_SA_KEY" \
     SKIP_MISSING_IMAGE_TAR="$CONTINUE_ON_BUILD_FAILURE" \
     "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG $CLEANUP_ARG
 else

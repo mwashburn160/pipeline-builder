@@ -31,7 +31,12 @@ export type FeatureFlag =
   // published rules; INCLUDED in Enterprise/Unlimited (via ALL_FEATURE_FLAGS),
   // sold to Developer/Pro/Team (see billing-config `compliance_standard/advanced`).
   | 'compliance_standard'
-  | 'compliance_advanced';
+  | 'compliance_advanced'
+  // Plugin ecosystem: the org's publisher is ELIGIBLE to apply for Verified
+  // status (docs/plans/plugin-ecosystem.md §3.7). Eligibility only — the badge
+  // is awarded (and withdrawn) by system-org review, never bought. Team and up;
+  // no add-on bundle sells it.
+  | 'verified_publisher';
 
 /** All valid feature flags (order determines display order). */
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
@@ -44,6 +49,7 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   'team_usage_analytics',
   'compliance_standard',
   'compliance_advanced',
+  'verified_publisher',
 ];
 
 /** Check whether a string is a valid FeatureFlag. */
@@ -61,7 +67,8 @@ export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   // (DORA) is NOT a Team tier feature — it's INCLUDED only in Enterprise and sold
   // as an add-on bundle to every other tier (see billing-config
   // `advanced_reporting`). Enterprise unlocks all.
-  team: ['priority_support', 'ai_generation', 'bulk_operations', 'sso'],
+  // `verified_publisher` (eligibility to apply for Verified) starts at Team.
+  team: ['priority_support', 'ai_generation', 'bulk_operations', 'sso', 'verified_publisher'],
   enterprise: [...ALL_FEATURE_FLAGS],
   // Unlimited includes every feature / add-on bundle (billing-disabled default).
   unlimited: [...ALL_FEATURE_FLAGS],
@@ -106,6 +113,10 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   compliance_advanced: {
     label: 'Advanced Compliance',
     description: 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)',
+  },
+  verified_publisher: {
+    label: 'Verified Publisher Eligibility',
+    description: 'Apply for the Verified badge on your plugin-ecosystem publisher (awarded by system-org review)',
   },
 };
 

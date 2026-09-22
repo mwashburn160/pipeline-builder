@@ -116,7 +116,12 @@
     },
     "pre-compile": {
       "name": "pre-compile",
-      "description": "Prepare the project for compilation"
+      "description": "Prepare the project for compilation",
+      "steps": [
+        {
+          "exec": "node scripts/generate-plugin-icons.mjs"
+        }
+      ]
     },
     "server": {
       "name": "server",

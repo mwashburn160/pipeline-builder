@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger, ValidationError } from '@pipeline-builder/api-core';
+import { createLogger, SYSTEM_ORG_ID, ValidationError } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import type { ImageSource } from '@pipeline-builder/pipeline-data';
 
@@ -23,7 +23,7 @@ const logger = createLogger('docker-build');
 // registry artifact still matches the runtime. Override PUBLISH_PLATFORM (e.g.
 // linux/arm64) for an all-Graviton stack — same env name the deploy scripts
 // (build-plugin-images.sh / build-codebuild-bootstrap.sh) use.
-const PUBLISH_PLATFORM = process.env.PUBLISH_PLATFORM || 'linux/amd64';
+export const PUBLISH_PLATFORM = process.env.PUBLISH_PLATFORM || 'linux/amd64';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -196,6 +196,101 @@ export async function loadAndPush( tarPath: string, name: string, version: strin
     return { fullImage: image, digest, imageSource: 'uploaded' };
   } finally {
     fs.rmSync(dockerConfigDir, { recursive: true, force: true });
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Quarantine builds (anonymous submissions, plugin-ecosystem §4.2, E5)
+// -----------------------------------------------------------------------------
+
+/** An anonymous submission's build: always a Dockerfile build, into `quarantine/<submissionId>`. */
+export interface QuarantineBuildRequest {
+  contextDir: string;
+  dockerfile: string;
+  version: string;
+  buildArgs?: Record<string, string>;
+  registry: RegistryInfo;
+  /** Namespace-relative repository: `quarantine/<submissionId>`. */
+  repository: string;
+}
+
+export interface QuarantineBuildOptions extends BuildStreamOptions {
+  /** The ISOLATED quarantine buildkitd — never the tenant one. */
+  buildkitAddr: string;
+  timeoutMs: number;
+  /** A `$DOCKER_CONFIG` holding the plugin service principal's quarantine credential. */
+  dockerConfigDir: string;
+}
+
+const QUARANTINE_REPO_RE = /^quarantine\/[a-z0-9][a-z0-9-]{0,127}$/;
+
+/**
+ * Build a submission on the quarantine buildkitd, push it to its
+ * `quarantine/<id>` repository, then SBOM + sign it under the system org (so
+ * its signed SBOM survives into the approved `public/community/*` copy). The
+ * caller owns the credential directory.
+ */
+export async function buildAndPushQuarantine(req: QuarantineBuildRequest, opts: QuarantineBuildOptions): Promise<BuildResult & { repository: string }> {
+  if (!QUARANTINE_REPO_RE.test(req.repository)) throw new ValidationError(`Invalid quarantine repository: ${req.repository}`);
+  validate({ contextDir: req.contextDir, dockerfile: req.dockerfile, name: 'quarantine', version: req.version, orgId: SYSTEM_ORG_ID, registry: req.registry, buildArgs: req.buildArgs, buildType: 'build_image' });
+  const repository = `${req.registry.host}:${req.registry.port}/${req.repository}`;
+  const image = `${repository}:${req.version}`;
+  const metaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-buildmeta-'));
+  const metadataFile = path.join(metaDir, 'metadata.json');
+  try {
+    patchDockerfile(req.contextDir, req.dockerfile);
+    logger.info('Building quarantined submission image', { image, buildkitAddr: opts.buildkitAddr });
+    await run('buildctl', [
+      '--addr', opts.buildkitAddr,
+      'build',
+      '--frontend', 'dockerfile.v0',
+      '--local', `context=${req.contextDir}`,
+      '--local', `dockerfile=${path.dirname(path.join(req.contextDir, req.dockerfile))}`,
+      '--opt', `filename=${path.basename(req.dockerfile)}`,
+      '--opt', `platform=${PUBLISH_PLATFORM}`,
+      '--opt', 'attest:provenance=mode=min',
+      ...flagBuildArgs(req.buildArgs),
+      '--output', outputSpec(image, req.registry),
+      '--metadata-file', metadataFile,
+    ], opts.timeoutMs, { DOCKER_CONFIG: opts.dockerConfigDir }, { onLine: opts.onLine });
+    const digest = readBuildDigest(metadataFile);
+    await attachSupplyChain({ repository, digest, registry: req.registry, orgId: SYSTEM_ORG_ID, dockerConfigDir: opts.dockerConfigDir, platform: PUBLISH_PLATFORM }, opts);
+    return { fullImage: image, digest, imageSource: 'built', repository: req.repository };
+  } finally {
+    fs.rmSync(metaDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The server-side smoke test (E5): a second, NO-PUSH build on the quarantine
+ * buildkitd — `FROM <image@digest>` + `RUN --network=none bash -c <smokeTest>`.
+ * Resolves when the command exits 0; throws (a `BuildProcessError`) otherwise.
+ */
+export async function runQuarantineSmokeTest(
+  input: { imageRef: string; command: string },
+  opts: QuarantineBuildOptions,
+): Promise<void> {
+  if (!/^[a-zA-Z0-9.:-]+\/quarantine\/[a-z0-9][a-z0-9-]*@sha256:[0-9a-f]{64}$/.test(input.imageRef)) {
+    throw new ValidationError(`Invalid quarantine image reference: ${input.imageRef}`);
+  }
+  if (input.command.length === 0 || input.command.length > 4096) throw new ValidationError('smokeTest must be 1–4096 characters');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-smoke-'));
+  try {
+    // Exec (JSON) form: the command is ONE argument to bash, never re-parsed by
+    // the Dockerfile frontend; network=none so a smoke test can't phone home.
+    fs.writeFileSync(path.join(dir, 'Dockerfile'),
+      `FROM ${input.imageRef}\nRUN --network=none ${JSON.stringify(['/bin/bash', '-c', input.command])}\n`);
+    await run('buildctl', [
+      '--addr', opts.buildkitAddr,
+      'build',
+      '--frontend', 'dockerfile.v0',
+      '--local', `context=${dir}`,
+      '--local', `dockerfile=${dir}`,
+      '--opt', `platform=${PUBLISH_PLATFORM}`,
+      '--no-cache',
+    ], opts.timeoutMs, { DOCKER_CONFIG: opts.dockerConfigDir }, { onLine: opts.onLine });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 

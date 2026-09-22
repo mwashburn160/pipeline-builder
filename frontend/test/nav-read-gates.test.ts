@@ -169,3 +169,36 @@ describe('Access Requests nav entry', () => {
     expect(isNavItemVisible(item, ctx({ permissions: [] }))).toBe(true);
   });
 });
+
+// The Ecosystem console is a GOVERNANCE boundary, not a plan upsell: it is
+// hidden (never locked) outside the system org, and needs plugins:moderate or
+// publishers:verify inside it (superadmins hold both).
+describe('ecosystem console nav entry', () => {
+  const ECO = '/dashboard/admin/ecosystem';
+  const eco = (user: FakeUser | null, isSystemOrg: boolean) =>
+    isNavItemVisible(findItem(ECO), { ...ctx(user), isSystemOrg });
+
+  it('is hidden in a tenant org, even for a superadmin or a (mis)granted holder', () => {
+    expect(eco({ permissions: ['plugins:moderate', 'publishers:verify'] }, false)).toBe(false);
+    expect(eco({ isSuperAdmin: true }, false)).toBe(false);
+    expect(navItemLockedFeature(findItem(ECO), ctx({ isSuperAdmin: true }))).toBeUndefined();
+  });
+
+  it('fails closed when the caller omits isSystemOrg', () => {
+    expect(isNavItemVisible(findItem(ECO), ctx({ isSuperAdmin: true }))).toBe(false);
+  });
+
+  it('shows in the system org for either ecosystem permission or a superadmin', () => {
+    expect(eco({ permissions: ['plugins:moderate'] }, true)).toBe(true);
+    expect(eco({ permissions: ['publishers:verify'] }, true)).toBe(true);
+    expect(eco({ isSuperAdmin: true }, true)).toBe(true);
+  });
+
+  it('is hidden from a system-org member without either permission', () => {
+    expect(eco({ permissions: ['plugins:read', 'messages:read'] }, true)).toBe(false);
+  });
+
+  it('declares no page gate the tenant could satisfy (the page refuses itself)', () => {
+    expect(resolvePageGate(ECO)).toEqual({});
+  });
+});

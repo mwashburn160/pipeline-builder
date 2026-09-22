@@ -22,13 +22,11 @@ installCommands:
   - test -d dc-reports || mkdir -p dc-reports
   - |
     set -e
-    if [ -d /opt/dependency-check/versions/dc-${DC_VERSION}/dependency-check ]; then
-      ln -sf /opt/dependency-check/versions/dc-${DC_VERSION}/dependency-check /opt/dependency-check/current
+    if [ -d /opt/dependency-check/versions/dc-${DC_VERSION} ]; then
+      ln -sfn /opt/dependency-check/versions/dc-${DC_VERSION} /opt/dependency-check/current
     else
-      echo "Dependency-Check ${DC_VERSION} not pre-installed, downloading..."
-      curl -fsSL https://github.com/jeremylong/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip \
-        -o /tmp/dc.zip && unzip -q /tmp/dc.zip -d /opt/dependency-check/versions/dc-${DC_VERSION} && rm /tmp/dc.zip
-      ln -sf /opt/dependency-check/versions/dc-${DC_VERSION}/dependency-check /opt/dependency-check/current
+      echo "ERROR: Dependency-Check ${DC_VERSION} is not in this image (only pinned builds are). Available: $(ls /opt/dependency-check/versions | sed 's/^dc-//' | tr '\n' ' ')" >&2
+      exit 1
     fi
   - dependency-check.sh --version
   # Install project dependencies for accurate scanning
@@ -63,7 +61,7 @@ commands:
       --enableExperimental
   - "echo \"Dependency-Check scan complete. Reports available in dc-reports/\""
 env:
-  DC_VERSION: "12.2.0"
+  DC_VERSION: "13.0.0"
   DC_FAIL_ON_CVSS: "7"
   DC_FORMAT: JSON
   DC_SUPPRESSION_FILE: ""
@@ -71,3 +69,24 @@ env:
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and produces a deterministic version output.
 smokeTest: "dependency-check.sh --version"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://owasp.org/www-project-dependency-check/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/dependency-check
+icon: dependencycheck
+network:
+  egress:
+    - "services.nvd.nist.gov"
+    - "nvd.nist.gov"
+    - "www.cisa.gov"
+    - "jeremylong.github.io"
+    - "search.maven.org"
+    - "repo1.maven.org"
+    - "ossindex.sonatype.org"
+    - "registry.npmjs.org"
+    - "registry.yarnpkg.com"
+    - "pypi.org"
+    - "files.pythonhosted.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

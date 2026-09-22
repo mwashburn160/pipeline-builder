@@ -5,12 +5,14 @@ import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodePipeline } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { PluginLookup } from './plugin-lookup.js';
+import type { StepManifestRecorder } from './step-manifest-recorder.js';
 import type { StageOptions } from './step-types.js';
-import { pluginArtifactAlias, type ArtifactManager } from '../core/artifact-manager.js';
+import { type ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
 import { merge, resolveFailureBehavior } from '../core/metadata-helpers.js';
 import { createCodeBuildStep } from '../core/pipeline-helpers.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
+import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias, pluginStepIdAlias } from '../core/plugin-contract.js';
 
 /**
  * Configuration properties for the StageBuilder
@@ -43,6 +45,9 @@ export interface StageBuilderProps {
    * on every step.
    */
   readonly pipelineScope: Record<string, unknown>;
+
+  /** Records each step's resolved plugin for the step manifest (W0.1). */
+  readonly stepManifest?: StepManifestRecorder;
 }
 
 /**
@@ -78,6 +83,7 @@ export class StageBuilder {
   private readonly artifactManager?: ArtifactManager;
   private readonly orgId?: string;
   private readonly pipelineScope: Record<string, unknown>;
+  private readonly stepManifest?: StepManifestRecorder;
 
   constructor(props: StageBuilderProps) {
     this.scope = props.scope;
@@ -88,6 +94,7 @@ export class StageBuilder {
     this.artifactManager = props.artifactManager;
     this.orgId = props.orgId;
     this.pipelineScope = props.pipelineScope;
+    this.stepManifest = props.stepManifest;
   }
 
   /**
@@ -112,6 +119,11 @@ export class StageBuilder {
 
   private resolveStep(stepConfig: StageOptions['steps'][number], stageName: string, stageAlias: string) {
     const plugin = this.pluginLookup.plugin(stepConfig.plugin);
+    // Contract (W0.2): the pipeline must supply the plugin's required
+    // metadata/vars with the declared types. The API refuses such a pipeline
+    // at create/update; this stops one that reached synth another way.
+    assertPluginContract(plugin, contractScopeFromTemplateScope(this.pipelineScope),
+      `${stageName}/${pluginStepIdAlias(stepConfig.plugin)}`);
     // Per-step plugin config lives on the plugin reference (`plugin.metadata` —
     // e.g. JAVA_VERSION/KOTLIN_VERSION/computetype overrides). pluginLookup.plugin()
     // returns the resolved CATALOG plugin and drops the reference metadata in the
@@ -120,15 +132,16 @@ export class StageBuilder {
     // Order (last wins): global < plugin-ref metadata < step-level metadata.
     const stepMetadata = merge(this.globalMetadata, stepConfig.plugin.metadata ?? {}, stepConfig.metadata ?? {});
     // TWO different identities, deliberately kept apart:
-    //  - `stepIdAlias` names the CDK construct. It stays as it always was
-    //    (`alias ?? name`), because changing it renames the CodeBuild project's
-    //    logical id and CloudFormation would REPLACE every unaliased step's
-    //    project on the next deploy — for no benefit.
+    //  - `stepIdAlias` names the CDK construct. For an unqualified reference
+    //    it stays as it always was (`alias ?? name`), because changing it
+    //    renames the CodeBuild project's logical id and CloudFormation would
+    //    REPLACE every unaliased step's project on the next deploy — for no
+    //    benefit. A `publisher` reference adds the publisher (§3.5).
     //  - `pluginAlias` is the ARTIFACT-KEY segment and must follow the one rule
     //    every key consumer uses (`pluginArtifactAlias`). It used to reuse the
     //    construct value, so an unaliased step registered `…:nodejs-build:dist`
     //    while the UI asked for `…:nodejs-build-alias:dist` and synth failed.
-    const stepIdAlias = stepConfig.plugin.alias ?? stepConfig.plugin.name;
+    const stepIdAlias = pluginStepIdAlias(stepConfig.plugin);
     const pluginAlias = pluginArtifactAlias(stepConfig.plugin);
 
     if (stepConfig.inputArtifact && !this.artifactManager) {
@@ -155,7 +168,7 @@ export class StageBuilder {
       )
       : undefined;
 
-    return createCodeBuildStep({
+    const step = createCodeBuildStep({
       id: this.uniqueId.generate(`stage:${stageAlias}:${stepIdAlias}`),
       uniqueId: this.uniqueId,
       plugin,
@@ -180,6 +193,8 @@ export class StageBuilder {
       orgId: this.orgId,
       pipelineScope: this.pipelineScope,
     });
+    this.stepManifest?.record(step, plugin);
+    return step;
   }
 
   /**

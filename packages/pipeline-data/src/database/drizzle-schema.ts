@@ -17,6 +17,7 @@ export * from './schema/message-attachment.js';
 export * from './schema/compliance.js';
 export * from './schema/dashboard.js';
 export * from './schema/alert.js';
+export * from './schema/ecosystem.js';
 
 import { orgAlertDestination, orgAlertRule } from './schema/alert.js';
 import {
@@ -35,6 +36,30 @@ import {
   complianceReportSchedule,
 } from './schema/compliance.js';
 import { dashboard, dashboardPanel } from './schema/dashboard.js';
+import {
+  publisher,
+  pluginListing,
+  pluginListingVersion,
+  pluginAdvisory,
+  ecosystemAutoApprovalRule,
+  pluginPublishRequest,
+  ecosystemReservedName,
+  ecosystemSetting,
+  ecosystemCollection,
+  pluginReview,
+  pluginReviewReply,
+  pluginReviewReport,
+  pluginReviewVote,
+  pluginReviewHistory,
+  pluginStats,
+  pluginSubmission,
+  ecosystemSearchMiss,
+  ecosystemNotificationQueue,
+  pipelineStepManifest,
+  pluginInstall,
+  pluginInstallPolicy,
+  pluginAdvisoryDelivery,
+} from './schema/ecosystem.js';
 import { messageAttachment } from './schema/message-attachment.js';
 import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
@@ -80,4 +105,30 @@ export const schema = {
   complianceRole,
   complianceReport,
   complianceReportSchedule,
+  // Plugin ecosystem — instance-wide directory (no org_id; service-layer gated)
+  publisher,
+  pluginListing,
+  pluginListingVersion,
+  pluginAdvisory,
+  ecosystemAutoApprovalRule,
+  pluginPublishRequest,
+  ecosystemReservedName,
+  ecosystemSetting,
+  ecosystemCollection,
+  pluginReview,
+  pluginReviewReply,
+  pluginReviewReport,
+  pluginReviewVote,
+  pluginReviewHistory,
+  pluginStats,
+  pluginSubmission,
+  ecosystemSearchMiss,
+  ecosystemNotificationQueue,
+  // Plugin ecosystem — org-scoped (org_id + RLS; in the org cascade)
+  pipelineStepManifest,
+  pluginInstall,
+  pluginInstallPolicy,
+  pluginAdvisoryDelivery,
+  // (The public_listings / public_listed_versions views are exported from
+  // ./schema/ecosystem but are not tables, so they are not listed here.)
 } as const;

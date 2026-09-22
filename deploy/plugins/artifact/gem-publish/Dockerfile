@@ -14,4 +14,5 @@ FROM pipeline-ruby-base:1.0
 ENV GEM_DRY_RUN=false
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

@@ -21,6 +21,7 @@ import {
   compareRouteTableSnapshot,
   declaredAuditActions,
   findRouteCoverageViolations,
+  findSystemOrgGuardViolations,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/lib/testing/route-coverage.js';
 
@@ -43,9 +44,36 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/plugins/inspect',
+    waive: 'audit',
+    reason: 'Dry-run parse of a plugin zip for the upload dialog (gated on plugins:write, rate limited): builds nothing, reserves no quota and stores nothing; the upload it precedes is audited.',
+  },
+  {
+    method: 'POST',
     path: /^POST \/plugins\/generate/,
     waive: 'audit',
     reason: 'AI generation returns a draft plugin config; nothing is persisted (deploying it goes through POST /plugins/deploy-generated, which is audited).',
+  },
+  {
+    path: /^(PUT|DELETE) \/plugins\/reviews\/:id\/helpful$/,
+    waive: 'audit',
+    reason: 'A review "helpful" vote is not audited by design (plugin-ecosystem §5c: votes are a signal, not a state change anyone is accountable for); gated on plugins:read + a human session, one vote per user, throttled per user and org.',
+  },
+  {
+    path: /^(GET|POST) \/public\/plugin-submissions/,
+    waive: 'permission',
+    reason: 'Anonymous plugin submissions (plugin-ecosystem §4): no caller identity by design. 404 unless ANONYMOUS_SUBMISSIONS_ENABLED + outbound email; every write needs a single-use proof-of-work; rate limited per trusted IP and capped per email/IP per day. Quarantine only — nothing reaches a plugins row or public/* without the two-person submission request.',
+  },
+  {
+    method: 'POST',
+    path: '/public/plugin-submissions/inspect',
+    waive: 'audit',
+    reason: 'Dry-run parse of a submission zip (proof-of-work, rate limited): builds nothing and stores nothing; the submission it precedes is audited (plugin.submission.create).',
+  },
+  {
+    path: /^GET \/public\/plugins/,
+    waive: 'permission',
+    reason: 'Anonymous public plugin directory (plugin-ecosystem §6a): no caller identity by design (nginx strips credentials), reads only the public_* views through the view-only ecosystem_public_reader role, rate limited per trusted IP.',
   },
 ];
 
@@ -73,6 +101,14 @@ describe('plugin route coverage', () => {
   it('gates every write route on a permission and declares its audit action', () => {
     const { violations } = findRouteCoverageViolations(table, EXCEPTIONS);
     expect(violations).toEqual([]);
+  });
+
+  // Plugin-ecosystem governance (plan §3.0): every route gated on a
+  // system-org-only permission (plugins:moderate, publishers:verify) must also
+  // run requireSystemOrg and demand aal2 — use requireEcosystemPermission. No
+  // exception list: passes today, bites the day a governance route lacks it.
+  it('guards every ecosystem-governance route to the system org with aal2', () => {
+    expect(findSystemOrgGuardViolations(table)).toEqual([]);
   });
 
   it('has no stale coverage exceptions', () => {

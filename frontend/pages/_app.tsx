@@ -51,7 +51,11 @@ function AnimatedPageShell({ children }: { children: ReactNode }) {
     // a containing block for position:fixed descendants, which traps every
     // modal's `fixed inset-0` backdrop inside the page box instead of the
     // viewport (clipped/offset modals).
-    <AnimatePresence mode="wait">
+    // `initial={false}`: the FIRST page renders at full opacity, so server-rendered
+    // HTML is visible before (or without) hydration — the public plugin directory
+    // must read with JavaScript off. Org switches still cross-fade: a newly keyed
+    // child after the first render animates in as before.
+    <AnimatePresence mode="wait" initial={false}>
       <motion.div
         key={orgKey}
         initial={{ opacity: 0 }}

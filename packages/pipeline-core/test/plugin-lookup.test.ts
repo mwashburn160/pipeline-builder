@@ -328,6 +328,47 @@ describe('PluginLookup', () => {
         .toThrow(/resolves to "nodejs-build", not "maven-build"/);
     });
 
+    it('keys a publisher reference by <publisher>-<name>-alias and refuses a record from another publisher', () => {
+      const lookup = new PluginLookup(mockScope, 'TestLookup', {
+        organization: 'my-org',
+        orgId: 'test-org',
+        project: 'my-project',
+        platformUrl: 'https://api.example.com',
+        uniqueId: createUniqueId(),
+        resolvedPlugins: {
+          'acme-lint-alias': { name: 'lint', version: '1.0.0', commands: [], publisher: 'acme' } as never,
+          'other-lint-alias': { name: 'lint', version: '1.0.0', commands: [], publisher: null } as never,
+        },
+      });
+
+      mockCustomResource.mockClear();
+      expect(lookup.plugin({ name: 'lint', publisher: 'acme' }).version).toBe('1.0.0');
+      expect(mockCustomResource).not.toHaveBeenCalled();
+      expect(() => lookup.plugin({ name: 'lint', publisher: 'other' }))
+        .toThrow(/resolves to your organization's lint, not other\/lint/);
+    });
+
+    it('sends the publisher in the deploy-time lookup filter', () => {
+      (Token.isUnresolved as jest.Mock).mockReturnValue(true);
+      const lookup = new PluginLookup(mockScope, 'TestLookup', {
+        organization: 'my-org',
+        orgId: 'test-org',
+        project: 'my-project',
+        platformUrl: 'https://api.example.com',
+        uniqueId: createUniqueId(),
+      });
+
+      lookup.plugin({ name: 'lint', publisher: 'acme', filter: { version: '^1.0.0' } });
+
+      expect(mockCustomResource).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.objectContaining({
+          properties: expect.objectContaining({ pluginFilter: { name: 'lint', publisher: 'acme', version: '^1.0.0' } }),
+        }),
+      );
+    });
+
     it('should fall through to custom resource when pre-resolved cache misses', () => {
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',

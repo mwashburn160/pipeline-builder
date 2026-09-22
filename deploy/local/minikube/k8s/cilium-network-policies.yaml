@@ -18,7 +18,8 @@
 # 2. A SHARED ALLOW-LIST policy that re-enables egress to a curated set
 #    of registry / package hosts every legitimate build needs
 #    (docker.io, ghcr.io, quay.io, pypi.org, npmjs.org, etc.) — DNS-aware
-#    via Cilium's `toFQDNs` selector.
+#    via Cilium's `toFQDNs` selector. The anonymous-submission quarantine
+#    builder shares it (plus its own, narrower in-cluster rule).
 # 3. A TEMPLATE for a per-org override: operators copy this block, set
 #    the org's k8s label selector, and add the org's specific external
 #    hosts. When applied, plugin pods labeled with that org_id pick up
@@ -48,21 +49,10 @@
 # Without Cilium installed, all of this is inert YAML — apply-able with no
 # effect, no error.
 
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: plugin-default-deny-egress
-  namespace: pipeline-builder
-spec:
-  endpointSelector:
-    matchLabels:
-      app: plugin
-  egressDeny:
-    # Match everything; subsequent allow rules add holes. This is the
-    # "deny by default" that the standard k8s NetworkPolicy can't express
-    # cleanly because of its "any allow rule wins" semantics.
-    - toEntities: ["all"]
-
+# Default deny comes from the allow policies below: Cilium puts an endpoint in
+# egress default-deny as soon as any policy with egress rules selects it. There
+# is deliberately NO `egressDeny: [{toEntities: [all]}]` policy — deny rules take
+# precedence over allows in Cilium, so it would block every hole opened below.
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
@@ -70,9 +60,15 @@ metadata:
   name: plugin-shared-egress-allow
   namespace: pipeline-builder
 spec:
+  # ONE package-mirror allow-list for both build paths: the quarantine builder
+  # gets exactly the FQDNs a tenant build gets, and nothing more. The in-cluster
+  # rule that used to live here is split out (plugin-internal-egress-allow), so
+  # sharing this list never opens the namespace to anonymous code.
   endpointSelector:
-    matchLabels:
-      app: plugin
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [plugin, plugin-quarantine-builder]
   egress:
     # --- Cluster DNS --------------------------------------------------------
     - toEndpoints:
@@ -85,11 +81,6 @@ spec:
               protocol: UDP
             - port: "53"
               protocol: TCP
-
-    # --- In-cluster pods (registry, redis, postgres, mongo, etc.) -----------
-    - toEndpoints:
-        - matchLabels:
-            "k8s:io.kubernetes.pod.namespace": pipeline-builder
 
     # --- Public registries (image base + package fetches) -------------------
     # DNS-aware: Cilium resolves these at runtime and pins to the resolved
@@ -148,6 +139,76 @@ spec:
             - port: "443"
               protocol: TCP
             - port: "80"
+              protocol: TCP
+
+---
+# In-cluster pods (registry, redis, postgres, mongo, etc.) — the TENANT plugin
+# pod only (it is the service itself, not just a build sandbox).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: plugin-internal-egress-allow
+  namespace: pipeline-builder
+spec:
+  endpointSelector:
+    matchLabels:
+      app: plugin
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            "k8s:io.kubernetes.pod.namespace": pipeline-builder
+
+---
+# The quarantine builder's in-cluster reach: the registry (push
+# quarantine/<id>, pull bases through the mirror), image-registry (the /token
+# realm) and the pb-waypoint that fronts it (15008 = ambient HBONE). Nothing
+# else in the namespace — no postgres, redis, minio or platform.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: plugin-quarantine-builder-internal-egress-allow
+  namespace: pipeline-builder
+spec:
+  endpointSelector:
+    matchLabels:
+      app: plugin-quarantine-builder
+  egress:
+    - toEndpoints:
+        - matchExpressions:
+            - key: app
+              operator: In
+              values: [registry, image-registry]
+        - matchLabels:
+            gateway.networking.k8s.io/gateway-class-name: istio-waypoint
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP
+            - port: "3000"
+              protocol: TCP
+            - port: "15008"
+              protocol: TCP
+
+---
+# Ingress to the quarantine builder: the plugin pod only.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: plugin-quarantine-builder-ingress
+  namespace: pipeline-builder
+spec:
+  endpointSelector:
+    matchLabels:
+      app: plugin-quarantine-builder
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app: plugin
+      toPorts:
+        - ports:
+            - port: "1234"
+              protocol: TCP
+            - port: "15008"
               protocol: TCP
 
 ---

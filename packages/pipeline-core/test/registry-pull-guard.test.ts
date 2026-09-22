@@ -12,7 +12,12 @@ const DIGEST = `sha256:${'a'.repeat(64)}`;
 
 /** Minimal image-backed plugin (signed digest recorded) that reaches the pull-host resolution. */
 const imagePlugin = {
-  name: 'trivy', version: '1.0.0', buildType: 'build_image', orgId: '000000000000000000000001', imageDigest: DIGEST,
+  name: 'trivy',
+  version: '1.0.0',
+  buildType: 'build_image',
+  orgId: '000000000000000000000001',
+  imageDigest: DIGEST,
+  imageRepository: 'public/pipeline-builder/trivy',
 } as never;
 
 /**
@@ -121,11 +126,23 @@ describe('resolvePluginImage digest pinning', () => {
     Config._resetForTesting();
   });
 
-  it('pins the image URI to the recorded digest', () => {
+  it('pins the image URI to the recorded digest, at the repository lookup returned (G30)', () => {
     const stack = new Stack(new App(), 'S');
     const image = resolvePluginImage(stack, imagePlugin, 'org1') as { imageId: string };
-    expect(image.imageId).toBe(`registry.example.com/system/trivy@${DIGEST}`);
+    expect(image.imageId).toBe(`registry.example.com/public/pipeline-builder/trivy@${DIGEST}`);
     expect(image.imageId).not.toContain(':1.0.0');
+    const own = resolvePluginImage(new Stack(new App(), 'S2'), { ...(imagePlugin as object), imageRepository: 'org-org1/trivy' } as never, 'org1') as { imageId: string };
+    expect(own.imageId).toBe(`registry.example.com/org-org1/trivy@${DIGEST}`);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['not a plugin namespace', 'library/alpine'],
+    ['a path escape', 'public/acme/../../etc'],
+  ])('refuses an image plugin whose repository is %s (never derived from the owner)', (_label, imageRepository) => {
+    const stack = new Stack(new App(), 'S');
+    const plugin = { ...(imagePlugin as object), imageRepository } as never;
+    expect(() => resolvePluginImage(stack, plugin, 'org1')).toThrow(/no image repository from the plugin lookup/);
   });
 
   it.each([

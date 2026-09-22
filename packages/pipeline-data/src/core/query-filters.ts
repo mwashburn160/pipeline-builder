@@ -122,11 +122,29 @@ export interface PluginFilter extends CommonFilter {
   readonly name?: string;
 
   /**
-   * Plugin version to filter by
-   * Supports semantic versioning
-   * @example "1.0.0", "^2.0.0", "~1.2.3"
+   * How `name` matches: `contains` (default — case-insensitive substring, for
+   * list/search) or `exact` (resolution — the lookup path). Internal: not in
+   * the public filter schema.
+   */
+  readonly nameMatch?: 'exact' | 'contains';
+
+  /**
+   * Publisher handle of an installed listing to resolve through (plan §3.5).
+   * Lookup only: a `plugins` row query ignores it (the resolver routes a
+   * qualified reference to the listing, never to an org's own rows).
+   */
+  readonly publisher?: string;
+
+  /**
+   * Plugin version spec: exact (`1.2.3`), caret (`^1.2.3`), tilde (`~1.2.3`),
+   * partial (`1`, `1.2`, `1.x`) or `latest` — see semver-range.ts. A range never
+   * matches a yanked version.
+   * @example "1.0.0", "^2.0.0", "~1.2.3", "latest"
    */
   readonly version?: string;
+
+  /** Exclude yanked versions (resolution without a version spec). Internal. */
+  readonly excludeYanked?: boolean;
 
   /**
    * Keyword to search within the keywords JSONB array (case-insensitive contains)

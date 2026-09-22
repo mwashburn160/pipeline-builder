@@ -142,6 +142,14 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     unlocks: 'faster response times and dedicated support channels',
     note: 'A support-process entitlement. No API route checks it, so no control is locked.',
   },
+  verified_publisher: {
+    enforcement: 'entitlement-only',
+    acquiredVia: 'tier',
+    includedFrom: 'Team',
+    controls: [],
+    unlocks: 'applying for the Verified badge on your plugin-ecosystem publisher',
+    note: 'Eligibility only, and not yet checked by any route: the ecosystem publisher routes (docs/plans/plugin-ecosystem.md §3.7) will gate the Verified application on it. Reclassify to `handler`/`route` and add the control when they land.',
+  },
   custom_integrations: {
     enforcement: 'entitlement-only',
     acquiredVia: 'tier',

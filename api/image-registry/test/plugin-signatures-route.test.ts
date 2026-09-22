@@ -13,17 +13,34 @@ import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { registryClientMock } from './helpers/registry-client-mock.js';
 
 const headManifest = jest.fn<(name: string, ref: string) => Promise<{ digest: string } | null>>();
-jest.unstable_mockModule('../src/services/registry-client.js', () => ({ headManifest }));
+jest.unstable_mockModule('../src/services/registry-client.js', () => registryClientMock({ headManifest }));
+// The internal router also mounts the public/* publication routes; they have
+// their own coverage (route-coverage + their own suite), so stub them out here.
+jest.unstable_mockModule('../src/routes/internal-publications.js', () => ({
+  registerPublicationRoutes: () => undefined,
+  PLUGIN_PUBLICATIONS_PATH: '/plugin-publications',
+}));
 
 class PluginSigningError extends Error {}
 const signPluginImage = jest.fn<(p: unknown) => Promise<void>>(async () => undefined);
 jest.unstable_mockModule('../src/services/plugin-signing.js', () => ({
   signPluginImage,
   PluginSigningError,
-  isPluginRepository: (r: string) => /^(system|org-[a-z0-9]+)\/[a-z0-9][a-z0-9._-]*$/.test(r),
+  isPluginRepository: (r: string) => /^(system|org-[a-z0-9]+|quarantine)\/[a-z0-9][a-z0-9._-]*$/.test(r),
+  isPublicRepository: (r: string) => r.startsWith('public/'),
+  isQuarantineRepository: (r: string) => /^quarantine\/[a-z0-9][a-z0-9-]{0,127}$/.test(r),
   isSha256Digest: (d: string) => /^sha256:[0-9a-f]{64}$/.test(d),
+}));
+
+// The quarantine delete hook (DELETE /internal/quarantine/:submissionId) is
+// exercised below against a stubbed registry-gc (its own suite covers the walk).
+const deleteQuarantineRepository = jest.fn<(repo: string, reason: string) => Promise<{ repository: string; deleted: number }>>();
+jest.unstable_mockModule('../src/services/registry-gc.js', () => ({
+  deleteQuarantineRepository,
+  QUARANTINE_PREFIX: 'quarantine/',
 }));
 
 const emitImageRegistryAudit = jest.fn();
@@ -154,11 +171,67 @@ describe('POST /internal/plugin-signatures', () => {
     expect(status).toBe(200);
   });
 
+  it('signs an anonymous submission\'s quarantine/<id> image only for a system-org token', async () => {
+    const repo = 'quarantine/0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';
+    expect((await post({ repository: repo, digest: DIGEST, sbom: SBOM }, '000000000000000000000001')).status).toBe(200);
+    expect(signPluginImage).toHaveBeenCalledWith({ repository: repo, digest: DIGEST, sbom: SBOM });
+    signPluginImage.mockClear();
+    const tenant = await post({ repository: repo, digest: DIGEST, sbom: SBOM });
+    expect(tenant.status).toBe(403);
+    expect(signPluginImage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed quarantine repository (nested path / uppercase)', async () => {
+    const { status } = await post({ repository: 'quarantine/Abc.def', digest: DIGEST, sbom: SBOM }, '000000000000000000000001');
+    expect(status).toBe(400);
+  });
+
   it('maps a signing failure to 502 and audits nothing', async () => {
     signPluginImage.mockRejectedValueOnce(new PluginSigningError('cosign sign failed: no such key'));
     const { status, body } = await post({ repository: `org-${ORG}/foo`, digest: DIGEST, sbom: SBOM });
     expect(status).toBe(502);
     expect(body.message).toMatch(/cosign sign failed/);
     expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /internal/quarantine/:submissionId', () => {
+  const SYSTEM_ORG = '000000000000000000000001';
+  const ID = '0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';
+  const del = async (id: string, org = SYSTEM_ORG) => {
+    const res = await fetch(`${baseUrl}/internal/quarantine/${id}`, { method: 'DELETE', headers: { 'x-test-org': org } });
+    return { status: res.status, body: await res.json() as Record<string, unknown> };
+  };
+
+  it('deletes every manifest in quarantine/<id> and audits the prune as registry.gc', async () => {
+    deleteQuarantineRepository.mockResolvedValue({ repository: `quarantine/${ID}`, deleted: 3 });
+    const { status, body } = await del(ID);
+    expect(status).toBe(200);
+    expect(body.data).toEqual({ repository: `quarantine/${ID}`, deleted: 3 });
+    expect(deleteQuarantineRepository).toHaveBeenCalledWith(`quarantine/${ID}`, 'requested');
+    expect(emitImageRegistryAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'registry.gc', targetId: `quarantine/${ID}`, affectedOrgId: SYSTEM_ORG,
+    }));
+  });
+
+  it('is idempotent: an already-gone repo answers deleted: 0 and audits nothing', async () => {
+    deleteQuarantineRepository.mockResolvedValue({ repository: `quarantine/${ID}`, deleted: 0 });
+    const { status, body } = await del(ID);
+    expect(status).toBe(200);
+    expect(body.data).toEqual({ repository: `quarantine/${ID}`, deleted: 0 });
+    expect(emitImageRegistryAudit).not.toHaveBeenCalled();
+  });
+
+  it('refuses a token minted for a tenant org (moderation state is the system org\'s)', async () => {
+    const { status, body } = await del(ID, ORG);
+    expect(status).toBe(403);
+    expect(body.code).toBe('ORG_MISMATCH');
+    expect(deleteQuarantineRepository).not.toHaveBeenCalled();
+  });
+
+  it.each([['uppercase', 'ABC'], ['a dot', 'a.b'], ['an overlong id', 'a'.repeat(129)]])('rejects %s as the submission id', async (_l, id) => {
+    const { status } = await del(id);
+    expect(status).toBe(400);
+    expect(deleteQuarantineRepository).not.toHaveBeenCalled();
   });
 });

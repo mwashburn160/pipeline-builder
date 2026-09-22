@@ -21,12 +21,39 @@ export const registryTopic: HelpTopic = {
         {
           type: 'text',
           content:
-            'The Registry page lists every repository in the in-cluster Docker registry and lets system admins inspect, copy, and delete tags. Repositories are namespaced by org: `system/*` holds catalog images visible to every authenticated user, and `org-<orgId>/*` holds each tenant\'s private builds.',
+            'The Registry page lists every repository in the in-cluster Docker registry and lets system admins inspect, copy, and delete tags. Repositories are namespaced: `system/*` holds the platform\'s own plugin builds, `org-<orgId>/*` holds each tenant\'s private builds, and `public/<publisher>/<name>` holds the images of plugins listed in the public plugin directory.',
         },
         {
           type: 'note',
           content:
             'This page is sysadmin-only. Org members see their own org\'s plugins on the Plugins page; they don\'t need the raw registry view.',
+        },
+      ],
+    },
+    {
+      id: 'public-namespace',
+      title: 'The public/* namespace',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'When the system org approves a plugin version for the public directory, image-registry copies that exact digest (manifest and layers, never the old signature) from the publisher\'s private repository into `public/<publisher>/<name>`, signs it fresh with the platform key, and attaches the SBOM as a signed attestation. The signature carries two signed annotations: the trust tier (`pb.trust`: official, verified, community or unverified) and the publisher handle (`pb.publisher`). Lookup verifies them, so a tier edited in the database without a re-sign is caught.',
+        },
+        {
+          type: 'list',
+          items: [
+            'Every signed-in identity may pull from `public/*`; nobody may push, retag or delete there — not even a superadmin. Only image-registry\'s internal publication routes, called by the plugin service, write it.',
+            'Listed versions are immutable: the same version can never point at a different digest. A mistake is fixed by yanking the version and publishing a new one.',
+            'Yank removes the version tag only. Pipelines pull by digest, so an existing pipeline keeps working; new resolutions stop picking the version.',
+            'A tier change, suspension or ownership transfer re-signs the image with new annotations; the image itself is unchanged.',
+            'Garbage collection never touches `public/*` by age. A digest is deleted only when it was yanked more than 180 days ago and no pipeline\'s step manifest still references it.',
+            'Storage in `public/*` counts toward the publishing org\'s registry usage.',
+          ],
+        },
+        {
+          type: 'note',
+          content:
+            'Copy tag and Delete tag refuse `public/*` targets. Publishing, yanking and re-signing happen through the Ecosystem console, never by hand.',
         },
       ],
     },

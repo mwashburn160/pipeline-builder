@@ -1,6 +1,6 @@
 // GENERATED FROM docs/organization-benefits.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 96d97d0524bfb70848bbc5055b16efd09106ad8fcc3ebd7d0a00b1f1c9b1b2c8
+// SOURCE-SHA256: cdbd48e7f2e4baa85111c3e5af0a29c086f4ca68d849185894ad147f3697693e
 // SPDX-License-Identifier: Apache-2.0
 import { Building2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -517,7 +517,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Add-on bundles — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is not an add-on — it comes with the Team tier and up. Effective limit = tier base + Σ(bundle grant × quantity), and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See Billing Add-on Bundles for the full catalog, prices, and pooling rules.",
+            "Add-on bundles — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), Listing Pack (+10 plugin-ecosystem listings), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is not an add-on — it comes with the Team tier and up. Effective limit = tier base + Σ(bundle grant × quantity), and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See Billing Add-on Bundles for the full catalog, prices, and pooling rules.",
             "Enforcement. Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage."
           ]
         }

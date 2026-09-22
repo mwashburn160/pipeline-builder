@@ -18,7 +18,7 @@ reviewable artifact.
 > A diff that touches this file is a permission change. Review it as a security
 > change: for each altered row, ask what a caller can now reach that they could
 > not before. `sysadmin` → a permission, `all(...)` → `any(...)`, a dropped
-> `aal2`/`step-up(...)`, a widened `internal(...)` caller list, or an added
+> `aal2`/`step-up(...)`/`system-org`, a widened `internal(...)` caller list, or an added
 > `+svc` are all **weakenings**, whatever the commit message says.
 
 Removing a row means the route is gone. Adding one means a newly gated route —
@@ -32,6 +32,46 @@ Its `KNOWN_UI_GATE_MISMATCHES` list names the routes whose control checks a
 different gate from the row below — read it alongside this file when a row
 changes, because relaxing a gate here can leave the UI as the only thing still
 enforcing the old one.
+
+## Plugin ecosystem governance routes
+
+Every `/plugins/ecosystem/*` row carries `system-org + ... + aal2`: only the
+system org decides anything in the plugin ecosystem, from an MFA-grade session
+(docs/plans/plugin-ecosystem.md §3.0). A row losing `system-org` or `aal2`, or
+gaining a tenant permission, is a governance weakening. The request-decision
+rows (`/requests/:id/approve`, `/second-approve`, `/reject`) show no
+`step-up(...)` because the step-up is demanded per request KIND inside the chain
+(yank, transfer, claim, profile change, Verified application, moderation
+actions); two-person approval and separation of duties are enforced by the
+service and pinned by `api/plugin/test/ecosystem-moderation.test.ts`. The tenant
+`/plugins/publisher*` and `/plugins/publish-requests*` rows only submit
+requests or narrow the caller's own reach, which
+`api/plugin/test/ecosystem-governance.test.ts` enforces.
+
+The org-local install rows (`/plugins/catalog`, `/plugins/listings/*/install-state`,
+`/plugins/installs*`, `/plugins/install-policy`, `/plugins/shadowing`) act only on
+the caller's own org. `plugins:install` may install, upgrade and uninstall, but an
+install of an approval-required tier made without `plugin_installs:manage` only
+becomes a pending request, and moving such an install across a major or `breaking`
+version needs `plugin_installs:manage` too; both are decided inside the service,
+so they don't show in the rows. Loosening `PUT /plugins/install-policy` below
+`plugin_installs:manage + step-up(any)` lets any member widen what the org's
+pipelines may run, which is a weakening.
+
+## Plugin reviews
+
+The review writes (`/plugins/listings/*/reviews`, `/plugins/reviews/*`) are
+gated on `plugins:read` on purpose: every member who can browse the catalog may
+rate and review (docs/plans/plugin-ecosystem.md §5a), and `aal1` is what makes
+them a PERSON's action — `requireAssurance({ minAssurance: 1 })` refuses service
+accounts and exchanged access keys with `HUMAN_SESSION_REQUIRED`. Dropping the
+`aal1` lets automation write, vote on and report reviews, which is a weakening.
+Who may act on WHICH review (the author edits and deletes; nobody from the
+publisher's own org reviews or votes; only the listing publisher's own managers
+reply) is decided in the service and pinned by
+`api/plugin/test/ecosystem-reviews.test.ts`. The `/plugins/ecosystem/reviews*`
+moderation rows follow the governance rule above; like the reserved names, they
+carry no step-up (§5a asks none for hiding or restoring user content).
 
 ## Deliberately read-gated writes
 
@@ -51,6 +91,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | `all(a\|b)` | Caller holds **every** one of these permissions |
 | `+svc` | A service principal also passes, without holding the permission |
 | `sysadmin` | Platform administrator only (`isSuperAdmin`) |
+| `system-org` | The caller's **active org** must be the system org (`requireSystemOrg`, the plugin-ecosystem governance boundary). Dropping it from a route gated on `plugins:moderate` / `publishers:verify` is a weakening — and fails api-core's `findSystemOrgGuardViolations` too |
 | `service-principal` | Any signed service token |
 | `internal(a,b)` | Peer services only, and only these callers — refuses every user token |
 | `feature(f)` | Paid entitlement `f` required |
@@ -179,6 +220,14 @@ body carries. `POST /messages` stays on `messages:write`.
 | image-registry | GET | `/api/images/:name/tags` | `any(registry:read)` |
 | image-registry | POST | `/api/images/copy` | `all(registry:read|registry:write)` |
 | image-registry | POST | `/internal/plugin-signatures` | `service-principal + internal(plugin)` |
+| image-registry | POST | `/internal/plugin-publications` | `service-principal + internal(plugin)` |
+| image-registry | POST | `/internal/plugin-publications/resign` | `service-principal + internal(plugin)` |
+| image-registry | DELETE | `/internal/quarantine/:submissionId` | `service-principal + internal(plugin)` |
+| image-registry | POST | `/internal/plugin-publications/yank` | `service-principal + internal(plugin)` |
+| image-registry | POST | `/internal/plugin-publications/retag` | `service-principal + internal(plugin)` |
+| image-registry | POST | `/internal/plugin-publications/gc` | `service-principal + internal(plugin)` |
+| image-registry | GET | `/internal/plugin-publications/verify` | `service-principal + internal(plugin)` |
+| image-registry | POST | `/internal/plugin-publications/verify-cache/invalidate` | `service-principal + internal(plugin)` |
 | message | GET | `/messages` | `any(messages:read)` |
 | message | POST | `/messages` | `any(messages:write)` |
 | message | DELETE | `/messages/:id` | `any(messages:write)` |
@@ -256,7 +305,10 @@ body carries. `POST /messages` stays on `messages:write`.
 | platform | GET | `/dashboards/:id` | `any(dashboards:read)` |
 | platform | POST | `/dashboards/:id/clone` | `any(dashboards:write)` |
 | platform | GET | `/dashboards/deleted` | `any(dashboards:read)` |
-| platform | POST | `/internal/notify-email` | `service-principal + internal(compliance)` |
+| platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
+| platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
+| platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin)` |
+| platform | GET | `/internal/notify-email/status` | `service-principal + internal(plugin)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |
 | platform | DELETE | `/invitation/:invitationId` | `any(invitations:manage) + org-admin-assurance` |
 | platform | POST | `/invitation/:invitationId/resend` | `any(invitations:manage) + org-admin-assurance` |
@@ -365,18 +417,91 @@ body carries. `POST /messages` stays on `messages:write`.
 | plugin | GET | `/plugins/:id` | `any(plugins:read)` |
 | plugin | GET | `/plugins/:id/sbom` | `any(plugins:read)` |
 | plugin | PUT | `/plugins/:id` | `any(plugins:write)` |
+| plugin | POST | `/plugins/:id/deprecate` | `any(plugins:write)` |
 | plugin | POST | `/plugins/:id/purge` | `any(plugins:write) + step-up(any)` |
 | plugin | POST | `/plugins/:id/restore` | `any(plugins:write) + step-up(any)` |
+| plugin | POST | `/plugins/:id/yank` | `any(plugins:write)` |
 | plugin | POST | `/plugins/bulk/delete` | `any(plugins:write) + feature(bulk_operations)` |
 | plugin | PUT | `/plugins/bulk/update` | `any(plugins:write) + feature(bulk_operations)` |
+| plugin | GET | `/plugins/catalog` | `any(plugins:read)` |
 | plugin | GET | `/plugins/deleted` | `any(plugins:read)` |
 | plugin | POST | `/plugins/deploy-generated` | `any(plugins:write)` |
+| plugin | GET | `/plugins/ecosystem/advisories` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/advisories` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | PATCH | `/plugins/ecosystem/advisories/:id` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/ecosystem/advisories/:id/withdraw` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | GET | `/plugins/ecosystem/listings` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/listings/:id/state` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/ecosystem/listings/:id/versions/:version/deprecate` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/ecosystem/listings/:id/versions/:version/unyank` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/ecosystem/listings/:id/versions/:version/yank` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | GET | `/plugins/ecosystem/overview` | `system-org + any(plugins:moderate|publishers:verify) + aal2` |
+| plugin | GET | `/plugins/ecosystem/publishers` | `system-org + any(plugins:moderate|publishers:verify) + aal2` |
+| plugin | POST | `/plugins/ecosystem/publishers/:id/suspend` | `system-org + any(publishers:verify) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/ecosystem/publishers/:id/tier` | `system-org + any(publishers:verify) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/ecosystem/publishers/:id/unsuspend` | `system-org + any(publishers:verify) + aal2 + step-up(any)` |
+| plugin | GET | `/plugins/ecosystem/requests` | `system-org + any(plugins:moderate|publishers:verify) + aal2` |
+| plugin | GET | `/plugins/ecosystem/requests/:id` | `system-org + any(plugins:moderate|publishers:verify) + aal2` |
+| plugin | GET | `/plugins/ecosystem/requests/:id/submission-sbom` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | GET | `/plugins/ecosystem/requests/:id/submission-scan` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/requests/:id/approve` | `system-org + any(plugins:moderate|publishers:verify) + aal2` |
+| plugin | POST | `/plugins/ecosystem/requests/:id/reject` | `system-org + any(plugins:moderate|publishers:verify) + aal2` |
+| plugin | POST | `/plugins/ecosystem/requests/:id/second-approve` | `system-org + any(plugins:moderate|publishers:verify) + aal2` |
+| plugin | POST | `/plugins/ecosystem/resign` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | GET | `/plugins/ecosystem/reviews` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/reviews/:id/hold` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/reviews/:id/release` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/reviews/:id/remove` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/reviews/:id/remove-reply` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | GET | `/plugins/ecosystem/reserved-names` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | DELETE | `/plugins/ecosystem/reserved-names/:name` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | PUT | `/plugins/ecosystem/reserved-names/:name` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | GET | `/plugins/ecosystem/rules` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/rules` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | DELETE | `/plugins/ecosystem/rules/:id` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | PATCH | `/plugins/ecosystem/rules/:id` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/ecosystem/rules/:id/approve-change` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | GET | `/plugins/publish-requests` | `any(plugins:read)` |
+| plugin | POST | `/plugins/publish-requests` | `any(plugins:publish|publishers:manage)` |
+| plugin | POST | `/plugins/publish-requests/:id/transfer-response` | `any(publishers:manage) + step-up(any)` |
+| plugin | POST | `/plugins/publish-requests/:id/withdraw` | `any(plugins:publish|publishers:manage)` |
+| plugin | GET | `/plugins/publish-requests/draft` | `any(plugins:publish)` |
+| plugin | GET | `/plugins/publisher` | `any(plugins:read)` |
+| plugin | PATCH | `/plugins/publisher` | `any(publishers:manage)` |
+| plugin | POST | `/plugins/publisher` | `any(publishers:manage)` |
+| plugin | GET | `/plugins/publisher/advisories` | `any(publishers:manage)` |
+| plugin | GET | `/plugins/publisher/incoming-transfers` | `any(publishers:manage)` |
+| plugin | GET | `/plugins/publisher/insights` | `any(plugins:read)` |
+| plugin | GET | `/plugins/publisher/listings` | `any(plugins:read)` |
+| plugin | POST | `/plugins/publisher/listings/:listingId/deprecate` | `any(plugins:publish)` |
+| plugin | POST | `/plugins/publisher/listings/:listingId/pause` | `any(plugins:publish)` |
+| plugin | POST | `/plugins/publisher/terms` | `any(publishers:manage)` |
 | plugin | GET | `/plugins/find` | `any(plugins:read)` |
 | plugin | POST | `/plugins/generate` | `any(plugins:write) + feature(ai_generation)` |
 | plugin | POST | `/plugins/generate/stream` | `any(plugins:write) + feature(ai_generation)` |
+| plugin | POST | `/plugins/inspect` | `any(plugins:write)` |
+| plugin | GET | `/plugins/install-policy` | `any(plugins:read)` |
+| plugin | PUT | `/plugins/install-policy` | `any(plugin_installs:manage) + step-up(any)` |
+| plugin | GET | `/plugins/installs` | `any(plugins:read)` |
+| plugin | POST | `/plugins/installs` | `any(plugins:install)` |
+| plugin | DELETE | `/plugins/installs/:id` | `any(plugins:install)` |
+| plugin | PATCH | `/plugins/installs/:id` | `any(plugins:install)` |
+| plugin | POST | `/plugins/installs/:id/approve` | `any(plugin_installs:manage)` |
+| plugin | POST | `/plugins/installs/:id/deny` | `any(plugin_installs:manage)` |
+| plugin | GET | `/plugins/listings/:publisher/:name/install-state` | `any(plugins:read)` |
+| plugin | GET | `/plugins/listings/:publisher/:name/review-state` | `any(plugins:read)` |
+| plugin | POST | `/plugins/listings/:publisher/:name/reviews` | `any(plugins:read) + aal1` |
+| plugin | DELETE | `/plugins/reviews/:id` | `any(plugins:read) + aal1` |
+| plugin | PATCH | `/plugins/reviews/:id` | `any(plugins:read) + aal1` |
+| plugin | DELETE | `/plugins/reviews/:id/helpful` | `any(plugins:read) + aal1` |
+| plugin | PUT | `/plugins/reviews/:id/helpful` | `any(plugins:read) + aal1` |
+| plugin | DELETE | `/plugins/reviews/:id/reply` | `any(publishers:manage) + aal1` |
+| plugin | PUT | `/plugins/reviews/:id/reply` | `any(publishers:manage) + aal1` |
+| plugin | POST | `/plugins/reviews/:id/report` | `any(plugins:read) + aal1` |
 | plugin | POST | `/plugins/lookup` | `any(plugins:read)` |
 | plugin | GET | `/plugins/plugin-usage` | `any(plugins:read)` |
 | plugin | GET | `/plugins/providers` | `any(plugins:read) + feature(ai_generation)` |
+| plugin | GET | `/plugins/shadowing` | `any(plugins:read)` |
 | plugin | DELETE | `/plugins/queue/dlq` | `sysadmin` |
 | plugin | GET | `/plugins/queue/dlq` | `any(plugins:write)` |
 | plugin | POST | `/plugins/queue/dlq/:jobId/replay` | `any(plugins:write)` |
@@ -416,6 +541,8 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | GET | `/reports/plugins/build-failures` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-success-rate` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/distribution` | `any(reports:read)` |
+| reporting | GET | `/reports/plugins/runtime-duration` | `any(reports:read)` |
+| reporting | GET | `/reports/plugins/runtime-success-rate` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/summary` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/versions` | `any(reports:read)` |
 | reporting | GET | `/reports/retention` | `any(reports:read)` |

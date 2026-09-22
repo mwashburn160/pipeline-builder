@@ -24,7 +24,7 @@ const listRepositories = jest.fn();
 const listTags = jest.fn<(name: string) => Promise<{ tags: string[] }>>();
 const getManifest = jest.fn<(name: string, ref: string) => Promise<{ digest: string }>>();
 const deleteManifest = jest.fn<(name: string, digest: string) => Promise<void>>();
-const isNotFound = (e: unknown): boolean => (e as { statusCode?: number })?.statusCode === 404;
+const isNotFound = (e: unknown): boolean => (e as { response?: { status?: number } })?.response?.status === 404;
 
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   listRepositories,
@@ -173,7 +173,7 @@ describe('DELETE /api/images/:name', () => {
   });
 
   it('returns 404 when the repo itself does not exist (listTags 404)', async () => {
-    listTags.mockRejectedValue(Object.assign(new Error('not found'), { statusCode: 404 }));
+    listTags.mockRejectedValue(Object.assign(new Error('not found'), { response: { status: 404 } }));
 
     const { status, body } = await del('org-acme/missing');
 
@@ -187,7 +187,7 @@ describe('DELETE /api/images/:name', () => {
     listTags.mockResolvedValue({ tags: ['a', 'b'] });
     getManifest.mockImplementation(async (_name, ref) => ({ digest: ref === 'a' ? 'sha256:aaa' : 'sha256:bbb' }));
     deleteManifest.mockImplementation(async (_name, digest) => {
-      if (digest === 'sha256:aaa') throw Object.assign(new Error('gone'), { statusCode: 404 });
+      if (digest === 'sha256:aaa') throw Object.assign(new Error('gone'), { response: { status: 404 } });
     });
 
     const { status, body } = await del('org-acme/racey');
@@ -230,7 +230,7 @@ describe('DELETE /api/images/:name/manifests/:reference', () => {
       if (ref === '1.0.0') return { digest };
       if (ref === `sha256-${hex}.sig`) return { digest: 'sha256:sig' };
       if (ref === `sha256-${hex}.att`) return { digest: 'sha256:att' };
-      throw Object.assign(new Error('nope'), { statusCode: 404 });
+      throw Object.assign(new Error('nope'), { response: { status: 404 } });
     });
     deleteManifest.mockResolvedValue(undefined);
 
@@ -243,7 +243,7 @@ describe('DELETE /api/images/:name/manifests/:reference', () => {
   it('tolerates an unsigned image (no companion tags)', async () => {
     getManifest.mockImplementation(async (_name, ref) => {
       if (ref === '1.0.0') return { digest };
-      throw Object.assign(new Error('nope'), { statusCode: 404 });
+      throw Object.assign(new Error('nope'), { response: { status: 404 } });
     });
     deleteManifest.mockResolvedValue(undefined);
 

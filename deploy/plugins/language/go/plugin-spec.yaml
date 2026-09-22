@@ -25,3 +25,15 @@ commands:
   - run-logged go-vet.log -- go vet ./...
 # env: GO_VERSION is baked into pipeline-go-base (single-version model); nothing
 # reads it at runtime, so it is intentionally omitted.
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://go.dev
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/language/go
+icon: go
+network:
+  egress:
+    - "proxy.golang.org"
+    - "sum.golang.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -49,3 +49,15 @@ commands:
   - "echo \"Prettier check complete. Report available in format-reports/\""
 env:
   PRETTIER_GLOB: "."
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://prettier.io
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/quality/prettier
+icon: prettier
+network:
+  egress:
+    - "registry.npmjs.org"
+    - "registry.yarnpkg.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

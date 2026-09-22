@@ -22,6 +22,25 @@ export const gettingStartedTopic: HelpTopic = {
       ],
     },
     {
+      id: 'browse-plugins',
+      title: 'Browse plugins',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'The plugin directory at /plugins is public: anyone can search it, browse the 10 categories and open a plugin page (README, versions, configuration, supply chain) without an account. "Browse plugins" on the home page goes there. Official plugins are available in every workspace without installing — copy the pipeline reference from a plugin page into your pipeline config.',
+        },
+        {
+          type: 'list',
+          items: [
+            'Press / anywhere in the directory to jump to the search box; results update as you type and the address bar is always a shareable link.',
+            '"Sign in" and "Sign in to install" bring you back to the same plugin or search after you sign in, whichever method you use (password, passkey, MFA, OAuth or SSO).',
+            'Bookmarkable sign-in link: /login?returnTo=/plugins/<publisher>/<name> signs you in and returns you to that page. Only paths on this site are honoured; anything else is ignored.',
+          ],
+        },
+      ],
+    },
+    {
       id: 'five-ways',
       title: 'Five ways to create a pipeline',
       blocks: [
@@ -64,20 +83,27 @@ export const gettingStartedTopic: HelpTopic = {
       blocks: [
         {
           type: 'text',
-          content: 'Install the CLI and authenticate with a JWT token from the dashboard:',
+          content: 'Install the CLI and sign in through your browser (the CLI shows a short code you approve on the platform — SSO, MFA and passkeys all apply):',
         },
         {
           type: 'code',
           language: 'bash',
           content: `npm install -g @pipeline-builder/pipeline-manager
-export PLATFORM_TOKEN=<jwt-from-login>
+pipeline-manager auth login --url https://<your-platform>
 
 pipeline-manager pipeline create --file my-pipeline.json --project my-app --organization my-org
 pipeline-manager pipeline deploy --id <pipeline-id>`,
         },
         {
+          type: 'list',
+          items: [
+            'In CI, create an access key with pipeline-manager auth pat (shown once) and set it as PLATFORM_TOKEN — it always wins over a stored sign-in.',
+            'Stored sign-ins appear under Settings → Sessions and devices, where you can sign them out.',
+          ],
+        },
+        {
           type: 'note',
-          content: 'Prerequisites: Node.js >= 24.9, pnpm >= 10.25, Docker',
+          content: 'Prerequisites: Node.js >= 24.14. Deploying a pipeline locally also needs esbuild and pnpm on PATH (the CLI checks and tells you).',
         },
       ],
     },
@@ -88,18 +114,22 @@ pipeline-manager pipeline deploy --id <pipeline-id>`,
         {
           type: 'text',
           content:
-            'Every API call flows through the Platform service. Platform handles user registration, login, JWT issuance, organization management, and role-based access control. When the CLI or dashboard makes a request, Platform validates the JWT, resolves your organization, and forwards the request to the appropriate backend service.',
+            'Requests from the dashboard, CLI and API enter through one ingress (nginx), which routes each path straight to the service that owns it. Platform signs you in and issues short-lived ES256 access tokens; every service verifies those tokens itself against Platform\'s published signing keys (JWKS), resolves your organization and checks your role\'s permissions. Services call each other with their own signed service tokens.',
         },
         {
           type: 'table',
           headers: ['Service', 'Purpose'],
           rows: [
-            ['Platform', 'Auth, orgs, users, JWT tokens, RBAC — central gateway'],
-            ['Pipeline', 'Pipeline config CRUD + AI generation'],
-            ['Plugin', 'Plugin CRUD, Docker builds, AI generation'],
+            ['Platform', 'Sign-in, sessions, access keys, users, organizations, roles, audit log'],
+            ['Pipeline', 'Pipeline config CRUD, templates, AI generation, plugin contract checks'],
+            ['Plugin', 'Plugin CRUD, image builds, signing and SBOMs, vulnerability scans, the public plugin directory'],
+            ['Image Registry', 'Registry tokens, image browsing, plugin image signing and the public/* namespace'],
+            ['Compliance', 'Per-organization rules evaluated on pipelines and plugins'],
+            ['Reporting', 'Execution, plugin and DORA reports'],
             ['Quota', 'Resource limits per organization'],
-            ['Billing', 'Subscription plans and lifecycle'],
-            ['Message', 'Org-to-org announcements and messaging'],
+            ['Billing', 'Plans, add-ons and subscription lifecycle'],
+            ['Message', 'Announcements, messaging and in-app notifications'],
+            ['Ask', 'Answers questions grounded on these docs'],
           ],
         },
       ],

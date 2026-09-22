@@ -10,12 +10,12 @@ import {
   streamText,
   Output,
 } from '@pipeline-builder/ai-core';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, isSystemOrgId } from '@pipeline-builder/api-core';
 
-import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and } from 'drizzle-orm';
+import { OFFICIAL_PUBLISHER_HANDLE, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { and, isNull, notInArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { availablePluginConditions } from './plugin-lookup-service.js';
+import { availablePluginConditions, findResolvableListings } from './plugin-lookup-service.js';
 
 export { getAvailableProviders, getProviderModels };
 
@@ -45,6 +45,12 @@ const PROMPT_VERSION = '2.0';
 
 export interface PluginSummary {
   name: string;
+  /**
+   * The publisher to write on the reference (plugin ecosystem §3.5): set for a
+   * listing an unqualified name wouldn't reach — any non-Official listing, or
+   * an Official one the org's own plugin of the same name shadows.
+   */
+  publisher?: string;
   description: string | null;
   version: string;
   pluginType: string;
@@ -55,6 +61,41 @@ export interface PluginSummary {
   category: string;
   metadata: Record<string, string | number | boolean>;
   env: Record<string, string>;
+  /**
+   * Who stands behind it (plugin ecosystem W7): `own` for the org's own (or
+   * parent's shared) plugin, otherwise the trust tier — a system-org catalog
+   * row or an Official listing is `official`.
+   */
+  tier?: PluginTrust;
+  /** Bayesian rating (0–5) of a listing, null when unrated or not a listing. */
+  ratingBayes?: number | null;
+  /** 0–100 health score of a listing (W7), null when unknown. */
+  healthScore?: number | null;
+  /** `paused` (publisher paused new installs) and `unmaintained` listings are offered last and flagged. */
+  lifecycle?: PluginLifecycle;
+}
+
+export type PluginTrust = 'own' | 'official' | 'verified' | 'community' | 'unverified';
+export type PluginLifecycle = 'active' | 'paused' | 'unmaintained';
+
+// -- Plugin ranking (W7) ------------------------------------------------------
+
+const TRUST_RANK: Record<PluginTrust, number> = { own: 0, official: 1, verified: 2, community: 3, unverified: 4 };
+
+/**
+ * Order the candidates the model sees (plugin ecosystem W7): the org's own
+ * plugins, then Official, then Verified, then everyone else; within a trust
+ * rung, active before paused/unmaintained, then by health score (unknown last).
+ * Stable, so equal candidates keep their catalog order. Pure.
+ */
+export function rankPlugins<T extends Pick<PluginSummary, 'tier' | 'healthScore' | 'lifecycle'>>(plugins: readonly T[]): T[] {
+  const trust = (p: T) => (p.tier ? TRUST_RANK[p.tier] : 5);
+  const winding = (p: T) => (p.lifecycle && p.lifecycle !== 'active' ? 1 : 0);
+  const health = (p: T) => (typeof p.healthScore === 'number' ? p.healthScore : -1);
+  return plugins
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => trust(a.p) - trust(b.p) || winding(a.p) - winding(b.p) || health(b.p) - health(a.p) || a.i - b.i)
+    .map(({ p }) => p);
 }
 
 // -- Plugin context helpers ---------------------------------------------------
@@ -89,13 +130,56 @@ function filterPluginsByContext(plugins: PluginSummary[], terms: string[]): Plug
   return filtered.length > 0 ? filtered : plugins;
 }
 
-/** Fetch active plugins visible to the given organization. */
+/**
+ * The plugins the given organization can reference: its own (and its parent's
+ * shared) rows, plus the LISTINGS it resolves — installed ones and the
+ * implicit Official ones (G17). An Official listing is offered by bare name
+ * unless the org's own plugin shadows it; every other listing carries its
+ * publisher, which the generator must write on the reference.
+ */
 async function getAvailablePlugins(orgId: string): Promise<PluginSummary[]> {
+  const [rows, listings] = await Promise.all([getAvailablePluginRows(orgId), findResolvableListings(orgId)]);
+  const ownNames = new Set(rows.map((r) => r.name));
+  const listed: PluginSummary[] = listings
+    // Never OFFER a deprecated version (W0.4).
+    .filter((l) => !l.deprecated)
+    .map((l) => {
+      const s = l.spec;
+      const record = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, never> : {});
+      const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+      const qualified = l.publisher !== OFFICIAL_PUBLISHER_HANDLE || ownNames.has(l.name);
+      const tier: PluginTrust = (['official', 'verified', 'community', 'unverified'] as const).find((t) => t === l.tier) ?? 'unverified';
+      const lifecycle: PluginLifecycle = l.paused ? 'paused' : l.unmaintained ? 'unmaintained' : 'active';
+      return {
+        name: l.name,
+        ...(qualified ? { publisher: l.publisher } : {}),
+        description: l.description,
+        version: l.version,
+        pluginType: typeof s.pluginType === 'string' ? s.pluginType : 'CodeBuildStep',
+        computeType: typeof s.computeType === 'string' ? s.computeType : 'SMALL',
+        commands: strings(s.commands),
+        installCommands: strings(s.installCommands),
+        keywords: l.keywords,
+        category: l.category,
+        metadata: record(s.metadata),
+        env: record(s.env),
+        tier,
+        ratingBayes: l.ratingBayes,
+        healthScore: l.healthScore,
+        lifecycle,
+      };
+    });
+  return rankPlugins([...rows, ...listed]);
+}
+
+/** The org's own (and parent's shared) active plugin rows. */
+async function getAvailablePluginRows(orgId: string): Promise<PluginSummary[]> {
   // withTenantTx sets `app.org_id` — the `plugins` table is FORCE ROW LEVEL
   // SECURITY, so a bare `db.select()` runs with a null GUC and the policy drops
   // the caller org's rows (AI context would miss the org's own plugins).
-  return withTenantTx(async (tx) => tx
+  const rows = await withTenantTx(async (tx) => tx
     .select({
+      orgId: schema.plugin.orgId,
       name: schema.plugin.name,
       description: schema.plugin.description,
       version: schema.plugin.version,
@@ -109,7 +193,17 @@ async function getAvailablePlugins(orgId: string): Promise<PluginSummary[]> {
       env: schema.plugin.env,
     })
     .from(schema.plugin)
-    .where(and(...availablePluginConditions(orgId)))) as Promise<PluginSummary[]>;
+    .where(and(
+      ...availablePluginConditions(orgId),
+      // Never OFFER a deprecated or yanked version (plugin-ecosystem W0.4): the
+      // AI would wire new pipelines onto something on its way out. Existing
+      // references still resolve (with a warning) through /plugins/lookup.
+      isNull(schema.plugin.deprecatedAt),
+      isNull(schema.plugin.yankedAt),
+      notInArray(schema.plugin.lifecycle, ['deprecated', 'yanked']),
+    ))) as Array<Omit<PluginSummary, 'tier'> & { orgId?: string | null }>;
+  // The system org's shared catalog rows are the Official plugins; the rest are the org's own.
+  return rows.map(({ orgId: rowOrg, ...p }) => ({ ...p, tier: rowOrg && isSystemOrgId(rowOrg) ? 'official' : 'own', lifecycle: 'active' }));
 }
 
 /**
@@ -161,6 +255,17 @@ export interface GenerationResult {
 
 // -- Prompt plugin list -------------------------------------------------------
 
+/** `trust: official, health: 92/100, rating: 4.4/5, PAUSED` — only what's known. */
+function qualityTags(p: PluginSummary): string {
+  const tags: string[] = [];
+  if (p.tier) tags.push(`trust: ${p.tier}`);
+  if (typeof p.healthScore === 'number') tags.push(`health: ${p.healthScore}/100`);
+  if (typeof p.ratingBayes === 'number') tags.push(`rating: ${p.ratingBayes}/5`);
+  if (p.lifecycle === 'paused') tags.push('PAUSED (no new installs)');
+  if (p.lifecycle === 'unmaintained') tags.push('UNMAINTAINED');
+  return tags.join(', ');
+}
+
 // Built fresh per call: a process-global cache keyed only on `name:version`
 // leaked one org's rendered plugin metadata (descriptions/keywords/env) into
 // another org's prompt when they shared name:version pairs. The render is a
@@ -168,8 +273,10 @@ export interface GenerationResult {
 function buildPluginList(plugins: PluginSummary[]): string {
   return plugins.length > 0
     ? plugins.map((p) => {
-      let line = `- "${p.name}" (v${p.version}, type: ${p.pluginType}, compute: ${p.computeType})${p.description ? `: ${p.description}` : ''}`;
+      let line = `- "${p.name}"${p.publisher ? ` [publisher: "${p.publisher}"]` : ''} (v${p.version}, type: ${p.pluginType}, compute: ${p.computeType})${p.description ? `: ${p.description}` : ''}`;
       const parts: string[] = [];
+      const quality = qualityTags(p);
+      if (quality) parts.push(quality);
       const keywords = p.keywords ?? [];
       if (keywords.length > 0) parts.push(`keywords: ${keywords.join(', ')}`);
       const category = (p.category || 'unknown').toLowerCase();
@@ -193,6 +300,7 @@ const PluginFilterSchema = z.object({
 
 const PluginOptionsSchema = z.object({
   name: z.string().describe('Plugin name (must match an available plugin)'),
+  publisher: z.string().optional().describe('The plugin\'s publisher, exactly as listed — ONLY for a plugin listed with a publisher'),
   alias: z.string().optional().describe('Optional alias for the plugin instance'),
   filter: PluginFilterSchema.describe('Plugin filter — set isDefault: true to use the default version'),
 });
@@ -313,6 +421,7 @@ ${pluginList}
    Optional top-level fields include **role** (custom IAM role with roleArn or roleName) and **schedule** (cron/rate expression for scheduled execution).
 3. **stages** are optional arrays of {stageName, steps: [{plugin: {name, filter: {isDefault: true}}, ...}]}
    - Every plugin reference MUST include filter with at minimum isDefault: true
+   - A plugin listed with [publisher: "x"] MUST be referenced with publisher: "x" next to its name; never add publisher to any other plugin
    - Optional filter fields: version, visibility ("public"|"private"), isActive
 4. For source, default to "github" if the user mentions a repo. Default branch to "main" unless specified.
 5. trigger values: "NONE" (default, manual), "AUTO" (automatic on changes), or "SCHEDULE" (cron-based).
@@ -320,7 +429,7 @@ ${pluginList}
 7. Only include fields the user explicitly or implicitly requested. Omit optional fields with no value.
 8. If the user mentions environment variables, include them in the env field of the relevant step.
 9. If the user does not specify a pipeline name, omit it (the system will auto-generate one).
-10. Choose the most appropriate plugin based on description, keywords, category, and env vars. Prefer plugins whose keywords match the user's technology stack. Use category to select appropriate plugins for each pipeline stage purpose (e.g., "testing" plugins for test stages, "security" for scan stages). Use failureBehavior on steps when the user indicates a step is optional or should not block the pipeline. Use "defaults.network" when the user mentions VPC, private subnets, or network isolation for CodeBuild. Use "codecommit" source type when the user references an AWS CodeCommit repository.
+10. Choose the most appropriate plugin based on description, keywords, category, and env vars. The list is ordered best-first: when several plugins fit equally, prefer trust "own", then "official", then "verified", then the higher health score; avoid PAUSED or UNMAINTAINED plugins unless the user asks for them by name. Prefer plugins whose keywords match the user's technology stack. Use category to select appropriate plugins for each pipeline stage purpose (e.g., "testing" plugins for test stages, "security" for scan stages). Use failureBehavior on steps when the user indicates a step is optional or should not block the pipeline. Use "defaults.network" when the user mentions VPC, private subnets, or network isolation for CodeBuild. Use "codecommit" source type when the user references an AWS CodeCommit repository.
 11. When the user needs Docker in builds (e.g., building Docker images, running containers), include Docker metadata in the global field:
    - "aws:cdk:pipelines:codepipeline:dockerenabledforsynth": true
    - "aws:cdk:codebuild:buildenvironment:privileged": true
@@ -379,7 +488,8 @@ function validateGeneratedPlugins(
   availablePlugins: PluginSummary[],
 ): string[] {
   const warnings: string[] = [];
-  const pluginNames = new Set(availablePlugins.map(p => p.name));
+  const refKey = (name: string, publisher?: string) => `${publisher ?? ''}/${name}`;
+  const pluginRefs = new Set(availablePlugins.map((p) => refKey(p.name, p.publisher)));
 
   // Enforce cdk-synth as the synth plugin with filter
   const synth = props.synth as { plugin?: { name?: string; filter?: Record<string, unknown> } } | undefined;
@@ -401,13 +511,14 @@ function validateGeneratedPlugins(
   }
 
   // Check stage step plugins and enforce filter.isDefault
-  const stages = props.stages as Array<{ steps?: Array<{ plugin?: { name?: string; filter?: Record<string, unknown> } }> }> | undefined;
+  const stages = props.stages as Array<{ steps?: Array<{ plugin?: { name?: string; publisher?: string; filter?: Record<string, unknown> } }> }> | undefined;
   if (stages) {
     for (const stage of stages) {
       for (const step of stage.steps ?? []) {
         const name = step.plugin?.name;
-        if (name && !pluginNames.has(name)) {
-          warnings.push(`Stage plugin "${name}" not found in available plugins`);
+        const publisher = step.plugin?.publisher || undefined;
+        if (name && !pluginRefs.has(refKey(name, publisher))) {
+          warnings.push(`Stage plugin "${publisher ? `${publisher}/` : ''}${name}" not found in available plugins`);
         }
         if (step.plugin) {
           if (!step.plugin.filter) {

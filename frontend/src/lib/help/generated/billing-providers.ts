@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 06a70d99d43db5b3195f5a40fb43f5a9ba3407aa4db4be66ece39263eba558d4
+// SOURCE-SHA256: 914a458c05544f443043e2263c6380ce3ec9f6671b5d925a29336e92c8a0b152
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -212,6 +212,12 @@ export const billingProvidersTopic: HelpTopic = {
               "storage_pack_monthly, storage_pack_annual"
             ],
             [
+              "listing_pack",
+              "$4.99",
+              "$49.90",
+              "listing_pack_monthly, listing_pack_annual"
+            ],
+            [
               "retention_pack",
               "$15",
               "$150",
@@ -263,7 +269,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "STRIPE_PRICE_MAP='{\n  \"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\n  \"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\n  \"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\n\n  \"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\n  \"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\n  \"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\n  \"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\n  \"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\n  \"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\n  \"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\n  \"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\n  \"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\n  \"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\n  \"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\n  \"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\"\n}'",
+          "content": "STRIPE_PRICE_MAP='{\n  \"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\n  \"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\n  \"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\n\n  \"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\n  \"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\n  \"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\n  \"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\n  \"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\n  \"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\n  \"listing_pack_monthly\":\"price_REPLACE\",\"listing_pack_annual\":\"price_REPLACE\",\n  \"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\n  \"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\n  \"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\n  \"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\n  \"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\n  \"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\"\n}'",
           "language": "bash"
         },
         {
@@ -717,6 +723,12 @@ export const billingProvidersTopic: HelpTopic = {
               "all"
             ],
             [
+              "listing_pack",
+              "ListingPack",
+              "$4.99 (499)",
+              "all"
+            ],
+            [
               "retention_pack",
               "RetentionPack",
               "$15 (1500)",
@@ -756,7 +768,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{\"seat\":\"Seat\",\"pipeline_pack\":\"PipelinePack\",\"plugin_pack\":\"PluginPack\",\"api_pack\":\"ApiPack\",\"ai_pack\":\"AiPack\",\"storage_pack\":\"StoragePack\",\"retention_pack\":\"RetentionPack\",\"dora_history_pack\":\"DoraHistoryPack\",\"advanced_reporting\":\"AdvancedReporting\",\"team_usage_analytics\":\"TeamUsageAnalytics\",\"compliance_standard\":\"ComplianceStandard\",\"compliance_advanced\":\"ComplianceAdvanced\"}'\n\nAWS_MARKETPLACE_DIMENSION_PRICE_MAP='{\"Seat\":1999,\"PipelinePack\":1500,\"PluginPack\":1000,\"ApiPack\":1999,\"AiPack\":1999,\"StoragePack\":1999,\"RetentionPack\":1500,\"DoraHistoryPack\":3000,\"AdvancedReporting\":3000,\"TeamUsageAnalytics\":3000,\"ComplianceStandard\":2990,\"ComplianceAdvanced\":9990}'",
+          "content": "AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{\"seat\":\"Seat\",\"pipeline_pack\":\"PipelinePack\",\"plugin_pack\":\"PluginPack\",\"api_pack\":\"ApiPack\",\"ai_pack\":\"AiPack\",\"storage_pack\":\"StoragePack\",\"listing_pack\":\"ListingPack\",\"retention_pack\":\"RetentionPack\",\"dora_history_pack\":\"DoraHistoryPack\",\"advanced_reporting\":\"AdvancedReporting\",\"team_usage_analytics\":\"TeamUsageAnalytics\",\"compliance_standard\":\"ComplianceStandard\",\"compliance_advanced\":\"ComplianceAdvanced\"}'\n\nAWS_MARKETPLACE_DIMENSION_PRICE_MAP='{\"Seat\":1999,\"PipelinePack\":1500,\"PluginPack\":1000,\"ApiPack\":1999,\"AiPack\":1999,\"StoragePack\":1999,\"ListingPack\":499,\"RetentionPack\":1500,\"DoraHistoryPack\":3000,\"AdvancedReporting\":3000,\"TeamUsageAnalytics\":3000,\"ComplianceStandard\":2990,\"ComplianceAdvanced\":9990}'",
           "language": "bash"
         },
         {

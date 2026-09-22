@@ -3,170 +3,175 @@
 
 import fs from 'fs';
 import path from 'path';
+import {
+  HEURISTICS_MAX_FILE_BYTES, lintPluginDockerfile, lintPluginSpec, scanPluginSourceHeuristics,
+  type DetectedField, type HeuristicFinding, type HeuristicsInputFile, type PluginCatalogField, type PluginLintFinding,
+} from '@pipeline-builder/api-core';
 import { Command } from 'commander';
-import YAML from 'yaml';
+import pico from 'picocolors';
 import { printCommandHeader } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler.js';
-import { printError, printSuccess, printWarning, fileExists } from '../utils/output-utils.js';
+import { printError, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import {
+  SOURCE_LABELS, detectPackageCatalog, formatCatalogValue, packageProblems, readPluginPackage, type PluginPackage,
+} from '../utils/plugin-package.js';
 
-interface ValidatePluginOptions {
-  dir?: string;
+const { dim, green, red, yellow } = pico;
+
+/** Fields a version needs before a publish request is accepted (§3.1 gates). */
+export const PUBLISH_REQUIRED_FIELDS: ReadonlySet<PluginCatalogField> = new Set(['license', 'readme']);
+
+export interface ValidationReport {
+  pkg: PluginPackage;
+  /** What the upload would refuse. */
+  problems: string[];
+  /** test-plugins.sh-equivalent findings (only when linted). */
+  lint: PluginLintFinding[];
+  /** The catalog fields as the server will detect them. */
+  fields: DetectedField[];
+  /** The malware heuristics the anonymous-submission gate runs (plugin-ecosystem §4.2, E8): `high` fails, `medium` warns. */
+  heuristics: HeuristicFinding[];
 }
 
-const PLUGIN_TYPES = ['CodeBuildStep', 'ShellStep', 'ManualApprovalStep'];
-const COMPUTE_TYPES = ['SMALL', 'MEDIUM', 'LARGE', 'X2_LARGE'];
-const FAILURE_BEHAVIORS = ['fail', 'warn', 'ignore'];
-const BUILD_TYPES = ['build_image', 'prebuilt', 'metadata_only'];
+/** Every regular file under the plugin dir (what the zip would carry), bounded like the server's read. */
+export function readPackageFilesForHeuristics(dir: string, max = 2_000): HeuristicsInputFile[] {
+  const out: HeuristicsInputFile[] = [];
+  const walk = (d: string): void => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (out.length >= max) return;
+      if (entry.name === '.git' || entry.name === 'node_modules') continue;
+      const full = path.join(d, entry.name);
+      if (entry.isDirectory()) {walk(full);} else if (entry.isFile()) {
+        const fd = fs.openSync(full, 'r');
+        try {
+          const buf = Buffer.alloc(HEURISTICS_MAX_FILE_BYTES + 1);
+          const n = fs.readSync(fd, buf, 0, buf.length, 0);
+          out.push({ path: path.relative(dir, full).split(path.sep).join('/'), content: buf.subarray(0, n) });
+        } finally {
+          fs.closeSync(fd);
+        }
+      }
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+/** A heuristic finding as one line of CLI output. */
+export function formatHeuristic(f: HeuristicFinding): string {
+  return `heuristics: ${f.message} (${f.path}:${f.line}) — ${f.excerpt}`;
+}
+
+/** Validate a plugin directory: server checks, optional catalog lint, catalog detection. */
+export async function validatePluginDir(dir: string, opts: { lint: boolean }): Promise<ValidationReport> {
+  const pkg = readPluginPackage(dir);
+  const problems = await packageProblems(pkg);
+  const lint: PluginLintFinding[] = [];
+  if (opts.lint) {
+    const specText = fs.readFileSync(path.join(pkg.dir, pkg.specFile), 'utf-8');
+    lint.push(...lintPluginSpec(pkg.rawSpec, specText));
+    if (pkg.dockerfileContent !== null) lint.push(...lintPluginDockerfile(pkg.dockerfileContent));
+  }
+  const heuristics = scanPluginSourceHeuristics(readPackageFilesForHeuristics(pkg.dir)).findings;
+  return { pkg, problems, lint, fields: detectPackageCatalog(pkg), heuristics };
+}
+
+/** Invalid detected values (blanked by the server) and publish-required fields left empty. */
+export function catalogIssues(fields: DetectedField[]): { invalid: DetectedField[]; missingForPublish: DetectedField[] } {
+  return {
+    invalid: fields.filter(f => f.error),
+    missingForPublish: fields.filter(f => !f.error && f.value === null && PUBLISH_REQUIRED_FIELDS.has(f.field)),
+  };
+}
+
+/** Print each catalog field with its value (or why it's blank) and where it came from. */
+export function printCatalogReport(fields: DetectedField[]): void {
+  printSection('Catalog metadata', 'as the server will detect it (spec → README → Dockerfile label → generated)');
+  const width = Math.max(...fields.map(f => f.field.length));
+  for (const f of fields) {
+    const label = f.field.padEnd(width);
+    const source = f.source ? dim(`[${SOURCE_LABELS[f.source] ?? f.source}]`) : '';
+    if (f.error) {
+      console.log(`  ${red('✗')} ${label}  ${red(`invalid — ${f.error}`)} ${source}`);
+    } else if (f.value === null) {
+      const required = PUBLISH_REQUIRED_FIELDS.has(f.field);
+      console.log(`  ${required ? yellow('!') : dim('·')} ${label}  ${dim('(empty)')}${required ? yellow('  required to publish') : ''}`);
+    } else {
+      console.log(`  ${green('✓')} ${label}  ${formatCatalogValue(f.value)} ${source}`);
+    }
+  }
+  console.log('');
+}
+
+interface ValidatePluginOptions {
+  dir: string;
+  lint?: boolean;
+  json?: boolean;
+}
 
 /**
- * Register the `validate-plugin` command — run the same structural + `{{ }}`
- * template checks the server's upload path enforces, against a LOCAL plugin
- * directory, so authors catch problems before packaging/uploading. Exits
- * non-zero on any problem (CI-friendly), mirroring `validate-templates`.
+ * Register `plugin validate` — the upload's own checks against a LOCAL plugin
+ * directory (the server's Zod spec/config schemas and template contract, shared
+ * from api-core), plus a report of every catalog field: its detected value, its
+ * source, and whether it would be empty or invalid (§3.1a). `--lint` adds the
+ * catalog's Dockerfile rules (test-plugins.sh). Exits non-zero on any problem,
+ * any invalid detected catalog value or any lint error (CI-friendly).
  *
  * Usage:
  *   pipeline-manager plugin validate --dir ./my-linter
+ *   pipeline-manager plugin validate --dir ./my-linter --lint --json
  */
 export function validatePlugin(program: Command): void {
   program
     .command('validate')
-    .description('Validate a local plugin directory (config.yaml + plugin-spec.yaml) before upload')
-    .requiredOption('--dir <path>', 'Path to the plugin directory')
+    .description('Validate a local plugin with the server\'s schemas and report its catalog metadata')
+    .option('--dir <path>', 'Path to the plugin directory', '.')
+    .option('--lint', 'Also apply the catalog\'s Dockerfile and spec rules (test-plugins.sh)', false)
+    .option('--json', 'Print the report as JSON', false)
     .action(async (options: ValidatePluginOptions) => {
-      const executionId = printCommandHeader('Validate Plugin');
+      const executionId = printCommandHeader('Validate Plugin', undefined, { quiet: options.json });
       try {
-        const dir = path.resolve(options.dir ?? '');
-        if (!fileExists(dir) || !fs.statSync(dir).isDirectory()) {
-          throw new ValidationError(`Not a directory: ${dir}`);
-        }
+        const report = await validatePluginDir(options.dir, { lint: !!options.lint });
+        const { invalid, missingForPublish } = catalogIssues(report.fields);
+        const lintErrors = report.lint.filter(l => l.level === 'error');
+        const highHeuristics = report.heuristics.filter(h => h.severity === 'high');
+        const failed = report.problems.length > 0 || invalid.length > 0 || lintErrors.length > 0 || highHeuristics.length > 0;
 
-        const problems: string[] = [];
-
-        // config.yaml (optional build manifest).
-        const configPath = ['config.yaml', 'config.yml'].map(f => path.join(dir, f)).find(fileExists);
-        let buildType = 'build_image';
-        let specFile = 'plugin-spec.yaml';
-        let dockerfileName = 'Dockerfile';
-        if (configPath) {
-          const config = (YAML.parse(fs.readFileSync(configPath, 'utf-8')) ?? {}) as Record<string, unknown>;
-          if (config.buildType !== undefined) {
-            if (typeof config.buildType !== 'string' || !BUILD_TYPES.includes(config.buildType)) {
-              problems.push(`config.yaml: buildType must be one of ${BUILD_TYPES.join(', ')}`);
-            } else {
-              buildType = config.buildType;
-            }
-          }
-          if (typeof config.pluginSpec === 'string') specFile = config.pluginSpec;
-          if (typeof config.dockerfile === 'string') dockerfileName = config.dockerfile;
-          if ((buildType === 'prebuilt' || buildType === 'metadata_only') && config.dockerfile) {
-            problems.push(`config.yaml: dockerfile is not allowed when buildType is ${buildType}`);
-          }
-        }
-
-        // plugin-spec.yaml (required).
-        const specPath = path.join(dir, specFile);
-        if (!fileExists(specPath)) throw new ValidationError(`Missing plugin spec: ${specPath}`);
-        const spec = (YAML.parse(fs.readFileSync(specPath, 'utf-8')) ?? {}) as Record<string, unknown>;
-
-        // Required fields.
-        if (typeof spec.name !== 'string' || !spec.name) problems.push('plugin-spec.yaml: name is required');
-        else if (!/^[a-z0-9-]+$/.test(spec.name)) problems.push('plugin-spec.yaml: name must match /^[a-z0-9-]+$/');
-        if (typeof spec.version !== 'string' || !spec.version) problems.push('plugin-spec.yaml: version is required');
-        // Match the server/DB semver check (allows -prerelease and +build metadata).
-        else if (!/^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$/.test(spec.version)) problems.push('plugin-spec.yaml: version must be semver (x.y.z)');
-
-        const pluginType = (typeof spec.pluginType === 'string' ? spec.pluginType : 'CodeBuildStep');
-        if (!PLUGIN_TYPES.includes(pluginType)) problems.push(`plugin-spec.yaml: pluginType must be one of ${PLUGIN_TYPES.join(', ')}`);
-        if (spec.computeType !== undefined && !COMPUTE_TYPES.includes(String(spec.computeType))) {
-          problems.push(`plugin-spec.yaml: computeType must be one of ${COMPUTE_TYPES.join(', ')}`);
-        }
-        if (spec.failureBehavior !== undefined && !FAILURE_BEHAVIORS.includes(String(spec.failureBehavior))) {
-          problems.push(`plugin-spec.yaml: failureBehavior must be one of ${FAILURE_BEHAVIORS.join(', ')}`);
-        }
-
-        const isApproval = pluginType === 'ManualApprovalStep';
-        if (!isApproval && (!Array.isArray(spec.commands) || spec.commands.length === 0)) {
-          problems.push('plugin-spec.yaml: commands[] is required (except for ManualApprovalStep)');
-        }
-
-        // Build-type prerequisites.
-        if (buildType === 'build_image' && !isApproval && !fileExists(path.join(dir, dockerfileName))) {
-          problems.push(`Dockerfile not found for buildType build_image: ${path.join(dir, dockerfileName)}`);
-        }
-        if (buildType === 'prebuilt' && !fileExists(path.join(dir, 'image.tar'))) {
-          problems.push('image.tar not found for buildType prebuilt');
-        }
-
-        // `{{ }}` template validation — same scope roots + templatable fields the
-        // server enforces at upload (pipeline-core primitives; no server dep).
-        const core = await import('@pipeline-builder/pipeline-core');
-        const isTpl = (f: string) =>
-          f === 'description' ||
-          f.startsWith('commands') ||
-          f.startsWith('installCommands') ||
-          f.startsWith('env.') || f.startsWith('env[') ||
-          f.startsWith('buildArgs.') || f.startsWith('buildArgs[');
-        const isKnown = core.allowedScopeRoots(['pipeline', 'plugin', 'env']);
-        const { errors } = core.validateTemplates(spec, isTpl, isKnown);
-        for (const e of errors) problems.push(`template [${e.field ?? '?'}]: ${e.message}`);
-
-        // Plugin CONTRACT check — mirrors the server's upload validation
-        // (api/plugin/src/helpers/plugin-spec.ts) so a spec rejected at upload also
-        // fails here (no false-green). Two independent rules per `{{ pipeline.vars.X }}`
-        // / `{{ pipeline.metadata.X }}` reference:
-        //   (a) declaration: unless the token has a `| default:`, X must be declared
-        //       in requiredVars / requiredMetadata;
-        //   (b) coercion type: if the token has a `| number|bool|json` filter, the
-        //       declared type in varsTypes/metadataTypes (default 'string') must match.
-        const requiredVars = new Set(Array.isArray(spec.requiredVars) ? (spec.requiredVars as unknown[]).map(String) : []);
-        const requiredMetadata = new Set(Array.isArray(spec.requiredMetadata) ? (spec.requiredMetadata as unknown[]).map(String) : []);
-        const varsTypes = (spec.varsTypes as Record<string, string>) ?? {};
-        const metadataTypes = (spec.metadataTypes as Record<string, string>) ?? {};
-        const coerceToType: Record<string, string> = { number: 'number', bool: 'bool', json: 'json' };
-        const templatableStrings: string[] = [
-          ...(typeof spec.description === 'string' ? [spec.description] : []),
-          ...(Array.isArray(spec.commands) ? spec.commands.filter((c): c is string => typeof c === 'string') : []),
-          ...(Array.isArray(spec.installCommands) ? spec.installCommands.filter((c): c is string => typeof c === 'string') : []),
-          ...Object.values((spec.env as Record<string, unknown>) ?? {}).filter((v): v is string => typeof v === 'string'),
-          ...Object.values((spec.buildArgs as Record<string, unknown>) ?? {}).filter((v): v is string => typeof v === 'string'),
-        ];
-        for (const source of templatableStrings) {
-          let tokens;
-          try { tokens = core.tokenize(source); } catch { continue; }
-          for (const t of tokens) {
-            if (t.kind !== 'expr') continue;
-            const [root, sub, key] = t.path;
-            if (root !== 'pipeline' || (sub !== 'vars' && sub !== 'metadata') || !key) continue;
-            const isVars = sub === 'vars';
-            // (a) declaration — waived by a `| default:`.
-            if (t.defaultValue === undefined) {
-              const declared = isVars ? requiredVars.has(key) : requiredMetadata.has(key);
-              if (!declared) problems.push(`contract: template references {{ pipeline.${sub}.${key} }} but '${key}' is not declared in ${isVars ? 'requiredVars' : 'requiredMetadata'}`);
-            }
-            // (b) coercion type — independent of default.
-            if (t.coerce) {
-              const declaredType = (isVars ? varsTypes : metadataTypes)[key] ?? 'string';
-              const expectedType = coerceToType[t.coerce];
-              if (expectedType && declaredType !== expectedType) {
-                problems.push(`contract: {{ pipeline.${sub}.${key} | ${t.coerce} }} but declared type is '${declaredType}' (add '${key}: ${expectedType}' to ${isVars ? 'varsTypes' : 'metadataTypes'})`);
-              }
-            }
-          }
-        }
-
-        if (problems.length === 0) {
-          printSuccess(`Plugin '${String(spec.name)}' is valid`, { executionId, buildType, pluginType });
+        if (options.json) {
+          console.log(JSON.stringify({
+            valid: !failed,
+            problems: report.problems,
+            lint: report.lint,
+            heuristics: report.heuristics,
+            catalog: report.fields,
+            missingForPublish: missingForPublish.map(f => f.field),
+          }, null, 2));
+          if (failed) process.exit(1);
           return;
         }
 
-        printWarning(`Found ${problems.length} problem(s):`);
-        for (const p of problems) printError(`  • ${p}`);
+        printCatalogReport(report.fields);
+        for (const w of report.lint.filter(l => l.level === 'warning')) printWarning(w.message);
+        for (const h of report.heuristics.filter(x => x.severity === 'medium')) printWarning(formatHeuristic(h));
+        if (missingForPublish.length) printWarning(`Needed before a publish request: ${missingForPublish.map(f => f.field).join(', ')}`);
+        if (!failed) {
+          printSuccess(`Plugin '${String(report.pkg.rawSpec.name)}' is valid`, { executionId, buildType: report.pkg.buildType });
+          return;
+        }
+        const all = [
+          ...report.problems,
+          ...invalid.map(f => `catalog: ${f.field} would be blank — ${f.error}`),
+          ...lintErrors.map(l => l.message),
+          ...highHeuristics.map(formatHeuristic),
+        ];
+        printWarning(`Found ${all.length} problem(s):`);
+        for (const p of all) printError(`  • ${p}`);
         process.exit(1);
       } catch (err) {
         handleError(err, err instanceof ValidationError ? ERROR_CODES.VALIDATION : ERROR_CODES.GENERAL, {
           debug: program.opts().debug,
           exit: true,
-          context: { command: 'validate-plugin', executionId },
+          context: { command: 'plugin validate', executionId },
         });
       }
     });

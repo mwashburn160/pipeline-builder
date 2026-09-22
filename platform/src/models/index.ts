@@ -12,11 +12,11 @@ export {
   type MfaResetRequestStatus,
   MFA_RESET_REQUEST_STATUSES,
 } from './mfa-reset-request.js';
-export { default as UserPreferences, type UserPreferencesDocument, type NotificationPreferences } from './user-preferences.js';
+export { default as UserPreferences, type UserPreferencesDocument, type NotificationPreferences, type EcosystemEmailPreferences } from './user-preferences.js';
 export { default as Organization, type OrganizationDocument } from './organization.js';
 export { default as UserOrganization, type UserOrganizationDocument, type OrgMemberRole, MEMBER_ROLES } from './user-organization.js';
-export { default as Role, ROLE_GRANTS } from './role.js';
-export type { RoleDocument, RoleGrant } from './role.js';
+export { default as Role, ROLE_GRANTS, ROLE_SEED_BUNDLES } from './role.js';
+export type { RoleDocument, RoleGrant, RoleSeedBundle } from './role.js';
 export { default as ServiceAccount } from './service-account.js';
 export type { ServiceAccountDocument } from './service-account.js';
 export { default as RoleAssignment, ROLE_ASSIGNMENT_SOURCES } from './role-assignment.js';

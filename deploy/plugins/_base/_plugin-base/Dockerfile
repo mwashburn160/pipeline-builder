@@ -176,9 +176,121 @@ _rc=$(cat "$_rcfile"); rm -f "$_rcfile"
 exit "$_rc"
 SCRIPT
 
+# fetch-verified — the ONE way a plugin/base Dockerfile downloads a file.
+#
+# Every download in the catalog is pinned: a fixed VERSION in the URL and the
+# upstream-published digest in the Dockerfile (never "latest", never
+# `curl | sh`). This helper retries transient network failures, then refuses
+# to write <dest> unless the payload matches the pinned digest. The digest
+# algorithm is picked by length: 64 hex = SHA-256, 128 hex = SHA-512 (used only
+# where the vendor publishes SHA-512 alone, e.g. the .NET SDK and Maven).
+#
+# Usage:  fetch-verified <url> <hex-digest> <dest>
+RUN cat > /usr/local/bin/fetch-verified <<'SCRIPT' && chmod 0755 /usr/local/bin/fetch-verified
+#!/bin/sh
+set -eu
+if [ "$#" -ne 3 ]; then
+  echo "usage: fetch-verified <url> <sha256|sha512 hex> <dest>" >&2
+  exit 2
+fi
+_url=$1; _sum=$2; _dest=$3
+case "${#_sum}" in
+  64)  _tool=sha256sum ;;
+  128) _tool=sha512sum ;;
+  *)   echo "fetch-verified: digest for ${_url} is not a SHA-256/512 hex string" >&2; exit 2 ;;
+esac
+_tmp=$(mktemp)
+_ok=0
+for i in 1 2 3 4 5; do
+  if curl -fsSL --retry 3 --retry-delay 2 "$_url" -o "$_tmp"; then _ok=1; break; fi
+  echo "fetch-verified: download attempt $i failed: ${_url}; sleeping $((i * 5))s" >&2
+  sleep $((i * 5))
+done
+[ "$_ok" = 1 ] || { rm -f "$_tmp"; echo "fetch-verified: FAILED to download ${_url}" >&2; exit 1; }
+if ! echo "${_sum}  ${_tmp}" | "$_tool" -c - >/dev/null 2>&1; then
+  echo "fetch-verified: CHECKSUM MISMATCH for ${_url}" >&2
+  echo "  expected: ${_sum}" >&2
+  echo "  actual:   $("$_tool" "$_tmp" | cut -d' ' -f1)" >&2
+  rm -f "$_tmp"; exit 1
+fi
+mkdir -p "$(dirname "$_dest")"
+mv "$_tmp" "$_dest"
+chmod 0644 "$_dest"
+SCRIPT
+
+# fetch-apt-key — add a third-party apt signing key, pinned by fingerprint.
+#
+# apt verifies every package against the repo's signed Release file, so the
+# trust root for an apt-installed tool is the signing key. This pins it: the
+# downloaded keyring must contain EXACTLY the expected primary-key fingerprints
+# (a rotated or substituted key fails the build loudly), and is written
+# dearmored to <keyring> for a `signed-by=` source line.
+#
+# Usage:  fetch-apt-key <url> <keyring-path> <FPR> [<FPR>...]
+RUN cat > /usr/local/bin/fetch-apt-key <<'SCRIPT' && chmod 0755 /usr/local/bin/fetch-apt-key
+#!/bin/sh
+set -eu
+if [ "$#" -lt 3 ]; then
+  echo "usage: fetch-apt-key <url> <keyring-path> <FPR> [<FPR>...]" >&2
+  exit 2
+fi
+_url=$1; _out=$2; shift 2
+_raw=$(mktemp); _home=$(mktemp -d)
+_ok=0
+for i in 1 2 3 4 5; do
+  if curl -fsSL --retry 3 "$_url" -o "$_raw"; then _ok=1; break; fi
+  echo "fetch-apt-key: attempt $i failed: ${_url}" >&2; sleep $((i * 5))
+done
+[ "$_ok" = 1 ] || { echo "fetch-apt-key: FAILED to download ${_url}" >&2; exit 1; }
+_got=$(GNUPGHOME="$_home" gpg --batch --show-keys --with-colons "$_raw" 2>/dev/null \
+  | awk -F: '/^pub/{p=1;next} p&&/^fpr/{print $10;p=0}' | sort -u | tr '\n' ' ')
+_want=$(printf '%s\n' "$@" | tr 'a-f' 'A-F' | sort -u | tr '\n' ' ')
+if [ "$_got" != "$_want" ]; then
+  echo "fetch-apt-key: FINGERPRINT MISMATCH for ${_url}" >&2
+  echo "  expected: ${_want}" >&2
+  echo "  actual:   ${_got}" >&2
+  exit 1
+fi
+install -d -m 0755 "$(dirname "$_out")"
+if grep -q -- "-----BEGIN PGP PUBLIC KEY BLOCK-----" "$_raw"; then
+  GNUPGHOME="$_home" gpg --batch --yes --dearmor -o "$_out" "$_raw"
+else
+  cp "$_raw" "$_out"
+fi
+chmod 0644 "$_out"
+rm -rf "$_raw" "$_home"
+SCRIPT
+
+# ─── Non-root runtime user ───
+#
+# Every plugin image runs as the unprivileged `plugin` user (uid/gid 1000,
+# HOME=/home/plugin). Ubuntu 24.04 ships a stock `ubuntu` user on uid 1000;
+# it is replaced so the uid has one well-known name across every base
+# (the Debian-based ruby base creates the same user).
+#
+# Consumers: a plugin Dockerfile that needs root for a build step (apt,
+# writes under /usr/local, /etc) switches with `USER root` and MUST end with
+# `USER 1000:1000` — test-plugins.sh fails any image whose final USER is root.
+# Numeric uid:gid so Kubernetes `runAsNonRoot` can verify it.
+#
+# Runtime: AWS CodeBuild runs buildspec commands as root unless the buildspec
+# sets `run-as` (CodeBuild buildspec reference), so this USER does not change
+# CodeBuild today. It is the image's declared runtime identity (what the
+# catalog's `runAsRoot` attribute and compliance rules read), what `docker run`
+# uses, and what `run-as: plugin` will use. Plugins are written to work either
+# way: tools are baked at build time and runtime-writable prefixes (language
+# package dirs, version-switch dirs) are owned by uid 1000.
+RUN set -eux; \
+    if id -u ubuntu >/dev/null 2>&1; then userdel -r ubuntu 2>/dev/null || userdel ubuntu; fi; \
+    groupadd --gid 1000 plugin; \
+    useradd --uid 1000 --gid 1000 --create-home --home-dir /home/plugin --shell /bin/bash plugin; \
+    install -d -o 1000 -g 1000 -m 0755 /app
+
 # Working directory for pipeline source — every plugin overrides commands
 # relative to this path.
 WORKDIR /app
+
+USER 1000:1000
 
 # Default entrypoint — overridden by CodeBuildStep commands.
 CMD ["bash"]

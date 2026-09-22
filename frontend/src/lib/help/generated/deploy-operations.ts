@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b47b233b8df198dd9e7ddc15dc58671fa7f49cc3b6e1bdac97897a7e93e05ba9
+// SOURCE-SHA256: 34c20b68b0caefe3413d71020518ef660ae81a79b5d346063bdab2ff76b4ef35
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -90,6 +90,7 @@ export const deployOperationsTopic: HelpTopic = {
             "User-token signing key (ES256, platform only). Rotate by kid: publish the incoming key alongside the retiring one, switch signing, then drop the old kid — nobody is logged out, and no other service needs a restart or a config change because they all read /.well-known/jwks.json. Full procedure. The stored machine credentials are opaque service-account keys, not JWTs, so the events Lambda and CodeBuild are unaffected by the rotation — nothing to re-mint. The overlap must outlive the longest refresh token (REFRESH_TOKEN_EXPIRES_IN, 30 days by default) or devices that have not refreshed are signed out.",
             "Per-service internal signing keys (internal service tokens only, stateless). One ES256 key per service, mounted into that service alone; rotate with deploy/bin/service-signing-keys.sh --rotate <service>, whose overlap is the retiring public key staying in the shared bundle. Service tokens live 5 minutes, so the window is short and no session is affected. Roll the public bundle out BEFORE the private key.",
             "POSTGRES_PASSWORD / DB_PASSWORD. Change the password in Postgres first, then update the secret, then roll: ALTER USER \"$POSTGRES_USER\" WITH PASSWORD '<new>'; → update the k8s Secret / .env → kubectl rollout restart deploy/postgres and the app deployments. Do NOT just rewrite .env.",
+            "ECOSYSTEM_PUBLIC_READER_PASSWORD (the public plugin directory's view-only login). Same order: ALTER ROLE ecosystem_public_reader WITH PASSWORD '<new>'; as the superuser → update .env / the postgres-secret key → restart pgbouncer (its userlist is seeded at startup; compose docker compose up -d --force-recreate pgbouncer, k8s kubectl rollout restart deploy/pgbouncer) and the plugin service. The role can only read the two public views, so a leak exposes nothing that isn't already public, but rotate it like any credential.",
             "MONGO_INITDB_ROOT_PASSWORD + MONGODB_URI. db.changeUserPassword() in Mongo first, then update the secret + URI, then roll.",
             "Mongo keyfile. Requires a rolling restart of the replica set with the new key (members must share it); plan a maintenance window.",
             "Registry signing keypair (jwt-keys.sh) — rotate via a two-cert trust bundle (new cert first) so in-flight registry tokens keep verifying: full procedure. Nothing to re-issue: CodeBuild presents a registry:push service-account key, and the signing keypair only affects the tokens image-registry mints."
@@ -428,6 +429,73 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Two limits worth knowing before relying on them. Under Istio ambient without waypoint proxies, Kiali's graph is L4 only — measured on a live cluster, ztunnel emits 553 istio_* series and istio_requests_total is zero — so you get who talks to whom, how much, and whether it is mTLS, but no HTTP rates, latency or status codes. And on docker only Grafana ships: that target runs no service mesh, so Kiali would render an empty graph."
+        },
+        {
+          "type": "text",
+          "content": "Provisioned dashboards. Grafana loads every dashboard JSON under config/grafana/dashboards/ (docker: config/grafana/provisioning/dashboards/) into a read-only Pipeline Builder folder; on the kubernetes targets the setup scripts turn that directory into the grafana-dashboards ConfigMap, mounted at /etc/grafana/provisioning/dashboards. Today that is Plugin ecosystem (uid: plugin-ecosystem): the moderation queue by kind and status, oldest pending request per lane, SLA breaches, manager decisions and latency, auto-approvals per rule, separation-of-duties and Verified-eligibility refusals, Ecosystem Manager headcount, re-sign progress and failures, and ecosystem notice sends / drops. The file is identical on every target (a platform test enforces it); edit it in source control, not in the UI. After changing it on kubernetes, re-run the setup script's ConfigMap step (or kubectl create configmap grafana-dashboards … --dry-run=client -o yaml | kubectl apply -f -) and restart Grafana."
+        },
+        {
+          "type": "text",
+          "content": "Plugin-ecosystem alerts (alert-rules.yml, every target; runbook Ecosystem Moderation):"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Alert",
+            "Fires when",
+            "Severity"
+          ],
+          "rows": [
+            [
+              "EcosystemSecurityLaneSLABreach",
+              "a security-fix request has waited over 4 h (5 min)",
+              "critical"
+            ],
+            [
+              "EcosystemStandardLaneSLABreach",
+              "a standard request has waited over 48 h (30 min)",
+              "warning"
+            ],
+            [
+              "EcosystemResignFailures",
+              "more than 3 image re-signs failed in the last hour",
+              "warning"
+            ],
+            [
+              "EcosystemResignStalled",
+              "re-sign jobs are queued but nothing was re-signed for 2 h",
+              "warning"
+            ],
+            [
+              "EcosystemApproverShortage",
+              "fewer than 2 system-org members hold plugins:moderate (1 h)",
+              "warning"
+            ],
+            [
+              "EcosystemNotificationsDropped",
+              "a queued ecosystem notice was given up on after its retries",
+              "warning"
+            ],
+            [
+              "SubmissionBacklogHigh",
+              "more than 25 anonymous plugin submissions awaiting gates or moderation for 1 h",
+              "warning"
+            ],
+            [
+              "SubmissionGateFailureSpike",
+              "more than 10 anonymous submissions failed the same gate in an hour",
+              "warning"
+            ],
+            [
+              "OfficialAutoApprovalAnomaly",
+              "the Official catalog auto-approval rule is near its 50/day cap or far above its usual hourly rate",
+              "warning"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The ecosystem gauges (ecosystem_requests_pending, ecosystem_requests_sla_breached, ecosystem_approvers, …) are sampled every minute by every plugin replica, so the rules take max() and never read a stale former leader. ecosystem_approvers is read from platform at most every 5 minutes and simply isn't reported while platform can't answer, so a platform outage never looks like an approver shortage."
         },
         {
           "type": "text",

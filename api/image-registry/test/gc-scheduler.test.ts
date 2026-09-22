@@ -41,14 +41,19 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () =>
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   listRepositoriesUnderPrefix: jest.fn(async () => []),
 }));
+const runQuarantineGc = jest.fn(async () => ({ reposScanned: 0, deleted: 0, skippedNoTimestamp: 0 }));
 jest.unstable_mockModule('../src/services/registry-gc.js', () => ({
   runRegistryGc: jest.fn(async () => ({ candidates: 0, deleted: 0, reposScanned: 0 })),
+  runQuarantineGc,
 }));
 jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
   invalidateStorageCache: jest.fn(),
+  computeStorageUsage: jest.fn(async () => ({ bytes: 0, incomplete: false })),
 }));
 
-const { startGcScheduler, stopGcScheduler } = await import('../src/services/gc-scheduler.js');
+const {
+  startGcScheduler, stopGcScheduler, startQuarantineGcScheduler, stopQuarantineGcScheduler,
+} = await import('../src/services/gc-scheduler.js');
 
 const ENV_KEYS = ['REGISTRY_GC_ENABLED', 'REGISTRY_GC_LOCK_TTL_MS'] as const;
 const savedEnv: Record<string, string | undefined> = {};
@@ -61,6 +66,7 @@ beforeEach(() => {
 
 afterEach(() => {
   stopGcScheduler();
+  stopQuarantineGcScheduler();
   for (const k of ENV_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k];
     else process.env[k] = savedEnv[k];
@@ -110,5 +116,36 @@ describe('startGcScheduler leader lock', () => {
 
     expect(createEnvRedisLock).not.toHaveBeenCalled();
     expect(createScheduler).not.toHaveBeenCalled();
+  });
+});
+
+// Anonymous-submission builds (`quarantine/*`, plugin ecosystem §4.2) are
+// removed 30 days after their build whether or not the operator opted in to the
+// org sweep: the 30-day bound is a retention promise, not a preference.
+describe('startQuarantineGcScheduler', () => {
+  it('runs even with REGISTRY_GC_ENABLED unset, under its own leader lock', async () => {
+    delete process.env.REGISTRY_GC_ENABLED;
+
+    startQuarantineGcScheduler();
+
+    expect(createScheduler).toHaveBeenCalledTimes(1);
+    const opts = createScheduler.mock.calls[0][0];
+    expect(opts.name).toBe('quarantine-gc');
+    expect(opts.lock?.key).toBe('image-registry:quarantine-gc:leader');
+    expect(opts.lock?.key).not.toBe('image-registry:gc-scheduler:leader');
+    await opts.run();
+    expect(runQuarantineGc).toHaveBeenCalledTimes(1);
+  });
+
+  it('never lets a failed sweep escape the scheduler', async () => {
+    startQuarantineGcScheduler();
+    runQuarantineGc.mockRejectedValueOnce(new Error('registry down'));
+    await expect(createScheduler.mock.calls[0][0].run()).resolves.toBeUndefined();
+  });
+
+  it('is idempotent', () => {
+    startQuarantineGcScheduler();
+    startQuarantineGcScheduler();
+    expect(createScheduler).toHaveBeenCalledTimes(1);
   });
 });

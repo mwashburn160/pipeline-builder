@@ -22,3 +22,14 @@ installCommands:
 commands:
   - run-logged dotnet-build.log -- dotnet build --no-restore --configuration Release
   - run-logged dotnet-test.log -- dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://dotnet.microsoft.com
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/language/dotnet
+icon: dotnet
+network:
+  egress:
+    - "api.nuget.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

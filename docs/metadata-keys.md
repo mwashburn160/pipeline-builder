@@ -7,7 +7,7 @@ title: Metadata Keys
 
 Strongly-typed configuration keys for customizing CodePipeline and CodeBuild resources at synth time. Import from `@pipeline-builder/pipeline-core`.
 
-Metadata keys let you override default behavior at three levels: **pipeline-wide** (via `global`), **per-stage**, or **per-step** (via `metadata` on individual plugin references).
+Metadata keys let you override default behavior **pipeline-wide** (`global`, `defaults.metadata`, `synth.metadata`) or **per step** (a step's `plugin.metadata` and `metadata`). See [Scope Levels](#scope-levels). In a JSON pipeline, use the key's **string value** (`aws:cdk:…`); the `MetadataKeys` constants are for TypeScript.
 
 Every key is consumed by one of three mechanisms — see [How keys are consumed](#how-keys-are-consumed). Each section below states which mechanism applies:
 
@@ -21,7 +21,7 @@ Every key is consumed by one of three mechanisms — see [How keys are consumed]
 
 ## Overview
 
-This reference catalogs the `MetadataKeys` constants (and their interchangeable raw string values) that customize CodePipeline and CodeBuild resources at synth time, imported from `@pipeline-builder/pipeline-core`. It's for authors building pipelines who need to override defaults — compute, VPC networking, IAM roles, security groups, notifications, operations, and encryption — at the pipeline, stage, or step scope. Keys are grouped by the construct they target; each group states which of the three consumption mechanisms (**construct prop**, **typed config**, or **custom synth**) applies. See [How keys are consumed](#how-keys-are-consumed) for the routing details and [Scope Levels](#scope-levels) for override precedence.
+This reference catalogs the `MetadataKeys` constants (and their interchangeable raw string values) that customize CodePipeline and CodeBuild resources at synth time, imported from `@pipeline-builder/pipeline-core`. It's for authors building pipelines who need to override defaults — compute, VPC networking, IAM roles, security groups, notifications, operations, and encryption — at the pipeline or step scope. Keys are grouped by the construct they target; each group states which of the three consumption mechanisms (**construct prop**, **typed config**, or **custom synth**) applies. See [How keys are consumed](#how-keys-are-consumed) for the routing details and [Scope Levels](#scope-levels) for override precedence.
 
 ---
 
@@ -183,19 +183,21 @@ Control KMS encryption for pipeline artifacts. **Wiring:** Custom synth — read
 
 ## Scope Levels
 
-Metadata keys can be applied at different scopes. More specific scopes override broader ones.
+Metadata keys can be applied at different scopes. More specific scopes override broader ones (last wins).
 
 | Scope | Where to set | Applies to |
 |-------|-------------|------------|
-| **Global** | `BuilderProps.global` | All steps in the pipeline |
-| **Stage** | Stage-level `metadata` | All steps in that stage |
-| **Step** | Step-level `metadata` | That specific build step only |
+| **Pipeline** | `global`, then `defaults.metadata`, then `synth.metadata` (merged in that order) | Every step in the pipeline, including synth |
+| **Plugin reference** | A step's `plugin.metadata` | That step |
+| **Step** | A step's `metadata` | That specific build step only |
+
+There is no stage-level metadata: a stage groups steps (`stageName`, `steps`, optional `environment`), and each step carries its own. The merged pipeline metadata is also the `{{ metadata.* }}` template scope, and the scope a plugin's `requiredMetadata` contract is checked against at pipeline create and at synth.
 
 ---
 
 ## How keys are consumed
 
-Keys are merged (global → stage → step) into a single metadata map, then routed by one of three mechanisms:
+Keys are merged (pipeline → plugin reference → step) into a single metadata map, then routed by one of three mechanisms:
 
 1. **Construct prop (`NAMESPACE_KEY_MAP`)** — keys under `pipelines:codepipeline`, `pipelines:codebuildstep`, `pipelines:shellstep`, and `codebuild:buildenvironment` are extracted by `buildConfigFromMetadata()` (`metadata-builder.ts`) and spread directly into the matching CDK construct props (`metadataForCodePipeline` / `metadataForCodeBuildStep` / `metadataForShellStep` / `metadataForBuildEnvironment`). Boolean keys are coerced from `"true"`/`"false"`.
 
@@ -251,7 +253,7 @@ new PipelineBuilder(stack, 'Pipeline', {
         connectionArn: 'arn:aws:codestar-connections:...',
       },
     },
-    plugin: { name: 'cdk-synth', version: '1.0.0' },
+    plugin: { name: 'cdk-synth', filter: { version: '1.0.0' } },
     metadata: {
       [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,
       [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',

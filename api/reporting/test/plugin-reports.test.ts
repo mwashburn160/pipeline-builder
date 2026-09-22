@@ -14,6 +14,7 @@ const mockGetPluginVersions = jest.fn();
 const mockGetBuildSuccessRate = jest.fn();
 const mockGetBuildDuration = jest.fn();
 const mockGetBuildFailures = jest.fn();
+const mockGetPluginRuntime = jest.fn();
 const mockResolveOrgRollup = jest.fn();
 
 // The single reports:rollup predicate — shared by the api-core `userHasPermission`
@@ -89,6 +90,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
     getBuildSuccessRate: mockGetBuildSuccessRate,
     getBuildDuration: mockGetBuildDuration,
     getBuildFailures: mockGetBuildFailures,
+    getPluginRuntime: mockGetPluginRuntime,
     // Phase 8: the per-org build reports resolve the org's effective retention
     // cap (resolveOrgMaxRangeMs) before parsing the date range. Default org (no
     // override) → the env-default event window.
@@ -102,7 +104,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 }));
 
 const { sendSuccess, sendBadRequest } = await import('@pipeline-builder/api-core');
-const { createPluginReportRoutes } = await import('../src/routes/plugin-reports.js');
+const { createPluginReportRoutes, parsePluginRuntimeFilter } = await import('../src/routes/plugin-reports.js');
 
 describe('Plugin Report Routes', () => {
   let router: any;
@@ -244,6 +246,73 @@ describe('Plugin Report Routes', () => {
 
       expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
       expect(mockGetBuildFailures).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 5, ['acme', 'team-child']);
+    });
+  });
+
+  // Plugin RUNTIME telemetry (W0.1): both routes read the one per-version
+  // aggregate and project their half of it.
+  describe('GET /runtime-success-rate and /runtime-duration', () => {
+    const row = {
+      pluginPublisher: 'pipeline-builder',
+      pluginName: 'jest',
+      pluginVersion: '1.2.0',
+      runs: 10,
+      succeeded: 9,
+      failed: 1,
+      successPct: 90,
+      p50Ms: 1000,
+      p95Ms: 5000,
+      lastRun: '2026-01-30T00:00:00Z',
+    };
+
+    it('success rate projects runs/succeeded/failed/successPct (no rollup by default)', async () => {
+      mockGetPluginRuntime.mockResolvedValue([row]);
+      await getHandler('/runtime-success-rate')({ query: {} }, {});
+
+      expect(mockResolveOrgRollup).not.toHaveBeenCalled();
+      expect(mockGetPluginRuntime).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), {}, undefined);
+      const { p50Ms: _p50, p95Ms: _p95, ...rate } = row;
+      expect(sendSuccess).toHaveBeenCalledWith({}, 200, { plugins: [rate] });
+    });
+
+    it('duration projects runs/p50Ms/p95Ms', async () => {
+      mockGetPluginRuntime.mockResolvedValue([row]);
+      await getHandler('/runtime-duration')({ query: {} }, {});
+
+      expect(sendSuccess).toHaveBeenCalledWith({}, 200, {
+        plugins: [{ pluginPublisher: 'pipeline-builder', pluginName: 'jest', pluginVersion: '1.2.0', runs: 10, p50Ms: 1000, p95Ms: 5000 }],
+      });
+    });
+
+    it('passes name/publisher/version filters; an empty publisher selects own-org plugins', async () => {
+      mockGetPluginRuntime.mockResolvedValue([]);
+      await getHandler('/runtime-success-rate')({ query: { name: 'jest', publisher: 'pipeline-builder', version: '1.2.0' } }, {});
+      expect(mockGetPluginRuntime).toHaveBeenLastCalledWith('acme', expect.any(String), expect.any(String),
+        { name: 'jest', publisher: 'pipeline-builder', version: '1.2.0' }, undefined);
+
+      await getHandler('/runtime-duration')({ query: { publisher: '' } }, {});
+      expect(mockGetPluginRuntime).toHaveBeenLastCalledWith('acme', expect.any(String), expect.any(String), { publisher: null }, undefined);
+    });
+
+    it.each([
+      [{ name: 'Bad Name' }, 'name'],
+      [{ name: ['a', 'b'] }, 'name'],
+      [{ publisher: '-x' }, 'publisher'],
+      [{ publisher: 'a'.repeat(40) }, 'publisher'],
+      [{ version: '1.0.0; drop' }, 'version'],
+    ])('rejects a malformed filter %j with 400', async (query, field) => {
+      await getHandler('/runtime-success-rate')({ query }, {});
+      expect(sendBadRequest).toHaveBeenCalledWith({}, expect.stringContaining(field), 'VALIDATION_ERROR');
+      expect(mockGetPluginRuntime).not.toHaveBeenCalled();
+      expect(parsePluginRuntimeFilter(query as never)).toHaveProperty('error');
+    });
+
+    it('rolls up over the subtree for a reports:rollup holder', async () => {
+      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
+      mockGetPluginRuntime.mockResolvedValue([]);
+      await getHandler('/runtime-duration')({ query: { includeDescendants: 'true' }, user: { permissions: ['reports:rollup'] } }, {});
+
+      expect(mockGetPluginRuntime).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), {}, ['acme', 'team-child']);
     });
   });
 

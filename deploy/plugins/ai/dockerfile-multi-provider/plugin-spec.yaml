@@ -158,3 +158,17 @@ commands:
 env:
   AI_PROVIDER: anthropic
   AI_MODEL: claude-sonnet-4
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://docs.anthropic.com
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/ai/dockerfile-multi-provider
+# icon: none — calls several AI providers, so no single vendor mark identifies it (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "api.anthropic.com"
+    - "api.openai.com"
+    - "api.x.ai"
+    - "generativelanguage.googleapis.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

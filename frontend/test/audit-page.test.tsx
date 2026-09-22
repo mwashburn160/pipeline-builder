@@ -111,6 +111,53 @@ describe('AuditPage — denied-attempts quick filter', () => {
   });
 });
 
+describe('AuditPage — ecosystem / moderation quick filters', () => {
+  const ev = (id: string, action: string, createdAt: string) => ({ _id: id, action, actorId: 'u', createdAt });
+
+  it('sends the group as ONE request with an actions list and renders the server page', async () => {
+    listAuditEvents.mockImplementation(async (...args: unknown[]) => {
+      const p = args[0] as { actions?: string };
+      const events = p.actions
+        ? [ev('b', 'plugin.install.approve', '2026-09-02T00:00:00Z'), ev('a', 'publisher.create', '2026-09-01T00:00:00Z')]
+        : [];
+      return { success: true, data: { events, pagination: { total: events.length, offset: 0, limit: 50, hasMore: false } } };
+    });
+    render(<AuditPage />);
+    const chip = await screen.findByRole('button', { name: /^ecosystem$/i });
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+
+    await waitFor(() => {
+      const last = listAuditEvents.mock.calls[listAuditEvents.mock.calls.length - 1][0] as { actions?: string; action?: string };
+      expect(last.actions).toBe('publisher.,plugin.listing.,plugin.request.,plugin.install.,org.plugin-install-policy.update');
+      expect(last.action).toBeUndefined();
+    });
+    const rows = await screen.findAllByRole('button', { name: /view audit event/i });
+    expect(rows.map((r) => r.getAttribute('aria-label'))).toEqual([
+      'View audit event: plugin.install.approve',
+      'View audit event: publisher.create',
+    ]);
+  });
+
+  it('is mutually exclusive with the denied-attempts chip and syncs to the URL', async () => {
+    render(<AuditPage />);
+    const moderation = await screen.findByRole('button', { name: /^moderation$/i });
+    const denied = screen.getByRole('button', { name: /denied attempts/i });
+    fireEvent.click(moderation);
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith(
+      expect.objectContaining({ query: expect.objectContaining({ group: 'moderation' }) }),
+      undefined,
+      { shallow: true },
+    ));
+    fireEvent.click(denied);
+    expect(denied).toHaveAttribute('aria-pressed', 'true');
+    expect(moderation).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(moderation);
+    expect(moderation).toHaveAttribute('aria-pressed', 'true');
+    expect(denied).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
 describe('AuditPage — identity filters', () => {
   const event = {
     _id: 'e1',

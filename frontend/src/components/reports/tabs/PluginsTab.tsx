@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { TabBar } from '@/components/ui/TabBar';
 import { PluginOverview } from '../PluginOverview';
 import { PluginBuilds } from '../PluginBuilds';
+import { PluginRuntime } from '../PluginRuntime';
 import { PluginVersions } from '../PluginVersions';
 import {
   usePluginsData, type PluginSubTab, type SharedFilters, type TabDataStatus,
@@ -14,6 +15,7 @@ import { useUrlTab } from '@/hooks/useUrlTab';
 const PLUGIN_TABS: { id: PluginSubTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'builds', label: 'Builds' },
+  { id: 'runs', label: 'Runs' },
   { id: 'versions', label: 'Versions' },
 ];
 
@@ -43,9 +45,9 @@ export function PluginsTab({ filters, onStatus }: PluginsTabProps) {
 
       {/* The team rollup reaches the build reports; the plugin INVENTORY is
           per-organization by design, so say so rather than imply it rolled up. */}
-      {filters.includeDescendants && subTab !== 'builds' && (
+      {filters.includeDescendants && subTab !== 'builds' && subTab !== 'runs' && (
         <p className="text-xs text-fg-muted" role="note">
-          Plugin inventory is per-organization — the team rollup applies to the Builds reports.
+          Plugin inventory is per-organization — the team rollup applies to the Builds and Runs reports.
         </p>
       )}
 
@@ -54,6 +56,9 @@ export function PluginsTab({ filters, onStatus }: PluginsTabProps) {
       )}
       {subTab === 'builds' && (
         <PluginBuilds loading={loading} buildTimeline={data.buildTimeline} buildDurations={data.buildDurations} buildFailures={data.buildFailures} showFailures={!!filters.systemAdmin} />
+      )}
+      {subTab === 'runs' && (
+        <PluginRuntime loading={loading} rows={data.pluginRuntime} />
       )}
       {subTab === 'versions' && (
         <PluginVersions loading={loading} pluginVersions={data.pluginVersions} />

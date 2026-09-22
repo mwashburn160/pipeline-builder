@@ -1,0 +1,21 @@
+# buildkitd config for the QUARANTINE builder (anonymous plugin submissions,
+# docs/plans/plugin-ecosystem.md §4.2 / W5). Deliberately separate from
+# ../buildkitd/buildkitd.toml: it carries ONLY what an untrusted build needs to
+# resolve images — the docker.io → in-cluster registry mirror (so bare
+# `FROM pipeline-plugin-base:24.04` resolves) and the registry's plain-HTTP
+# setting — and nothing else. No credentials ever live here: registry auth for
+# the push to quarantine/<submissionId> arrives per build over the buildctl
+# session from the plugin service.
+
+# Keep the local layer cache small — every build here is a one-off.
+[worker.oci]
+  gc = true
+  reservedSpace = "1GB"
+  maxUsedSpace = "4GB"
+  minFreeSpace = "2GB"
+
+[registry."docker.io"]
+  mirrors = ["registry:5000"]
+
+[registry."registry:5000"]
+  http = true

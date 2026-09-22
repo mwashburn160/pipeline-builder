@@ -309,7 +309,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [plugin, image-registry, nginx]
+                values: [plugin, plugin-quarantine-builder, image-registry, nginx]
       ports:
         - port: 5000
 
@@ -534,7 +534,14 @@ kind: NetworkPolicy
 metadata:
   name: allow-internal-egress
 spec:
-  podSelector: {}
+  # Every pod EXCEPT the anonymous-submission quarantine builder (see
+  # allow-plugin-quarantine-builder-egress at the end of this file). NotIn also
+  # matches pods with no `app` label, so this is `{}` minus exactly that pod.
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: NotIn
+        values: [plugin-quarantine-builder]
   policyTypes:
     - Egress
   egress:
@@ -861,4 +868,88 @@ spec:
         - port: 15012
           protocol: TCP
         - port: 15014
+          protocol: TCP
+
+---
+# =============================================================================
+# Quarantine builder (anonymous plugin submissions, plugin-ecosystem §4.2 / W5)
+# =============================================================================
+# plugin-quarantine-builder runs Dockerfile RUN steps from ANONYMOUS uploads.
+# It may reach only: DNS (allow-dns-egress), the in-cluster registry (push
+# quarantine/<id>, pull base images through the mirror), image-registry's /token
+# realm (via the pb-waypoint, which fronts that Service — the waypoint then
+# refuses it every other path and every other Service, istio-internal-routes.yaml)
+# and public package mirrors. `allow-internal-egress` above EXCLUDES it: policies
+# are additive, so leaving it matched there would re-open postgres, redis, minio,
+# platform … to anonymous code no matter what this rule says.
+#
+# 15008 is the ambient HBONE port every in-mesh hop actually lands on; 5000/3000
+# are the real ports for a CNI that sees un-tunnelled traffic.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-plugin-quarantine-builder-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: plugin-quarantine-builder
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [registry, image-registry]
+        - podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-class-name: istio-waypoint
+      ports:
+        - port: 5000
+          protocol: TCP
+        - port: 3000
+          protocol: TCP
+        - port: 15008
+          protocol: TCP
+    # Package mirrors: public 443/80 only, with the same carve-outs as
+    # allow-plugin-external-egress (no IMDS / Pod Identity agent, no VPC, no LAN).
+    # The FQDN allow-list is the Cilium layer (cilium-network-policies.yaml).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS) + Pod Identity agent
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 80
+          protocol: TCP
+
+---
+# Ingress: the plugin pod (buildctl → tcp://plugin-quarantine-builder:1234) and
+# nothing else. Under ambient the hop arrives on 15008 (allow-ambient-hbone) and
+# the plugin-quarantine-builder-allow AuthorizationPolicy (istio.yaml) is what
+# restricts it to sa/plugin.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-plugin-quarantine-builder-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: plugin-quarantine-builder
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: plugin
+      ports:
+        - port: 1234
           protocol: TCP

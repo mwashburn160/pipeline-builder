@@ -82,7 +82,7 @@ spec:
                 esac
               }
               until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
-              for b in message-attachments registry loki thanos plugins; do mc mb --ignore-existing "local/$b"; done
+              for b in message-attachments registry loki thanos plugins plugin-quarantine; do mc mb --ignore-existing "local/$b"; done
               # These were `|| true`. A silently-absent lifecycle rule is not
               # cosmetic: the plugins bucket then grows without bound, because
               # the expiry below is the backstop for a build whose cleanup
@@ -92,6 +92,11 @@ spec:
               # plugins holds transient build-context ZIPs (deleted post-build);
               # expire after 7 days as a backstop against a missed delete.
               run_ok "ilm expire plugins" mc ilm rule add --expire-days 7 local/plugins
+              # plugin-quarantine holds anonymous-submission zips (plugin-ecosystem
+              # §4.2, W5): 30 days is the quarantine retention promise (§8, G46) —
+              # the same window as a pending submission's expiry and the
+              # image-registry quarantine/* GC.
+              run_ok "ilm expire plugin-quarantine" mc ilm rule add --expire-days 30 local/plugin-quarantine
               make_user() {  # $1=bucket $2=policy $3=access $4=secret
                 echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$1\",\"arn:aws:s3:::$1/*\"]}]}" > /tmp/p.json
                 run_ok "policy create $2" mc admin policy create local "$2" /tmp/p.json
@@ -107,6 +112,12 @@ spec:
               make_user loki                loki-rw                "$LOKI_S3_ACCESS_KEY"     "$LOKI_S3_SECRET_KEY"
               make_user thanos              thanos-rw              "$THANOS_S3_ACCESS_KEY"   "$THANOS_S3_SECRET_KEY"
               make_user plugins             plugins-rw             "$PLUGIN_S3_ACCESS_KEY"   "$PLUGIN_S3_SECRET_KEY"
+              # The plugin service's SAME bucket-scoped user also gets
+              # plugin-quarantine (PLUGIN_QUARANTINE_BUCKET) through a second
+              # attached policy — no new credential to distribute.
+              echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
+              run_ok "policy create plugin-quarantine-rw" mc admin policy create local plugin-quarantine-rw /tmp/q.json
+              run_ok "policy attach plugin-quarantine-rw -> plugins user" mc admin policy attach local plugin-quarantine-rw --user "$PLUGIN_S3_ACCESS_KEY"
               echo 'minio-init done'
 ---
 apiVersion: v1

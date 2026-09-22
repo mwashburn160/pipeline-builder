@@ -1,6 +1,6 @@
 import { useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { GitBranch, ChevronDown, Plug, Loader } from 'lucide-react';
-import { BuilderProps, Plugin, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
+import { BuilderProps, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
@@ -9,6 +9,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useRepoAnalysis } from '@/hooks/internal/useRepoAnalysis';
 import PluginNameCombobox from '@/components/pipeline/editors/PluginNameCombobox';
+import { applyPluginPick, pickName, type PluginPick } from '@/lib/plugin-installs';
 import { PrivateRepoFields } from '@/components/pipeline/PrivateRepoFields';
 import { AnalysisResultPanel, PluginStatusPanel } from '@/components/pipeline/AnalysisResultPanel';
 import { formatJSON } from '@/lib/constants';
@@ -36,7 +37,7 @@ interface GitUrlTabProps {
 /** Props for the inline plugin review section. */
 interface PluginReviewSectionProps {
   props: BuilderProps;
-  onPluginChange: (path: string, pluginName: string, plugin: Plugin | null) => void;
+  onPluginChange: (path: string, pluginName: string, pick: PluginPick | null) => void;
   disabled?: boolean;
 }
 
@@ -66,8 +67,9 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
           <div className="pt-3">
             <PluginNameCombobox
               value={synth?.plugin?.name ?? ''}
+              publisher={synth?.plugin?.publisher}
               onChange={(name) => onPluginChange('synth', name, null)}
-              onSelectPlugin={(plugin) => onPluginChange('synth', plugin.name, plugin)}
+              onSelectPlugin={(pick) => onPluginChange('synth', pickName(pick), pick)}
               disabled={disabled}
               label="Synth plugin"
             />
@@ -84,8 +86,9 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
                   <PluginNameCombobox
                     key={`${si}-${stepIdx}`}
                     value={step.plugin?.name ?? ''}
+                    publisher={step.plugin?.publisher}
                     onChange={(name) => onPluginChange(`stages.${si}.steps.${stepIdx}`, name, null)}
-                    onSelectPlugin={(plugin) => onPluginChange(`stages.${si}.steps.${stepIdx}`, plugin.name, plugin)}
+                    onSelectPlugin={(pick) => onPluginChange(`stages.${si}.steps.${stepIdx}`, pickName(pick), pick)}
                     disabled={disabled}
                     label={`Step ${stepIdx + 1} Plugin`}
                   />
@@ -116,7 +119,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
     } = useRepoAnalysis({ initialUrl, autoGenerate });
 
     /** Update a plugin reference at the given path when the user swaps via combobox. */
-    const handlePluginChange = useCallback((path: string, pluginName: string, plugin: Plugin | null) => {
+    const handlePluginChange = useCallback((path: string, pluginName: string, pick: PluginPick | null) => {
       if (!generatedProps) return;
       const updated = structuredClone(generatedProps);
 
@@ -137,18 +140,8 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       // Always update name (covers both typing and dropdown selection)
       target.name = pluginName;
 
-      // If a full Plugin record was provided (dropdown selection), update filter + clear alias
-      if (plugin) {
-        target.filter = {
-          id: plugin.id,
-          orgId: plugin.orgId,
-          version: plugin.version,
-          visibility: plugin.visibility,
-          isDefault: plugin.isDefault,
-          isActive: plugin.isActive,
-        };
-        target.alias = undefined;
-      }
+      // A dropdown selection rewrites the reference (publisher / filter) and clears the alias
+      if (pick) applyPluginPick(target, pick);
 
       setGeneratedProps(updated);
       setPreviewJson(formatJSON(updated));

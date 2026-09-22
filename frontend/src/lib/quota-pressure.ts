@@ -36,6 +36,7 @@ export const QUOTA_TYPE_LABEL: Record<QuotaType, string> = {
   alertRules: 'Alert rules',
   alertDestinations: 'Alert destinations',
   idpConfigs: 'IdP configs',
+  listings: 'Plugin listings',
 };
 
 /** Compute the usage percentage for a single quota (0 for unlimited). */

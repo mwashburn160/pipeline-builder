@@ -73,3 +73,16 @@ env:
   NATIVE_BUILD: "false"
   MAVEN_GOAL: "clean verify"
   GRADLE_TASK: "clean build"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://www.graalvm.org
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/language/java-oracle
+# icon: none — Oracle/Java marks were removed from Simple Icons at Oracle's request; no confirmed press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "repo.maven.apache.org"
+    - "plugins.gradle.org"
+    - "services.gradle.org"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -105,13 +105,18 @@ export const AUTH_METHODS: readonly AuthMethod[] = ['pwd', 'oauth', 'sso', 'weba
  *   user-editable feature tables. Without these caps a single org could
  *   spam thousands of dashboards / rules and bloat the shared Postgres /
  *   Mongo working sets. Counted at create time; decremented on delete.
+ * - `listings` — active, non-suspended plugin-ecosystem listings a (root) org
+ *   publishes (docs/plans/plugin-ecosystem.md §3.7). A COUNT quota like
+ *   `plugins`: checked at publish-request submit and re-checked at approval;
+ *   installs never count.
  */
 // NOTE: `seats` is intentionally NOT here. It's a tier limit (QuotaTierLimits)
 // enforced by comparing the org's LIVE member count at invite time — not an
 // incrementing per-period counter like the consumable quotas below.
 export type QuotaType =
   | 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls' | 'storageBytes'
-  | 'dashboards' | 'alertRules' | 'alertDestinations' | 'idpConfigs';
+  | 'dashboards' | 'alertRules' | 'alertDestinations' | 'idpConfigs'
+  | 'listings';
 
 /**
  * Valid quota type values.
@@ -119,6 +124,7 @@ export type QuotaType =
 export const VALID_QUOTA_TYPES = [
   'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
   'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
+  'listings',
 ] as const;
 
 /**

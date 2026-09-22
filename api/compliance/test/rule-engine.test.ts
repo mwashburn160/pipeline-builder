@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect } from '@jest/globals';
-import { evaluateRules, type EvaluableRule, type ActiveExemption } from '../src/engine/rule-engine.js';
+import { evaluateRules, rootAttribute, type EvaluableRule, type ActiveExemption } from '../src/engine/rule-engine.js';
 
 function makeRule(overrides: Partial<EvaluableRule> = {}): EvaluableRule {
   return {
@@ -352,5 +352,60 @@ describe('an exemption applies to its own rule only', () => {
 
     expect(result.violations).toEqual([]);
     expect(result.rulesSkipped).toBe(1);
+  });
+});
+
+// ============================================
+// Deferred fields (plugin image facts before the build)
+// ============================================
+
+describe('evaluateRules — deferredFields', () => {
+  const signedRule = makeRule({ id: 'signed', name: 'require-signed', field: 'signed', operator: 'eq', value: true });
+  const pkgRule = makeRule({ id: 'pkgs', name: 'verify-packages', severity: 'warning', field: '$count(packages)', operator: 'countGt', value: 0 });
+  const nameRule = makeRule({ id: 'name', name: 'name', field: 'name', operator: 'eq', value: 'p' });
+
+  it('skips (never passes) a rule over a deferred attribute, incl. computed fields', () => {
+    const result = evaluateRules([signedRule, pkgRule, nameRule], { name: 'p' }, [], ['signed', 'packages']);
+    expect(result.blocked).toBe(false);
+    expect(result.warnings).toEqual([]);
+    expect(result.rulesSkipped).toBe(2);
+    expect(result.rulesEvaluated).toBe(1);
+  });
+
+  it('the same rules evaluate once the facts are real', () => {
+    const result = evaluateRules([signedRule, pkgRule], { signed: false, packages: [] });
+    expect(result.violations.map((v) => v.ruleName)).toEqual(['require-signed']);
+    expect(result.warnings.map((v) => v.ruleName)).toEqual(['verify-packages']);
+  });
+
+  it('a cross-field rule touching a deferred attribute is skipped as a whole', () => {
+    const rule = makeRule({
+      field: null,
+      operator: null,
+      conditions: [{ field: 'name', operator: 'eq', value: 'p' }, { field: 'runAsRoot', operator: 'neq', value: true }],
+      conditionMode: 'all',
+    });
+    const result = evaluateRules([rule], { name: 'p' }, [], ['runAsRoot']);
+    expect(result.rulesSkipped).toBe(1);
+    expect(result.rulesEvaluated).toBe(0);
+  });
+
+  it('a dependent of a deferred rule is skipped too (the deferred rule never passed)', () => {
+    const dependent = makeRule({
+      id: 'dep',
+      name: 'dep',
+      field: null,
+      operator: null,
+      conditions: [{ field: 'name', operator: 'eq', value: 'nope', dependsOnRule: 'signed' }],
+    });
+    const result = evaluateRules([signedRule, dependent], { name: 'p' }, [], ['signed']);
+    expect(result.violations).toEqual([]);
+    expect(result.rulesSkipped).toBe(2);
+  });
+
+  it('rootAttribute resolves dot paths and nested computed fields', () => {
+    expect(rootAttribute('$count(packages)')).toBe('packages');
+    expect(rootAttribute('props.stages')).toBe('props');
+    expect(rootAttribute('$count($keys(env))')).toBe('env');
   });
 });

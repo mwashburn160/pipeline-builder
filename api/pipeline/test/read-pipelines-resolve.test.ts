@@ -50,6 +50,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30',
     CACHE_CONTROL_DETAIL: 'private, max-age=60',
@@ -116,7 +117,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
       id: 'pid-1',
       visibility: 'public',
       pipelineName: 'p1',
-      metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
+      global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
       vars: {},
     });
     const res = mockRes();
@@ -124,7 +125,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     const payload = (res.json as jest.Mock).mock.calls[0][0];
     // Source form preserves template token intact
-    expect(payload.data.pipeline.metadata.clusterName).toBe('acme-{{ metadata.env }}');
+    expect(payload.data.pipeline.global.clusterName).toBe('acme-{{ metadata.env }}');
   });
 
   it('returns resolved form when resolve=true', async () => {
@@ -132,14 +133,14 @@ describe('GET /pipelines/:id ?resolve=true', () => {
       id: 'pid-1',
       visibility: 'public',
       pipelineName: 'p1',
-      metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
+      global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
       vars: {},
     });
     const res = mockRes();
     await handler(mockReq({ resolve: 'true' }), res);
     expect(res.status).toHaveBeenCalledWith(200);
     const payload = (res.json as jest.Mock).mock.calls[0][0];
-    expect(payload.data.pipeline.metadata.clusterName).toBe('acme-prod');
+    expect(payload.data.pipeline.global.clusterName).toBe('acme-prod');
   });
 
   it('returns source when resolve=false (any value other than "true")', async () => {
@@ -147,12 +148,12 @@ describe('GET /pipelines/:id ?resolve=true', () => {
       id: 'pid-1',
       visibility: 'public',
       pipelineName: 'p1',
-      metadata: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
+      global: { env: 'prod', clusterName: 'acme-{{ metadata.env }}' },
     });
     const res = mockRes();
     await handler(mockReq({ resolve: 'false' }), res);
     const payload = (res.json as jest.Mock).mock.calls[0][0];
-    expect(payload.data.pipeline.metadata.clusterName).toBe('acme-{{ metadata.env }}');
+    expect(payload.data.pipeline.global.clusterName).toBe('acme-{{ metadata.env }}');
   });
 
   it('returns 400 TEMPLATE_VALIDATION_FAILED when resolution hits an error', async () => {
@@ -164,7 +165,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
       id: 'pid-1',
       visibility: 'public',
       pipelineName: 'p1',
-      metadata: { a: '{{ metadata.b }}', b: '{{ metadata.a }}' },
+      global: { a: '{{ metadata.b }}', b: '{{ metadata.a }}' },
     });
     const res = mockRes();
     await handler(mockReq({ resolve: 'true' }), res);

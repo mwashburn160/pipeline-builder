@@ -38,3 +38,15 @@ commands:
   - "echo \"TypeScript check complete. Reports available in tsc-reports/\""
 env:
   TSC_FLAGS: "--noEmit"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://www.typescriptlang.org
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/quality/typescript-check
+icon: typescript
+network:
+  egress:
+    - "registry.npmjs.org"
+    - "registry.yarnpkg.com"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

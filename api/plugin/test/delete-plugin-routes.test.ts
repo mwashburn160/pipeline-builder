@@ -20,7 +20,12 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
+const mockRequireStepUp = jest.fn((_req: any, _res: any, next: () => void) => { next(); });
+const mockDecrementQuota = jest.fn();
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  requireStepUp: mockRequireStepUp,
+  decrementQuota: mockDecrementQuota,
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   requireVisibilityWriteAccess: jest.fn((_req: any, _res: any, _resource: any) => true),
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
@@ -55,15 +60,18 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-const mockFindById = jest.fn();
-const mockDelete = jest.fn();
+const mockFindById = jest.fn<(...args: any[]) => any>();
+const mockDeleteVersion = jest.fn<(...args: any[]) => any>();
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     findById: mockFindById,
-    delete: mockDelete,
+    deleteVersion: mockDeleteVersion,
   },
 }));
+
+const mockEmitPluginAudit = jest.fn();
+jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: mockEmitPluginAudit }));
 
 
 // Imports (after mocks)
@@ -73,17 +81,23 @@ const { createDeletePluginRoutes } = await import('../src/routes/delete-plugin.j
 
 // Helpers
 
-const router = createDeletePluginRoutes();
+const quotaService = { decrement: jest.fn() } as any;
+const router = createDeletePluginRoutes(quotaService);
 
-function getHandler(method: string, path: string) {
+function routeStack(method: string, path: string): any[] {
   const layer = (router as any).stack.find(
     (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
+  return layer.route.stack;
+}
+
+function getHandler(method: string, path: string) {
   // The terminal withRoute handler is the LAST entry in the route stack: each
   // route now carries its permission gate (and, on writes, the `audited(...)`
   // declaration) ahead of it.
-  return layer.route.stack[layer.route.stack.length - 1].handle;
+  const stack = routeStack(method, path);
+  return stack[stack.length - 1].handle;
 }
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
@@ -127,15 +141,17 @@ describe('DELETE /plugins/:id (delete)', () => {
 
   it('returns 200 on successful delete', async () => {
     mockFindById.mockResolvedValue(existingPlugin);
-    mockDelete.mockResolvedValue(existingPlugin);
+    mockDeleteVersion.mockResolvedValue({ deleted: existingPlugin, inUse: 0, listed: false, promoted: null });
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
     expect(mockFindById).toHaveBeenCalledWith('plugin-uuid-1', 'org-1');
-    expect(mockDelete).toHaveBeenCalledWith('plugin-uuid-1', 'org-1', 'user-1');
-    expect(sendSuccess).toHaveBeenCalledWith(res, 200, undefined, 'Plugin deleted.');
+    expect(mockDeleteVersion).toHaveBeenCalledWith(existingPlugin, 'org-1', 'user-1', { force: false });
+    expect(sendSuccess).toHaveBeenCalledWith(res, 200, {}, 'Plugin deleted.');
+    // No quota snapshot on the row → nothing to refund.
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
@@ -161,7 +177,7 @@ describe('DELETE /plugins/:id (delete)', () => {
     await handler(req, res);
 
     expect(mockFindById).toHaveBeenCalledWith('plugin-uuid-1', 'org-1');
-    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockDeleteVersion).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(404);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: false,
@@ -171,19 +187,19 @@ describe('DELETE /plugins/:id (delete)', () => {
   });
 
   it('returns 404 when delete returns null (public/system-org row matched no rows in caller org)', async () => {
-    mockFindById.mockResolvedValue(existingPlugin);
-    mockDelete.mockResolvedValue(null);
+    mockFindById.mockResolvedValue({ ...existingPlugin, quotaResetAt: new Date('2026-09-24T00:00:00Z') });
+    mockDeleteVersion.mockResolvedValue({ deleted: null, inUse: 0, listed: false, promoted: null });
 
     const req = mockReq();
     const res = mockRes();
     await handler(req, res);
 
-    // The delete route checks pluginService.delete()'s return value: a falsy
-    // result means the row (e.g. a public/system-org plugin the read surfaced)
-    // matched zero rows pinned to the caller's org, so it 404s rather than
-    // reporting a 200 for a deletion that never happened.
-    expect(mockDelete).toHaveBeenCalledWith('plugin-uuid-1', 'org-1', 'user-1');
+    // A null delete means the row (e.g. a public/system-org plugin the read
+    // surfaced) matched zero rows pinned to the caller's org: 404, no audit and
+    // no refund for a deletion that never happened.
     expect(sendSuccess).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(mockEmitPluginAudit).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
@@ -196,7 +212,70 @@ describe('DELETE /plugins/:id (delete)', () => {
     await handler(req, res);
 
     expect(requireVisibilityWriteAccess).toHaveBeenCalledWith(req, res, expect.objectContaining({ visibility: 'public' }), 'user-1', 'plugins:publish');
-    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockDeleteVersion).not.toHaveBeenCalled();
+  });
+
+  it('refunds the version\'s quota slot conditionally on its charge period', async () => {
+    const quotaResetAt = new Date('2026-09-24T00:00:00.000Z');
+    mockFindById.mockResolvedValue({ ...existingPlugin, quotaResetAt });
+    mockDeleteVersion.mockResolvedValue({ deleted: existingPlugin, inUse: 0, listed: false, promoted: null });
+
+    await handler(mockReq(), mockRes());
+
+    expect(mockDecrementQuota).toHaveBeenCalledWith(
+      quotaService, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, quotaResetAt.toISOString(),
+    );
+  });
+
+  it('passes force through, reports the promoted default and audits the forced delete', async () => {
+    const promoted = { id: 'plugin-uuid-0', version: '1.1.0' };
+    mockFindById.mockResolvedValue({ ...existingPlugin, isDefault: true });
+    mockDeleteVersion.mockResolvedValue({ deleted: existingPlugin, inUse: 2, listed: true, promoted });
+
+    const res = mockRes();
+    await handler(mockReq({ query: { force: 'true' } }), res);
+
+    expect(mockDeleteVersion).toHaveBeenCalledWith(expect.objectContaining({ id: 'plugin-uuid-1' }), 'org-1', 'user-1', { force: true });
+    expect(sendSuccess).toHaveBeenCalledWith(res, 200, { promotedDefault: { id: 'plugin-uuid-0', version: '1.1.0' } }, 'Plugin deleted.');
+    expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'plugin.delete',
+      details: expect.objectContaining({ force: true, inUsePipelines: 2, listed: true, promotedDefaultVersion: '1.1.0' }),
+    }));
+  });
+
+  it('surfaces the service\'s in-use refusal instead of deleting', async () => {
+    mockFindById.mockResolvedValue(existingPlugin);
+    mockDeleteVersion.mockRejectedValue(new Error('This plugin version is used by 1 pipeline.'));
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(500); // the test's withRoute maps every throw to 500
+    expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /plugins/:id — step-up only for force', () => {
+  // The route's own middleware between `audited(...)` and the handler.
+  const stack = routeStack('delete', '/:id');
+  const stepUpLayer = stack[stack.length - 2].handle;
+  const handler = getHandler('delete', '/:id');
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('does not demand a step-up for an ordinary delete', () => {
+    const next = jest.fn();
+    stepUpLayer(mockReq(), mockRes(), next);
+    expect(mockRequireStepUp).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('demands a step-up when force=true', () => {
+    const next = jest.fn();
+    const req = mockReq({ query: { force: 'TRUE' } });
+    stepUpLayer(req, mockRes(), next);
+    expect(mockRequireStepUp).toHaveBeenCalledWith(req, expect.anything(), next);
   });
 
   it('returns 500 on service error', async () => {

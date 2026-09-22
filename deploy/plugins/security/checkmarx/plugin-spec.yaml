@@ -96,3 +96,17 @@ env:
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and produces a deterministic version output.
 smokeTest: "cx version && kics version"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://checkmarx.com
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/security/checkmarx
+icon: checkmarx
+network:
+  egress:
+    - "ast.checkmarx.net"
+    - "*.ast.checkmarx.net"
+    - "iam.checkmarx.net"
+    - "*.iam.checkmarx.net"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

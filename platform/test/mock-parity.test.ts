@@ -12,6 +12,8 @@ import { describe, it, expect } from '@jest/globals';
 import {
   ALL_PERMISSIONS,
   ROLE_PERMISSIONS,
+  SYSTEM_ORG_ONLY_PERMISSIONS,
+  ECOSYSTEM_MANAGER_PERMISSIONS,
   TIER_FEATURES,
   ALL_FEATURE_FLAGS,
   VALID_TIERS,
@@ -49,6 +51,11 @@ describe('mock-api-core parity with real api-core', () => {
     for (const role of ['member', 'admin', 'owner'] as const) {
       expect(sorted(m[role] ?? [])).toEqual(sorted(ROLE_PERMISSIONS[role]));
     }
+  });
+
+  it('SYSTEM_ORG_ONLY_PERMISSIONS and ECOSYSTEM_MANAGER_PERMISSIONS match the real sets', () => {
+    expect(sorted(mock.SYSTEM_ORG_ONLY_PERMISSIONS as string[])).toEqual(sorted(SYSTEM_ORG_ONLY_PERMISSIONS));
+    expect(sorted(mock.ECOSYSTEM_MANAGER_PERMISSIONS as string[])).toEqual(sorted(ECOSYSTEM_MANAGER_PERMISSIONS));
   });
 
   it('REMOTE_AUDIT_ACTIONS matches the real set', () => {

@@ -11,6 +11,15 @@ const mockSetDefault = jest.fn();
 const mockSuperUpdate = jest.fn<(...a: any[]) => Promise<any>>();
 const mockSuperUpdateMany = jest.fn<(...a: any[]) => Promise<any[]>>();
 
+// The REAL semver helpers (pure functions), loaded BEFORE any mock is registered:
+// the default-version rule and the in-use count must be exercised against the
+// actual comparison, not a stub. (semver-range imports drizzle-orm, which this
+// suite mocks below — importing it first binds the real one.)
+const realSemver = await import('@pipeline-builder/pipeline-data/lib/api/semver-range.js');
+const mockPluginResolutionOrderBy = jest.fn((..._a: any[]) => ['resolution-order']);
+// api-core is never mocked in this suite, so the real system-org id is safe to load first.
+const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
   class MockCrudService {
     find = mockFind;
@@ -33,6 +42,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
     viewerCacheSegment: jest.fn(() => 'v1'),
     getTenantContext: jest.fn(() => undefined),
     withTenantTx: jest.fn(),
+    parseSemver: realSemver.parseSemver,
+    compareSemverParts: realSemver.compareSemverParts,
+    satisfiesVersionSpec: realSemver.satisfiesVersionSpec,
+    semverOrderBy: jest.fn(() => []),
+    // Mirrors pipeline-core's owner-namespaced repository rule.
+    pluginImageRepository: (p: any) => (p.buildType === 'metadata_only' ? null : `${p.orgId === SYSTEM_ORG_ID ? 'system' : `org-${p.orgId}`}/${p.name}`),
     ComputeType: {},
     PluginType: {},
     schema: {
@@ -73,6 +88,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     viewerCacheSegment: jest.fn(() => 'v1'),
     getTenantContext: jest.fn(() => undefined),
     withTenantTx: jest.fn(),
+    parseSemver: realSemver.parseSemver,
+    compareSemverParts: realSemver.compareSemverParts,
+    satisfiesVersionSpec: realSemver.satisfiesVersionSpec,
+    semverOrderBy: jest.fn(() => []),
+    pluginResolutionOrderBy: mockPluginResolutionOrderBy,
+    runWithTenantContext: jest.fn((_ctx: unknown, fn: () => unknown) => fn()),
+    OFFICIAL_PUBLISHER_HANDLE: 'pipeline-builder',
     ComputeType: {},
     PluginType: {},
     schema: {
@@ -88,13 +110,23 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         orgId: 'orgId',
         visibility: 'visibility',
       },
+      pipelineStepManifest: {
+        orgId: 'manifest.orgId',
+        pluginName: 'manifest.pluginName',
+        pluginVersion: 'manifest.pluginVersion',
+        pluginPublisher: 'manifest.pluginPublisher',
+        imageRepository: 'manifest.imageRepository',
+      },
     },
   };
 });;
 
+// Records each tagged template's text + values so a test can read back the SQL
+// a query was built from.
+const mockSql = jest.fn((strings?: any, ...vals: any[]) => ({ text: Array.isArray(strings) ? strings.join('?') : '', vals }));
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   SQL: class {},
-  sql: Object.assign((..._a: any[]) => ({}), { raw: (..._a: any[]) => ({}) }),
+  sql: Object.assign(mockSql, { raw: (..._a: any[]) => ({}) }),
   and: jest.fn((...args: any[]) => args),
   or: jest.fn((...args: any[]) => args),
   ilike: jest.fn((col: any, val: any) => ({ col, val, op: 'ilike' })),
@@ -104,6 +136,17 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   inArray: jest.fn((col: any, vals: any[]) => ({ col, vals, op: 'inArray' })),
 }));
 
+// Installing orgs of a row's listing versions (W2) — the fan-out has its own suite.
+const mockInstallingOrgs = jest.fn(async (): Promise<Array<{ orgId: string; install: null }>> => []);
+const mockVersionsBySource = jest.fn(async (): Promise<any[]> => []);
+const mockListingById = jest.fn(async (): Promise<any> => null);
+const mockPublisherById = jest.fn(async (): Promise<any> => null);
+jest.unstable_mockModule('../src/services/ecosystem/install-notify.js', () => ({ installingOrgs: mockInstallingOrgs }));
+jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
+  versions: { bySourcePlugins: mockVersionsBySource },
+  listings: { byId: mockListingById },
+  publishers: { byId: mockPublisherById },
+}));
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
@@ -176,32 +219,59 @@ describe('PluginService', () => {
       expect(mockValues).not.toHaveBeenCalled();
     });
 
-    it("refuses to take the default away from another author's PRIVATE plugin (409)", async () => {
-      // No row at this version, but the current default of the name is user-A's private plugin.
+    /** No row at the uploaded version; the name's current default is user-A's private 1.0.0. */
+    const withPrivateDefault = () => {
       let call = 0;
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
         execute: jest.fn(async () => []),
         select: jest.fn(() => {
-          const rows = call++ === 0 ? [] : [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+          const rows = call++ === 0 ? [] : [{ id: 'd-1', version: '1.0.0', visibility: 'private', createdBy: 'user-A', deletedAt: null }];
           return { from: () => ({ where: () => Object.assign(Promise.resolve(rows), { for: async () => rows }) }) };
         }),
         update: jest.fn(() => ({ set: mockUpdateSet })),
         insert: jest.fn(() => ({ values: mockValues })),
       }));
+    };
 
-      await expect(service.deployVersion({ ...data, version: '2.0.0' }, 'user-B', member)).rejects.toMatchObject({ statusCode: 409 });
+    it("refuses to take the default away from another author's PRIVATE plugin (409)", async () => {
+      withPrivateDefault();
+      // A same-major release would take over the default, so it needs write access to user-A's row.
+      await expect(service.deployVersion({ ...data, version: '1.1.0' }, 'user-B', member)).rejects.toMatchObject({ statusCode: 409 });
       expect(mockUpdateSet).not.toHaveBeenCalled();
       expect(mockValues).not.toHaveBeenCalled();
     });
 
+    it('a new major never takes over the default, so it needs no access to the current default row', async () => {
+      withPrivateDefault();
+      await service.deployVersion({ ...data, version: '2.0.0' }, 'user-B', member);
+      expect(mockUpdateSet).not.toHaveBeenCalled(); // the current default is untouched
+      expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ version: '2.0.0', isDefault: false }));
+    });
+
+    it('a same-major patch release becomes the default and demotes the old one', async () => {
+      let call = 0;
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn(async () => []),
+        select: jest.fn(() => {
+          const rows = call++ === 0 ? [] : [{ id: 'd-1', version: '1.0.0', visibility: 'org', createdBy: 'user-A', deletedAt: null }];
+          return { from: () => ({ where: () => Object.assign(Promise.resolve(rows), { for: async () => rows }) }) };
+        }),
+        update: jest.fn(() => ({ set: mockUpdateSet })),
+        insert: jest.fn(() => ({ values: mockValues })),
+      }));
+      await service.deployVersion({ ...data, version: '1.0.1' }, 'user-B', member);
+      expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }));
+      expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ version: '1.0.1', isDefault: true }));
+    });
+
     it('allows the author (private), a publisher (public), a member (org), and a system admin', async () => {
-      existingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      existingRows = [{ version: '1.0.0', visibility: 'private', createdBy: 'user-A', deletedAt: null }];
       await service.deployVersion(data, 'user-A', member);
-      existingRows = [{ visibility: 'public', createdBy: 'user-A', deletedAt: null }];
+      existingRows = [{ version: '1.0.0', visibility: 'public', createdBy: 'user-A', deletedAt: null }];
       await service.deployVersion(data, 'user-B', { isSystemAdmin: false, canPublish: true });
-      existingRows = [{ visibility: 'org', createdBy: 'user-A', deletedAt: null }];
+      existingRows = [{ version: '1.0.0', visibility: 'org', createdBy: 'user-A', deletedAt: null }];
       await service.deployVersion(data, 'user-B', member);
-      existingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+      existingRows = [{ version: '1.0.0', visibility: 'private', createdBy: 'user-A', deletedAt: null }];
       await service.deployVersion(data, 'admin', { isSystemAdmin: true, canPublish: false });
       expect(mockValues).toHaveBeenCalledTimes(4);
     });
@@ -432,4 +502,304 @@ describe('PluginService', () => {
     });
   });
 
+
+  // ---------------------------------------------------------------------------
+  // W0.3 / W0.4 / W0.5 — resolution order, delete safety, lifecycle
+  // ---------------------------------------------------------------------------
+
+  describe('findFirstOrderBy — the shared lookup ranking', () => {
+    it('delegates to pluginResolutionOrderBy with the caller org and parent org', () => {
+      const order = (service as any).findFirstOrderBy({}, 'org-1', 'parent-1');
+      expect(mockPluginResolutionOrderBy).toHaveBeenCalledWith('org-1', 'parent-1');
+      expect(order).toEqual(['resolution-order']);
+    });
+  });
+
+  describe('deleteVersion — delete safety (W0.5)', () => {
+    const row = { id: 'p-1', orgId: 'org-1', name: 'trivy', version: '1.0.0', isDefault: false, frozenAt: null, quotaResetAt: null } as any;
+    let deleteSpy: jest.Mock<(...a: any[]) => Promise<any>>;
+
+    beforeEach(() => {
+      deleteSpy = jest.fn<(...a: any[]) => Promise<any>>(async () => row);
+      (service as any).delete = deleteSpy;
+      jest.spyOn(service, 'promoteNextDefault').mockResolvedValue(null);
+      jest.spyOn(service, 'clearQuotaSnapshot').mockResolvedValue(undefined);
+    });
+
+    const blockers = (reason: 'frozen' | 'listed' | null, inUse: number) => {
+      jest.spyOn(service, 'versionImmutability').mockResolvedValue(reason);
+      jest.spyOn(service, 'countPipelinesUsing').mockResolvedValue(inUse);
+    };
+
+    it('deletes an unused, unlisted version', async () => {
+      blockers(null, 0);
+      await expect(service.deleteVersion(row, 'org-1', 'u-1', { force: false }))
+        .resolves.toEqual({ deleted: row, inUse: 0, listed: false, promoted: null });
+      expect(deleteSpy).toHaveBeenCalledWith('p-1', 'org-1', 'u-1');
+      expect(service.clearQuotaSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('never deletes a version a pending publish request references, even with force', async () => {
+      blockers('frozen', 0);
+      await expect(service.deleteVersion(row, 'org-1', 'u-1', { force: true }))
+        .rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_FROZEN' });
+      expect(deleteSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [null, 2, /used by 2 pipelines/],
+      ['listed', 0, /published to the ecosystem/],
+      ['listed', 1, /used by 1 pipeline and published to the ecosystem/],
+    ] as const)('refuses (reason=%s, inUse=%d) without force with 409 PLUGIN_VERSION_IN_USE', async (reason, inUse, message) => {
+      blockers(reason, inUse);
+      await expect(service.deleteVersion(row, 'org-1', 'u-1', { force: false }))
+        .rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_IN_USE', message: expect.stringMatching(message) });
+      expect(deleteSpy).not.toHaveBeenCalled();
+    });
+
+    it('deletes an in-use, listed version with force, clears its quota snapshot and promotes the next default', async () => {
+      blockers('listed', 3);
+      const promoted = { id: 'p-0', version: '0.9.0' };
+      (service.promoteNextDefault as jest.Mock<any>).mockResolvedValue(promoted);
+      const def = { ...row, isDefault: true, quotaResetAt: new Date() };
+      await expect(service.deleteVersion(def, 'org-1', 'u-1', { force: true }))
+        .resolves.toEqual({ deleted: row, inUse: 3, listed: true, promoted });
+      expect(service.clearQuotaSnapshot).toHaveBeenCalledWith('p-1');
+      expect(service.promoteNextDefault).toHaveBeenCalledWith('org-1', def, 'u-1');
+    });
+
+    it('does nothing more when the delete matched no row', async () => {
+      blockers(null, 0);
+      deleteSpy.mockResolvedValueOnce(null);
+      const res = await service.deleteVersion({ ...row, isDefault: true, quotaResetAt: new Date() }, 'org-1', 'u-1', { force: false });
+      expect(res.deleted).toBeNull();
+      expect(service.clearQuotaSnapshot).not.toHaveBeenCalled();
+      expect(service.promoteNextDefault).not.toHaveBeenCalled();
+    });
+
+    it('deleteBlockers reports frozen / listed / inUse', async () => {
+      blockers('listed', 4);
+      await expect(service.deleteBlockers(row, 'org-1')).resolves.toEqual({ frozen: false, listed: true, inUse: 4 });
+      blockers('frozen', 0);
+      await expect(service.deleteBlockers(row, 'org-1')).resolves.toEqual({ frozen: true, listed: false, inUse: 0 });
+    });
+  });
+
+  describe('versionImmutability / countPipelinesUsing / clearQuotaSnapshot (tx-level)', () => {
+    const txWith = (tx: Record<string, unknown>) => pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb(tx));
+
+    it('is frozen when frozen_at is set, listed when a listing version came from it, else null', async () => {
+      await expect(service.versionImmutability({ id: 'p-1', frozenAt: new Date() })).resolves.toBe('frozen');
+      txWith({ execute: jest.fn(async () => ({ rows: [{ '?column?': 1 }] })) });
+      await expect(service.versionImmutability({ id: 'p-1', frozenAt: null })).resolves.toBe('listed');
+      txWith({ execute: jest.fn(async () => ({ rows: [] })) });
+      await expect(service.versionImmutability({ id: 'p-1', frozenAt: null })).resolves.toBeNull();
+    });
+
+    it('counts pipelines whose reference resolves to this version (range, exact, or default when unversioned)', async () => {
+      txWith({
+        execute: jest.fn(async () => ({
+          rows: [
+            { spec: '^1.0.0', cnt: '2' }, // satisfied by 1.2.0
+            { spec: '2.0.0', cnt: 5 }, // another version
+            { spec: null, cnt: '3' }, // unversioned → the default
+          ],
+        })),
+      });
+      await expect(service.countPipelinesUsing('org-1', { name: 'trivy', version: '1.2.0', isDefault: true })).resolves.toBe(5);
+      await expect(service.countPipelinesUsing('org-1', { name: 'trivy', version: '1.2.0', isDefault: false })).resolves.toBe(2);
+    });
+
+    describe('findOrgsUsingVersion (N14 recipients)', () => {
+      const run = (defRows: any[], deployedRows: any[]) => {
+        const where = jest.fn(async () => deployedRows);
+        const selectDistinct = jest.fn(() => ({ from: () => ({ where }) }));
+        txWith({ execute: jest.fn(async () => ({ rows: defRows })), selectDistinct });
+        return { where, selectDistinct };
+      };
+      /** Every SQL fragment the last call built, flattened to text. */
+      const sqlText = () => mockSql.mock.calls.map((c: any[]) => (Array.isArray(c[0]) ? c[0].join('?') : '')).join('\n');
+
+      it('unions definition users whose spec resolves to the version with deployed manifest users', async () => {
+        run(
+          [
+            { org_id: 'org-1', spec: '^1.0.0' }, // satisfied
+            { org_id: 'org-2', spec: '2.0.0' }, // another version
+            { org_id: 'ORG-3', spec: null }, // unversioned → default
+          ],
+          [{ orgId: 'team-9' }, { orgId: 'org-1' }],
+        );
+        const orgs = await service.findOrgsUsingVersion({ orgId: 'org-1', name: 'trivy', version: '1.2.0', isDefault: true, visibility: 'public' });
+        expect(orgs).toEqual(['org-1', 'org-3', 'team-9']);
+      });
+
+      it('skips unversioned references when the version is not the default', async () => {
+        run([{ org_id: 'org-1', spec: null }], []);
+        await expect(service.findOrgsUsingVersion({ orgId: 'org-1', name: 'trivy', version: '1.2.0', isDefault: false, visibility: 'org' }))
+          .resolves.toEqual([]);
+      });
+
+      it('scopes definitions to the owner org for a tenant plugin, and matches its manifest by image repository', async () => {
+        mockSql.mockClear();
+        const { where } = run([], []);
+        await service.findOrgsUsingVersion({ orgId: 'org-1', name: 'trivy', version: '1.2.0', isDefault: true, visibility: 'public' });
+        const text = sqlText();
+        expect(text).toContain('AND p.org_id = ?');
+        expect(text).not.toContain('NOT EXISTS');
+        expect(text).toContain('IS NULL AND');
+        expect(mockSql.mock.calls.some((c: any[]) => c.includes('org-org-1/trivy'))).toBe(true);
+        expect(where).toHaveBeenCalled();
+      });
+
+      it('never reaches other orgs through a public system-org row (Official plugins reach them as listings)', async () => {
+        mockSql.mockClear();
+        run([], []);
+        await service.findOrgsUsingVersion({ orgId: SYSTEM_ORG_ID, name: 'trivy', version: '1.2.0', isDefault: true, visibility: 'public' });
+        const text = sqlText();
+        expect(text).toContain('AND p.org_id = ?');
+        expect(text).not.toContain('NOT EXISTS');
+        expect(mockInstallingOrgs).not.toHaveBeenCalled();
+      });
+
+      it('adds the installing orgs of every listing version published from the row', async () => {
+        run([{ org_id: 'org-1', spec: null }], []);
+        mockVersionsBySource.mockResolvedValueOnce([{ listingId: 'l-1', version: '1.2.0' }, { listingId: 'l-gone', version: '1.2.0' }]);
+        mockListingById.mockImplementation(async (id: string) => (id === 'l-1' ? { id: 'l-1', name: 'trivy', state: 'listed', publisherId: 'pub-1' } : null));
+        mockPublisherById.mockResolvedValue({ id: 'pub-1', handle: 'acme', tier: 'verified', suspendedAt: null });
+        mockInstallingOrgs.mockResolvedValueOnce([{ orgId: 'org-9', install: null }, { orgId: 'org-1', install: null }]);
+        const orgs = await service.findOrgsUsingVersion({ id: 'p-1', orgId: 'org-1', name: 'trivy', version: '1.2.0', isDefault: true, visibility: 'public' });
+        expect(orgs).toEqual(['org-1', 'org-9']);
+        expect(mockVersionsBySource).toHaveBeenCalledWith(['p-1']);
+        expect(mockInstallingOrgs).toHaveBeenCalledWith(expect.objectContaining({ handle: 'acme' }), expect.objectContaining({ id: 'l-1' }), '1.2.0');
+      });
+
+      it('matches an image-less tenant plugin\'s manifest by owner org only', async () => {
+        mockSql.mockClear();
+        run([], []);
+        await service.findOrgsUsingVersion({ orgId: 'org-1', name: 'meta', version: '1.0.0', isDefault: true, visibility: 'org', buildType: 'metadata_only' });
+        expect(mockSql.mock.calls.some((c: any[]) => c.includes('org-org-1/meta'))).toBe(false);
+      });
+
+      it('accepts a driver that returns a bare row array', async () => {
+        const where = jest.fn(async () => []);
+        txWith({ execute: jest.fn(async () => [{ org_id: 'org-1', spec: '1.2.0' }]), selectDistinct: jest.fn(() => ({ from: () => ({ where }) })) });
+        await expect(service.findOrgsUsingVersion({ orgId: 'org-1', name: 'trivy', version: '1.2.0', isDefault: false, visibility: 'org' }))
+          .resolves.toEqual(['org-1']);
+      });
+    });
+
+    it('clearQuotaSnapshot nulls quota_reset_at on the row', async () => {
+      const set = jest.fn(() => ({ where: jest.fn(async () => undefined) }));
+      txWith({ update: jest.fn(() => ({ set })) });
+      await service.clearQuotaSnapshot('p-1');
+      expect(set).toHaveBeenCalledWith({ quotaResetAt: null });
+    });
+  });
+
+  describe('setDeprecated (W0.4)', () => {
+    const captureSet = () => {
+      const set = jest.fn((_v: any) => ({ where: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) })) }));
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ update: jest.fn(() => ({ set })) }));
+      return set;
+    };
+    const row = { id: 'p-1', orgId: 'org-1', lifecycle: 'production', yankedAt: null, deprecatedAt: null } as any;
+
+    it('stamps deprecatedAt + message and mirrors lifecycle', async () => {
+      const set = captureSet();
+      await expect(service.setDeprecated(row, 'org-1', 'u-1', { deprecated: true, message: 'Use 2.x' })).resolves.toMatchObject({ id: 'p-1' });
+      expect(set.mock.calls[0]![0]).toMatchObject({ deprecatedAt: expect.any(Date), deprecationMessage: 'Use 2.x', lifecycle: 'deprecated', updatedBy: 'u-1' });
+    });
+
+    it('keeps the original deprecatedAt on a repeat and never overwrites a yanked lifecycle', async () => {
+      const set = captureSet();
+      const when = new Date('2026-01-01');
+      await service.setDeprecated({ ...row, deprecatedAt: when, lifecycle: 'yanked', yankedAt: when }, 'org-1', 'u-1', { deprecated: true });
+      expect(set.mock.calls[0]![0].deprecatedAt).toBe(when);
+      expect(set.mock.calls[0]![0]).not.toHaveProperty('lifecycle');
+    });
+
+    it('clears the deprecation and restores production', async () => {
+      const set = captureSet();
+      await service.setDeprecated({ ...row, lifecycle: 'deprecated', deprecatedAt: new Date() }, 'org-1', 'u-1', { deprecated: false });
+      expect(set.mock.calls[0]![0]).toMatchObject({ deprecatedAt: null, deprecationMessage: null, lifecycle: 'production' });
+    });
+
+    it('returns null when nothing matched', async () => {
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        update: jest.fn(() => ({ set: () => ({ where: () => ({ returning: async () => [] }) }) })),
+      }));
+      await expect(service.setDeprecated(row, 'org-1', 'u-1', { deprecated: true })).resolves.toBeNull();
+    });
+  });
+
+  describe('yankVersion / promoteNextDefault (W0.4)', () => {
+    it('refuses to yank a version published to the ecosystem', async () => {
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ execute: jest.fn(async () => ({ rows: [{ x: 1 }] })) }));
+      await expect(service.yankVersion({ id: 'p-1', isDefault: false } as any, 'org-1', 'u-1', 'why'))
+        .rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_FROZEN' });
+    });
+
+    it('yanks (clearing default) and promotes the next default when it was the default', async () => {
+      const set = jest.fn((_v: any) => ({ where: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) })) }));
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ execute: jest.fn(async () => ({ rows: [] })), update: jest.fn(() => ({ set })) }));
+      const promote = jest.spyOn(service, 'promoteNextDefault').mockResolvedValue({ id: 'p-0' } as any);
+      const res = await service.yankVersion({ id: 'p-1', name: 'trivy', version: '1.0.0', isDefault: true } as any, 'org-1', 'u-1', 'CVE');
+      expect(set.mock.calls[0]![0]).toMatchObject({ lifecycle: 'yanked', yankReason: 'CVE', isDefault: false, yankedAt: expect.any(Date) });
+      expect(res).toEqual({ yanked: { id: 'p-1', orgId: 'org-1' }, promoted: { id: 'p-0' } });
+      expect(promote).toHaveBeenCalled();
+    });
+
+    const promoteTx = (liveDefaults: unknown[], candidates: Array<{ id: string; version: string }>) => {
+      const set = jest.fn((_v: any) => ({ where: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'picked', orgId: 'org-1' }]) })) }));
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn(async () => []),
+        select: jest.fn(() => ({ from: () => ({ where: () => Object.assign(Promise.resolve(liveDefaults), { orderBy: async () => candidates }) }) })),
+        update: jest.fn(() => ({ set })),
+      }));
+      return set;
+    };
+
+    it('promotes the highest stable version not above the removed major', async () => {
+      const set = promoteTx([], [
+        { id: 'v3', version: '3.0.0' }, { id: 'v2rc', version: '2.1.0-rc.1' }, { id: 'v2', version: '2.0.5' }, { id: 'v1', version: '1.9.0' },
+      ]);
+      await expect(service.promoteNextDefault('org-1', { name: 'trivy', version: '2.3.0' }, 'u-1')).resolves.toMatchObject({ id: 'picked' });
+      expect(set).toHaveBeenCalledWith(expect.objectContaining({ isDefault: true }));
+    });
+
+    it('is a no-op when a default exists again or no candidate qualifies', async () => {
+      const set = promoteTx([{ id: 'd' }], [{ id: 'v1', version: '1.0.0' }]);
+      await expect(service.promoteNextDefault('org-1', { name: 'trivy', version: '1.0.0' }, 'u-1')).resolves.toBeNull();
+      const set2 = promoteTx([], [{ id: 'v3', version: '3.0.0' }, { id: 'pre', version: '1.0.0-beta' }]);
+      await expect(service.promoteNextDefault('org-1', { name: 'trivy', version: '2.0.0' }, 'u-1')).resolves.toBeNull();
+      expect(set).not.toHaveBeenCalled();
+      expect(set2).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deployVersion — catalog metadata on re-upload (§3.1a)', () => {
+    it('replaces summary / displayName / documentationUrl / provenance / quota snapshot on the conflict branch', async () => {
+      const onConflict = jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) }));
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn(async () => []),
+        select: jest.fn(() => ({ from: () => ({ where: () => Object.assign(Promise.resolve([]), { for: async () => [] }) }) })),
+        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn() })) })),
+        insert: jest.fn(() => ({ values: () => ({ onConflictDoUpdate: onConflict }) })),
+      }));
+      const quotaResetAt = new Date('2026-09-24T00:00:00Z');
+      await service.deployVersion({
+        orgId: 'org-1',
+        name: 'p',
+        version: '1.0.0',
+        visibility: 'org',
+        summary: 'S',
+        displayName: 'D',
+        documentationUrl: 'https://docs',
+        metadataSources: { summary: 'user' },
+        quotaResetAt,
+      } as any, 'u-1', { isSystemAdmin: false, canPublish: false });
+      const { set } = (onConflict.mock.calls[0] as any[])[0];
+      expect(set).toMatchObject({ summary: 'S', displayName: 'D', documentationUrl: 'https://docs', metadataSources: { summary: 'user' }, quotaResetAt });
+    });
+  });
 });

@@ -275,6 +275,10 @@ spec:
             # the buildkitd sidecar that runs tenant Dockerfile RUN steps).
             - name: PLUGIN_SIGNING_PUBLIC_KEY_FILE
               value: "/etc/pipeline-builder/plugin-signing/plugin-signing.pub"
+            # grype's vulnerability DB (build-time scan + nightly rescan) on the
+            # grype-db emptyDir below: the root filesystem is read-only.
+            - name: GRYPE_DB_CACHE_DIR
+              value: "/var/cache/grype"
           volumeMounts:
             # This pod's OWN internal-token signing key (#14) and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
@@ -305,6 +309,8 @@ spec:
             # above) for plugin tarball staging.
             - name: scratch-tmp
               mountPath: /tmp
+            - name: grype-db
+              mountPath: /var/cache/grype
           resources:
             limits:
               cpu: "1500m"
@@ -376,6 +382,11 @@ spec:
         - name: scratch-tmp
           emptyDir:
             sizeLimit: 1Gi
+        # grype vulnerability DB: re-downloaded after a pod restart (hundreds of
+        # MB, refreshed hourly at most and forced before each nightly rescan).
+        - name: grype-db
+          emptyDir:
+            sizeLimit: 2Gi
         - name: buildkitd-config
           configMap:
             name: buildkitd-config

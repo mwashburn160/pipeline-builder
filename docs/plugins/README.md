@@ -2,6 +2,7 @@
 layout: default
 title: Plugin Catalog
 permalink: /docs/plugins/
+image: /assets/og-image-plugins.png
 ---
 
 # Plugin Catalog
@@ -18,7 +19,11 @@ Pipeline Builder ships with **119 plugins** across **10 categories**, covering t
 - [Secrets Reference](#secrets-reference) -- Required credentials per plugin
 - [How Secrets Work](#how-secrets-work) -- Secrets Manager naming, setup, and IAM
 - [Plugin Structure](#plugin-structure) -- Dockerfile + spec layout
+- [Catalog metadata](#catalog-metadata) -- Detected from the package, then accepted or edited
 - [Supply Chain](#supply-chain-sbom-signature-provenance) -- SBOM, image signing, provenance, digest pinning
+- [Vulnerability scanning](#vulnerability-scanning) -- grype over the signed SBOM, nightly rescan, compliance facts
+- [Version lifecycle](#version-lifecycle-deprecate-yank-delete) -- Deprecate, yank, and safe delete
+- [Publishing to the ecosystem](#publishing-to-the-ecosystem) -- Listings, the `public/*` namespace, trust tiers, the Official catalog, installs ([Plugin Publishing](../plugin-publishing.md), [Plugin Installing](../plugin-installing.md))
 - [Version Management](#version-management) -- Centralized version control and update process
 
 ---
@@ -445,6 +450,71 @@ env:
 | `commands` | Commands run during the build phase (the actual work) |
 | `env` | Default environment variables (non-secret values only) |
 | `smokeTest` | Optional shell command run after `docker build` to assert the tool is on `PATH` and reports a version |
+| `summary` | Optional one-line card summary (≤ 160). When absent it is the first sentence of the description |
+| `license` | SPDX license identifier from the allowlist (e.g. `Apache-2.0`, `MIT`) |
+| `homepageUrl`, `sourceUrl`, `documentationUrl` | Project links — `https:` only, no URL shorteners, no credentials |
+| `icon` | Curated icon key (`trivy`) or `{ key, badge }` |
+| `changelog` | Release notes for this version (markdown, ≤ 32 KB) |
+
+---
+
+## Catalog metadata
+
+The descriptive fields a version shows in the catalog are **detected from the
+package** and then **accepted or edited** at upload. The package supplies the
+defaults; you have the last word — on descriptive fields only.
+
+**Where each field comes from** (the first non-empty source wins):
+
+| Field | 1. `plugin-spec.yaml` | 2. `README.md` | 3. The plugin's own Dockerfile `LABEL` |
+|---|---|---|---|
+| `summary` | `summary` | — | — (then the first sentence of the description) |
+| `description` | `description` | first paragraph | `org.opencontainers.image.description` |
+| `displayName` | — (falls back to `name`) | first `# heading` | `org.opencontainers.image.title` |
+| `license` | `license` | — | `org.opencontainers.image.licenses` (one allowed SPDX id) |
+| `homepageUrl` | `homepageUrl` | — | `org.opencontainers.image.url` |
+| `sourceUrl` | `sourceUrl` | — | `org.opencontainers.image.source` |
+| `documentationUrl` | `documentationUrl` | — | `org.opencontainers.image.documentation` |
+| `category`, `keywords`, `icon`, `changelog` | spec | — | — |
+| README | — | `README.md` | — |
+
+- Dockerfile labels are read **statically** from the plugin's own `LABEL`
+  instructions (line continuations and quotes handled). Values containing `$`
+  are ignored, because build arguments aren't known at upload. Labels a base
+  image carries are **never** used: they describe the base image, not the plugin.
+- Every value — detected or typed — passes the same validator (shared from
+  api-core with the CLI): length caps, the SPDX allowlist, the category list,
+  at most 10 keywords of at most 32 characters, and `https`-only links with no
+  shorteners or credentials. A detected value that fails is shown **blank with
+  the reason**, not silently dropped.
+- Each version records where every value came from (`metadataSources`:
+  `spec`, `readme`, `dockerfile`, `derived` or `user`), so a reviewer can tell
+  what shipped in the package from what was typed in.
+
+**In the dashboard**, the upload dialog's **Catalog details** step shows each
+field with its detected value and a source badge (Spec / README / Dockerfile /
+Generated), with **Accept**, **Edit** and **Accept all**.
+
+**Over the API**, `POST /api/plugins/inspect` (the same multipart zip) returns
+what would be detected, and `POST /api/plugins` takes an optional `metadata`
+part with your edits — only the fields you changed; `null` clears one. Without
+the part, every detected value is accepted, so scripts keep working unchanged:
+
+```bash
+curl -X POST https://localhost:8443/api/plugins \
+  -H "Authorization: Bearer $TOKEN" -H "x-org-id: $ORG_ID" \
+  -F "plugin=@my-plugin.zip" \
+  -F 'metadata={"summary":"Scans images for CVEs.","homepageUrl":null}'
+```
+
+**After upload**, `PUT /api/plugins/:id` edits the same descriptive fields.
+What the plugin **runs** — commands, install commands, env, build args,
+secrets, required metadata/vars and their types, network egress, compute type,
+plugin type, output directory, smoke test, timeout and failure behaviour — comes
+only from the spec. A metadata payload naming any of those keys is refused with
+400: changing one means uploading a new version. A version referenced by a
+publish request, or published to a listing, has its catalog details frozen
+with it (409).
 
 ---
 
@@ -515,6 +585,137 @@ cosign verify-attestation --key plugin-signing.pub --type spdxjson --insecure-ig
 **Existing plugins** without a signed digest can't be used in a pipeline until
 they're rebuilt — re-upload them (or re-run `deploy/bin/load-plugins.sh` for the
 system catalog). The UI marks them **Unsigned**.
+
+---
+
+## Vulnerability scanning
+
+After the image is pushed and signed, the build worker runs **grype over the
+image's signed SBOM** (no layer pulls) and stores the critical / high / medium /
+low counts with `scannedAt`. It also records whether the image **runs as root**,
+from the pushed image config's `User` (falling back to the Dockerfile's own
+final `USER`). A scan that can't run leaves the version **unscanned**
+(`scannedAt` empty) — never a fake clean result.
+
+New CVEs land against packages that were clean at build, so a **nightly rescan**
+(`PLUGIN_RESCAN_ENABLED`, default on; `PLUGIN_RESCAN_INTERVAL_MS`, default 24 h)
+refreshes grype's database and re-scans every active image plugin. One pod runs
+each pass (a Redis leader lock), and the `PluginVulnRescanStale` alert fires when
+no pass has completed for 36 h.
+
+These facts feed compliance. At upload the image doesn't exist yet, so rules
+reading `signed`, `scanned`, `vulnCritical`, `vulnHigh`, `vulnMedium`,
+`vulnLow`, `runAsRoot` or `packages` are **deferred** (skipped, never passed);
+the worker evaluates them on the real values before the version is saved, and a
+blocked image fails the build. Scheduled compliance scans and later edits use
+the stored values. `tags` (keywords plus `key=value` labels) are sent everywhere.
+
+---
+
+## Version lifecycle: deprecate, yank, delete
+
+| Action | Route | Dashboard / CLI | Effect |
+|---|---|---|---|
+| Deprecate | `POST /api/plugins/:id/deprecate` `{ message? }` | Plugins table row action **Deprecate version**; `pipeline-manager plugin deprecate --id <id> [--message <text>]` | Still resolves, but `/plugins/lookup` answers with a `PLUGIN_DEPRECATED` warning that synth prints, and AI generation stops offering it. `{ "deprecated": false }` (**Clear deprecation**; `--undo`) reverses it |
+| Yank | `POST /api/plugins/:id/yank` `{ reason }` | Row action **Yank version**; `pipeline-manager plugin yank --id <id> --reason <text>` | Stops resolving for ranges, `latest` and the default. An exact pin still resolves, with a `PLUGIN_YANKED` warning carrying the reason. Yanking the default promotes the next one. A version published to the ecosystem answers 409: request the yank there |
+| Delete | `DELETE /api/plugins/:id` | Row action **Delete plugin** | Refused (409 `PLUGIN_VERSION_IN_USE`) while pipelines use the version or it is listed, unless `?force=true` with a step-up. Never allowed while a publish request references it |
+
+Both actions need `plugins:write` (and `plugins:publish` for a public
+version), the same gate as editing. The plugins table shows a **Deprecated** or
+**Yanked** badge on the version (hover for the message or reason), and the
+detail view explains what the state means.
+
+**Deprecation notice.** Deprecating a version sends §5b event **N14** (in-app +
+email; the email respects each user's `ecosystem.upgrades.email` preference) to
+the org approvers (`plugin_installs:manage`, else the root org's, else the
+owners) of every org that uses that version: the owner org's own pipeline
+definitions whose version spec resolves to it, deployed pipelines whose step
+manifest records it from the owner's namespace, and — when the version was
+published to a listing — the listing's **installing orgs** (active installs
+whose range reaches it, plus, for an Official listing, orgs using it through
+the implicit install). A `public` row no longer reaches any other org by
+itself. Recipients travel as per-org rules the platform relay
+resolves and mails one by one, so the publisher never learns who uses the
+plugin and no notice names another org. A failed notice is logged and counted
+(`plugin_deprecation_notice_failures_total`); the deprecation still stands.
+
+Deleting (or yanking) the **default** promotes the next default: the highest
+stable, non-yanked version whose major is not above the removed one — a new
+major is never promoted automatically. Deleting a version refunds its `plugins`
+quota slot, but only while the quota period it was charged to is still current
+(quota is a per-period flow, so a refund never lands in a later period).
+Bulk delete applies the same rules and reports what it skipped. Bulk update
+applies the same catalog freeze as a single update: a version referenced by a
+publish request or published to a listing is skipped when the edit touches its
+catalog fields (`description`, `category`, `keywords`), and returned in
+`skipped` as `{ id, reason: 'frozen' | 'listed', statusCode: 409, code }`.
+
+---
+
+## Publishing to the ecosystem
+
+Sharing a plugin with **other organizations** goes through the plugin
+ecosystem, never through visibility. `visibility: public` still means "my org
+and its teams"; it does not reach any other org, including for the system org's
+own plugins. A plugin reaches other orgs only as a **listing**: a
+`(publisher, name)` entry in the public directory whose versions the system
+org approved. See [Plugin Publishing](../plugin-publishing.md) for the
+publisher side and the [moderation runbook](../runbooks/ecosystem-moderation.md)
+for the system-org side.
+
+- **Requests, not self-service.** A publisher submits a new-listing or
+  new-version request for a `public` version with an SPDX license, a README and
+  a passing vulnerability gate. The version's image digest is **pinned** and the
+  version **frozen** at submit (re-uploads answer 409 `PLUGIN_VERSION_FROZEN`).
+- **The `public/*` namespace.** Approval makes image-registry copy the pinned
+  digest (manifest and blobs, not its `.sig`/`.att`) into
+  `public/<publisher>/<name>`, **sign it fresh** with the trust tier and
+  publisher as signed annotations (`pb.trust`, `pb.publisher`), re-attest the
+  SBOM and tag the version. Every authenticated identity may pull `public/*`;
+  only image-registry may write it. A listed version is immutable; mistakes are
+  fixed by a yank plus a new version.
+- **Trust tiers.** Official (the `pipeline-builder` publisher: the system org's
+  catalog), Verified (Team and Enterprise publishers approved by the system
+  org), Community (any signed-in org within its `listings` limit). A tier change,
+  suspension or ownership transfer re-signs every published image.
+- **The Official catalog.** `deploy/bin/load-plugins.sh` uploads every plugin
+  under `deploy/plugins/` to the system org with `visibility=public` and
+  `publishRequest=true`, as the dedicated `official-catalog-loader` service
+  account that `init-platform.sh` provisions. On a fresh instance the one-time
+  **bootstrap exception** approves the initial catalog; afterwards the seeded
+  **Official catalog auto-approval rule** approves gate-green patch/minor
+  updates (at most one version per listing and 50 a day), and new plugins,
+  majors and riskier updates wait for two Ecosystem Managers.
+
+### Using listings: installs
+
+An org uses another publisher's listing by **installing** it. See
+[Plugin Installing](../plugin-installing.md) for the consumer side.
+
+- **Installs and version policies.** An install records which listing an org
+  uses and which versions may resolve: `pinned`, `patch` (`~`), `minor` (`^`,
+  the default) or `latest` (never across a `breaking` version). A new major
+  never flows automatically. Installing needs `plugins:install`, is free on
+  every plan and counts against no quota.
+- **Implicit Official installs.** Official listings (`pipeline-builder`) are
+  installed for every org without a stored row, with policy `minor` inside the
+  lowest live major. An explicit install overrides it (pin, change policy,
+  move to a new major). `officialInstalls: explicit` turns this off.
+- **Consumption policy.** Each org decides which tiers it allows
+  (`allowedTiers`), which need an approver (`requireApprovalTiers`), which get
+  secrets (`secretsAllowedTiers`: lower tiers get none, even if declared), the
+  advisory block level (`blockOnAdvisory`), and which listings are blocked
+  outright (`blockedListings`). Teams inherit the root's installs and policy
+  and may only tighten the policy.
+- **References.** `plugin: { name: trivy }` resolves the org's own plugin,
+  then (for a team) the parent's shared one, then the Official listing through
+  the org's install. `plugin: { publisher: acme, name: … }` resolves only
+  acme's listing, through an install. An own-org plugin with an Official
+  listing's name **shadows** it; lookup warns `PLUGIN_SHADOWS_LISTING`.
+- **Images.** Lookup returns `imageRepository` (`public/<publisher>/<name>` for
+  every listing, `org-<id>/<name>` for own plugins) and verifies the signature
+  plus, for a listing, the signed tier and publisher. Synth pins
+  `<repository>@<digest>`.
 
 ---
 

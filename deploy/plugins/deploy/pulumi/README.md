@@ -18,7 +18,7 @@ Pulumi infrastructure-as-code deployment plugin supporting TypeScript, Python, G
 - AWS CLI configured with appropriate permissions
 - Node.js 24 (for TypeScript/JavaScript runtime)
 - Python 3 (for Python runtime)
-- Go 1.24 (for Go runtime)
+- Go 1.27 (for Go runtime)
 - 1 required secret configured in AWS Secrets Manager (see [Secrets](#secrets) below)
 
 ## Secrets

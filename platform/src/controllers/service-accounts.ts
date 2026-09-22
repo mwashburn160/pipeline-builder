@@ -33,6 +33,8 @@ import {
   RL_ASSIGN_EXCEEDS_CEILING,
   RL_REQUIRES_SUPERADMIN,
   RL_ROLE_NOT_FOUND,
+  RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG,
+  RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN,
 } from '../services/roles-errors.js';
 import {
   SA_INVALID_BUDGET,
@@ -80,6 +82,8 @@ const serviceAccountErrors = {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more roles do not exist in this organization' },
   [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can grant a superadmin role' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot grant a service account a role carrying permissions you do not hold yourself' },
+  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can grant an ecosystem-management role' },
+  [RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG]: { status: 400, message: 'An ecosystem-management role can only be held in the system organization' },
 };
 
 /**

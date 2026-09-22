@@ -21,7 +21,7 @@ Docker linting and container security plugin using Hadolint for Dockerfile best 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HADOLINT_VERSION` | `2.12.0` | Hadolint Version |
+| `HADOLINT_VERSION` | `2.15.1` | Hadolint Version |
 | `DOCKLE_VERSION` | `0.4.15` | Dockle Version |
 | `DOCKERFILE_PATH` | `Dockerfile` | Path to the Dockerfile |
 | `DOCKER_IMAGE` | _none_ | Docker Image |
@@ -42,7 +42,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "docker-lint",
   "plugin": "docker-lint",
   "env": {
-    "HADOLINT_VERSION": "2.12.0",
+    "HADOLINT_VERSION": "2.15.1",
     "DOCKLE_VERSION": "0.4.15",
     "DOCKERFILE_PATH": "Dockerfile",
     "DOCKER_IMAGE": "<your-docker_image>",

@@ -364,6 +364,7 @@ const API_DEFAULTS: Record<string, unknown> = {
   listAllPipelines: { pipelines: [], pagination: EMPTY_PAGE },
   listPlugins: { plugins: [], pagination: EMPTY_PAGE },
   getPluginUsage: { counts: {} },
+  getPluginShadowing: { shadowing: [] },
   getPreferences: { preferences: {} },
   // One row each: a list page whose body never renders exercises almost none of
   // its own code, and the row actions are where the gated controls live.
@@ -566,6 +567,59 @@ interface Control {
   behaviour: Behaviour;
 }
 
+// ── Plugin-ecosystem fixtures (the Publisher page and the Ecosystem console) ──
+const ECO_PUBLISHER = {
+  id: 'pub1', handle: 'acme', displayName: 'Acme Corp', description: null, homepageUrl: null, tier: 'community',
+  verifiedAt: null, verifiedGraceUntil: null, termsVersion: '1', termsAcceptedAt: '2026-01-01', suspendedAt: null,
+  suspendReason: null, ownerOrgId: 'org-1', createdAt: '2026-01-01', updatedAt: '2026-01-01',
+};
+/** `GET /plugins/publisher` for a root org; `over` flips one state. */
+const publisherCtx = (over: Record<string, unknown> = {}) => ({
+  publisher: ECO_PUBLISHER, isRootOrg: true, terms: { currentVersion: '2', accepted: true },
+  verifiedEligible: false, listingsQuota: { used: 1, limit: 3 }, publishingEnabled: true, ...over,
+});
+const ECO_VERSION = {
+  id: 'v1', version: '1.0.0', imageDigest: null, imageRepository: null, breaking: false, pausedAt: null, yankedAt: null,
+  yankReason: null, vulnCritical: 0, vulnHigh: 0, publishedAt: '2026-01-01T00:00:00Z', changelog: null,
+};
+const ECO_LISTING = {
+  id: 'l1', publisherId: 'pub1', publisherHandle: 'acme', publisherTier: 'community', name: 'eslint', category: 'quality',
+  summary: 'Lint JS', description: null, license: 'MIT', homepageUrl: null, sourceUrl: null, icon: null, keywords: [],
+  state: 'listed', pausedAt: null, featured: false, latestVersion: '1.0.0', createdAt: '2026-01-01', updatedAt: '2026-01-01',
+  openRequests: 0, versions: [ECO_VERSION],
+};
+const ECO_REQUEST = {
+  id: 'r1', kind: 'new_listing', status: 'pending', lane: 'standard', publisherId: 'pub1', publisherHandle: 'acme',
+  publisherTier: 'community', listingId: null, listingName: 'eslint', pluginId: 'p1', version: '1.0.0', digest: null,
+  payload: { name: 'eslint' }, submittedBy: 'u1', submittedOrgId: 'org-1', submittedAt: '2026-09-01T00:00:00Z',
+  firstApprovedBy: null, secondApprovedBy: null, decidedBy: null, decidedAt: null, reason: null, autoRuleId: null,
+  securityFixAdvisoryId: null,
+};
+/** A queue item a moderator may decide (no conflict, one approver, no step-up). */
+const ECO_QUEUE_ITEM = {
+  ...ECO_REQUEST, submittedOrgId: 'org-9', ageHours: 2, slaHours: 48, slaBreached: false, requiresTwoPerson: false,
+  requiresStepUp: false, requiredPermission: 'plugins:moderate', conflictOfInterest: false, conflictReason: null,
+};
+const ECO_REVIEW = {
+  previousVersion: null, metadata: [], contract: null, vuln: null, dockerfile: null, sbom: null, icon: null, gates: [],
+  publisherHistory: { tier: 'community', createdAt: '2026-01-01', listings: 1, approved: 0, rejected: 0 },
+  autoApproval: { eligible: false, ruleId: null, ruleName: null, reasons: [] },
+};
+const ECO_APPROVERS = { permission: 'plugins:moderate', count: { holders: 3, eligible: 3, superadmins: 1 }, belowMinimum: false, belowTwoPerson: false };
+const ECO_OVERVIEW = {
+  approvers: { minimum: 3, twoPersonMinimum: 2, moderate: ECO_APPROVERS, verify: { ...ECO_APPROVERS, permission: 'publishers:verify' } },
+  pending: { standard: 1, security: 0, secondApproval: 0, verify: 0 },
+  bootstrap: { state: 'closed', openedAt: null, closedAt: null, reason: null },
+  officialAutoApprovalEnabled: true, termsVersion: '2',
+};
+/** The console panels take the viewer's `can` as a prop (the page hands it down). */
+const ecoPanel = (mod: string, name: string, extra: Record<string, unknown> = {}) =>
+  (ctx: MountCtx) => comp(mod, name, { can: ctx.can, ...extra })();
+/** Why the console rows mount the panel, not the page. */
+const ECO_PANEL_RENDERS = 'the panel in isolation — the console page (pages/dashboard/admin/ecosystem.tsx) additionally '
+  + 'requires the SYSTEM org and an aal2 session (useSessionAssurance) before it renders any tab, neither of which this '
+  + 'harness models; the page hands `can` straight to the panel, which is what gates the control.';
+
 const CONTROLS: Control[] = [
   {
     control: 'New / edit / delete pipeline',
@@ -649,8 +703,85 @@ const CONTROLS: Control[] = [
     control: 'Upload / edit / delete a plugin',
     file: 'pages/dashboard/plugins.tsx',
     permissions: ['plugins:write'],
-    routes: ['plugin POST /plugins', 'plugin PUT /plugins/:id', 'plugin DELETE /plugins/:id'],
+    // `POST /plugins/inspect` is the upload dialog's Catalog details step (a dry run
+    // of the same package, same plugins:write gate).
+    routes: ['plugin POST /plugins', 'plugin POST /plugins/inspect', 'plugin PUT /plugins/:id', 'plugin DELETE /plugins/:id'],
     behaviour: { mount: page('../pages/dashboard/plugins'), find: button(/^upload plugin$/i) },
+  },
+  {
+    control: 'Deprecate / yank a plugin version',
+    file: 'src/components/plugin/usePluginColumns.tsx',
+    permissions: ['plugins:write'],
+    // Per-row actions in the plugins table (gated by the same `canWriteRow` as
+    // edit/delete), confirmed in src/components/plugin/PluginLifecycleModal.tsx.
+    routes: ['plugin POST /plugins/:id/deprecate', 'plugin POST /plugins/:id/yank'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      api: { listPlugins: { plugins: [{ id: 'pl1', name: 'one', version: '1.0.0', organizationId: 'org-1', visibility: 'private', createdBy: 'u1' }], pagination: { ...EMPTY_PAGE, total: 1 } } },
+      find: button(/^yank version$/i),
+    },
+  },
+  {
+    control: 'Install / upgrade / uninstall a catalog listing',
+    file: 'pages/dashboard/plugins.tsx',
+    gateFiles: ['src/components/plugin-installs/InstallControls.tsx'],
+    permissions: ['plugins:install'],
+    // The shared install controls (Catalog / Installs tabs and the public plugin
+    // page); with approval required, POST only REQUESTS the install.
+    routes: ['plugin POST /plugins/installs', 'plugin PATCH /plugins/installs/:id', 'plugin DELETE /plugins/installs/:id'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      router: { query: { tab: 'catalog' }, pathname: '/dashboard/plugins' },
+      api: {
+        getPluginCatalog: { listings: [{
+          listing: { id: 'l1', publisherHandle: 'acme', publisherDisplayName: 'Acme', publisherTier: 'verified', name: 'tf', summary: null, category: 'deploy', icon: null, latestVersion: '1.0.0', state: 'listed', paused: false, license: null },
+          install: null, installable: true, requiresApproval: false, blocked: null, resolved: null,
+          reference: { publisher: 'acme', name: 'tf' }, shadowedBy: null,
+        }] },
+      },
+      find: button(/^install$/i),
+    },
+  },
+  {
+    control: 'Approve / deny a plugin install request',
+    file: 'pages/dashboard/plugins.tsx',
+    gateFiles: ['src/components/plugin-installs/ApprovalsTab.tsx'],
+    permissions: ['plugin_installs:manage'],
+    routes: ['plugin POST /plugins/installs/:id/approve', 'plugin POST /plugins/installs/:id/deny'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      router: { query: { tab: 'approvals' }, pathname: '/dashboard/plugins' },
+      api: {
+        listPluginInstalls: { installs: [{
+          id: 'i1', listingId: 'l1', publisherHandle: 'acme', publisherDisplayName: 'Acme', publisherTier: 'community', name: 'tf',
+          summary: null, category: 'deploy', icon: null, state: 'listed', paused: false, versionPolicy: 'minor', pinnedVersion: '1.0.0',
+          resolvedVersion: null, latestVersion: '1.0.0', status: 'pending_approval', implicit: false, inherited: false,
+          installedBy: 'u2', approvedBy: null, createdAt: '2026-09-01T00:00:00Z', decidedAt: null, upgrade: null, blocked: null,
+          warnings: [], advisories: [],
+        }], policy: {} },
+      },
+      find: button(/^approve$/i),
+    },
+  },
+  {
+    control: 'Edit the plugin consumption policy',
+    file: 'pages/dashboard/plugins.tsx',
+    gateFiles: ['src/components/plugin-installs/PolicyTab.tsx'],
+    permissions: ['plugin_installs:manage'],
+    stepUp: true,
+    routes: ['plugin PUT /plugins/install-policy'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      router: { query: { tab: 'policy' }, pathname: '/dashboard/plugins' },
+      api: {
+        getInstallPolicy: {
+          policy: { allowedTiers: ['official'], requireApprovalTiers: [], secretsAllowedTiers: [], blockOnAdvisory: 'critical', officialInstalls: 'implicit', blockedListings: [] },
+          effective: { allowedTiers: ['official'], requireApprovalTiers: [], secretsAllowedTiers: [], blockOnAdvisory: 'critical', officialInstalls: 'implicit', blockedListings: [] },
+          inheritsFromRoot: false, updatedBy: null, updatedAt: null, canEdit: true,
+        },
+      },
+      find: button(/^save policy$/i),
+    },
   },
   {
     control: 'Plugin list + detail reads',
@@ -1616,6 +1747,229 @@ const CONTROLS: Control[] = [
       find: byText(/current period/i),
     },
   },
+  // ── Plugin ecosystem: the tenant Publisher page (plan §3.0, §3.1, §3.4) ──
+  {
+    control: 'Create the publisher profile (claim a handle, accept the terms)',
+    file: 'src/components/publisher/PublisherProfilePanel.tsx',
+    permissions: ['publishers:manage'],
+    pagePermissions: ['plugins:read'],
+    page: '/dashboard/publisher',
+    routes: ['plugin POST /plugins/publisher'],
+    behaviour: {
+      mount: page('../pages/dashboard/publisher'),
+      router: { pathname: '/dashboard/publisher' },
+      api: { getPublisher: publisherCtx({ publisher: null }) },
+      // The button waits on a handle, a display name and the terms box.
+      reveal: () => {
+        fireEvent.change(screen.getByLabelText(/^handle/i), { target: { value: 'acme' } });
+        fireEvent.change(screen.getByLabelText(/^display name/i), { target: { value: 'Acme' } });
+        fireEvent.click(screen.getByRole('checkbox', { name: /accept the publisher terms/i }));
+      },
+      // Kept on screen (the form explains the permission it needs) but inert.
+      absence: 'disabled',
+      find: button(/^create publisher$/i),
+    },
+  },
+  {
+    control: 'Edit the publisher profile / re-accept changed terms',
+    file: 'src/components/publisher/PublisherProfilePanel.tsx',
+    permissions: ['publishers:manage'],
+    pagePermissions: ['plugins:read'],
+    page: '/dashboard/publisher',
+    routes: ['plugin PATCH /plugins/publisher', 'plugin POST /plugins/publisher/terms'],
+    behaviour: {
+      mount: page('../pages/dashboard/publisher'),
+      router: { pathname: '/dashboard/publisher' },
+      // Terms changed since acceptance: the banner carries the accept action,
+      // rendered beside the profile's Save under the same `publishers:manage` check.
+      api: { getPublisher: publisherCtx({ terms: { currentVersion: '2', accepted: false } }) },
+      find: button(/^accept the new terms$/i),
+    },
+  },
+  {
+    control: 'Pause a listing or one of its versions',
+    file: 'src/components/publisher/PublisherListingsPanel.tsx',
+    permissions: ['plugins:publish'],
+    pagePermissions: ['plugins:read'],
+    page: '/dashboard/publisher',
+    routes: ['plugin POST /plugins/publisher/listings/:listingId/pause'],
+    behaviour: {
+      mount: page('../pages/dashboard/publisher'),
+      router: { pathname: '/dashboard/publisher', query: { tab: 'listings' } },
+      api: { getPublisher: publisherCtx(), listPublisherListings: { listings: [ECO_LISTING] } },
+      find: button(/^pause eslint$/i),
+    },
+  },
+  {
+    control: 'Submit a publish request (yank / unpause / listing update / new listing or version)',
+    file: 'src/components/publisher/PublisherListingsPanel.tsx',
+    gateFiles: ['pages/dashboard/publisher.tsx', 'src/components/publisher/PublisherProfilePanel.tsx'],
+    // The route admits `plugins:publish` OR `publishers:manage` and checks the
+    // kind's own permission in the handler; this row proves the publish half
+    // (the yank request), the profile rows prove the manage half.
+    permissions: ['plugins:publish'],
+    pagePermissions: ['plugins:read'],
+    page: '/dashboard/publisher',
+    routes: ['plugin POST /plugins/publish-requests'],
+    behaviour: {
+      mount: page('../pages/dashboard/publisher'),
+      router: { pathname: '/dashboard/publisher', query: { tab: 'listings' } },
+      api: { getPublisher: publisherCtx(), listPublisherListings: { listings: [ECO_LISTING] } },
+      find: button(/^request yank of eslint v1\.0\.0$/i),
+    },
+  },
+  {
+    control: 'Withdraw an open publish request',
+    file: 'src/components/publisher/PublishRequestsPanel.tsx',
+    // A new-listing request is withdrawn under `plugins:publish`; the route
+    // admits either permission and re-checks the kind in the handler.
+    permissions: ['plugins:publish'],
+    pagePermissions: ['plugins:read'],
+    page: '/dashboard/publisher',
+    routes: ['plugin POST /plugins/publish-requests/:id/withdraw'],
+    behaviour: {
+      mount: page('../pages/dashboard/publisher'),
+      router: { pathname: '/dashboard/publisher', query: { tab: 'requests' } },
+      api: { getPublisher: publisherCtx(), listPublishRequests: { requests: [ECO_REQUEST] }, listIncomingTransfers: { requests: [] } },
+      find: button(/^withdraw new listing request/i),
+    },
+  },
+  {
+    control: 'Accept / decline an incoming listing transfer',
+    file: 'src/components/publisher/PublishRequestsPanel.tsx',
+    permissions: ['publishers:manage'],
+    pagePermissions: ['plugins:read'],
+    page: '/dashboard/publisher',
+    stepUp: true,
+    routes: ['plugin POST /plugins/publish-requests/:id/transfer-response'],
+    behaviour: {
+      mount: page('../pages/dashboard/publisher'),
+      router: { pathname: '/dashboard/publisher', query: { tab: 'requests' } },
+      api: {
+        getPublisher: publisherCtx(),
+        listPublishRequests: { requests: [] },
+        listIncomingTransfers: { requests: [{
+          ...ECO_REQUEST, id: 't1', kind: 'transfer', publisherHandle: 'other',
+          payload: { transfer: { targetPublisherId: 'pub1', targetOrgId: 'org-1', response: 'pending' } },
+        }] },
+      },
+      find: button(/^accept$/i),
+    },
+  },
+  // ── Plugin ecosystem: the system org's Ecosystem console (plan §3.0, §5a.1) ──
+  {
+    control: 'Ecosystem console: review, approve / second-approve / reject a publish request',
+    file: 'src/components/ecosystem/PublishQueuePanel.tsx',
+    // Every route admits `plugins:moderate` OR `publishers:verify`; the panel
+    // shows the decision only to holders of the item's `requiredPermission`
+    // (here `plugins:moderate`). Step-up is asked per request KIND by the
+    // handler (the item's `requiresStepUp`), not at the route.
+    permissions: ['plugins:moderate'],
+    minAssurance: 2,
+    routes: [
+      'plugin GET /plugins/ecosystem/overview',
+      'plugin GET /plugins/ecosystem/requests',
+      'plugin GET /plugins/ecosystem/requests/:id',
+      'plugin POST /plugins/ecosystem/requests/:id/approve',
+      'plugin POST /plugins/ecosystem/requests/:id/second-approve',
+      'plugin POST /plugins/ecosystem/requests/:id/reject',
+    ],
+    behaviour: {
+      renders: ECO_PANEL_RENDERS,
+      mount: ecoPanel('../src/components/ecosystem/PublishQueuePanel', 'PublishQueuePanel'),
+      api: {
+        getEcosystemOverview: ECO_OVERVIEW,
+        listEcosystemRequests: { requests: [ECO_QUEUE_ITEM] },
+        getEcosystemRequest: { request: ECO_QUEUE_ITEM, review: ECO_REVIEW, approvers: ECO_APPROVERS, eligibility: null },
+      },
+      // Opening the review is a read anyone in the console may do.
+      reveal: () => fireEvent.click(screen.getByRole('button', { name: /^review/i })),
+      find: button(/^approve$/i),
+    },
+  },
+  {
+    control: 'Ecosystem console: suspend / unsuspend a publisher, change its tier',
+    file: 'src/components/ecosystem/PublisherVerificationPanel.tsx',
+    permissions: ['publishers:verify'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: [
+      'plugin GET /plugins/ecosystem/publishers',
+      'plugin POST /plugins/ecosystem/publishers/:id/suspend',
+      'plugin POST /plugins/ecosystem/publishers/:id/unsuspend',
+      'plugin POST /plugins/ecosystem/publishers/:id/tier',
+    ],
+    behaviour: {
+      renders: ECO_PANEL_RENDERS,
+      mount: ecoPanel('../src/components/ecosystem/PublisherVerificationPanel', 'PublisherVerificationPanel'),
+      api: {
+        listEcosystemRequests: { requests: [] },
+        listEcosystemPublishers: { publishers: [{ ...ECO_PUBLISHER, listingCount: 1 }] },
+      },
+      find: button(/^suspend acme$/i),
+    },
+  },
+  {
+    control: 'Ecosystem console: set a listing state, yank / request unyank a version, re-sign published images',
+    file: 'src/components/ecosystem/ListingStatePanel.tsx',
+    permissions: ['plugins:moderate'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: [
+      'plugin GET /plugins/ecosystem/listings',
+      'plugin POST /plugins/ecosystem/listings/:id/state',
+      'plugin POST /plugins/ecosystem/listings/:id/versions/:version/yank',
+      'plugin POST /plugins/ecosystem/listings/:id/versions/:version/unyank',
+      // "Re-sign all published images" sits in the same panel's header, behind the same check.
+      'plugin POST /plugins/ecosystem/resign',
+    ],
+    behaviour: {
+      renders: ECO_PANEL_RENDERS,
+      mount: ecoPanel('../src/components/ecosystem/ListingStatePanel', 'ListingStatePanel'),
+      api: { listEcosystemListings: { listings: [ECO_LISTING] } },
+      find: button(/^yank eslint v1\.0\.0$/i),
+    },
+  },
+  {
+    control: 'Ecosystem console: create / edit / disable / delete an auto-approval rule, approve its change',
+    file: 'src/components/ecosystem/AutoApprovalRulesPanel.tsx',
+    permissions: ['plugins:moderate'],
+    stepUp: true,
+    minAssurance: 2,
+    routes: [
+      'plugin GET /plugins/ecosystem/rules',
+      'plugin POST /plugins/ecosystem/rules',
+      'plugin PATCH /plugins/ecosystem/rules/:id',
+      'plugin DELETE /plugins/ecosystem/rules/:id',
+      'plugin POST /plugins/ecosystem/rules/:id/approve-change',
+    ],
+    behaviour: {
+      renders: ECO_PANEL_RENDERS,
+      mount: ecoPanel('../src/components/ecosystem/AutoApprovalRulesPanel', 'AutoApprovalRulesPanel', { currentUserId: 'u1' }),
+      api: { listAutoRules: { rules: [] } },
+      find: button(/new rule/i),
+    },
+  },
+  {
+    control: 'Ecosystem console: reserve / release a handle or listing name',
+    file: 'src/components/ecosystem/ReservedNamesPanel.tsx',
+    permissions: ['plugins:moderate'],
+    minAssurance: 2,
+    routes: [
+      'plugin GET /plugins/ecosystem/reserved-names',
+      'plugin PUT /plugins/ecosystem/reserved-names/:name',
+      'plugin DELETE /plugins/ecosystem/reserved-names/:name',
+    ],
+    behaviour: {
+      renders: ECO_PANEL_RENDERS,
+      mount: ecoPanel('../src/components/ecosystem/ReservedNamesPanel', 'ReservedNamesPanel'),
+      api: {
+        listReservedNames: { names: [{ name: 'trivy', reason: 'Vendor', publisherId: null, createdAt: '2026-09-01T00:00:00Z' }] },
+        listEcosystemPublishers: { publishers: [] },
+      },
+      find: button(/^remove reserved name trivy$/i),
+    },
+  },
 ];
 
 
@@ -1736,6 +2090,84 @@ function group(service: string, routes: string[], d: Disposition): Record<string
 }
 
 const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
+  // ── Plugin ecosystem ──────────────────────────────────────────────────────
+  'image-registry DELETE /internal/quarantine/:submissionId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: plugin): the plugin service drops a rejected / expired anonymous submission\'s quarantine/<id> image (W5, E4/E5); no user token is admitted.',
+  },
+  ...group('plugin', [
+    'POST /public/plugin-submissions',
+    'POST /public/plugin-submissions/inspect',
+    'POST /public/plugin-submissions/verify',
+  ], {
+    category: 'pre-session',
+    why: 'Anonymous plugin submission (W5, plan §4): the not-signed-in submit and verify pages (src/lib/api/domains/plugin-submissions.ts) drive them with a proof-of-work and a magic link; there is no session, so no permission applies. Quarantine only — nothing is published without the two-person console decision.',
+  }),
+  ...group('plugin', [
+    'GET /plugins/ecosystem/requests/:id/submission-sbom',
+    'GET /plugins/ecosystem/requests/:id/submission-scan',
+  ], {
+    category: 'same-control',
+    why: 'The SBOM / scan links in a submission request\'s review (src/components/ecosystem/SubmissionReviewSection.tsx, from the request detail\'s sbomUrl / scanUrl), shown only inside the Ecosystem console review the mapped row gates on plugins:moderate + aal2.',
+    coveredBy: 'Ecosystem console: review, approve / second-approve / reject a publish request',
+  }),
+  'platform GET /internal/notify-email/status': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: plugin): the plugin service asks whether outbound email is configured before it enables anonymous submissions (W5, E6); no user token is admitted.',
+  },
+  // A signed-in person's OWN review of a listing (W4): write, edit, delete, vote
+  // helpful, report. `plugins:read` + a human session; the controls are on the
+  // public plugin page's Reviews tab (src/components/reviews/ReviewsSection.tsx,
+  // ReviewItem.tsx), shown to any signed-in viewer.
+  ...group('plugin', [
+    'POST /plugins/listings/:publisher/:name/reviews',
+    'PATCH /plugins/reviews/:id',
+    'DELETE /plugins/reviews/:id',
+    'PUT /plugins/reviews/:id/helpful',
+    'DELETE /plugins/reviews/:id/helpful',
+    'POST /plugins/reviews/:id/report',
+  ], { category: 'own-account', why: 'The viewer\'s own review, helpful vote or report on the public plugin page (src/components/reviews/ReviewsSection.tsx / ReviewItem.tsx): plugins:read plus a human session; the server refuses self-promotion (REVIEW_SELF_PROMOTION).' }),
+  ...group('plugin', [
+    'PUT /plugins/reviews/:id/reply',
+    'DELETE /plugins/reviews/:id/reply',
+  ], {
+    category: 'same-control',
+    coveredBy: 'Edit the publisher profile / re-accept changed terms',
+    why: 'Reply / delete reply on the public plugin page (src/components/reviews/ReviewItem.tsx) shows only when review-state returns canReply, which the server derives from publishers:manage in the listing\'s publisher org — the gate the profile-edit row proves.',
+  }),
+  'plugin POST /plugins/publisher/listings/:listingId/deprecate': {
+    category: 'same-control',
+    coveredBy: 'Pause a listing or one of its versions',
+    why: 'Deprecate a listed version from the Publisher page\'s Listings tab (src/components/publisher/PublisherListingsPanel.tsx), under the same plugins:publish check as its Pause button.',
+  },
+  // Ecosystem console panels that sit behind the same `can('plugins:moderate')`
+  // check as the publish queue (system org, aal2).
+  ...group('plugin', [
+    'GET /plugins/ecosystem/reviews',
+    'POST /plugins/ecosystem/reviews/:id/hold',
+    'POST /plugins/ecosystem/reviews/:id/release',
+    'POST /plugins/ecosystem/reviews/:id/remove',
+    'POST /plugins/ecosystem/reviews/:id/remove-reply',
+  ], {
+    category: 'same-control',
+    coveredBy: 'Ecosystem console: review, approve / second-approve / reject a publish request',
+    why: 'Ecosystem console → Review moderation (src/components/ecosystem/ReviewModerationPanel.tsx) acts only when can(\'plugins:moderate\'), the gate the publish-queue row proves; the routes add requireSystemOrg and aal2.',
+  }),
+  ...group('plugin', [
+    'GET /plugins/ecosystem/advisories',
+    'POST /plugins/ecosystem/advisories',
+    'PATCH /plugins/ecosystem/advisories/:id',
+    'POST /plugins/ecosystem/advisories/:id/withdraw',
+  ], {
+    category: 'same-control',
+    coveredBy: 'Ecosystem console: review, approve / second-approve / reject a publish request',
+    why: 'Ecosystem console → Advisories (src/components/ecosystem/AdvisoriesPanel.tsx) acts only when can(\'plugins:moderate\'), the gate the publish-queue row proves; writes add a step-up (AdvisoryFormDialog), system org and aal2.',
+  }),
+  'plugin POST /plugins/ecosystem/listings/:id/versions/:version/deprecate': {
+    category: 'same-control',
+    coveredBy: 'Ecosystem console: set a listing state, yank / request unyank a version, re-sign published images',
+    why: 'Deprecate a version from Ecosystem console → Listings (src/components/ecosystem/ListingStatePanel.tsx), behind the same can(\'plugins:moderate\') and step-up as the yank control that row proves.',
+  },
   // ── Internal, service-principal only ──────────────────────────────────────
   ...group('compliance', [
     'PUT /compliance/entitlements/:orgId',
@@ -1750,10 +2182,23 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /audit/events',
     'POST /internal/notify-email',
   ], { category: 'machine-only', why: 'Service-principal route: every service spools audit events here, and compliance posts notification email; no user token is admitted.' }),
+  ...group('platform', [
+    'GET /internal/ecosystem/approvers',
+    'GET /internal/ecosystem/publisher-eligibility/:orgId',
+  ], { category: 'machine-only', why: 'Internal route (callers: plugin): the plugin ecosystem reads the Ecosystem Manager approver count and a Verified applicant\'s verified domains / owner MFA; no user token is admitted.' }),
   ...group('quota', [
     'POST /quotas/:orgId/decrement',
     'POST /quotas/:orgId/increment',
   ], { category: 'machine-only', why: 'Service-principal quota accounting called by every service on a write; no user token is admitted.' }),
+  ...group('image-registry', [
+    'POST /internal/plugin-publications',
+    'POST /internal/plugin-publications/resign',
+    'POST /internal/plugin-publications/yank',
+    'POST /internal/plugin-publications/retag',
+    'POST /internal/plugin-publications/gc',
+    'GET /internal/plugin-publications/verify',
+    'POST /internal/plugin-publications/verify-cache/invalidate',
+  ], { category: 'machine-only', why: 'Service-principal route: the plugin service drives the public/* namespace (publish = copy + fresh sign with tier annotations, resign, yank, gc, verify) when the system org decides a publish request; no user token is admitted.' }),
   'image-registry POST /internal/plugin-signatures': { category: 'machine-only', why: 'Service-principal route: the plugin build worker asks image-registry (the plugin-signing key\'s only holder) to sign + SBOM-attest each pushed image; no user token is admitted.' },
   'reporting PUT /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route: billing pushes the org\'s effective retention here when a plan or retention pack changes.' },
 
@@ -2202,8 +2647,11 @@ const CLIENT_CALLS: Map<string, string[]> = (() => {
       const from = at + m[0].length;
       const to = Math.min(hits[i + 1]?.index ?? src.length, from + 400);
       // `streamRequest` takes no options object — it always POSTs (SSE).
-      const streamed = /streamRequest\s*\(\s*$/.test(src.slice(Math.max(0, at - 40), at));
-      const method = streamed ? 'POST' : (/method:\s*'(\w+)'/.exec(src.slice(from, to))?.[1] ?? 'GET');
+      const before = src.slice(Math.max(0, at - 160), at);
+      const streamed = /streamRequest\s*\(\s*$/.test(before);
+      // The ecosystem client's `post<T>(path, body, stepUpToken)` helper always POSTs.
+      const viaPost = /\bpost\s*(?:<[^\n]*>)?\(\s*$/.test(before);
+      const method = streamed || viaPost ? 'POST' : (/method:\s*'(\w+)'/.exec(src.slice(from, to))?.[1] ?? 'GET');
       const key = `${method} ${normaliseEndpoint(m[1])}`;
       index.set(key, [...new Set([...(index.get(key) ?? []), file])]);
     });

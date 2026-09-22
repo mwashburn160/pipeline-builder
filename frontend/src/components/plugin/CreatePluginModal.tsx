@@ -14,10 +14,11 @@ import { FeatureLock } from '@/components/ui/FeatureLock';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import AIPluginBuilderTab from './AIPluginBuilderTab';
 import WizardPluginTab from './WizardPluginTab';
+import { CatalogDetailsStep } from './CatalogDetailsStep';
 import api from '@/lib/api';
 import { PLUGIN_BUILD_TIMEOUT_MS } from '@/lib/constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
-import type { Visibility } from '@/types';
+import type { PluginCatalogEdits, Visibility } from '@/types';
 
 /** Props for the CreatePluginModal component. */
 interface CreatePluginModalProps {
@@ -42,6 +43,9 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
 
   // Upload tab state
   const [file, setFile] = useState<File | null>(null);
+  // Catalog fields the user EDITED in the Catalog details step — only these go
+  // up as the `metadata` part; everything else is accepted as detected.
+  const [catalogEdits, setCatalogEdits] = useState<PluginCatalogEdits>({});
   // `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -77,11 +81,11 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   }, [buildStatus]);
 
   const { execute: uploadAsync, loading, error: uploadError, clearError } = useAsyncCallback(
-    async (f: File, a: Visibility) => {
+    async (f: File, a: Visibility, edits: PluginCatalogEdits) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), PLUGIN_BUILD_TIMEOUT_MS);
       try {
-        return await api.uploadPlugin(f, a, { signal: controller.signal });
+        return await api.uploadPlugin(f, a, { signal: controller.signal, catalogEdits: edits });
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           throw new Error('Upload timed out. Please try again with a smaller file or check your connection.');
@@ -107,6 +111,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
       }
 
       setFile(selected);
+      setCatalogEdits({});
       setValidationError(null);
     }
   };
@@ -121,7 +126,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
     setSuccess(null);
     setRequestId(null);
 
-    const response = await uploadAsync(file, access);
+    const response = await uploadAsync(file, access, catalogEdits);
 
     if (response) {
       if (response.statusCode === 202 && response.data?.requestId) {
@@ -129,12 +134,14 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
         // file input so the user can't double-submit while building.
         setRequestId(response.data.requestId);
         setFile(null);
+        setCatalogEdits({});
         if (fileInputRef.current) fileInputRef.current.value = '';
       } else if (response.success) {
         // Fallback: synchronous response (shouldn't happen with queue, but
         // some deployments may bypass it).
         setSuccess('Plugin uploaded successfully!');
         setFile(null);
+        setCatalogEdits({});
         if (fileInputRef.current) fileInputRef.current.value = '';
         onCreated();
         setTimeout(() => { if (mountedRef.current) onClose(); }, 2000);
@@ -145,6 +152,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   const handleRetry = () => {
     setRequestId(null);
     setFile(null);
+    setCatalogEdits({});
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -154,6 +162,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
     clearError();
     setSuccess(null);
     setFile(null);
+    setCatalogEdits({});
     setRequestId(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -294,6 +303,18 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
               <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
                 <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={uploadDisabled} />
               </FormField>
+
+              {/* Catalog details (§3.1a): detected from the package, accepted or
+                  edited. Re-keyed per file so a new pick re-inspects cleanly. */}
+              {file && (
+                <CatalogDetailsStep
+                  key={`${file.name}:${file.size}:${file.lastModified}`}
+                  file={file}
+                  edits={catalogEdits}
+                  onEditsChange={setCatalogEdits}
+                  disabled={uploadDisabled}
+                />
+              )}
             </div>
           )}
         </>

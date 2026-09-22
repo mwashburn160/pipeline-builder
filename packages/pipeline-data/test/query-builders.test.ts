@@ -14,6 +14,7 @@ const {
   buildMessageConditions,
   buildComplianceRuleConditions,
   buildCompliancePolicyConditions,
+  pluginResolutionOrderBy,
 } = await import('../src/api/query-builders.js');
 
 describe('buildPipelineConditions', () => {
@@ -88,6 +89,22 @@ describe('buildPipelineConditions', () => {
 });
 
 describe('buildPluginConditions', () => {
+  // Plugin ecosystem (plan §3.1, G26): a system-org plugin row never reaches
+  // OTHER orgs — the Official catalog resolves as listings through installs.
+  // Pipelines keep the plain system-public rule.
+  it('never widens a plugin read to the system org (Official plugins are listings)', () => {
+    const dialect = new PgDialect();
+    const tenant = dialect.sqlToQuery(and(...buildPluginConditions({}, 'org-1'))!);
+    expect(tenant.params).not.toContain('000000000000000000000001');
+    const team = dialect.sqlToQuery(and(...buildPluginConditions({}, 'team-1', 'parent-1'))!);
+    expect(team.params).toContain('parent-1');
+    expect(team.params).not.toContain('000000000000000000000001');
+    const anonymous = dialect.sqlToQuery(and(...buildPluginConditions({}, undefined))!);
+    expect(anonymous.sql).toContain('false');
+    const pipelines = dialect.sqlToQuery(and(...buildPipelineConditions({}, 'org-1'))!);
+    expect(pipelines.params).toContain('000000000000000000000001');
+  });
+
   it('returns conditions for empty filter', () => {
     const conditions = buildPluginConditions({}, 'org-1');
     expect(conditions.length).toBeGreaterThanOrEqual(1);
@@ -109,6 +126,33 @@ describe('buildPluginConditions', () => {
     const withOrgId = buildPluginConditions({ orgId: 'specific-org' }, 'org-1');
     const withoutOrgId = buildPluginConditions({}, 'org-1');
     expect(withOrgId.length).toBeGreaterThan(withoutOrgId.length);
+  });
+});
+
+describe('pluginResolutionOrderBy (the one lookup / contract-check ranking)', () => {
+  const dialect = new PgDialect();
+  const render = (parts: ReturnType<typeof pluginResolutionOrderBy>) =>
+    parts.map((p) => dialect.sqlToQuery(p));
+
+  it('ranks own org, then parent org, then the system catalog; then default; then highest semver; then id', () => {
+    const q = render(pluginResolutionOrderBy('org-1', 'parent-1'));
+    expect(q[0]!.sql).toMatch(/CASE "plugins"\."org_id" WHEN \$1 THEN 0 WHEN \$2 THEN 1 ELSE 2 END/);
+    expect(q[0]!.params).toEqual(['org-1', 'parent-1']);
+    expect(q[1]!.sql).toBe('"plugins"."is_default" desc');
+    // semver: major, minor, patch desc; release before prerelease.
+    expect(q.slice(2, 5).every((p) => p.sql.endsWith(' desc'))).toBe(true);
+    expect(q[q.length - 1]!.sql).toBe('"plugins"."id" asc');
+  });
+
+  it('ranks own org first when there is no parent org', () => {
+    const q = render(pluginResolutionOrderBy('org-1'));
+    expect(q[0]!.sql).toMatch(/CASE "plugins"\."org_id" WHEN \$1 THEN 0 ELSE 2 END/);
+    expect(q[0]!.params).toEqual(['org-1']);
+  });
+
+  it('has no owner rank for an anonymous read', () => {
+    const q = render(pluginResolutionOrderBy());
+    expect(q[0]!.sql).toBe('"plugins"."is_default" desc');
   });
 });
 

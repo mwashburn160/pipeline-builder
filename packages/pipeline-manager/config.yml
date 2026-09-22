@@ -22,43 +22,22 @@ api:
   rejectUnauthorized: true
   
   # API Endpoints
-  # 
-  # Pipeline Endpoints:
-  #   pipelineUrl     - Single pipeline operations (GET by ID, POST)
-  #                     Used by: get-pipeline, create-pipeline
-  #                     Format: /api/pipeline/{id} or /api/pipeline
-  # 
-  #   pipelineListUrl - List/query multiple pipelines with filters
-  #                     Used by: list-pipelines
-  #                     Format: /api/pipelines?filter1=value1&filter2=value2
-  #                     Supports filters: id, accessModifier, isDefault, isActive, 
-  #                                      project, projectPattern, organizationPattern,
-  #                                      limit, offset, sort
-  # 
-  # Plugin Endpoints:
-  #   pluginUrl       - Single plugin operations (GET by ID)
-  #                     Used by: get-plugin
-  #                     Format: /api/plugin/{id}
-  # 
-  #   pluginListUrl   - List/query multiple plugins with filters
-  #                     Used by: list-plugins
-  #                     Format: /api/plugins?filter1=value1&filter2=value2
-  #                     Supports filters: id, accessModifier, isDefault, isActive, 
-  #                                      name, namePattern, version, versionRange, 
-  #                                      imageTag, limit, offset, sort
-  # 
-  #   pluginUploadUrl - Plugin upload endpoint
-  #                     Used by: upload-plugin
-  #                     Format: /api/plugin/upload
-  # 
-  # Note: Singular vs Plural URLs
-  #   - Singular (/api/plugin, /api/pipeline) - Single resource operations
-  #   - Plural (/api/plugins, /api/pipelines) - List/query operations
-  pipelineUrl: /api/pipeline
-  pipelineListUrl: /api/pipelines
-  pluginUrl: /api/plugin
-  pluginListUrl: /api/plugins
-  pluginUploadUrl: /api/plugin/upload
+  #
+  #   pipelineUrl     - The pipelines API. Lists and queries at the root
+  #                     (/api/pipelines?project=...), one pipeline at
+  #                     /api/pipelines/{id}, create by POST to the root.
+  #
+  #   pipelineTemplateUrl - The golden-path template catalog.
+  #
+  #   pluginUrl       - The plugins API. Lists and queries at the root
+  #                     (/api/plugins?name=...), one plugin at /api/plugins/{id},
+  #                     lifecycle actions at /api/plugins/{id}/deprecate|yank.
+  #
+  #   pluginUploadUrl - Plugin zip upload (multipart POST, long timeout).
+  pipelineUrl: /api/pipelines
+  pipelineTemplateUrl: /api/pipeline-templates
+  pluginUrl: /api/plugins
+  pluginUploadUrl: /api/plugins/upload
 
 # ============================================================================
 # AUTHENTICATION

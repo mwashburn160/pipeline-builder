@@ -15,7 +15,7 @@ import {
 
 describe('ALL_FEATURE_FLAGS', () => {
   it('should contain all 10 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(9);
+    expect(ALL_FEATURE_FLAGS).toHaveLength(10);
     expect(ALL_FEATURE_FLAGS).toContain('priority_support');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
@@ -25,6 +25,18 @@ describe('ALL_FEATURE_FLAGS', () => {
     expect(ALL_FEATURE_FLAGS).toContain('team_usage_analytics');
     expect(ALL_FEATURE_FLAGS).toContain('compliance_standard');
     expect(ALL_FEATURE_FLAGS).toContain('compliance_advanced');
+    expect(ALL_FEATURE_FLAGS).toContain('verified_publisher');
+  });
+});
+
+describe('verified_publisher (plugin ecosystem, docs/plans/plugin-ecosystem.md §3.7)', () => {
+  it('is included from Team up (team, enterprise, unlimited) and nowhere below', () => {
+    expect(TIER_FEATURES.developer).not.toContain('verified_publisher');
+    expect(TIER_FEATURES.pro).not.toContain('verified_publisher');
+    for (const tier of ['team', 'enterprise', 'unlimited'] as const) {
+      expect(TIER_FEATURES[tier]).toContain('verified_publisher');
+    }
+    expect(FEATURE_METADATA.verified_publisher.label).toBeTruthy();
   });
 });
 

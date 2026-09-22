@@ -37,3 +37,4 @@ export * from './sensitive-patterns.js';
 export * from './ssrf.js';
 export * from './env.js';
 export * from './compliance-attributes.js';
+export * from './proof-of-work.js';

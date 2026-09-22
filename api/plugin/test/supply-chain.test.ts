@@ -76,8 +76,11 @@ const {
   verifyImageSignature,
   fetchImageSbom,
   extractSpdxPredicate,
+  fetchPublicImageSbom,
   ImageVerificationError,
+  SbomBusyError,
   _resetSupplyChainState,
+  _resetPublicSbomCache,
 } = await import('../src/helpers/supply-chain.js');
 
 const plugin = { orgId: 'acme', name: 'foo', imageDigest: DIGEST };
@@ -93,6 +96,7 @@ beforeEach(() => {
   mockSpawn.mockImplementation(() => child(0));
   mockExistsSync.mockReturnValue(true);
   _resetSupplyChainState();
+  _resetPublicSbomCache();
 });
 
 describe('attachSupplyChain', () => {
@@ -223,5 +227,62 @@ describe('fetchImageSbom / extractSpdxPredicate', () => {
   it('throws when there is no SPDX attestation at all', () => {
     expect(() => extractSpdxPredicate(envelope('https://slsa.dev/provenance/v0.2', {}), 'foo'))
       .toThrow(ImageVerificationError);
+  });
+});
+
+describe('fetchPublicImageSbom (anonymous directory)', () => {
+  const spdx = { spdxVersion: 'SPDX-2.3', name: 'trivy' };
+  const ok = () => child(0, `${envelope('https://spdx.dev/Document', spdx)}\n`);
+
+  it('verifies the attestation of the public/* image by digest and returns its SBOM', async () => {
+    mockSpawn.mockImplementation(ok);
+    await expect(fetchPublicImageSbom('public/acme/trivy', DIGEST, REGISTRY)).resolves.toEqual(spdx);
+    const args = mockSpawn.mock.calls[0][1];
+    expect(args).toEqual(expect.arrayContaining(['verify-attestation', '--type', 'spdxjson', '--insecure-ignore-tlog=true']));
+    expect(args[args.length - 1]).toBe(`registry:5000/public/acme/trivy@${DIGEST}`);
+    // The pull credential is written and removed again.
+    expect(mockRmSync).toHaveBeenCalledWith(expect.stringContaining('pb-dockercfg-'), expect.objectContaining({ recursive: true }));
+  });
+
+  it('caches by digest: a second request runs no cosign', async () => {
+    mockSpawn.mockImplementation(ok);
+    await fetchPublicImageSbom('public/acme/trivy', DIGEST, REGISTRY);
+    await fetchPublicImageSbom('public/acme/trivy', DIGEST, REGISTRY);
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one cosign run between concurrent requests for the same image', async () => {
+    mockSpawn.mockImplementation(ok);
+    await Promise.all([
+      fetchPublicImageSbom('public/acme/trivy', DIGEST, REGISTRY),
+      fetchPublicImageSbom('public/acme/trivy', DIGEST, REGISTRY),
+    ]);
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a third distinct concurrent verification with SbomBusyError', async () => {
+    mockSpawn.mockImplementation(ok);
+    const d = (c: string) => `sha256:${c.repeat(64)}`;
+    const first = fetchPublicImageSbom('public/acme/a', d('1'), REGISTRY);
+    const second = fetchPublicImageSbom('public/acme/b', d('2'), REGISTRY);
+    await expect(fetchPublicImageSbom('public/acme/c', d('3'), REGISTRY)).rejects.toBeInstanceOf(SbomBusyError);
+    await Promise.all([first, second]);
+    // Capacity frees up once they finish.
+    await expect(fetchPublicImageSbom('public/acme/c', d('3'), REGISTRY)).resolves.toEqual(spdx);
+  });
+
+  it('does not cache a failure', async () => {
+    mockSpawn.mockImplementationOnce(() => child(1)).mockImplementation(ok);
+    await expect(fetchPublicImageSbom('public/acme/trivy', DIGEST, REGISTRY)).rejects.toBeInstanceOf(ImageVerificationError);
+    await expect(fetchPublicImageSbom('public/acme/trivy', DIGEST, REGISTRY)).resolves.toEqual(spdx);
+  });
+
+  it.each([
+    ['org-acme/trivy', DIGEST],
+    ['public/acme/../system/x', DIGEST],
+    ['public/acme/trivy', 'latest'],
+  ])('refuses a non-public repository or a non-digest (%s @ %s) before running cosign', async (repo, digest) => {
+    await expect(fetchPublicImageSbom(repo, digest, REGISTRY)).rejects.toBeInstanceOf(ImageVerificationError);
+    expect(mockSpawn).not.toHaveBeenCalled();
   });
 });

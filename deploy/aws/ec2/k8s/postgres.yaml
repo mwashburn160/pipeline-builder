@@ -128,6 +128,15 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: DB_PASSWORD
+            # Read by postgres-init.sql to create the view-only ecosystem_public_reader
+            # login behind the anonymous plugin directory. Optional: an absent key
+            # skips the role (and the directory stays off).
+            - name: ECOSYSTEM_PUBLIC_READER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: ECOSYSTEM_PUBLIC_READER_PASSWORD
+                  optional: true
             - name: POSTGRES_DB
               valueFrom:
                 configMapKeyRef:

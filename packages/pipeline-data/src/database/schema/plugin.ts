@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle, type OwnerType,
-  type Visibility,
+  ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle,
+  type MetadataSources, type OwnerType, type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
@@ -24,6 +24,38 @@ export interface PluginSecret {
  * only — the platform never saw the build).
  */
 export type ImageSource = 'built' | 'uploaded';
+
+/**
+ * Plugin lifecycle: the shared catalog {@link Lifecycle} plus `yanked`, which
+ * only plugin versions can reach (a yanked version stops resolving for new
+ * synths). `yankedAt` / `deprecatedAt` are the authoritative timestamps; the
+ * lifecycle value mirrors them for catalog filtering.
+ */
+export type PluginLifecycle = Lifecycle | 'yanked';
+
+/** Coercion type a `requiredMetadata` / `requiredVars` key is declared as. */
+export type PluginContractValueType = 'string' | 'number' | 'bool' | 'json';
+
+/**
+ * The spec's smoke-test declaration. Today a bare command string; stored as
+ * JSONB so a structured form can follow without another column.
+ */
+export type PluginSmokeTest = string | Record<string, unknown>;
+
+/** A curated icon (§6a.1): a key into the curated set, plus an optional badge. */
+export interface PluginIcon {
+  key: string;
+  badge?: string;
+}
+
+/**
+ * Storage keys of an uploaded icon's re-encoded WebP renditions (image-registry
+ * decodes + re-encodes every upload; the raw file and SVG are never stored).
+ */
+export interface PluginUploadedIcon {
+  key256: string;
+  key64: string;
+}
 
 /**
  * Table for storing reusable plugin configurations.
@@ -119,6 +151,58 @@ export const plugin = pgTable('plugins', {
     .default([])
     .notNull(),
 
+  // Spec contract, persisted (not just validated at upload): the
+  // `{{ pipeline.metadata.X }}` / `{{ pipeline.vars.X }}` keys a pipeline must
+  // supply, their declared coercion types, the smoke test, and the declared
+  // outbound hostnames (spec `network.egress`) shown to consumers.
+  requiredMetadata: jsonb('required_metadata')
+    .$type<string[]>()
+    .default([])
+    .notNull(),
+  requiredVars: jsonb('required_vars')
+    .$type<string[]>()
+    .default([])
+    .notNull(),
+  metadataTypes: jsonb('metadata_types')
+    .$type<Record<string, PluginContractValueType>>()
+    .default({})
+    .notNull(),
+  varsTypes: jsonb('vars_types')
+    .$type<Record<string, PluginContractValueType>>()
+    .default({})
+    .notNull(),
+  smokeTest: jsonb('smoke_test').$type<PluginSmokeTest>(),
+  networkEgress: jsonb('network_egress')
+    .$type<string[]>()
+    .default([])
+    .notNull(),
+
+  // Documentation. The README is kept as source markdown AND pre-sanitized
+  // HTML (rendered once at upload), so no read path renders untrusted markdown.
+  readmeMd: text('readme_md'),
+  readmeHtml: text('readme_html'),
+  // SPDX license identifier.
+  license: varchar('license', { length: 64 }),
+  changelog: text('changelog'),
+  homepageUrl: varchar('homepage_url', { length: 2048 }),
+  sourceUrl: varchar('source_url', { length: 2048 }),
+  icon: jsonb('icon').$type<PluginIcon>(),
+  uploadedIcon: jsonb('uploaded_icon').$type<PluginUploadedIcon>(),
+
+  // Catalog metadata (§3.1a, D19): detected from the package (spec, README,
+  // the plugin's own Dockerfile OCI labels), then accepted or edited by the
+  // user. `summary` is the card one-liner (G53); `displayName` falls back to
+  // `name` when unset. `metadataSources` records, per descriptive field, where
+  // its value came from (`spec | readme | dockerfile | derived | user`) so a
+  // reviewer can see what was typed rather than shipped in the package.
+  summary: varchar('summary', { length: 160 }),
+  displayName: varchar('display_name', { length: 100 }),
+  documentationUrl: varchar('documentation_url', { length: 2048 }),
+  metadataSources: jsonb('metadata_sources')
+    .$type<MetadataSources>()
+    .default({})
+    .notNull(),
+
   // Docker configuration
   dockerfile: text('dockerfile'),
   buildType: varchar('build_type', { length: 20 })
@@ -134,14 +218,36 @@ export const plugin = pgTable('plugins', {
   imageDigest: varchar('image_digest', { length: 71 }),
   imageSource: varchar('image_source', { length: 10 }).$type<ImageSource>(),
 
+  // Vulnerability scan (grype over the SBOM at build; nightly rescan) and the
+  // image's effective USER. NULL = not scanned / produces no image.
+  vulnCritical: integer('vuln_critical'),
+  vulnHigh: integer('vuln_high'),
+  vulnMedium: integer('vuln_medium'),
+  vulnLow: integer('vuln_low'),
+  scannedAt: timestamp('scanned_at', { withTimezone: true }),
+  runAsRoot: boolean('run_as_root'),
+
+  // Version lifecycle. `breaking`: a publisher-marked major that `latest`
+  // installs never cross without re-approval. `frozenAt`: set the moment a
+  // publish request references this version — re-uploading it is then refused
+  // (409, §3.4). Yank / deprecation carry their reason alongside the timestamp.
+  breaking: boolean('breaking')
+    .default(false)
+    .notNull(),
+  frozenAt: timestamp('frozen_at', { withTimezone: true }),
+  yankedAt: timestamp('yanked_at', { withTimezone: true }),
+  yankReason: text('yank_reason'),
+  deprecatedAt: timestamp('deprecated_at', { withTimezone: true }),
+  deprecationMessage: text('deprecation_message'),
+
   // Developer-portal catalog metadata (ownership / lifecycle / classification).
   // ownerId defaults to the creating user (set at insert), so every plugin has
   // an owner for "my services" views; ownerType distinguishes user vs team.
   ownerId: text('owner_id'),
   ownerType: varchar('owner_type', { length: 10 }).$type<OwnerType>(),
   lifecycle: varchar('lifecycle', { length: 20 })
-    .$type<Lifecycle>()
-    .default('production' as Lifecycle)
+    .$type<PluginLifecycle>()
+    .default('production' as PluginLifecycle)
     .notNull(),
   criticality: varchar('criticality', { length: 10 }).$type<Criticality>(),
   labels: jsonb('labels')
@@ -175,6 +281,12 @@ export const plugin = pgTable('plugins', {
   // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
   // rows once `purge_after` has passed (set on delete alongside deleted_at).
   purgeAfter: timestamp('purge_after', { withTimezone: true }),
+
+  // The quota period (`resetAt`) this version's `plugins` slot was charged to
+  // at upload; NULL when no slot was charged (system catalog loads) or it was
+  // already refunded. A delete/purge refunds CONDITIONALLY on it (the quota
+  // service ignores the refund once that period has rolled over), then clears it.
+  quotaResetAt: timestamp('quota_reset_at', { withTimezone: true }),
 }, (table) => ({
   // Partial index over just the tombstones — drives the retention purge sweep.
   purgeIdx: index('plugin_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),

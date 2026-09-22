@@ -57,3 +57,16 @@ env:
   DOCKER_CONTEXT: "."
   AWS_REGION: "${AWS_REGION}"
   AWS_ACCOUNT_ID: ""
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://aws.amazon.com/ecr/
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/artifact/ecr-push
+# icon: none — AWS marks were removed from Simple Icons at AWS's request; no confirmed press-kit permission (monogram; see _icons/SOURCES.md)
+network:
+  egress:
+    - "*.amazonaws.com"
+    - "registry-1.docker.io"
+    - "auth.docker.io"
+changelog: |
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

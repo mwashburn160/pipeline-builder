@@ -16,7 +16,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const listRepositories = jest.fn<() => Promise<{ repositories: string[] }>>();
 const listTags = jest.fn<(name: string) => Promise<{ name: string; tags: string[] }>>();
 const getManifest = jest.fn();
-const isNotFound = (e: unknown): boolean => (e as { statusCode?: number })?.statusCode === 404;
+const isNotFound = (e: unknown): boolean => (e as { response?: { status?: number } })?.response?.status === 404;
 
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   listRepositories,
@@ -94,7 +94,7 @@ const getTags = async (name: string) => {
 
 describe('GET /api/images/:name/tags', () => {
   it('returns 404 (not 500) when the repo does not exist (listTags 404)', async () => {
-    listTags.mockRejectedValue(Object.assign(new Error('not found'), { statusCode: 404 }));
+    listTags.mockRejectedValue(Object.assign(new Error('not found'), { response: { status: 404 } }));
 
     const { status, body } = await getTags('org-acme/missing');
 

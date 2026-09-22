@@ -18,6 +18,7 @@ const QUOTA_LABELS: Record<string, { label: string; unit?: 'bytes' }> = {
   apiCalls: { label: 'API calls' },
   aiCalls: { label: 'AI calls' },
   storageBytes: { label: 'Registry storage', unit: 'bytes' },
+  listings: { label: 'Plugin listings' },
 };
 
 /** ISO timestamp → `yyyy-mm-dd` for a native date input. */

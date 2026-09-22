@@ -81,7 +81,11 @@ const emailChannel = createEmailChannel({
       text: req.text,
     }, {
       headers: {
-        Authorization: getServiceAuthHeader({ serviceName: 'compliance', orgId: SYSTEM_ORG_ID, role: 'member' }),
+        // Scoped to the TENANT the email is for: platform's relay is tenant-bound
+        // (a non-superadmin service token may only email its own org's users),
+        // so a system-org token naming a tenant `orgId` was refused 403 and every
+        // compliance email was logged as failed.
+        Authorization: getServiceAuthHeader({ serviceName: 'compliance', orgId: req.orgId, role: 'member' }),
       },
     });
     return true;

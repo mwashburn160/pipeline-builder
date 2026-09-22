@@ -17,7 +17,7 @@ Secret detection plugin using Gitleaks and TruffleHog to scan code repositories 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GITLEAKS_VERSION` | `8.22.0` | Gitleaks Version |
+| `GITLEAKS_VERSION` | `8.30.1` | Gitleaks Version |
 | `SCAN_MODE` | `directory` | Scan Mode |
 | `GITLEAKS_CONFIG` | _none_ | Gitleaks Config |
 | `REPORT_FORMAT` | `json` | Output report format |
@@ -35,7 +35,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "git-secrets",
   "plugin": "git-secrets",
   "env": {
-    "GITLEAKS_VERSION": "8.22.0",
+    "GITLEAKS_VERSION": "8.30.1",
     "SCAN_MODE": "directory",
     "GITLEAKS_CONFIG": "<your-gitleaks_config>",
     "REPORT_FORMAT": "json"

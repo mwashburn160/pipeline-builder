@@ -51,7 +51,7 @@ jest.unstable_mockModule('axios', () => ({
   AxiosError,
 }));
 
-const { handler, _resetCredentialsCache } = await import('../src/handlers/plugin-lookup-handler.js');
+const { handler, _resetCredentialsCache, unwrapLookup } = await import('../src/handlers/plugin-lookup-handler.js');
 
 
 const MOCK_PLUGIN = {
@@ -338,5 +338,31 @@ describe('plugin-lookup-handler', () => {
       expect(result.Status).toBe('FAILED');
       expect(result.Reason).toContain('Invalid baseURL');
     });
+  });
+});
+
+describe('unwrapLookup — the /plugins/lookup envelope (plugin-ecosystem W0.4)', () => {
+  it('unwraps { data: { plugin, warnings } } and keeps the warning messages', () => {
+    expect(unwrapLookup({ success: true, data: { plugin: MOCK_PLUGIN, warnings: [{ code: 'PLUGIN_DEPRECATED', message: 'deprecated' }, { code: 'X' }] } }))
+      .toEqual({ plugin: MOCK_PLUGIN, warnings: ['deprecated'] });
+  });
+
+  it('tolerates { plugin } and a bare plugin', () => {
+    expect(unwrapLookup({ plugin: MOCK_PLUGIN }).plugin).toEqual(MOCK_PLUGIN);
+    expect(unwrapLookup(MOCK_PLUGIN)).toEqual({ plugin: MOCK_PLUGIN, warnings: [] });
+  });
+
+  it('yields no plugin for an empty or nameless answer', () => {
+    expect(unwrapLookup(null)).toEqual({ plugin: null, warnings: [] });
+    expect(unwrapLookup({ data: { plugin: null } }).plugin).toBeNull();
+  });
+
+  it('logs lifecycle warnings at deploy time and still succeeds', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mockPost.mockResolvedValueOnce({ data: { success: true, data: { plugin: MOCK_PLUGIN, warnings: [{ code: 'PLUGIN_YANKED', message: 'yanked but pinned' }] } }, status: 200 });
+    const result = await handler(createEvent());
+    expect(result.Status).toBe('SUCCESS');
+    expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain('yanked but pinned');
+    warn.mockRestore();
   });
 });

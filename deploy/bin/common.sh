@@ -807,6 +807,86 @@ step_up_token() {
 }
 
 # ---------------------------------------------------------------------------
+# _issue_service_account_key — create (or reuse) a system-org service account
+# holding ONE role, revoke its previous keys, and issue a single fresh key.
+#
+#   $1 org id  $2 account name  $3 description  $4 role id  $5 key TTL (s)
+#   uses: PLATFORM_BASE_URL, JWT_TOKEN (admin), PLATFORM_PASSWORD (step-up)
+#   sets: _SA_ID, _SA_KEY
+#   IDEMPOTENT: an existing account of that name is reused, and its previous
+#   keys are revoked first so re-running init never hits the 5-active-key cap.
+# ---------------------------------------------------------------------------
+_issue_service_account_key() {
+  local _org_id="$1" _name="$2" _desc="$3" _role_id="$4" _ttl="$5"
+  local _resp _status _body _step_up _key_name _old
+  _SA_ID=""; _SA_KEY=""
+
+  _step_up=$(step_up_token) || return 1
+  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts" \
+    -k -s -w '\n%{http_code}' \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    -H "X-Step-Up-Token: ${_step_up}" \
+    -d "$(jq -n --arg name "$_name" --arg desc "$_desc" --arg role "$_role_id" \
+      '{name: $name, description: $desc, roleIds: [$role]}')") || true
+  _status=$(printf '%s' "$_resp" | tail -n1)
+  _body=$(printf '%s' "$_resp" | sed '$d')
+  _SA_ID=$(printf '%s' "$_body" | jq -r '.data.serviceAccount.id // empty')
+
+  case "$_status" in
+    20*) echo "  Created the '${_name}' service account." ;;
+    409)
+      # Already there from a previous run — reuse it (idempotent).
+      _SA_ID=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts" \
+        -H "Authorization: Bearer ${JWT_TOKEN}" \
+        | jq -r --arg name "$_name" '[.data.serviceAccounts[]? | select(.name == $name)][0].id // empty')
+      echo "  Reusing the existing '${_name}' service account."
+      ;;
+    *)
+      # Print the server's own code and message: a bare status number here cost a
+      # debugging session once already (a 401 was the assurance gate, not the
+      # token), and the platform always says which gate refused.
+      echo "ERROR: could not create the ${_name} service account (HTTP $_status$(_api_error "$_body"))" >&2
+      return 1 ;;
+  esac
+  if [ -z "$_SA_ID" ]; then
+    echo "ERROR: could not resolve the ${_name} service account id" >&2
+    return 1
+  fi
+
+  # Revoke any key left by an earlier run: init issues exactly ONE key per run,
+  # and the per-account cap (5 active keys) must never be what fails a re-run.
+  for _old in $(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${_SA_ID}" \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    | jq -r '[.data.serviceAccount.keys[]? | select(.status == "active") | .id][]'); do
+    curl -X DELETE -k -s -o /dev/null \
+      "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${_SA_ID}/keys/${_old}" \
+      -H "Authorization: Bearer ${JWT_TOKEN}" || true
+  done
+
+  _key_name="init-$(date +%Y%m%d%H%M%S)"
+  _step_up=$(step_up_token) || return 1
+  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${_SA_ID}/keys" \
+    -k -s \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer ${JWT_TOKEN}" \
+    -H "X-Step-Up-Token: ${_step_up}" \
+    -d "$(jq -n --arg name "$_key_name" --argjson ttl "$_ttl" '{name: $name, expiresIn: $ttl}')") || true
+  _SA_KEY=$(printf '%s' "$_resp" | jq -r '.data.key // empty')
+  if [ -z "$_SA_KEY" ]; then
+    echo "ERROR: could not issue a key for the ${_name} service account$(_api_error "$_resp")" >&2
+    return 1
+  fi
+  echo "  Issued a ${_ttl}s ${_name} key (shown once; it expires on its own)."
+}
+
+# _admin_org_id — the admin's active org (the system org during init).
+_admin_org_id() {
+  curl -k -s "${PLATFORM_BASE_URL}/api/organization" \
+    -H "Authorization: Bearer ${JWT_TOKEN}" | jq -r '.data.organization.id // empty'
+}
+
+# ---------------------------------------------------------------------------
 # setup_service_account_key — create (or reuse) the system-org `setup` service
 # account and issue ONE short-lived key for the remaining init steps.
 #
@@ -819,15 +899,10 @@ step_up_token() {
 #
 #   uses: PLATFORM_BASE_URL, JWT_TOKEN (admin), PLATFORM_PASSWORD
 #   sets: SETUP_SA_KEY (the raw pb_sa_ key), SETUP_SA_ID
-#   IDEMPOTENT: an existing `setup` account is reused, and its previous keys are
-#   revoked first so re-running init can never hit the 5-active-key cap.
 # ---------------------------------------------------------------------------
 setup_service_account_key() {
-  local _ttl="${SETUP_KEY_TTL_SECONDS:-86400}"
-  local _org_id _roles _role_id _resp _status _step_up _key_name _old
-
-  _org_id=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization" \
-    -H "Authorization: Bearer ${JWT_TOKEN}" | jq -r '.data.organization.id // empty') || true
+  local _org_id _roles _role_id
+  _org_id=$(_admin_org_id) || true
   if [ -z "$_org_id" ]; then
     echo "ERROR: could not resolve the admin's organization for the setup service account" >&2
     return 1
@@ -848,63 +923,63 @@ setup_service_account_key() {
     return 1
   fi
 
-  _step_up=$(step_up_token) || return 1
-  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts" \
-    -k -s -w '\n%{http_code}' \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
-    -H "X-Step-Up-Token: ${_step_up}" \
-    -d "$(jq -n --arg role "$_role_id" \
-      '{name: "setup", description: "Platform bootstrap automation (init-platform.sh)", roleIds: [$role]}')") || true
-  _status=$(printf '%s' "$_resp" | tail -n1)
-  _body=$(printf '%s' "$_resp" | sed '$d')
-  SETUP_SA_ID=$(printf '%s' "$_body" | jq -r '.data.serviceAccount.id // empty')
+  _issue_service_account_key "$_org_id" setup "Platform bootstrap automation (init-platform.sh)" "$_role_id" "${SETUP_KEY_TTL_SECONDS:-86400}" || return 1
+  SETUP_SA_ID="$_SA_ID"
+  SETUP_SA_KEY="$_SA_KEY"
+}
 
-  case "$_status" in
-    20*) echo "  Created the 'setup' service account." ;;
-    409)
-      # Already there from a previous run — reuse it (idempotent).
-      SETUP_SA_ID=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts" \
-        -H "Authorization: Bearer ${JWT_TOKEN}" \
-        | jq -r '[.data.serviceAccounts[]? | select(.name == "setup")][0].id // empty')
-      echo "  Reusing the existing 'setup' service account."
-      ;;
-    *)
-      # Print the server's own code and message: a bare status number here cost a
-      # debugging session once already (a 401 was the assurance gate, not the
-      # token), and the platform always says which gate refused.
-      echo "ERROR: could not create the setup service account (HTTP $_status$(_api_error "$_body"))" >&2
-      return 1 ;;
-  esac
-  if [ -z "$SETUP_SA_ID" ]; then
-    echo "ERROR: could not resolve the setup service account id" >&2
+# ---------------------------------------------------------------------------
+# official_loader_service_account_key — the dedicated OFFICIAL CATALOG LOADER
+# identity (plugin ecosystem §3.0.3): the system-org service account
+# `official-catalog-loader`, holding ONLY a custom "Official Catalog Loader"
+# role (plugins:read, plugins:write, plugins:publish). load-plugins.sh uploads
+# the Official catalog as this account with `publishRequest=true`, so every
+# plugin becomes a publish REQUEST: the one-time bootstrap exception approves
+# the initial catalog, and the seeded Official auto-approval rule approves later
+# gate-green patch/minor updates — only because they come from this account,
+# never from a person. Anything riskier waits for two Ecosystem Managers.
+#
+#   uses: PLATFORM_BASE_URL, JWT_TOKEN (admin), PLATFORM_PASSWORD
+#   sets: LOADER_SA_KEY, LOADER_SA_ID
+# ---------------------------------------------------------------------------
+OFFICIAL_LOADER_ACCOUNT="official-catalog-loader"
+OFFICIAL_LOADER_ROLE="Official Catalog Loader"
+
+official_loader_service_account_key() {
+  local _org_id _roles _role_id _resp _status _body _step_up
+  _org_id=$(_admin_org_id) || true
+  if [ -z "$_org_id" ]; then
+    echo "ERROR: could not resolve the system organization for the ${OFFICIAL_LOADER_ACCOUNT} account" >&2
     return 1
   fi
 
-  # Revoke any key left by an earlier run: init issues exactly ONE key per run,
-  # and the per-account cap (5 active keys) must never be what fails a re-run.
-  for _old in $(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${SETUP_SA_ID}" \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
-    | jq -r '[.data.serviceAccount.keys[]? | select(.status == "active") | .id][]'); do
-    curl -X DELETE -k -s -o /dev/null \
-      "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${SETUP_SA_ID}/keys/${_old}" \
-      -H "Authorization: Bearer ${JWT_TOKEN}" || true
-  done
-
-  _key_name="init-$(date +%Y%m%d%H%M%S)"
-  _step_up=$(step_up_token) || return 1
-  _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/service-accounts/${SETUP_SA_ID}/keys" \
-    -k -s \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: Bearer ${JWT_TOKEN}" \
-    -H "X-Step-Up-Token: ${_step_up}" \
-    -d "$(jq -n --arg name "$_key_name" --argjson ttl "$_ttl" '{name: $name, expiresIn: $ttl}')") || true
-  SETUP_SA_KEY=$(printf '%s' "$_resp" | jq -r '.data.key // empty')
-  if [ -z "$SETUP_SA_KEY" ]; then
-    echo "ERROR: could not issue a key for the setup service account$(_api_error "$_resp")" >&2
-    return 1
+  _roles=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/roles" \
+    -H "Authorization: Bearer ${JWT_TOKEN}") || true
+  _role_id=$(printf '%s' "$_roles" | jq -r --arg name "$OFFICIAL_LOADER_ROLE" '[.data.roles[]? | select(.name == $name)][0].id // empty')
+  if [ -z "$_role_id" ]; then
+    _step_up=$(step_up_token) || return 1
+    _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/roles" \
+      -k -s -w '\n%{http_code}' \
+      -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer ${JWT_TOKEN}" \
+      -H "X-Step-Up-Token: ${_step_up}" \
+      -d "$(jq -n --arg name "$OFFICIAL_LOADER_ROLE" \
+        '{name: $name, description: "Uploads the Official plugin catalog as publish requests (load-plugins.sh)", permissions: ["plugins:read", "plugins:write", "plugins:publish"]}')") || true
+    _status=$(printf '%s' "$_resp" | tail -n1)
+    _body=$(printf '%s' "$_resp" | sed '$d')
+    _role_id=$(printf '%s' "$_body" | jq -r '.data.role.id // .data.id // empty')
+    if [ -z "$_role_id" ]; then
+      echo "ERROR: could not create the '${OFFICIAL_LOADER_ROLE}' role (HTTP $_status$(_api_error "$_body"))" >&2
+      return 1
+    fi
+    echo "  Created the '${OFFICIAL_LOADER_ROLE}' role."
   fi
-  echo "  Issued a ${_ttl}s setup key (shown once; it expires on its own)."
+
+  _issue_service_account_key "$_org_id" "$OFFICIAL_LOADER_ACCOUNT" \
+    "Official plugin catalog loader (load-plugins.sh): submits publish requests" \
+    "$_role_id" "${LOADER_KEY_TTL_SECONDS:-86400}" || return 1
+  LOADER_SA_ID="$_SA_ID"
+  LOADER_SA_KEY="$_SA_KEY"
 }
 
 # ---------------------------------------------------------------------------

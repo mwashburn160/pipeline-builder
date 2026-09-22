@@ -80,12 +80,13 @@ const billingDefaults = (): Record<string, unknown> => ({
     alertRules: 50,
     alertDestinations: 10,
     idpConfigs: 1,
+    listings: 3,
     // Phase 8 retention baselines — standard tiers 30/180; `unlimited` -1
     // (the retention leg pushes these effective values to reporting).
     eventRetentionDays: tier === 'unlimited' ? -1 : 30,
     doraRetentionDays: tier === 'unlimited' ? -1 : 180,
   }),
-  VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'],
+  VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'listings'],
   // Tier→feature map — billing-helpers.pruneTierIncludedFeatureAddons reads this
   // to decide which pure-feature add-ons a destination tier now bundles in.
   TIER_FEATURES,

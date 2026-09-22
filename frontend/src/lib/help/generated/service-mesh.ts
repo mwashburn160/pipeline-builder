@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e9a0dc0fc940591d0cffb7edcd2f579091f047e92bbd46d12e5ec03a639523fb
+// SOURCE-SHA256: 173bceaca52ed762c289d3b0c509f75ba63fe9eee2fc46834a2081046024a98b
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -185,7 +185,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "ztunnel is L4-only — an L7 AuthorizationPolicy is enforced by a waypoint proxy or not at all. The pb-waypoint Gateway is attached (via the istio.io/use-waypoint label on the Service) to exactly the six Services that expose an internal route: platform, message, compliance, quota, reporting, image-registry (POST /internal/plugin-signatures — plugin-image signing, plugin only). Not namespace-wide, which would put an Envoy hop in front of the datastores too. It needs the Kubernetes Gateway API CRDs, which istioctl install does not ship — each target's setup installs the standard channel (GATEWAY_API_VERSION, pinned) when they are absent."
+          "content": "ztunnel is L4-only — an L7 AuthorizationPolicy is enforced by a waypoint proxy or not at all. The pb-waypoint Gateway is attached (via the istio.io/use-waypoint label on the Service) to exactly the six Services that expose an internal route: platform, message, compliance, quota, reporting, image-registry (POST /internal/plugin-signatures — plugin-image signing — and /internal/plugin-publications* — the public/* namespace operations; both plugin only). Not namespace-wide, which would put an Envoy hop in front of the datastores too. It needs the Kubernetes Gateway API CRDs, which istioctl install does not ship — each target's setup installs the standard channel (GATEWAY_API_VERSION, pinned) when they are absent."
         },
         {
           "type": "list",
@@ -230,6 +230,50 @@ export const serviceMeshTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The caller lists here are reviewed against the one authoritative list in each service's route-coverage test (findInternalRouteViolations), which checks the declaration against the code in both directions."
+        },
+        {
+          "type": "text",
+          "content": "Plugin ecosystem callers. The plugin service is a caller of four internal surfaces:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "platform POST /internal/notify-email (with compliance): plugin-ecosystem"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "notices (N6–N10, N22, N24, N25, N28, N29), resolved to recipients by platform;"
+        },
+        {
+          "type": "list",
+          "items": [
+            "platform GET /internal/ecosystem/* (plugin only): the Verified"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "application's eligibility facts (the publisher org's DNS-verified domains and whether its owners have a second factor) and the Ecosystem Manager approver count (holders of the decision permission, minus conflicts of interest);"
+        },
+        {
+          "type": "list",
+          "items": [
+            "image-registry /internal/plugin-publications* (plugin only, DENY policy"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "image-registry-internal-plugin-publications): publishing an approved version into public/*, re-signing, re-tagging an unyanked version, yanking, verifying and collecting published images;"
+        },
+        {
+          "type": "list",
+          "items": [
+            "platform GET /organization/:id/members/:userId/exists, a service-principal"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "membership probe (not an /internal path, so no DENY policy): the Ecosystem console's separation-of-duties check asks whether a manager belongs to the org that submitted a request."
         },
         {
           "type": "text",

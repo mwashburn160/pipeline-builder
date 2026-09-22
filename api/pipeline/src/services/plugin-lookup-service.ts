@@ -1,7 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { buildPluginConditions, schema, withTenantTx, withViewerContext, type PluginFilter } from '@pipeline-builder/pipeline-data';
+import {
+  buildPluginConditions, drizzleListingSource, getTenantContext, OFFICIAL_PUBLISHER_HANDLE, resolvableListings, runWithTenantContext, schema,
+  withTenantTx, withViewerContext, type PluginFilter,
+} from '@pipeline-builder/pipeline-data';
 import { and, inArray, isNull, type SQL } from 'drizzle-orm';
 
 /**
@@ -27,9 +30,77 @@ export function availablePluginConditions(orgId: string): SQL[] {
   ];
 }
 
+/** A listed plugin the org's references resolve right now (plugin ecosystem §3.2, §3.5). */
+export interface ResolvableListing {
+  publisher: string;
+  tier: string;
+  name: string;
+  version: string;
+  description: string | null;
+  keywords: string[];
+  category: string;
+  spec: Record<string, unknown>;
+  deprecated: boolean;
+  /** Publisher-paused (no new installs; existing installs still resolve) — D14. */
+  paused: boolean;
+  /** The listing is `unmaintained` (still public, shown with a banner — §3.6). */
+  unmaintained: boolean;
+  /** Bayesian rating (plugin_stats), null until someone rated it. */
+  ratingBayes: number | null;
+  /** 0–100 health score (W7), null until the stats sweep has enough data. */
+  healthScore: number | null;
+}
+
 /**
- * Return the subset of `names` that already exist as active plugins visible to
- * the caller (see {@link availablePluginConditions}). One round-trip instead of N.
+ * The listings the caller's references resolve now: explicitly installed ones
+ * (the org's own or, for a team, its root org's) and the implicit Official
+ * ones, minus what the consumption policy blocks (the shared resolver in
+ * pipeline-data). `names` narrows it. Read elevated — the ecosystem tables and
+ * a team's root-org install rows — and scoped by the explicit org ids.
+ */
+export async function findResolvableListings(orgId: string, names?: string[]): Promise<ResolvableListing[]> {
+  const parentOrgId = getTenantContext()?.parentOrgId;
+  const scope = { orgId, ...(parentOrgId ? { rootOrgId: parentOrgId } : {}) };
+  const states = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) =>
+    resolvableListings(drizzleListingSource(tx), scope, names ? { names } : {})));
+  const stats = await listingQuality(states.map((s) => s.listing.id));
+  return states.map((s) => {
+    const spec = (s.resolved.specSnapshot ?? {}) as Record<string, unknown>;
+    const q = stats.get(s.listing.id);
+    return {
+      publisher: s.publisher.handle,
+      tier: s.publisher.tier,
+      name: s.listing.name,
+      version: s.resolved.version,
+      description: (typeof spec.description === 'string' ? spec.description : null) ?? s.listing.summary,
+      keywords: s.listing.keywords ?? [],
+      category: s.listing.category,
+      spec,
+      deprecated: s.resolved.deprecatedAt !== null,
+      paused: s.listing.pausedAt != null,
+      unmaintained: s.listing.state === 'unmaintained',
+      ratingBayes: q && q.ratingCount > 0 && q.ratingBayes !== null ? Math.round(q.ratingBayes * 100) / 100 : null,
+      healthScore: q?.healthScore === null || q?.healthScore === undefined ? null : Math.round(q.healthScore),
+    };
+  });
+}
+
+/** Rating + health (plugin_stats) per listing id. Instance-wide rows, read elevated. */
+async function listingQuality(listingIds: string[]): Promise<Map<string, { ratingBayes: number | null; ratingCount: number; healthScore: number | null }>> {
+  if (listingIds.length === 0) return new Map();
+  const S = schema.pluginStats;
+  const rows = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) => tx
+    .select({ listingId: S.listingId, ratingBayes: S.ratingBayes, ratingCount: S.ratingCount, healthScore: S.healthScore })
+    .from(S)
+    .where(inArray(S.listingId, listingIds))));
+  return new Map(rows.map((r) => [r.listingId, r]));
+}
+
+/**
+ * Return the subset of `names` an UNQUALIFIED reference from the caller
+ * already resolves: an active plugin row the caller can see (see
+ * {@link availablePluginConditions}), or an Official listing the org reaches
+ * through its (implicit or explicit) install. One round-trip for the rows.
  */
 export async function findExistingPluginNames(names: string[], orgId: string): Promise<Set<string>> {
   if (names.length === 0) return new Set();
@@ -41,6 +112,27 @@ export async function findExistingPluginNames(names: string[], orgId: string): P
     .select({ name: schema.plugin.name })
     .from(schema.plugin)
     .where(and(inArray(schema.plugin.name, names), ...availablePluginConditions(orgId))));
+  const official = (await findResolvableListings(orgId, names)).filter((l) => l.publisher === OFFICIAL_PUBLISHER_HANDLE);
 
-  return new Set(rows.map(r => r.name));
+  return new Set([...rows.map((r) => r.name), ...official.map((l) => l.name)]);
+}
+
+/**
+ * The subset of `names` that are LISTED by any publisher (live listings): an
+ * auto-created placeholder must never take such a name (G17) — the listing
+ * is the plugin, and the org should install it instead.
+ */
+export async function findListedNames(names: string[]): Promise<Map<string, string[]>> {
+  if (names.length === 0) return new Map();
+  return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(async (tx) => {
+    const source = drizzleListingSource(tx);
+    const listings = await source.liveListings({ names });
+    const publishers = await source.publishersByIds([...new Set(listings.map((l) => l.publisherId))]);
+    const out = new Map<string, string[]>();
+    for (const l of listings) {
+      const handle = publishers.find((p) => p.id === l.publisherId)?.handle;
+      if (handle) out.set(l.name, [...(out.get(l.name) ?? []), handle].sort());
+    }
+    return out;
+  }));
 }

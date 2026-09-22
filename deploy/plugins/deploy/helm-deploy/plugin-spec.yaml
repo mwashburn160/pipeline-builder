@@ -143,3 +143,14 @@ env:
 # Smoke test — runs after `docker build` in test-plugins.sh --build.
 # Asserts the tool is on PATH and produces a deterministic version output.
 smokeTest: "helm version --short && kubectl version --client"
+
+# ─── Catalog metadata (plugin-ecosystem W0.2) ───
+license: Apache-2.0
+homepageUrl: https://helm.sh
+sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plugins/deploy/helm-deploy
+icon: helm
+network:
+  egress:
+    - "*.amazonaws.com"
+changelog: |
+  1.1.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

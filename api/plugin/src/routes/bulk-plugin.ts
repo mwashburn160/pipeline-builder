@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema, actorId } from '@pipeline-builder/api-core';
+import { audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
+import { refundPluginSlot } from '../helpers/quota-refund.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { emitPluginAudit } from '../services/audit.js';
 import { pluginService } from '../services/plugin-service.js';
@@ -61,7 +62,7 @@ function parseBulkIds(res: Parameters<typeof sendBadRequest>[0], raw: unknown): 
  * the mount's gates are prefix layers that also run for every request falling
  * through to later routers (purge/restore), which must not require the feature.
  */
-export function createBulkPluginRoutes(): Router {
+export function createBulkPluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
   const bulkFeature = requireFeature('bulk_operations');
 
@@ -72,18 +73,40 @@ export function createBulkPluginRoutes(): Router {
 
     ctx.log('INFO', 'Bulk delete plugins', { count: ids.length });
 
+    // Delete safety (W0.5), per row: a version under a pending publish request,
+    // published to a listing, or used by the org's pipelines is SKIPPED (bulk
+    // has no `force`; delete it on its own with force + step-up) rather than
+    // failing the batch.
+    const skipped: Array<{ id: string; reason: 'frozen' | 'listed' | 'in_use' }> = [];
+    for (const row of await pluginService.findByIds(ids, orgId)) {
+      if (row.orgId !== orgId) continue; // not the caller's row — bulkDelete skips it
+      const blockers = await pluginService.deleteBlockers(row, orgId);
+      const reason = blockers.frozen ? 'frozen' : blockers.listed ? 'listed' : blockers.inUse > 0 ? 'in_use' : null;
+      if (reason) skipped.push({ id: row.id, reason });
+    }
+    const skippedIds = new Set(skipped.map((s) => s.id));
+    const toDelete = ids.filter((id) => !skippedIds.has(id.toLowerCase()) && !skippedIds.has(id));
+
     // Same visibility rule as single-row delete, applied per row inside the
     // query: author-only for `private`, any member for `org`, and
     // `plugins:publish` for `public`. Rows the caller may not delete are
     // skipped rather than failing the batch. This previously narrowed to
     // `private` ONLY, which skipped the DEFAULT rung (`org`) that single-row
     // delete allows — so bulk delete silently did nothing for normal plugins.
-    const deleted = await pluginService.bulkDelete(ids, orgId, userId, {
+    const deleted = toDelete.length === 0 ? [] : await pluginService.bulkDelete(toDelete, orgId, userId, {
       isSystemAdmin: isSystemAdmin(req),
       canPublish: userHasPermission(req, 'plugins:publish'),
     });
 
-    ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length });
+    // Same after-effects as a single delete: refund each slot (period-
+    // conditional, then forget the snapshot) and promote a new default for
+    // every deleted default.
+    for (const row of deleted) {
+      if (refundPluginSlot(quotaService, row, ctx.log.bind(null, 'WARN'))) await pluginService.clearQuotaSnapshot(row.id);
+      if (row.isDefault) await pluginService.promoteNextDefault(orgId, row, userId || 'system');
+    }
+
+    ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length, skipped: skipped.length });
 
     // Best-effort attributed audit — ONE event per bulk op, emitted only when
     // rows actually landed. Ids are bounded by MAX_BULK_ITEMS so they're safe to
@@ -99,7 +122,7 @@ export function createBulkPluginRoutes(): Router {
       });
     }
 
-    return sendSuccess(res, 200, { deleted: deleted.length, ids: deleted.map(d => d.id) });
+    return sendSuccess(res, 200, { deleted: deleted.length, ids: deleted.map(d => d.id), skipped });
   }));
 
   /** PUT /plugins/bulk/update — Update multiple plugins with the same data */
@@ -144,7 +167,8 @@ export function createBulkPluginRoutes(): Router {
     // Loaded once for both per-row gates below (visibility for non-admins, and
     // the compliance re-check for everyone).
     const recheck = needsComplianceRecheck(updateData);
-    const matched = (!isSystemAdmin(req) || recheck) ? await pluginService.findByIds(ids, orgId) : [];
+    const catalogEdited = PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(updateData, f));
+    const matched = (!isSystemAdmin(req) || recheck || catalogEdited) ? await pluginService.findByIds(ids, orgId) : [];
     if (!isSystemAdmin(req)) {
       const forbidden = matched.filter(
         (p) => checkVisibilityWriteAccess(req, p, userId, 'plugins:publish') !== 'ok',
@@ -180,18 +204,33 @@ export function createBulkPluginRoutes(): Router {
       }
     }
 
-    ctx.log('INFO', 'Bulk update plugins', { count: ids.length });
+    // Same rule as single-row update (§3.1a, §3.4): a version referenced by a
+    // publish request, or published to a listing, has its catalog metadata
+    // frozen with it. Per row, such a version is SKIPPED with its 409 rather
+    // than failing the batch (mirrors bulk delete's skip list).
+    const skipped: Array<{ id: string; reason: 'frozen' | 'listed'; statusCode: 409; code: string }> = [];
+    if (catalogEdited) {
+      for (const row of matched) {
+        if (row.orgId !== orgId) continue; // not the caller's row — updateMany won't touch it
+        const reason = await pluginService.versionImmutability(row);
+        if (reason) skipped.push({ id: row.id, reason, statusCode: 409, code: ErrorCode.PLUGIN_VERSION_FROZEN });
+      }
+    }
+    const skippedIds = new Set(skipped.map((s) => s.id));
+    const toUpdate = ids.filter((id) => !skippedIds.has(id.toLowerCase()) && !skippedIds.has(id));
+
+    ctx.log('INFO', 'Bulk update plugins', { count: toUpdate.length, skipped: skipped.length });
 
     // pluginService.updateMany runs the per-row post-update lifecycle (cache
     // invalidation + compliance entity event), same as a single-row update.
-    const updated = await pluginService.updateMany(
-      { id: ids },
+    const updated = toUpdate.length === 0 ? [] : await pluginService.updateMany(
+      { id: toUpdate },
       updateData,
       orgId,
       userId,
     );
 
-    ctx.log('COMPLETED', 'Bulk update complete', { requested: ids.length, updated: updated.length });
+    ctx.log('COMPLETED', 'Bulk update complete', { requested: ids.length, updated: updated.length, skipped: skipped.length });
 
     // Best-effort attributed audit — ONE event per bulk op, emitted only when
     // rows actually changed. Ids are bounded by MAX_BULK_ITEMS so they're safe
@@ -207,7 +246,7 @@ export function createBulkPluginRoutes(): Router {
       });
     }
 
-    return sendSuccess(res, 200, { updated: updated.length });
+    return sendSuccess(res, 200, { updated: updated.length, skipped });
   }));
 
   return router;

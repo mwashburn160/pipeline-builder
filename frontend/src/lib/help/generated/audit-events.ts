@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4699e3b75b8e29994bb15cec313267ee8e5051d827f3bbc336985db704df85fd
+// SOURCE-SHA256: ce9d233d65726d41e30488a1750e07a2bcde3be15a460c7d28d3bfee873883e6
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -358,10 +358,130 @@ export const auditEventsTopic: HelpTopic = {
               "ask.query (read-only how-to turn), ask.agent.turn (tool-calling turn) — one per turn on POST /ask, /ask/stream, /ask/agent/stream respectively; both carry an outcome (success/failure, incl. client-abort) and details with SAFE METADATA ONLY (tools used, proposal kinds, source count, query length) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as pipeline.create / pipeline_template.create / plugin.deploy"
             ],
             [
+              "Plugin ecosystem: publishers",
+              "publisher.create, publisher.update, publisher.terms.accept (details.termsVersion), publisher.verify.request/approve/reject, publisher.tier.change (details.reason = 'plan_downgrade' when a Verified grace period ends), publisher.suspend, publisher.unsuspend, publisher.transfer.request/accept/decline/approve/reject, publisher.profile-change.approve/reject"
+            ],
+            [
+              "Plugin ecosystem: publish requests (tenant → system org)",
+              "plugin.request.submit (details.kind: new_listing / new_version / listing_update / yank / unpause / transfer / claim / profile_change / verify / advisory, or moderation for a system-org two-person action — unsuspend, unyank, relist, tier to Verified — whose initiator's plugin.request.approve is the first approval; details.digest; details.securityFix), plugin.request.withdraw, plugin.request.approve (details.firstOfTwo = true when it parks a two-person request), plugin.request.second-approve, plugin.request.reject (details.reason = 'listings_quota' when over the plan's listings limit), plugin.request.auto-approve (actor system, details.autoRuleId, or details.bootstrap = true for the one-time catalog seed)"
+            ],
+            [
+              "Plugin ecosystem: listings and versions",
+              "plugin.listing.publish (on approval; carries digest, tier), plugin.listing.unlist, plugin.listing.update, plugin.listing.state.change (unmaintained / suspended / listed), plugin.listing.pause / plugin.listing.unpause (tenant pause; unpause on approval), plugin.version.pause, plugin.version.yank, plugin.version.unyank, plugin.version.deprecate, plugin.collection.update (featured/curated)"
+            ],
+            [
+              "Plugin ecosystem: governance rules",
+              "Every decision is recorded with orgId = the system org and affectedOrgId = the publisher's org (tenant submissions: orgId = the publisher's org). Automatic decisions use actor system. details carry ids, versions, digests, tier, state and short reason text only — never README content, metadata values or emails"
+            ],
+            [
+              "Plugin ecosystem: configuration (system org)",
+              "ecosystem.auto-approval-rule.create/update/delete, ecosystem.reserved-name.update, ecosystem.sla.update"
+            ],
+            [
+              "Plugin ecosystem: public registry namespace",
+              "registry.image.publish (copy to public/* + fresh sign + SBOM attest; also the unyank re-tag, details.retag: true, which restores the version tag from the public/* manifest alone), registry.image.resign (the re-sign job after a tier change, suspension, handle change or transfer — one per image, emitted by image-registry; the plugin service emits one more with targetId: all when an Ecosystem Manager queues a full re-sign after a plugin-signing key rotation), registry.image.yank (public/* tag removal on yank or takedown), registry.image.gc (public/* retention sweep)"
+            ],
+            [
+              "Plugin ecosystem: installs and policy",
+              "plugin.install.create (an install that needed no approval, active at once), plugin.install.request (an install that became a pending request), plugin.install.approve / plugin.install.deny (actor = the approver), plugin.install.upgrade (a change of version or version policy), plugin.install.remove (uninstall, or a withdrawn request), org.plugin-install-policy.update (org-local; set by plugin_installs:manage with a step-up). Every one: orgId = the actor's org, affectedOrgId = the installing org (a team's own installs and policy → the team). Implicit Official installs are virtual and are never audited; creating or removing an explicit Official install is"
+            ],
+            [
+              "Plugin ecosystem: reviews",
+              "plugin.review.create/update/delete (by the author), plugin.review.report, plugin.review.hold, plugin.review.release, plugin.review.remove (moderator), plugin.review.anonymize (user deletion), plugin.review.reply.create/update/delete"
+            ],
+            [
+              "Plugin ecosystem: anonymous submissions",
+              "plugin.submission.create (actor anonymous), plugin.submission.verify, plugin.submission.gate-fail, plugin.submission.approve, plugin.submission.reject, plugin.submission.claim, plugin.submission.expire (actor system)"
+            ],
+            [
+              "Plugin ecosystem: advisories",
+              "plugin.advisory.create (draft: publisher, moderator, or system from a CVE rescan), plugin.advisory.publish and plugin.advisory.withdraw (system org only)"
+            ],
+            [
               "(all services)",
               "authz.denied"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "Plugin ecosystem: actor and affected-org rules"
+        },
+        {
+          "type": "text",
+          "content": "The ecosystem actions above (see docs/plans/plugin-ecosystem.md §5c) follow these rules:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Actor: actorId({ userId }) as everywhere else. Automated jobs (auto-approval,"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "submission expiry, the re-sign job, CVE rescans) use the system sentinel (SYSTEM_ACTOR_ID). An unauthenticated anonymous submission uses the anonymous sentinel (ANONYMOUS_ACTOR_ID, exported from api-core next to SYSTEM_ACTOR_ID) with details.submissionId. The submitter's email, hashed or otherwise, never appears in audit."
+        },
+        {
+          "type": "list",
+          "items": [
+            "orgId: the actor's org. Anonymous and system actions use the system org."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Governance actions are recorded with orgId = the system org, so the system org's audit view is the complete record of every ecosystem decision."
+        },
+        {
+          "type": "list",
+          "items": [
+            "affectedOrgId: listing, version, review and advisory actions → the"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "publisher's org; install and policy actions → the installing org; moderation actions on a publisher → the publisher's org. That org's admins therefore see changes made to them. Install and policy actions are org-local: the publisher is never told which orgs installed its listing."
+        },
+        {
+          "type": "list",
+          "items": [
+            "details: ids, versions, digests, tier, state, reason code and short"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "reason text only. Never review bodies, README content, secrets or emails."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Access: refused use of a system-org-only permission and refused writes"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "through an install the org's policy blocks are authz.denied. A governance route reached from a tenant org — even by the same person, even a Super Admin — is refused by requireSystemOrg and recorded as authz.denied with required: 'system-org'. Ecosystem Manager assignment and removal are the existing org.role.member.add / org.role.member.remove with affectedOrgId = the system org and details.role = 'Ecosystem Manager' (and send N23 to every Super Admin and the affected user)."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Audit page: two quick filters sit next to the authz.denied one —"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Ecosystem (publisher., plugin.listing., plugin.request., plugin.install., org.plugin-install-policy.update) and Moderation (plugin.submission., plugin.request.approve / reject / auto-approve / second-approve, plugin.review.hold / release / remove, publisher.suspend / unsuspend / verify., ecosystem.*). A group is one GET /audit?actions=<a>,<b>,… request: each entry is a prefix (ending in .) or an exact action, matched anchored and ORed, and ANDed with any action= substring filter. At most 25 entries."
+        },
+        {
+          "type": "text",
+          "content": "Not audited (by design): anonymous directory reads, searches, review \"helpful\" votes, and notification deliveries — those are metrics, not state changes."
+        },
+        {
+          "type": "text",
+          "content": "Review actions (W4) carry details.listing (publisher/name) and, as they apply, rating, version, verifiedUse, held (the hold reason of a new or edited review that went to moderation), changed (the edited fields) and the report category — never the review, reply or report text. A hold triggered automatically by reports or a security report is recorded with actor system, orgId = the system org and details.trigger; moderator decisions (plugin.review.hold / release / remove, and plugin.review.reply.delete with details.by: moderator) also use the system org. affectedOrgId is the publisher's org. plugin.review.anonymize is reserved for GDPR user deletion, which is not wired to platform's account deletion yet."
+        },
+        {
+          "type": "text",
+          "content": "Anonymous submission actions (W5) carry details.submissionId, the plugin name and version, and, as they apply: the failed gate ids on plugin.submission.gate-fail, the request id and listing (community/name) on plugin.submission.approve, the reason text on plugin.submission.reject, and the claiming publisher on plugin.submission.claim. plugin.submission.create and plugin.submission.verify use actor anonymous; gate results and plugin.submission.expire use system; approve and reject are the deciding moderator, and the queue decision is also recorded as plugin.request.approve / plugin.request.reject on the submission request. All use orgId = the system org. The submitter's email (plain, hashed or encrypted) is never in details, and neither are the heuristics excerpts."
         },
         {
           "type": "note",

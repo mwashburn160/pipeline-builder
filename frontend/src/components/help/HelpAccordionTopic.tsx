@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { HelpTopic } from '@/lib/help/types';
 import { Card } from '@/components/ui/Card';
 import { HelpSectionCard } from './HelpSection';
-import { PluginCatalog } from './PluginCatalog';
+import { PluginDirectoryLinks } from './PluginDirectoryLinks';
 
 interface HelpAccordionTopicProps {
   topic: HelpTopic;
@@ -69,7 +69,7 @@ export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }:
                 <div key={`${section.id}:${i}`}>
                   <HelpSectionCard title={section.title} blocks={section.blocks} />
                   {topic.id === 'plugins' && section.id === 'plugin-catalog' && (
-                    <PluginCatalog />
+                    <PluginDirectoryLinks />
                   )}
                 </div>
               ))}

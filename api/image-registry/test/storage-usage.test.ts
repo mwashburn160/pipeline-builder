@@ -10,26 +10,22 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { registryClientMock } from './helpers/registry-client-mock.js';
 
 const listRepositoriesUnderPrefix = jest.fn<(p: string) => Promise<string[]>>();
 const listTags = jest.fn<(name: string) => Promise<{ tags: string[] }>>();
 const getManifest = jest.fn<(name: string, ref: string) => Promise<{ body: unknown; digest: string; mediaType: string }>>();
 const headBlob = jest.fn<(name: string, digest: string) => Promise<{ contentLength?: number }>>();
-const isNotFound = (e: unknown): boolean => (e as { statusCode?: number })?.statusCode === 404;
 
-jest.unstable_mockModule('../src/services/registry-client.js', () => ({
+jest.unstable_mockModule('../src/services/registry-client.js', () => registryClientMock({
   listRepositoriesUnderPrefix,
   listTags,
   getManifest,
   headBlob,
-  isNotFound,
-  // Unused by storage-usage but present on the module.
-  listRepositories: jest.fn(),
-  deleteManifest: jest.fn(),
-  putManifest: jest.fn(),
-  headManifest: jest.fn(),
-  getBlobStream: jest.fn(),
-  mountBlob: jest.fn(),
+}));
+// An org's usage also counts the public/<handle>/* repos it owns (§3.3); none here.
+jest.unstable_mockModule('../src/services/public-publications.js', () => ({
+  publicRepositoriesOwnedBy: jest.fn(async () => ({ repositories: [], complete: true })),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -56,7 +52,7 @@ describe('computeStorageUsage — multi-arch recursion', () => {
         // Shares layerShared with child1 → must be de-duped, not double-counted.
         return { body: { config: { digest: 'sha256:cfg2' }, layers: [{ digest: 'sha256:layerShared' }] }, digest: ref, mediaType: MANIFEST };
       }
-      throw { statusCode: 404 };
+      throw { response: { status: 404 } };
     });
     headBlob.mockResolvedValue({ contentLength: 100 });
 
@@ -100,7 +96,7 @@ describe('computeStorageUsage — blob HEAD 404 handling', () => {
       mediaType: MANIFEST,
     });
     headBlob.mockImplementation(async (repo: string) => {
-      if (repo === 'org/a') throw { statusCode: 404 }; // not present here
+      if (repo === 'org/a') throw { response: { status: 404 } }; // not present here
       return { contentLength: 100 }; // present in org/b
     });
 
@@ -157,7 +153,7 @@ describe('computeStorageUsage — blob HEAD 404 handling', () => {
       digest: 'sha256:m',
       mediaType: MANIFEST,
     });
-    headBlob.mockRejectedValue({ statusCode: 404 });
+    headBlob.mockRejectedValue({ response: { status: 404 } });
 
     const usage = await computeStorageUsage('org', { force: true });
     expect(usage.incomplete).toBe(true);

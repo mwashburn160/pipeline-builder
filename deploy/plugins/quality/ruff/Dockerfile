@@ -8,8 +8,9 @@
 FROM pipeline-python-base:1.0
 
 # TODO(prototype): confirm the intended pinned ruff version at build time.
-ARG RUFF_VERSION=0.14.3
+ARG RUFF_VERSION=0.16.8
 RUN pip3 install --no-cache-dir "ruff==${RUFF_VERSION}"
 
 WORKDIR /app
+USER 1000:1000
 CMD ["bash"]

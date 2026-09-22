@@ -122,11 +122,67 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     install_commands TEXT[] NOT NULL DEFAULT '{}',
     commands TEXT[] NOT NULL DEFAULT '{}',
 
+    -- Spec contract (persisted from the validated spec, not just checked):
+    -- required_* list the {{ pipeline.metadata.X }} / {{ pipeline.vars.X }} keys
+    -- a pipeline must supply; *_types declare their coercion type. smoke_test is
+    -- the spec's smoke-test declaration. network_egress is the declared outbound
+    -- hostname list (spec `network.egress`), shown to consumers and diffed in review.
+    required_metadata JSONB NOT NULL DEFAULT '[]',
+    required_vars JSONB NOT NULL DEFAULT '[]',
+    metadata_types JSONB NOT NULL DEFAULT '{}',
+    vars_types JSONB NOT NULL DEFAULT '{}',
+    smoke_test JSONB,
+    network_egress JSONB NOT NULL DEFAULT '[]',
+
+    -- Documentation (README stored as the source markdown AND pre-sanitized
+    -- HTML, rendered once at upload so no read path renders untrusted markdown).
+    readme_md TEXT,
+    readme_html TEXT,
+    license VARCHAR(64),                -- SPDX identifier
+    changelog TEXT,
+    homepage_url VARCHAR(2048),
+    source_url VARCHAR(2048),
+    -- icon: curated key {key, badge?}; uploaded_icon: storage keys of the
+    -- re-encoded WebP renditions (never the raw upload, never SVG).
+    icon JSONB,
+    uploaded_icon JSONB,
+
+    -- Catalog metadata (detected from the package, then accepted or edited):
+    -- summary is the card one-liner; display_name falls back to name when NULL.
+    -- metadata_sources records per descriptive field where its value came from
+    -- ('spec' | 'readme' | 'dockerfile' | 'derived' | 'user').
+    summary VARCHAR(160),
+    display_name VARCHAR(100),
+    documentation_url VARCHAR(2048),
+    metadata_sources JSONB NOT NULL DEFAULT '{}',
+
+    -- Vulnerability scan (grype over the SBOM at build; nightly rescan) and
+    -- the image's effective USER. NULL = not scanned / not an image plugin.
+    vuln_critical INTEGER,
+    vuln_high INTEGER,
+    vuln_medium INTEGER,
+    vuln_low INTEGER,
+    scanned_at TIMESTAMPTZ,
+    run_as_root BOOLEAN,
+
+    -- Version lifecycle. breaking: publisher-marked major that `latest`
+    -- installs never cross without re-approval. frozen_at: set the moment a
+    -- publish request references this version; re-upload is then refused (409).
+    -- yanked_at / deprecated_at are the authoritative lifecycle timestamps
+    -- (lifecycle 'yanked' / 'deprecated' mirror them for catalog filtering).
+    breaking BOOLEAN NOT NULL DEFAULT false,
+    frozen_at TIMESTAMPTZ,
+    yanked_at TIMESTAMPTZ,
+    yank_reason TEXT,
+    deprecated_at TIMESTAMPTZ,
+    deprecation_message TEXT,
+
     -- Developer-portal catalog metadata (ownership / lifecycle / classification)
     owner_id TEXT,
     owner_type VARCHAR(10) CHECK (owner_type IN ('user', 'team')),
+    -- Plugins additionally carry 'yanked' (pipelines/templates do not).
     lifecycle VARCHAR(20) NOT NULL DEFAULT 'production'
-                        CHECK (lifecycle IN ('experimental', 'production', 'deprecated')),
+                        CHECK (lifecycle IN ('experimental', 'production', 'deprecated', 'yanked')),
     criticality VARCHAR(10) CHECK (criticality IN ('low', 'medium', 'high', 'critical')),
     labels JSONB NOT NULL DEFAULT '{}',
     links JSONB NOT NULL DEFAULT '[]',
@@ -142,7 +198,12 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
 
     -- Soft Delete
     deleted_at TIMESTAMPTZ,
-    deleted_by TEXT
+    deleted_by TEXT,
+
+    -- Quota period (resetAt) this version's `plugins` slot was charged to at
+    -- upload; NULL when none was charged or it was already refunded. Delete and
+    -- purge refund conditionally on it, then clear it.
+    quota_reset_at TIMESTAMPTZ
 );
 
 -- ============================================================================
@@ -341,6 +402,12 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     -- shipped-commit count. Nullable; unresolvable sources leave them NULL.
     commit_timestamp TIMESTAMPTZ,
     commit_count INTEGER,
+    -- Per-plugin runtime telemetry: the plugin an ACTION/BUILD event ran,
+    -- joined at ingest from pipeline_step_manifests on (pipeline_id,
+    -- stage_name, action_name). NULL for non-plugin actions / unrecorded synths.
+    plugin_publisher VARCHAR(39),
+    plugin_name VARCHAR(255),
+    plugin_version VARCHAR(50),
     detail JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -676,6 +743,12 @@ CREATE INDEX IF NOT EXISTS event_pipeline_type_started_idx
 -- lead time group deploy-stage events by environment over a completed_at window.
 CREATE INDEX IF NOT EXISTS event_org_env_completed_idx
     ON pipeline_events(org_id, environment, completed_at);
+
+-- Per-plugin runtime reporting (success rate / duration per plugin version):
+-- partial, so the bulk of non-plugin events is never indexed.
+CREATE INDEX IF NOT EXISTS event_plugin_idx
+    ON pipeline_events(plugin_publisher, plugin_name, plugin_version, completed_at)
+    WHERE plugin_name IS NOT NULL;
 
 -- Idempotency dedup for at-least-once EventBridge/SQS re-deliveries (and BullMQ
 -- plugin-build re-runs): the partial UNIQUE index used as the ON CONFLICT DO
@@ -1316,6 +1389,763 @@ WHERE event_object_table IN ('plugins', 'pipelines', 'messages', 'pipeline_regis
 ORDER BY event_object_table, trigger_name;
 
 -- ============================================================================
+-- PLUGIN ECOSYSTEM (docs/plans/plugin-ecosystem.md)
+-- ============================================================================
+-- Two kinds of table live here:
+--   * ECOSYSTEM-GLOBAL (publishers, listings, listing versions, the publish
+--     request queue, reviews, advisories, anonymous submissions, …): the
+--     directory is instance-wide, so these carry NO org_id and are not tenant
+--     scoped. Writes are gated in the service layer (system-org-only approval,
+--     §3.0). Their RLS stance is set in the ROW-LEVEL SECURITY section below.
+--   * ORG-SCOPED (pipeline_step_manifests, plugin_installs,
+--     plugin_install_policies, plugin_advisory_deliveries): carry org_id and
+--     get the standard rls_org_scope policy + FORCE like every other tenant table.
+-- Anonymous visitors read the directory only through the two public_* views at
+-- the end of this section, as the ecosystem_public_reader role.
+
+-- Trigram matching on listing names ("terafrom" -> terraform). pg_trgm is a
+-- trusted extension, so the bootstrap owner can create it.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Publisher: an org's public identity (one per root org). owner_org_id is NULL
+-- for the platform-owned `community` publisher that anonymous submissions land
+-- under. Deliberately NOT named org_id: a publisher outlives its org (the org's
+-- purge marks listings `unmaintained`, §3.6; installed versions keep resolving
+-- from public/*), so it is not part of the org cascade.
+CREATE TABLE IF NOT EXISTS publishers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_org_id VARCHAR(255) UNIQUE,
+    handle VARCHAR(39) NOT NULL UNIQUE
+                        CHECK (handle ~ '^[a-z0-9][a-z0-9-]*$'),
+    display_name VARCHAR(255) NOT NULL,
+    description TEXT,
+    homepage_url VARCHAR(2048),
+    tier VARCHAR(20) NOT NULL DEFAULT 'community'
+                        CHECK (tier IN ('official', 'verified', 'community', 'unverified')),
+    verified_at TIMESTAMPTZ,
+    -- Verified publisher downgraded below Team: tier stays until this passes (N29).
+    verified_grace_until TIMESTAMPTZ,
+    terms_version VARCHAR(50),
+    terms_accepted_at TIMESTAMPTZ,
+    suspended_at TIMESTAMPTZ,
+    suspend_reason TEXT,
+    -- W7 roll-ups (stats sweep): run-weighted 30-day success rate and the
+    -- install-weighted mean health score of its listings (NULL: none).
+    success_rate_30d DOUBLE PRECISION,
+    health_score INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Listing: a plugin NAME published by a publisher. Reviews, installs, stats and
+-- search attach here; the per-version records are plugin_listing_versions.
+CREATE TABLE IF NOT EXISTS plugin_listings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    publisher_id UUID NOT NULL REFERENCES publishers(id),
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(50) NOT NULL DEFAULT 'unknown',
+    summary VARCHAR(300),
+    description TEXT,
+    readme_html TEXT,
+    license VARCHAR(64),
+    homepage_url VARCHAR(2048),
+    source_url VARCHAR(2048),
+    icon JSONB,
+    uploaded_icon JSONB,
+    keywords JSONB NOT NULL DEFAULT '[]',
+    state VARCHAR(20) NOT NULL DEFAULT 'listed'
+                        CHECK (state IN ('listed', 'unmaintained', 'suspended', 'transferred')),
+    -- Publisher pause (D14): no new installs; existing installs keep resolving.
+    paused_at TIMESTAMPTZ,
+    featured BOOLEAN NOT NULL DEFAULT false,
+    latest_version VARCHAR(50),
+    -- Maintained by plugin_listings_search_vector_update() below; never written
+    -- by the application.
+    search_vector TSVECTOR,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_listing_publisher_name_unique
+    ON plugin_listings(publisher_id, name);
+CREATE INDEX IF NOT EXISTS plugin_listing_state_category_idx
+    ON plugin_listings(state, category);
+CREATE INDEX IF NOT EXISTS plugin_listing_updated_at_idx
+    ON plugin_listings(updated_at);
+CREATE INDEX IF NOT EXISTS plugin_listing_search_vector_idx
+    ON plugin_listings USING gin (search_vector);
+CREATE INDEX IF NOT EXISTS plugin_listing_name_trgm_idx
+    ON plugin_listings USING gin (name gin_trgm_ops);
+
+-- Weighted full-text vector: name A, keywords + category B, summary C, README
+-- (tags stripped) + description D. A trigger rather than a generated column
+-- because flattening the keywords JSONB array needs a set-returning function.
+-- The 'english' config must match the one the search route passes to
+-- websearch_to_tsquery.
+CREATE OR REPLACE FUNCTION plugin_listings_search_vector_update()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.search_vector :=
+        setweight(to_tsvector('english', coalesce(NEW.name, '')), 'A')
+        || setweight(to_tsvector('english',
+               coalesce(NEW.category, '') || ' ' ||
+               coalesce((SELECT string_agg(k, ' ') FROM jsonb_array_elements_text(coalesce(NEW.keywords, '[]'::jsonb)) AS k), '')
+           ), 'B')
+        || setweight(to_tsvector('english', coalesce(NEW.summary, '')), 'C')
+        || setweight(to_tsvector('english',
+               coalesce(regexp_replace(NEW.readme_html, '<[^>]*>', ' ', 'g'), '') || ' ' ||
+               coalesce(NEW.description, '')
+           ), 'D');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS plugin_listings_search_vector_trigger ON plugin_listings;
+CREATE TRIGGER plugin_listings_search_vector_trigger
+    BEFORE INSERT OR UPDATE ON plugin_listings
+    FOR EACH ROW
+    EXECUTE PROCEDURE plugin_listings_search_vector_update();
+
+-- A version published to a listing: the copy in the read-only public/*
+-- namespace (§3.3). spec_snapshot freezes the resolved plugin record at
+-- approval, so consumers keep synthesizing after the publisher org's own
+-- plugins row is deleted or purged (§3.6); source_plugin_id is provenance only
+-- (no FK: the org row is soft-deleted and purged on its own schedule).
+CREATE TABLE IF NOT EXISTS plugin_listing_versions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    listing_id UUID NOT NULL REFERENCES plugin_listings(id) ON DELETE CASCADE,
+    source_plugin_id UUID,
+    version VARCHAR(50) NOT NULL
+                        CHECK (version ~ '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$'),
+    image_digest VARCHAR(71)
+                        CHECK (image_digest IS NULL OR image_digest ~ '^sha256:[0-9a-f]{64}$'),
+    image_repository VARCHAR(512),      -- public/<handle>/<name>
+    spec_snapshot JSONB NOT NULL DEFAULT '{}',
+    breaking BOOLEAN NOT NULL DEFAULT false,
+    paused_at TIMESTAMPTZ,
+    yanked_at TIMESTAMPTZ,
+    yank_reason TEXT,
+    deprecated_at TIMESTAMPTZ,
+    deprecation_message TEXT,
+    changelog TEXT,
+    vuln_critical INTEGER,
+    vuln_high INTEGER,
+    scanned_at TIMESTAMPTZ,
+    -- Base image config `created`, recorded at publish (W7 freshness), NULL = unknown.
+    base_image_created_at TIMESTAMPTZ,
+    published_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    published_by TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_listing_version_unique
+    ON plugin_listing_versions(listing_id, version);
+-- GC guard + digest lookups (§3.3: a public/* image is GC'd only when yanked
+-- > 180 days and unreferenced).
+CREATE INDEX IF NOT EXISTS plugin_listing_version_digest_idx
+    ON plugin_listing_versions(image_digest);
+
+-- Security advisories (W8). Declared before the request queue, which points at
+-- the advisory a security-fix request remediates.
+CREATE TABLE IF NOT EXISTS plugin_advisories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    listing_id UUID NOT NULL REFERENCES plugin_listings(id),
+    publisher_id UUID NOT NULL REFERENCES publishers(id),
+    affected_range VARCHAR(255) NOT NULL,   -- semver range
+    fixed_version VARCHAR(50),
+    severity VARCHAR(10) NOT NULL
+                        CHECK (severity IN ('critical', 'high', 'medium', 'low')),
+    summary VARCHAR(300) NOT NULL,
+    details_md TEXT,
+    details_html TEXT,
+    cve_ids TEXT[] NOT NULL DEFAULT '{}',
+    state VARCHAR(20) NOT NULL DEFAULT 'draft'
+                        CHECK (state IN ('draft', 'published', 'withdrawn')),
+    source VARCHAR(20) NOT NULL
+                        CHECK (source IN ('publisher', 'moderator', 'cve_rescan', 'review')),
+    created_by TEXT NOT NULL,
+    published_by TEXT,
+    published_at TIMESTAMPTZ,
+    withdrawn_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS plugin_advisory_listing_state_idx
+    ON plugin_advisories(listing_id, state);
+CREATE INDEX IF NOT EXISTS plugin_advisory_publisher_idx
+    ON plugin_advisories(publisher_id);
+
+-- Auto-approval rules (§3.0.1): enabling one needs a second approver.
+CREATE TABLE IF NOT EXISTS ecosystem_auto_approval_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT false,
+    conditions JSONB NOT NULL DEFAULT '{}',
+    created_by TEXT NOT NULL,
+    approved_by TEXT,
+    -- A proposed enable/widening awaiting a SECOND manager (never the proposer):
+    -- {requestedBy, requestedAt, enabled, name, conditions}. Disabling applies at once.
+    pending_change JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The single queue the Ecosystem console works from (§3.1). digest is the image
+-- digest pinned at submit (G25): approval publishes exactly it, or fails closed.
+-- plugin_id has no FK for the same reason as source_plugin_id above.
+CREATE TABLE IF NOT EXISTS plugin_publish_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    publisher_id UUID NOT NULL REFERENCES publishers(id),
+    listing_id UUID REFERENCES plugin_listings(id),
+    plugin_id UUID,
+    version VARCHAR(50),
+    digest VARCHAR(71)
+                        CHECK (digest IS NULL OR digest ~ '^sha256:[0-9a-f]{64}$'),
+    kind VARCHAR(20) NOT NULL
+                        CHECK (kind IN ('new_listing', 'new_version', 'listing_update', 'yank', 'unpause',
+                                        'transfer', 'claim', 'profile_change', 'advisory', 'verify',
+                                        'moderation', 'submission')),
+    security_fix_advisory_id UUID REFERENCES plugin_advisories(id),
+    payload JSONB NOT NULL DEFAULT '{}',
+    status VARCHAR(30) NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'pending_second_approval', 'approved', 'rejected', 'withdrawn')),
+    lane VARCHAR(10) NOT NULL DEFAULT 'standard'
+                        CHECK (lane IN ('standard', 'security')),
+    submitted_by TEXT NOT NULL,
+    submitted_org_id VARCHAR(255),
+    first_approved_by TEXT,
+    decided_by TEXT,
+    second_approved_by TEXT,
+    reason TEXT,
+    auto_rule_id UUID REFERENCES ecosystem_auto_approval_rules(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    decided_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS plugin_publish_request_status_created_idx
+    ON plugin_publish_requests(status, created_at);
+CREATE INDEX IF NOT EXISTS plugin_publish_request_publisher_idx
+    ON plugin_publish_requests(publisher_id, created_at);
+-- At most ONE open request of a kind per (publisher, listing, version). A
+-- new_listing has no listing_id yet, so the requested name (payload->>'name')
+-- stands in for it; COALESCE because NULLs are DISTINCT in a unique index.
+-- Advisory drafts are exempt: a listing can carry several at once.
+-- Must match the drizzle `plugin_publish_request_open_unique` expression index.
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_publish_request_open_unique
+    ON plugin_publish_requests (
+        publisher_id,
+        kind,
+        coalesce(listing_id::text, payload->>'name', ''),
+        coalesce(version, '')
+    )
+    WHERE status IN ('pending', 'pending_second_approval') AND kind <> 'advisory';
+
+-- Names held back from handles/listings (Official/Verified reservations,
+-- confusables). publisher_id = the publisher the name is reserved FOR, if any.
+CREATE TABLE IF NOT EXISTS ecosystem_reserved_names (
+    name VARCHAR(255) PRIMARY KEY,
+    reason TEXT,
+    publisher_id UUID REFERENCES publishers(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Instance-wide ecosystem knobs (flags, SLA, thresholds) — key/value.
+CREATE TABLE IF NOT EXISTS ecosystem_settings (
+    key VARCHAR(100) PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_by TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Curated directory collections ("Featured", "Security scanners", …).
+CREATE TABLE IF NOT EXISTS ecosystem_collections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    listing_ids JSONB NOT NULL DEFAULT '[]',
+    position INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Reviews (§5). author_org_id feeds the integrity rules (no self-review, per-org
+-- rate limit, verified use) and is NEVER exposed. GDPR user deletion anonymizes:
+-- author_user_id and the body go NULL, the rating stays.
+CREATE TABLE IF NOT EXISTS plugin_reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    listing_id UUID NOT NULL REFERENCES plugin_listings(id) ON DELETE CASCADE,
+    version VARCHAR(50),
+    rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    title VARCHAR(120),
+    body_md TEXT,
+    body_html TEXT,
+    author_user_id TEXT,
+    author_org_id VARCHAR(255),
+    -- The author's display name, snapshotted at write time: the ONLY author
+    -- field ever shown (never the org, G15). NULL once anonymized.
+    author_display_name VARCHAR(100),
+    verified_use BOOLEAN NOT NULL DEFAULT false,
+    status VARCHAR(10) NOT NULL DEFAULT 'published'
+                        CHECK (status IN ('published', 'held', 'removed')),
+    -- Why a held review is held (G16): reports, a burst on the listing, the
+    -- link filter, a security report, or a moderator.
+    hold_reason VARCHAR(20)
+                        CHECK (hold_reason IN ('reports', 'burst', 'filter', 'security', 'moderator')),
+    -- The moderator's hold / removal reason (a removal's is shown to the author).
+    moderation_reason TEXT,
+    helpful_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_review_listing_author_unique
+    ON plugin_reviews(listing_id, author_user_id);
+CREATE INDEX IF NOT EXISTS plugin_review_listing_status_created_idx
+    ON plugin_reviews(listing_id, status, created_at);
+-- Per-org daily review cap.
+CREATE INDEX IF NOT EXISTS plugin_review_author_org_created_idx
+    ON plugin_reviews(author_org_id, created_at);
+-- Moderation queue (held reviews, newest activity first).
+CREATE INDEX IF NOT EXISTS plugin_review_status_updated_idx
+    ON plugin_reviews(status, updated_at);
+
+-- One public publisher reply per review.
+CREATE TABLE IF NOT EXISTS plugin_review_replies (
+    review_id UUID PRIMARY KEY REFERENCES plugin_reviews(id) ON DELETE CASCADE,
+    publisher_id UUID NOT NULL REFERENCES publishers(id),
+    author_user_id TEXT,
+    body_md TEXT NOT NULL,
+    body_html TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS plugin_review_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    review_id UUID NOT NULL REFERENCES plugin_reviews(id) ON DELETE CASCADE,
+    reporter_user_id TEXT NOT NULL,
+    -- 'security' reports never post publicly: they hold the review and open a
+    -- private advisory draft (W8).
+    category VARCHAR(20) NOT NULL DEFAULT 'abuse'
+                        CHECK (category IN ('spam', 'abuse', 'off_topic', 'security')),
+    reason TEXT,
+    -- Set when a moderator releases or removes the review (the report is handled).
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_review_report_unique
+    ON plugin_review_reports(review_id, reporter_user_id);
+-- Open reports (the moderation queue's "reported" half).
+CREATE INDEX IF NOT EXISTS plugin_review_report_open_idx
+    ON plugin_review_reports(review_id) WHERE resolved_at IS NULL;
+
+-- One "helpful" vote per user per review.
+CREATE TABLE IF NOT EXISTS plugin_review_votes (
+    review_id UUID NOT NULL REFERENCES plugin_reviews(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (review_id, user_id)
+);
+
+-- Edit history: the PRIOR content, appended on every review edit.
+CREATE TABLE IF NOT EXISTS plugin_review_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    review_id UUID NOT NULL REFERENCES plugin_reviews(id) ON DELETE CASCADE,
+    version VARCHAR(50),
+    rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    title VARCHAR(120),
+    body_md TEXT,
+    edited_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS plugin_review_history_review_idx
+    ON plugin_review_history(review_id, edited_at);
+
+-- Denormalized per-listing stats, recomputed by a job. active_org_count is
+-- shown only when >= 5 (the public view enforces it).
+CREATE TABLE IF NOT EXISTS plugin_stats (
+    listing_id UUID PRIMARY KEY REFERENCES plugin_listings(id) ON DELETE CASCADE,
+    rating_bayes DOUBLE PRECISION,
+    rating_count INTEGER NOT NULL DEFAULT 0,
+    dist JSONB NOT NULL DEFAULT '{}',
+    recent_rating DOUBLE PRECISION,
+    install_count INTEGER NOT NULL DEFAULT 0,
+    active_org_count INTEGER NOT NULL DEFAULT 0,
+    success_rate_30d DOUBLE PRECISION,
+    health_score DOUBLE PRECISION,
+    -- Per-component health scores + weights (W7) for the breakdown panel.
+    health_breakdown JSONB,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Anonymous submissions (§4). The email is kept hashed (rate limits, claim
+-- matching) and encrypted (takedown notices only), and purged at
+-- email_purge_after (90 days after a decision). Nothing here is ever listed.
+CREATE TABLE IF NOT EXISTS plugin_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    status VARCHAR(30) NOT NULL DEFAULT 'pending_verification'
+                        CHECK (status IN ('pending_verification', 'pending_review', 'gate_failed', 'approved',
+                                          'rejected', 'expired', 'claimed')),
+    email_hash VARCHAR(64),
+    email_enc TEXT,
+    verify_token_hash VARCHAR(64),
+    verify_expires_at TIMESTAMPTZ,
+    verified_at TIMESTAMPTZ,
+    -- sha256 of the status token (verify response + N1/N3/N4 emails only).
+    status_token_hash VARCHAR(64),
+    name VARCHAR(255) NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    spec JSONB NOT NULL DEFAULT '{}',
+    -- Accept-or-edit catalog values + provenance (§3.1a) and the Dockerfile, as submitted.
+    catalog JSONB NOT NULL DEFAULT '{"values": {}, "sources": {}}',
+    dockerfile TEXT,
+    artifact_key VARCHAR(1024),
+    quarantine_image_ref VARCHAR(1024),
+    gate_report JSONB,
+    heuristics JSONB,
+    listing_id UUID REFERENCES plugin_listings(id),
+    decided_by TEXT,
+    reason TEXT,
+    client_ip_hash VARCHAR(64),
+    expires_at TIMESTAMPTZ NOT NULL,
+    decided_at TIMESTAMPTZ,
+    email_purge_after TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS plugin_submission_status_created_idx
+    ON plugin_submissions(status, created_at);
+-- Per-email / per-IP daily rate limits.
+CREATE INDEX IF NOT EXISTS plugin_submission_email_created_idx
+    ON plugin_submissions(email_hash, created_at);
+CREATE INDEX IF NOT EXISTS plugin_submission_ip_created_idx
+    ON plugin_submissions(client_ip_hash, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_submission_verify_token_unique
+    ON plugin_submissions(verify_token_hash) WHERE verify_token_hash IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_submission_status_token_unique
+    ON plugin_submissions(status_token_hash) WHERE status_token_hash IS NOT NULL;
+
+-- Zero-result search log (drives "what are people looking for"). No user data.
+CREATE TABLE IF NOT EXISTS ecosystem_search_misses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    query VARCHAR(200) NOT NULL,
+    category VARCHAR(50),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ecosystem_search_miss_created_idx
+    ON ecosystem_search_misses(created_at);
+
+-- Notification digest/batching queue (§5b). event is the N-number (N1..N29);
+-- rows sharing a digest_key are coalesced into one email at deliver_after.
+CREATE TABLE IF NOT EXISTS ecosystem_notification_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    recipient_user_id TEXT,
+    recipient_org_id VARCHAR(255),
+    event VARCHAR(8) NOT NULL CHECK (event ~ '^N([1-9]|1[0-9]|2[0-9])$'),
+    digest_key VARCHAR(255),
+    payload JSONB NOT NULL DEFAULT '{}',
+    deliver_after TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    delivered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The dispatcher's scan: undelivered rows that are due.
+CREATE INDEX IF NOT EXISTS ecosystem_notification_due_idx
+    ON ecosystem_notification_queue(deliver_after) WHERE delivered_at IS NULL;
+CREATE INDEX IF NOT EXISTS ecosystem_notification_digest_idx
+    ON ecosystem_notification_queue(digest_key) WHERE delivered_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- Org-scoped ecosystem tables
+-- ---------------------------------------------------------------------------
+
+-- Step manifest (W0.1): which plugin each (pipeline, stage, action) runs,
+-- recorded at synth. Event ingest joins on it to stamp pipeline_events.plugin_*.
+-- plugin_publisher is NULL for an own-org plugin.
+CREATE TABLE IF NOT EXISTS pipeline_step_manifests (
+    pipeline_id UUID NOT NULL,
+    org_id VARCHAR(255) NOT NULL,
+    stage_name VARCHAR(255) NOT NULL,
+    action_name VARCHAR(255) NOT NULL,
+    plugin_publisher VARCHAR(39),
+    plugin_name VARCHAR(255) NOT NULL,
+    plugin_version VARCHAR(50) NOT NULL,
+    image_digest VARCHAR(71),
+    image_repository VARCHAR(512),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (pipeline_id, stage_name, action_name)
+);
+
+CREATE INDEX IF NOT EXISTS pipeline_step_manifest_org_idx
+    ON pipeline_step_manifests(org_id);
+-- public/* GC guard: "does any manifest still reference this digest?"
+CREATE INDEX IF NOT EXISTS pipeline_step_manifest_digest_idx
+    ON pipeline_step_manifests(image_digest);
+-- "Installing orgs" / verified-use lookups by plugin.
+CREATE INDEX IF NOT EXISTS pipeline_step_manifest_plugin_idx
+    ON pipeline_step_manifests(plugin_publisher, plugin_name);
+
+-- An org's install of a listing (§3.2). Official listings are installed
+-- implicitly (virtual, no row); a row here is an explicit install or override.
+CREATE TABLE IF NOT EXISTS plugin_installs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    listing_id UUID NOT NULL REFERENCES plugin_listings(id) ON DELETE CASCADE,
+    version_policy VARCHAR(10) NOT NULL DEFAULT 'minor'
+                        CHECK (version_policy IN ('pinned', 'patch', 'minor', 'latest')),
+    pinned_version VARCHAR(50),
+    resolved_version VARCHAR(50),
+    status VARCHAR(20) NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'pending_approval', 'denied')),
+    installed_by TEXT NOT NULL,
+    approved_by TEXT,
+    decided_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT plugin_install_pinned_check
+        CHECK (version_policy <> 'pinned' OR pinned_version IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_install_org_listing_unique
+    ON plugin_installs(org_id, listing_id);
+-- "Installing orgs" fan-out for N8/N13/N14/N21/N26.
+CREATE INDEX IF NOT EXISTS plugin_install_listing_status_idx
+    ON plugin_installs(listing_id, status);
+
+-- Org consumption policy (§3.2). One row per org; absent = the defaults below.
+-- None of these safety controls is plan-gated (§3.7).
+CREATE TABLE IF NOT EXISTS plugin_install_policies (
+    org_id VARCHAR(255) PRIMARY KEY,
+    allowed_tiers TEXT[] NOT NULL DEFAULT '{official,verified}',
+    require_approval_tiers TEXT[] NOT NULL DEFAULT '{community,unverified}',
+    secrets_allowed_tiers TEXT[] NOT NULL DEFAULT '{official,verified}',
+    block_on_advisory VARCHAR(10) NOT NULL DEFAULT 'critical'
+                        CHECK (block_on_advisory IN ('critical', 'high', 'never')),
+    official_installs VARCHAR(10) NOT NULL DEFAULT 'implicit'
+                        CHECK (official_installs IN ('implicit', 'explicit')),
+    blocked_listings JSONB NOT NULL DEFAULT '[]',   -- [{publisher, name}]
+    updated_by TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT plugin_install_policy_tiers_check CHECK (
+        allowed_tiers <@ ARRAY['official', 'verified', 'community', 'unverified']::TEXT[]
+        AND require_approval_tiers <@ ARRAY['official', 'verified', 'community', 'unverified']::TEXT[]
+        AND secrets_allowed_tiers <@ ARRAY['official', 'verified', 'community', 'unverified']::TEXT[]
+    )
+);
+
+-- N21 idempotency: one delivery per (advisory, installing org), so a retried
+-- fan-out never notifies an org twice. Org-scoped (hard-removed with the org).
+CREATE TABLE IF NOT EXISTS plugin_advisory_deliveries (
+    advisory_id UUID NOT NULL REFERENCES plugin_advisories(id) ON DELETE CASCADE,
+    org_id VARCHAR(255) NOT NULL,
+    delivered_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (advisory_id, org_id)
+);
+
+CREATE INDEX IF NOT EXISTS plugin_advisory_delivery_org_idx
+    ON plugin_advisory_deliveries(org_id);
+
+-- updated_at maintenance
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'publishers', 'plugin_listings', 'plugin_advisories', 'ecosystem_auto_approval_rules',
+        'ecosystem_settings', 'ecosystem_collections', 'plugin_reviews', 'plugin_review_replies',
+        'plugin_stats', 'plugin_submissions', 'pipeline_step_manifests', 'plugin_installs',
+        'plugin_install_policies'
+    ]
+    LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS update_%s_modtime ON %I', t, t);
+        EXECUTE format('CREATE TRIGGER update_%s_modtime BEFORE UPDATE ON %I '
+                       'FOR EACH ROW EXECUTE PROCEDURE update_modified_column()', t, t);
+    END LOOP;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- Ecosystem seed rows (W0.8 / W1)
+-- ---------------------------------------------------------------------------
+-- The Official catalog publisher (§3.1: tier official, owned by the system org
+-- 000000000000000000000001, the same literal the RLS policies use) and the
+-- platform-owned `community` publisher anonymous submissions land under (§4,
+-- no owner org). The plugin service re-asserts the Official row at boot, so a
+-- non-default SYSTEM_ORG_ID is corrected there. Existing rows are never touched.
+INSERT INTO publishers (handle, owner_org_id, display_name, description, tier, verified_at)
+VALUES ('pipeline-builder', '000000000000000000000001', 'Pipeline Builder',
+        'The Official plugin catalog, maintained with the platform.', 'official', CURRENT_TIMESTAMP)
+ON CONFLICT (handle) DO NOTHING;
+INSERT INTO publishers (handle, owner_org_id, display_name, description, tier)
+VALUES ('community', NULL, 'Community', 'Anonymous public submissions, reviewed by the system org.', 'unverified')
+ON CONFLICT (handle) DO NOTHING;
+
+-- The two seeded auto-approval rules (§3.0.3, W1). Fixed ids so the service
+-- can recognise them; enabled from the start (a seed is not a manager's
+-- decision, so it needs no second approver). Every rule ALSO passes the fixed
+-- safety checks in the plugin service: signed, SBOM attested and scanned, no
+-- new critical/high vulnerabilities, no new secrets / egress hosts / required
+-- inputs, no non-root -> root change, digest pinned at submit.
+INSERT INTO ecosystem_auto_approval_rules (id, name, enabled, conditions, created_by, approved_by)
+VALUES
+    ('00000000-0000-4000-8000-00000000a001', 'Verified updates', true,
+     '{"seeded": "verified_updates", "requestKinds": ["new_version", "listing_update"], "publisherTiers": ["verified"], "bumps": ["patch", "minor"], "textOnlyListingUpdates": true}',
+     'system', 'system'),
+    ('00000000-0000-4000-8000-00000000a002', 'Official catalog', true,
+     '{"seeded": "official_catalog", "requestKinds": ["new_version", "listing_update"], "publisherTiers": ["official"], "bumps": ["patch", "minor"], "submitterServiceAccount": "official-catalog-loader", "textOnlyListingUpdates": true, "maxPerListingPerDay": 1, "maxPerDay": 50, "instanceFlag": "OFFICIAL_AUTO_APPROVAL_ENABLED"}',
+     'system', 'system')
+ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Public read path (§6a, G28)
+-- ---------------------------------------------------------------------------
+-- The anonymous directory API connects as ecosystem_public_reader (created in
+-- "Ecosystem public reader role" at the end of this file), which holds SELECT on
+-- these two views and NOTHING else. The views are owned by the bootstrap role
+-- and are NOT security_invoker, so they read the base tables with the owner's
+-- rights; the reader never touches a base table. security_barrier stops a
+-- caller-supplied (leaky) function in a WHERE clause from being evaluated
+-- before the view's own row filter. Column lists are explicit (never SELECT *):
+-- no org ids, no user ids, no env values / build args / commands / Dockerfile.
+
+CREATE OR REPLACE VIEW public_listings WITH (security_barrier = true) AS
+SELECT
+    l.id,
+    p.handle AS publisher_handle,
+    p.display_name AS publisher_display_name,
+    p.tier AS publisher_tier,
+    p.verified_at AS publisher_verified_at,
+    l.name,
+    l.category,
+    l.summary,
+    l.description,
+    l.readme_html,
+    l.license,
+    l.homepage_url,
+    l.source_url,
+    l.icon,
+    l.uploaded_icon,
+    l.keywords,
+    l.featured,
+    l.latest_version,
+    l.paused_at,
+    l.search_vector,
+    l.created_at,
+    l.updated_at,
+    s.rating_bayes,
+    COALESCE(s.rating_count, 0) AS rating_count,
+    s.dist AS rating_dist,
+    s.recent_rating,
+    COALESCE(s.install_count, 0) AS install_count,
+    CASE WHEN s.active_org_count >= 5 THEN s.active_org_count END AS active_org_count,
+    s.success_rate_30d,
+    s.health_score,
+    -- 'listed' or 'unmaintained' (still public, shown with a banner, §3.6).
+    l.state,
+    s.health_breakdown
+FROM plugin_listings l
+JOIN publishers p ON p.id = l.publisher_id
+LEFT JOIN plugin_stats s ON s.listing_id = l.id
+WHERE l.state IN ('listed', 'unmaintained')
+  AND p.suspended_at IS NULL;
+
+CREATE OR REPLACE VIEW public_listed_versions WITH (security_barrier = true) AS
+SELECT
+    v.id,
+    v.listing_id,
+    p.handle AS publisher_handle,
+    l.name,
+    v.version,
+    v.image_digest,
+    v.image_repository,
+    v.breaking,
+    v.deprecated_at,
+    v.changelog,
+    v.vuln_critical,
+    v.vuln_high,
+    v.scanned_at,
+    v.published_at,
+    -- Public subset of the frozen spec only.
+    v.spec_snapshot->>'pluginType' AS plugin_type,
+    v.spec_snapshot->>'computeType' AS compute_type,
+    v.spec_snapshot->'secrets' AS secrets,
+    v.spec_snapshot->'requiredMetadata' AS required_metadata,
+    v.spec_snapshot->'requiredVars' AS required_vars,
+    v.spec_snapshot->'networkEgress' AS network_egress,
+    (v.spec_snapshot->>'runAsRoot')::boolean AS run_as_root,
+    v.spec_snapshot->>'license' AS license,
+    v.spec_snapshot->>'readmeHtml' AS readme_html,
+    -- Yanked versions stay VISIBLE (marked) so the directory can show them, but
+    -- the yank reason is not public. Nothing resolves through this view.
+    (v.yanked_at IS NOT NULL) AS yanked,
+    v.deprecation_message,
+    v.spec_snapshot->>'imageSource' AS image_source,
+    v.base_image_created_at
+FROM plugin_listing_versions v
+JOIN plugin_listings l ON l.id = v.listing_id
+JOIN publishers p ON p.id = l.publisher_id
+WHERE l.state IN ('listed', 'unmaintained')
+  AND p.suspended_at IS NULL
+  AND v.paused_at IS NULL;
+
+-- Published advisories on listed listings (W8), public columns only: no
+-- publisher/org ids, no author, no draft or withdrawn rows.
+CREATE OR REPLACE VIEW public_advisories WITH (security_barrier = true) AS
+SELECT
+    a.id,
+    a.listing_id,
+    p.handle AS publisher_handle,
+    l.name,
+    a.severity,
+    a.summary,
+    a.details_html,
+    a.cve_ids,
+    a.affected_range,
+    a.fixed_version,
+    a.published_at
+FROM plugin_advisories a
+JOIN plugin_listings l ON l.id = a.listing_id
+JOIN publishers p ON p.id = l.publisher_id
+WHERE a.state = 'published'
+  AND l.state IN ('listed', 'unmaintained')
+  AND p.suspended_at IS NULL;
+
+-- Published reviews of public listings (W4), public columns only: the author's
+-- display name (never the user or org id, G15), the verified-use badge, and the
+-- publisher's reply. Held and removed reviews never appear.
+CREATE OR REPLACE VIEW public_reviews WITH (security_barrier = true) AS
+SELECT
+    r.id,
+    r.listing_id,
+    p.handle AS publisher_handle,
+    l.name,
+    r.version,
+    r.rating,
+    r.title,
+    r.body_html,
+    r.author_display_name,
+    r.verified_use,
+    r.helpful_count,
+    EXISTS (SELECT 1 FROM plugin_review_history h WHERE h.review_id = r.id) AS edited,
+    r.created_at,
+    r.updated_at,
+    p.display_name AS publisher_display_name,
+    rr.body_html AS reply_body_html,
+    rr.created_at AS reply_created_at,
+    rr.updated_at AS reply_updated_at
+FROM plugin_reviews r
+JOIN plugin_listings l ON l.id = r.listing_id
+JOIN publishers p ON p.id = l.publisher_id
+LEFT JOIN plugin_review_replies rr ON rr.review_id = r.id
+WHERE r.status = 'published'
+  AND l.state IN ('listed', 'unmaintained')
+  AND l.paused_at IS NULL
+  AND p.suspended_at IS NULL;
+
+-- ============================================================================
 -- Soft-delete retention: purge_after deadline + tombstone-only purge index
 -- ============================================================================
 -- Stamped alongside deleted_at when a row is soft-deleted; the per-service
@@ -1416,7 +2246,10 @@ BEGIN
             'compliance_audit_log', 'compliance_exemptions', 'compliance_rule_subscriptions',
             'compliance_scans', 'compliance_scan_schedules',
             'compliance_notification_preferences', 'compliance_notification_log',
-            'compliance_roles', 'compliance_reports', 'compliance_report_schedules'
+            'compliance_roles', 'compliance_reports', 'compliance_report_schedules',
+            -- Plugin ecosystem, org-scoped half (the global half is below).
+            'pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies',
+            'plugin_advisory_deliveries'
         ])
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -1547,14 +2380,59 @@ ALTER TABLE ingest_health FORCE ROW LEVEL SECURITY;
 ALTER TABLE incidents FORCE ROW LEVEL SECURITY;
 ALTER TABLE dora_settings FORCE ROW LEVEL SECURITY;
 
+-- Plugin ecosystem, org-scoped half: synth (step manifests), the install and
+-- consumption-policy routes, and the advisory fan-out all run under
+-- withTenantTx; the fan-out and ingest join run as sysadmin (cross-org).
+ALTER TABLE pipeline_step_manifests FORCE ROW LEVEL SECURITY;
+ALTER TABLE plugin_installs FORCE ROW LEVEL SECURITY;
+ALTER TABLE plugin_install_policies FORCE ROW LEVEL SECURITY;
+ALTER TABLE plugin_advisory_deliveries FORCE ROW LEVEL SECURITY;
+
+-- Plugin ecosystem, GLOBAL half. These tables have no org_id: the directory is
+-- instance-wide, and who may write what (system-org approval, publisher
+-- managers, review authors) is enforced in the service layer, not by tenant
+-- scope. RLS is still ENABLED on them, with one permissive policy naming ONLY
+-- the application role (DB_USER), so:
+--   * the services read/write them freely, with or without tenant context;
+--   * any OTHER non-owner role — ecosystem_public_reader in particular, even if
+--     a stray GRANT ever reached it — sees zero rows. The public directory
+--     reads them only through the public_* views (owner rights).
+-- They are deliberately NOT FORCEd: the public_* views read them as the owner,
+-- and FORCE would subject the owner to a policy that doesn't name it (the
+-- bootstrap superuser bypasses RLS anyway; a non-superuser owner would not).
+DO $$
+DECLARE
+    app_user TEXT := current_setting('pb.app_user');
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'publishers', 'plugin_listings', 'plugin_listing_versions', 'plugin_publish_requests',
+        'ecosystem_auto_approval_rules', 'ecosystem_reserved_names', 'ecosystem_settings',
+        'ecosystem_collections', 'plugin_reviews', 'plugin_review_replies', 'plugin_review_reports',
+        'plugin_review_votes', 'plugin_review_history', 'plugin_stats', 'plugin_advisories',
+        'plugin_submissions', 'ecosystem_search_misses', 'ecosystem_notification_queue'
+    ]
+    LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        EXECUTE format('DROP POLICY IF EXISTS rls_ecosystem_app ON %I', t);
+        EXECUTE format(
+            'CREATE POLICY rls_ecosystem_app ON %I AS PERMISSIVE FOR ALL TO %I '
+            'USING (true) WITH CHECK (true)',
+            t, app_user
+        );
+    END LOOP;
+END $$;
+
 -- Audit data lives in MongoDB (`audit_events`), not in Postgres.
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE enabled on every user-data table (22/22):'
+\echo 'FORCE + org scope on every tenant table (31/31):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
-\echo ' - messages, pipeline_registry, all compliance_* tables'
-\echo ' - plugins, pipelines, pipeline_events (hot path)'
+\echo ' - messages, message_attachments, pipeline_registry, all compliance_* tables'
+\echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'
+\echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries'
+\echo 'App-role-only policy (no FORCE) on the 18 ecosystem-global tables'
 
 -- ============================================================================
 -- Application role grants
@@ -1583,6 +2461,55 @@ END $$;
 SELECT rolname, rolsuper, rolbypassrls, rolcanlogin
 FROM pg_roles
 WHERE rolname = current_setting('pb.app_user');
+
+-- ============================================================================
+-- Ecosystem public reader role (anonymous plugin directory, §6a G28)
+-- ============================================================================
+-- The public directory API connects as ecosystem_public_reader. It may read the
+-- two public_* views and nothing else: no base-table grant, no DML, no
+-- sequences, and it is never named in ALTER DEFAULT PRIVILEGES (so tables
+-- created later don't reach it either). The ecosystem-global tables' RLS policy
+-- names only the app role, so even a stray base-table GRANT would return zero
+-- rows to it; the org-scoped tables fail closed for it (no app.org_id).
+--
+-- The password comes from ECOSYSTEM_PUBLIC_READER_PASSWORD (read with \getenv,
+-- like DB_PASSWORD above). The role is OPTIONAL: when the variable is unset,
+-- creation is skipped with a NOTICE and the public directory stays off. An
+-- existing role is still (re)locked to the view-only grants below.
+\getenv pb_reader_password ECOSYSTEM_PUBLIC_READER_PASSWORD
+\if :{?pb_reader_password}
+\else
+\set pb_reader_password ''
+\endif
+SELECT set_config('pb.reader_password', :'pb_reader_password', false) AS pb_reader_password_set \gset
+\unset pb_reader_password
+\unset pb_reader_password_set
+
+DO $$
+DECLARE
+    reader_password TEXT := current_setting('pb.reader_password');
+BEGIN
+    IF current_setting('pb.app_user') = 'ecosystem_public_reader' THEN
+        RAISE EXCEPTION 'postgres-init: DB_USER must not be ecosystem_public_reader (the view-only public directory role)';
+    END IF;
+    IF reader_password = '' THEN
+        RAISE NOTICE 'postgres-init: ECOSYSTEM_PUBLIC_READER_PASSWORD is unset; not creating/updating ecosystem_public_reader (public plugin directory disabled)';
+    ELSIF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ecosystem_public_reader') THEN
+        EXECUTE format('ALTER ROLE ecosystem_public_reader WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L', reader_password);
+    ELSE
+        EXECUTE format('CREATE ROLE ecosystem_public_reader WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT PASSWORD %L', reader_password);
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ecosystem_public_reader') THEN
+        -- Start from nothing on every run, then grant exactly the views.
+        REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ecosystem_public_reader;
+        REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ecosystem_public_reader;
+        EXECUTE format('GRANT CONNECT ON DATABASE %I TO ecosystem_public_reader', current_database());
+        GRANT USAGE ON SCHEMA public TO ecosystem_public_reader;
+        GRANT SELECT ON public_listings, public_listed_versions, public_advisories, public_reviews TO ecosystem_public_reader;
+    END IF;
+END $$;
+SELECT set_config('pb.reader_password', '', false) AS pb_reader_password_cleared \gset
 
 \echo ''
 \echo '=== SCHEMA UPDATE COMPLETE ==='

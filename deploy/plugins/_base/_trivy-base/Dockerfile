@@ -18,12 +18,22 @@ FROM pipeline-plugin-base:24.04
 ARG TRIVY_VERSION
 ARG TRIVY_PREV_VERSION
 
-# Two trivy versions; default symlinked to /usr/local/bin/trivy.
-RUN mkdir -p /opt/trivy/versions
+# Two trivy versions. The active one is a symlink in /opt/trivy/bin (first on
+# PATH, owned by the plugin user) so the plugin's runtime TRIVY_VERSION switch
+# can re-point it without root. Only these baked versions are selectable — no
+# runtime download (every binary in the catalog is pinned at build time).
+USER root
 COPY --from=trivy-prev /usr/local/bin/trivy /opt/trivy/versions/trivy-${TRIVY_PREV_VERSION}
 COPY --from=trivy-default /usr/local/bin/trivy /opt/trivy/versions/trivy-${TRIVY_VERSION}
-RUN ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /usr/local/bin/trivy
+RUN install -d -o 1000 -g 1000 /opt/trivy/bin \
+    && ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /opt/trivy/bin/trivy \
+    && chown -h 1000:1000 /opt/trivy/bin/trivy
+ENV PATH="/opt/trivy/bin:${PATH}"
 
 ENV TRIVY_VERSION=${TRIVY_VERSION}
 ENV TRIVY_SEVERITY=HIGH,CRITICAL
 ENV TRIVY_FORMAT=json
+
+WORKDIR /app
+USER 1000:1000
+CMD ["bash"]

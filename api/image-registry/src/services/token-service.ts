@@ -6,7 +6,7 @@ import { createLogger, createQuotaService, getServiceAuthHeader, registerPreviou
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
 import type { RegistryScope } from './scope.js';
-import { computeStorageUsage } from './storage-usage.js';
+import { computeOrgStorageUsage } from './storage-usage.js';
 import { config } from '../config/index.js';
 
 const logger = createLogger('token-service');
@@ -59,6 +59,34 @@ const ORG_NAMESPACE_PREFIX = 'org-';
 // `library/...` pull token. Treat library/* like system/* — any
 // authenticated identity can pull, only admins can push.
 const LIBRARY_NAMESPACE_PREFIX = 'library/';
+/**
+ * The public plugin namespace (`public/<publisherHandle>/<name>`, plugin
+ * ecosystem §3.3). Listed plugin versions are COPIED here on approval and signed
+ * fresh with their trust tier. Append-only: every authenticated identity may
+ * pull; nobody but this service's own management identity writes, and it writes
+ * only through the `/internal/plugin-publications*` routes. Not even a superadmin
+ * gets push — a publisher (or an operator) must never overwrite or delete a
+ * version other orgs' pipelines pull by digest on every run.
+ */
+export const PUBLIC_NAMESPACE_PREFIX = 'public/';
+/**
+ * Registry-private bookkeeping (the `public/<handle>` → publisher-org record,
+ * see public-publications.ts). Management-only: no external identity may pull or
+ * push here, superadmins included.
+ */
+export const REGISTRY_META_NAMESPACE_PREFIX = 'registry-meta/';
+/**
+ * Anonymous plugin submissions (plugin ecosystem §4.2, W5): each submission's
+ * image is built on the isolated quarantine buildkitd and pushed to
+ * `quarantine/<submissionId>`. Push AND pull belong to the plugin SERVICE
+ * principal alone (its per-service-key-signed token — the name cannot be
+ * forged); every other identity, a superadmin included, gets nothing: an
+ * unmoderated image must never be pullable by a tenant pipeline or browsable
+ * in the UI. Moderation tooling reads it through the plugin service.
+ */
+export const QUARANTINE_NAMESPACE_PREFIX = 'quarantine/';
+/** The only service principal that may push/pull `quarantine/*`. */
+export const QUARANTINE_SERVICE_PRINCIPAL = 'plugin';
 
 /**
  * Authorize a single requested scope for the given identity. Returns the
@@ -68,8 +96,12 @@ const LIBRARY_NAMESPACE_PREFIX = 'library/';
  *
  * Policy:
  * - **management** (internal only): anything; in-process self-issue
- * - **jwt** (org user / api/plugin service token): pull on `system/*`;
- * pull,push on `org-{orgId}/*`; pull,push on `system/*` ONLY for the system
+ * - **jwt** (org user / team / service account / api/plugin service token):
+ * pull on `public/*` (never push/delete — not even a super-admin); nothing on
+ * `registry-meta/*`; pull,push on `quarantine/*` for the plugin SERVICE
+ * principal only (nothing for anyone else); pull on `system/*`;
+ * pull,push on `org-{orgId}/*`; pull on `org-{parentOrgId}/*` for a team;
+ * pull,push on `system/*` ONLY for the system
  * org (which owns that namespace); only super-admins (platform sysadmin) push
  * on any other namespace (e.g. cross-org or `library/*`)
  */
@@ -88,6 +120,23 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
   }
 
   const orgPrefix = `${ORG_NAMESPACE_PREFIX}${identity.orgId}/`;
+
+  // `public/*` is pull-open and append-only; `registry-meta/*` is closed. Both
+  // are evaluated BEFORE the superadmin rule so a sysadmin token can't push
+  // into (or read the bookkeeping of) the public namespace — writes there are
+  // the management identity's alone (handled above), via the internal routes.
+  if (requested.name.startsWith(PUBLIC_NAMESPACE_PREFIX)) {
+    return requested.actions.filter((a) => a === 'pull');
+  }
+  if (requested.name.startsWith(REGISTRY_META_NAMESPACE_PREFIX)) {
+    return [];
+  }
+  // `quarantine/*` (anonymous submissions): the plugin service principal only —
+  // also evaluated before the superadmin rule, so no human token reaches it.
+  if (requested.name.startsWith(QUARANTINE_NAMESPACE_PREFIX)) {
+    if (identity.serviceName !== QUARANTINE_SERVICE_PRINCIPAL) return [];
+    return requested.actions.filter((a) => a === 'pull' || a === 'push');
+  }
 
   // SUPER-admins (platform sysadmin, e.g. the bootstrap base-image push)
   // get pull+push on any repo. Evaluated first because the namespace rules
@@ -134,6 +183,16 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
   if (requested.name.startsWith(orgPrefix)) {
     const allowed = identity.canWritePlugins ? ['pull', 'push'] : ['pull'];
     return requested.actions.filter((a) => allowed.includes(a));
+  }
+
+  // A TEAM resolves its direct parent org's `public` plugins (api/plugin
+  // read-plugins.ts: `visibility='public' AND org_id=P`), so its pipelines must
+  // be able to PULL those images — otherwise the plugin resolves at lookup and
+  // then fails at CodeBuild image pull. Pull only: a team never writes into its
+  // parent's namespace. The parent id comes from the signed token claim, never
+  // from the request.
+  if (identity.parentOrgId && requested.name.startsWith(`${ORG_NAMESPACE_PREFIX}${identity.parentOrgId}/`)) {
+    return requested.actions.filter((a) => a === 'pull');
   }
 
   return [];
@@ -323,7 +382,9 @@ async function isStorageOverBudget(orgId: string): Promise<boolean> {
     // Genuine unlimited storage (-1) → no enforcement, allow.
     if (typeof limit !== 'number' || limit < 0) return false;
 
-    const usage = await computeStorageUsage(`${ORG_NAMESPACE_PREFIX}${orgId}/`);
+    // The org's own namespace plus the `public/*` repositories it publishes
+    // (plugin ecosystem G40) — a publisher pays for its listed versions.
+    const usage = await computeOrgStorageUsage(orgId);
     // Under-counted scan → we can't prove the org is under budget. Inconclusive
     // → deny by default rather than allow a possibly-over-cap push.
     if (usage.incomplete) {

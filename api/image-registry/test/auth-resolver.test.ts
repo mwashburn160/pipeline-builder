@@ -126,6 +126,18 @@ describe('resolveIdentity', () => {
     expect(identity).toEqual({ type: 'jwt', orgId: 'acme', userId: 'user-1', isAdmin: false, isSuperAdmin: false, canWritePlugins: false });
   });
 
+  it('carries a team token\'s signed parentOrganizationId as parentOrgId', async () => {
+    const token = await signPlatformJwt({ sub: 'user-1', organizationId: 'acme-team', parentOrganizationId: 'acme' });
+    expect(await resolveIdentity('orgname', token)).toMatchObject({ orgId: 'acme-team', parentOrgId: 'acme' });
+  });
+
+  it('drops a malformed parentOrganizationId instead of granting on it', async () => {
+    const token = await signPlatformJwt({ sub: 'user-1', organizationId: 'acme-team', parentOrganizationId: '../system' });
+    const identity = await resolveIdentity('orgname', token);
+    expect(identity).toMatchObject({ orgId: 'acme-team' });
+    expect(identity).not.toHaveProperty('parentOrgId');
+  });
+
   it('sets canWritePlugins from a plugins:write permission claim', async () => {
     const token = await signPlatformJwt({ sub: 'writer-1', organizationId: 'acme', isAdmin: false, permissions: ['plugins:write'] });
     expect(await resolveIdentity('orgname', token)).toMatchObject({ canWritePlugins: true, isAdmin: false });
@@ -201,8 +213,14 @@ describe('resolveIdentity', () => {
     // plugins:write) to push the image it just built.
     const token = serviceKeys.sign('plugin', { organizationId: 'acme', permissions: ['plugins:write'] });
     await expect(resolveIdentity('_token', token)).resolves.toMatchObject({
-      type: 'jwt', orgId: 'acme', userId: 'service:plugin', canWritePlugins: true,
+      type: 'jwt', orgId: 'acme', userId: 'service:plugin', canWritePlugins: true, serviceName: 'plugin',
     });
+  });
+
+  it('names the service ONLY for a service token — a user token never carries serviceName (quarantine/* gate)', async () => {
+    const user = await resolveIdentity('whoever', await signPlatformJwt({ sub: 'service:plugin', organizationId: 'acme' }));
+    expect(user).not.toBeNull();
+    expect(user).not.toHaveProperty('serviceName');
   });
 
   it('REFUSES a service token signed by a DIFFERENT service than its subject names', async () => {

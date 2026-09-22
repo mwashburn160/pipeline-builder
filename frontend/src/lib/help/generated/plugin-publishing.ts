@@ -1,0 +1,662 @@
+// GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
+// Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SOURCE-SHA256: a37e60af4fc7263b4ee28117b86ad89120989070548a2ca56f44dffea0a48f7f
+// SPDX-License-Identifier: Apache-2.0
+import { Store } from 'lucide-react';
+import type { HelpTopic } from '../types';
+
+export const pluginPublishingTopic: HelpTopic = {
+  "icon": Store,
+  "id": "plugin-publishing",
+  "title": "Plugin Publishing",
+  "description": "Publish plugins to the ecosystem: publisher profile, listings limits, publish requests, accept-or-edit metadata, review",
+  "sections": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Publishing puts a plugin in the plugin ecosystem: the public, searchable directory every organization on this instance can browse and install from. (Using listings, installs and each organization's consumption policy are covered in Plugin Installing.) It is separate from sharing inside your organization. The visibility ladder (private, org, public) still only decides who in your organization and its teams can see a plugin version. Nothing you set on a plugin puts it in the directory by itself."
+        },
+        {
+          "type": "text",
+          "content": "Only the system organization decides what enters the ecosystem. You request a listing, a new version, a metadata change, a yank, a transfer or a Verified badge. The system org's Ecosystem Managers approve or reject each request, either by hand or through auto-approval rules they configure. You can always pause your own listing or version immediately, because that only narrows your own reach."
+        }
+      ]
+    },
+    {
+      "id": "your-publisher-profile",
+      "title": "Your publisher profile",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A publisher is your organization's public identity. It has a handle (acme, shown as @acme/terraform-plan), a display name, a description, a homepage and a trust tier. Each root organization has one publisher."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Claim a handle on the Publisher page (dashboard → Build → Publisher). A handle has 2–39 lowercase letters or digits, with single hyphens between them. It names your registry namespace (public/<handle>/<plugin>), so choose it carefully.",
+            "Reserved handles. Platform words (pipeline-builder, official, community, system and others) can't be claimed. The system org can also reserve names, for example to protect a vendor's brand. If a reserved handle is yours, submit a claim request and the system org decides.",
+            "Publisher terms. Claiming a handle means accepting the current publisher terms. When the terms change, you must accept them again before you can submit new requests. Your existing listings are unaffected.",
+            "Teams publish through their root org. A team can't own a publisher. To publish a team's plugin, move it to the root organization or upload it there.",
+            "Profile edits. You can change the description and homepage directly. Changes to the handle or display name are profile change requests, because a new name could impersonate someone."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Managing the publisher profile requires publishers:manage. Submitting listing and version requests, and pausing, requires plugins:publish. Owners and admins hold both."
+        }
+      ]
+    },
+    {
+      "id": "trust-tiers",
+      "title": "Trust tiers",
+      "blocks": [
+        {
+          "type": "table",
+          "headers": [
+            "Tier",
+            "Who",
+            "How it is earned"
+          ],
+          "rows": [
+            [
+              "Official",
+              "The platform's own catalog (the pipeline-builder publisher, owned by the system org)",
+              "Every listing and version is approved by two Ecosystem Managers, except the one-time initial catalog load and gate-green routine updates from the catalog loader."
+            ],
+            [
+              "Verified",
+              "A publisher on the Team or Enterprise plan, with a DNS-verified domain and two-factor authentication on every owner, whose application the system org approved",
+              "Apply from the Publisher page. The badge is earned through review and can be withdrawn. It is never sold."
+            ],
+            [
+              "Community",
+              "Any signed-in organization, on any plan, within its listings limit",
+              "Each listing is approved by the system org."
+            ],
+            [
+              "Unverified",
+              "Anyone, without an account, through Submitting without an account. Listed under the platform's community publisher",
+              "Every version passes the automated checks and is approved by two Ecosystem Managers."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The tier travels with every published image as a signed annotation (pb.trust), so changing a tier re-signs every image the publisher has published."
+        }
+      ]
+    },
+    {
+      "id": "plans-and-limits",
+      "title": "Plans and limits",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Publishing is available on every plan, within a listings limit: the number of live (listed or unmaintained) listings your root organization publishes."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Plan",
+            "Listings",
+            "Verified eligibility"
+          ],
+          "rows": [
+            [
+              "Developer",
+              "3",
+              "—"
+            ],
+            [
+              "Pro",
+              "10",
+              "—"
+            ],
+            [
+              "Team",
+              "25",
+              "Yes"
+            ],
+            [
+              "Enterprise",
+              "100",
+              "Yes"
+            ],
+            [
+              "Self-hosted (billing off)",
+              "Unlimited",
+              "Yes"
+            ]
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "A new-listing request is checked against the limit when you submit it (open new-listing requests count too), and again when it is approved.",
+            "Downgrades. If a plan change leaves you over the limit, your listings stay listed. New versions and listing updates are refused until you are back under the limit, but the security-fix lane stays open, so your users are never stuck on a vulnerable version. You're told once (notice N29).",
+            "Verified eligibility is checked automatically, when you apply and again when the system org decides. All three must hold, or the application is refused with the reason:",
+            "the plan includes Verified publishing (VERIFIED_PLAN_REQUIRED);",
+            "your root organization has at least one DNS-verified domain (Settings → Email domains); a domain you name in the application must be one of them (VERIFIED_DOMAIN_REQUIRED);",
+            "every owner of the organization has a passkey or an authenticator app (VERIFIED_OWNER_MFA_REQUIRED)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "If the checks can't be run at that moment the application is refused as unavailable (503); try again shortly."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Verified below Team. If your plan drops below Team, your Verified badge stays for a 30-day grace period (notice N29, with reminders at 14 and 3 days left). If the plan still doesn't include Verified publishing when the grace period ends, the tier returns to Community and every image is re-signed."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "requests",
+      "title": "Requests",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Every change to the ecosystem is a request. Open requests show on the Publisher page's Requests tab, where you can withdraw them."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Request",
+            "What it asks for",
+            "Permission"
+          ],
+          "rows": [
+            [
+              "New listing",
+              "List one of your plugin versions under a new name",
+              "plugins:publish"
+            ],
+            [
+              "New version",
+              "Publish another version of an existing listing",
+              "plugins:publish"
+            ],
+            [
+              "Listing update",
+              "Change the listing's summary, description, category, keywords, license, links, icon or README",
+              "plugins:publish"
+            ],
+            [
+              "Yank",
+              "Stop a listed version resolving for new pipeline synths",
+              "plugins:publish"
+            ],
+            [
+              "Unpause",
+              "Lift a pause you applied",
+              "plugins:publish"
+            ],
+            [
+              "Transfer",
+              "Move a listing to another publisher (the receiving publisher must accept first)",
+              "publishers:manage"
+            ],
+            [
+              "Claim",
+              "Take a reserved handle, or a listing under the platform's community publisher",
+              "publishers:manage"
+            ],
+            [
+              "Profile change",
+              "Change your handle or display name",
+              "publishers:manage"
+            ],
+            [
+              "Verified",
+              "Apply for the Verified badge (Team and Enterprise)",
+              "publishers:manage"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "You can have at most one open request of each kind for the same listing and version."
+        },
+        {
+          "type": "text",
+          "content": "What a version request needs"
+        },
+        {
+          "type": "text",
+          "content": "A new-listing or new-version request is refused, with the list of failing checks, unless the version:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "has public visibility;",
+            "declares an SPDX license;",
+            "ships a README;",
+            "if it produces an image, is signed (it has a digest), scanned, and has no critical vulnerabilities (the vulnerability gate)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The digest is pinned"
+        },
+        {
+          "type": "text",
+          "content": "When you submit a version request, the version's image digest is recorded on the request and the version is frozen. From that moment it can't be re-uploaded, edited or deleted (the upload answers 409 PLUGIN_VERSION_FROZEN). The approval publishes exactly that digest. If the stored digest changed anyway, the approval fails closed with PLUGIN_DIGEST_MISMATCH. Withdrawing or a rejection releases the freeze, unless the version is already listed."
+        },
+        {
+          "type": "text",
+          "content": "Publishing from a script or the loader"
+        },
+        {
+          "type": "text",
+          "content": "POST /api/plugins/upload accepts publishRequest=true (together with visibility=public). Once the build completes, the plugin service submits a new-listing request (or a new-version request if the name is already listed) as the uploader. The Official catalog loader (deploy/bin/load-plugins.sh) uploads every plugin this way."
+        },
+        {
+          "type": "text",
+          "content": "Publishing from the CLI"
+        },
+        {
+          "type": "text",
+          "content": "pipeline-manager plugin publish --dir <plugin> runs every local check, then submits the request with one upload:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Pre-flight. It runs the server's own checks (the spec and config schemas and the {{ ... }} contract, shared from api-core) and the catalog's Dockerfile rules: a non-root final USER, every download through fetch-verified, no pipe-to-shell installers. Any problem stops it before anything is uploaded.",
+            "Scan preview. It builds the image, makes an SBOM with syft and scans it with grype, as the platform will after the build. A critical vulnerability stops the publish. If syft or grype isn't installed, it says the preview did not run rather than passing silently. --skip-scan skips it on purpose, and --image scans an image you built.",
+            "Accept or edit. It shows each catalog field with its detected value and source (below) and asks you to accept, edit or clear it. --yes accepts everything detected. --metadata <file.yaml> supplies your edits without prompting, and every other detected value is accepted. The file uses the same keys and validator as the upload form, so contract keys such as commands are refused.",
+            "Upload. It checks your publisher profile, root organization and terms, then uploads the package with visibility=public, publishRequest=true and your edits as metadata. The request is submitted once the build completes."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "plugin validate --dir <plugin> prints the same catalog report without publishing: which fields would be empty or invalid, and where each value comes from. plugin test runs the plugin in its image first (see Pipeline Manager)."
+        },
+        {
+          "type": "code",
+          "content": "summary: Lints Terraform with tflint and the AWS ruleset.\nhomepageUrl: https://github.com/acme/tflint-plugin\nkeywords: [terraform, lint, aws]\ndocumentationUrl: null   # null clears a detected value",
+          "language": "yaml"
+        }
+      ]
+    },
+    {
+      "id": "catalog-metadata-accept-or-edit",
+      "title": "Catalog metadata: accept or edit",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The metadata your plugin package already declares is detected and pre-filled. You accept each value or edit it."
+        },
+        {
+          "type": "text",
+          "content": "Where each value comes from (the first source with a value wins):"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Field",
+            "1. plugin-spec.yaml",
+            "2. README.md",
+            "3. The plugin's own Dockerfile LABEL"
+          ],
+          "rows": [
+            [
+              "Summary (160 characters)",
+              "summary",
+              "—",
+              "— (then the first sentence of the description)"
+            ],
+            [
+              "Description",
+              "description",
+              "first paragraph",
+              "org.opencontainers.image.description"
+            ],
+            [
+              "Display name",
+              "—",
+              "first # heading",
+              "org.opencontainers.image.title"
+            ],
+            [
+              "License",
+              "license",
+              "—",
+              "org.opencontainers.image.licenses"
+            ],
+            [
+              "Homepage / source / documentation links",
+              "homepageUrl / sourceUrl / documentationUrl",
+              "—",
+              "org.opencontainers.image.url / .source / .documentation"
+            ],
+            [
+              "Category, keywords, icon, changelog",
+              "spec",
+              "—",
+              "—"
+            ]
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "What you can edit: the summary, description, display name, category, keywords, license, the three links, the icon and the README.",
+            "What you can't edit: anything that decides what runs, such as commands, environment, secrets, required inputs, network egress and compute type. Those come only from the spec, so changing one means uploading a new version, which gets a new digest and a new review.",
+            "Provenance is recorded. Each value keeps its source (Spec, README, Dockerfile, Generated or Edited). Reviewers see it, and a link you typed yourself is highlighted, because an edited link is what a phishing change would look like.",
+            "Live card preview. The new-listing form shows the card exactly as the directory will render it.",
+            "New versions offer a listing update. When a new version's detected metadata differs from the live listing, the form offers a listing update with only the changed fields: Accept, Keep current or Edit each one. Nothing reaches the listing unless you submit it."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "how-requests-are-decided",
+      "title": "How requests are decided",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Review. Managers see each request against your previous approved version: metadata with provenance, contract changes (secrets, egress hosts, required inputs, environment keys, commands, running as root), the vulnerability delta, the Dockerfile, the SBOM package delta, the icon and your history as a publisher.",
+            "Two people approve every Official request, Verified applications and moderation actions such as lifting a suspension. One person can't give both approvals.",
+            "No self-dealing. A manager who belongs to your organization can't decide your request.",
+            "Auto-approval rules. The system org can auto-approve low-risk requests. Two rules are seeded:",
+            "Verified updates: a patch or minor version of an existing listing from a Verified publisher, or a text-only listing update;",
+            "Official catalog: the same for the Official catalog, only when submitted by the catalog loader, capped at one version per listing and 50 versions a day, and switchable off with OFFICIAL_AUTO_APPROVAL_ENABLED."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A rule never approves a major or breaking version, a new listing, a version with new critical or high vulnerabilities, or one that adds secrets, egress hosts, required inputs or root."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Security-fix lane. A version or yank request linked to a security advisory on the listing goes to a priority lane with a 4-hour target, and managers are told at once. It stays open even when you're over your listings limit.",
+            "Approval copies the pinned image into the read-only public/<publisher>/<name> namespace, signs it fresh with your tier, records the version on the listing and makes it immutable."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "You're told about every decision in-app and by email (notice N25; N7 for a Verified application; N9 and N10 for transfers)."
+        }
+      ]
+    },
+    {
+      "id": "pausing",
+      "title": "Pausing",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Pause a listing or one version from the Publisher page's Listings tab. It takes effect at once and needs no review."
+        },
+        {
+          "type": "list",
+          "items": [
+            "A paused listing accepts no new installs. Existing installs keep resolving.",
+            "A paused version is hidden and skipped when a new install resolves a version range. Installs already on it keep it."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Unpausing is a request, decided by the system org."
+        }
+      ]
+    },
+    {
+      "id": "reviews-of-your-listings",
+      "title": "Reviews of your listings",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Signed-in users rate and review your listings on their public pages. Nobody in your organization, or a team under it, can review your listings or vote on their reviews."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Replies. Holders of publishers:manage in your organization can post one public reply per review from the listing's Reviews tab (PUT /api/plugins/reviews/:id/reply with { body }), edit it, or delete it (DELETE on the same path). Replies are Markdown, rendered on the server like reviews, up to 5,000 characters. The reviewer is told (N16). Moderators can remove a reply.",
+            "New reviews. Your managers get notice N15 in-app, with the email batched hourly per listing (opt-out ecosystem.reviews.email). You see the reviewer's display name only, never their organization.",
+            "Reports. Anyone signed in can report a review. Reports are handled by the platform's moderators, not by you. A report marked security is never posted: the review is hidden, your managers and the moderators are told at once and privately (N19), and a private advisory draft is opened for you and the moderators. Treat it like any security report: reproduce it, fix it, and ship the fix through the security-fix lane.",
+            "Your score is a Bayesian average where reviews from organizations that ran your plugin count fully and others count half. See Plugin Installing."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Review and reply actions are audited with affectedOrgId = your organization: plugin.review.* and plugin.review.reply.*."
+        }
+      ]
+    },
+    {
+      "id": "submitting-without-an-account",
+      "title": "Submitting without an account",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Anyone can submit a plugin from the public directory, without signing in: Submit a plugin at /plugins/submit. It's meant for people who want to share one plugin and don't need a publisher of their own. If you have an account, publish from your organization's Publisher page instead."
+        },
+        {
+          "type": "text",
+          "content": "The instance must turn it on: ANONYMOUS_SUBMISSIONS_ENABLED=true, and outbound email must be configured. Otherwise the page says submissions aren't enabled, and the API answers 404 SUBMISSIONS_DISABLED."
+        },
+        {
+          "type": "text",
+          "content": "How it works"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Choose the package. The same .zip an in-app upload takes (plugin-spec.yaml, a Dockerfile, and optionally a README.md), up to 50 MB. Zips with symbolic links, hard links or device files are refused.",
+            "Check the details. The package is read without being stored. Every catalog field is shown with the value detected from it and where that value came from, and you accept or edit each one, exactly as in Catalog metadata: accept or edit. You also see a preview of the directory card, the Dockerfile and spec lint results, and a scan for suspicious patterns. Execution settings (commands, env, secrets, egress, the smoke test) come only from the spec and can't be edited. A community listing can't use a curated vendor icon, so its card shows a monogram.",
+            "Confirm and submit. Give an email address and accept the submission terms: you confirm you have the right to publish the code under its license, and that it may be listed publicly. Submitting stores the package in a quarantine bucket. Nothing is built yet.",
+            "Confirm your email. The confirmation link expires in 30 minutes and works once. It opens a page with a Confirm submission button. The link never confirms on its own, so mail scanners that open links can't use it up. Unconfirmed submissions are deleted after 30 days.",
+            "Automated checks. The plugin is built in an isolated sandbox: a separate build service with no credentials, no cloud identity and network access only to package mirrors. Every check must pass:",
+            "the spec and execution contract are valid;",
+            "the license is an allowed SPDX identifier;",
+            "the Dockerfile and spec have no lint errors;",
+            "the image doesn't run as root;",
+            "the vulnerability scan is under the instance's threshold;",
+            "no high-severity suspicious patterns (crypto-miners, obfuscated shell, reading cloud or CI credentials, piping downloads to a shell);",
+            "no secret-looking default values in env;",
+            "a smokeTest is declared and passes (it runs with no network);",
+            "the name is allowed (see below)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "If any check fails, you're emailed the failed checks and nothing is listed."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Moderation. A submission that passes every check enters the Ecosystem console's queue as a Community submission. Two Ecosystem Managers must approve it. They see the check results, every suspicious-pattern finding (including lower-severity ones you aren't shown), the SBOM, the scan report, and the difference from the previous approved version. The target is two business days.",
+            "The decision. You're emailed either way. An approved plugin is published to public/community/<name>, signed fresh with the Unverified tier, and listed at /plugins/community/<name>. A rejection email carries the moderator's reason."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "After confirming, you get a status link (/plugins/submit/status?token=…), shown once and repeated in every email. It shows the status, each check's result and the decision reason, and links the listing once approved. Bookmark it: anyone with the link can see the status, but not your email address."
+        },
+        {
+          "type": "text",
+          "content": "Names and updates"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Submissions are listed under the platform's community publisher, as community/<name>, where <name> is the spec's name.",
+            "A name is refused when it's reserved, when an Official or Verified publisher already lists it, or when it's confusable with one of the 100 most-installed plugins: the same after lower-casing, dropping -, _ and ., and reading look-alikes (0→o, 1→l, 3→e, 5→s, rn→m, vv→w), or one edit away from one.",
+            "A new version of a community plugin goes through the same flow. It's accepted only from the email address that submitted the approved listing. From any other address, it's refused with 409 NAME_TAKEN."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Claiming your listing"
+        },
+        {
+          "type": "text",
+          "content": "To manage the plugin from an account, create one with the same email address, create your publisher, and file a claim request for the community listing from the Publisher page. The system org decides it like a transfer. When your verified account email matches the address that submitted the listing, the moderators see that it matches. Otherwise they see \"email does not match submitter\" and approve only with a written justification. Once the claim is approved, the listing moves to your publisher, and you're notified."
+        },
+        {
+          "type": "text",
+          "content": "Limits and privacy"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Proof of work instead of a captcha. Before each upload, your browser solves a small puzzle (a few seconds of CPU; the page shows progress). No third-party captcha is used, so it also works on air-gapped instances.",
+            "3 submissions a day per email address and per network address (rolling 24 hours). More are refused with 429 SUBMISSION_LIMIT.",
+            "Your email address is never shown, in the UI, the API or the audit log. It's stored hashed (to apply the limits and match claims) and encrypted (to send you the decision), and both are deleted 90 days after the decision."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Submission API"
+        },
+        {
+          "type": "text",
+          "content": "The routes are public, under /api/public/plugin-submissions, and rate limited per network address. None of them accepts or needs a session."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Method",
+            "Endpoint",
+            "Body",
+            "Result"
+          ],
+          "rows": [
+            [
+              "GET",
+              "/challenge",
+              "—",
+              "{ challenge, difficulty, expiresAt }: a single-use puzzle. Find a decimal nonce such that SHA-256(<challenge>:<nonce>) starts with at least difficulty zero bits."
+            ],
+            [
+              "POST",
+              "/inspect",
+              "multipart: plugin (zip), pow ({\"challenge\",\"nonce\"} as JSON)",
+              "The spec summary, every detected catalog field with its source, lint results and a suspicious-pattern preview. Stores nothing."
+            ],
+            [
+              "POST",
+              "/",
+              "multipart: plugin, email, pow, acceptTerms=true, optional metadata (the edited catalog fields, as JSON)",
+              "202 { id, status: \"pending_verification\" }. Sends the confirmation email."
+            ],
+            [
+              "POST",
+              "/verify",
+              "JSON { token }",
+              "{ id, status, statusToken }"
+            ],
+            [
+              "GET",
+              "/status?token=<statusToken>",
+              "—",
+              "{ id, name, version, status, reason?, gates?, listing? }"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Statuses: pending_verification, pending_review (checks running or waiting for a moderator), gate_failed, approved, rejected, expired, claimed."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Code",
+            "Status",
+            "Meaning"
+          ],
+          "rows": [
+            [
+              "SUBMISSIONS_DISABLED",
+              "404",
+              "Anonymous submissions are off on this instance, or outbound email isn't configured."
+            ],
+            [
+              "PROOF_OF_WORK_INVALID",
+              "400",
+              "The puzzle answer is missing, wrong, expired or already used. Get a new challenge."
+            ],
+            [
+              "VALIDATION_ERROR",
+              "400",
+              "The package, email, terms or an edited field is invalid. Editing an execution setting through metadata is refused here too."
+            ],
+            [
+              "SUBMISSION_LIMIT",
+              "429",
+              "3 submissions in 24 hours from this email or network address."
+            ],
+            [
+              "NAME_TAKEN",
+              "409",
+              "The community listing was submitted from a different email address."
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "errors-you-may-see",
+      "title": "Errors you may see",
+      "blocks": [
+        {
+          "type": "table",
+          "headers": [
+            "Code",
+            "Meaning"
+          ],
+          "rows": [
+            [
+              "PUBLISHER_REQUIRED",
+              "Create your publisher profile first."
+            ],
+            [
+              "PUBLISHER_TERMS_REQUIRED",
+              "Accept the current publisher terms."
+            ],
+            [
+              "PUBLISHER_ROOT_ORG_REQUIRED",
+              "Switch to your root organization; teams can't publish."
+            ],
+            [
+              "PUBLISHER_HANDLE_RESERVED",
+              "The handle is reserved; submit a claim request if it's yours."
+            ],
+            [
+              "PUBLISH_GATE_FAILED",
+              "The version fails a check; details.gates lists which."
+            ],
+            [
+              "QUOTA_EXCEEDED (details.quotaType: listings)",
+              "You're at, or over, your plan's listings limit."
+            ],
+            [
+              "PUBLISHER_SUSPENDED",
+              "The system org suspended the publisher."
+            ],
+            [
+              "PLUGIN_PUBLISHING_DISABLED",
+              "Publishing is turned off on this instance (PLUGIN_PUBLISHING_ENABLED)."
+            ],
+            [
+              "PLUGIN_VERSION_FROZEN",
+              "The version is referenced by a request or already listed."
+            ],
+            [
+              "DUPLICATE_ENTRY",
+              "An open request of that kind already exists, or the handle is taken."
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceDoc": "docs/plugin-publishing.md"
+};
