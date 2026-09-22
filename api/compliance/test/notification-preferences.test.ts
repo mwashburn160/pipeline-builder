@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -16,8 +17,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateBody: jest.fn(),
   requirePermission: () => jest.fn(),
 }));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: () => undefined, withRoute: (fn: unknown) => fn }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ schema: { complianceNotificationPreference: {} }, withTenantTx: jest.fn() }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: () => undefined, withRoute: (fn: unknown) => fn }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { schema: { complianceNotificationPreference: {} }, withTenantTx: jest.fn() }));
 jest.unstable_mockModule('../src/services/notification-service.js', () => ({
   getNotificationPreference: jest.fn(),
   upsertNotificationPreference: jest.fn(),

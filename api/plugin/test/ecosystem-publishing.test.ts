@@ -166,8 +166,15 @@ describe('publisher profile (W1)', () => {
 
   it('reports a quota limit from the quota service for tenants', async () => {
     h.setListingsLimit(3);
-    expect(await publishersSvc.listingsQuota('org-acme', null)).toEqual({ used: 0, limit: 3 });
-    expect(await publishersSvc.listingsQuota(SYSTEM_ORG, null)).toEqual({ used: 0, limit: -1 });
+    expect(await publishersSvc.listingsQuota('org-acme', null)).toEqual({ used: 0, limit: 3, failOpen: false });
+    expect(await publishersSvc.listingsQuota(SYSTEM_ORG, null)).toEqual({ used: 0, limit: -1, failOpen: false });
+  });
+
+  it('flags an unreadable quota, and a DECISION refuses on it rather than approving past the limit (E4)', async () => {
+    h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
+    expect(await publishersSvc.listingsQuota('org-acme', null)).toMatchObject({ limit: -1, failOpen: true });
+    h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
+    await expect(publishersSvc.listingsQuotaOrThrow('org-acme', null)).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 });
 
@@ -348,8 +355,10 @@ describe('publisher-level requests: transfer, claim, profile change, Verified', 
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'publisher.transfer.request', affectedOrgId: 'org-beta' }));
 
     const betaCaller = tenant({ userId: 'u-beta', orgId: 'org-beta' });
-    expect(await requestsSvc.incomingTransfers(betaCaller as any)).toHaveLength(1);
-    expect(await requestsSvc.incomingTransfers(tenant({ orgId: 'none' }) as any)).toEqual([]);
+    expect((await requestsSvc.incomingTransfers(betaCaller as any)).requests).toHaveLength(1);
+    // Filtered in SQL: another publisher's transfer never reaches beta's page.
+    expect((await requestsSvc.incomingTransfers(tenant() as any)).requests).toEqual([]);
+    expect(await requestsSvc.incomingTransfers(tenant({ orgId: 'none' }) as any)).toEqual({ requests: [], nextCursor: null });
     const accepted = await requestsSvc.respondToTransfer(betaCaller as any, out.request.id, true);
     expect((accepted.payload as any).transfer.response).toBe('accepted');
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'publisher.transfer.accept' }));
@@ -411,16 +420,31 @@ describe('withdraw + own lists', () => {
     seedPublishers(db);
     const plugin = db.seed('plugins', pluginRow());
     const out = await requestsSvc.submit(tenant() as any, { kind: 'new_listing', pluginId: plugin.id });
-    expect(await requestsSvc.ownRequests(tenant() as any, 'open')).toHaveLength(1);
-    expect(await requestsSvc.ownRequests(tenant() as any, undefined)).toHaveLength(1);
-    expect(await requestsSvc.ownRequests(tenant({ orgId: 'none' }) as any, 'open')).toEqual([]);
+    expect((await requestsSvc.ownRequests(tenant() as any, { status: 'open' })).requests).toHaveLength(1);
+    expect((await requestsSvc.ownRequests(tenant() as any, {})).requests).toHaveLength(1);
+    expect(await requestsSvc.ownRequests(tenant({ orgId: 'none' }) as any, { status: 'open' })).toEqual({ requests: [], nextCursor: null });
     await rejects(requestsSvc.withdraw(tenant({ permissions: ['publishers:manage'] }) as any, out.request.id), 'INSUFFICIENT_PERMISSIONS');
     const w = await requestsSvc.withdraw(tenant() as any, out.request.id);
     expect(w.status).toBe('withdrawn');
     expect(plugin.frozenAt).toBeNull();
     await rejects(requestsSvc.withdraw(tenant() as any, out.request.id), 'CONFLICT');
     await rejects(requestsSvc.withdraw(tenant() as any, 'nope'), 'NOT_FOUND');
-    expect(await requestsSvc.ownRequests(tenant() as any, 'withdrawn')).toHaveLength(1);
+    expect((await requestsSvc.ownRequests(tenant() as any, { status: 'withdrawn' })).requests).toHaveLength(1);
+  });
+
+  it('pages the org\'s requests newest first with an opaque keyset cursor (E11)', async () => {
+    const { acme } = seedPublishers(db);
+    const at = Date.now();
+    for (let i = 0; i < 5; i++) db.seed('plugin_publish_requests', { publisherId: acme.id, kind: 'yank', submittedBy: 'u-acme', createdAt: new Date(at - i * 1000), version: `1.0.${i}` });
+    const first = await requestsSvc.ownRequests(tenant() as any, { limit: '2' });
+    expect(first.requests.map((r) => r.version)).toEqual(['1.0.0', '1.0.1']);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    const second = await requestsSvc.ownRequests(tenant() as any, { limit: '2', cursor: first.nextCursor });
+    expect(second.requests.map((r) => r.version)).toEqual(['1.0.2', '1.0.3']);
+    const last = await requestsSvc.ownRequests(tenant() as any, { limit: '2', cursor: second.nextCursor });
+    expect(last).toMatchObject({ nextCursor: null });
+    expect(last.requests.map((r) => r.version)).toEqual(['1.0.4']);
+    await rejects(requestsSvc.ownRequests(tenant() as any, { cursor: 'garbage' }), 'VALIDATION_ERROR');
   });
 });
 
@@ -522,6 +546,35 @@ describe('Official catalog auto-approval rule (§3.0.3)', () => {
 
     const first = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, version: '1.0.4' }));
     expect((await requestsSvc.submitAfterBuild(loader() as any, first.id)).status).toBe('approved');
+    const second = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, version: '1.0.5' }));
+    expect((await requestsSvc.submitAfterBuild(loader() as any, second.id)).status).toBe('pending');
+  });
+
+  it('re-counts the rule\'s caps under a per-rule advisory lock in the SAME transaction as the claim (E9)', async () => {
+    officialWithListing();
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialect = new PgDialect();
+    const locks: string[] = [];
+    let raceWinner = false;
+    db.execute.handler = (q) => {
+      const { sql: text, params } = dialect.sqlToQuery(q as never);
+      if (/pg_advisory_xact_lock/.test(text)) {
+        locks.push(String(params[0]));
+        // Another replica approved one under the same rule while this one waited on the lock.
+        if (raceWinner) {
+          const any = db.tables.plugin_publish_requests!.find((r) => r.version === '1.0.4')!;
+          db.seed('plugin_publish_requests', { ...any, id: undefined, version: '9.9.9', status: 'approved', autoRuleId: OFFICIAL_RULE, decidedAt: new Date() });
+        }
+      }
+      return { rows: [] };
+    };
+    const first = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, version: '1.0.4' }));
+    expect((await requestsSvc.submitAfterBuild(loader() as any, first.id)).status).toBe('approved');
+    expect(locks).toEqual([`ecosystem-auto-rule:${OFFICIAL_RULE}`]);
+    // The listing's daily slot is used: a second version waits, even though the
+    // unlocked pre-check ran before the competing approval landed.
+    raceWinner = true;
+    db.tables.plugin_publish_requests!.filter((r) => r.version === '1.0.4').forEach((r) => { r.decidedAt = new Date(Date.now() - 48 * 3_600_000); });
     const second = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, version: '1.0.5' }));
     expect((await requestsSvc.submitAfterBuild(loader() as any, second.id)).status).toBe('pending');
   });

@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock api-core before imports
@@ -39,7 +40,7 @@ describe('requireOrgId', () => {
       identity: { orgId: 'org-1' },
       log: jest.fn(),
     };
-    (getContext as jest.Mock).mockReturnValue(mockCtx);
+    (getContext as jest.Mock<AnyFn>).mockReturnValue(mockCtx);
 
     const middleware = requireOrgId();
     const req = mockReq();
@@ -57,7 +58,7 @@ describe('requireOrgId', () => {
       identity: { orgId: undefined },
       log: jest.fn(),
     };
-    (getContext as jest.Mock).mockReturnValue(mockCtx);
+    (getContext as jest.Mock<AnyFn>).mockReturnValue(mockCtx);
 
     const middleware = requireOrgId();
     const req = mockReq();
@@ -81,7 +82,7 @@ describe('requireOrgId', () => {
       identity: { orgId: '' },
       log: jest.fn(),
     };
-    (getContext as jest.Mock).mockReturnValue(mockCtx);
+    (getContext as jest.Mock<AnyFn>).mockReturnValue(mockCtx);
 
     const middleware = requireOrgId();
     const req = mockReq();
@@ -100,7 +101,7 @@ describe('requireOrgId', () => {
   });
 
   it('throws when context middleware is not applied', () => {
-    (getContext as jest.Mock).mockImplementation(() => {
+    (getContext as jest.Mock<AnyFn>).mockImplementation(() => {
       throw new Error('Request context not initialized. Ensure attachRequestContext middleware is applied.');
     });
 

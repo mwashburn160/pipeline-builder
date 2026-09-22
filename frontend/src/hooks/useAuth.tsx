@@ -4,6 +4,7 @@ import { forgetReturnPath, rememberReturnPath } from '@/lib/return-to';
 import { AuthFactors, MfaNudgeState, SessionMfaPolicy, User, UserOrgMembership } from '@/types';
 import api, { ApiError } from '@/lib/api';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
+import { syncAdminConsoleCookie } from '@/lib/admin-console';
 import { clearQueryCache } from '@/lib/query-cache';
 import { clearPluginCache } from './usePlugins';
 import { useLoginActions, type LoginResult } from './internal/useLoginActions';
@@ -39,7 +40,15 @@ interface AuthContextType {
   user: User | null;
   /** All organizations the user belongs to, fetched from GET /user/organizations */
   organizations: UserOrgMembership[];
+  /** The SESSION state is being established (initial restore, sign-out). Pages
+   *  that pick a body from the auth state show a loader while it is set. */
   isLoading: boolean;
+  /** A sign-in / registration submission is in flight — including its
+   *  post-sign-in navigation. Sign-in forms disable themselves on this; it never
+   *  swaps a page for a loader, so the form that must show an MFA prompt or an
+   *  error stays mounted. Pages that redirect an authenticated visitor hold off
+   *  while it is set, so the action's own destination wins. */
+  isSubmitting: boolean;
   isAuthenticated: boolean;
   isInitialized: boolean;
   /** True while the session is a read-only sysadmin impersonation token
@@ -136,10 +145,17 @@ function clearSessionCaches(): void {
   clearQueryCache();
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+/**
+ * `deferInit`: restore the session once the browser is idle instead of during
+ * mount. For the public directory pages, whose first job is to render the
+ * server HTML — a signed-in viewer's header just swaps in a moment later.
+ * Read on first mount only.
+ */
+export function AuthProvider({ children, deferInit = false }: { children: ReactNode; deferInit?: boolean }) {
   const [user, setUser] = useState<User | null>(null);
   const [organizations, setOrganizations] = useState<UserOrgMembership[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [authError, setAuthError] = useState<Error | null>(null);
   const router = useRouter();
@@ -264,8 +280,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /**
    * Initialize auth state on mount
    */
+  const deferInitRef = useRef(deferInit);
   useEffect(() => {
+    let cancelled = false;
     const init = async () => {
+      if (cancelled) return;
       setIsLoading(true);
       // The access token lives in memory only, so every page load starts with
       // none. The session itself survives in the HttpOnly refresh cookie —
@@ -275,7 +294,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       setIsInitialized(true);
     };
-    init();
+    if (!deferInitRef.current) {
+      void init();
+      return () => { cancelled = true; };
+    }
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void };
+    if (w.requestIdleCallback) {
+      const handle = w.requestIdleCallback(() => { void init(); }, { timeout: 2_000 });
+      return () => { cancelled = true; w.cancelIdleCallback?.(handle); };
+    }
+    const timer = setTimeout(() => { void init(); }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [refreshUser]);
 
   /**
@@ -293,11 +322,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const now = Date.now();
       if (now - lastVisibilityRefreshRef.current < VISIBILITY_REFRESH_MIN_INTERVAL_MS) return;
       lastVisibilityRefreshRef.current = now;
-      refreshUser();
+      void refreshUser();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, [refreshUser]);
+
+  /**
+   * The operator-console cookie follows the access token: re-written when it
+   * rotates, dropped on sign-out, org switch or impersonation (no-op unless a
+   * console was opened — see lib/admin-console).
+   */
+  useEffect(() => api.onAccessTokenChange(syncAdminConsoleCookie), []);
 
   /**
    * Handle session expiry — API client fires this when refresh fails.
@@ -309,16 +345,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       // Remember where they were so signing back in returns them there.
       rememberReturnPath(router.asPath);
-      router.push('/?expired=1');
+      void router.push('/?expired=1');
     });
   }, [router]);
 
   // The five ways a session gets opened (password, MFA completion, forced
   // password change, passkey, registration). They share only `refreshUser`,
-  // `setIsLoading` and the redirect, so they live beside the provider rather
+  // `setIsSubmitting` and the redirect, so they live beside the provider rather
   // than inside it.
   const { login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, register } =
-    useLoginActions({ refreshUser, setIsLoading, router });
+    useLoginActions({ refreshUser, setIsSubmitting, router });
 
   /**
    * Switch active organization — re-issues tokens and refreshes user profile.
@@ -379,6 +415,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     organizations,
     isLoading,
+    isSubmitting,
     isAuthenticated: !!user,
     isInitialized,
     isReadOnly,
@@ -392,7 +429,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshUser,
     switchOrganization,
     markOnboardingComplete,
-  }), [user, organizations, isLoading, isInitialized, isReadOnly, authError, login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, register, logout, refreshUser, switchOrganization, markOnboardingComplete]);
+  }), [user, organizations, isLoading, isSubmitting, isInitialized, isReadOnly, authError, login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, register, logout, refreshUser, switchOrganization, markOnboardingComplete]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -290,31 +290,26 @@ export const plugin = pgTable('plugins', {
 }, (table) => ({
   // Partial index over just the tombstones — drives the retention purge sweep.
   purgeIdx: index('plugin_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
-  // Indexes for common queries
-  nameIdx: index('plugin_name_idx').on(table.name),
-  orgIdIdx: index('plugin_org_id_idx').on(table.orgId),
-  versionIdx: index('plugin_version_idx').on(table.version),
-  activeIdx: index('plugin_active_idx').on(table.isActive),
-  createdAtIdx: index('plugin_created_at_idx').on(table.createdAt),
-  updatedAtIdx: index('plugin_updated_at_idx').on(table.updatedAt),
-
-  // Category index for filtering
-  categoryIdx: index('plugin_category_idx').on(table.category),
+  // Mirrors the indexes postgres-init.sql creates, name for name (the SQL file is
+  // what deploys; schema-reflection.test.ts keeps the two in lock-step).
+  orgIdIdx: index('idx_plugins_org_id').on(table.orgId).where(sql`deleted_at IS NULL`),
+  nameIdx: index('idx_plugins_name').on(table.name).where(sql`deleted_at IS NULL`),
+  nameVersionIdx: index('idx_plugins_name_version').on(table.name, table.version).where(sql`deleted_at IS NULL`),
+  visibilityIdx: index('idx_plugins_visibility').on(table.visibility).where(sql`deleted_at IS NULL`),
+  isDefaultIdx: index('idx_plugins_is_default').on(table.name, table.isDefault).where(sql`is_default = true AND deleted_at IS NULL`),
+  categoryIdx: index('idx_plugins_category').on(table.category),
+  activeIdx: index('idx_plugins_is_active').on(table.isActive).where(sql`deleted_at IS NULL`),
+  orgCreatedIdx: index('idx_plugins_org_created').on(table.orgId, sql`${table.createdAt} DESC`).where(sql`deleted_at IS NULL`),
+  orgNameIdx: index('idx_plugins_org_name').on(table.orgId, table.name).where(sql`deleted_at IS NULL`),
 
   // Developer-portal catalog indexes: "my services" (owner) + lifecycle filter.
   ownerIdx: index('plugin_owner_idx').on(table.orgId, table.ownerId),
   lifecycleIdx: index('plugin_lifecycle_idx').on(table.orgId, table.lifecycle),
 
-  // Composite index for common access pattern (orgId + isActive)
-  orgActiveIdx: index('plugin_org_active_idx').on(table.orgId, table.isActive),
-
   // Composite index for filtered queries (orgId + visibility + isActive)
   orgVisibilityActiveIdx: index('plugin_org_visibility_active_idx').on(table.orgId, table.visibility, table.isActive),
   // Drives the "my private drafts" leg of the visibility predicate.
   createdByIdx: index('plugin_created_by_idx').on(table.orgId, table.createdBy),
-
-  // Partial index for active-only queries (smaller, faster than full index)
-  activeOnlyOrgIdx: index('plugin_active_only_org_idx').on(table.orgId, table.createdAt).where(sql`is_active = true`),
 
   // Unique constraint on name + version + orgId
   nameVersionOrgUnique: uniqueIndex('plugin_name_version_org_unique')

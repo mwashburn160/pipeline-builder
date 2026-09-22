@@ -38,7 +38,7 @@ import { deliverSessionTokens } from '../helpers/session-cookie.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import { authService } from '../services/index.js';
-import { consumeMfaChallenge, peekMfaChallenge } from '../services/mfa-challenge.js';
+import { claimMfaChallenge, restoreMfaChallenge } from '../services/mfa-challenge.js';
 import { clearMfaNudgeOnEnrolment, clearResetGraceOnEnrolment } from '../services/mfa-enrolment.js';
 import { verifyRecoveryCode } from '../services/recovery-codes-service.js';
 import {
@@ -254,7 +254,8 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     sendError(res, 401, 'Invalid credentials');
   };
 
-  const pending = await peekMfaChallenge(body.challengeId);
+  // Claimed atomically: a concurrent attempt on the same handle finds nothing.
+  const pending = await claimMfaChallenge(body.challengeId);
   if (!pending) {
     // The ONE refusal that is not opaque. A challenge handle is 256 unguessable
     // bits, so "this one is gone" is no oracle — and a caller retrying a code
@@ -280,12 +281,17 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
       ? { method: 'recovery', recoveryCodesRemaining: await verifyRecoveryCode(pending.userId, body.code) }
       : await totp.verifyCode(pending.userId, body.code);
   } catch (err) {
+    // A wrong code (or a lockout) hands the handle back for another try.
+    await restoreMfaChallenge(body.challengeId, pending);
     return deny(err instanceof Error ? err.message : 'unknown', pending.userId);
   }
 
   const user = await authService.findForTokenIssue(pending.userId);
   if (!user) return deny('user-missing', pending.userId);
   if (await rejectIfSsoEnforced(res, user.email)) {
+    // Not spent by a refusal: the handle goes back (it still can't open a
+    // session while the org enforces SSO).
+    await restoreMfaChallenge(body.challengeId, pending);
     audit(req, 'user.login.failed', {
       targetType: 'user',
       targetId: pending.userId,
@@ -297,8 +303,7 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
     return;
   }
 
-  // Spent only now — the handle can never yield a second session.
-  await consumeMfaChallenge(body.challengeId);
+  // The handle was spent when claimed — it can never yield a second session.
 
   if (verification.method === 'recovery') auditRecoveryUsed(req, pending.userId, 'login', verification.recoveryCodesRemaining);
 
@@ -333,14 +338,16 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
   // the same factor's fallback) is exactly what MFA-grade means (#8).
   const tokens = await issueTokens(user, pending.orgId ?? user.lastActiveOrgId?.toString(), {
     kind: 'interactive',
-    auth: signInAuth('pwd', { mfa: true }),
+    // The first factor the challenge was opened after (a password, or a social
+    // provider) — plus `mfa`.
+    auth: signInAuth(pending.firstFactor ?? 'pwd', { mfa: true }),
     client: clientInfoOf(req),
   });
 
   audit(req, 'user.login', {
     targetType: 'user',
     targetId: pending.userId,
-    details: { method: pending.recoveryOnly ? 'pwd+recovery' : 'pwd+totp', via: verification.method },
+    details: { method: `${pending.firstFactor ?? 'pwd'}+${pending.recoveryOnly ? 'recovery' : 'totp'}`, via: verification.method },
   });
   incCounter('platform_logins_total');
   meter('login', verification.method === 'recovery' ? 'recovery' : 'success');

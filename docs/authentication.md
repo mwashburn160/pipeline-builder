@@ -2039,7 +2039,7 @@ dead rather than degraded. There is no shared-secret fallback to land on: no
    every service together — each one verifies its peers by `kid` against the
    shared bundle (see
    [Internal service tokens](#internal-service-tokens-one-key-per-service)).
-3. The gateway receives no signing secret: `deploy/*/nginx/jwt.js` decodes
+3. The gateway receives no signing secret: `deploy/shared/nginx/jwt.js` decodes
    claims for the access log and the `x-org-id` / `x-user-id` hints and verifies
    nothing (ES256 verification needs an async JWKS fetch, which a synchronous
    njs `js_set` handler cannot make). Nothing is lost that was enforcing: the
@@ -2633,10 +2633,14 @@ Sessions come in two kinds:
 - **Interactive** — a signed-in device (password, social, SSO). Renewed by
   `POST /auth/refresh`; at most 10 per user, the oldest dropped when an 11th
   signs in. Signing one out ends that device only.
-- **Machine** — a stored credential minted by `POST /user/generate-token`.
-  Renewed **only** through `generate-token` (a machine session is refused by
-  `POST /auth/refresh`, which is what stops an operator's own CLI refresh from
-  tripping reuse detection on a production credential). At most 10 per user, the
+- **Machine** — a stored credential minted by `POST /user/generate-token`. Its
+  lifetime (`expiresIn`, 1–365 days) is the SLOT's: the response's
+  **refresh token** is the thing to store, and it renews the short-lived access
+  token through `POST /auth/refresh` (`X-Pb-Client: cli`, body
+  `{ refreshToken }`) until the slot's fixed end — which no renewal can move.
+  Its access tokens never live longer than a person's (the per-tier access
+  lifetime), so revoking the slot (Sessions → revoke) ends the credential on
+  every service immediately (`revoke:sid:<sid>`). At most 10 per user, the
   **least recently used** dropped first, so a credential renewed daily is never
   evicted and abandoned ones are.
 
@@ -2655,9 +2659,11 @@ beneath it (`GET /user/tokens`) lists every token issued to the account with its
 issue and expiry time and whether it is still active, expired, or revoked by a
 sign-out-everywhere.
 
-`generate-token` from a person (an interactive session, or a PAT with no session
-at all) opens a **new** machine session holding the requested scope, leaving the
-caller's own login untouched. Called with a machine token, it renews that session
+`generate-token` from a person's own session opens a **new** machine session
+holding the requested scope, leaving the caller's own login untouched. It is
+refused (`403 SESSION_SLOT_REQUIRED`) for anything that is not a person's session
+slot — an exchanged access key, a service account, an impersonation session — so
+revoking a key can never leave a longer-lived credential derived from it behind. Called with a machine token, it renews that session
 in place under the scope stored on the slot — a machine session can never open
 another one, and a scoped credential can never re-mint itself unscoped, under a
 different scope, or as a browser session. Two `store-token` runs from one login

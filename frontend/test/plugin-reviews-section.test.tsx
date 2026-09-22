@@ -211,7 +211,20 @@ describe('Reviews tab — signed in', () => {
     expect(within(form).getByRole('radio', { name: '3 stars' })).toBeChecked();
     fireEvent.click(within(form).getByRole('radio', { name: '5 stars' }));
     fireEvent.click(within(form).getByRole('button', { name: 'Save review' }));
-    await waitFor(() => expect(api.updateReview).toHaveBeenCalledWith('mine', { rating: 5, title: 'Okay', body: 'It **works**' }));
+    await waitFor(() => expect(api.updateReview).toHaveBeenCalledWith('mine', { rating: 5, title: 'Okay', body: 'It **works**', version: null }));
+  });
+
+  it('clearing the version on an edit sends null, so the server clears it', async () => {
+    api.getReviewState.mockImplementation(() => ok(state({ myReview: ownReview({ version: '1.4.2' }) })));
+    api.updateReview.mockImplementation(() => ok({ review: ownReview() }));
+    renderPanel();
+    const own = await screen.findByTestId('own-review');
+    fireEvent.click(within(own).getByRole('button', { name: 'Edit your review' }));
+    const form = screen.getByRole('form', { name: 'Edit your review' });
+    expect(within(form).getByLabelText('Version you used')).toHaveValue('1.4.2');
+    fireEvent.change(within(form).getByLabelText('Version you used'), { target: { value: '' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Save review' }));
+    await waitFor(() => expect(api.updateReview).toHaveBeenCalledWith('mine', expect.objectContaining({ version: null })));
   });
 
   it('a removed review shows the moderator reason, cannot be edited, and can be deleted', async () => {
@@ -312,5 +325,32 @@ describe('Reviews tab — signed in', () => {
     renderPanel();
     expect(await screen.findByTestId('review-blocked')).toHaveTextContent(copy);
     expect(screen.queryByRole('button', { name: 'Write a review' })).toBeNull();
+  });
+});
+
+describe('ReviewsPanel — server-rendered first page and fresh re-reads', () => {
+  it('shows the server-rendered page without a client fetch for the default view', async () => {
+    render(<ReviewsPanel listing={detail({})} initialReviews={{ reviews: [review({ id: 'ssr', title: 'From the server' })], total: 1, nextCursor: null }} />);
+    expect(screen.getByText('From the server')).toBeInTheDocument();
+    await waitFor(() => expect(api.getReviewState).not.toHaveBeenCalled());
+    expect(getListingReviews).not.toHaveBeenCalled();
+
+    // Any other view is still read from the API.
+    fireEvent.change(screen.getByLabelText('Sort reviews'), { target: { value: 'recent' } });
+    await waitFor(() => expect(getListingReviews).toHaveBeenCalledWith('pipeline-builder', 'trivy', expect.objectContaining({ sort: 'recent' })));
+  });
+
+  it('re-reads around the cache after the viewer\'s own review changes', async () => {
+    signedIn = true;
+    api.createReview.mockImplementation(() => ok({ review: ownReview() }));
+    renderPanel();
+    await waitFor(() => expect(getListingReviews).toHaveBeenCalledTimes(1));
+    expect(getListingReviews.mock.calls[0][2]).not.toHaveProperty('fresh');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Write a review' }));
+    fireEvent.click(screen.getByRole('radio', { name: '4 stars' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Post review' }));
+    await waitFor(() => expect(getListingReviews).toHaveBeenCalledTimes(2));
+    expect(getListingReviews.mock.calls[1][2]).toMatchObject({ fresh: true });
   });
 });

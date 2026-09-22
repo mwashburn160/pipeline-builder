@@ -114,7 +114,7 @@ async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Pro
 
 /**
  * Read the compliance service's CURRENTLY-ACTIVE content sets for an org
- * (handshake #2): `GET /api/compliance/entitlements/:orgId` → `{ sets }`, the
+ * (handshake #2): `GET /compliance/entitlements/:orgId` → `{ sets }`, the
  * distinct `set:<x>` values among the org's ACTIVE published-rule subscriptions.
  * Service-token auth, the SAME `authHeader || billingServiceAuth(orgId)` +
  * `{ Authorization, 'x-org-id' }` handshake `pushComplianceSetsToCompliance` uses.
@@ -130,7 +130,7 @@ export async function readEnforcedComplianceSets(orgId: string, auth: string): P
   });
   try {
     const resp = await client.get<{ sets?: unknown; data?: { sets?: unknown } }>(
-      `/api/compliance/entitlements/${orgId}`,
+      `/compliance/entitlements/${orgId}`,
       { headers: { 'Authorization': auth, 'x-org-id': orgId } },
     );
     if (!resp || resp.statusCode >= 400) return null;
@@ -144,6 +144,51 @@ export async function readEnforcedComplianceSets(orgId: string, auth: string): P
     logger.warn('Failed to read enforced compliance sets', { orgId, error: errorMessage(err) });
     return null;
   }
+}
+
+/**
+ * Read the reporting service's ENFORCED retention (the `dora_settings` values the
+ * sweep + query cap obey) for an org: `GET /reports/retention-sync/:orgId` →
+ * `{ eventRetentionDays, doraRetentionDays }` (`null` = no override stored, the
+ * reporting env default applies). Same service-token handshake as the push leg.
+ * Returns `null` on any read failure so the reconciler SKIPS (never false-drifts).
+ */
+export async function readEnforcedRetention(
+  orgId: string,
+  auth: string,
+): Promise<{ eventRetentionDays: number | null; doraRetentionDays: number | null } | null> {
+  const client = createSafeClient({
+    host: config.reportingService.host,
+    port: config.reportingService.port,
+    timeout: getBillingTimeout(),
+  });
+  try {
+    const resp = await client.get<{ data?: { eventRetentionDays?: unknown; doraRetentionDays?: unknown } }>(
+      `/reports/retention-sync/${orgId}`,
+      { headers: { 'Authorization': auth, 'x-org-id': orgId } },
+    );
+    if (!resp || resp.statusCode >= 400) return null;
+    const data = resp.body?.data;
+    const valid = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isInteger(v));
+    if (!data || !valid(data.eventRetentionDays) || !valid(data.doraRetentionDays)) return null;
+    return { eventRetentionDays: data.eventRetentionDays, doraRetentionDays: data.doraRetentionDays };
+  } catch (err) {
+    logger.warn('Failed to read enforced retention', { orgId, error: errorMessage(err) });
+    return null;
+  }
+}
+
+/**
+ * Pure retention comparison: `true` when the enforced override differs from the
+ * (clamped) effective retention billing pushes. A missing override (`null`) is
+ * drift — billing always pushes an explicit value for a billed account.
+ */
+export function retentionDiffers(
+  expected: { eventRetentionDays: number; doraRetentionDays: number },
+  actual: { eventRetentionDays: number | null; doraRetentionDays: number | null },
+): boolean {
+  return expected.eventRetentionDays !== actual.eventRetentionDays
+    || expected.doraRetentionDays !== actual.doraRetentionDays;
 }
 
 /**

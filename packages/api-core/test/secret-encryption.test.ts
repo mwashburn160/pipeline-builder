@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { randomBytes } from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterEach, afterAll } from '@jest/globals';
 
@@ -97,7 +98,7 @@ describe('KmsKeyProvider', () => {
   // Stub `@aws-sdk/client-kms` so the test doesn't reach real AWS. The
   // dynamic import inside `fetchAndDecrypt` resolves via node's module
   // cache; setting the cache entry here intercepts it.
-  const mockSend = jest.fn();
+  const mockSend = jest.fn<AnyFn>();
   beforeEach(() => {
     jest.resetModules();
     jest.doMock('@aws-sdk/client-kms', () => ({
@@ -197,7 +198,7 @@ describe('PerOrgKmsKeyProvider', () => {
   // Mock @aws-sdk/client-kms the same way KmsKeyProvider tests do — the
   // provider does a dynamic `import('@aws-sdk/client-kms')` so jest's
   // module cache is what intercepts.
-  const mockSend = jest.fn();
+  const mockSend = jest.fn<AnyFn>();
   beforeEach(() => {
     jest.resetModules();
     jest.doMock('@aws-sdk/client-kms', () => ({

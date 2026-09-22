@@ -6,7 +6,7 @@ import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
-import { useOrgOptions } from '@/hooks/useOrgOptions';
+import { OrgPicker } from '@/components/ui/OrgPicker';
 import { LoadingPage } from '@/components/ui/Loading';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -97,15 +97,6 @@ export default function UsersPage() {
     }
   }, [list, pendingDelete]);
 
-  // Shared org picker for both the create- and edit-user modals — reused to
-  // populate the cross-org "Organization" filter dropdown below.
-  const { orgOptions, loadOrgOptions } = useOrgOptions();
-
-  // Populate the org filter dropdown once the page is authorized.
-  useEffect(() => {
-    if (isAuthenticated && isSuperAdmin) loadOrgOptions();
-  }, [isAuthenticated, isSuperAdmin, loadOrgOptions]);
-
   // Client-side "Super Admins only" facet over the current page (no backend
   // param — platform-admin isn't a server-side list filter).
   const [superAdminsOnly, setSuperAdminsOnly] = useState(false);
@@ -188,10 +179,7 @@ export default function UsersPage() {
     setSelectedRoleIds(new Set());
     createForm.reset();
     setShowCreate(true);
-    // Populate the org picker. Best-effort — a failure just leaves the
-    // "— No organization —" default (users can still be created org-less).
-    loadOrgOptions();
-  }, [createForm, loadOrgOptions, createClose]);
+  }, [createForm, createClose]);
 
   const handleCreateUser = async () => {
     if (newUser.username.trim().length < 2) { createForm.setError('Username must be at least 2 characters'); return; }
@@ -321,9 +309,6 @@ export default function UsersPage() {
     fillEditor(userItem);
     setNewPassword('');
     editForm.reset();
-    // Populate the org picker (shared with the create modal). Best-effort —
-    // a failure just leaves the current org selectable via its own value.
-    loadOrgOptions();
   };
 
   // Swap the row for the fresh record once it arrives (only for the user still
@@ -458,12 +443,14 @@ export default function UsersPage() {
           }
           right={
             <div className="flex flex-wrap items-center gap-2">
-              <FilterSelect value={list.filters.organizationId} onChange={(e) => list.updateFilter('organizationId', e.target.value)} aria-label="Filter by organization">
-                <option value="all">All organizations</option>
-                {orgOptions.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </FilterSelect>
+              {/* Server-searched: every org is reachable, not just the first 100. */}
+              <OrgPicker
+                value={list.filters.organizationId}
+                onChange={(id) => list.updateFilter('organizationId', id)}
+                none={{ value: 'all', label: 'All organizations' }}
+                aria-label="Filter by organization"
+                className="w-56"
+              />
               <FilterSelect value={list.filters.role} onChange={(e) => list.updateFilter('role', e.target.value)} aria-label="Filter by role">
                 <option value="all">All roles</option>
                 <option value="member">Members</option>
@@ -607,7 +594,6 @@ export default function UsersPage() {
         form={createForm}
         newUser={newUser}
         setNewUser={setNewUser}
-        orgOptions={orgOptions}
         orgRoles={orgRoles}
         selectedRoleIds={selectedRoleIds}
         onOrgChange={handleCreateOrgChange}
@@ -630,7 +616,6 @@ export default function UsersPage() {
         onEditRoleChange={setEditRole}
         newPassword={newPassword}
         onNewPasswordChange={setNewPassword}
-        orgOptions={orgOptions}
         onImpersonate={() => setImpersonateTarget(editingUser)}
         onBreakglass={() => setBreakglassTarget(editingUser)}
         onSubmit={handleSaveUser}

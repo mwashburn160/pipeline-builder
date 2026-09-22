@@ -1,21 +1,33 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const mockLean = jest.fn();
-const mockLimit = jest.fn(() => ({ lean: mockLean }));
-const mockSkip = jest.fn(() => ({ limit: mockLimit }));
-const mockSort = jest.fn(() => ({ skip: mockSkip }));
-const mockFind = jest.fn(() => ({ sort: mockSort }));
-const mockCountDocuments = jest.fn();
-const mockCreate = jest.fn();
-// `createEvent` now delegates to the shared hash-chain append, which reads the
-// chain tail via `findOne(...).sort(...).select(...).lean()`.
-const mockFindOneLean = jest.fn();
+const mockLean = jest.fn<AnyFn>();
+const mockLimit = jest.fn((..._args: unknown[]) => ({ lean: mockLean }));
+const mockSkip = jest.fn((..._args: unknown[]) => ({ limit: mockLimit }));
+const mockSort = jest.fn((..._args: unknown[]) => ({ skip: mockSkip }));
+const mockFind = jest.fn((..._args: unknown[]) => ({ sort: mockSort }));
+const mockCountDocuments = jest.fn<AnyFn>();
+const mockCreate = jest.fn<AnyFn>();
+// `createEvent` delegates to the shared hash-chain append, which reads the
+// chain head via `AuditChainHead.findById(...).select(...).lean()`.
+const mockFindOneLean = jest.fn<AnyFn>();
 const mockFindOne = jest.fn(() => ({ sort: () => ({ select: () => ({ lean: mockFindOneLean }) }) }));
+const mockHeadLean = jest.fn<AnyFn>();
+
+process.env.AUDIT_CHAIN_HMAC_KEY = 'test-audit-chain-hmac-key-0123456789abcdef';
+
+jest.unstable_mockModule('../src/models/audit-chain-head.js', () => ({
+  __esModule: true,
+  default: {
+    findById: () => ({ select: () => ({ lean: mockHeadLean }) }),
+    updateOne: async () => ({}),
+  },
+}));
 
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
@@ -195,8 +207,9 @@ describe('auditService.createEvent', () => {
     mockCreate.mockReset();
     mockFindOne.mockClear();
     mockFindOneLean.mockReset();
-    // Empty chain by default → first event gets prevHash null.
-    mockFindOneLean.mockResolvedValue(null);
+    mockHeadLean.mockReset();
+    // Empty chain by default → first event gets seq 1 and prevHash null.
+    mockHeadLean.mockResolvedValue(null);
   });
 
   it('should create and return the event, tamper-evidence chained', async () => {
@@ -205,22 +218,23 @@ describe('auditService.createEvent', () => {
 
     const result = await auditService.createEvent({ action: 'user.register', actorId: 'u1' });
     expect(result).toEqual(event);
-    // Delegates to the shared append: the stored row now carries a sha256 hash
-    // and (for a fresh chain) a null prevHash on top of the caller's fields.
+    // Delegates to the shared append: the stored row carries an HMAC hash and
+    // (for a fresh chain) seq 1 + a null prevHash on top of the caller's fields.
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
       action: 'user.register',
       actorId: 'u1',
       hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      seq: 1,
       prevHash: null,
     }));
   });
 
-  it('should link prevHash to the chain tail returned by findOne', async () => {
-    mockFindOneLean.mockResolvedValue({ hash: 'a'.repeat(64) });
+  it('should take the next seq and link prevHash to the chain head', async () => {
+    mockHeadLean.mockResolvedValue({ seq: 41, hash: 'a'.repeat(64) });
     mockCreate.mockResolvedValue({});
 
     await auditService.createEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-1' });
-    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ prevHash: 'a'.repeat(64) }));
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ seq: 42, prevHash: 'a'.repeat(64) }));
   });
 
   it('should propagate create errors', async () => {

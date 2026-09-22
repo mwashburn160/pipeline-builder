@@ -121,6 +121,12 @@ describe('Ecosystem console — governance boundary', () => {
     expect(await screen.findByRole('tab', { name: /publish queue/i })).toBeInTheDocument();
     expect(await screen.findByTestId('queue-overview')).toBeInTheDocument();
     expect(await screen.findByText(/no requests match these filters/i)).toBeInTheDocument();
+    // …and offers only the tabs that permission can read (the rest are
+    // plugins:moderate and would answer 403).
+    expect(screen.getByRole('tab', { name: /publisher verification/i })).toBeInTheDocument();
+    for (const name of [/^listings$/i, /^advisories$/i, /review moderation/i, /auto-approval rules/i, /reserved names/i]) {
+      expect(screen.queryByRole('tab', { name })).not.toBeInTheDocument();
+    }
   });
 
   it('has a tab per governance panel', async () => {

@@ -50,8 +50,8 @@ describe('resolvePluginsForProps — lookup response unwrapping', () => {
       version: '1.0.0', visibility: 'public', isActive: true, isDefault: true, // no `name`
     }));
     expect(sent).toHaveLength(1);
-    expect(sent[0].name).toBe('cdk-synth');
-    expect(sent[0].version).toBe('1.0.0');
+    expect(sent[0]!.name).toBe('cdk-synth');
+    expect(sent[0]!.version).toBe('1.0.0');
   });
 
   it('tolerates { plugin } (single nesting)', async () => {
@@ -140,14 +140,14 @@ describe('resolvePluginsForProps — lookup filter carries the plugin name', () 
       version: '1.0.0', visibility: 'public', isActive: true, isDefault: true,
     }));
     expect(sent).toHaveLength(1);
-    expect(sent[0].name).toBe('cdk-synth');
+    expect(sent[0]!.name).toBe('cdk-synth');
   });
 
   it('an explicit filter name takes precedence over the ref name (fill only when missing)', async () => {
     const sent: Array<Record<string, unknown>> = [];
     const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
     await resolvePluginsForProps(client, propsWithPlugin('alias-name', { name: 'real-plugin', version: '2.0.0' }));
-    expect(sent[0].name).toBe('real-plugin');
+    expect(sent[0]!.name).toBe('real-plugin');
   });
 
   it('sends each plugin its own name when several refs are present', async () => {

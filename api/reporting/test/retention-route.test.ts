@@ -9,12 +9,13 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockGetSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
@@ -27,11 +28,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // report-helpers (pulled in via retention-cap for MAX_REPORT_RANGE_DAYS) reads Config.
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }) },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: { getIncidentSettings: (...a: unknown[]) => mockGetSettings(...a) },
 }));
 
@@ -52,7 +53,7 @@ describe('GET /reports/retention', () => {
   it('falls back to the env defaults when the org has no override', async () => {
     mockGetSettings.mockResolvedValue({ ...DEFAULTS, eventRetentionDays: null, doraRetentionDays: null });
     await handler()({ query: {} }, {});
-    expect(mockGetSettings).toHaveBeenCalledWith('acme');
+    expect(mockGetSettings).toHaveBeenCalledWith('acme', 'acme');
     expect(payload().retention).toEqual({
       eventRetentionDays: 30, doraRetentionDays: 180, eventMaxRangeDays: 30, doraMaxRangeDays: 180,
     });

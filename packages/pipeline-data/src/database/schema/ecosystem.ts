@@ -17,7 +17,7 @@
 //     treats every `org_id` table as the org's data.
 //   * ORG-SCOPED — pipeline_step_manifests, plugin_installs,
 //     plugin_install_policies, plugin_advisory_deliveries: `org_id` + the
-//     standard `rls_org_scope` policy + FORCE, and part of the org cascade.
+//     standard `rls_org_*` policies + FORCE, and part of the org cascade.
 //
 // The two `public_*` views are declared with `pgView(...).existing()` (drizzle
 // never creates them; postgres-init.sql does). They are what the anonymous
@@ -75,6 +75,23 @@ export const INSTALL_VERSION_POLICIES = ['pinned', 'patch', 'minor', 'latest'] a
 export type InstallVersionPolicy = (typeof INSTALL_VERSION_POLICIES)[number];
 
 export type InstallStatus = 'active' | 'pending_approval' | 'denied';
+
+/**
+ * A member's pending request to CHANGE an active install (its version or
+ * version policy) that needs an approver — crossing a major/breaking version,
+ * or widening to `latest`, on an approval-gated tier. One per install; an
+ * approver (`plugin_installs:manage`) applies or rejects it.
+ */
+export interface InstallChangeRequest {
+  /** The version the install would move to. */
+  version: string;
+  /** The version policy it would move to. */
+  versionPolicy: InstallVersionPolicy;
+  requestedBy: string;
+  /** ISO time of the request. */
+  requestedAt: string;
+  note: string | null;
+}
 export type BlockOnAdvisory = 'critical' | 'high' | 'never';
 export type OfficialInstalls = 'implicit' | 'explicit';
 
@@ -102,8 +119,13 @@ export interface SubmissionCatalog {
   sources: Record<string, string>;
 }
 
+/**
+ * A submission's lifecycle. `publishing` is the short claim an approval takes
+ * before it copies the quarantined image out (E10), so an expiry can never
+ * delete the artifacts of a submission that is being published.
+ */
 export const SUBMISSION_STATUSES = [
-  'pending_verification', 'pending_review', 'gate_failed', 'approved', 'rejected', 'expired', 'claimed',
+  'pending_verification', 'pending_review', 'publishing', 'gate_failed', 'approved', 'rejected', 'expired', 'claimed',
 ] as const;
 export type SubmissionStatus = (typeof SUBMISSION_STATUSES)[number];
 
@@ -593,11 +615,14 @@ export const pluginSubmission = pgTable('plugin_submissions', {
     .on(table.statusTokenHash)
     .where(sql`status_token_hash IS NOT NULL`),
   statusCheck: check('plugin_submissions_status_check', sql`${table.status} IN ('pending_verification',
-    'pending_review', 'gate_failed', 'approved', 'rejected', 'expired', 'claimed')`),
+    'pending_review', 'publishing', 'gate_failed', 'approved', 'rejected', 'expired', 'claimed')`),
 }));
 
 /**
- * Zero-result directory searches. No user data.
+ * Zero-result directory searches. No user data. `query` is stored normalized;
+ * the maintenance sweep folds repeats of one (query, category) into a single
+ * row counting `hits`, with `created_at` = the latest one, and prunes rows not
+ * seen for 30 days.
  *
  * @table ecosystem_search_misses
  */
@@ -605,9 +630,11 @@ export const ecosystemSearchMiss = pgTable('ecosystem_search_misses', {
   id: uuid('id').primaryKey().defaultRandom(),
   query: varchar('query', { length: 200 }).notNull(),
   category: varchar('category', { length: 50 }),
+  hits: integer('hits').default(1).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   createdAtIdx: index('ecosystem_search_miss_created_idx').on(table.createdAt),
+  hitsCheck: check('ecosystem_search_misses_hits_check', sql`${table.hits} >= 1`),
 }));
 
 /**
@@ -634,7 +661,7 @@ export const ecosystemNotificationQueue = pgTable('ecosystem_notification_queue'
 }));
 
 // ---------------------------------------------------------------------------
-// Org-scoped tables (org_id + rls_org_scope + FORCE; in the org cascade)
+// Org-scoped tables (org_id + rls_org_* policies + FORCE; in the org cascade)
 // ---------------------------------------------------------------------------
 
 /**
@@ -650,6 +677,8 @@ export const pipelineStepManifest = pgTable('pipeline_step_manifests', {
   stageName: varchar('stage_name', { length: 255 }).notNull(),
   actionName: varchar('action_name', { length: 255 }).notNull(),
   pluginPublisher: varchar('plugin_publisher', { length: 39 }),
+  /** The listing publisher's id (NULL for an own-org plugin) — what cross-org stats join on. */
+  pluginPublisherId: uuid('plugin_publisher_id'),
   pluginName: varchar('plugin_name', { length: 255 }).notNull(),
   pluginVersion: varchar('plugin_version', { length: 50 }).notNull(),
   imageDigest: varchar('image_digest', { length: 71 }),
@@ -661,6 +690,7 @@ export const pipelineStepManifest = pgTable('pipeline_step_manifests', {
   // public/* GC guard: "does any manifest still reference this digest?"
   digestIdx: index('pipeline_step_manifest_digest_idx').on(table.imageDigest),
   pluginIdx: index('pipeline_step_manifest_plugin_idx').on(table.pluginPublisher, table.pluginName),
+  pluginPublisherIdIdx: index('pipeline_step_manifest_publisher_id_idx').on(table.pluginPublisherId, table.pluginName),
 }));
 
 /**
@@ -680,6 +710,8 @@ export const pluginInstall = pgTable('plugin_installs', {
   installedBy: text('installed_by').notNull(),
   approvedBy: text('approved_by'),
   decidedAt: timestamp('decided_at', { withTimezone: true }),
+  /** A pending, approval-gated change of this install (upgrade / policy), or null. */
+  pendingChange: jsonb('pending_change').$type<InstallChangeRequest>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({

@@ -6,7 +6,7 @@
  *
  * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
  * classes, pagination constants, audit/boot wiring, the `requireInternalService`
- * gate) live in `@pipeline-builder/api-core/lib/testing/mock-api-core.js` — see
+ * gate) live in `@pipeline-builder/api-core/testing` — see
  * that module for why the deep path is safe inside a suite that mocks the barrel.
  * Only quota-specific defaults belong here.
  */
@@ -17,7 +17,7 @@ import {
   mockPermissionGate,
   serviceAuditDefaults,
   withInternalServiceGate,
-} from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
+} from '@pipeline-builder/api-core/testing';
 
 export { loggerMock };
 

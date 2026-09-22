@@ -10,7 +10,9 @@
  * step-up — are checked against the real route table in route-coverage.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -18,17 +20,20 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, statusCode: number, message: string, code?: string, details?: unknown) =>
     res.status(statusCode).json({ success: false, message, code, ...(details ? { details } : {}) }),
 }));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (fn: (a: unknown) => Promise<void>) => async (rq: any, rs: any) => {
     try {
-      await fn({ req: rq, res: rs, ctx: { log: jest.fn() }, orgId: 'org-b', userId: 'u-b' });
+      await fn({ req: rq, res: rs, ctx: { log: jest.fn<AnyFn>() }, orgId: 'org-b', userId: 'u-b' });
     } catch (err: any) {
       rs.status(500).json({ success: false, message: err.message });
     }
   },
 }));
 
-const names = ['approveInstall', 'catalog', 'createInstall', 'denyInstall', 'getPolicy', 'installState', 'listInstalls', 'putPolicy', 'removeInstall', 'shadowing', 'updateInstall'] as const;
+const names = [
+  'approveInstall', 'approveInstallChange', 'catalog', 'createInstall', 'denyInstall', 'getPolicy', 'installState', 'listInstallChangeRequests', 'listInstalls',
+  'putPolicy', 'rejectInstallChange', 'removeInstall', 'requestInstallChange', 'shadowing', 'updateInstall',
+] as const;
 const svc = Object.fromEntries(names.map((n) => [n, jest.fn(async () => ({ ok: n }))])) as Record<typeof names[number], ReturnType<typeof jest.fn>>;
 jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => svc);
 
@@ -57,7 +62,7 @@ async function call(method: string, path: string, req: Record<string, unknown> =
   return res;
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('install routes', () => {
   const caller = expect.objectContaining({ userId: 'u-b', orgId: 'org-b', parentOrgId: 'root', permissions: ['plugins:read', 'plugins:install'] });
@@ -71,6 +76,10 @@ describe('install routes', () => {
     ['delete', '/installs/:id', { params: { id: 'i-1' } }, svc.removeInstall, 200, [caller, 'i-1']],
     ['post', '/installs/:id/approve', { params: { id: 'i-1' } }, svc.approveInstall, 200, [caller, 'i-1']],
     ['post', '/installs/:id/deny', { params: { id: 'i-1' }, body: { reason: 'no' } }, svc.denyInstall, 200, [caller, 'i-1', 'no']],
+    ['get', '/installs/change-requests', {}, svc.listInstallChangeRequests, 200, [caller]],
+    ['post', '/installs/:id/change-requests', { params: { id: 'i-1' }, body: { version: '2.0.0' } }, svc.requestInstallChange, 201, [caller, 'i-1', { version: '2.0.0' }]],
+    ['post', '/installs/:id/change-requests/approve', { params: { id: 'i-1' } }, svc.approveInstallChange, 200, [caller, 'i-1']],
+    ['post', '/installs/:id/change-requests/reject', { params: { id: 'i-1' }, body: { reason: 'no' } }, svc.rejectInstallChange, 200, [caller, 'i-1', 'no']],
     ['get', '/install-policy', {}, svc.getPolicy, 200, [caller]],
     ['put', '/install-policy', { body: { blockOnAdvisory: 'high' } }, svc.putPolicy, 200, [caller, { blockOnAdvisory: 'high' }]],
     ['get', '/shadowing', {}, svc.shadowing, 200, [caller]],

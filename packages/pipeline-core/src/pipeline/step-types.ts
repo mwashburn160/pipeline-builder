@@ -157,7 +157,10 @@ export interface StageOptions {
   /** Display name for this stage */
   readonly stageName: string;
 
-  /** Optional alias used for wave/construct ID generation. Defaults to stageName. */
+  /**
+   * The CodePipeline stage (wave) name. Defaults to `<stageName>-alias` — see
+   * `codePipelineStageName`, the single place that derivation lives.
+   */
   readonly alias?: string;
 
   /** Build steps to execute within this stage */
@@ -166,9 +169,11 @@ export interface StageOptions {
   /**
    * Deploy environment this stage targets (e.g. `production`, `staging`).
    * Declaring it marks the stage as a **deploy** for DORA metrics: pipeline-core
-   * lists every such stage in the `pb.deploys` tag as `<stageName>:<environment>`
-   * so the events Lambda can attribute deployments per environment. Omit it and
-   * the stage is not treated as a deploy.
+   * lists every such stage in the `pb.deploys` tag as
+   * `<CodePipeline stage name>:<environment>` — the stage name being the wave id
+   * (`alias`, else `<stageName>-alias`), because that is what CodePipeline
+   * events report — so the events Lambda can attribute deployments per
+   * environment. Omit it and the stage is not treated as a deploy.
    */
   readonly environment?: string;
 }

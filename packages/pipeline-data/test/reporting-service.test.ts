@@ -6,14 +6,15 @@
  * Mocks the db module and verifies correct SQL template usage.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock, cacheKeyLog } from './helpers/mock-api-core.js';
 
-const mockExecute = jest.fn();
-const mockInsert = jest.fn();
-const mockSelect = jest.fn();
+const mockExecute = jest.fn<AnyFn>();
+const mockInsert = jest.fn<AnyFn>();
+const mockSelect = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
   db: {
@@ -64,13 +65,13 @@ describe('ReportingService', () => {
     function wireIngest(registryRows: Array<{ pipelineId: string; orgId: string }>, duplicates: Set<string> = new Set()) {
       // tx.select({...}).from(...).where(...) → registry rows (awaited directly)
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue(registryRows),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockResolvedValue(registryRows),
         }),
       });
 
       let capturedRows: Array<Record<string, unknown>> = [];
-      const returning = jest.fn().mockImplementation(() =>
+      const returning = jest.fn<AnyFn>().mockImplementation(() =>
         // echo one inserted row per captured row (minus any the test marks as
         // dedup-swallowed) so `inserted` counts match
         Promise.resolve(capturedRows.filter((r) => !duplicates.has(String(r.executionId))).map((r) => ({
@@ -82,8 +83,8 @@ describe('ReportingService', () => {
           environment: r.environment,
         }))),
       );
-      const onConflictDoNothing = jest.fn().mockReturnValue({ returning });
-      const values = jest.fn().mockImplementation((rows: Array<Record<string, unknown>>) => {
+      const onConflictDoNothing = jest.fn<AnyFn>().mockReturnValue({ returning });
+      const values = jest.fn<AnyFn>().mockImplementation((rows: Array<Record<string, unknown>>) => {
         capturedRows = rows;
         return { onConflictDoNothing };
       });
@@ -907,6 +908,16 @@ describe('ReportingService', () => {
       });
     });
 
+    it('getIncidentSettings reads RETENTION from the account root for a team (incident window stays the team\'s)', async () => {
+      mockExecute
+        .mockResolvedValueOnce({ rows: [{ incident_window_hours: 6, event_retention_days: null, dora_retention_days: null }] }) // team row
+        .mockResolvedValueOnce({ rows: [{ event_retention_days: 120, dora_retention_days: 545 }] }); // root row
+      const s = await service.getIncidentSettings('team-1', 'root-1');
+      expect(s).toMatchObject({ incidentWindowHours: 6, eventRetentionDays: 120, doraRetentionDays: 545 });
+      expect(mockExecute).toHaveBeenCalledTimes(2);
+      expect(new PgDialect().sqlToQuery(mockExecute.mock.calls[1][0] as SQL).params).toContain('root-1');
+    });
+
     it('getIncidentSettings surfaces stored retention overrides (Phase 7)', async () => {
       mockExecute.mockResolvedValueOnce({ rows: [{ incident_window_hours: null, event_retention_days: 30, dora_retention_days: 180 }] });
       const s = await service.getIncidentSettings('acme');
@@ -1056,6 +1067,23 @@ describe('ReportingService', () => {
       // Idempotent upsert keyed on (org_id, incident_id).
       const conflictArg = onConflictDoUpdate.mock.calls[0][0] as { set: Record<string, unknown> };
       expect(conflictArg.set).toHaveProperty('resolvedAt');
+    });
+
+    it('a redelivered FIRING post never wipes a stored resolve (COALESCE unless re-opened)', async () => {
+      const values = jest.fn<(...a: unknown[]) => unknown>();
+      const onConflictDoUpdate = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+      values.mockReturnValue({ onConflictDoUpdate });
+      mockInsert.mockReturnValue({ values });
+
+      await service.recordIncident('acme', {
+        incidentId: 'fp-1', environment: 'production', openedAt: '2026-07-02T02:00:00Z', severity: 'critical',
+      });
+
+      const { set } = onConflictDoUpdate.mock.calls[0][0] as { set: { resolvedAt: SQL } };
+      const q = new PgDialect().sqlToQuery(set.resolvedAt);
+      expect(q.sql).toContain('COALESCE(excluded.resolved_at');
+      expect(q.sql).toContain('= excluded.opened_at');
+      expect(q.sql).toContain('ELSE excluded.resolved_at');
     });
 
     it('leaves resolved_at null for an open incident', async () => {
@@ -1522,6 +1550,30 @@ describe('reporting retention (Phase 7)', () => {
       await service.purgeExpiredReportingData({ now });
       expect(render(2).params.some((p) => p instanceof Date && (p as Date).getTime() === retentionCutoff(now, 10).getTime())).toBe(true);
       expect(render(3).params.some((p) => p instanceof Date && (p as Date).getTime() === retentionCutoff(now, 20).getTime())).toBe(true);
+    });
+
+    it('a TEAM follows its ROOT\'s retention override (retention is synced onto the root only)', async () => {
+      const now = new Date('2026-08-20T00:00:00Z');
+      mockExecute
+        .mockResolvedValueOnce({ rows: [{ org_id: 'team-1' }] })
+        .mockResolvedValueOnce({ rows: [{ org_id: 'root-1', event_retention_days: 10, dora_retention_days: 20 }] })
+        .mockResolvedValue({ rows: [] });
+
+      await service.purgeExpiredReportingData({ now, resolveRetentionOrgId: async (id) => (id === 'team-1' ? 'root-1' : id) });
+      expect(render(2).params).toContain('team-1');
+      expect(render(2).params.some((p) => p instanceof Date && (p as Date).getTime() === retentionCutoff(now, 10).getTime())).toBe(true);
+      expect(render(3).params.some((p) => p instanceof Date && (p as Date).getTime() === retentionCutoff(now, 20).getTime())).toBe(true);
+    });
+
+    it('SKIPS an org whose root cannot be resolved (never purges on a possibly-shorter default)', async () => {
+      const now = new Date('2026-08-20T00:00:00Z');
+      mockExecute
+        .mockResolvedValueOnce({ rows: [{ org_id: 'team-1' }] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      const res = await service.purgeExpiredReportingData({ now, resolveRetentionOrgId: async () => null });
+      expect(res.orgs).toBe(0);
+      expect(mockExecute).toHaveBeenCalledTimes(2); // enumerate + overrides, no deletes
     });
 
     it('batches with ctid LIMIT and loops until a short batch drains the table', async () => {

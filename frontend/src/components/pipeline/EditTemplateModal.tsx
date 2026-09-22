@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { formatDateTime } from '@/lib/format';
 import { useAsyncCallback } from '@/hooks/useAsync';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
@@ -88,6 +88,7 @@ interface EditTemplateModalProps {
  * and the declared inputs) are edited alongside the config on the first step.
  */
 export default function EditTemplateModal({ template, canPublish, onClose, onSaved }: EditTemplateModalProps) {
+  const uid = useId();
   const [name, setName] = useState(template.name);
   const [category, setCategory] = useState(template.category);
   const [visibility, setVisibility] = useState<TemplateVisibility>(template.visibility ?? 'private');
@@ -261,12 +262,12 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       <h3 className="text-sm font-medium text-fg-muted">Template details</h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="label">Template name</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="node-service" disabled={loading} />
+          <label className="label" htmlFor={`${uid}-template-name`}>Template name</label>
+          <Input id={`${uid}-template-name`} value={name} onChange={(e) => setName(e.target.value)} placeholder="node-service" disabled={loading} />
         </div>
         <div>
-          <label className="label">Category</label>
-          <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="backend" disabled={loading} />
+          <label className="label" htmlFor={`${uid}-category`}>Category</label>
+          <Input id={`${uid}-category`} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="backend" disabled={loading} />
         </div>
       </div>
 

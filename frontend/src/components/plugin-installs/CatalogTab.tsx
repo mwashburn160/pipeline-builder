@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Library, Search } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -23,6 +24,9 @@ import type { CatalogEntry } from '@/types/plugin-installs';
 import { InstallControls } from './InstallControls';
 import { InstallWarnings } from './InstallWarnings';
 
+/** Listings fetched per page (the server's cap). */
+const CATALOG_PAGE = 200;
+
 /**
  * The in-app catalog (§3.2): every listed listing with THIS org's install
  * state, searchable by text and category. Install actions are the same as the
@@ -41,18 +45,41 @@ export function CatalogTab({
   const [installed, setInstalled] = useState<'all' | 'installed' | 'available'>('all');
   const debouncedQ = useDebounce(q, 300);
 
-  const catalog = useFetch(async (signal): Promise<CatalogEntry[]> => {
-    const res = await api.getPluginCatalog({
-      q: debouncedQ.trim() || undefined,
-      category: category === 'all' ? undefined : category,
-      installed: installed === 'all' ? undefined : installed === 'installed',
-    }, { signal });
-    return res.data?.listings ?? [];
+  const filters = {
+    q: debouncedQ.trim() || undefined,
+    category: category === 'all' ? undefined : category,
+    installed: installed === 'all' ? undefined : installed === 'installed',
+  };
+  const catalog = useFetch(async (signal) => {
+    const res = await api.getPluginCatalog({ ...filters, limit: CATALOG_PAGE }, { signal });
+    return { listings: res.data?.listings ?? [], total: res.data?.total ?? res.data?.listings.length ?? 0, hasMore: !!res.data?.hasMore };
   }, [debouncedQ, category, installed]);
+  // Later pages, appended by "Load more". The tab used to show the server's
+  // first 200 and say nothing — a listing past that was simply not there.
+  const [more, setMore] = useState<{ listings: CatalogEntry[]; hasMore: boolean } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  useEffect(() => { setMore(null); setMoreError(null); }, [catalog.data]);
 
   // An install changes what the pipeline editor can resolve.
   const afterChange = () => { clearPluginCache(); catalog.refetch(); };
-  const entries = catalog.data ?? [];
+  const entries = [...(catalog.data?.listings ?? []), ...(more?.listings ?? [])];
+  const total = catalog.data?.total ?? entries.length;
+  const hasMore = more ? more.hasMore : !!catalog.data?.hasMore;
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const res = await api.getPluginCatalog({ ...filters, limit: CATALOG_PAGE, offset: entries.length });
+      const page = { listings: res.data?.listings ?? [], hasMore: !!res.data?.hasMore };
+      setMore((m) => ({ listings: [...(m?.listings ?? []), ...page.listings], hasMore: page.hasMore }));
+    } catch (err) {
+      setMoreError(formatError(err, 'Could not load more of the catalog'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   return (
     <div className="space-y-4" data-testid="catalog-tab">
@@ -93,6 +120,13 @@ export function CatalogTab({
           ))}
         </ul>
       )}
+      {entries.length > 0 && (hasMore || entries.length < total) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-fg-muted" data-testid="catalog-count">
+          <span>Showing {entries.length} of {total} — narrow the search, or load more.</span>
+          {hasMore && <Button variant="secondary" size="xs" onClick={() => void loadMore()} loading={loadingMore}>Load more</Button>}
+        </div>
+      )}
+      {moreError && <RetryError message={moreError} onRetry={() => void loadMore()} />}
     </div>
   );
 }

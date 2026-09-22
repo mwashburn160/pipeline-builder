@@ -223,6 +223,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | image-registry | POST | `/internal/plugin-publications` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications/resign` | `service-principal + internal(plugin)` |
 | image-registry | DELETE | `/internal/quarantine/:submissionId` | `service-principal + internal(plugin)` |
+| image-registry | POST | `/internal/quarantine/:submissionId/credential` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications/yank` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications/retag` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications/gc` | `service-principal + internal(plugin)` |
@@ -294,6 +295,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | platform | GET | `/admin/orgs/:orgId/kms-config` | `any(org:kms)` |
 | platform | PUT | `/admin/orgs/:orgId/kms-config` | `any(org:kms) + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/orgs/:orgId/kms-config/test` | `any(org:kms)` |
+| platform | GET | `/admin/console-check` | `sysadmin + aal2` |
 | platform | GET | `/admin/summary` | `sysadmin` |
 | platform | DELETE | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
@@ -411,6 +413,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | platform | PUT | `/users/:id` | `any(members:manage) + aal2 + step-up(any)` |
 | platform | PUT | `/users/:id/features` | `any(members:manage) + aal2 + step-up(any)` |
 | platform | POST | `/users/bulk-delete` | `any(members:manage) + aal2 + step-up(any)` |
+| plugin | GET | `/internal/plugins/public-names` | `service-principal + internal(image-registry)` |
 | plugin | GET | `/plugins` | `any(plugins:read)` |
 | plugin | POST | `/plugins` | `any(plugins:write)` |
 | plugin | DELETE | `/plugins/:id` | `any(plugins:write)` |
@@ -469,7 +472,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | plugin | GET | `/plugins/publisher` | `any(plugins:read)` |
 | plugin | PATCH | `/plugins/publisher` | `any(publishers:manage)` |
 | plugin | POST | `/plugins/publisher` | `any(publishers:manage)` |
-| plugin | GET | `/plugins/publisher/advisories` | `any(publishers:manage)` |
+| plugin | GET | `/plugins/publisher/advisories` | `any(plugins:read)` |
 | plugin | GET | `/plugins/publisher/incoming-transfers` | `any(publishers:manage)` |
 | plugin | GET | `/plugins/publisher/insights` | `any(plugins:read)` |
 | plugin | GET | `/plugins/publisher/listings` | `any(plugins:read)` |
@@ -487,6 +490,10 @@ body carries. `POST /messages` stays on `messages:write`.
 | plugin | DELETE | `/plugins/installs/:id` | `any(plugins:install)` |
 | plugin | PATCH | `/plugins/installs/:id` | `any(plugins:install)` |
 | plugin | POST | `/plugins/installs/:id/approve` | `any(plugin_installs:manage)` |
+| plugin | GET | `/plugins/installs/change-requests` | `any(plugin_installs:manage)` |
+| plugin | POST | `/plugins/installs/:id/change-requests` | `any(plugins:install)` |
+| plugin | POST | `/plugins/installs/:id/change-requests/approve` | `any(plugin_installs:manage)` |
+| plugin | POST | `/plugins/installs/:id/change-requests/reject` | `any(plugin_installs:manage)` |
 | plugin | POST | `/plugins/installs/:id/deny` | `any(plugin_installs:manage)` |
 | plugin | GET | `/plugins/listings/:publisher/:name/install-state` | `any(plugins:read)` |
 | plugin | GET | `/plugins/listings/:publisher/:name/review-state` | `any(plugins:read)` |
@@ -547,5 +554,6 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | GET | `/reports/plugins/versions` | `any(reports:read)` |
 | reporting | GET | `/reports/retention` | `any(reports:read)` |
 | reporting | PUT | `/reports/retention-sync/:orgId` | `service-principal + internal(billing)` |
+| reporting | GET | `/reports/retention-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/settings/incidents` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | PUT | `/reports/settings/incidents` | `any(reports:read) + any(org:settings) + feature(advanced_reporting)` |

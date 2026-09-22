@@ -20,7 +20,7 @@ import {
   CATEGORY_DESCRIPTIONS, CATEGORY_DISPLAY_NAMES, CATEGORY_STAGES, isPluginCategory, type PluginCategory,
 } from '@/lib/plugin-categories';
 import { searchListings } from '@/lib/public-directory/api';
-import { parseDirectoryQuery, toSearchString, withParam, type DirectoryQuery } from '@/lib/public-directory/query';
+import { directorySeo, parseDirectoryQuery, toSearchString, withParam, type DirectoryQuery } from '@/lib/public-directory/query';
 import { cachePublicly, markUnavailable } from '@/lib/public-directory/server';
 import { categoryDocUrl, categoryPagePath } from '@/lib/public-directory/links';
 import type { SearchResult } from '@/lib/public-directory/types';
@@ -51,7 +51,9 @@ export default function CategoryPage({ siteUrl, category, query, results }: Cate
         description={CATEGORY_DESCRIPTIONS[category]}
         canonical={`${siteUrl}${categoryPagePath(category)}`}
         siteUrl={siteUrl}
-        noindex={!results || !!query.cursor}
+        // The category page itself is indexed; a search, facet, sort or later
+        // page within it is a view of it (see `directorySeo`).
+        noindex={!results || directorySeo({ ...query, category: undefined }).noindex}
       />
       <Link href="/plugins" className="action-link mb-4 inline-flex items-center gap-1 text-sm">
         <ArrowLeft className="h-4 w-4" aria-hidden="true" /> All plugins

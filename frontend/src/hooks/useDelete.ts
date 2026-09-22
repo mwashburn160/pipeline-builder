@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState, useCallback, useRef } from 'react';
+import { continueAfterStepUp } from '@/lib/api/errors';
 
 export interface UseDeleteResult<T> {
   /** The item currently targeted for deletion, or null. */
@@ -80,6 +81,10 @@ export function useDelete<T>(
       setTarget(null);
     }
     if (caught) {
+      // Refused for step-up and taken over by the global dialog: that dialog
+      // reports the outcome, so this is not an error here — and once the
+      // person confirms and the replay lands, refresh like any other success.
+      if (continueAfterStepUp(caught, () => onSuccess?.())) return;
       if (onError) onError(caught);
       else throw caught;
     }

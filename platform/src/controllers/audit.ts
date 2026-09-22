@@ -3,9 +3,9 @@
 
 import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, parsePaginationParams, errorMessage } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
-import { verifyAuditChain } from '../helpers/audit-chain.js';
 import { requireAdminContext, requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
+import { verifyAuditChainAnchored } from '../services/audit-head-export.js';
 import { auditService, type AuditFilter } from '../services/audit-service.js';
 
 const logger = createLogger('audit-controller');
@@ -19,6 +19,10 @@ function parseOptionalDate(raw: unknown): Date | undefined | null {
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
 }
+
+/** A date with no time part (`<input type="date">`). */
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DAY_MS = 86_400_000;
 
 /** Actions whose name marks them a failure outcome (e.g. `plugin.build.failed`,
  *  `plugin.build.timeout`). Hoisted so the ingest path doesn't recompile it. */
@@ -63,6 +67,11 @@ export const listAuditEvents = withController('List audit events', async (req, r
   // with a 400 BEFORE any query is issued, mirroring billing-summary.
   const from = parseOptionalDate(req.query.from);
   const to = parseOptionalDate(req.query.to);
+  // A bare `YYYY-MM-DD` upper bound means "through the end of that day", not
+  // its first millisecond: `new Date('2026-09-21')` is midnight UTC, and the
+  // inclusive `$lte` then excluded the whole day the caller named.
+  const toRaw = parseQueryString(req.query.to);
+  if (to && toRaw && BARE_DATE.test(toRaw)) to.setTime(to.getTime() + DAY_MS - 1);
   if (from === null || to === null) {
     return sendError(res, 400, 'from/to must be ISO dates');
   }
@@ -104,8 +113,10 @@ export const listAuditEvents = withController('List audit events', async (req, r
 /**
  * GET /audit/verify?orgId=... — verify a tenant's audit hash chain (sysadmin
  * only). Walks the chain for `orgId` (the `affectedOrgId ?? orgId` chain key)
- * and returns `{ ok, brokenAt?, count }`. `ok:false` with `brokenAt` set means a
- * stored row was ALTERED or DELETED after the fact — a tamper signal. This reads
+ * and returns `{ ok, brokenAt?, reason?, count, lastSeq, publishedHead? }`.
+ * `ok:false` means a stored row was ALTERED, DELETED or RE-ORDERED after the
+ * fact, or the chain no longer reaches its published write-once head (tail
+ * truncation) — a tamper signal. This reads
  * nothing sensitive back (only hashes + a boolean), but it exposes cross-tenant
  * chain state, so it's gated to platform sysadmins, not org admins.
  */
@@ -117,7 +128,9 @@ export const verifyAuditChainHandler = withController('Verify audit chain', asyn
     return sendError(res, 400, 'orgId query parameter is required');
   }
 
-  const result = await verifyAuditChain(orgId);
+  // Verified against the chain's PUBLISHED (write-once) head too, when an export
+  // target is configured — that's what exposes tail truncation.
+  const result = await verifyAuditChainAnchored(orgId);
   sendSuccess(res, 200, result);
 });
 

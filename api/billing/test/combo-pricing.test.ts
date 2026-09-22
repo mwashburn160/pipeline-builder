@@ -7,6 +7,7 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // combo-pricing only needs createLogger from api-core + Config from pipeline-core;
@@ -16,7 +17,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ warn: () => {}, info: () => {}, debug: () => {}, error: () => {} }),
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => undefined },
 }));
 

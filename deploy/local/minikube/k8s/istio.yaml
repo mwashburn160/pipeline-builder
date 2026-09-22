@@ -12,8 +12,10 @@
 #      this every pod ran as `default` and was indistinguishable by identity.
 #   3. AuthorizationPolicy — per sensitive workload (datastores + app APIs),
 #      allow-listing exactly the caller identities that real traffic needs.
-#      Observability infra (loki/alertmanager/thanos/jaeger) is left at
-#      STRICT-mTLS-only (no AuthZ) to bound the enumeration surface.
+#      Observability infra (loki/prometheus/thanos/alertmanager/jaeger) gets
+#      the same treatment at the end of this file — it used to be left at
+#      STRICT-mTLS-only, which let ANY mesh identity (a plugin build pod
+#      included) read every tenant's Loki stream.
 #
 # WAYPOINT: the six Services that expose INTERNAL routes (platform, message,
 # compliance, quota, reporting, image-registry) are attached to the `pb-waypoint` proxy so their
@@ -251,6 +253,15 @@ spec:
       to:
         - operation:
             ports: ["5432"]
+    # Prometheus scrapes the exporter on :9187.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9187"]
+
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -275,6 +286,15 @@ spec:
       to:
         - operation:
             ports: ["6432"]
+    # Prometheus scrapes the exporter on :9127.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9127"]
+
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -300,6 +320,15 @@ spec:
       to:
         - operation:
             ports: ["27017"]
+    # Prometheus scrapes the exporter on :9216.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9216"]
+
 ---
 # Redis: NP allowed only `plugin`, but every api-server embeds a Redis
 # health/idempotency/queue client — allow all consuming services.
@@ -330,6 +359,15 @@ spec:
       to:
         - operation:
             ports: ["6379"]
+    # Prometheus scrapes the exporter on :9121.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9121"]
+
 ---
 # Registry: `default` = crane `kubectl run` push pods from init-platform.sh.
 apiVersion: security.istio.io/v1
@@ -373,6 +411,8 @@ spec:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/message
+              # platform publishes signed audit chain heads to `audit-heads`.
+              - cluster.local/ns/pipeline-builder/sa/platform
               # plugin stages upload/build-context ZIPs in the `plugins` bucket.
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/registry
@@ -749,6 +789,28 @@ spec:
         - operation:
             ports: ["3000"]
 ---
+# image-registry -> plugin: GET /internal/plugins/public-names — which of a
+# parent org's plugins are public, the only parent repositories a TEAM's
+# registry token may pull (E22). App-side gate: requireInternalService(['image-registry']).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: plugin-allow-image-registry
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: plugin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/image-registry
+      to:
+        - operation:
+            ports: ["3000"]
+---
 # =============================================================================
 # Quarantine builder (anonymous plugin submissions, plugin-ecosystem §4.2 / W5)
 # =============================================================================
@@ -777,3 +839,212 @@ spec:
       to:
         - operation:
             ports: ["1234"]
+---
+# =============================================================================
+# Observability backends (D3) — these used to have NO AuthorizationPolicy, which
+# under ambient means "any mesh identity may connect": a plugin build pod could
+# read every tenant's Loki stream with a guessed X-Scope-OrgID, query Prometheus
+# or post alerts to Alertmanager. Each now admits exactly its real callers.
+# =============================================================================
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: loki-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: loki
+  action: ALLOW
+  rules:
+    # promtail pushes; platform serves the Logs + Audit Activity views; grafana
+    # is the Loki datasource; prometheus scrapes Loki's /metrics (same port).
+    # NOT plugin / plugin-quarantine-builder — never tenant build code.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/promtail
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/grafana
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["3100"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: prometheus-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: prometheus
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/grafana
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9090"]
+    # KEDA's metrics-adapter is OUTSIDE the mesh and reaches :9090 in plaintext
+    # through the prometheus-keda PERMISSIVE carve-out, so it carries no
+    # principal. `notPrincipals: ["*"]` matches exactly "no mesh identity" —
+    # every in-mesh pod always presents one, so none of them match this rule.
+    # WHICH plaintext client may connect is bounded by allow-prometheus-ingress
+    # (namespace keda only).
+    - from:
+        - source:
+            notPrincipals: ["*"]
+      to:
+        - operation:
+            ports: ["9090"]
+    # Thanos querier -> sidecar StoreAPI (gRPC).
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/thanos-query
+      to:
+        - operation:
+            ports: ["10901"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: thanos-query-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: thanos-query
+  action: ALLOW
+  rules:
+    # platform's PROMETHEUS_URL; grafana's default datasource; prometheus scrape.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/grafana
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9090"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: thanos-store-gateway-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: thanos-store-gateway
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/thanos-query
+      to:
+        - operation:
+            ports: ["10901"]
+    # Prometheus scrapes the exporter on :10902.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["10902"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: thanos-compact-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: thanos-compact
+  action: ALLOW
+  rules:
+    # Prometheus scrapes the exporter on :10902.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["10902"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: alertmanager-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: alertmanager
+  action: ALLOW
+  rules:
+    # prometheus forwards alerts (and scrapes :9093/metrics); platform proxies
+    # the /api/observability/alerts read API.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            ports: ["9093"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: jaeger-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: jaeger
+  action: ALLOW
+  rules:
+    # OTLP exporters (every server service).
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/quota
+              - cluster.local/ns/pipeline-builder/sa/billing
+              - cluster.local/ns/pipeline-builder/sa/message
+              - cluster.local/ns/pipeline-builder/sa/reporting
+              - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/image-registry
+              - cluster.local/ns/pipeline-builder/sa/ask
+      to:
+        - operation:
+            ports: ["4317", "4318"]
+    # Query UI/API: the grafana Jaeger datasource and kiali's tracing tab.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/grafana
+              - cluster.local/ns/pipeline-builder/sa/kiali
+      to:
+        - operation:
+            ports: ["16686"]
+    # Prometheus scrapes the exporter on :14269.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["14269"]

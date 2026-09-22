@@ -7,6 +7,24 @@ import { MAX_REPORT_RANGE_DAYS } from './report-helpers.js';
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * The org whose retention governs a request's reports: the account ROOT.
+ * Retention is a billing entitlement that billing syncs onto the root only, so a
+ * team must read its root's window (else it'd be capped at the env default while
+ * the account paid for more). The root comes from the verified JWT
+ * (`rootOrganizationId`, absent on a flat org). A sysadmin acting on another org
+ * via the header override carries claims about their OWN org, so they read the
+ * target org's own row.
+ */
+export function retentionOrgIdFor(
+  req: { user?: { isSuperAdmin?: boolean; organizationId?: string; rootOrganizationId?: string } },
+  orgId: string,
+): string {
+  const user = req.user;
+  if (!user || user.isSuperAdmin === true || user.organizationId !== orgId) return orgId;
+  return user.rootOrganizationId ?? orgId;
+}
+
 /** Which retention window a report reads against. */
 export type RetentionKind = 'event' | 'dora';
 
@@ -89,9 +107,10 @@ export function orgRetentionWindowFromSettings(
 export async function resolveOrgRetentionWindow(
   orgId: string,
   kind: RetentionKind,
+  retentionOrgId: string,
   now: number = Date.now(),
 ): Promise<RetentionWindow> {
-  const s = await reportingService.getIncidentSettings(orgId);
+  const s = await reportingService.getIncidentSettings(orgId, retentionOrgId);
   return orgRetentionWindowFromSettings(s as RetentionSettings, kind, now);
 }
 
@@ -123,8 +142,10 @@ export async function parseOrgReportRange(
   query: Record<string, unknown>,
   orgId: string,
   kind: RetentionKind,
+  /** The account root whose retention applies — see {@link retentionOrgIdFor}. */
+  retentionOrgId: string,
 ): Promise<{ from: string; to: string } | { error: string }> {
-  const win = await resolveOrgRetentionWindow(orgId, kind);
+  const win = await resolveOrgRetentionWindow(orgId, kind, retentionOrgId);
   const range = parseDateRange(query, { maxRangeMs: win.maxRangeMs });
   if ('error' in range) return range;
   return floorFrom(range, win.minFromMs);

@@ -8,6 +8,7 @@
 // exact specifier the code under test imports.
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGenerateText = jest.fn<(...args: any[]) => any>();
@@ -41,7 +42,7 @@ const mockCreateModelWithKey = jest.fn((provider: string, modelId: string) => {
   return { provider, modelId, customKey: true };
 });
 
-jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   generateText: mockGenerateText,
   streamText: mockStreamText,
   Output: {

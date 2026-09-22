@@ -48,8 +48,14 @@ let passkeys = 0;
 function findDoc(filter: Record<string, unknown>): { doc: TotpDoc; recoveryIndex: number } | null {
   for (const doc of docs) {
     if (filter.userId !== undefined && doc.userId !== String(filter.userId)) continue;
-    if (filter.activatedAt !== undefined && doc.activatedAt === null) continue;
+    if (filter.activatedAt === null && doc.activatedAt !== null) continue;
+    if (filter.activatedAt !== undefined && filter.activatedAt !== null && doc.activatedAt === null) continue;
     if (filter.lastUsedStep !== undefined && doc.lastUsedStep !== filter.lastUsedStep) continue;
+    // The claim's "no live lockout" condition: `$or: [{ lockedUntil: null }, { lockedUntil: { $lte: now } }]`.
+    if (Array.isArray(filter.$or)) {
+      const now = ((filter.$or[1] as { lockedUntil: { $lte: Date } }).lockedUntil.$lte).getTime();
+      if (doc.lockedUntil && doc.lockedUntil.getTime() > now) continue;
+    }
     return { doc, recoveryIndex: -1 };
   }
   return null;
@@ -133,6 +139,11 @@ jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
 const mockMethods = jest.fn(() => ({ hasPassword: true, hasProvider: false, passkeyCount: 0, hasTotp: true }));
 const mockRetains = jest.fn(() => true);
 jest.unstable_mockModule('../src/helpers/sign-in-methods.js', () => ({
+  // Faithful to the real guard: the check and the delete are one decision.
+  removeUnlessLastSignInMethod: async (_u: unknown, _r: unknown, refusal: string, fn: (s: unknown) => Promise<boolean>) => {
+    if (!mockRetains()) throw new Error(refusal);
+    return fn(undefined);
+  },
   loadSignInMethods: async () => mockMethods(),
   retainsSignInMethod: () => mockRetains(),
 }));
@@ -319,6 +330,25 @@ describe('recovery codes', () => {
     expect(await totp.getStatus(USER)).toMatchObject({
       enabled: true, recoveryCodesRemaining: 9, recoveryCodesTotal: 10,
     });
+  });
+});
+
+describe('lockout — raced', () => {
+  it('a correct code that read the enrolment BEFORE a parallel lockout landed is refused', async () => {
+    await enrolAndActivate();
+    const doc = docs[0];
+    doc.lastUsedStep = 0; // the current code is fresh (not the activation's step)
+    // Simulate the lockout landing between the read and the claim: the claim's
+    // condition re-checks it, so the correct code does NOT clear the lockout.
+    const realFindOneAndUpdate = (await import('../src/models/index.js')).UserTotp.findOneAndUpdate as any;
+    const models = await import('../src/models/index.js') as any;
+    models.UserTotp.findOneAndUpdate = (f: any, u: any, o: any) => {
+      doc.lockedUntil = new Date(Date.now() + 60_000);
+      models.UserTotp.findOneAndUpdate = realFindOneAndUpdate;
+      return realFindOneAndUpdate(f, u, o);
+    };
+    await expect(totp.verifyCode(USER, await currentCode())).rejects.toThrow(errors.TOTP_LOCKED_OUT);
+    expect(doc.lockedUntil!.getTime()).toBeGreaterThan(Date.now());
   });
 });
 

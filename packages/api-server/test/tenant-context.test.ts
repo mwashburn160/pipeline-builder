@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Capture the tenant scope handed to runWithTenantContext so we can assert the
@@ -12,7 +13,7 @@ const capturedScopes: Array<Record<string, unknown>> = [];
 // allow-list silently breaks the suite every time a new export is used. Same
 // rationale as `apiCoreMock` — see helpers/mock-api-core.ts.
 const actualPipelineData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   ...actualPipelineData,
   runWithTenantContext: (scope: Record<string, unknown>, cb: () => unknown) => {
     capturedScopes.push(scope);

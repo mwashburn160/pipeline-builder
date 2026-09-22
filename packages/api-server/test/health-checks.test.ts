@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 
 const mockTestConnection = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   getConnection: () => ({ testConnection: mockTestConnection }),
 }));
 

@@ -25,7 +25,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
-const mockSeatCapacity = jest.fn(async () => true);
+const mockSeatCapacity = jest.fn(async (..._args: unknown[]) => true);
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: (...a: unknown[]) => mockSeatCapacity(...a),
   seatCapacityStillWithinCap: jest.fn(async () => true),

@@ -22,6 +22,7 @@
 import http from 'node:http';
 
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import express from 'express';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -95,7 +96,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   AIGenerateFromUrlBodySchema: {},
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   // Return the real Express app so index.ts assembles production wiring onto it.
@@ -138,7 +139,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incrementQuotaFromCtx: jest.fn(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({}),
   schema: {},
   // Scorecard route calls per-pipeline DORA in-process; stub the singleton.
@@ -147,7 +148,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   createSoftDeletePurgeScheduler: () => null,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ services: { pluginHost: 'localhost', pluginPort: 0 } }) },
   CoreConstants: {
     SSE_STREAM_TIMEOUT_MS: 1000,

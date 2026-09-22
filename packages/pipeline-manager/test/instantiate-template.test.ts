@@ -78,7 +78,7 @@ beforeEach(() => {
   }) as never);
 });
 
-afterEach(() => exitSpy.mockRestore());
+afterEach(() => { exitSpy.mockRestore(); });
 
 function runCli(args: string[]): Promise<unknown> {
   const program = new Command();
@@ -246,7 +246,7 @@ describe('template instantiate', () => {
     mockCreateAuthenticatedClient.mockReturnValue({
       getConfig: () => ({ api: { pipelineTemplateUrl: TEMPLATE_URL } }),
       get: jest.fn(),
-      post: jest.fn<() => Promise<unknown>>().mockResolvedValue({ success: true, data: {} }),
+      post: jest.fn<(...args: any[]) => Promise<unknown>>().mockResolvedValue({ success: true, data: {} }),
     });
 
     await expect(runCli([...BASE, '--id', 'tpl-1'])).rejects.toThrow(/__EXIT_/);

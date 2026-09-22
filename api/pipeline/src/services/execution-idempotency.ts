@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'crypto';
 import { createEnvRedisClient, createLogger, errorMessage } from '@pipeline-builder/api-core';
 
 const logger = createLogger('execution-idempotency');
@@ -37,26 +38,42 @@ function resolveWindowSeconds(): number {
  */
 export interface ExecIdemRedis {
   set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>;
-  del(key: string): Promise<number>;
+  /** Lua, for the owner-only release (compare-and-delete). */
+  eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
+}
+
+/** Delete the window only if it still holds OUR token. */
+const RELEASE_IF_OWNER =
+  'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end';
+
+/**
+ * A claimed window. `token` identifies THIS claim, so releasing it can never
+ * free a window a later trigger claimed after ours expired. `null` token = no
+ * Redis (nothing to release).
+ */
+export interface ExecutionClaim {
+  token: string | null;
 }
 
 export interface ExecutionIdempotencyGuard {
   /**
-   * Try to claim the execution window for (orgId, pipelineId). Returns `true`
-   * when THIS caller claimed it (no trigger within the window → proceed);
-   * `false` when a trigger is already in-window (→ the caller should 409 rather
-   * than start a duplicate run). FAILS OPEN (returns `true`) when Redis is
+   * Try to claim the execution window for (orgId, pipelineId). Returns the
+   * claim when THIS caller took it (no trigger within the window → proceed);
+   * `null` when a trigger is already in-window (→ the caller should 409 rather
+   * than start a duplicate run). FAILS OPEN (a token-less claim) when Redis is
    * unconfigured or unreachable — single-replica deploys keep working, and a
    * transient Redis outage never blocks a legitimate trigger.
    */
-  claim(orgId: string, pipelineId: string): Promise<boolean>;
+  claim(orgId: string, pipelineId: string): Promise<ExecutionClaim | null>;
   /**
-   * Release a previously-claimed window so a legitimate retry isn't blocked for the
-   * full TTL after a FAILED trigger (the claim is taken before the AWS call; if that
-   * call errors the run never started, so the window should reopen immediately).
-   * Best-effort — a Redis error is swallowed (TTL is the backstop).
+   * Release a claimed window so a legitimate retry isn't blocked for the full
+   * TTL after a trigger that DEFINITELY did not start a run (the pipeline isn't
+   * registered / doesn't exist in AWS). Never call it after an ambiguous failure
+   * (a network timeout, an AWS 5xx): the run may have started, and reopening the
+   * window is exactly what lets the retry launch a duplicate. Owner-only
+   * (compare-and-delete on the claim's token); best-effort — TTL is the backstop.
    */
-  release(orgId: string, pipelineId: string): Promise<void>;
+  release(orgId: string, pipelineId: string, claim: ExecutionClaim): Promise<void>;
 }
 
 const REDIS_KEY_PREFIX = 'pipeline-exec:';
@@ -69,24 +86,25 @@ export function createExecutionIdempotencyGuard(
   const ttl = Math.max(1, windowSeconds);
   return {
     async claim(orgId, pipelineId) {
-      if (!redis) return true; // No Redis → no cross-pod dedup; fail open.
+      if (!redis) return { token: null }; // No Redis → no cross-pod dedup; fail open.
       const key = `${REDIS_KEY_PREFIX}${orgId}:${pipelineId}`;
+      const token = randomUUID();
       try {
-        const res = await redis.set(key, '1', 'EX', ttl, 'NX');
+        const res = await redis.set(key, token, 'EX', ttl, 'NX');
         // 'OK' → we set it (window was free). null → an entry already exists.
-        return res === 'OK';
+        return res === 'OK' ? { token } : null;
       } catch (err) {
         // Redis hiccup: fail OPEN so a transient outage doesn't reject triggers.
         logger.warn('Execution idempotency claim failed; proceeding without dedup', {
           error: errorMessage(err),
         });
-        return true;
+        return { token: null };
       }
     },
-    async release(orgId, pipelineId) {
-      if (!redis) return;
+    async release(orgId, pipelineId, claim) {
+      if (!redis || !claim.token) return;
       try {
-        await redis.del(`${REDIS_KEY_PREFIX}${orgId}:${pipelineId}`);
+        await redis.eval(RELEASE_IF_OWNER, 1, `${REDIS_KEY_PREFIX}${orgId}:${pipelineId}`, claim.token);
       } catch (err) {
         // TTL is the backstop — a failed release just means the window closes late.
         logger.warn('Execution idempotency release failed; window will expire via TTL', {

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import { isLocalHttpsHost, httpsAgentForUrl, relaxTlsForCli, isProductionEnv, assertSslDisableAllowed } from '../src/utils/tls.js';
 
@@ -19,7 +20,7 @@ describe('isLocalHttpsHost', () => {
 describe('relaxTlsForCli', () => {
   let savedNodeEnv: string | undefined;
   let savedTls: string | undefined;
-  const warn = jest.fn();
+  const warn = jest.fn<AnyFn>();
 
   beforeEach(() => {
     savedNodeEnv = process.env.NODE_ENV;
@@ -51,7 +52,7 @@ describe('relaxTlsForCli', () => {
     expect(relaxTlsForCli(false, warn)).toBe(false);
     expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/production/i);
+    expect(warn.mock.calls[0]![0]).toMatch(/production/i);
   });
 });
 

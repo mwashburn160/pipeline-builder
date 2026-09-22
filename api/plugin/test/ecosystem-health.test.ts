@@ -177,6 +177,20 @@ describe('the stats sweep (W7)', () => {
     await stats.refreshAllStats();
     expect(seen.find((s) => s.includes('pipeline_events'))).toMatch(/COUNT\(\*\)::int AS "runs30d"/);
   });
+
+  it('joins runtime and installs on the publisher ID, and counts only LIVE pipelines\' manifests (E8/E12)', async () => {
+    const { acme } = seedPublishers(db);
+    seedHealthy(acme.id, 'lint');
+    const seen: string[] = [];
+    db.execute.handler = (q) => { seen.push(dialect.sqlToQuery(q as never).sql); return { rows: [] }; };
+    await stats.refreshAllStats();
+    const installSql = seen.find((s) => s.includes('plugin_installs'))!;
+    expect(installSql).toMatch(/JOIN pipelines pl ON pl\.id = m\.pipeline_id AND pl\.deleted_at IS NULL/);
+    expect(installSql).toMatch(/l\.publisher_id = m\.plugin_publisher_id/);
+    const runtime = seen.find((s) => s.includes('pipeline_events'))!;
+    expect(runtime).toMatch(/l\.publisher_id = e\.plugin_publisher_id/);
+    expect(seen.join('\n')).not.toMatch(/p\.handle = /);
+  });
 });
 
 describe('base-image age at publish', () => {

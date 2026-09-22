@@ -35,8 +35,8 @@ import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { User } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
 import {
-  consumePasswordChangeChallenge,
-  peekPasswordChangeChallenge,
+  claimPasswordChangeChallenge,
+  restorePasswordChangeChallenge,
 } from '../services/password-change-challenge.js';
 import { issueTokens } from '../utils/token.js';
 import { requiredPasswordChangeSchema, validateBody } from '../utils/validation.js';
@@ -45,7 +45,8 @@ export const completeRequiredPasswordChange = withController('Required password 
   const body = validateBody(requiredPasswordChangeSchema, req.body, res);
   if (!body) return;
 
-  const pending = await peekPasswordChangeChallenge(body.challengeId);
+  // Claimed atomically: of two concurrent completions exactly one proceeds.
+  const pending = await claimPasswordChangeChallenge(body.challengeId);
   if (!pending) {
     // Not an oracle: the handle is 256 unguessable bits. The UI needs to know to
     // send the person back to the password field.
@@ -56,17 +57,25 @@ export const completeRequiredPasswordChange = withController('Required password 
   if (!user || !user.password) {
     return sendError(res, 401, 'This sign-in expired. Please sign in again.', 'PASSWORD_CHANGE_CHALLENGE_INVALID');
   }
-  if (await user.comparePassword(body.newPassword)) {
-    return sendError(res, 400, 'Choose a password different from your current one', 'PASSWORD_UNCHANGED');
-  }
-  // Org policy (strictest across the person's orgs) + breached-password check.
-  await assertNewPasswordAcceptable(body.newPassword, { userId: pending.userId });
+  // A refused password hands the handle back (with its remaining life), so the
+  // person can choose another without signing in again.
+  let saved = false;
+  try {
+    if (await user.comparePassword(body.newPassword)) {
+      return sendError(res, 400, 'Choose a password different from your current one', 'PASSWORD_UNCHANGED');
+    }
+    // Org policy (strictest across the person's orgs) + breached-password check.
+    await assertNewPasswordAcceptable(body.newPassword, { userId: pending.userId });
 
-  user.password = body.newPassword;
-  user.tokenVersion += 1;
-  await user.save();
-  // Spent only now — a refused password above leaves the handle usable.
-  await consumePasswordChangeChallenge(body.challengeId);
+    user.password = body.newPassword;
+    // HARD revocation (tokenVersion + every refresh slot), as for any password change.
+    user.tokenVersion += 1;
+    user.refreshSessions = [];
+    await user.save();
+    saved = true;
+  } finally {
+    if (!saved) await restorePasswordChangeChallenge(body.challengeId, pending);
+  }
   await publishUserRevocation(pending.userId);
   audit(req, 'user.password.change', {
     targetType: 'user',

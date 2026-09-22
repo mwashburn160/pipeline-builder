@@ -44,6 +44,8 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({ seatCapacityAvailable: jest.fn(async () => true), seatCapacityStillWithinCap: jest.fn(async () => true), userHasSeatInAccount: jest.fn(async () => false) }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
   publishUserRevocation: (...a: unknown[]) => mockPublishUser(...a),
   publishUserDeletionRevocation: jest.fn(async () => undefined),
 }));
@@ -74,6 +76,9 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   assertNewPasswordAcceptable: jest.fn(async () => undefined),
 }));
 
+// A user's SAML SLO sessions go with the user (user-cascade imports the model directly).
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({ default: { deleteMany: async () => ({ deletedCount: 0 }) } }));
+
 const { userAdminService } = await import('../src/services/user-admin-service.js');
 
 beforeEach(() => {
@@ -82,7 +87,7 @@ beforeEach(() => {
 });
 
 describe('UserAdminService.updateFeatures → session invalidation', () => {
-  it('bumps tokenVersion and publishes the revocation after saving the overrides', async () => {
+  it('bumps claimsVersion (a CLAIMS change — sessions survive) and publishes after saving the overrides', async () => {
     const userDoc: any = {
       _id: 'user1',
       username: 'alice',
@@ -91,6 +96,7 @@ describe('UserAdminService.updateFeatures → session invalidation', () => {
       isSuperAdmin: false,
       lastActiveOrgId: { toString: () => 'org1' },
       tokenVersion: 3,
+      claimsVersion: 1,
       save: mockSave,
     };
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve(userDoc) });
@@ -99,8 +105,10 @@ describe('UserAdminService.updateFeatures → session invalidation', () => {
 
     // The override Map was applied...
     expect((user.featureOverrides as Map<string, boolean>).get('audit_log')).toBe(true);
-    // ...tokenVersion was bumped (3 → 4) so requireAuth drops the old tokens...
-    expect(user.tokenVersion).toBe(4);
+    // ...claimsVersion was bumped (1 → 2) so every service drops the old ACCESS
+    // tokens, while tokenVersion — what refresh tokens carry — is untouched...
+    expect(user.claimsVersion).toBe(2);
+    expect(user.tokenVersion).toBe(3);
     expect(mockSave).toHaveBeenCalledTimes(1);
     // ...and the new version was published to the stateless services.
     expect(mockPublishUser).toHaveBeenCalledTimes(1);

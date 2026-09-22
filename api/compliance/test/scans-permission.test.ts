@@ -17,12 +17,14 @@
  * Reads (GET /, GET /:id) stay open and are covered elsewhere.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const createMock = jest.fn(async () => ({ id: 'scan-1', target: 'all' }));
-const cancelMock = jest.fn(async () => ({ id: 'scan-1', status: 'cancelled' }));
-const emitComplianceAuditMock = jest.fn();
+const createMock = jest.fn(async (..._args: unknown[]) => ({ id: 'scan-1', target: 'all' }));
+const cancelMock = jest.fn(async (..._args: unknown[]) => ({ id: 'scan-1', status: 'cancelled' }));
+const emitComplianceAuditMock = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
@@ -44,7 +46,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
-  sendPaginatedNested: jest.fn(),
+  sendPaginatedNested: jest.fn<AnyFn>(),
   sendEntityNotFound: jest.fn((res: any) => res.status(404).json({ message: 'not found' })),
   // Real gate semantics: 403 unless the caller holds the required permission.
   requirePermission: (perm: string) => (req: any, res: any, next: () => void) => {
@@ -54,10 +56,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
-    await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
+    await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
@@ -93,8 +95,8 @@ async function runRoute(method: 'post', path: string, req: any, res: any) {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, status, json };
 }
 

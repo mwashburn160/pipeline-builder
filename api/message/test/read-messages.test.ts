@@ -9,7 +9,9 @@
  * unscoped `findById` is wired to throw so a regression to it fails loudly.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import {
   createMockQuotaService,
@@ -21,12 +23,12 @@ import {
   routeApiServerMock,
 } from './helpers/route-test-utils.js';
 
-const mockFindPaginated = jest.fn<(...args: unknown[]) => unknown>();
-const mockFindAnnouncements = jest.fn<(...args: unknown[]) => unknown>();
-const mockFindConversations = jest.fn<(...args: unknown[]) => unknown>();
-const mockGetUnreadCount = jest.fn<(...args: unknown[]) => unknown>();
-const mockFindVisibleById = jest.fn<(...args: unknown[]) => unknown>();
-const mockFindThreadMessages = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindPaginated = jest.fn<AnyFn>();
+const mockFindAnnouncements = jest.fn<AnyFn>();
+const mockFindConversations = jest.fn<AnyFn>();
+const mockGetUnreadCount = jest.fn<AnyFn>();
+const mockFindVisibleById = jest.fn<AnyFn>();
+const mockFindThreadMessages = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -49,11 +51,11 @@ jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
     findByMessageId: jest.fn(async () => []),
     findByMessageIds: jest.fn(async () => []),
     findById: jest.fn(async () => null),
-    createPending: jest.fn(),
+    createPending: jest.fn<AnyFn>(),
   },
 }));
 
-const mockListReachableOrgs = jest.fn<(...args: unknown[]) => unknown>();
+const mockListReachableOrgs = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
   listReachableOrgs: mockListReachableOrgs,
   isRecipientReachable: jest.fn(async () => true),
@@ -62,7 +64,7 @@ jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
 }));
 
@@ -75,7 +77,7 @@ const readRouter = createReadMessageRoutes(mockQuotaService);
 describe('GET /messages (inbox)', () => {
   const handler = getHandler(readRouter, 'get', '/');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns paginated messages', async () => {
     mockFindPaginated.mockResolvedValue({
@@ -113,7 +115,7 @@ describe('GET /messages (inbox)', () => {
 describe('GET /messages/announcements', () => {
   const handler = getHandler(readRouter, 'get', '/announcements');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns a paginated announcements page', async () => {
     const announcements = [{ id: '1', subject: 'System update', messageType: 'announcement' }];
@@ -153,7 +155,7 @@ describe('GET /messages/announcements', () => {
 describe('GET /messages/conversations', () => {
   const handler = getHandler(readRouter, 'get', '/conversations');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns a paginated conversations page', async () => {
     const conversations = [{ id: '1', subject: 'Question', messageType: 'conversation' }];
@@ -193,7 +195,7 @@ describe('tab endpoints are independently filtered + paginated', () => {
   const announcements = getHandler(readRouter, 'get', '/announcements');
   const conversations = getHandler(readRouter, 'get', '/conversations');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('reports the SERVER-side total for the tab, not the page size', async () => {
     // 2 rows on this page but 97 announcements in the org: the envelope must
@@ -215,7 +217,7 @@ describe('tab endpoints are independently filtered + paginated', () => {
   });
 
   it('pages the tab on its OWN offset (not the mixed inbox\'s)', async () => {
-    (parsePaginationParams as unknown as jest.Mock).mockReturnValueOnce({ limit: 25, offset: 50, sortBy: 'createdAt', sortOrder: 'desc' });
+    (parsePaginationParams as unknown as jest.Mock<AnyFn>).mockReturnValueOnce({ limit: 25, offset: 50, sortBy: 'createdAt', sortOrder: 'desc' });
     mockFindConversations.mockResolvedValue({ data: [], total: 60, limit: 25, offset: 50, hasMore: false });
 
     await conversations(mockReq(), mockRes());
@@ -231,7 +233,7 @@ describe('tab endpoints are independently filtered + paginated', () => {
   });
 
   it('forwards the free-text search term to the tab query', async () => {
-    (validateQuery as unknown as jest.Mock).mockReturnValueOnce({ ok: true, value: { search: 'outage' } });
+    (validateQuery as unknown as jest.Mock<AnyFn>).mockReturnValueOnce({ ok: true, value: { search: 'outage' } });
     mockFindAnnouncements.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
 
     await announcements(mockReq(), mockRes());
@@ -240,7 +242,7 @@ describe('tab endpoints are independently filtered + paginated', () => {
   });
 
   it('forwards read-state, priority and channel filters to the tab query', async () => {
-    (validateQuery as unknown as jest.Mock).mockReturnValueOnce({ ok: true, value: { isRead: false, priority: 'urgent', channel: 'support' } });
+    (validateQuery as unknown as jest.Mock<AnyFn>).mockReturnValueOnce({ ok: true, value: { isRead: false, priority: 'urgent', channel: 'support' } });
     mockFindConversations.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
 
     await conversations(mockReq(), mockRes());
@@ -253,7 +255,7 @@ describe('tab endpoints are independently filtered + paginated', () => {
   });
 
   it('rejects an invalid query with a 400 instead of silently ignoring it', async () => {
-    (validateQuery as unknown as jest.Mock).mockReturnValueOnce({ ok: false, error: 'search must be <= 200 chars' });
+    (validateQuery as unknown as jest.Mock<AnyFn>).mockReturnValueOnce({ ok: false, error: 'search must be <= 200 chars' });
 
     const res = mockRes();
     await conversations(mockReq(), res);
@@ -266,7 +268,7 @@ describe('tab endpoints are independently filtered + paginated', () => {
 describe('GET /messages/unread/count', () => {
   const handler = getHandler(readRouter, 'get', '/unread/count');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns unread count', async () => {
     mockGetUnreadCount.mockResolvedValue(5);
@@ -298,7 +300,7 @@ describe('GET /messages/unread/count', () => {
 describe('GET /messages/:id', () => {
   const handler = getHandler(readRouter, 'get', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns a message by ID', async () => {
     const message = { id: 'msg-1', subject: 'Hello' };
@@ -351,7 +353,7 @@ describe('GET /messages/:id', () => {
 describe('GET /messages/:id/thread', () => {
   const handler = getHandler(readRouter, 'get', '/:id/thread');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns thread messages sorted by date', async () => {
     const root = { id: 'msg-1', subject: 'Hello', createdAt: '2026-01-01T00:00:00Z' };
@@ -399,7 +401,7 @@ describe('GET /messages/:id/thread', () => {
 describe('GET /messages/recipients/orgs', () => {
   const handler = getHandler(readRouter, 'get', '/recipients/orgs');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns the caller account\'s reachable orgs as { orgs }', async () => {
     const orgs = [

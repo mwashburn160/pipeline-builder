@@ -127,7 +127,7 @@ services should not log them in the first place.
 |---|---|---|
 | `LOKI_URL` | platform env | Defaults to `http://loki:3100` |
 | `LOKI_BASE_SELECTOR` | platform env | Anchor matcher when no label is constrained; defaults to `service_name=~".+"` |
-| `auth_enabled: true` | `config/loki/loki-config.yml` | Per-organization tenancy. **Every** Loki client must then send `X-Scope-OrgID`, Grafana included |
+| `auth_enabled: true` | `deploy/shared/config/loki/loki-config.yml` | Per-organization tenancy. **Every** Loki client must then send `X-Scope-OrgID`, Grafana included |
 | `multi_tenant_queries_enabled: true` | same | Lets an admin read several tenants in one query |
 | `allow_structured_metadata: true` | same | Required, or Loki rejects the `orgId` metadata promtail attaches |
 | `deletion_mode: filter-and-delete` | same | Enables per-tenant deletion when an organization is removed |

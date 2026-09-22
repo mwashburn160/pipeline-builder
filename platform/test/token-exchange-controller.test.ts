@@ -10,14 +10,15 @@
  * and a success row attributed to the key's OWNER naming the key that was used.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockExchange = jest.fn<(...a: unknown[]) => unknown>();
-const mockRotate = jest.fn<(...a: unknown[]) => unknown>();
-const mockRevokeSibling = jest.fn<(...a: unknown[]) => unknown>();
-const mockAudit = jest.fn();
-const mockIncCounter = jest.fn();
+const mockExchange = jest.fn<AnyFn>();
+const mockRotate = jest.fn<AnyFn>();
+const mockRevokeSibling = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
+const mockIncCounter = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, message: string, code?: string) => res.status(status).json({ success: false, message, code }),
@@ -38,15 +39,15 @@ const { exchangeToken, rotateKey, revokeKey } = await import('../src/controllers
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function mockRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
 async function invoke(handler: unknown, body: unknown) {
   const req: any = { body, headers: {}, ip: '203.0.113.7' };
   const res = mockRes();
-  await (handler as any)(req, res, jest.fn());
+  await (handler as any)(req, res, jest.fn<AnyFn>());
   return { req, res };
 }
 const run = (body: unknown) => invoke(exchangeToken, body);
@@ -87,7 +88,7 @@ const SUCCESS = {
   organizationId: 'org-1',
 };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('POST /auth/token/exchange', () => {
   it('returns the minted token, its lifetime and the key id', async () => {

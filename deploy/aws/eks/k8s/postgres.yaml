@@ -71,6 +71,10 @@ spec:
       containers:
         - name: postgres
           image: postgres@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae  # postgres:18
+          # Sized for 2 pgbouncer replicas x 85 capped server connections + 30
+          # headroom (see pgbouncer.yaml POOL SIZING). The entrypoint passes
+          # `-c` flags through to postgres.
+          args: ["-c", "max_connections=200"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

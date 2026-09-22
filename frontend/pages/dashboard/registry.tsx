@@ -220,7 +220,7 @@ export default function RegistryPage() {
   ) => {
     setDeleteRepo(null);
     if (repo === name) setQuery({ repo: null, tag: null, platform: null });
-    refresh();
+    void refresh();
     if (result.alreadyEmpty) {
       toast.success(`Pruned empty repository ${name}`);
     } else {

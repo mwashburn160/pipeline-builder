@@ -49,7 +49,9 @@ export interface VerifiedEligibility {
 /** Whether the org's plan includes `verified_publisher` (null = the quota service didn't answer). */
 async function planIncludesVerified(orgId: string): Promise<boolean | null> {
   try {
-    const tier = await ecosystemDeps().quotaService.getTier(orgId, getQuotaServiceAuthHeader(orgId));
+    // Fail-closed read (E4): an outage is "unknown", never the fallback DEFAULT_TIER.
+    const tier = await ecosystemDeps().quotaService.getTierStrict(orgId, getQuotaServiceAuthHeader(orgId));
+    if (tier === null) return null;
     return (TIER_FEATURES[tier] ?? []).includes('verified_publisher');
   } catch {
     return null;

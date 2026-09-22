@@ -31,9 +31,11 @@ function makeClient(baseUrl: string, authHeader: string): ServiceClient {
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });
     if (!res.ok) {
-      let detail = '';
-      try { detail = JSON.stringify(await res.json()); } catch { /* non-JSON body */ }
-      throw new Error(`${init.method ?? 'GET'} ${path} -> ${res.status} ${detail}`.trim());
+      // Status only — never the downstream body. The error text reaches the
+      // model as a tool result (and can surface to the user); an internal
+      // service's error body can carry stack traces, SQL, internal ids or
+      // another request's details.
+      throw new Error(`${init.method ?? 'GET'} ${path} -> ${res.status}`);
     }
     return res.json();
   };

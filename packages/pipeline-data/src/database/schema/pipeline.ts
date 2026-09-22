@@ -128,27 +128,26 @@ export const pipeline = pgTable('pipelines', {
   // Partial index over just the tombstones — drives the retention purge sweep
   // (`WHERE deleted_at IS NOT NULL AND purge_after < now`) without scanning live rows.
   purgeIdx: index('pipeline_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
-  // Indexes for common queries
-  projectIdx: index('pipeline_project_idx').on(table.project),
+  // Mirrors the indexes postgres-init.sql creates, name for name (the SQL file is
+  // what deploys; schema-reflection.test.ts keeps the two in lock-step).
+  orgIdIdx: index('idx_pipelines_org_id').on(table.orgId).where(sql`deleted_at IS NULL`),
+  projectIdx: index('idx_pipelines_project').on(table.project).where(sql`deleted_at IS NULL`),
+  organizationIdx: index('idx_pipelines_organization').on(table.organization).where(sql`deleted_at IS NULL`),
+  projectOrgIdx: index('idx_pipelines_project_org').on(table.project, table.organization).where(sql`deleted_at IS NULL`),
+  visibilityIdx: index('idx_pipelines_visibility').on(table.visibility).where(sql`deleted_at IS NULL`),
+  isDefaultIdx: index('idx_pipelines_is_default')
+    .on(table.project, table.organization, table.isDefault).where(sql`is_default = true AND deleted_at IS NULL`),
+  activeIdx: index('idx_pipelines_is_active').on(table.isActive).where(sql`deleted_at IS NULL`),
+  orgCreatedIdx: index('idx_pipelines_org_created').on(table.orgId, sql`${table.createdAt} DESC`).where(sql`deleted_at IS NULL`),
+
   // Developer-portal catalog indexes: "my services" (owner) + lifecycle filter.
   ownerIdx: index('pipeline_owner_idx').on(table.orgId, table.ownerId),
   lifecycleIdx: index('pipeline_lifecycle_idx').on(table.orgId, table.lifecycle),
-  organizationIdx: index('pipeline_organization_idx').on(table.organization),
-  orgIdIdx: index('pipeline_org_id_idx').on(table.orgId),
-  activeIdx: index('pipeline_active_idx').on(table.isActive),
-  createdAtIdx: index('pipeline_created_at_idx').on(table.createdAt),
-  updatedAtIdx: index('pipeline_updated_at_idx').on(table.updatedAt),
-
-  // Composite index for common access pattern (orgId + isActive)
-  orgActiveIdx: index('pipeline_org_active_idx').on(table.orgId, table.isActive),
 
   // Composite index for filtered queries (orgId + visibility + isActive)
   orgVisibilityActiveIdx: index('pipeline_org_visibility_active_idx').on(table.orgId, table.visibility, table.isActive),
   // Drives the "my private drafts" leg of the visibility predicate.
   createdByIdx: index('pipeline_created_by_idx').on(table.orgId, table.createdBy),
-
-  // Partial index for active-only queries (smaller, faster than full index)
-  activeOnlyOrgIdx: index('pipeline_active_only_org_idx').on(table.orgId, table.createdAt).where(sql`is_active = true`),
 
   // Unique constraint on project + organization + orgId
   projectOrgUnique: uniqueIndex('pipeline_project_org_unique')
@@ -184,6 +183,8 @@ export const pipelineRegistry = pgTable('pipeline_registry', {
 }, (table) => ({
   orgIdIdx: index('registry_org_id_idx').on(table.orgId),
   orgRegionIdx: index('registry_org_region_idx').on(table.orgId, table.region),
+  // One registry row per pipeline (the registration upsert's conflict target).
+  pipelineIdUnique: uniqueIndex('registry_pipeline_id_idx').on(table.pipelineId),
 }));
 
 /**
@@ -237,6 +238,9 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // stage_name, action_name). `pluginPublisher` is NULL for an own-org plugin;
   // all three are NULL for non-plugin actions and unrecorded synths.
   pluginPublisher: varchar('plugin_publisher', { length: 39 }),
+  // The publisher's ID (a handle can change on a claim or profile change; the
+  // listing stats join on this, never on the handle). NULL like pluginPublisher.
+  pluginPublisherId: uuid('plugin_publisher_id'),
   pluginName: varchar('plugin_name', { length: 255 }),
   pluginVersion: varchar('plugin_version', { length: 50 }),
   detail: jsonb('detail').$type<Record<string, unknown>>(),
@@ -264,7 +268,7 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // column index never matches for those types and onConflictDoNothing can't dedup
   // their at-least-once re-deliveries. Collapsing NULL→'' makes equal events equal.
   // (drizzle's uniqueIndex can't express NULLS NOT DISTINCT on a partial index, so
-  // we use the equivalent expression index.) MIGRATION REQUIRED: drizzle-kit generate.
+  // we use the equivalent expression index.) Created by postgres-init.sql.
   dedupIdx: uniqueIndex('event_dedup_idx')
     .on(
       sql`coalesce(${table.pipelineId}::text, '')`,
@@ -282,7 +286,7 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // Partial (environment IS NOT NULL) keeps it small — legacy/CI-only events
   // aren't indexed. The default run-based DORA path (no environment) can't use
   // this partial index; it relies on event_pipeline_type_started_idx below.
-  // MIGRATION REQUIRED: drizzle-kit generate.
+  // Created by postgres-init.sql.
   envTypeStartedIdx: index('event_env_type_started_idx')
     .on(table.environment, table.eventType, table.startedAt)
     .where(sql`environment IS NOT NULL`),
@@ -290,13 +294,13 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // DORA path filters `event_type='PIPELINE' AND started_at BETWEEN …` joined on
   // pipeline_id, but the other event composite index is on created_at, not
   // started_at — so the range scan had no ideal index. This composite serves the
-  // join-driven scan by pipeline_id. MIGRATION REQUIRED: drizzle-kit generate.
+  // join-driven scan by pipeline_id. Created by postgres-init.sql.
   pipelineTypeStartedIdx: index('event_pipeline_type_started_idx')
     .on(table.pipelineId, table.eventType, table.startedAt),
   // DORA deploy-basis scan (Phase 1): deployment frequency / deploy-time CFR /
   // lead time all group deploy-stage events by environment over a completed_at
   // window. This composite serves that grouped org-scoped scan directly.
-  // MIGRATION REQUIRED: drizzle-kit generate.
+  // Created by postgres-init.sql.
   orgEnvCompletedIdx: index('event_org_env_completed_idx')
     .on(table.orgId, table.environment, table.completedAt),
   // Per-plugin runtime reporting (success rate / duration per plugin version).
@@ -304,6 +308,10 @@ export const pipelineEvent = pgTable('pipeline_events', {
   pluginIdx: index('event_plugin_idx')
     .on(table.pluginPublisher, table.pluginName, table.pluginVersion, table.completedAt)
     .where(sql`plugin_name IS NOT NULL`),
+  // Listing adoption / success rate (plugin stats sweep), keyed on the publisher id.
+  pluginPublisherIdIdx: index('event_plugin_publisher_id_idx')
+    .on(table.pluginPublisherId, table.pluginName, table.completedAt)
+    .where(sql`plugin_publisher_id IS NOT NULL`),
 }));
 
 /**

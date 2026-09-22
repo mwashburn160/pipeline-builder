@@ -10,18 +10,20 @@
 
 // Mocks  must be defined before imports
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockCreateAsDefault = jest.fn();
+const mockCreateAsDefault = jest.fn<AnyFn>();
 // The route calls createAsDefaultReportInserted, which returns {pipeline, inserted}.
 // Existing tests set the resolved *pipeline* on mockCreateAsDefault, so the mock
 // below wraps it; `insertedResult` controls the inserted flag (default: a fresh
 // create) and the over-count test flips it to exercise the quota refund path.
 let insertedResult = true;
-const mockIncrement = jest.fn().mockResolvedValue(undefined);
+const mockIncrement = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const mockReserveQuota = jest.fn<(...args: any[]) => any>().mockResolvedValue({ exceeded: false, quota: { type: 'pipelines', limit: 100, used: 1, remaining: 99 } });
-const mockDecrementQuota = jest.fn();
+const mockDecrementQuota = jest.fn<AnyFn>();
 const mockSendQuotaReserveDenied = jest.fn((res: any, _t: string, r: any) => {
   if (r.unavailable) return res.status(503).json({ success: false, statusCode: 503 });
   res.status(429).json({ success: false, statusCode: 429, quota: r.quota });
@@ -44,10 +46,10 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   },
 }));
 
-const mockEmitPipelineAudit = jest.fn();
+const mockEmitPipelineAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitPipelineAudit: mockEmitPipelineAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 const mockValidatePipeline = jest.fn<(...args: any[]) => any>().mockResolvedValue({ blocked: false, violations: [] });
@@ -78,7 +80,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     return { ok: true, value: req.body };
   }),
   PipelineCreateSchema: {},
-  incrementQuota: jest.fn(),
+  incrementQuota: jest.fn<AnyFn>(),
   // reserve+rollback pattern. Reserve returns "not exceeded" by
   // default; tests that exercise the over-quota path can override via
   // `mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota:... })`.
@@ -97,7 +99,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
@@ -122,10 +124,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  incrementQuotaFromCtx: jest.fn(),
+  incrementQuotaFromCtx: jest.fn<AnyFn>(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   replaceNonAlphanumeric: jest.fn((str: string, replacement: string) =>
     str.replace(/[^a-zA-Z0-9]/g, replacement),
@@ -145,8 +147,8 @@ const { createCreatePipelineRoutes } = await import('../src/routes/create-pipeli
 
 const mockQuotaService = {
   increment: mockIncrement,
-  check: jest.fn(),
-  getUsage: jest.fn(),
+  check: jest.fn<AnyFn>(),
+  getUsage: jest.fn<AnyFn>(),
 } as any;
 
 const router = createCreatePipelineRoutes(mockQuotaService);
@@ -174,7 +176,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     headers: { authorization: 'Bearer tok' },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
       requestId: 'req-1',
     },
     ...overrides,
@@ -183,8 +185,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -293,7 +295,7 @@ describe('POST /pipelines (create)', () => {
   });
 
   it('returns 400 when body validation fails', async () => {
-    (validateBody as jest.Mock).mockReturnValueOnce({
+    (validateBody as jest.Mock<AnyFn>).mockReturnValueOnce({
       ok: false,
       error: 'project is required',
     });
@@ -336,7 +338,7 @@ describe('POST /pipelines (create)', () => {
     const req = mockReq({
       context: {
         identity: { orgId: '', userId: 'user-1' },
-        log: jest.fn(),
+        log: jest.fn<AnyFn>(),
         requestId: 'req-1',
       },
     });

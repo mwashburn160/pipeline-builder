@@ -12,18 +12,20 @@
  * them to read tenant secrets back in plaintext.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockListAll = jest.fn();
-const mockIsSystemAdmin = jest.fn();
-const mockRunWithTenantContext = jest.fn();
+const mockListAll = jest.fn<AnyFn>();
+const mockIsSystemAdmin = jest.fn<AnyFn>();
+const mockRunWithTenantContext = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: (req: any) => mockIsSystemAdmin(req),
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
-  sendQuotaReserveDenied: jest.fn(),
+  sendQuotaReserveDenied: jest.fn<AnyFn>(),
   // The write gate now uses userHasPermission; these tests drive admin-ness via
   // mockIsSystemAdmin, so bridge it (plus honor an explicit permissions claim).
   userHasPermission: (req: any, perm: string) => mockIsSystemAdmin(req) || (req.user?.permissions ?? []).includes(perm),
@@ -40,10 +42,10 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   softDeleteRetentionMs: () => 0,
   runWithTenantContext: (ctx: unknown, fn: () => unknown) => {
     mockRunWithTenantContext(ctx);
@@ -51,7 +53,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
@@ -61,13 +63,13 @@ class DestinationNotFoundError extends Error {
 jest.unstable_mockModule('../src/services/alert-destination-service.js', () => ({
   alertDestinationService: {
     listAllAcrossOrgs: (...a: unknown[]) => mockListAll(...a),
-    listForOrg: jest.fn(),
-    create: jest.fn(),
-    update: jest.fn(),
-    delete: jest.fn(),
-    findById: jest.fn(),
-    findForDelivery: jest.fn(),
-    sendTestNotification: jest.fn(),
+    listForOrg: jest.fn<AnyFn>(),
+    create: jest.fn<AnyFn>(),
+    update: jest.fn<AnyFn>(),
+    delete: jest.fn<AnyFn>(),
+    findById: jest.fn<AnyFn>(),
+    findForDelivery: jest.fn<AnyFn>(),
+    sendTestNotification: jest.fn<AnyFn>(),
   },
   DestinationNotFoundError,
   // The real mask returns "••••<last 12 chars>". Match so we can assert the
@@ -75,10 +77,10 @@ jest.unstable_mockModule('../src/services/alert-destination-service.js', () => (
   toApiDestination: (d: { target: string }) => ({ ...d, target: '••••' + d.target.slice(-12), hasTarget: !!d.target }),
 }));
 
-jest.unstable_mockModule('../src/services/alert-relay.js', () => ({ relayWebhook: jest.fn() }));
+jest.unstable_mockModule('../src/services/alert-relay.js', () => ({ relayWebhook: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
-  reserveFeatureQuota: jest.fn(),
-  releaseFeatureQuota: jest.fn(),
+  reserveFeatureQuota: jest.fn<AnyFn>(),
+  releaseFeatureQuota: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertDestinationMaxLabel: 100, alertDestinationMaxTarget: 2048 } } }));
 
@@ -129,7 +131,7 @@ describe('listAllAlertDestinations', () => {
     const res = mockRes();
     await (listAllAlertDestinations as unknown as (req: any, res: any) => Promise<void>)({}, res);
 
-    const payload = (res.json as jest.Mock).mock.calls[0][0].data;
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
     expect(payload.destinations).toHaveLength(2);
     for (const d of payload.destinations) {
       expect(d.target.startsWith('••••')).toBe(true);

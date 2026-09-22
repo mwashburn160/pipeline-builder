@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Rows the mocked SELECTs return, swapped per test.
@@ -45,7 +46,9 @@ function makeTx() {
   };
 }
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  // Imported (via the entitlement watermark store) by subscription-service.
+  drizzleRows: <T>(rows: T[]) => rows,
   schema: { complianceRule: {}, complianceRuleSubscription: {} },
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
   withTenantTx: (cb: (t: unknown) => Promise<unknown>) => cb(makeTx()),

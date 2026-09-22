@@ -14,8 +14,8 @@
  * - Returned ids are forwarded from db.returning
  */
 
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const insertedRowsRef: { value: { id: string }[] } = { value: [] };
@@ -34,14 +34,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any, _msg?: string) =>
     res.status(status).json({ success: true, statusCode: status, data })),
-  sendPaginatedNested: jest.fn(),
+  sendPaginatedNested: jest.fn<AnyFn>(),
   sendEntityNotFound: jest.fn((res: any) => res.status(404).json({ message: 'not found' })),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
-    await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
+    await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
@@ -57,7 +57,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
     delete: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }),
   };
-  return {
+  return stubModule('@pipeline-builder/pipeline-data', {
     schema: {
       complianceExemption: { id: 'col_id', orgId: 'col_org', createdAt: 'col_created' },
     },
@@ -69,7 +69,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
     buildComplianceExemptionConditions: () => [],
     drizzleCount: (r: unknown) => r,
-  };
+  });
 });
 
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
@@ -80,7 +80,7 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   inArray: (c: unknown, v: unknown) => ({ __op: 'inArray', c, v }),
   isNull: (c: unknown) => ({ __op: 'isNull', c }),
   desc: (c: unknown) => ({ __op: 'desc', c }),
-  sql: jest.fn(),
+  sql: jest.fn<AnyFn>(),
 }));
 
 const { createExemptionRoutes } = await import('../src/routes/exemptions.js');
@@ -97,8 +97,8 @@ function getHandler() {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, json };
 }
 

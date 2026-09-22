@@ -6,7 +6,9 @@ import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { Button } from '@/components/ui/Button';
 import { Callout } from '@/components/ui/Callout';
+import { RetryError } from '@/components/ui/RetryError';
 import { SecretActions } from '@/components/ui/SecretActions';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useLoadable } from '@/hooks/useLoadable';
@@ -85,7 +87,11 @@ export function AccountRecoveryCodes({ readOnly }: { readOnly: boolean }) {
     if (!codes.success || !codes.data) throw new Error('Failed to load recovery codes');
     return codes.data.recoveryCodes;
   }, []);
-  const { data: status, reload } = useLoadable<RecoveryCodeStatus>(load, EMPTY, 'Failed to load recovery codes');
+  const { data: status, loading, error, reload } = useLoadable<RecoveryCodeStatus>(load, EMPTY, 'Failed to load recovery codes');
+  // Until the count is really known, don't state one: the EMPTY placeholder
+  // read "0 of 0" while loading and after a failed read — a false "you have
+  // no codes" on the one panel meant to prevent a lock-out.
+  const known = !loading && !error;
   // Shared with the TOTP panel and the posture strip through the read cache
   // rather than a third request for the same answer.
   const { data: totp } = useQuery(queries.totpStatus());
@@ -117,10 +123,16 @@ export function AccountRecoveryCodes({ readOnly }: { readOnly: boolean }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <span>
-          <span className="text-fg-muted">Recovery codes left: </span>
-          <strong>{status.remaining} of {status.total}</strong>
-        </span>
+        {known ? (
+          <span>
+            <span className="text-fg-muted">Recovery codes left: </span>
+            <strong>{status.remaining} of {status.total}</strong>
+          </span>
+        ) : loading ? (
+          <Skeleton className="h-5 w-40 rounded" />
+        ) : (
+          <RetryError message={error ?? 'Failed to load recovery codes'} onRetry={() => void reload()} />
+        )}
         <Button
           variant="secondary"
           size="xs"
@@ -131,13 +143,13 @@ export function AccountRecoveryCodes({ readOnly }: { readOnly: boolean }) {
           <RefreshCw className="w-3.5 h-3.5" /> New recovery codes
         </Button>
       </div>
-      {status.total > 0 && status.remaining === 0 && (
+      {known && status.total > 0 && status.remaining === 0 && (
         <Callout variant="danger" title="No recovery codes left">
           If you lose your passkeys now, an admin of your organization will have to reset your
           two-factor authentication. Create a new set.
         </Callout>
       )}
-      {status.remaining > 0 && status.remaining <= 2 && (
+      {known && status.remaining > 0 && status.remaining <= 2 && (
         <Callout variant="warning" title="Running low on recovery codes">
           Only {status.remaining} left. Creating a new set replaces all of them.
         </Callout>

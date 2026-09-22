@@ -5,11 +5,14 @@
     "compile": "pnpm dlx projen compile",
     "default": "pnpm dlx projen default",
     "eslint": "pnpm dlx projen eslint",
+    "lint:fix": "pnpm dlx projen lint:fix",
     "package": "pnpm dlx projen package",
     "post-compile": "pnpm dlx projen post-compile",
     "pre-compile": "pnpm dlx projen pre-compile",
     "test": "pnpm dlx projen test",
+    "test:update": "pnpm dlx projen test:update",
     "test:watch": "pnpm dlx projen test:watch",
+    "typecheck:tests": "pnpm dlx projen typecheck:tests",
     "watch": "pnpm dlx projen watch",
     "projen": "pnpm dlx projen",
     "start": "node --import @pipeline-builder/api-server/lib/otel-bootstrap.js lib/index.js",
@@ -23,7 +26,7 @@
     "@jest/globals": "30.4.1",
     "@stylistic/eslint-plugin": "^2",
     "@types/express": "5.0.6",
-    "@types/node": "26.1.2",
+    "@types/node": "^24",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
@@ -57,7 +60,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.15",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -118,6 +121,11 @@
     "restoreMocks": true,
     "setupFilesAfterEnv": [
       "<rootDir>/../../jest-env-guard.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts",
+      "!src/testing/**"
     ],
     "coverageThreshold": {
       "global": {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 
 // Stub the base CrudService so we can test only the subclass-specific methods.
 class StubCrudService {
@@ -38,7 +39,7 @@ const withTenantTxMock = jest.fn(async (fn: (tx: unknown) => unknown) => {
   return fn(tx);
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   CrudService: StubCrudService,
   buildCompliancePolicyConditions: jest.fn(() => []),
   withTenantTx: (fn: (tx: unknown) => unknown) => withTenantTxMock(fn),

@@ -47,7 +47,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
 
   // useCrudResource no longer auto-fetches; trigger the initial load.
   useEffect(() => {
-    fetchPolicies();
+    void fetchPolicies();
   }, [fetchPolicies]);
 
   const [showForm, setShowForm] = useState(false);

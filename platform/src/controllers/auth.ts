@@ -8,16 +8,18 @@ import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail, recordBootstrapSe
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
+import { graceTokensFor, rememberRotation } from '../helpers/refresh-grace.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
-import { callerRestriction } from '../helpers/token-permissions.js';
+import { SESSION_SLOT_REQUIRED, callerHasSessionSlot } from '../helpers/token-permissions.js';
+import type { RefreshSessionKind } from '../models/user.js';
 import { incCounter } from '../observability/metrics.js';
 import { DUPLICATE_CREDENTIALS, MFA_REQUIRED_FOR_ORG, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, SESSION_AUTH_MISSING } from '../services/auth-errors.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
 import { auditService, authService } from '../services/index.js';
 import { JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import { authFromClaims, issueTokens, renewSessionTokens, signInAuth } from '../utils/token.js';
+import { hashRefreshToken, issueTokens, renewSessionTokens, signInAuth } from '../utils/token.js';
 import { validateBody, registerSchema, loginSchema, completeOnboardingSchema, joinOrgSchema } from '../utils/validation.js';
 
 const logger = createLogger('auth-controller');
@@ -346,12 +348,15 @@ export const login = withController('Login', async (req, res) => {
  * Rotates the presented token's refresh-session slot atomically. A miss means
  * the token was already rotated away (reuse — presumed stolen) or the session
  * was invalidated meanwhile: that ONE slot is revoked, the user's other devices
- * stay signed in.
+ * stay signed in — EXCEPT inside the 30-second rotation grace
+ * (helpers/refresh-grace.ts), where the immediately-previous token of the same
+ * slot is answered with the pair that replaced it (a concurrent refresh, not a
+ * theft).
  *
- * INTERACTIVE slots only — `isValidRefreshToken` turns a machine session away
- * before this runs, so an operator's CLI refreshing a login can never trip the
- * reuse detection on a stored machine credential. Machine credentials renew
- * through POST /user/generate-token instead.
+ * Both slot kinds rotate here, each through its OWN refresh token: a device's
+ * session, and a machine credential from generate-token (whose access tokens
+ * are short-lived like a person's; the slot itself ends at its fixed
+ * `expiresAt`, after which nothing renews).
  *
  * The presented token comes from `isValidRefreshToken` — the browser's cookie
  * or a CLI caller's body — and the rotated one goes back the same way.
@@ -361,16 +366,23 @@ export const refresh = withController('Refresh', async (req, res) => {
 
   const presentedToken = res.locals.presentedRefreshToken as string;
   const sessionId = res.locals.refreshSessionId as string;
+  const kind = res.locals.refreshSessionKind as RefreshSessionKind;
 
   const user = await authService.findForTokenIssue(req.user.sub);
   // Preserve the active org resolved from the session; fall back to lastActiveOrgId.
   const tokens = user && await renewSessionTokens(
     user,
     req.user.organizationId || user.lastActiveOrgId?.toString(),
-    { sessionId, presentedToken, kind: 'interactive' },
+    { sessionId, presentedToken, kind },
     { client: clientInfoOf(req) },
   );
   if (!tokens) {
+    // A RACE, not reuse: the token was rotated away moments ago by a concurrent
+    // refresh of the same session (two tabs, a CLI retry). Hand this caller the
+    // pair that replaced it rather than revoking the slot.
+    const graced = await graceTokensFor(hashRefreshToken(presentedToken), req.user.sub, sessionId);
+    if (graced) return sendSuccess(res, 200, deliverSessionTokens(req, res, graced));
+
     await authService.revokeRefreshSession(req.user.sub, sessionId);
     // The slot is gone, so the cookie that named it is now a dead credential —
     // drop it rather than leave the browser retrying a token nothing accepts.
@@ -379,6 +391,7 @@ export const refresh = withController('Refresh', async (req, res) => {
     return sendError(res, 401, 'Session invalidated — please log in again');
   }
 
+  await rememberRotation(hashRefreshToken(presentedToken), { userId: req.user.sub, sessionId, tokens });
   sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 }, {
   // A session opened before the org turned "require MFA" on stops refreshing
@@ -416,8 +429,8 @@ export const logout = withController('Logout', async (req, res) => {
  *
  * Re-issues the CURRENT session's tokens (same refresh-session slot) scoped to
  * the new org, so switching never consumes another device's slot — and never
- * changes its kind, scope or assurance. A token with no session slot (a PAT)
- * gets a new interactive session carrying the PAT's own scope and assurance.
+ * changes its kind, scope or assurance. A token with no session slot (an
+ * exchanged key, a service account, an impersonation session) is refused.
  */
 export const switchOrg = withController('Switch org', async (req, res) => {
   const userId = req.user?.sub;
@@ -426,6 +439,14 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const { organizationId } = req.body;
   if (!organizationId) return sendError(res, 400, 'organizationId is required');
 
+  // Switching re-issues the caller's OWN session slot. A token with no slot — an
+  // exchanged access key, a service account, an impersonation session — has
+  // nothing to re-issue, and minting it a fresh session would turn a
+  // key-revocable 5-minute token into a long-lived login.
+  if (!callerHasSessionSlot(req)) {
+    return sendError(res, 403, 'Switching organization needs a signed-in session — access keys and impersonated sessions are pinned to their organization', SESSION_SLOT_REQUIRED);
+  }
+
   const fromOrgId = req.user?.organizationId;
   // Membership in the org, or admin authority inherited from an ancestor (a
   // parent admin opening one of its teams) — see helpers/org-authority.ts.
@@ -433,17 +454,10 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   if (!switched) return sendError(res, 403, 'You are not an active member of this organization');
   const { user, authority } = switched;
 
-  const sessionId = (req.user as AccessTokenPayload).sid;
-  // A scoped or permission-restricted caller keeps its narrowing across the
-  // switch (never widened) — see helpers/token-permissions.ts.
-  const tokens = sessionId
-    ? await renewSessionTokens(user, organizationId, { sessionId }, { client: clientInfoOf(req) })
-    : await issueTokens(user, organizationId, {
-      kind: 'interactive',
-      auth: authFromClaims(req.user),
-      client: clientInfoOf(req),
-      ...callerRestriction(req),
-    });
+  const sessionId = (req.user as AccessTokenPayload).sid!;
+  // The slot keeps its scope / permission restriction across the switch (never
+  // widened) — `renewSessionTokens` reads them from the slot.
+  const tokens = await renewSessionTokens(user, organizationId, { sessionId }, { client: clientInfoOf(req) });
   if (!tokens) return sendError(res, 401, 'Session invalid');
 
   // Record which org the actor pivoted their session INTO. `affectedOrgId` is

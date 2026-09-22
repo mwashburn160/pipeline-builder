@@ -45,7 +45,6 @@ const listPage = {
   handlePageSizeChange: jest.fn<AnyFn>(),
 };
 jest.mock('@/hooks/useListPage', () => ({ __esModule: true, useListPage: () => listPage }));
-jest.mock('@/hooks/useOrgOptions', () => ({ __esModule: true, useOrgOptions: () => ({ orgOptions: [], loadOrgOptions: jest.fn<AnyFn>() }) }));
 
 const apiMock = {
   getDiscount: jest.fn<AnyFn>(),

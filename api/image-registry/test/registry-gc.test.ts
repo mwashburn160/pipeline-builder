@@ -13,6 +13,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const listRepositoriesUnderPrefix = jest.fn<(p: string) => Promise<string[]>>();
@@ -50,7 +51,7 @@ jest.unstable_mockModule('../src/services/audit.js', () => ({ emitImageRegistryA
 
 const incCounter = jest.fn();
 const setGauge = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter, setGauge }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter, setGauge }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 

@@ -17,7 +17,7 @@ import { incCounter } from '../observability/metrics.js';
 import { organizationService, orgHierarchyService, changedAiProviderFields } from '../services/index.js';
 import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';
 import {
-  ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED,
+  ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED, ORG_SEAT_LIMIT_NOT_ROOT,
   ORG_TEAM_NOT_FOUND, ORG_SEAT_LIMIT, ORG_RESTORE_PARENT_GONE, ORG_RESTORE_PARENT_INELIGIBLE,
   ORG_MOVE_SYSTEM, ORG_MOVE_DELETED, ORG_MOVE_SELF, ORG_MOVE_CYCLE, ORG_MOVE_HAS_TEAMS, ORG_MOVE_TARGET_NOT_FOUND,
   ORG_MOVE_TARGET_NOT_ROOT, ORG_MOVE_TARGET_TIER, ORG_MOVE_NOOP, ORG_MOVE_BILLED, ORG_MOVE_BILLING_UNVERIFIED,
@@ -40,8 +40,13 @@ export const listAllOrganizations = withController('List organizations', async (
     ? (tierRaw as QuotaTier)
     : undefined;
   const { offset, limit } = parsePaginationParams(req.query);
+  // `ids=a,b,c` — resolve exactly these orgs (names for the ids a page shows).
+  // Malformed ids are dropped rather than failing the Mongo cast.
+  const ids = typeof req.query.ids === 'string'
+    ? req.query.ids.split(',').map((s) => s.trim()).filter((s) => /^[a-f0-9]{24}$/i.test(s)).slice(0, 100)
+    : undefined;
 
-  const { organizations, total } = await organizationService.list({ search, tier, offset, limit });
+  const { organizations, total } = await organizationService.list({ search, tier, ...(ids ? { ids } : {}), offset, limit });
 
   sendSuccess(res, 200, {
     organizations,
@@ -433,8 +438,8 @@ export const exportOrganization = withController('Export organization', async (r
  *
  * `seats` is platform-owned (not a quota-service type), so the billing service
  * syncs the effective seat entitlement (tier base + bundles) here. Gated to a
- * service principal or a sysadmin; NO step-up (service-to-service). Always
- * applied to the resolved ROOT org.
+ * service principal or a sysadmin; NO step-up (service-to-service). `:id` must
+ * be the account ROOT — a team id is refused with 409 (never redirected).
  */
 export const updateOrganizationSeatLimit = withController('Update organization seat limit', async (req, res) => {
   if (!requireAuth(req, res)) return;
@@ -521,6 +526,11 @@ export const updateOrganizationSeatLimit = withController('Update organization s
   });
   logger.info('Seat limit synced', { orgId: id, rootOrgId: result.rootOrgId, seats: body.seats, features, tier, by: req.user!.sub });
   sendSuccess(res, 200, result, 'Seat limit updated');
+}, {
+  [ORG_SEAT_LIMIT_NOT_ROOT]: {
+    status: 409,
+    message: 'Seat limits and account entitlements are set on the account root, not a team',
+  },
 });
 
 /**

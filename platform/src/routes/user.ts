@@ -9,6 +9,7 @@ import {
   declineMfaPrompt,
   deleteUser,
   generateToken,
+  getOwnPasswordPolicy,
   getPreferences,
   getUser,
   listAccessKeys,
@@ -42,6 +43,10 @@ router.delete('/account', requireAuth, requireStepUp, audited('user.delete'), de
  *  `currentPassword`, but step-up makes session-pivot attacks fail before
  *  the password-comparison side channel can be probed. */
 router.post('/change-password', requireAuth, requireStepUp, audited('user.password.change'), changePassword);
+
+/** GET /user/password-policy - The minimum length a new password must meet
+ *  (strictest across the caller's orgs). */
+router.get('/password-policy', requireAuth, getOwnPasswordPolicy);
 
 /** GET /user/organizations - List all organizations the user belongs to */
 router.get('/organizations', requireAuth, listUserOrganizations);

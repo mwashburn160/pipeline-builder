@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: {
     getAny: () => ({ serviceName: 'test-service' }),
   },
@@ -91,7 +92,7 @@ describe('secret_rotation_previous_set gauge', () => {
     // #14: the internal-token overlap is not an env value — it is the retiring
     // PUBLIC key still sitting in the shared bundle, so the drill is a bundle
     // rewrite rather than a `*_PREVIOUS` assignment.
-    const { installTestServiceKeys } = await import('@pipeline-builder/api-core/lib/testing/service-tokens.js');
+    const { installTestServiceKeys } = await import('@pipeline-builder/api-core/testing');
     const keys = installTestServiceKeys(['test-service', 'test-service-next']);
     try {
       keys.becomeService('test-service');

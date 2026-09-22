@@ -34,6 +34,7 @@ interface CreatePluginModalProps {
 
 /** Tabbed modal for creating plugins via AI generation, a guided form (wizard), or file upload. */
 export default function CreatePluginModal({ canPublish, onClose, onCreated, initialTab = 'ai' }: CreatePluginModalProps) {
+  const uid = useId();
   const [activeTab, setActiveTab] = useState<'upload' | 'ai' | 'wizard'>(initialTab);
   // `ai_generation` is a server gate on the plugin generate routes — pre-gate the
   // AI tab so a non-entitled org sees why, not a 403 mid-generation. Treated as
@@ -278,8 +279,8 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
           {!requestId && (
             <div className="space-y-4">
               <div>
-                <label className="label">Plugin file (.zip or .tar.gz)</label>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-default border-dashed rounded-xl hover:border-gray-400 dark:hover:border-gray-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50">
+                <span className="label" id={`${uid}-plugin-file`}>Plugin file (.zip or .tar.gz)</span>
+                <div role="group" aria-labelledby={`${uid}-plugin-file`} className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-default border-dashed rounded-xl hover:border-gray-400 dark:hover:border-gray-500 transition-colors bg-gray-50/50 dark:bg-gray-800/50">
                   <div className="space-y-1 text-center">
                     <Upload className="mx-auto h-12 w-12 text-fg-subtle" />
                     <div className="flex text-sm text-fg-muted">

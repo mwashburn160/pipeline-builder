@@ -56,3 +56,13 @@ describe('PluginVersions default-status dot', () => {
     expect(screen.getByText('No default set')).toHaveClass('sr-only');
   });
 });
+
+describe('StackedTimelineBar', () => {
+  it('names the split in text, not only in colour', async () => {
+    const { StackedTimelineBar } = await import('../src/components/reports/ReportHelpers');
+    render(<StackedTimelineBar period="2026-09-01" succeeded={8} failed={2} canceled={1} />);
+    const bar = screen.getByRole('img');
+    expect(bar.getAttribute('aria-label')).toMatch(/8 succeeded, 2 failed, 1 canceled of 11/);
+    expect(bar).toHaveAttribute('title', bar.getAttribute('aria-label'));
+  });
+});

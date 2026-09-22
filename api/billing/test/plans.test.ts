@@ -7,12 +7,13 @@
  * Uses mocks for Mongoose models and api-core utilities.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
-const mockSendSuccess = jest.fn();
-const mockSendError = jest.fn();
+const mockSendSuccess = jest.fn<AnyFn>();
+const mockSendError = jest.fn<AnyFn>();
 
 // Observable cache: single-plan route reads via get() (always a miss here so the
 // DB path runs) and only stores a FOUND plan via set(). Asserting on set() lets
@@ -39,8 +40,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-const mockPlanFind = jest.fn();
-const mockPlanFindOne = jest.fn();
+const mockPlanFind = jest.fn<AnyFn>();
+const mockPlanFindOne = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: {
@@ -61,8 +62,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -80,7 +81,7 @@ function getHandler(method: string, path: string) {
 describe('GET /plans', () => {
   const handler = getHandler('get', '/plans');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns all active plans', async () => {
     const plans = [
@@ -88,7 +89,7 @@ describe('GET /plans', () => {
       { _id: 'pro', name: 'Pro', description: 'Pro tier', tier: 'pro', prices: { monthly: 999, annual: 9999 }, features: ['All'], isDefault: false, sortOrder: 1 },
     ];
 
-    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(plans) }) }) });
+    mockPlanFind.mockReturnValue({ sort: jest.fn<AnyFn>().mockReturnValue({ limit: jest.fn<AnyFn>().mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(plans) }) }) });
 
     const req = mockReq();
     const res = mockRes();
@@ -104,7 +105,7 @@ describe('GET /plans', () => {
   });
 
   it('returns empty array when no plans exist', async () => {
-    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) });
+    mockPlanFind.mockReturnValue({ sort: jest.fn<AnyFn>().mockReturnValue({ limit: jest.fn<AnyFn>().mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue([]) }) }) });
 
     const req = mockReq();
     const res = mockRes();
@@ -114,7 +115,7 @@ describe('GET /plans', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockPlanFind.mockReturnValue({ sort: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) }) });
+    mockPlanFind.mockReturnValue({ sort: jest.fn<AnyFn>().mockReturnValue({ limit: jest.fn<AnyFn>().mockReturnValue({ lean: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')) }) }) });
 
     const req = mockReq();
     const res = mockRes();
@@ -127,11 +128,11 @@ describe('GET /plans', () => {
 describe('GET /plans/:planId', () => {
   const handler = getHandler('get', '/plans/:planId');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns a plan by ID', async () => {
     const plan = { _id: 'dev', name: 'Developer', description: 'Free tier', tier: 'developer', prices: { monthly: 0, annual: 0 }, features: ['Basic'], isDefault: true, sortOrder: 0 };
-    mockPlanFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(plan) });
+    mockPlanFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(plan) });
 
     const req = mockReq({ params: { planId: 'dev' } });
     const res = mockRes();
@@ -143,7 +144,7 @@ describe('GET /plans/:planId', () => {
   });
 
   it('returns 404 for missing plan', async () => {
-    mockPlanFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    mockPlanFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(null) });
 
     const req = mockReq({ params: { planId: 'nonexistent' } });
     const res = mockRes();
@@ -153,7 +154,7 @@ describe('GET /plans/:planId', () => {
   });
 
   it('does not populate the cache for a missing plan (no null-entry LRU pollution)', async () => {
-    mockPlanFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    mockPlanFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(null) });
 
     const req = mockReq({ params: { planId: 'ghost' } });
     await handler(req, mockRes());
@@ -165,7 +166,7 @@ describe('GET /plans/:planId', () => {
 
   it('caches a found plan under its id key', async () => {
     const plan = { _id: 'dev', name: 'Developer', tier: 'developer', prices: {}, features: [] };
-    mockPlanFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(plan) });
+    mockPlanFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(plan) });
 
     const req = mockReq({ params: { planId: 'dev' } });
     await handler(req, mockRes());
@@ -182,7 +183,7 @@ describe('GET /plans/:planId', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockPlanFindOne.mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) });
+    mockPlanFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')) });
 
     const req = mockReq({ params: { planId: 'dev' } });
     const res = mockRes();

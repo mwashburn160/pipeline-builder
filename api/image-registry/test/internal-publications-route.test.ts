@@ -12,9 +12,11 @@
  * mapping, metrics and audit emission are exercised as shipped.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import { jest } from '@jest/globals';
+import { jest, beforeAll, afterAll, beforeEach, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
 
@@ -31,7 +33,7 @@ class PublicationNotFoundError extends Error {}
 class SourceVerificationError extends Error {}
 const publishPublicImage = jest.fn<(p: Record<string, unknown>) => Promise<{ imageRepository: string; digest: string; alreadyPublished: boolean }>>();
 const resignPublicImageOp = jest.fn<(p: Record<string, unknown>) => Promise<void>>();
-const reportResignProgress = jest.fn();
+const reportResignProgress = jest.fn<AnyFn>();
 const yankPublicVersion = jest.fn<(repo: string, version: string, digest: string) => Promise<{ alreadyYanked: boolean }>>();
 const retagPublicVersion = jest.fn<(repo: string, version: string, digest: string) => Promise<{ alreadyTagged: boolean }>>();
 const gcPublicImage = jest.fn<(repo: string, digest: string) => Promise<{ deleted: boolean }>>();
@@ -63,17 +65,17 @@ jest.unstable_mockModule('../src/services/public-publishing.js', () => ({
 const publicationOwner = jest.fn<(repo: string) => Promise<string | null>>();
 jest.unstable_mockModule('../src/services/public-publications.js', () => ({ publicationOwner }));
 
-const emitImageRegistryAudit = jest.fn();
+const emitImageRegistryAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitImageRegistryAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
-const incCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+const incCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter,
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
-    const ctx = { log: jest.fn(), requestId: 'test-req' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'test-req' };
     try {
       await handler({ req, res, ctx });
     } catch (err) {
@@ -132,7 +134,7 @@ beforeAll(async () => {
   const router = express.Router();
   registerPublicationRoutes(router);
   app.use('/internal', router);
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 

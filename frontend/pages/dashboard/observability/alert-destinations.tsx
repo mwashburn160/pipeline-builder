@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useId } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 // lucide-react v1 removed brand icons (e.g. Slack); use a generic messaging glyph.
@@ -318,6 +318,7 @@ function DestinationModal(props: {
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const uid = useId();
   const { existing, onClose, onSaved } = props;
   const toast = useToast();
   const [channel, setChannel] = useState<AlertDestination['channel']>(existing?.channel ?? 'slack');
@@ -363,8 +364,8 @@ function DestinationModal(props: {
     <Modal title={existing ? 'Edit destination' : 'Add destination'} onClose={onClose} maxWidth="max-w-md">
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Channel</label>
-          <Select
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-channel`}>Channel</label>
+          <Select id={`${uid}-channel`}
             value={channel}
             onChange={(e) => setChannel(e.target.value as AlertDestination['channel'])}
             disabled={!!existing} // channel is immutable on edit (changes target validation)
@@ -381,8 +382,8 @@ function DestinationModal(props: {
           </Select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Label</label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-label`}>Label</label>
+          <Input id={`${uid}-label`}
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
@@ -391,10 +392,10 @@ function DestinationModal(props: {
         </div>
         {channel !== 'in-app' && (
           <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1">
+            <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-field`}>
               {channel === 'slack' ? 'Slack incoming-webhook URL' : channel === 'email' ? 'Email address' : 'Webhook URL'}
             </label>
-            <Input
+            <Input id={`${uid}-field`}
               // Email targets aren't secrets — show them; URLs are bearer-equivalent, so mask.
               type={channel === 'email' ? 'text' : 'password'}
               autoComplete="off"
@@ -411,8 +412,8 @@ function DestinationModal(props: {
           </div>
         )}
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Minimum severity</label>
-          <Select
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-minimum-severity`}>Minimum severity</label>
+          <Select id={`${uid}-minimum-severity`}
             value={minSeverity}
             onChange={(e) => setMinSeverity(e.target.value as typeof minSeverity)}
           >

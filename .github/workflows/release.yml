@@ -20,36 +20,20 @@ jobs:
       - name: Disable Nx telemetry and daemon
         id: disable_nx_telemetry_and_daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
-      - name: Clear cache
-        id: clear_cache
-        uses: actions/github-script@v9
-        with:
-          github-token: ${{ secrets.GHRC_TOKEN }}
-          script: |2-
-            
-                                    const caches = await github.rest.actions.getActionsCacheList({repo: context.repo.repo,owner: context.repo.owner})
-                                    for (const cache of caches.data.actions_caches) {
-                                    try {
-                                        await github.rest.actions.deleteActionsCacheById({repo: context.repo.repo,owner: context.repo.owner,cache_id: cache.id})
-                                        console.log('Successfully deleted cache with ID: ',cache.id);
-                                    } catch (error) {
-                                        console.log('Error deleting cache with ID: ',cache.id, error);
-                                    }
-                                }
       - name: Checkout repository
         id: checkout_repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
         id: setup_pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         with:
           version: 10.33.0
       - name: Setup node
         id: setup_node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
           node-version: 24.14.0
@@ -59,7 +43,7 @@ jobs:
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
         id: install_dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Set git user
         id: set_git_user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
@@ -96,36 +80,20 @@ jobs:
       - name: Disable Nx telemetry and daemon
         id: disable_nx_telemetry_and_daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
-      - name: Clear cache
-        id: clear_cache
-        uses: actions/github-script@v9
-        with:
-          github-token: ${{ secrets.GHRC_TOKEN }}
-          script: |2-
-            
-                                    const caches = await github.rest.actions.getActionsCacheList({repo: context.repo.repo,owner: context.repo.owner})
-                                    for (const cache of caches.data.actions_caches) {
-                                    try {
-                                        await github.rest.actions.deleteActionsCacheById({repo: context.repo.repo,owner: context.repo.owner,cache_id: cache.id})
-                                        console.log('Successfully deleted cache with ID: ',cache.id);
-                                    } catch (error) {
-                                        console.log('Error deleting cache with ID: ',cache.id, error);
-                                    }
-                                }
       - name: Checkout repository
         id: checkout_repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
         id: setup_pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         with:
           version: 10.33.0
       - name: Setup node
         id: setup_node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
           node-version: 24.14.0
@@ -135,7 +103,7 @@ jobs:
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
         id: install_dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Set git user
         id: set_git_user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
@@ -183,7 +151,7 @@ jobs:
         run: tar -czf frontend-bundle.tar.gz -C ./frontend .next/standalone .next/static
       - name: Upload artifact
         id: upload_artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: artifacts
           path: |-
@@ -219,36 +187,20 @@ jobs:
       - name: Disable Nx telemetry and daemon
         id: disable_nx_telemetry_and_daemon
         run: echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV
-      - name: Clear cache
-        id: clear_cache
-        uses: actions/github-script@v9
-        with:
-          github-token: ${{ secrets.GHRC_TOKEN }}
-          script: |2-
-            
-                                    const caches = await github.rest.actions.getActionsCacheList({repo: context.repo.repo,owner: context.repo.owner})
-                                    for (const cache of caches.data.actions_caches) {
-                                    try {
-                                        await github.rest.actions.deleteActionsCacheById({repo: context.repo.repo,owner: context.repo.owner,cache_id: cache.id})
-                                        console.log('Successfully deleted cache with ID: ',cache.id);
-                                    } catch (error) {
-                                        console.log('Error deleting cache with ID: ',cache.id, error);
-                                    }
-                                }
       - name: Checkout repository
         id: checkout_repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: main
           fetch-depth: 0
       - name: Setup pnpm
         id: setup_pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         with:
           version: 10.33.0
       - name: Setup node
         id: setup_node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
           node-version: 24.14.0
@@ -258,7 +210,7 @@ jobs:
         run: export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/:_authToken=$NPM_TOKEN && npm config set @pipeline-builder:registry=https://registry.npmjs.org/
       - name: Install dependencies
         id: install_dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Set git user
         id: set_git_user
         run: git config user.name "ci" && git config user.email "mwashburn160@gmail.com"
@@ -267,7 +219,7 @@ jobs:
         run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Download artifact
         id: dnload_artifact
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: artifacts
           path: dnload
@@ -280,17 +232,17 @@ jobs:
         run: tar --overwrite -xzf frontend-bundle.tar.gz -C ./frontend && rm frontend-bundle.tar.gz
       - name: Login into container registry
         id: login_into_container_registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GHRC_TOKEN }}
       - name: Setup QEMU
         id: setup_qemu
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1
       - name: Setup buildx
         id: setup_buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
         with:
           cleanup: true
           cache-binary: false
@@ -325,6 +277,12 @@ jobs:
           PROJECT_NAME: ${{ matrix.project_name }}
           COSIGN_YES: "true"
         run: set -euo pipefail && PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root) && VERSION=$(jq -r .version "$PROJ_DIR/package.json") && REF="ghcr.io/mwashburn160/${PROJECT_NAME}:${VERSION}" && DIGEST=$(docker buildx imagetools inspect "$REF" --format '{{ .Manifest.Digest }}') && IMG="ghcr.io/mwashburn160/${PROJECT_NAME}@${DIGEST}" && echo "Signing $IMG" && cosign sign --yes "$IMG" && syft "$IMG" -o spdx-json=sbom.spdx.json && cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$IMG"
+      - name: Scan image for vulnerabilities (grype)
+        id: scan_image_for_vulnerabilities_grype
+        env:
+          GRYPE_VERSION: 0.119.0
+          GRYPE_SHA256: 3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b
+        run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz && echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c - && tar -xzf /tmp/grype.tar.gz -C /tmp grype && sudo install -m 0755 /tmp/grype /usr/local/bin/grype && grype sbom:sbom.spdx.json --only-fixed --fail-on critical
     strategy:
       max-parallel: 4
       fail-fast: false
@@ -344,7 +302,7 @@ jobs:
     steps:
       - name: Checkout repository
         id: checkout_repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: main
           fetch-depth: 0
@@ -371,7 +329,7 @@ jobs:
     steps:
       - name: Checkout repository
         id: checkout_repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: main
           fetch-depth: 0

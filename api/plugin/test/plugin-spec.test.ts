@@ -4,6 +4,7 @@
 import * as fs from 'fs';
 import path from 'path';
 import { jest, describe, it, expect, afterAll, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import AdmZip from 'adm-zip';
 import yauzl from 'yauzl';
 
@@ -12,8 +13,7 @@ jest.unstable_mockModule('uuid', () => ({
   v7: jest.fn(() => '01234567-89ab-cdef-0123-456789abcdef'),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
-  __esModule: true,
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: {},
   // Template-validator dependencies — minimal stubs so plugin-spec.ts loads
   allowedScopeRoots: () => () => true,
@@ -101,6 +101,14 @@ commands:
     const zipPath = buildZip({ 'plugin-spec.yaml': pluginSpecYaml });
 
     await expect(parsePluginZip(zipPath)).rejects.toThrow('name, version, and commands are required');
+  });
+
+  it('refuses a name or version outside the plugin-spec shape on EVERY upload (E15)', async () => {
+    const spec = (name: string, version: string) => `name: ${name}\nversion: ${version}\ncommands:\n  - echo hi\n`;
+    await expect(parsePluginZip(buildZip({ 'plugin-spec.yaml': spec('"lint\\r\\nBcc: x"', '"1.0.0"') }))).rejects.toThrow(/name must match/);
+    await expect(parsePluginZip(buildZip({ 'plugin-spec.yaml': spec('Lint', '"1.0.0"') }))).rejects.toThrow(/name must match/);
+    await expect(parsePluginZip(buildZip({ 'plugin-spec.yaml': spec('a'.repeat(65), '"1.0.0"') }))).rejects.toThrow(/at most 64/);
+    await expect(parsePluginZip(buildZip({ 'plugin-spec.yaml': spec('lint', '"1.0.0\\nx"') }))).rejects.toThrow(/version must be semver/);
   });
 
   it('should throw on path traversal in dockerfile field', async () => {
@@ -297,6 +305,15 @@ commands:
     });
 
     await expect(parsePluginZip(zipPath)).rejects.toThrow('maximum extracted size');
+  });
+
+  it('honours per-call limits (the anonymous path) over the service-wide ones', async () => {
+    const zipPath = buildZip({
+      'plugin-spec.yaml': 'name: small\nversion: "1.0.0"\ncommands:\n  - echo hi\n',
+      'big.txt': 'A'.repeat(5000),
+    });
+    await expect(parsePluginZip(zipPath, { limits: { maxBytes: 1000, maxEntries: 10 } })).rejects.toThrow('maximum extracted size (1000 bytes)');
+    await expect(parsePluginZip(zipPath, { limits: { maxBytes: 1_000_000, maxEntries: 1 } })).rejects.toThrow('maximum entry count (1)');
   });
 
   it('aborts extraction once the entry count exceeds the ceiling', async () => {

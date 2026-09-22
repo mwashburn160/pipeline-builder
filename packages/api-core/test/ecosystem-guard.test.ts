@@ -10,6 +10,7 @@
  * route-coverage tests rely on is itself proven to bite.
  */
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 import express, { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { SYSTEM_ORG_ID, requireAssurance, requireAuth, requirePermission, setAuthzDenialAuditor, type AuthzDenialInfo } from '../src/middleware/auth.js';
@@ -62,7 +63,7 @@ afterEach(() => setAuthzDenialAuditor(undefined));
 
 describe('requireSystemOrg', () => {
   it('admits a caller whose active org is the system org', () => {
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     requireSystemOrg(mockReq(human()), mockRes(), next);
     expect(next).toHaveBeenCalled();
   });
@@ -71,7 +72,7 @@ describe('requireSystemOrg', () => {
     const denials: AuthzDenialInfo[] = [];
     setAuthzDenialAuditor((d) => denials.push(d));
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     requireSystemOrg(mockReq(human({ organizationId: TENANT })), res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res._status).toBe(403);
@@ -81,20 +82,20 @@ describe('requireSystemOrg', () => {
 
   it('refuses a SUPERADMIN acting from a tenant org — governance happens from the system org', () => {
     const res = mockRes();
-    requireSystemOrg(mockReq(human({ organizationId: TENANT, isSuperAdmin: true })), res, jest.fn());
+    requireSystemOrg(mockReq(human({ organizationId: TENANT, isSuperAdmin: true })), res, jest.fn<AnyFn>());
     expect(res._json?.code).toBe('SYSTEM_ORG_REQUIRED');
   });
 
   it('never matches an org merely NAMED "system" (id comparison only)', () => {
     expect(isSystemOrgRequest(mockReq(human({ organizationId: TENANT, organizationName: 'system' })))).toBe(false);
     const res = mockRes();
-    requireSystemOrg(mockReq(human({ organizationId: 'system' })), res, jest.fn());
+    requireSystemOrg(mockReq(human({ organizationId: 'system' })), res, jest.fn<AnyFn>());
     expect(res._status).toBe(403);
   });
 
   it('401s an unauthenticated request', () => {
     const res = mockRes();
-    requireSystemOrg(mockReq(undefined), res, jest.fn());
+    requireSystemOrg(mockReq(undefined), res, jest.fn<AnyFn>());
     expect(res._status).toBe(401);
   });
 });
@@ -141,7 +142,7 @@ describe('requireEcosystemPermission', () => {
   it('puts system org + permission + aal2 on the route table', () => {
     const app = express();
     const r = Router();
-    r.post('/requests/:id/approve', requireAuth, requireEcosystemPermission('plugins:moderate', 'publishers:verify'), audited('plugin.request.approve'), (_q, s) => { s.end(); });
+    r.post('/requests/:id/approve', requireAuth, requireEcosystemPermission('plugins:moderate', 'publishers:verify'), audited('plugin.request.approve'), (_q: Request, s: Response) => { s.end(); });
     app.use('/ecosystem', r);
     const [row] = buildRouteTable(app);
     expect(row.systemOrg).toBe(true);

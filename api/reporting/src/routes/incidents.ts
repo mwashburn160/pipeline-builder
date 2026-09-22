@@ -153,12 +153,18 @@ export function createIncidentRoutes(): Router {
 
       const resolved = (alert.status ?? groupStatus) === 'resolved';
       const resolvedAt = resolved && isRealInstant(alert.endsAt) ? alert.endsAt : undefined;
-      const id = incidentId.slice(0, 255);
+      // Key on fingerprint + startsAt: Alertmanager REUSES a fingerprint when the
+      // same alert fires again after resolving, so fingerprint alone collapsed
+      // every recurrence into ONE incident (overwriting its openedAt and erasing
+      // the earlier outage from CFR/MTTR). Each firing episode is its own incident.
+      const id = `${incidentId}@${new Date(alert.startsAt).toISOString()}`.slice(0, 255);
+      const prior = byIncident.get(id);
       byIncident.set(id, {
         incidentId: id,
         environment: environment.slice(0, 255),
         openedAt: alert.startsAt,
-        resolvedAt,
+        // A firing copy later in the same batch must not drop a resolve we saw.
+        resolvedAt: resolvedAt ?? prior?.resolvedAt,
         severity: (labels.severity || 'unknown').slice(0, 50),
       });
     }

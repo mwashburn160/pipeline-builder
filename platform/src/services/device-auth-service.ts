@@ -75,6 +75,12 @@ export interface DeviceApproval {
   authTime: number;
   /** Epoch ms the approver's step-up was verified (approval is step-up gated). */
   stepUpVerifiedAt: number;
+  /** The approver's HARD `tokenVersion` at approval. Re-checked when the CLI
+   *  session is issued: a sign-out-everywhere / password reset / deactivation
+   *  in between voids the approval rather than minting a session through it. */
+  tokenVersion: number;
+  /** The approving browser session's slot — it must still exist at issue. */
+  sessionId?: string;
 }
 
 /** One in-flight device authorization. */
@@ -120,6 +126,31 @@ const deviceCodes = createPendingStateStore<DeviceAuthRecord>({
 });
 
 /** user_code → the `deviceCodes` key: the index the approval page looks up. */
+/**
+ * The DECISION for a flow, keyed like the record and written exactly once
+ * (`putIfAbsent` — SET NX): the first approve/deny wins atomically, so two
+ * racing decisions can't both succeed and a poll's counter rewrite of the record
+ * can never erase one. The record carries only the flow's bookkeeping; its
+ * status is read from here.
+ */
+interface DeviceDecision {
+  status: 'approved' | 'denied';
+  approval?: DeviceApproval;
+}
+const deviceDecisions = createPendingStateStore<DeviceDecision>({
+  prefix: 'devdecision:',
+  ttlMs: config.auth.device.ttlMs + EXPIRY_GRACE_MS,
+  cleanupIntervalMs: config.oauth.cleanupIntervalMs,
+  maxEntries: config.auth.device.maxPending,
+});
+
+/** The record with its status/approval taken from the decision store. */
+async function withDecision(key: string, record: DeviceAuthRecord): Promise<DeviceAuthRecord> {
+  const decision = await deviceDecisions.peek(key);
+  if (!decision) return { ...record, status: 'pending' };
+  return { ...record, status: decision.status, ...(decision.approval ? { approval: decision.approval } : {}) };
+}
+
 const userCodeIndex = createPendingStateStore<string>({
   prefix: 'devuser:',
   ttlMs: config.auth.device.ttlMs + EXPIRY_GRACE_MS,
@@ -221,6 +252,7 @@ export async function startDeviceAuthorization(params: {
 /** Drop both entries of a flow (deny, expiry, and the successful consume). */
 async function discard(key: string, userCode: string): Promise<void> {
   await deviceCodes.remove(key);
+  await deviceDecisions.remove(key);
   await userCodeIndex.remove(userCode);
 }
 
@@ -251,7 +283,7 @@ export async function findByUserCode(rawUserCode: unknown): Promise<LocatedDevic
     await discard(key, userCode);
     return 'expired';
   }
-  return { key, record };
+  return { key, record: await withDecision(key, record) };
 }
 
 /** Outcome of an approve/deny decision. */
@@ -272,15 +304,15 @@ export async function decide(
   if (!located) return 'not_found';
   if (located.record.status !== 'pending') return 'already_decided';
 
-  const updated: DeviceAuthRecord = {
-    ...located.record,
-    status: decision,
-    ...(decision === 'approved' && approval ? { approval } : {}),
-  };
-  // Rewrite with the flow's REMAINING life (plus the expiry grace), never a
-  // fresh full TTL — a decision must not extend the window.
-  await deviceCodes.put(located.key, updated, updated.expiresAt - Date.now() + EXPIRY_GRACE_MS);
-  return 'ok';
+  // Compare-and-set: written ONLY if no decision exists yet (SET NX), with the
+  // flow's REMAINING life (plus the expiry grace) — a decision must not extend
+  // the window. Of two racing decisions exactly one lands.
+  const claimed = await deviceDecisions.putIfAbsent(
+    located.key,
+    { status: decision, ...(decision === 'approved' && approval ? { approval } : {}) },
+    located.record.expiresAt - Date.now() + EXPIRY_GRACE_MS,
+  );
+  return claimed ? 'ok' : 'already_decided';
 }
 
 /** What a poll of `POST /auth/device/token` resolved to. */
@@ -307,8 +339,9 @@ export type PollResult =
 export async function poll(deviceCode: unknown): Promise<PollResult> {
   if (typeof deviceCode !== 'string' || deviceCode.length === 0) return { outcome: 'expired_token', existed: false };
   const key = codeKey(deviceCode);
-  const record = await deviceCodes.peek(key);
-  if (!record) return { outcome: 'expired_token', existed: false };
+  const stored = await deviceCodes.peek(key);
+  if (!stored) return { outcome: 'expired_token', existed: false };
+  const record = await withDecision(key, stored);
 
   const now = Date.now();
   if (now > record.expiresAt || record.polls >= config.auth.device.maxPolls) {
@@ -324,8 +357,10 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
   // Polling faster than advertised: widen this flow's interval and say so. The
   // poll still counts toward the ceiling, so a hot loop burns itself out.
   const tooFast = record.lastPolledAt > 0 && now - record.lastPolledAt < record.interval * 1000 - INTERVAL_SLACK_MS;
+  // Bookkeeping only — the status lives in the decision store, so this rewrite
+  // can never overwrite a decision that landed between the read and the write.
   const next: DeviceAuthRecord = {
-    ...record,
+    ...stored,
     polls: record.polls + 1,
     lastPolledAt: now,
     interval: tooFast ? record.interval + SLOW_DOWN_STEP_SECONDS : record.interval,
@@ -338,12 +373,14 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
   }
 
   if (record.status === 'approved' && record.approval) {
-    // Single-use: the winner of a race gets the record, the loser gets nothing
-    // (and reports expired_token, which is what an already-redeemed code is).
-    const claimed = await deviceCodes.consume(key);
+    // Single-use: the DECISION is consumed atomically (GETDEL) — the winner of a
+    // race gets the approval, the loser gets nothing (and reports expired_token,
+    // which is what an already-redeemed code is).
+    const claimed = await deviceDecisions.consume(key);
+    await deviceCodes.remove(key);
     await userCodeIndex.remove(record.userCode);
-    if (!claimed || !claimed.approval) return { outcome: 'expired_token', existed: true };
-    return { outcome: 'approved', record: claimed, approval: claimed.approval };
+    if (!claimed || claimed.status !== 'approved' || !claimed.approval) return { outcome: 'expired_token', existed: true };
+    return { outcome: 'approved', record: { ...record, approval: claimed.approval }, approval: claimed.approval };
   }
 
   await deviceCodes.put(key, next, remainingMs);
@@ -353,5 +390,6 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
 /** Test-only: drop the process-local fallback state of both stores. */
 export function _resetDeviceStoresForTests(): void {
   deviceCodes._resetForTests();
+  deviceDecisions._resetForTests();
   userCodeIndex._resetForTests();
 }

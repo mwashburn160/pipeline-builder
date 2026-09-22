@@ -11,13 +11,14 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((_res: unknown, status: number, data: unknown) => ({ status, data })),
   sendError: jest.fn((_res: unknown, status: number, msg: string) => ({ status, msg })),
 }));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: jest.fn() }));
 
 // billing-helpers — only createBillingEvent is exercised by the reversal tail; the
 // rest are stubbed so the module's heavy config graph never loads.
@@ -84,7 +85,7 @@ const mockChargesRetrieve = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 class MockStripeProvider { getStripeClient() { return { charges: { retrieve: (...a: unknown[]) => mockChargesRetrieve(...a) } }; } }
 jest.unstable_mockModule('../src/config.js', () => ({ config: { paymentGracePeriodDays: 7, stripe: { priceToPlanMap: {} } } }));
 jest.unstable_mockModule('../src/models/plan.js', () => ({ Plan: { findById: jest.fn(), findOne: jest.fn() } }));
-jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({ claimWebhookEvent: jest.fn(), markWebhookEventDone: jest.fn(), releaseWebhookEvent: jest.fn() }));
+jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({ claimWebhookEvent: jest.fn(), markWebhookEventDone: jest.fn(), releaseWebhookEvent: jest.fn(), webhookEventStatus: jest.fn() }));
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({ getPaymentProvider: () => new MockStripeProvider() }));
 jest.unstable_mockModule('../src/providers/stripe-provider.js', () => ({ StripeProvider: MockStripeProvider }));
 

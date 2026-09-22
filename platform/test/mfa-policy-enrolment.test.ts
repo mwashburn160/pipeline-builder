@@ -14,6 +14,7 @@
  * person — a naive sum would report more enrolled members than members.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -30,10 +31,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 // The controller reaches config through the shared request validators; this
 // suite is about a count, not about the service's environment.
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
@@ -78,7 +79,7 @@ const req = (user: unknown = ORG_ADMIN) => ({ user, params: { id: 'org1' } }) as
 /** Read the policy and return the enrolment block. */
 async function read() {
   const res = makeRes();
-  await getMfaPolicy(req(), res, jest.fn() as any);
+  await getMfaPolicy(req(), res);
   expect(res._status).toBe(200);
   return res._body.data.enrolment as { members: number; enrolled: number; declined: number };
 }
@@ -95,14 +96,14 @@ describe('GET /organization/:id/mfa-policy — enrolment counts', () => {
     // A plain member of org1: authenticated, but `isOrgAdmin` is false.
     mockMemberships.mockResolvedValue([{ userId: 'u1' }]);
     const res = makeRes();
-    await getMfaPolicy(req({ sub: 'u9', organizationId: 'org1' }), res, jest.fn() as any);
+    await getMfaPolicy(req({ sub: 'u9', organizationId: 'org1' }), res);
     expect(res._status).toBe(403);
     expect(mockMemberships).not.toHaveBeenCalled();
   });
 
   it('refuses an anonymous caller with 401', async () => {
     const res = makeRes();
-    await getMfaPolicy(req(null), res, jest.fn() as any);
+    await getMfaPolicy(req(null), res);
     expect(res._status).toBe(401);
     expect(mockMemberships).not.toHaveBeenCalled();
   });

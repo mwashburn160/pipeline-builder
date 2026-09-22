@@ -20,7 +20,9 @@ const renamePasskey = jest.fn<AnyFn>();
 const deletePasskey = jest.fn<AnyFn>();
 const toastError = jest.fn<AnyFn>();
 const toastSuccess = jest.fn<AnyFn>();
-const registerPasskey = jest.fn<AnyFn>();
+const beginPasskeyRegistration = jest.fn<AnyFn>();
+const finishPasskeyRegistration = jest.fn<AnyFn>();
+const PENDING = { ceremonyId: 'c1', options: { challenge: 'x' } };
 const getRecoveryCodeStatus = jest.fn<AnyFn>();
 const getTotpStatus = jest.fn<AnyFn>();
 const regenerateRecoveryCodes = jest.fn<AnyFn>();
@@ -41,7 +43,8 @@ jest.mock('@/lib/api', () => ({
 jest.mock('@/lib/passkeys', () => ({
   __esModule: true,
   browserSupportsWebAuthn: () => webauthnSupported,
-  registerPasskey: (...a: unknown[]) => registerPasskey(...a),
+  beginPasskeyRegistration: (...a: unknown[]) => beginPasskeyRegistration(...a),
+  finishPasskeyRegistration: (...a: unknown[]) => finishPasskeyRegistration(...a),
 }));
 // One STABLE object: the real `useToast` memoizes, and `useLoadable`'s `reload`
 // depends on it — a fresh object per render would re-run the load effect forever.
@@ -83,7 +86,8 @@ beforeEach(() => {
   clearQueryCache();
   webauthnSupported = true;
   listPasskeys.mockResolvedValue({ success: true, data: { passkeys: [passkey()] } });
-  registerPasskey.mockResolvedValue({ passkey: passkey({ id: 'pk2', name: 'New key' }) });
+  beginPasskeyRegistration.mockResolvedValue(PENDING);
+  finishPasskeyRegistration.mockResolvedValue({ passkey: passkey({ id: 'pk2', name: 'New key' }) });
   getRecoveryCodeStatus.mockResolvedValue({ success: true, data: { recoveryCodes: { remaining: 8, total: 10, generatedAt: null } } });
   getTotpStatus.mockResolvedValue({ success: true, data: { totp: { enabled: false } } });
   regenerateRecoveryCodes.mockResolvedValue({ success: true, data: { recoveryCodes: ['NEWAA-AAAAA', 'NEWBB-BBBBB'] } });
@@ -119,34 +123,44 @@ describe('PasskeySection', () => {
     expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
   });
 
-  it('adds a passkey only after step-up, forwarding the token', async () => {
+  it('adds a passkey only after step-up, forwarding the token — and runs the ceremony from its OWN click', async () => {
     await renderSection();
     fireEvent.change(screen.getByPlaceholderText(/MacBook Touch ID/i), { target: { value: 'Work laptop' } });
     fireEvent.click(screen.getByRole('button', { name: /add passkey/i }));
 
     // No ceremony yet — the modal comes first.
-    expect(registerPasskey).not.toHaveBeenCalled();
+    expect(beginPasskeyRegistration).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
-    await waitFor(() => expect(registerPasskey).toHaveBeenCalledWith('Work laptop', 'step-up-token'));
+    await waitFor(() => expect(beginPasskeyRegistration).toHaveBeenCalledWith('step-up-token'));
+    // The browser ceremony waits for a fresh gesture (Safari refuses one that
+    // follows the step-up's async work).
+    expect(finishPasskeyRegistration).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: /^create passkey$/i })); });
+    expect(finishPasskeyRegistration).toHaveBeenCalledWith(PENDING, 'Work laptop');
     expect(toastSuccess).toHaveBeenCalledWith('Passkey added');
   });
 
-  it('stays silent when the person dismisses the registration prompt', async () => {
-    registerPasskey.mockRejectedValue(Object.assign(new Error('not allowed'), { name: 'NotAllowedError' }));
+  it('says what happened when the browser refuses the ceremony, and lets it be retried', async () => {
+    finishPasskeyRegistration.mockRejectedValueOnce(Object.assign(new Error('not allowed'), { name: 'NotAllowedError' }));
     await renderSection();
     fireEvent.change(screen.getByPlaceholderText(/MacBook Touch ID/i), { target: { value: 'Work laptop' } });
     fireEvent.click(screen.getByRole('button', { name: /add passkey/i }));
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
-    await waitFor(() => expect(registerPasskey).toHaveBeenCalled());
-    expect(toastError).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: /^create passkey$/i })); });
+    expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/didn.t create the passkey/i));
+    // Still offered — the same challenge, one more try.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^create passkey$/i })); });
+    expect(finishPasskeyRegistration).toHaveBeenCalledTimes(2);
+    expect(toastSuccess).toHaveBeenCalledWith('Passkey added');
   });
 
   it('explains a duplicate authenticator in the browser\'s own terms', async () => {
-    registerPasskey.mockRejectedValue(Object.assign(new Error('boom'), { name: 'InvalidStateError' }));
+    finishPasskeyRegistration.mockRejectedValue(Object.assign(new Error('boom'), { name: 'InvalidStateError' }));
     await renderSection();
     fireEvent.change(screen.getByPlaceholderText(/MacBook Touch ID/i), { target: { value: 'Again' } });
     fireEvent.click(screen.getByRole('button', { name: /add passkey/i }));
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: /^create passkey$/i })); });
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('This passkey is already registered'));
   });
 
@@ -184,7 +198,7 @@ describe('PasskeySection', () => {
     fireEvent.click(screen.getByRole('button', { name: /add passkey/i }));
     fireEvent.click(screen.getByRole('button', { name: /remove/i }));
     expect(screen.queryByTestId('stepup-modal')).not.toBeInTheDocument();
-    expect(registerPasskey).not.toHaveBeenCalled();
+    expect(beginPasskeyRegistration).not.toHaveBeenCalled();
     expect(deletePasskey).not.toHaveBeenCalled();
   });
 
@@ -204,6 +218,7 @@ describe('PasskeySection — keeping the posture strip honest', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /name/i }), { target: { value: 'Laptop' } });
     fireEvent.click(screen.getByRole('button', { name: /add passkey/i }));
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: /^create passkey$/i })); });
   };
 
   it('refreshes the profile after adding a passkey', async () => {
@@ -229,11 +244,12 @@ describe('PasskeySection — keeping the posture strip honest', () => {
 
 describe('PasskeySection — the account\'s recovery codes', () => {
   it('shows the codes once when the new passkey is the account\'s first factor', async () => {
-    registerPasskey.mockResolvedValue({ passkey: passkey({ id: 'pk2' }), recoveryCodes: ['AAAAA-BBBBB', 'CCCCC-DDDDD'] });
+    finishPasskeyRegistration.mockResolvedValue({ passkey: passkey({ id: 'pk2' }), recoveryCodes: ['AAAAA-BBBBB', 'CCCCC-DDDDD'] });
     await renderSection();
     fireEvent.change(screen.getByPlaceholderText(/MacBook Touch ID/i), { target: { value: 'First key' } });
     fireEvent.click(screen.getByRole('button', { name: /add passkey/i }));
     await act(async () => { fireEvent.click(screen.getByTestId('stepup-modal')); });
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: /^create passkey$/i })); });
 
     const list = await screen.findByRole('list', { name: /recovery codes/i });
     expect(list).toHaveTextContent('AAAAA-BBBBB');

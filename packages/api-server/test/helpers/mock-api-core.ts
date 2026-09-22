@@ -6,14 +6,19 @@
  *
  * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
  * classes, pagination constants) live in
- * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Only
+ * `@pipeline-builder/api-core/testing`. Only
  * api-server-specific defaults belong here.
  */
 import { jest } from '@jest/globals';
-import { baseApiCoreMock, loggerMock } from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
+import {
+  baseApiCoreMock,
+  loggerMock,
+  MOCK_TIER_NAMES,
+  mockIsValidTier,
+  mockQuotaTiers,
+} from '@pipeline-builder/api-core/testing';
 // Shared tier fixture — deep path is NOT intercepted by the api-core module mock
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
-import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
 // The REAL TIER_FEATURES (side-effect-free deep import, same pattern as tier-mock)
 // so this can't drift from api-core — a hand-copy silently diverges as features
 // are added.

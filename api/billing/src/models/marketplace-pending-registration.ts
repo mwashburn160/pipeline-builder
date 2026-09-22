@@ -30,6 +30,9 @@ export interface MarketplacePendingRegistrationDocument extends Document<string>
   planId: string;
   dimension?: string;
   interval: BillingInterval;
+  /** The resolved entitlement's own ExpirationDate — the claimed subscription's
+   *  first `currentPeriodEnd` (AWS's term, not a wall-clock guess). */
+  entitlementExpiresAt?: Date;
   createdAt: Date;
   expiresAt: Date;
 }
@@ -42,6 +45,7 @@ const schema = new Schema<MarketplacePendingRegistrationDocument>(
     planId: { type: String, required: true },
     dimension: { type: String },
     interval: { type: String, enum: ['monthly', 'annual'], required: true },
+    entitlementExpiresAt: { type: Date },
     // TTL: Mongo purges the doc once `expiresAt` passes (abandoned registration).
     expiresAt: { type: Date, required: true, index: { expires: 0 } },
   },

@@ -165,122 +165,158 @@ async function checkDueSchedules(): Promise<void> {
   }
 }
 
+/** One parsed cron field: the allowed values, and whether it was `*` (unrestricted). */
+interface CronField {
+  values: ReadonlySet<number>;
+  any: boolean;
+}
+
+/** A parsed 5-field cron: minute hour day-of-month month day-of-week. */
+interface ParsedCron {
+  minute: CronField;
+  hour: CronField;
+  dom: CronField;
+  month: CronField;
+  dow: CronField;
+}
+
+/** Strict non-negative integer (no signs, decimals, or trailing junk). */
+function parseCronInt(text: string): number | null {
+  return /^\d+$/.test(text) ? Number(text) : null;
+}
+
 /**
- * Validate a cron expression. Returns true if `calculateNextRun` would
- * succeed without falling back to the safety value. Use in route handlers
- * to reject malformed input at insert time, rather than silently storing
- * a schedule that resolves to "1 hour from now" forever.
- *
- * Only the minute and hour fields are honored by `calculateNextRun`; the
- * day-of-month, month, and day-of-week fields are ignored. Reject any
- * expression where those three fields aren't `*` so users don't think
- * `0 6 * * 1` will actually fire weekly. (We avoid taking on `cron-parser`
- * as a dependency just for one helper.)
+ * Parse ONE cron field over `[min, max]`. Supports the standard grammar:
+ * `*`, `N`, `a-b`, `*\/n`, `a-b/n`, `N/n` (N through max, step n) and comma
+ * lists of any of those. Returns `null` for anything malformed or out of range.
+ * Day-of-week accepts 0-7 with 7 folded to Sunday (0).
+ */
+function parseCronField(spec: string, min: number, max: number, isDow = false): CronField | null {
+  if (spec.length === 0) return null;
+  const values = new Set<number>();
+  const hi = isDow ? 7 : max;
+  for (const part of spec.split(',')) {
+    const [rangeText, stepText, ...rest] = part.split('/');
+    if (rest.length > 0 || rangeText === undefined || rangeText === '') return null;
+    let step = 1;
+    if (stepText !== undefined) {
+      const n = parseCronInt(stepText);
+      if (n === null || n < 1) return null;
+      step = n;
+    }
+    let lo: number;
+    let top: number;
+    if (rangeText === '*') {
+      lo = min; top = hi;
+      if (isDow && stepText === undefined) top = 6; // `*` = every day once (0-6)
+    } else if (rangeText.includes('-')) {
+      const [a, b, ...more] = rangeText.split('-');
+      const av = parseCronInt(a ?? '');
+      const bv = parseCronInt(b ?? '');
+      if (more.length > 0 || av === null || bv === null || av > bv) return null;
+      lo = av; top = bv;
+    } else {
+      const v = parseCronInt(rangeText);
+      if (v === null) return null;
+      lo = v;
+      top = stepText !== undefined ? hi : v; // `N/n` = N through max, step n
+    }
+    if (lo < min || top > hi) return null;
+    for (let v = lo; v <= top; v += step) values.add(isDow && v === 7 ? 0 : v);
+  }
+  return { values, any: spec === '*' };
+}
+
+/** Parse a whole 5-field cron expression; `null` if any field is malformed. */
+function parseCron(cronExpression: string): ParsedCron | null {
+  const parts = cronExpression.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [m, h, dom, mon, dow] = parts as [string, string, string, string, string];
+  const minute = parseCronField(m, 0, 59);
+  const hour = parseCronField(h, 0, 23);
+  const dayOfMonth = parseCronField(dom, 1, 31);
+  const month = parseCronField(mon, 1, 12);
+  const dayOfWeek = parseCronField(dow, 0, 6, true);
+  if (!minute || !hour || !dayOfMonth || !month || !dayOfWeek) return null;
+  return { minute, hour, dom: dayOfMonth, month, dow: dayOfWeek };
+}
+
+/**
+ * Whether `d` falls on an allowed DAY. Standard (Vixie) cron semantics: when BOTH
+ * day-of-month and day-of-week are restricted, a day matching EITHER fires;
+ * otherwise the restricted one (or neither) decides.
+ */
+function dayMatches(c: ParsedCron, d: Date): boolean {
+  const domOk = c.dom.values.has(d.getDate());
+  const dowOk = c.dow.values.has(d.getDay());
+  if (!c.dom.any && !c.dow.any) return domOk || dowOk;
+  return domOk && dowOk;
+}
+
+/** How far ahead to search before declaring an expression unsatisfiable (e.g. `0 0 31 2 *`). */
+const CRON_SEARCH_HORIZON_MS = 5 * 366 * 24 * 60 * 60 * 1000;
+
+/**
+ * The first minute strictly after `from` that matches `c`, or `null` when none
+ * exists within the horizon. Skips whole months/days/hours that can't match, so
+ * even a sparse schedule resolves in a few hundred steps.
+ */
+function nextCronMatch(c: ParsedCron, from: Date): Date | null {
+  const t = new Date(from);
+  t.setSeconds(0, 0);
+  t.setMinutes(t.getMinutes() + 1);
+  const limit = from.getTime() + CRON_SEARCH_HORIZON_MS;
+  while (t.getTime() <= limit) {
+    if (!c.month.values.has(t.getMonth() + 1)) {
+      t.setMonth(t.getMonth() + 1, 1);
+      t.setHours(0, 0, 0, 0);
+      continue;
+    }
+    if (!dayMatches(c, t)) {
+      t.setDate(t.getDate() + 1);
+      t.setHours(0, 0, 0, 0);
+      continue;
+    }
+    if (!c.hour.values.has(t.getHours())) {
+      t.setHours(t.getHours() + 1, 0, 0, 0);
+      continue;
+    }
+    if (!c.minute.values.has(t.getMinutes())) {
+      t.setMinutes(t.getMinutes() + 1, 0, 0);
+      continue;
+    }
+    return t;
+  }
+  return null;
+}
+
+/**
+ * Validate a cron expression: every one of the 5 fields must parse (`*`, values,
+ * ranges, `*\/n` / `a-b/n` steps, comma lists) AND the schedule must actually
+ * fire (an impossible date like `0 0 31 2 *` is rejected). Exactly the grammar
+ * {@link calculateNextRun} honors, so an accepted schedule never silently falls
+ * back. Use in route handlers to reject malformed input at insert time.
  */
 export function isValidCronExpression(cronExpression: string): boolean {
-  try {
-    const parts = cronExpression.trim().split(/\s+/);
-    if (parts.length !== 5) return false;
-    const [minuteSpec, hourSpec, dom, month, dow] = parts;
-    if (dom !== '*' || month !== '*' || dow !== '*') return false;
-
-    const minuteOk = minuteSpec === '*'
-      || parseField(minuteSpec, 0, 59) !== null
-      || /^\*\/\d+$/.test(minuteSpec);
-    const hourOk = hourSpec === '*'
-      || parseField(hourSpec, 0, 23) !== null
-      || /^\*\/\d+$/.test(hourSpec);
-    return minuteOk && hourOk;
-  } catch {
-    return false;
-  }
+  const parsed = parseCron(cronExpression);
+  return parsed !== null && nextCronMatch(parsed, new Date()) !== null;
 }
 
 /** Human-readable rejection reason for `isValidCronExpression`. */
 export const CRON_VALIDATION_HINT =
-  'Cron expression must have exactly 5 fields and the day-of-month, month, and day-of-week fields must be "*". Only minute and hour are honored.';
+  'Cron expression must have exactly 5 fields (minute hour day-of-month month day-of-week), each "*", a number, a range (a-b), a step (*/n or a-b/n) or a comma list of those, and must describe a time that actually occurs.';
 
 /**
- * Calculate the next run time from a cron expression.
- * Supports standard 5-field cron: minute hour dayOfMonth month dayOfWeek.
- * Falls back to 1 hour from now if parsing fails.
+ * Calculate the next run time (strictly after `from`) for a 5-field cron
+ * expression, honoring EVERY field — minute, hour, day-of-month, month and
+ * day-of-week — with the grammar {@link isValidCronExpression} accepts. A
+ * malformed/unsatisfiable expression (only reachable for a row stored before
+ * validation) falls back to 1 hour after `from` so the sweep keeps moving.
  */
-export function calculateNextRun(cronExpression: string): Date {
-  try {
-    const parts = cronExpression.trim().split(/\s+/);
-    if (parts.length !== 5) {
-      throw new Error(`Invalid cron expression: expected 5 fields, got ${parts.length}`);
-    }
-
-    const [minuteSpec, hourSpec] = parts;
-    const now = new Date();
-    const next = new Date(now);
-
-    // Simple parser for common patterns:
-    // "0 * * * *" = every hour at :00
-    // "*/15 * * * *" = every 15 minutes
-    // "0 0 * * *" = daily at midnight
-    // "0 6 * * 1" = weekly Monday at 6am
-
-    const minute = parseField(minuteSpec, 0, 59);
-    const hour = parseField(hourSpec, 0, 23);
-
-    if (minute !== null && hour !== null) {
-      // Specific time: next occurrence of HH:MM
-      next.setMinutes(minute, 0, 0);
-      next.setHours(hour);
-      if (next <= now) next.setDate(next.getDate() + 1);
-    } else if (minute !== null) {
-      // Every hour at :MM
-      next.setMinutes(minute, 0, 0);
-      if (next <= now) next.setHours(next.getHours() + 1);
-    } else if (minuteSpec.startsWith('*/')) {
-      // Every N minutes
-      const interval = parseInt(minuteSpec.slice(2), 10);
-      if (interval > 0 && interval <= 60) {
-        if (hour !== null) {
-          // "*/N H * * *" — every N minutes but ONLY during hour H. Previously
-          // the hour was ignored and this ran every N minutes all day.
-          if (now.getHours() === hour) {
-            const nextMinute = Math.ceil((now.getMinutes() + 1) / interval) * interval;
-            if (nextMinute <= 59) {
-              next.setHours(hour, nextMinute, 0, 0);
-            } else {
-              // Past the last slot this hour → hour H tomorrow at :00.
-              next.setHours(hour, 0, 0, 0);
-              next.setDate(next.getDate() + 1);
-            }
-          } else {
-            // Outside hour H → next occurrence of hour H at :00.
-            next.setHours(hour, 0, 0, 0);
-            if (next <= now) next.setDate(next.getDate() + 1);
-          }
-        } else {
-          // "*/N * * * *" — every N minutes, any hour.
-          const currentMinute = now.getMinutes();
-          const nextMinute = Math.ceil((currentMinute + 1) / interval) * interval;
-          next.setMinutes(nextMinute, 0, 0);
-          if (next <= now) next.setMinutes(next.getMinutes() + interval);
-        }
-      } else {
-        next.setTime(now.getTime() + 3600000);
-      }
-    } else {
-      // Fallback: 1 hour from now
-      next.setTime(now.getTime() + 3600000);
-    }
-
-    return next;
-  } catch {
-    // Fallback: 1 hour from now
-    return new Date(Date.now() + 3600000);
-  }
-}
-
-/** Parse a single cron field. Returns the value if it's a literal number, null otherwise. */
-function parseField(field: string, min: number, max: number): number | null {
-  if (field === '*') return null;
-  const num = parseInt(field, 10);
-  if (Number.isFinite(num) && num >= min && num <= max) return num;
-  return null;
+export function calculateNextRun(cronExpression: string, from: Date = new Date()): Date {
+  const parsed = parseCron(cronExpression);
+  const next = parsed ? nextCronMatch(parsed, from) : null;
+  if (next) return next;
+  logger.warn('Unparseable cron expression; falling back to +1h', { cronExpression });
+  return new Date(from.getTime() + 3600000);
 }

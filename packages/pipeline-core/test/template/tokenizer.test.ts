@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
 import { tokenize, TokenizerError, hasTemplate, MAX_FIELD_SIZE_BYTES, MAX_PATH_DEPTH } from '../../src/template/tokenizer.js';
 
 describe('tokenize', () => {

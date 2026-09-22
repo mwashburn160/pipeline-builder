@@ -8,6 +8,7 @@
  * the service contract, access control, and error handling.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -16,10 +17,10 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Must declare mocks before unstable_mockModule registration
-const mockSelect = jest.fn();
-const mockInsert = jest.fn();
-const mockUpdate = jest.fn();
-const mockTransaction = jest.fn();
+const mockSelect = jest.fn<AnyFn>();
+const mockInsert = jest.fn<AnyFn>();
+const mockUpdate = jest.fn<AnyFn>();
+const mockTransaction = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
   db: {
@@ -37,8 +38,8 @@ jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
 // real tx-wrapping is exercised by the tenancy module's own tests.
 // Stubbed `tx.execute` for setDefault's FOR UPDATE row lock; tests don't
 // inspect the lock query so a no-op resolve is enough.
-const mockExecute = jest.fn().mockResolvedValue(undefined);
-const mockDelete = jest.fn();
+const mockExecute = jest.fn<AnyFn>().mockResolvedValue(undefined);
+const mockDelete = jest.fn<AnyFn>();
 
 // Tenant context is mockable per-test: enforceOrgId / setDefault read it to pin
 // writes to the caller's org. Default is `undefined` (out-of-context / worker
@@ -153,9 +154,9 @@ describe('CrudService', () => {
       };
 
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([entity]),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            limit: jest.fn<AnyFn>().mockResolvedValue([entity]),
           }),
         }),
       });
@@ -167,9 +168,9 @@ describe('CrudService', () => {
 
     it('should return null when not found', async () => {
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([]),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            limit: jest.fn<AnyFn>().mockResolvedValue([]),
           }),
         }),
       });
@@ -180,9 +181,9 @@ describe('CrudService', () => {
 
     it('should propagate database errors', async () => {
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockRejectedValue(new Error('DB connection lost')),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            limit: jest.fn<AnyFn>().mockRejectedValue(new Error('DB connection lost')),
           }),
         }),
       });
@@ -219,8 +220,8 @@ describe('CrudService', () => {
       ];
 
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue(entities),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockResolvedValue(entities),
         }),
       });
 
@@ -231,8 +232,8 @@ describe('CrudService', () => {
 
     it('should return empty array when no matches', async () => {
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue([]),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockResolvedValue([]),
         }),
       });
 
@@ -257,9 +258,9 @@ describe('CrudService', () => {
       };
 
       mockInsert.mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          onConflictDoNothing: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([created]),
+        values: jest.fn<AnyFn>().mockReturnValue({
+          onConflictDoNothing: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([created]),
           }),
         }),
       });
@@ -269,11 +270,11 @@ describe('CrudService', () => {
     });
 
     it('never overwrites: a conflicting create writes nothing and throws 409', async () => {
-      const onConflictMock = jest.fn().mockReturnValue({
-        returning: jest.fn().mockResolvedValue([]),
+      const onConflictMock = jest.fn<AnyFn>().mockReturnValue({
+        returning: jest.fn<AnyFn>().mockResolvedValue([]),
       });
       mockInsert.mockReturnValue({
-        values: jest.fn().mockReturnValue({ onConflictDoNothing: onConflictMock }),
+        values: jest.fn<AnyFn>().mockReturnValue({ onConflictDoNothing: onConflictMock }),
       });
 
       await expect(service.create({ name: 'Taken', orgId: 'org1' }, 'user1'))
@@ -283,9 +284,9 @@ describe('CrudService', () => {
 
     it('should propagate insert errors', async () => {
       mockInsert.mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          onConflictDoNothing: jest.fn().mockReturnValue({
-            returning: jest.fn().mockRejectedValue(new Error('DB error')),
+        values: jest.fn<AnyFn>().mockReturnValue({
+          onConflictDoNothing: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')),
           }),
         }),
       });
@@ -312,9 +313,9 @@ describe('CrudService', () => {
       };
 
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([updated]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([updated]),
           }),
         }),
       });
@@ -326,9 +327,9 @@ describe('CrudService', () => {
 
     it('should return null when entity not found', async () => {
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([]),
           }),
         }),
       });
@@ -353,9 +354,9 @@ describe('CrudService', () => {
         updatedBy: 'user1',
       };
 
-      const setMock = jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          returning: jest.fn().mockResolvedValue([deleted]),
+      const setMock = jest.fn<AnyFn>().mockReturnValue({
+        where: jest.fn<AnyFn>().mockReturnValue({
+          returning: jest.fn<AnyFn>().mockResolvedValue([deleted]),
         }),
       });
       mockUpdate.mockReturnValue({ set: setMock });
@@ -374,9 +375,9 @@ describe('CrudService', () => {
 
     it('should return null when entity not found', async () => {
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([]),
           }),
         }),
       });
@@ -407,9 +408,9 @@ describe('CrudService', () => {
       // FOR UPDATE row lock.
       mockExecute.mockResolvedValueOnce([]);
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([updated]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([updated]),
           }),
         }),
       });
@@ -424,9 +425,9 @@ describe('CrudService', () => {
     it('should throw NotFoundError when entity not found', async () => {
       mockExecute.mockResolvedValueOnce([]);
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([]),
           }),
         }),
       });
@@ -472,9 +473,9 @@ describe('CrudService', () => {
       ];
 
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue(updated),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue(updated),
           }),
         }),
       });
@@ -488,10 +489,10 @@ describe('CrudService', () => {
       // system/other-org PUBLIC rows. It must add the same own-org write-pin
       // (eq(getOrgColumn(), orgId)) that update/delete/bulkDelete use so it
       // can't mutate another org's/system public rows.
-      const whereSpy = jest.fn().mockReturnValue({
-        returning: jest.fn().mockResolvedValue([]),
+      const whereSpy = jest.fn<AnyFn>().mockReturnValue({
+        returning: jest.fn<AnyFn>().mockResolvedValue([]),
       });
-      mockUpdate.mockReturnValue({ set: jest.fn().mockReturnValue({ where: whereSpy }) });
+      mockUpdate.mockReturnValue({ set: jest.fn<AnyFn>().mockReturnValue({ where: whereSpy }) });
 
       const orgColumnSpy = jest.spyOn(service as any, 'getOrgColumn');
       await service.updateMany({ name: 'old' }, { name: 'X' }, 'org1', 'user1');
@@ -501,10 +502,10 @@ describe('CrudService', () => {
     });
 
     it('omits the own-org pin for an orgId-less (sysadmin) context', async () => {
-      const whereSpy = jest.fn().mockReturnValue({
-        returning: jest.fn().mockResolvedValue([]),
+      const whereSpy = jest.fn<AnyFn>().mockReturnValue({
+        returning: jest.fn<AnyFn>().mockResolvedValue([]),
       });
-      mockUpdate.mockReturnValue({ set: jest.fn().mockReturnValue({ where: whereSpy }) });
+      mockUpdate.mockReturnValue({ set: jest.fn<AnyFn>().mockReturnValue({ where: whereSpy }) });
 
       const orgColumnSpy = jest.spyOn(service as any, 'getOrgColumn');
       await service.updateMany({ name: 'old' }, { name: 'X' }, '', 'user1');
@@ -530,18 +531,18 @@ describe('CrudService', () => {
     /** Mock for data-only query (LIMIT+1 trick — no separate COUNT). */
     function mockDataQuery(dataResult: TestEntity[]) {
       const dataQuery = {
-        limit: jest.fn().mockReturnValue({
-          offset: jest.fn().mockResolvedValue(dataResult),
+        limit: jest.fn<AnyFn>().mockReturnValue({
+          offset: jest.fn<AnyFn>().mockResolvedValue(dataResult),
         }),
-        orderBy: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            offset: jest.fn().mockResolvedValue(dataResult),
+        orderBy: jest.fn<AnyFn>().mockReturnValue({
+          limit: jest.fn<AnyFn>().mockReturnValue({
+            offset: jest.fn<AnyFn>().mockResolvedValue(dataResult),
           }),
         }),
       };
       mockSelect.mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue(dataQuery),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue(dataQuery),
         }),
       });
     }
@@ -551,8 +552,8 @@ describe('CrudService', () => {
       mockDataQuery(dataResult);
       // Second call is for COUNT
       mockSelect.mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue([{ count: countResult }]),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockResolvedValue([{ count: countResult }]),
         }),
       });
     }
@@ -609,11 +610,11 @@ describe('CrudService', () => {
 
     it('should propagate database errors', async () => {
       mockSelect.mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            orderBy: jest.fn().mockReturnValue({
-              limit: jest.fn().mockReturnValue({
-                offset: jest.fn().mockRejectedValue(new Error('DB error')),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            orderBy: jest.fn<AnyFn>().mockReturnValue({
+              limit: jest.fn<AnyFn>().mockReturnValue({
+                offset: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')),
               }),
             }),
           }),
@@ -681,9 +682,9 @@ describe('CrudService', () => {
       const svc = new HookedService();
 
       mockInsert.mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          onConflictDoNothing: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([created]),
+        values: jest.fn<AnyFn>().mockReturnValue({
+          onConflictDoNothing: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([created]),
           }),
         }),
       });
@@ -700,9 +701,9 @@ describe('CrudService', () => {
       const svc = new HookedService();
 
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([created]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([created]),
           }),
         }),
       });
@@ -717,9 +718,9 @@ describe('CrudService', () => {
       const svc = new HookedService();
 
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([created]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([created]),
           }),
         }),
       });
@@ -734,9 +735,9 @@ describe('CrudService', () => {
       const svc = new FailingHookService();
 
       mockInsert.mockReturnValue({
-        values: jest.fn().mockReturnValue({
-          onConflictDoNothing: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([created]),
+        values: jest.fn<AnyFn>().mockReturnValue({
+          onConflictDoNothing: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([created]),
           }),
         }),
       });
@@ -751,9 +752,9 @@ describe('CrudService', () => {
       const svc = new HookedService();
 
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([]),
           }),
         }),
       });
@@ -767,9 +768,9 @@ describe('CrudService', () => {
       const svc = new HookedService();
 
       mockUpdate.mockReturnValue({
-        set: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            returning: jest.fn().mockResolvedValue([]),
+        set: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            returning: jest.fn<AnyFn>().mockResolvedValue([]),
           }),
         }),
       });
@@ -785,8 +786,8 @@ describe('CrudService', () => {
   describe('count', () => {
     it('should return count of matching entities', async () => {
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue([{ count: 5 }]),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockResolvedValue([{ count: 5 }]),
         }),
       });
 
@@ -796,8 +797,8 @@ describe('CrudService', () => {
 
     it('should return 0 when no entities match', async () => {
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue([{ count: 0 }]),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockResolvedValue([{ count: 0 }]),
         }),
       });
 
@@ -807,8 +808,8 @@ describe('CrudService', () => {
 
     it('should propagate database errors', async () => {
       mockSelect.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockRejectedValue(new Error('DB error')),
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')),
         }),
       });
 
@@ -840,13 +841,13 @@ describe('CrudService', () => {
 
       // Widened find()
       mockSelect.mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue([]) }),
+        from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>().mockResolvedValue([]) }),
       });
       await svc.find({}, 'org1', 'parent1');
 
       // Widened count()
       mockSelect.mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue([{ count: 7 }]) }),
+        from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>().mockResolvedValue([{ count: 7 }]) }),
       });
       const total = await svc.count({}, 'org1', 'parent1');
 
@@ -863,7 +864,7 @@ describe('CrudService', () => {
       const svc = new CapturingService();
 
       mockSelect.mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue([{ count: 2 }]) }),
+        from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>().mockResolvedValue([{ count: 2 }]) }),
       });
       const total = await svc.count({}, 'org1');
 
@@ -896,9 +897,9 @@ describe('CrudService', () => {
 
     /** Wire create()'s insert chain and return the spy on `.values()`. */
     function captureCreateValues() {
-      const valuesSpy = jest.fn().mockReturnValue({
-        onConflictDoNothing: jest.fn().mockReturnValue({
-          returning: jest.fn().mockResolvedValue([created]),
+      const valuesSpy = jest.fn<AnyFn>().mockReturnValue({
+        onConflictDoNothing: jest.fn<AnyFn>().mockReturnValue({
+          returning: jest.fn<AnyFn>().mockResolvedValue([created]),
         }),
       });
       mockInsert.mockReturnValue({ values: valuesSpy });
@@ -954,9 +955,9 @@ describe('CrudService', () => {
 
     it('also stamps the tenant org on update payloads (re-home prevention)', async () => {
       currentTenantContext = { orgId: 'org1', isSuperAdmin: false };
-      const setSpy = jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          returning: jest.fn().mockResolvedValue([created]),
+      const setSpy = jest.fn<AnyFn>().mockReturnValue({
+        where: jest.fn<AnyFn>().mockReturnValue({
+          returning: jest.fn<AnyFn>().mockResolvedValue([created]),
         }),
       });
       mockUpdate.mockReturnValue({ set: setSpy });
@@ -1020,10 +1021,10 @@ describe('CrudService', () => {
     /** Wire one data query and capture the select spec / where / orderBy / offset args. */
     function captureQuery(rows: Record<string, unknown>[]) {
       const offset = jest.fn<(n: number) => Promise<unknown>>().mockResolvedValue(rows);
-      const limit = jest.fn().mockReturnValue({ offset });
-      const orderBy = jest.fn().mockReturnValue({ limit });
-      const where = jest.fn().mockReturnValue({ orderBy });
-      const from = jest.fn().mockReturnValue({ where });
+      const limit = jest.fn<AnyFn>().mockReturnValue({ offset });
+      const orderBy = jest.fn<AnyFn>().mockReturnValue({ limit });
+      const where = jest.fn<AnyFn>().mockReturnValue({ orderBy });
+      const from = jest.fn<AnyFn>().mockReturnValue({ where });
       mockSelect.mockReturnValueOnce({ from } as unknown as ReturnType<typeof mockSelect>);
       return { where, orderBy, offset };
     }
@@ -1166,13 +1167,13 @@ describe('CrudService', () => {
       mockExecute.mockResolvedValueOnce([]);
       const exactSpy = jest.spyOn(service as unknown as { exactIdCondition: (id: string) => SQL }, 'exactIdCondition');
 
-      const clearWhere = jest.fn().mockReturnValue(undefined);
-      const targetWhere = jest.fn().mockReturnValue({
-        returning: jest.fn().mockResolvedValue([updated]),
+      const clearWhere = jest.fn<AnyFn>().mockReturnValue(undefined);
+      const targetWhere = jest.fn<AnyFn>().mockReturnValue({
+        returning: jest.fn<AnyFn>().mockResolvedValue([updated]),
       });
       mockUpdate
-        .mockReturnValueOnce({ set: jest.fn().mockReturnValue({ where: clearWhere }) })
-        .mockReturnValueOnce({ set: jest.fn().mockReturnValue({ where: targetWhere }) });
+        .mockReturnValueOnce({ set: jest.fn<AnyFn>().mockReturnValue({ where: clearWhere }) })
+        .mockReturnValueOnce({ set: jest.fn<AnyFn>().mockReturnValue({ where: targetWhere }) });
 
       const result = await service.setDefault('proj', 'org1', 'TARGET-ID', 'user1');
       expect(result).toEqual(updated);

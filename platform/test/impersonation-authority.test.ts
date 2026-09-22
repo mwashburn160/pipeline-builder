@@ -11,12 +11,13 @@
  * "any org admin may view as any of their members".
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockIsSystemAdmin = jest.fn();
-const mockIsAncestorOrg = jest.fn();
+const mockIsSystemAdmin = jest.fn<AnyFn>();
+const mockIsAncestorOrg = jest.fn<AnyFn>();
 
 // Spread the REAL api-core (apiCoreMock) rather than an inline literal: the real
 // controller-helper this suite now loads pulls `createLogger`, `isSystemOrgId`,

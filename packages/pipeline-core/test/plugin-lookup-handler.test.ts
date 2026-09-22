@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { CloudFormationCustomResourceEvent } from 'aws-lambda';
 
@@ -22,7 +23,7 @@ jest.unstable_mockModule('../src/config/app-config.js', () => ({
 // Mock Secrets Manager — schema is { username, password, ... } where
 // `password` carries the platform JWT (same field CodeBuild's
 // secretsManagerCredentials reads as Basic auth).
-const mockSend = jest.fn().mockResolvedValue({
+const mockSend = jest.fn<AnyFn>().mockResolvedValue({
   SecretString: JSON.stringify({ username: 'test-org', password: 'stored-jwt-token' }),
 });
 jest.unstable_mockModule('@aws-sdk/client-secrets-manager', () => ({
@@ -31,8 +32,8 @@ jest.unstable_mockModule('@aws-sdk/client-secrets-manager', () => ({
 }));
 
 // Mock axios before importing handler
-const mockPost = jest.fn();
-const mockAxiosCreate = jest.fn(() => ({ post: mockPost }));
+const mockPost = jest.fn<AnyFn>();
+const mockAxiosCreate = jest.fn((..._args: unknown[]) => ({ post: mockPost }));
 
 class AxiosError extends Error {
   code?: string;
@@ -90,9 +91,9 @@ describe('plugin-lookup-handler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     _resetCredentialsCache();
-    jest.spyOn(console, 'log').mockImplementation();
-    jest.spyOn(console, 'error').mockImplementation();
-    jest.spyOn(console, 'debug').mockImplementation();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'debug').mockImplementation(() => {});
     process.env = { ...originalEnv };
     mockSend.mockResolvedValue({
       SecretString: JSON.stringify({ username: 'test-org', password: 'stored-jwt-token' }),

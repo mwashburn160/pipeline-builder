@@ -187,7 +187,7 @@ set +a
 # ALERT DELIVERY PRE-FLIGHT. Fails the deploy while a Slack webhook URL is still
 # a placeholder — alerting that 404s into nothing is indistinguishable from
 # healthy alerting. Set both SLACK_*_WEBHOOK_URL empty in .env to run without it.
-pb_check_alert_delivery "$ENV_FILE" "$CONFIG_DIR/alertmanager/alertmanager.yml" || exit 1
+pb_check_alert_delivery "$ENV_FILE" "$(pb_shared_dir)/config/alertmanager/alertmanager.yml" || exit 1
 
 # Generate the MongoDB replica-set keyfile per-deploy if absent (idempotent —
 # skips if present). It's no longer committed, so a fresh checkout has none;
@@ -386,7 +386,7 @@ kubectl -n kube-system patch deploy metrics-server --type=json \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
   2>/dev/null || echo "  metrics-server patch skipped (already patched or not yet rolled out)"
 
-kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
+kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.20.2/keda-2.20.2.yaml
 kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
 echo "  Addons + KEDA installed"
 
@@ -403,7 +403,7 @@ echo "  Addons + KEDA installed"
 log "Installing Istio ambient mesh ($ISTIO_VERSION)"
 # Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary). The
 # shared ensure_istioctl guarantees it — auto-installing $ISTIO_VERSION if the host
-# has none (or too old); identical handling on every target (see common.sh).
+# has none or any OTHER version (exact match); identical on every target (see common.sh).
 ensure_istioctl "$ISTIO_VERSION"
 # istiod's production default request (500m CPU / 2Gi memory) reserves a fifth of
 # a laptop node for a control plane that idles at ~5m / ~60Mi here; trim the
@@ -499,7 +499,8 @@ secret minio-secret \
   --from-literal=registry-access-key="$REGISTRY_S3_ACCESS_KEY" --from-literal=registry-secret-key="$REGISTRY_S3_SECRET_KEY" \
   --from-literal=loki-access-key="$LOKI_S3_ACCESS_KEY"         --from-literal=loki-secret-key="$LOKI_S3_SECRET_KEY" \
   --from-literal=thanos-access-key="$THANOS_S3_ACCESS_KEY"     --from-literal=thanos-secret-key="$THANOS_S3_SECRET_KEY" \
-  --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY"
+  --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY" \
+  --from-literal=audit-heads-access-key="$AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID" --from-literal=audit-heads-secret-key="$AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY"
 
 # Ops-team Slack webhook URLs for the platform-wide critical/warning receivers,
 # mounted as FILES into alertmanager (api_url_file in alertmanager.yml) — a
@@ -531,12 +532,16 @@ log "Creating TLS certificates"
 # Shared, idempotent gateway-TLS generator (mkcert → self-signed fallback).
 bash "$BIN_DIR/nginx-tls.sh" "$CERT_DIR"
 kube create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt" --key="$CERT_DIR/nginx-tls.key" -n "$NAMESPACE"
+# The CA that issued that cert (public half only) — the frontend server mounts
+# it as NODE_EXTRA_CA_CERTS to verify https://nginx:8443 (no image trusts a dev CA).
+kube create configmap dev-ca --from-file=dev-ca.crt="$CERT_DIR/dev-ca.crt" -n "$NAMESPACE"
 
 # JWT signing keypair for image-registry's token-auth endpoint (shared generator).
 bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 secret registry-token-secret \
   --from-file=jwt-private.pem="$CERT_DIR/image-registry-jwt.key" \
-  --from-file=jwt-public.pem="$CERT_DIR/image-registry-jwt.crt"
+  --from-file=jwt-public.pem="$CERT_DIR/image-registry-jwt.crt" \
+  --from-literal=http-secret="$REGISTRY_HTTP_SECRET"
 
 # Build-side credentials consumed by the image-registry proxy:
 #   IMAGE_REGISTRY_*  — Basic auth used when talking to the underlying registry.
@@ -592,20 +597,23 @@ echo "  TLS + registry + user-token + plugin signing keys done"
 # -- ConfigMaps ---------------------------------------------------------------
 
 log "Creating ConfigMaps"
-configmap postgres-init   --from-file=init.sql="$DEPLOY_DIR/postgres-init.sql"
-configmap mongodb-init    --from-file=mongo-init.js="$DEPLOY_DIR/mongodb-init.js"
+# postgres-init/mongodb-init/njs/loki/thanos/alertmanager come from deploy/shared
+# (pb_shared_dir, bin/k8s-resources.sh) — one copy for every target.
+SHARED_DIR="$(pb_shared_dir)"
+configmap postgres-init   --from-file=init.sql="$SHARED_DIR/postgres-init.sql"
+configmap mongodb-init    --from-file=mongo-init.js="$SHARED_DIR/mongodb-init.js"
 secret   mongodb-keyfile  --from-file=mongodb-keyfile="$DEPLOY_DIR/mongodb-keyfile"
 configmap nginx-config    --from-file=nginx.conf="$NGINX_DIR/nginx.conf"
-configmap nginx-njs       --from-file=jwt.js="$NGINX_DIR/jwt.js" --from-file=metrics.js="$NGINX_DIR/metrics.js"
-configmap loki-config     --from-file=loki-config.yml="$CONFIG_DIR/loki/loki-config.yml"
+configmap nginx-njs       --from-file=jwt.js="$SHARED_DIR/nginx/jwt.js" --from-file=metrics.js="$SHARED_DIR/nginx/metrics.js"
+configmap loki-config     --from-file=loki-config.yml="$SHARED_DIR/config/loki/loki-config.yml"
 configmap prometheus-config \
   --from-file=prometheus.yml="$CONFIG_DIR/prometheus/prometheus.yml" \
   --from-file=alert-rules.yml="$CONFIG_DIR/prometheus/alert-rules.yml"
 # Thanos object-store config, mounted by the prometheus thanos-sidecar and
 # thanos-query (prometheus.yaml / thanos-query.yaml). Was missing here — those
 # pods FailedMount on minikube — while ec2/eks create it via bin/k8s-resources.sh.
-configmap thanos-objstore --from-file=objstore.yml="$CONFIG_DIR/thanos/objstore.yml"
-configmap alertmanager-config --from-file=alertmanager.yml="$CONFIG_DIR/alertmanager/alertmanager.yml"
+configmap thanos-objstore --from-file=objstore.yml="$SHARED_DIR/config/thanos/objstore.yml"
+configmap alertmanager-config --from-file=alertmanager.yml="$SHARED_DIR/config/alertmanager/alertmanager.yml"
 configmap promtail-config --from-file=promtail-config.yml="$CONFIG_DIR/promtail/promtail-config.yml"
 # Grafana dashboards (the provider config + the dashboard JSON), mounted at
 # /etc/grafana/provisioning/dashboards by grafana.yaml.
@@ -712,6 +720,11 @@ for i in $(seq 1 5); do
   [ "$i" = "5" ] && echo "  WARNING: Gateway not reachable"
   sleep 2
 done
+
+# -- Post-provision smoke checks (non-fatal) ----------------------------------
+# Test alert -> Slack, test email, and a denied-connection probe (tells you
+# whether this CNI enforces NetworkPolicy at all).
+NAMESPACE="$NAMESPACE" bash "$BIN_DIR/post-provision-smoke.sh" k8s || true
 
 # -- Summary ------------------------------------------------------------------
 

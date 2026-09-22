@@ -60,10 +60,10 @@ export function EcosystemActionDialog({
         title={title}
         action={action}
         details={<>{details}{reasonField}</>}
-        onConfirmed={async (token) => {
-          if (missingReason) throw new Error(`Enter ${reasonLabel?.toLowerCase() ?? 'a reason'} first.`);
-          await onSubmit(reason.trim(), token);
-        }}
+        // Checked BEFORE the step-up, not after it: a refusal then spent the
+        // single-use token on a request that could never succeed.
+        confirmDisabledReason={missingReason ? `Enter ${reasonLabel?.toLowerCase() ?? 'a reason'} first.` : null}
+        onConfirmed={(token) => onSubmit(reason.trim(), token)}
         onClose={onClose}
       />
     );

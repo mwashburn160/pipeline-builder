@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { EMAIL_PATTERN } from './email-address.js';
 import { config } from '../config/index.js';
 import { MAX_MFA_GRACE_DAYS } from '../helpers/mfa-policy.js';
+import { isCustomGoogleDiscoveryUrl, isReservedDiscoveryUrl, isReservedIssuer } from '../helpers/reserved-issuers.js';
 import { PASSWORD_MAX_LENGTH, PASSWORD_RULES } from '../models/user.js';
 
 /**
@@ -415,6 +416,18 @@ const groupsClaimSchema = z.string().trim().min(1).max(128)
 const GOOGLE_GROUPS_MESSAGE =
   'Group-to-Role mapping is not available for Google: Google\'s OIDC tokens carry no group claim. Use a generic OIDC or Cognito identity provider for just-in-time Role mapping.';
 
+/** Reserved issuers (Google) carry domain-trust, so no admin-entered value may
+ *  claim one: Google has its own provider with a hard-coded discovery document,
+ *  and a generic OIDC or SAML IdP may not present Google's issuer. The service
+ *  re-checks the RESULTING document (`assertNoReservedIssuer`). */
+const RESERVED_ISSUER_MESSAGE =
+  'This value is reserved for Google. Use the Google provider — it always uses Google\'s own discovery document — rather than a custom discovery URL or entity ID.';
+function noReservedIssuer(data: { protocol?: string; provider?: string; discoveryUrl?: string; samlEntityId?: string }): boolean {
+  if (isReservedIssuer(data.samlEntityId)) return false;
+  if (data.provider === 'google') return !isCustomGoogleDiscoveryUrl(data.discoveryUrl);
+  return !isReservedDiscoveryUrl(data.discoveryUrl);
+}
+
 /** Which protocol the org federates over (#4). Mirrors `IdpProtocol` in
  *  models/org-idp-config.ts. */
 const idpProtocolSchema = z.enum(['oidc', 'saml']);
@@ -517,6 +530,9 @@ export const orgIdpCreateSchema = z.object({
 ).refine(
   data => !data.groupsClaim || data.protocol === 'saml' || (data.provider !== 'google' && data.provider !== 'github'),
   { message: GOOGLE_GROUPS_MESSAGE, path: ['groupsClaim'] },
+).refine(
+  noReservedIssuer,
+  { message: RESERVED_ISSUER_MESSAGE, path: ['discoveryUrl'] },
 );
 
 /** Partial update of an org IdP config. Every field optional; unset fields
@@ -546,6 +562,9 @@ export const orgIdpPatchSchema = z.object({
 }).refine(
   data => !data.groupsClaim || data.protocol === 'saml' || (data.provider !== 'google' && data.provider !== 'github'),
   { message: GOOGLE_GROUPS_MESSAGE, path: ['groupsClaim'] },
+).refine(
+  noReservedIssuer,
+  { message: RESERVED_ISSUER_MESSAGE, path: ['discoveryUrl'] },
 );
 
 // SAML login flow (#4)

@@ -8,11 +8,12 @@
  * zero-recipient case. Models + EmailService are mocked.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockMembershipFind = jest.fn<(...a: unknown[]) => unknown>();
-const mockUserFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockMembershipFind = jest.fn<AnyFn>();
+const mockUserFind = jest.fn<AnyFn>();
 const mockSend = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -30,12 +31,12 @@ jest.unstable_mockModule('mongoose', () => {
     static isValid(v: unknown) { return typeof v === 'string' && /^[a-f0-9]{24}$/i.test(v); }
   }
   class Schema { constructor() { /* no-op */ } index() { /* no-op */ } method() { /* no-op */ } static Types = { Mixed: class {}, ObjectId }; }
-  const api = { Types: { Mixed: class {}, ObjectId }, Schema, models: {}, model: jest.fn() };
+  const api = { Types: { Mixed: class {}, ObjectId }, Schema, models: {}, model: jest.fn<AnyFn>() };
   return { ...api, default: api };
 });
 
 jest.unstable_mockModule('../src/middleware/index.js', () => ({
-  requireServiceAuth: jest.fn(),
+  requireServiceAuth: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({

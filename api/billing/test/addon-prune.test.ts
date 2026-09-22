@@ -21,7 +21,9 @@
  * a mocked pipeline-core Config.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // A realistic fixture catalog: quota packs (no features), pure-feature bundles
@@ -43,13 +45,13 @@ const CATALOG = [
 // addon_pruned rows.
 const mockSafePut = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({ statusCode: 200 });
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ put: mockSafePut, get: jest.fn() }),
+  createSafeClient: () => ({ put: mockSafePut, get: jest.fn<AnyFn>() }),
 }));
 
 // billing-helpers loads incCounter from api-server; capture it so the provider
 // add-on sync-failure metric can be asserted.
-const mockIncCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
+const mockIncCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
 // billing-helpers imports the Mongoose models at module load — stub them so no
 // real mongoose/connection is pulled in (the prune helper touches neither).
@@ -71,14 +73,14 @@ const mockSyncAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockReso
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({ syncAddons: mockSyncAddons }),
 }));
-const mockAuditRecord = jest.fn();
+const mockAuditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
 
 // getBundleCatalog reads Config.get('billing').bundles; effectiveEntitlements is
 // imported at module top-level (unused by the prune helper) so a stub suffices.
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: (section: string) => (section === 'billing' ? { bundles: CATALOG } : {}) },
   effectiveEntitlements: () => ({ limits: {}, features: [] }),
 }));
@@ -155,7 +157,7 @@ describe('pruneTierIncludedFeatureAddons', () => {
 });
 
 describe('applyTierIncludedAddonPrune', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('mutates subscription.addons to the reduced set and returns the pruned bundles', () => {
     const sub = { addons: [{ bundleId: 'advanced_reporting', quantity: 1 }, { bundleId: 'seat_pack', quantity: 2 }] };
@@ -202,7 +204,7 @@ describe('applyTierIncludedAddonPrune', () => {
 });
 
 describe('finalizePrunedAddons', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   const pruned = [{ bundleId: 'advanced_reporting', features: ['advanced_reporting'] }];
   const reduced = [{ bundleId: 'seat_pack', quantity: 2 }];
@@ -274,7 +276,7 @@ describe('finalizePrunedAddons', () => {
 // finalize the prune (provider line-item removal + central audit). It returns a
 // DEFERRED thunk (nothing runs until invoked, so callers run it AFTER save).
 describe('applyPlanTierChange', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   function sub() {
     return {

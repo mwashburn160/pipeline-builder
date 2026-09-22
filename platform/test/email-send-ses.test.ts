@@ -14,7 +14,7 @@ import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSendMail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockCreateTransport = jest.fn(() => ({ sendMail: mockSendMail }));
+const mockCreateTransport = jest.fn((_opts: unknown) => ({ sendMail: mockSendMail }));
 
 // Mutable config the mock factory reads on each (post-reset) import.
 let mockConfig: any;

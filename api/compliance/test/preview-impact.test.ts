@@ -15,11 +15,11 @@
  * - Org isolation: only the caller's own org's entities are evaluated
  */
 
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const evaluateRulesMock = jest.fn();
+const evaluateRulesMock = jest.fn<AnyFn>();
 
 // Chainable Drizzle .select().from(...).where(...).limit(...).then(...) mock.
 function makeChain(terminal: () => Promise<unknown[]>) {
@@ -51,21 +51,21 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
-  sendPaginatedNested: jest.fn(),
+  sendPaginatedNested: jest.fn<AnyFn>(),
   // RBAC gates on /clone (requirePermission) and /auto-subscribe
   // (requireServicePrincipal → isServicePrincipal). Passthrough so the router loads.
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
   isServicePrincipal: () => true,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
-    await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
+    await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {
     complianceRule: {
       id: 'col_id', deletedAt: 'col_deleted', target: 'col_target', name: 'col_name',
@@ -80,19 +80,19 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
       const isFirst = dbSelectCallNumber === 1;
       return makeChain(() => Promise.resolve(isFirst ? nextRuleResult : nextEntityResult));
     },
-    insert: jest.fn(),
-    update: jest.fn(),
+    insert: jest.fn<AnyFn>(),
+    update: jest.fn<AnyFn>(),
   },
-  buildPublishedRuleCatalogConditions: jest.fn(),
-  drizzleCount: jest.fn(),
+  buildPublishedRuleCatalogConditions: jest.fn<AnyFn>(),
+  drizzleCount: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   and: (...a: unknown[]) => ({ __op: 'and', a }),
   desc: (c: unknown) => ({ __op: 'desc', c }),
   eq: (c: unknown, v: unknown) => ({ __op: 'eq', c, v }),
-  sql: jest.fn(),
-  inArray: jest.fn(),
+  sql: jest.fn<AnyFn>(),
+  inArray: jest.fn<AnyFn>(),
   isNull: (c: unknown) => ({ __op: 'isNull', c }),
 }));
 
@@ -102,7 +102,7 @@ jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
 
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
-    findActiveByOrgAndTarget: jest.fn(),
+    findActiveByOrgAndTarget: jest.fn<AnyFn>(),
     findPublishedById: async () => {
       const rows = nextRuleResult as Array<Record<string, unknown>>;
       return rows[0] ?? null;
@@ -140,8 +140,8 @@ function getHandler(path: string, method: 'get' | 'post' = 'post') {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, json };
 }
 

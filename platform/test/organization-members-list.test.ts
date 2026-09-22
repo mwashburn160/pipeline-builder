@@ -29,13 +29,13 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: async (id: string) => [id] }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, expandOrgScope: async (id: string) => [id] }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
   seatCapacityStillWithinCap: jest.fn(async () => true),
   userHasSeatInAccount: jest.fn(async () => false),
 }));
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({ assertActorMayAssignBuiltinAdmin: async () => undefined, ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));
@@ -177,6 +177,14 @@ describe('OrgMembersService.listMembers', () => {
     await orgMembersService.listMembers('org-1', { sortBy: 'password', sortOrder: 'asc' });
     expect(capturedSort).toEqual({ joinedAt: 1, _id: 1 });
   });
+
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])(
+    'treats inherited Object.prototype name %p as unknown (default order, not a sort on `undefined`)',
+    async (sortBy) => {
+      await orgMembersService.listMembers('org-1', { sortBy, sortOrder: 'desc' });
+      expect(capturedSort).toEqual({ joinedAt: 1, _id: 1 });
+    },
+  );
 
   it('sorts by a populated User field (username) via the two-phase path', async () => {
     // Phase 1: the matching memberships (plain-id userId + native fields).

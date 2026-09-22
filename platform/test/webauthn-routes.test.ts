@@ -19,6 +19,7 @@
  * `requireInteractiveSession` itself is exercised against real payloads below.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -181,7 +182,7 @@ describe('requireInteractiveSession', () => {
     ['an impersonated session', { ...session, impersonatorId: 'admin-1' }],
     ['no credential at all', undefined],
   ])('refuses %s', (_label, user) => {
-    (sendError as jest.Mock).mockClear();
+    (sendError as jest.Mock<AnyFn>).mockClear();
     expect(run(user as Record<string, unknown> | undefined)).toBe(false);
     expect(sendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), 'INTERACTIVE_SESSION_REQUIRED');
   });

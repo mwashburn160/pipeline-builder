@@ -19,6 +19,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
 
@@ -63,7 +64,7 @@ jest.unstable_mockModule('../src/services/storage-usage.js', () => ({ invalidate
 
 const incCounter = jest.fn();
 const setGauge = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter, setGauge }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter, setGauge }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { registry: { host: 'registry', port: 5000 } } }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({

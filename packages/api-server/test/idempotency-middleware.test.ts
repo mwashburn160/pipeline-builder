@@ -1,15 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: {
     IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60000,
     IDEMPOTENCY_TTL_MS: 60000,
+    IDEMPOTENCY_PENDING_TTL_MS: 30000,
     IDEMPOTENCY_MAX_STORE_SIZE: 1000,
   },
 }));
@@ -485,18 +487,18 @@ describe('idempotency key scoping and abort handling', () => {
     expect(replay.res.headers['X-Idempotent-Replayed']).toBe('true');
   });
 
-  it('REGRESSION: an aborted request RELEASES its reservation instead of stranding it', async () => {
-    // 'close' without 'finish' (client disconnect / process killed mid-handler)
-    // used to leave the key `pending` for the whole TTL, so every retry got a
-    // 409 — a retry storm became a multi-minute outage for that key.
+  it('REGRESSION: a client disconnect does NOT release the key while the handler still runs', async () => {
+    // Releasing on 'close' let the client's retry execute the mutation a second
+    // time while the first handler was still going to commit it.
     const middleware = idempotencyMiddleware();
     const aborted = mockRes();
     const next1 = jest.fn();
-    middleware(mockReq({
+    const reqFor = () => mockReq({
       headers: { 'idempotency-key': 'abort-key' },
       user: { organizationId: 'org-1', sub: 'user-a' },
       body: { n: 1 },
-    }), aborted, next1);
+    });
+    middleware(reqFor(), aborted, next1);
     await new Promise((r) => setImmediate(r));
     expect(next1).toHaveBeenCalledTimes(1);
 
@@ -505,14 +507,60 @@ describe('idempotency key scoping and abort handling', () => {
     aborted.emit('close');
     await new Promise((r) => setImmediate(r));
 
-    // The retry must be allowed to run, not 409'd.
-    const retry = await run(mockReq({
-      headers: { 'idempotency-key': 'abort-key' },
+    // A retry now is refused (the original is still in flight)…
+    const early = await run(reqFor());
+    expect(early.next).not.toHaveBeenCalled();
+    expect(early.res.status).toHaveBeenCalledWith(409);
+
+    // …the original handler finishes (no 'finish' event after a disconnect)…
+    aborted.statusCode = 201;
+    aborted.json({ id: 'created-once' });
+    await new Promise((r) => setImmediate(r));
+
+    // …and the retry REPLAYS its result instead of running again.
+    const retry = await run(reqFor());
+    expect(retry.next).not.toHaveBeenCalled();
+    expect(retry.res.headers['X-Idempotent-Replayed']).toBe('true');
+  });
+
+  it('a handler that fails after a disconnect releases the key (5xx), so a retry re-runs', async () => {
+    const middleware = idempotencyMiddleware();
+    const aborted = mockRes();
+    const reqFor = () => mockReq({
+      headers: { 'idempotency-key': 'abort-fail-key' },
       user: { organizationId: 'org-1', sub: 'user-a' },
-      body: { n: 1 },
-    }), 201, { id: 'retried' });
+      body: { n: 3 },
+    });
+    middleware(reqFor(), aborted, jest.fn());
+    await new Promise((r) => setImmediate(r));
+    aborted.writableFinished = false;
+    aborted.emit('close');
+    aborted.statusCode = 500;
+    aborted.end('boom');
+    await new Promise((r) => setImmediate(r));
+
+    const retry = await run(reqFor(), 201, { id: 'second-try' });
     expect(retry.next).toHaveBeenCalledTimes(1);
-    expect(retry.res.statusCode).not.toBe(409);
+  });
+
+  it('reserves with the SHORT pending TTL, then caches the result with the full TTL', async () => {
+    const calls: Array<{ op: string; ttl: number }> = [];
+    const inner = createMemoryStore();
+    const store = {
+      get: inner.get,
+      delete: inner.delete,
+      reserve: async (k: string, e: any, ttl: number) => { calls.push({ op: 'reserve', ttl }); return inner.reserve(k, e, ttl); },
+      set: async (k: string, e: any, ttl: number) => { calls.push({ op: 'set', ttl }); return inner.set(k, e, ttl); },
+    };
+    const res = mockRes();
+    idempotencyMiddleware({ store })(mockReq({
+      headers: { 'idempotency-key': 'ttl-key' }, user: { organizationId: 'org-1', sub: 'u' }, body: { n: 4 },
+    }), res, jest.fn());
+    await new Promise((r) => setImmediate(r));
+    res.statusCode = 201;
+    res.json({ ok: true });
+    await new Promise((r) => setImmediate(r));
+    expect(calls).toEqual([{ op: 'reserve', ttl: 30 }, { op: 'set', ttl: 60 }]);
   });
 
   it('does not release on close when the response actually finished', async () => {

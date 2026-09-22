@@ -18,17 +18,17 @@
  * - The org-scoped service is not invoked when the gate rejects
  */
 
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const setActiveMock = jest.fn(async () => ({ id: 'sub-1', isActive: false }));
+const setActiveMock = jest.fn(async (..._args: unknown[]) => ({ id: 'sub-1', isActive: false }));
 // bulkSetActive now returns the ruleIds actually toggled (see FIX #A2); the
 // route iterates that array, so the mock must resolve to an array, not a count.
-const bulkSetActiveMock = jest.fn(async (_orgId: string, ruleIds: string[]) => ruleIds);
-const unsubscribeMock = jest.fn(async () => undefined);
+const bulkSetActiveMock = jest.fn(async (_orgId: string, ruleIds: string[], ..._rest: unknown[]) => ruleIds);
+const unsubscribeMock = jest.fn(async (..._args: unknown[]) => undefined);
 
-const recordMock = jest.fn();
+const recordMock = jest.fn<AnyFn>();
 
 // api-core's REAL authorization gates and `authz.denied` sink, imported from
 // their module files (the package-specifier mock below does not intercept these
@@ -52,34 +52,34 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.status(status).json({ message: msg, code })),
   sendSuccess: jest.fn((res: any, status: number, data: any) =>
     res.status(status).json({ success: true, statusCode: status, data })),
-  sendPaginatedNested: jest.fn(),
+  sendPaginatedNested: jest.fn<AnyFn>(),
   requirePermission,
   requireFeature,
   isServicePrincipal: () => true,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
-    await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
+    await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { complianceRule: {}, complianceRuleSubscription: {} },
-  db: { select: jest.fn(), insert: jest.fn(), update: jest.fn() },
-  drizzleCount: jest.fn(),
+  db: { select: jest.fn<AnyFn>(), insert: jest.fn<AnyFn>(), update: jest.fn<AnyFn>() },
+  drizzleCount: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   and: (...a: unknown[]) => ({ __op: 'and', a }),
   eq: (c: unknown, v: unknown) => ({ __op: 'eq', c, v }),
   isNull: (c: unknown) => ({ __op: 'isNull', c }),
-  inArray: jest.fn(),
-  sql: jest.fn(),
+  inArray: jest.fn<AnyFn>(),
+  sql: jest.fn<AnyFn>(),
 }));
 
-jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({ evaluateRules: jest.fn() }));
+jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({ evaluateRules: jest.fn<AnyFn>() }));
 
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   // ACTIVATE paths run the entitlement gate, which looks up the rule's set tag;
@@ -94,7 +94,7 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
 jest.unstable_mockModule('../src/services/subscription-service.js', () => ({
   subscriptionService: {
     setActive: (...args: unknown[]) => setActiveMock(...args),
-    bulkSetActive: (...args: unknown[]) => bulkSetActiveMock(...args),
+    bulkSetActive: (...args: unknown[]) => bulkSetActiveMock(...(args as [string, string[]])),
     unsubscribe: (...args: unknown[]) => unsubscribeMock(...args),
   },
   CS_RULE_NOT_FOUND: 'CS_RULE_NOT_FOUND',
@@ -117,8 +117,8 @@ function getHandler(path: string, method: 'get' | 'post' | 'patch' = 'post') {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, status, json };
 }
 

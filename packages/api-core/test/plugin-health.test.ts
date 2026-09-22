@@ -19,7 +19,7 @@ import {
   publisherSuccessRate,
   vulnScore,
   type HealthInputs,
-} from '../src/types/plugin-health';
+} from '../src/types/plugin-health.js';
 
 const NOW = new Date('2026-09-21T00:00:00Z');
 const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000);

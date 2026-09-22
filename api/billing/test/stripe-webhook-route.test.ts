@@ -74,10 +74,12 @@ jest.unstable_mockModule('../src/helpers/stripe-reversals.js', () => ({
 const mockClaim = jest.fn<(...a: unknown[]) => Promise<string | null>>();
 const mockMarkDone = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockRelease = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockStatus = jest.fn<(...a: unknown[]) => Promise<string | null>>().mockResolvedValue('done');
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
   claimWebhookEvent: (...a: unknown[]) => mockClaim(...a),
   markWebhookEventDone: (...a: unknown[]) => mockMarkDone(...a),
   releaseWebhookEvent: (...a: unknown[]) => mockRelease(...a),
+  webhookEventStatus: (...a: unknown[]) => mockStatus(...a),
 }));
 
 // -- The provider. The route's `instanceof StripeProvider` guard means the
@@ -113,7 +115,7 @@ async function deliver(over: Record<string, unknown> = {}): Promise<void> {
 
 /** Deliver a well-formed signed event of `type`. */
 async function deliverEvent(type: string, object: unknown = { id: 'obj_1' }, id = 'evt_1'): Promise<void> {
-  mockConstructEvent.mockReturnValue({ id, type, data: { object } });
+  mockConstructEvent.mockReturnValue({ id, type, created: 1767225600, data: { object } });
   await deliver();
 }
 
@@ -128,6 +130,7 @@ beforeEach(() => {
   mockClaim.mockResolvedValue('claim-token');
   mockMarkDone.mockResolvedValue(undefined);
   mockRelease.mockResolvedValue(undefined);
+  mockStatus.mockResolvedValue('done');
 });
 
 describe('nothing is processed unsigned', () => {
@@ -179,7 +182,7 @@ describe('the two-phase idempotency claim', () => {
     await deliverEvent('invoice.payment_succeeded');
 
     expect(mockClaim).toHaveBeenCalledWith('stripe', 'evt_1');
-    expect(h.paid).toHaveBeenCalledWith({ id: 'obj_1' });
+    expect(h.paid).toHaveBeenCalledWith({ id: 'obj_1' }, { id: 'evt_1', created: 1767225600 });
     expect(mockMarkDone).toHaveBeenCalledWith('stripe', 'evt_1');
     expect(last()).toEqual({ kind: 'success', status: 200, body: { received: true } });
   });
@@ -194,6 +197,18 @@ describe('the two-phase idempotency claim', () => {
     expect(handlerCalls()).toEqual([]);
     expect(mockMarkDone).not.toHaveBeenCalled();
     expect(last()).toEqual({ kind: 'success', status: 200, body: { received: true, duplicate: true } });
+  });
+
+  it('answers 409 (NOT 200) when another delivery holds a LIVE in-progress claim, so Stripe retries', async () => {
+    mockClaim.mockResolvedValue(null);
+    mockStatus.mockResolvedValue('in_progress');
+
+    await deliverEvent('invoice.payment_succeeded');
+
+    // A 200 would ack an event the first attempt may still fail and release.
+    expect(handlerCalls()).toEqual([]);
+    expect(mockStatus).toHaveBeenCalledWith('stripe', 'evt_1');
+    expect(last()).toMatchObject({ kind: 'error', status: 409 });
   });
 
   it('RELEASES the claim when a handler fails, so Stripe\'s retry re-runs the event', async () => {
@@ -232,7 +247,13 @@ describe('the dispatch table', () => {
     await deliverEvent(type, { id: 'obj_x' });
 
     expect(handlerCalls()).toEqual([name]);
-    expect(h[name]).toHaveBeenCalledWith({ id: 'obj_x' });
+    // Lifecycle handlers also get the event envelope (per-subscription ordering).
+    const ORDERED = ['subCreated', 'subUpdated', 'subDeleted', 'paid', 'failed'];
+    if (ORDERED.includes(name)) {
+      expect(h[name]).toHaveBeenCalledWith({ id: 'obj_x' }, { id: 'evt_1', created: 1767225600 });
+    } else {
+      expect(h[name]).toHaveBeenCalledWith({ id: 'obj_x' });
+    }
     expect(mockMarkDone).toHaveBeenCalled();
     expect(last()).toEqual({ kind: 'success', status: 200, body: { received: true } });
   });

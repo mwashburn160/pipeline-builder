@@ -66,7 +66,9 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       messageType: schema.message.messageType,
       priority: schema.message.priority,
     };
-    return sortableColumns[sortBy] || null;
+    // Own keys only: `sortBy` is client input, and a plain lookup walks the
+    // prototype (`?sortBy=constructor` returned a function, not a column).
+    return Object.hasOwn(sortableColumns, sortBy) ? sortableColumns[sortBy] : null;
   }
 
   protected getProjectColumn(): AnyColumn | null {

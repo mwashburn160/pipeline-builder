@@ -38,7 +38,7 @@ import {
 } from '../services/device-auth-service.js';
 import { authService } from '../services/index.js';
 import type { AccessTokenPayload } from '../types/index.js';
-import { authFromClaims, issueStepUpToken, issueTokens } from '../utils/token.js';
+import { authFromClaims, findRefreshSession, issueStepUpToken, issueTokens } from '../utils/token.js';
 
 const logger = createLogger('device-auth-controller');
 
@@ -125,9 +125,12 @@ export const deviceToken = withController('Device authorization token', async (r
 
   const { record, approval } = result;
   const user = await authService.findForTokenIssue(approval.userId);
-  if (!user) {
-    // Approved by an account that has since gone: fail closed, and don't say why.
-    logger.warn('Device authorization approved by a user that no longer exists', { deviceRequestId: record.id });
+  // Fail closed, and don't say why, when the approval no longer speaks for a
+  // live session: the account is gone, its sessions were revoked since
+  // (tokenVersion moved), or the approving browser session was signed out.
+  const approverSlotGone = !!approval.sessionId && !!user && !(await findRefreshSession(user._id, approval.sessionId));
+  if (!user || user.tokenVersion !== approval.tokenVersion || approverSlotGone) {
+    logger.warn('Device authorization approval no longer valid at issue', { deviceRequestId: record.id, userGone: !user });
     incCounter('platform_device_authorizations_total', { result: 'issue_failed' });
     rfcError(res, 'access_denied', 'The request was denied.');
     return;
@@ -232,6 +235,14 @@ export const approveDeviceRequest = withController('Device authorization approve
   // Inherited verbatim from the approving browser session — never re-derived
   // from the request, so an approval can't raise assurance or reset sign-in time.
   const session = authFromClaims(req.user as AccessTokenPayload);
+  // The approver's HARD tokenVersion now, re-checked at issue: revoking the
+  // approver's sessions in between voids the approval.
+  const approver = await authService.findForTokenIssue(req.user.sub);
+  if (!approver) {
+    sendError(res, 401, 'Session invalid');
+    return;
+  }
+  const approverSid = (req.user as AccessTokenPayload).sid;
   const outcome = await decide(located.record.userCode, 'approved', {
     userId: req.user.sub,
     ...(req.user.organizationId ? { orgId: req.user.organizationId } : {}),
@@ -239,6 +250,8 @@ export const approveDeviceRequest = withController('Device authorization approve
     aal: session.aal,
     authTime: session.authTime.getTime(),
     stepUpVerifiedAt: Date.now(),
+    tokenVersion: approver.tokenVersion,
+    ...(approverSid ? { sessionId: approverSid } : {}),
   });
   if (outcome !== 'ok') {
     decisionError(res, outcome);

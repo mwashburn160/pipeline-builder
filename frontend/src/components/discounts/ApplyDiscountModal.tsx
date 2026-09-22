@@ -1,12 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { formatError } from '@/lib/constants';
 import { useFormState } from '@/hooks/useFormState';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
+import { OrgPicker } from '@/components/ui/OrgPicker';
 import api from '@/lib/api';
 import { formatCents } from '@/lib/format';
 import type { DiscountPriceBreakdown } from '@/lib/api/domains/billing';
@@ -42,14 +42,14 @@ function PriceBreakdown({ breakdown }: { breakdown: DiscountPriceBreakdown }) {
 interface ApplyDiscountModalProps {
   discount: Discount;
   /** Org picker options (loaded by the caller when the modal opens). */
-  orgOptions: Array<{ id: string; name: string }>;
   onClose: () => void;
   /** Called with the target org id after the grant succeeded. */
   onApplied: (orgId: string) => void;
 }
 
 /** Grant a discount directly to an organization, with an optional dry-run preview. */
-export function ApplyDiscountModal({ discount, orgOptions, onClose, onApplied }: ApplyDiscountModalProps) {
+export function ApplyDiscountModal({ discount, onClose, onApplied }: ApplyDiscountModalProps) {
+  const uid = useId();
   const [applyOrgId, setApplyOrgId] = useState(discount.targetOrgId ?? '');
   const applyForm = useFormState();
 
@@ -116,25 +116,17 @@ export function ApplyDiscountModal({ discount, orgOptions, onClose, onApplied }:
         organization. Preview the effect first — applying counts as a redemption.
       </p>
       <div className="space-y-1">
-        <label className="block text-xs font-medium text-fg-muted">Target organization</label>
-        <Select
+        <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-target-org`}>Target organization</label>
+        {/* Server-searched, so any org is reachable; a prefilled target org is
+            always the selected option even before its name resolves. */}
+        <OrgPicker
+          id={`${uid}-target-org`}
           value={applyOrgId}
-          onChange={(e) => { setApplyOrgId(e.target.value); setApplyPreview(null); }}
-          className="text-sm"
+          onChange={(id) => { setApplyOrgId(id); setApplyPreview(null); }}
+          none={{ value: '', label: 'Select an organization…' }}
           aria-label="Target organization"
-          autoFocus
           disabled={applyForm.loading}
-        >
-          <option value="">Select an organization…</option>
-          {/* Keep a prefilled target org selectable even if it isn't in the
-              first page of loaded options. */}
-          {discount.targetOrgId && !orgOptions.some((o) => o.id === discount.targetOrgId) && (
-            <option value={discount.targetOrgId}>{discount.targetOrgId}</option>
-          )}
-          {orgOptions.map((o) => (
-            <option key={o.id} value={o.id}>{o.name}</option>
-          ))}
-        </Select>
+        />
       </div>
       {applyPreview && (
         <div className="mt-4 rounded-md border border-blue-200/70 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-900/20 p-3">

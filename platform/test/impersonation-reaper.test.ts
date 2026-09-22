@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { leaderLockMock } from './helpers/leader-lock-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockUpdateMany = jest.fn<(...a: unknown[]) => Promise<{ modifiedCount?: number }>>();
@@ -10,9 +11,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/models/index.js', () => ({
   ImpersonationRequest: { updateMany: (...a: unknown[]) => mockUpdateMany(...a) },
 }));
-jest.unstable_mockModule('../src/utils/leader-lock.js', () => ({
-  runWithLeaderLock: async (_k: string, _t: number, fn: () => Promise<void>) => fn(),
-}));
+jest.unstable_mockModule('../src/utils/leader-lock.js', () => leaderLockMock());
 
 const { sweepExpiredImpersonationRequests } = await import('../src/services/impersonation-reaper.js');
 

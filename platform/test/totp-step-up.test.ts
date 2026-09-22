@@ -47,6 +47,8 @@ jest.unstable_mockModule('../src/services/totp-service.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUpToken(...a),
   issueTokens: jest.fn(),
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),

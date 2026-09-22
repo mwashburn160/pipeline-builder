@@ -1,10 +1,7 @@
-ARG NODE_VERSION=24.14.0
-
-# CA certificates stage — shared base with self-signed cert trust
-FROM node:${NODE_VERSION}-alpine AS certs
-RUN apk update && apk add ca-certificates --no-cache
-COPY ./self-signed.crt /usr/local/share/ca-certificates/self-signed.crt
-RUN update-ca-certificates 2>/dev/null
+# Base image pinned BY DIGEST (tag kept for readers): a re-pushed or
+# compromised tag cannot change what a release image is built from. Bump both
+# together (docker buildx imagetools inspect node:<ver>-alpine).
+ARG NODE_IMAGE=node:24.14.0-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114
 
 # Production stage
 # Next.js standalone bundle is built OUTSIDE Docker by `pnpm nx run frontend:build`
@@ -12,8 +9,7 @@ RUN update-ca-certificates 2>/dev/null
 # own pruned node_modules so no install runs in the image. Matches the api
 # services' pattern and avoids the workspace:* resolution that broke in-container
 # `pnpm install`.
-FROM node:${NODE_VERSION}-alpine
-COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+FROM ${NODE_IMAGE}
 
 ENV NEXT_TELEMETRY_DISABLED=1
 

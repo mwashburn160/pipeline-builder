@@ -36,15 +36,20 @@ import { ReviewModerationPanel } from '@/components/ecosystem/ReviewModerationPa
 import { canSeeEcosystemConsole } from '@/lib/ecosystem-access';
 import { hasPermission } from '@/lib/auth-helpers';
 
+/**
+ * Each tab with the permissions its reads need (ANY of them) — the same gates
+ * the console routes apply (`requireEcosystemPermission`). A `publishers:verify`
+ * -only manager used to see every tab and get a 403 on most of them.
+ */
 const TABS = [
-  { id: 'queue', label: 'Publish queue' },
-  { id: 'publishers', label: 'Publisher verification' },
-  { id: 'listings', label: 'Listings' },
-  { id: 'advisories', label: 'Advisories' },
-  { id: 'reviews', label: 'Review moderation' },
-  { id: 'rules', label: 'Auto-approval rules' },
-  { id: 'reserved', label: 'Reserved names' },
-  { id: 'managers', label: 'Ecosystem Managers' },
+  { id: 'queue', label: 'Publish queue', requires: ['plugins:moderate', 'publishers:verify'] },
+  { id: 'publishers', label: 'Publisher verification', requires: ['plugins:moderate', 'publishers:verify'] },
+  { id: 'listings', label: 'Listings', requires: ['plugins:moderate'] },
+  { id: 'advisories', label: 'Advisories', requires: ['plugins:moderate'] },
+  { id: 'reviews', label: 'Review moderation', requires: ['plugins:moderate'] },
+  { id: 'rules', label: 'Auto-approval rules', requires: ['plugins:moderate'] },
+  { id: 'reserved', label: 'Reserved names', requires: ['plugins:moderate'] },
+  { id: 'managers', label: 'Ecosystem Managers', requires: ['plugins:moderate', 'publishers:verify'] },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 const TAB_PREFIX = 'ecosystem';
@@ -60,6 +65,10 @@ export default function EcosystemConsolePage() {
   // permissions are write-class, so `can()` is false during a read-only
   // impersonation — which should still SEE the console (writes stay disabled).
   const allowed = canSeeEcosystemConsole(user, (p) => hasPermission(user, p));
+  // Same rule for the tabs: HELD permissions, so a read-only session still sees
+  // what it may read.
+  const visibleTabs = TABS.filter((t) => isSuperAdmin || t.requires.some((p) => hasPermission(user, p)));
+  const activeTab: TabId = visibleTabs.some((t) => t.id === tab) ? tab : (visibleTabs[0]?.id ?? 'queue');
 
   return (
     <DashboardLayout title="Ecosystem" subtitle="Plugin ecosystem governance for the system organization">
@@ -76,22 +85,22 @@ export default function EcosystemConsolePage() {
       ) : (
         <>
           <TabBar
-            items={TABS}
-            activeId={tab}
+            items={visibleTabs.map(({ id, label }) => ({ id, label }))}
+            activeId={activeTab}
             onSelect={(id) => setTab(id as TabId)}
             idPrefix={TAB_PREFIX}
             ariaLabel="Ecosystem sections"
             className="mb-4"
           />
-          <div {...tabPanelProps(TAB_PREFIX, tab)}>
-            {tab === 'queue' && <PublishQueuePanel can={can} />}
-            {tab === 'publishers' && <PublisherVerificationPanel can={can} />}
-            {tab === 'listings' && <ListingStatePanel can={can} />}
-            {tab === 'advisories' && <AdvisoriesPanel can={can} />}
-            {tab === 'reviews' && <ReviewModerationPanel can={can} />}
-            {tab === 'rules' && <AutoApprovalRulesPanel can={can} currentUserId={user.id} />}
-            {tab === 'reserved' && <ReservedNamesPanel can={can} />}
-            {tab === 'managers' && <EcosystemManagersPanel isSuperAdmin={isSuperAdmin} canWrite={!isReadOnly} />}
+          <div {...tabPanelProps(TAB_PREFIX, activeTab)}>
+            {activeTab === 'queue' && <PublishQueuePanel can={can} />}
+            {activeTab === 'publishers' && <PublisherVerificationPanel can={can} />}
+            {activeTab === 'listings' && <ListingStatePanel can={can} />}
+            {activeTab === 'advisories' && <AdvisoriesPanel can={can} />}
+            {activeTab === 'reviews' && <ReviewModerationPanel can={can} />}
+            {activeTab === 'rules' && <AutoApprovalRulesPanel can={can} currentUserId={user.id} />}
+            {activeTab === 'reserved' && <ReservedNamesPanel can={can} />}
+            {activeTab === 'managers' && <EcosystemManagersPanel isSuperAdmin={isSuperAdmin} canWrite={!isReadOnly} />}
           </div>
         </>
       )}

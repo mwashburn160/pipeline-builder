@@ -21,6 +21,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import {
   IDP_OIDC_INCOMPLETE,
+  IDP_RESERVED_ISSUER,
   IDP_SAML_INCOMPLETE,
   IDP_SSO_REQUIRED_UNTESTED,
   IGM_PROVIDER_UNSUPPORTED,
@@ -28,6 +29,7 @@ import {
 import type { OidcLoginConfig } from './oidc-service.js';
 import type { SamlLoginConfig } from './saml-service.js';
 import { providerSupportsGroups } from '../helpers/idp-claims.js';
+import { isCustomGoogleDiscoveryUrl, isReservedDiscoveryUrl, isReservedIssuer } from '../helpers/reserved-issuers.js';
 import OrgIdpConfig, {
   type IdpProtocol,
   type IdpProvider,
@@ -211,6 +213,21 @@ function assertProtocolComplete(doc: Pick<OrgIdpConfigDocument,
 }
 
 /**
+ * Refuse a config through which an admin-run IdP could present a RESERVED
+ * issuer (Google — trusted without domain verification). Applied to the
+ * RESULTING document, like {@link assertProtocolComplete}, so a patch that only
+ * moves the provider onto `google` over a stale custom discoveryUrl is caught.
+ */
+function assertNoReservedIssuer(doc: Pick<OrgIdpConfigDocument, 'protocol' | 'provider' | 'discoveryUrl' | 'samlEntityId'>): void {
+  if (doc.protocol === 'saml') {
+    if (isReservedIssuer(doc.samlEntityId)) throw new Error(IDP_RESERVED_ISSUER);
+    return;
+  }
+  if (doc.provider === 'google' && isCustomGoogleDiscoveryUrl(doc.discoveryUrl)) throw new Error(IDP_RESERVED_ISSUER);
+  if (doc.provider !== 'google' && isReservedDiscoveryUrl(doc.discoveryUrl)) throw new Error(IDP_RESERVED_ISSUER);
+}
+
+/**
  * Everything that decides whether a sign-in through this connection WORKS — the
  * values a successful test connection vouches for. When any of them changes the
  * last test result no longer speaks for the saved settings and is cleared, so
@@ -337,6 +354,9 @@ export class OrgIdpService {
       if (input.samlSignAuthnRequests !== undefined) existing.samlSignAuthnRequests = input.samlSignAuthnRequests;
       if (input.samlEncryptAssertions !== undefined) existing.samlEncryptAssertions = input.samlEncryptAssertions;
       if (input.discoveryUrl !== undefined) existing.discoveryUrl = input.discoveryUrl;
+      // Google always resolves from its hard-coded discovery document; a URL
+      // left over from another provider is dropped rather than refused.
+      if (existing.provider === 'google' && input.discoveryUrl === undefined) existing.discoveryUrl = undefined;
       if (input.region !== undefined) existing.region = input.region;
       if (input.userPoolId !== undefined) existing.userPoolId = input.userPoolId;
       if (input.groupsClaim !== undefined || input.provider !== undefined) {
@@ -349,6 +369,7 @@ export class OrgIdpService {
       existing.enabled = input.enabled ?? true;
       existing.updatedBy = actor;
       assertProtocolComplete(existing);
+      assertNoReservedIssuer(existing);
       applyInvariants(existing, before);
       await existing.save();
       logger.info('OrgIdpConfig updated', { orgId: input.orgId, protocol: existing.protocol, provider: existing.provider });
@@ -378,6 +399,7 @@ export class OrgIdpService {
       updatedBy: actor,
     };
     assertProtocolComplete(draft as unknown as OrgIdpConfigDocument);
+    assertNoReservedIssuer(draft as unknown as OrgIdpConfigDocument);
     const created = await OrgIdpConfig.create(draft);
     logger.info('OrgIdpConfig created', { orgId: input.orgId, protocol, provider: input.provider });
     return toDto(created);
@@ -404,6 +426,7 @@ export class OrgIdpService {
     if (input.samlSignAuthnRequests !== undefined) existing.samlSignAuthnRequests = input.samlSignAuthnRequests;
     if (input.samlEncryptAssertions !== undefined) existing.samlEncryptAssertions = input.samlEncryptAssertions;
     if (input.discoveryUrl !== undefined) existing.discoveryUrl = input.discoveryUrl;
+    if (existing.provider === 'google' && input.discoveryUrl === undefined) existing.discoveryUrl = undefined;
     if (input.region !== undefined) existing.region = input.region;
     if (input.userPoolId !== undefined) existing.userPoolId = input.userPoolId;
     // Validated against the RESULTING provider (a patch may change both at once),
@@ -422,6 +445,7 @@ export class OrgIdpService {
     if (input.ssoRequired !== undefined) existing.ssoRequired = input.ssoRequired;
     existing.updatedBy = actor;
     assertProtocolComplete(existing);
+    assertNoReservedIssuer(existing);
     applyInvariants(existing, before);
     await existing.save();
     return toDto(existing);

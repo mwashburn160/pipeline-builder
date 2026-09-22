@@ -6,8 +6,18 @@ import { schema, withTenantTx, drizzleCount, runWithTenantContext } from '@pipel
 import type { RuleScope } from '@pipeline-builder/pipeline-data';
 import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
 import { complianceRuleService } from './compliance-rule-service.js';
+import { entitlementWatermarkStore } from './entitlement-watermark-store.js';
 
 const logger = createLogger('subscription-service');
+
+/** A transaction handle from `withTenantTx` (the entitlement reconcile runs its
+ *  primitives on ONE such tx so check + apply + record commit together). */
+export type SubscriptionTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
+
+/** Run `fn` on `tx` when given, else in a fresh tenant transaction. */
+function onTx<T>(tx: SubscriptionTx | undefined, fn: (t: SubscriptionTx) => Promise<T>): Promise<T> {
+  return tx ? fn(tx) : withTenantTx(fn);
+}
 
 /**
  * Typed error codes thrown by this service. Routes map these to HTTP responses
@@ -290,13 +300,14 @@ export class ComplianceRuleSubscriptionService {
    * callers auditing per-rule posture changes (see routes/subscriptions.ts) must
    * iterate the returned ids so events are emitted only for rules that changed.
    */
-  async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string): Promise<string[]> {
+  async bulkSetActive(orgId: string, ruleIds: string[], isActive: boolean, _userId: string, inTx?: SubscriptionTx): Promise<string[]> {
     if (isSystemOrgId(orgId)) {
       throw new Error(CS_SYSTEM_ORG);
     }
 
-    // Single batch update instead of N individual queries
-    const result = await withTenantTx(async (tx) => tx
+    // Single batch update instead of N individual queries. With `inTx` the caller
+    // owns the transaction AND the post-commit cache invalidation.
+    const result = await onTx(inTx, async (tx) => tx
       .update(schema.complianceRuleSubscription)
       .set({ isActive })
       .where(and(
@@ -308,7 +319,7 @@ export class ComplianceRuleSubscriptionService {
 
     const affectedIds = result.map((r) => r.ruleId);
     logger.info('Bulk subscription state changed', { action: isActive ? 'activated' : 'deactivated', orgId, requested: ruleIds.length, updated: affectedIds.length });
-    if (affectedIds.length > 0) await invalidateRulesFor(orgId);
+    if (affectedIds.length > 0 && !inTx) await invalidateRulesFor(orgId);
     return affectedIds;
   }
 
@@ -377,8 +388,8 @@ export class ComplianceRuleSubscriptionService {
   }
 
   /** Get enforced (active) subscription rule IDs for an org. */
-  async getSubscribedRuleIds(orgId: string): Promise<string[]> {
-    const subs = await withTenantTx(async (tx) => tx
+  async getSubscribedRuleIds(orgId: string, inTx?: SubscriptionTx): Promise<string[]> {
+    const subs = await onTx(inTx, async (tx) => tx
       .select({ ruleId: schema.complianceRuleSubscription.ruleId })
       .from(schema.complianceRuleSubscription)
       .innerJoin(schema.complianceRule, eq(schema.complianceRuleSubscription.ruleId, schema.complianceRule.id))
@@ -430,12 +441,12 @@ export class ComplianceRuleSubscriptionService {
    * prior manual unsubscribe is resurrected (unsubscribedAt cleared) exactly as
    * `subscribe` would, and the rules cache is invalidated once for the batch.
    */
-  async bulkSubscribeActive(orgId: string, ruleIds: string[], userId: string): Promise<void> {
+  async bulkSubscribeActive(orgId: string, ruleIds: string[], userId: string, inTx?: SubscriptionTx): Promise<void> {
     if (isSystemOrgId(orgId)) throw new Error(CS_SYSTEM_ORG);
     if (ruleIds.length === 0) return;
 
     const now = new Date();
-    await withTenantTx(async (tx) => tx
+    await onTx(inTx, async (tx) => tx
       .insert(schema.complianceRuleSubscription)
       .values(ruleIds.map((ruleId) => ({ orgId, ruleId, subscribedBy: userId, isActive: true })))
       .onConflictDoUpdate({
@@ -449,7 +460,7 @@ export class ComplianceRuleSubscriptionService {
         },
       }));
     logger.info('Bulk subscribed + activated entitled rules', { orgId, count: ruleIds.length });
-    await invalidateRulesFor(orgId);
+    if (!inTx) await invalidateRulesFor(orgId);
   }
 
   /**
@@ -462,17 +473,20 @@ export class ComplianceRuleSubscriptionService {
    * Runs under sysadmin scope because published rules do not share the caller's
    * orgId (same pattern as `findPublishedById` / `listPublishedCatalog`).
    */
-  async findPublishedRuleIdsBySetTag(setTag: string): Promise<string[]> {
-    const rows = await runWithTenantContext({ isSuperAdmin: true }, () =>
-      withTenantTx(async (tx) => tx
-        .select({ id: schema.complianceRule.id })
-        .from(schema.complianceRule)
-        .where(and(
-          eq(schema.complianceRule.scope, 'published' as RuleScope),
-          eq(schema.complianceRule.isActive, true),
-          isNull(schema.complianceRule.deletedAt),
-          sql`${schema.complianceRule.tags} @> ${JSON.stringify([setTag])}::jsonb`,
-        ))));
+  async findPublishedRuleIdsBySetTag(setTag: string, inTx?: SubscriptionTx): Promise<string[]> {
+    const query = (tx: SubscriptionTx) => tx
+      .select({ id: schema.complianceRule.id })
+      .from(schema.complianceRule)
+      .where(and(
+        eq(schema.complianceRule.scope, 'published' as RuleScope),
+        eq(schema.complianceRule.isActive, true),
+        isNull(schema.complianceRule.deletedAt),
+        sql`${schema.complianceRule.tags} @> ${JSON.stringify([setTag])}::jsonb`,
+      ));
+    // A caller-supplied tx is already sysadmin-scoped (the entitlement reconcile).
+    const rows = inTx
+      ? await query(inTx)
+      : await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(query));
     return rows.map((r: { id: string }) => r.id);
   }
 
@@ -503,45 +517,67 @@ export class ComplianceRuleSubscriptionService {
     orgId: string,
     sets: string[],
     userId: string = 'system',
-  ): Promise<{ activated: string[]; deactivated: string[] }> {
+    opts: { occurredAt?: Date } = {},
+  ): Promise<{ skipped: boolean; activated: string[]; deactivated: string[] }> {
     // System org is not a tenant — it OWNS the library, never subscribes to it.
-    if (isSystemOrgId(orgId)) return { activated: [], deactivated: [] };
+    if (isSystemOrgId(orgId)) return { skipped: false, activated: [], deactivated: [] };
 
     const entitled = new Set(sets);
-    // Snapshot the org's currently-enforced rules ONCE so we can report only the
-    // genuine transitions (and skip re-activating already-active rules).
-    const currentlyActive = new Set(await this.getSubscribedRuleIds(orgId));
+    // ONE sysadmin-scoped transaction (the `:orgId` is the target root org, not
+    // the caller's) under a per-org advisory lock: the watermark CHECK, the
+    // reconcile, and the watermark RECORD commit together, so two pushes racing
+    // for the same org serialize — the later one reads the earlier one's
+    // committed watermark instead of both passing the check and applying in
+    // arbitrary order (a stale push could otherwise revert a newer state).
+    const result = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`compliance-entitlement:${orgId}`}))`);
 
-    const activated: string[] = [];
-    const deactivated: string[] = [];
-
-    for (const set of KNOWN_CONTENT_SETS) {
-      const ruleIds = await this.findPublishedRuleIdsBySetTag(`set:${set}`);
-      if (ruleIds.length === 0) continue;
-
-      if (entitled.has(set)) {
-        // Only the rules not already enforced need touching (idempotent no-op on
-        // a repeat sync). Subscribe + activate them in a SINGLE batched upsert
-        // rather than a subscribe + setActive round-trip per rule.
-        const toActivate = ruleIds.filter((id) => !currentlyActive.has(id));
-        if (toActivate.length > 0) {
-          await this.bulkSubscribeActive(orgId, toActivate, userId);
-          activated.push(...toActivate);
-        }
-      } else {
-        // Only existing (non-unsubscribed) rows are matched/returned; filter to
-        // the ones that were actually active so we report true deactivations.
-        const affected = await this.bulkSetActive(orgId, ruleIds, false, userId);
-        for (const ruleId of affected) {
-          if (currentlyActive.has(ruleId)) deactivated.push(ruleId);
+      if (opts.occurredAt) {
+        const last = await entitlementWatermarkStore.getLastOccurredAt(tx, orgId);
+        if (last && opts.occurredAt.getTime() <= last.getTime()) {
+          return { skipped: true, activated: [] as string[], deactivated: [] as string[] };
         }
       }
-    }
+
+      // Snapshot the org's currently-enforced rules ONCE so we can report only the
+      // genuine transitions (and skip re-activating already-active rules).
+      const currentlyActive = new Set(await this.getSubscribedRuleIds(orgId, tx));
+      const activated: string[] = [];
+      const deactivated: string[] = [];
+
+      for (const set of KNOWN_CONTENT_SETS) {
+        const ruleIds = await this.findPublishedRuleIdsBySetTag(`set:${set}`, tx);
+        if (ruleIds.length === 0) continue;
+
+        if (entitled.has(set)) {
+          // Only the rules not already enforced need touching (idempotent no-op on
+          // a repeat sync). Subscribe + activate them in a SINGLE batched upsert.
+          const toActivate = ruleIds.filter((id) => !currentlyActive.has(id));
+          if (toActivate.length > 0) {
+            await this.bulkSubscribeActive(orgId, toActivate, userId, tx);
+            activated.push(...toActivate);
+          }
+        } else {
+          // Only existing (non-unsubscribed) rows are matched/returned; filter to
+          // the ones that were actually active so we report true deactivations.
+          const affected = await this.bulkSetActive(orgId, ruleIds, false, userId, tx);
+          for (const ruleId of affected) {
+            if (currentlyActive.has(ruleId)) deactivated.push(ruleId);
+          }
+        }
+      }
+
+      if (opts.occurredAt) await entitlementWatermarkStore.record(tx, orgId, opts.occurredAt);
+      return { skipped: false, activated, deactivated };
+    }));
+
+    // Invalidate AFTER commit so no reader re-caches the pre-commit rule set.
+    if (result.activated.length > 0 || result.deactivated.length > 0) await invalidateRulesFor(orgId);
 
     logger.info('Reconciled entitled compliance sets', {
-      orgId, sets, activated: activated.length, deactivated: deactivated.length,
+      orgId, sets, skipped: result.skipped, activated: result.activated.length, deactivated: result.deactivated.length,
     });
-    return { activated, deactivated };
+    return result;
   }
 }
 

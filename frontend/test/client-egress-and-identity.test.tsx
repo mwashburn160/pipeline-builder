@@ -158,7 +158,7 @@ describe('OAuth intent hand-off', () => {
     const { storeOAuthIntent, takeOAuthIntent, OAUTH_INTENT_KEY } =
       await import('../src/lib/oauth-intent');
 
-    storeOAuthIntent({ state: 's1', kind: 'login', returnUrl: '/dashboard' }, false);
+    storeOAuthIntent({ state: 's1', kind: 'login', returnUrl: '/dashboard' });
     expect(sessionStorage.getItem(OAUTH_INTENT_KEY)).toBeTruthy();
 
     const intent = takeOAuthIntent();
@@ -167,31 +167,22 @@ describe('OAuth intent hand-off', () => {
     expect(sessionStorage.getItem(OAUTH_INTENT_KEY)).toBeNull();
   });
 
-  it('REGRESSION: a required (invite) intent THROWS when storage is blocked', async () => {
+  it('REGRESSION: an intent THROWS when storage is blocked (invite AND login)', async () => {
     // Swallowing this is what let an invite-accept redirect anyway, lose the
-    // token, and auto-provision a brand-new org for the invitee.
+    // token, and auto-provision a brand-new org for the invitee — and a login
+    // that recorded no intent could never complete (the callback refuses an
+    // arrival with none: login CSRF).
     const { storeOAuthIntent } = await import('../src/lib/oauth-intent');
     const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('storage blocked');
     });
     try {
       expect(() =>
-        storeOAuthIntent({ state: 's1', kind: 'invite', inviteToken: 't', provider: 'google' }, true),
+        storeOAuthIntent({ state: 's1', kind: 'invite', inviteToken: 't', provider: 'google' }),
       ).toThrow();
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it('a plain login still proceeds when storage is blocked (backend validates state)', async () => {
-    const { storeOAuthIntent } = await import('../src/lib/oauth-intent');
-    const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new Error('storage blocked');
-    });
-    try {
       expect(() =>
-        storeOAuthIntent({ state: 's1', kind: 'login', returnUrl: '/dashboard' }, false),
-      ).not.toThrow();
+        storeOAuthIntent({ state: 's1', kind: 'login', returnUrl: '/dashboard' }),
+      ).toThrow();
     } finally {
       spy.mockRestore();
     }

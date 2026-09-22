@@ -56,7 +56,7 @@ const record = {
   secrets: [],
 } as any;
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('resolveRunAsRoot', () => {
   it('reads the pushed image config first', async () => {

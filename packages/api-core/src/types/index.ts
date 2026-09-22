@@ -2,17 +2,126 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export * from './error-codes.js';
-export * from './common.js';
+export {
+  isValidQuotaType,
+  effectiveRootOrgId,
+  type TokenScope,
+  TOKEN_SCOPES,
+  type PrincipalType,
+  type TokenUse,
+  type AuthMethod,
+  type AssuranceLevel,
+  type QuotaType,
+  VALID_QUOTA_TYPES,
+  type QuotaCheckResult,
+  type QuotaInfo,
+  type ApiResponse,
+  type JwtPayload,
+  type HealthCheckResponse,
+} from './common.js';
 export * from './pipeline.js';
-export * from './catalog-metadata.js';
-export * from './pipeline-template.js';
+export {
+  type Lifecycle,
+  type Criticality,
+  type OwnerType,
+  type EntityLink,
+  type EntityLabels,
+} from './catalog-metadata.js';
+export {
+  type TemplateInput,
+} from './pipeline-template.js';
 export * from './visibility.js';
-export * from './http.js';
-export * from './quota-tiers.js';
+export {
+  type HttpRequest,
+} from './http.js';
+export {
+  tierAllowsTeams,
+  isBillingEnabled,
+  isValidTier,
+  getTierLimits,
+  type QuotaTier,
+  type QuotaTierLimits,
+  QUOTA_TIERS,
+  VALID_TIERS,
+  STANDARD_TIERS,
+  TEAM_CAPABLE_TIERS,
+  DEFAULT_TIER,
+} from './quota-tiers.js';
 export * from './feature-flags.js';
-export * from './permissions.js';
-export * from './metadata-keys.js';
-export * from './audit-events.js';
-export * from './ecosystem-notifications.js';
-export * from './ecosystem.js';
-export * from './plugin-health.js';
+export {
+  permissionLabel,
+  isValidPermission,
+  isSystemOrgOnlyPermission,
+  isOrgAssignablePermission,
+  normalizePermissionSubset,
+  intersectPermissions,
+  resolveUserPermissions,
+  confinePermissionsToOrg,
+  hasPermission,
+  type Permission,
+  ALL_PERMISSIONS,
+  PERMISSION_GATES,
+  PERMISSION_CATALOG,
+  SUPERADMIN_ONLY_PERMISSIONS,
+  SYSTEM_ORG_ONLY_PERMISSIONS,
+  ORG_ASSIGNABLE_PERMISSIONS,
+  ORG_ASSIGNABLE_CATEGORIES,
+  READ_ONLY_PERMISSIONS,
+  ROLE_PERMISSIONS,
+  ECOSYSTEM_MANAGER_PERMISSIONS,
+} from './permissions.js';
+export {
+  METADATA_KEY_CATALOG,
+  MetadataKeys,
+  type MetadataKey,
+  type MetadataKeyOption,
+  METADATA_KEY_GROUPS,
+} from './metadata-keys.js';
+export {
+  type AuditEvent,
+} from './audit-events.js';
+export {
+  isEcosystemNotificationEvent,
+  parseEcosystemNotifyRequest,
+  nextEcosystemDigestTime,
+  renderEcosystemManagerChange,
+  renderEcosystemDigest,
+  type EcosystemNotificationEventId,
+  type EcosystemNotificationChannel,
+  ECOSYSTEM_EMAIL_PREFERENCE_FIELDS,
+  type EcosystemEmailPreferenceField,
+  ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES,
+  ECOSYSTEM_NOTIFICATION_EVENTS,
+  type EcosystemRecipientSpec,
+  type EcosystemNotifyRequest,
+} from './ecosystem-notifications.js';
+export {
+  publisherTermsVersion,
+  publisherHandleProblem,
+  isOfficialAutoApprovalEnabled,
+  isPluginPublishingEnabled,
+  isAnonymousSubmissionsEnabled,
+  isPluginReviewsEnabled,
+  OFFICIAL_CATALOG_LOADER_ACCOUNT,
+  DEFAULT_PUBLISHER_TERMS_VERSION,
+  BUILTIN_RESERVED_HANDLES,
+  TENANT_REQUEST_KINDS,
+  PUBLISH_PERMISSION_REQUEST_KINDS,
+  VERIFY_REQUEST_KINDS,
+  STEP_UP_REQUEST_KINDS,
+  REQUEST_SLA_HOURS,
+} from './ecosystem.js';
+export {
+  ageScore,
+  vulnScore,
+  computeHealthScore,
+  publisherHealthScore,
+  publisherSuccessRate,
+  healthBand,
+  HEALTH_COMPONENTS,
+  HEALTH_WEIGHTS,
+  type HealthBreakdown,
+  type HealthResult,
+  type HealthInputs,
+  type HealthBand,
+} from './plugin-health.js';

@@ -9,13 +9,13 @@
 # Validating against the deployed digest matters — newer images are stricter.
 #
 # Checks:
-#   - loki -verify-config           every target's loki-config.yml
+#   - loki -verify-config           deploy/shared/config/loki/loki-config.yml
+#   - amtool check-config           deploy/shared/config/alertmanager/alertmanager.yml
+#     (one copy for every target — see deploy/README.md "Shared config")
 #   - promtool check config         every target's prometheus.yml (+ its rules)
 #   - promtool test rules           any alert-rules.test.yml present
-#   - amtool check-config           every target's alertmanager.yml
 #   - docker compose config -q      deploy/local/docker
-#   - drift: loki-config.yml identical across targets; every prometheus.yml
-#     declares external_labels with `cluster` + `replica`.
+#   - drift: every prometheus.yml declares external_labels with `cluster` + `replica`.
 #
 # Usage: deploy/bin/validate-configs.sh     (needs docker; exits non-zero on any failure)
 set -uo pipefail
@@ -52,15 +52,25 @@ for img in "$LOKI_IMAGE" "$PROM_IMAGE" "$AM_IMAGE"; do
   done < <(grep -rhoE "${repo}@sha256:[0-9a-f]{64}" deploy/*/*/k8s 2>/dev/null | sort -u)
 done
 
+SHARED=deploy/shared/config
+
+if out="$(docker run --rm -v "$ROOT/$SHARED/loki:/cfg:ro" "$LOKI_IMAGE" \
+    -config.file=/cfg/loki-config.yml -config.expand-env=true -verify-config 2>&1)"; then
+  pass "loki       shared"
+else
+  fail "loki       shared"; echo "$out" >&2
+fi
+
+if out="$(docker run --rm --entrypoint amtool \
+    -v "$ROOT/$SHARED/alertmanager:/cfg:ro" "$AM_IMAGE" \
+    check-config /cfg/alertmanager.yml 2>&1)"; then
+  pass "alertmgr   shared"
+else
+  fail "alertmgr   shared"; echo "$out" >&2
+fi
+
 for t in "${TARGETS[@]}"; do
   cfg="deploy/$t/config"
-
-  if out="$(docker run --rm -v "$ROOT/$cfg/loki:/cfg:ro" "$LOKI_IMAGE" \
-      -config.file=/cfg/loki-config.yml -config.expand-env=true -verify-config 2>&1)"; then
-    pass "loki       $t"
-  else
-    fail "loki       $t"; echo "$out" >&2
-  fi
 
   # rule_files references /etc/prometheus/alert-rules.yml — mount it there.
   if out="$(docker run --rm --entrypoint promtool \
@@ -81,14 +91,6 @@ for t in "${TARGETS[@]}"; do
     fi
   fi
 
-  if out="$(docker run --rm --entrypoint amtool \
-      -v "$ROOT/$cfg/alertmanager:/cfg:ro" "$AM_IMAGE" \
-      check-config /cfg/alertmanager.yml 2>&1)"; then
-    pass "alertmgr   $t"
-  else
-    fail "alertmgr   $t"; echo "$out" >&2
-  fi
-
   # Thanos sidecar exits 1 without these (see prometheus.yml comments).
   prom="$cfg/prometheus/prometheus.yml"
   if awk '/^global:/{g=1;next} /^[^ #]/{g=0} g' "$prom" | grep -q '^  external_labels:' \
@@ -96,10 +98,6 @@ for t in "${TARGETS[@]}"; do
     pass "ext-labels $t"
   else
     fail "ext-labels $t: $prom must set global.external_labels.{cluster,replica}"
-  fi
-
-  if ! cmp -s deploy/local/docker/config/loki/loki-config.yml "$cfg/loki/loki-config.yml"; then
-    fail "loki-config drift: $cfg/loki/loki-config.yml differs from deploy/local/docker's copy"
   fi
 done
 

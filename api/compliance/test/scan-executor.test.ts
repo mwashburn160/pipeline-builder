@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Small entity page size so the pagination loop is exercised without building
@@ -67,11 +68,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 // scan-executor imports incCounter from api-server; stub it so the real
 // api-server module (and its api-core named imports) isn't linked in.
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {
     complianceScan: { id: 'col_id', status: 'col_status', orgId: 'col_org' },
     complianceExemption: {},

@@ -6,6 +6,7 @@ import { buildQuery } from '../util';
 import type { ApiResponse } from '@/types';
 import type {
   CatalogEntry, ConsumptionPolicy, CreateInstallBody, InstallPolicyResponse, InstallState, InstallStatusFilter,
+  InstallChangeRequestBody, InstallChangeRequestView,
   InstallView, ShadowingEntry, UpdateInstallBody,
 } from '@/types/plugin-installs';
 
@@ -22,14 +23,33 @@ const enc = encodeURIComponent;
  */
 export function pluginInstallsApi(core: ApiCore) {
   return {
-    /** The in-app catalog: every listed/unmaintained listing with this org's install state (max 200). */
+    /** One page of the in-app catalog: listed/unmaintained listings with this
+     *  org's install state, by name; `total` / `hasMore` say whether there is
+     *  more (the server caps a page at 200). */
     getPluginCatalog: async (
-      params?: { q?: string; category?: string; installed?: boolean },
+      params?: { q?: string; category?: string; installed?: boolean; limit?: number; offset?: number },
       opts?: { signal?: AbortSignal },
-    ) => core.request<ApiResponse<{ listings: CatalogEntry[] }>>(
+    ) => core.request<ApiResponse<{ listings: CatalogEntry[]; total: number; limit: number; offset: number; hasMore: boolean }>>(
       `/api/plugins/catalog${buildQuery(params)}`,
       { signal: opts?.signal },
     ),
+
+    /** EVERY catalog listing, page by page (for the pipeline editor's resolver,
+     *  which must know every installable name — not just the first page). A
+     *  bounded number of pages, so a runaway `hasMore` can't loop forever. */
+    getAllPluginCatalog: async (opts?: { signal?: AbortSignal }): Promise<CatalogEntry[]> => {
+      const out: CatalogEntry[] = [];
+      for (let page = 0; page < 50; page += 1) {
+        const res = await core.request<ApiResponse<{ listings: CatalogEntry[]; hasMore: boolean }>>(
+          `/api/plugins/catalog${buildQuery({ limit: 200, offset: out.length })}`,
+          { signal: opts?.signal },
+        );
+        const rows = res.data?.listings ?? [];
+        out.push(...rows);
+        if (!res.data?.hasMore || rows.length === 0) break;
+      }
+      return out;
+    },
 
     /** One listing's install state for this org, with its versions. 404 when the listing doesn't exist. */
     getListingInstallState: async (publisher: string, name: string, opts?: { signal?: AbortSignal }) =>
@@ -74,6 +94,30 @@ export function pluginInstallsApi(core: ApiCore) {
 
     denyPluginInstall: async (id: string, reason?: string) =>
       core.request<ApiResponse<{ install: InstallView }>>(`/api/plugins/installs/${enc(id)}/deny`, {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {}),
+      }),
+
+    /** REQUEST an install change that needs an approver (the PATCH refused it
+     *  with `details.requestable`). 409 DUPLICATE_ENTRY while one is pending; 400
+     *  when the change needs no approval (PATCH it instead). */
+    requestInstallChange: async (id: string, body: InstallChangeRequestBody) =>
+      core.request<ApiResponse<{ changeRequest: InstallChangeRequestView }>>(`/api/plugins/installs/${enc(id)}/change-requests`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    /** The org's pending install changes, oldest first (`plugin_installs:manage`). */
+    listInstallChangeRequests: async (opts?: { signal?: AbortSignal }) =>
+      core.request<ApiResponse<{ changeRequests: InstallChangeRequestView[] }>>('/api/plugins/installs/change-requests', { signal: opts?.signal }),
+
+    approveInstallChange: async (id: string) =>
+      core.request<ApiResponse<{ install: InstallView }>>(`/api/plugins/installs/${enc(id)}/change-requests/approve`, {
+        method: 'POST',
+      }),
+
+    rejectInstallChange: async (id: string, reason?: string) =>
+      core.request<ApiResponse<{ install: InstallView }>>(`/api/plugins/installs/${enc(id)}/change-requests/reject`, {
         method: 'POST',
         body: JSON.stringify(reason ? { reason } : {}),
       }),

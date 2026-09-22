@@ -8,10 +8,11 @@
  * requests. Always calls next() and never throws.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockIncrementQuota = jest.fn();
+const mockIncrementQuota = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   incrementQuota: mockIncrementQuota,
@@ -20,7 +21,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const { meterQuotaOnSuccess } = await import('../src/api/meter-quota.js');
 
-const quotaService = { check: jest.fn(), increment: jest.fn(), getUsage: jest.fn() } as never;
+const quotaService = { check: jest.fn<AnyFn>(), increment: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() } as never;
 
 interface MockRes {
   statusCode: number;
@@ -47,12 +48,12 @@ function mockRes(statusCode = 200): MockRes {
 }
 
 describe('meterQuotaOnSuccess', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('increments apiCalls once on a 2xx response for a user request', () => {
     const req = mockReq();
     const res = mockRes(200);
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, next);
     expect(next).toHaveBeenCalledTimes(1);
@@ -71,14 +72,14 @@ describe('meterQuotaOnSuccess', () => {
 
   it('does NOT meter a non-2xx response', () => {
     const res = mockRes(429);
-    meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq(), res as never, jest.fn());
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq(), res as never, jest.fn<AnyFn>());
     res.finish();
     expect(mockIncrementQuota).not.toHaveBeenCalled();
   });
 
   it('does NOT meter when there is no verified org (unauthenticated)', () => {
     const res = mockRes(200);
-    meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq({ user: undefined }), res as never, jest.fn());
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq({ user: undefined }), res as never, jest.fn<AnyFn>());
     res.finish();
     expect(mockIncrementQuota).not.toHaveBeenCalled();
   });
@@ -86,7 +87,7 @@ describe('meterQuotaOnSuccess', () => {
   it('does NOT meter an unverified request even when context carries a header-derived org', () => {
     const res = mockRes(200);
     const req = mockReq({ user: undefined, context: { identity: { orgId: 'victim-org' } } });
-    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn());
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn<AnyFn>());
     res.finish();
     expect(mockIncrementQuota).not.toHaveBeenCalled();
   });
@@ -94,7 +95,7 @@ describe('meterQuotaOnSuccess', () => {
   it('does NOT meter a service-principal (internal S2S) request', () => {
     const res = mockRes(200);
     const req = mockReq({ user: { organizationId: 'org-1', sub: 'service:plugin', principalType: 'service' } });
-    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn());
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn<AnyFn>());
     res.finish();
     expect(mockIncrementQuota).not.toHaveBeenCalled();
   });
@@ -103,7 +104,7 @@ describe('meterQuotaOnSuccess', () => {
     for (const code of [201, 204]) {
       jest.clearAllMocks();
       const res = mockRes(code);
-      meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq(), res as never, jest.fn());
+      meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq(), res as never, jest.fn<AnyFn>());
       res.finish();
       expect(mockIncrementQuota).toHaveBeenCalledTimes(1);
     }

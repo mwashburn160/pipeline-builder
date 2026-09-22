@@ -9,6 +9,7 @@
  * the provider realizability safety invariant. No real Mongo.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -22,7 +23,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
 // ── creditCents: real formula (dollar = value; percent = % of price) ──
 jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({
   creditCents: (d: any, price: number) => (d.unit === 'dollar' ? d.value : Math.round((price * d.value) / 100)),
-  loadManageableSubscription: jest.fn(),
+  loadManageableSubscription: jest.fn<AnyFn>(),
 }));
 
 const mockCreateBillingEvent = jest.fn(async () => undefined);
@@ -84,10 +85,10 @@ const mockSubFindOneAndUpdate = jest.fn(async (filter: any, update: any) => {
   ledgerStore.push(update.$push.creditLedger);
   return { _id: filter._id, creditLedger: ledgerStore };
 });
-const mockSubUpdateOne = jest.fn(async () => ({ acknowledged: true, modifiedCount: 1 }));
+const mockSubUpdateOne = jest.fn(async (..._args: unknown[]) => ({ acknowledged: true, modifiedCount: 1 }));
 const mockSubFindOne = jest.fn(async () => ({ _id: 'sub_ref', externalCustomerId: 'cus_ref', creditLedger: [] as LedgerRow[], planId: 'plan_1', interval: 'monthly' }));
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOneAndUpdate: mockSubFindOneAndUpdate, updateOne: mockSubUpdateOne, findOne: mockSubFindOne, find: jest.fn(), countDocuments: jest.fn(), aggregate: jest.fn() },
+  Subscription: { findOneAndUpdate: mockSubFindOneAndUpdate, updateOne: mockSubUpdateOne, findOne: mockSubFindOne, find: jest.fn<AnyFn>(), countDocuments: jest.fn<AnyFn>(), aggregate: jest.fn<AnyFn>() },
 }));
 
 const { grantPromotionToOrg, clawbackRecentPromotions, processReferralSignup, qualifyReferral } = await import('../src/helpers/promotion-engine.js');

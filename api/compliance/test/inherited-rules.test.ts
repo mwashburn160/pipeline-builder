@@ -12,7 +12,9 @@
  *    404, and never mutates or audits.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const updateMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -21,7 +23,7 @@ const isInheritedRuleMock = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const findAllEnforcedMock = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
 const findPaginatedMock = jest.fn<(...a: unknown[]) => Promise<Record<string, unknown>>>();
 const resolveOrgNameMock = jest.fn<(id: string) => Promise<string | undefined>>();
-const emitComplianceAuditMock = jest.fn();
+const emitComplianceAuditMock = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
@@ -37,21 +39,21 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.status(200).json({ success: true, statusCode: 200, data: { [key]: items, pagination } })),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
-    await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: req.user?.sub });
+    await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: req.user?.sub });
   },
 }));
 
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
   resolveOrgName: (id: string) => resolveOrgNameMock(id),
-  resolveParentOrgId: jest.fn(),
+  resolveParentOrgId: jest.fn<AnyFn>(),
 }));
 
 class InvalidRuleRegexError extends Error {}
@@ -80,8 +82,8 @@ function lastHandler(router: any, path: string, method: string) {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, status, json };
 }
 
@@ -89,7 +91,7 @@ const RULE_ID = '11111111-1111-4111-8111-111111111111';
 const TEAM_USER = { sub: 'u-1', organizationId: 'team-1', parentOrganizationId: 'root-1' };
 const ROOT_USER = { sub: 'u-2', organizationId: 'root-1' };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe.each([
   ['PUT', () => lastHandler(createUpdateRuleRoutes(), '/:id', 'put'), updateMock],

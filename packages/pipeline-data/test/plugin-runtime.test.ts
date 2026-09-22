@@ -10,14 +10,15 @@
  *     this jest-ESM setup) and run under the tenant context they claim to.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock, cacheKeyLog } from './helpers/mock-api-core.js';
 
-const mockExecute = jest.fn();
-const mockInsert = jest.fn();
-const mockSelect = jest.fn();
+const mockExecute = jest.fn<AnyFn>();
+const mockInsert = jest.fn<AnyFn>();
+const mockSelect = jest.fn<AnyFn>();
 const tenantContexts: unknown[] = [];
 
 jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
@@ -56,13 +57,13 @@ describe('plugin runtime telemetry', () => {
   describe('ingestEvents — step-manifest join', () => {
     /** select #1 = registry rows, select #2 = manifest rows. Captures the insert batch. */
     function wire(registry: Array<Record<string, unknown>>, manifest: Array<Record<string, unknown>>) {
-      const from = jest.fn()
-        .mockReturnValueOnce({ where: jest.fn().mockResolvedValue(registry) })
-        .mockReturnValueOnce({ where: jest.fn().mockResolvedValue(manifest) });
+      const from = jest.fn<AnyFn>()
+        .mockReturnValueOnce({ where: jest.fn<AnyFn>().mockResolvedValue(registry) })
+        .mockReturnValueOnce({ where: jest.fn<AnyFn>().mockResolvedValue(manifest) });
       mockSelect.mockReturnValue({ from });
       let captured: Array<Record<string, unknown>> = [];
       mockInsert.mockReturnValue({
-        values: jest.fn().mockImplementation((rows: Array<Record<string, unknown>>) => {
+        values: jest.fn<AnyFn>().mockImplementation((rows: Array<Record<string, unknown>>) => {
           captured = rows;
           return { onConflictDoNothing: () => ({ returning: () => Promise.resolve([]) }) };
         }),
@@ -76,6 +77,7 @@ describe('plugin runtime telemetry', () => {
       stageName: 'test-wave',
       actionName: 'jest',
       pluginPublisher: 'pipeline-builder',
+      pluginPublisherId: 'pub-official',
       pluginName: 'jest',
       pluginVersion: '2.0.0',
       ...over,
@@ -84,7 +86,7 @@ describe('plugin runtime telemetry', () => {
     it('stamps the manifest plugin onto matching ACTION events, reading the manifest once per batch', async () => {
       const w = wire(
         [{ pipelineId: 'pl-1', orgId: 'acme' }, { pipelineId: 'pl-2', orgId: 'acme' }],
-        [manifestRow(), manifestRow({ pipelineId: 'pl-2', actionName: 'lint', pluginPublisher: null, pluginName: 'lint', pluginVersion: '1.0.0' })],
+        [manifestRow(), manifestRow({ pipelineId: 'pl-2', actionName: 'lint', pluginPublisher: null, pluginPublisherId: null, pluginName: 'lint', pluginVersion: '1.0.0' })],
       );
 
       await service.ingestEvents([
@@ -98,12 +100,12 @@ describe('plugin runtime telemetry', () => {
 
       expect(w.from).toHaveBeenCalledTimes(2); // registry + ONE manifest read
       expect(w.from).toHaveBeenLastCalledWith(schema.pipelineStepManifest);
-      const plugins = w.rows().map((r) => [r.pluginPublisher, r.pluginName, r.pluginVersion]);
+      const plugins = w.rows().map((r) => [r.pluginPublisher, r.pluginPublisherId, r.pluginName, r.pluginVersion]);
       expect(plugins).toEqual([
-        ['pipeline-builder', 'jest', '2.0.0'],
-        [null, 'lint', '1.0.0'],
-        [null, null, null],
-        [null, null, null],
+        ['pipeline-builder', 'pub-official', 'jest', '2.0.0'],
+        [null, null, 'lint', '1.0.0'],
+        [null, null, null, null],
+        [null, null, null, null],
       ]);
     });
 

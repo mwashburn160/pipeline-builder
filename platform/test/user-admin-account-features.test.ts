@@ -18,14 +18,15 @@
  * response.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockGetByIdWithOrgs = jest.fn<(...a: unknown[]) => unknown>();
-const mockUpdateFeatures = jest.fn<(...a: unknown[]) => unknown>();
-const mockHasMembershipInOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
-const mockOrgFindById = jest.fn();
+const mockGetByIdWithOrgs = jest.fn<AnyFn>();
+const mockUpdateFeatures = jest.fn<AnyFn>();
+const mockHasMembershipInOrg = jest.fn<AnyFn>();
+const mockOrgFindById = jest.fn<AnyFn>();
 
 // Faithful mini resolver: union tier-less start + account features, then apply
 // overrides. Enough to assert purchased features land in the response AND that
@@ -44,7 +45,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   resolveUserFeatures: (...a: unknown[]) => (mockResolveUserFeatures as unknown as (...x: unknown[]) => unknown)(...a),
   isValidFeatureFlag: () => true,
-  validateBulkArray: jest.fn(),
+  validateBulkArray: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('mongoose', () => {
@@ -58,10 +59,10 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
-const mockAudit = jest.fn();
+const mockAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -77,18 +78,20 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   findRefreshSession: jest.fn(async () => undefined),
-  signApiKeyToken: jest.fn(),
-  signServiceAccountToken: jest.fn(),
+  signApiKeyToken: jest.fn<AnyFn>(),
+  signServiceAccountToken: jest.fn<AnyFn>(),
   membershipForOrg: jest.fn(async () => undefined),
-  issueTokens: jest.fn(),
-  renewSessionTokens: jest.fn(),
+  issueTokens: jest.fn<AnyFn>(),
+  renewSessionTokens: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
-  validateBody: jest.fn(),
+  validateBody: jest.fn<AnyFn>(),
   updateProfileSchema: {},
   changePasswordSchema: {},
   adminUpdateUserSchema: {},
@@ -109,6 +112,16 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
+
+// A user's SAML SLO sessions go with the user (user-cascade imports the model directly).
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({ default: { deleteMany: async () => ({ deletedCount: 0 }) } }));
+// The password-policy helper reads platform config at import (user-profile imports it).
+jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
+  PASSWORD_MAX_LENGTH: 128,
+  passwordPolicyForPerson: async () => ({ minLength: 8 }),
+  assertNewPasswordAcceptable: async () => undefined,
+  passwordShortfall: async () => null,
+}));
 
 const { getUserById, updateUserFeatures } = await import('../src/controllers/user-admin.js');
 
@@ -154,7 +167,7 @@ describe('getUserById — purchased account features', () => {
     );
 
     expect(res.status).toHaveBeenCalledWith(200);
-    const payload = (res.json as jest.Mock).mock.calls[0][0].data;
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
     expect(payload.user.features).toContain('sso');
 
     // The `accountFeatures` option was actually threaded through — this is the
@@ -242,7 +255,7 @@ describe('updateUserFeatures — purchased account features', () => {
     );
 
     expect(res.status).toHaveBeenCalledWith(200);
-    const payload = (res.json as jest.Mock).mock.calls[0][0].data;
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
     expect(payload.user.features).toContain('sso');
     const call = mockResolveUserFeatures.mock.calls[0];
     expect(call[1]?.accountFeatures).toEqual(['sso']);

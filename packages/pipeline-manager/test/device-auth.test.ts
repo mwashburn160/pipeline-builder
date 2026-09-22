@@ -61,7 +61,7 @@ beforeEach(() => {
   }) as typeof setTimeout);
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { jest.restoreAllMocks(); });
 
 /** An RFC error answer (HTTP 400 with `{ error }`). */
 const pending = { status: 400, data: { error: 'authorization_pending' } };

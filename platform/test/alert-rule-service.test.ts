@@ -8,10 +8,11 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   softDeleteRetentionMs: () => 0,
   schema: { orgAlertRule: {} },
   withTenantTx: jest.fn(),
@@ -19,6 +20,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 }));
 
 const { renderRulesYaml, validateRule } = await import('../src/services/alert-rule-service.js');
+const { default: YAML } = await import('yaml');
 
 
 describe('validateRule  tenancy gate', () => {
@@ -40,12 +42,12 @@ describe('validateRule  tenancy gate', () => {
     })).toEqual({ ok: true });
   });
 
-  it('accepts a regex org_id selector', () => {
+  it('rejects a regex-only org_id selector (only the exact equality pins a rule)', () => {
     expect(validateRule('org-acme', {
       name: 'HighErrors',
       expr: 'sum(rate(http_requests_total{org_id=~"org-acme",status_code=~"5.."}[5m])) > 5',
       summary: 'errors high',
-    })).toEqual({ ok: true });
+    }).ok).toBe(false);
   });
 
   it('rejects an expression that matches a DIFFERENT org_id (substring check is exact)', () => {
@@ -99,6 +101,42 @@ describe('validateRule  field validation', () => {
   });
 });
 
+describe('validateRule  annotation template injection', () => {
+  const valid = (overrides = {}) => ({
+    name: 'ValidName',
+    expr: 'foo{org_id="org-a"} > 1',
+    summary: 'something',
+    ...overrides,
+  });
+
+  it.each([
+    '{{ query "sum(http_requests_total)" }}',
+    'value {{ $value }}',
+    'closing only }}',
+    '{{',
+  ])('rejects template syntax in summary: %s', (summary) => {
+    const r = validateRule('org-a', valid({ summary }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toMatch(/template syntax/);
+  });
+
+  it('rejects template syntax in description', () => {
+    const r = validateRule('org-a', valid({ description: 'x {{ range query "up" }}{{ .Labels }}{{ end }}' }));
+    expect(r.ok).toBe(false);
+  });
+
+  it('accepts plain braces that are not template delimiters', () => {
+    expect(validateRule('org-a', valid({ summary: 'set {a} is empty', description: 'json: {"k": 1}' })))
+      .toEqual({ ok: true });
+  });
+
+  it('rejects an oversized description', () => {
+    expect(validateRule('org-a', valid({ description: 'x'.repeat(2001) }))).toEqual({
+      ok: false, message: 'description must be <= 2000 chars',
+    });
+  });
+});
+
 describe('renderRulesYaml', () => {
   const baseRule = {
     id: 'r1',
@@ -111,7 +149,7 @@ describe('renderRulesYaml', () => {
     expr: 'sum(rate(http_requests_total{org_id="org-acme",status_code=~"5.."}[5m])) > 5',
     forDuration: '5m',
     severity: 'warning' as const,
-    summary: 'Error rate is {{ $value }} for org-acme',
+    summary: 'Error rate is high for org-acme',
     description: 'See runbook',
     enabled: true,
     deletedAt: null,
@@ -119,36 +157,40 @@ describe('renderRulesYaml', () => {
     purgeAfter: null,
   };
 
+  const firstRule = (yaml: string) => (YAML.parse(yaml) as {
+    groups: Array<{ name: string; rules: Array<Record<string, any>> }>;
+  }).groups[0].rules[0];
+
   it('renders an empty groups list when there are no rules', () => {
-    const yaml = renderRulesYaml([]);
-    expect(yaml).toContain('groups: []');
+    expect(YAML.parse(renderRulesYaml([]))).toEqual({ groups: [] });
   });
 
-  it('renders a single rule with org_id label and severity', () => {
+  it('renders valid YAML with the org_id label, severity and annotations', () => {
     const yaml = renderRulesYaml([baseRule]);
-    expect(yaml).toContain('alert: OrgRule_org_acme_HighErrors');
-    expect(yaml).toContain('for: 5m');
-    expect(yaml).toContain('severity: warning');
-    expect(yaml).toContain("org_id: 'org-acme'");
-    expect(yaml).toContain('tenancy: org');
-    expect(yaml).toContain("summary: 'Error rate is {{ $value }} for org-acme'");
-    expect(yaml).toContain("description: 'See runbook'");
+    const doc = YAML.parse(yaml);
+    expect(doc.groups).toHaveLength(1);
+    expect(doc.groups[0].name).toBe('org-authored');
+    expect(firstRule(yaml)).toEqual({
+      alert: 'OrgRule_org_acme_HighErrors',
+      expr: baseRule.expr,
+      for: '5m',
+      labels: { severity: 'warning', component: 'org-authored', tenancy: 'org', org_id: 'org-acme' },
+      annotations: { summary: 'Error rate is high for org-acme', description: 'See runbook' },
+    });
   });
 
   it('sanitizes alert names so two orgs with the same rule name do not collide', () => {
     const a = { ...baseRule, orgId: 'org-acme', name: 'Same' };
     const b = { ...baseRule, orgId: 'org-other', name: 'Same' };
-    const yaml = renderRulesYaml([a, b]);
-    expect(yaml).toContain('OrgRule_org_acme_Same');
-    expect(yaml).toContain('OrgRule_org_other_Same');
+    const rules = YAML.parse(renderRulesYaml([a, b])).groups[0].rules;
+    expect(rules.map((r: { alert: string }) => r.alert)).toEqual(['OrgRule_org_acme_Same', 'OrgRule_org_other_Same']);
   });
 
-  it('escapes single quotes in summary / description (YAML quoting)', () => {
-    const yaml = renderRulesYaml([{
-      ...baseRule, summary: "it's broken", description: "don't panic",
-    }]);
-    expect(yaml).toContain("summary: 'it''s broken'");
-    expect(yaml).toContain("description: 'don''t panic'");
+  it('round-trips quotes, colons and newlines in summary / description', () => {
+    const rule = firstRule(renderRulesYaml([{
+      ...baseRule, summary: "it's broken: \"really\"", description: "don't panic\n- key: value",
+    }]));
+    expect(rule.annotations).toEqual({ summary: "it's broken: \"really\"", description: "don't panic\n- key: value" });
   });
 
   it('omits the description field when empty', () => {
@@ -156,13 +198,15 @@ describe('renderRulesYaml', () => {
     expect(yaml).not.toContain('description:');
   });
 
-  it('renders multi-line expr as a YAML literal block', () => {
-    const yaml = renderRulesYaml([{
-      ...baseRule,
-      expr: 'sum(rate(http_requests_total{org_id="org-acme"}[5m]))\n / 60',
-    }]);
-    expect(yaml).toContain('expr: |');
-    expect(yaml).toContain(' sum(rate(http_requests_total{org_id="org-acme"}[5m]))');
-    expect(yaml).toContain(' / 60');
+  it('round-trips a multi-line expr', () => {
+    const expr = 'sum(rate(http_requests_total{org_id="org-acme"}[5m]))\n / 60';
+    expect(firstRule(renderRulesYaml([{ ...baseRule, expr }])).expr).toBe(expr);
+  });
+
+  it('neutralizes template delimiters that reach the renderer (literal text, no Go-template action)', () => {
+    const rule = firstRule(renderRulesYaml([{ ...baseRule, summary: '{{ query "up" }}' }]));
+    // Each delimiter becomes a raw-string action that prints the delimiter
+    // itself, so Prometheus emits the text verbatim instead of running `query`.
+    expect(rule.annotations.summary).toBe('{{`{{`}} query "up" {{`}}`}}');
   });
 });

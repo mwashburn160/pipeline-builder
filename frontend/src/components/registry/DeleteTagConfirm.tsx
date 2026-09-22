@@ -37,7 +37,7 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
 
   useEffect(() => {
     let aborted = false;
-    (async () => {
+    void (async () => {
       try {
         const manifest = await api.getImageManifest(repo, tagRef);
         if (aborted) return;
@@ -145,7 +145,7 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
         )}
 
         <div className="text-xs text-fg-muted">
-          Note: distribution deletes the manifest by digest, so any other tags pointing at the same digest also stop resolving immediately. Blob layers stay on disk as orphans until the registry's garbage collector runs (a separate maintenance pass — deletion does not reclaim disk on its own). This action is audit-logged.
+          Note: distribution deletes the manifest by digest, so any other tags pointing at the same digest also stop resolving immediately. Blob layers stay on disk as orphans until the registry&apos;s garbage collector runs (a separate maintenance pass — deletion does not reclaim disk on its own). This action is audit-logged.
         </div>
 
         <ErrorAlert message={error} />

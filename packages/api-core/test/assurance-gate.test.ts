@@ -12,6 +12,7 @@
  * three different ways.
  */
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
 import express, { type Request, type Response } from 'express';
 import {
@@ -50,7 +51,7 @@ function mockRes(): Response & { _status: number; _json: { code?: string; messag
   return res as unknown as Response & { _status: number; _json: { code?: string; message?: string } | null };
 }
 
-function userToken(payload: Record<string, unknown> = {}): Promise<string> {
+function userToken(payload: Record<string, unknown> = {}): string {
   return signTestUserToken(
     { ...testUserIdentityClaims(), sub: 'user1', role: 'member', ...payload },
     { key: jwks.primary },
@@ -61,7 +62,7 @@ function userToken(payload: Record<string, unknown> = {}): Promise<string> {
 async function run(options: Parameters<typeof requireAuth>[0], token: string) {
   const req = mockReq({ headers: { authorization: `Bearer ${token}` } });
   const res = mockRes();
-  const next = jest.fn();
+  const next = jest.fn<AnyFn>();
   (requireAuth(options) as (r: Request, s: Response, n: () => void) => void)(req, res, next);
   await settle();
   await settle();
@@ -166,7 +167,7 @@ describe('requireAssurance (standalone, for a service with its own requireAuth)'
   const runGate = (user: Record<string, unknown> | undefined, opts: Parameters<typeof requireAssurance>[0]) => {
     const req = mockReq({ user: user as Request['user'] });
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     requireAssurance(opts)(req, res, next);
     return { res, next };
   };

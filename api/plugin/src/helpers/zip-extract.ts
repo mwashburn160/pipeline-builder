@@ -32,7 +32,9 @@ import yauzl from 'yauzl';
  * validated `envInt` parse (min 1): a bare `parseInt` turned a typo'd value into
  * `NaN`, and since `x > NaN` is always false that silently DISABLED the cap.
  */
-export function extractionLimits(): { maxBytes: number; maxEntries: number } {
+export interface ExtractionLimits { maxBytes: number; maxEntries: number }
+
+export function extractionLimits(): ExtractionLimits {
   const maxUploadMb = envInt('PLUGIN_MAX_UPLOAD_MB', 4096, { min: 1 });
   const maxRatio = envInt('PLUGIN_MAX_EXTRACT_RATIO', 50, { min: 1 });
   const maxBytes = envInt('PLUGIN_MAX_EXTRACT_BYTES', maxUploadMb * 1024 * 1024 * maxRatio, { min: 1 });
@@ -57,15 +59,20 @@ function describeFileType(type: number): string {
   }
 }
 
-/** Read specific text entries and extract all files in a single pass. */
+/**
+ * Read specific text entries and extract all files in a single pass. `limits`
+ * overrides the service-wide {@link extractionLimits} for one call — the
+ * anonymous submission path passes much tighter ones (its caller is unknown).
+ */
 export async function readAndExtractZip(
   zipPath: string,
   textEntries: string[],
   extractDir: string,
+  limits: ExtractionLimits = extractionLimits(),
 ): Promise<Map<string, string>> {
   const results = new Map<string, string>();
   const wanted = new Set(textEntries);
-  const { maxBytes, maxEntries } = extractionLimits();
+  const { maxBytes, maxEntries } = limits;
   let totalBytes = 0;
   let entryCount = 0;
 

@@ -16,7 +16,9 @@
  * spies the real helper uses, so every branch is exercised end-to-end.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
@@ -36,7 +38,7 @@ const sendBadRequest = jest.fn((res: any, msg: string, code?: string) => {
 const sendEntityNotFound = jest.fn((res: any, entity: string) => {
   res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
 });
-const requireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string) => true);
+const requireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string, ..._rest: unknown[]) => true);
 const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
   const response: any = { success: true, statusCode };
   if (data !== undefined) response.data = data;
@@ -79,7 +81,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -97,8 +99,8 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-const mockFindDeletedById = jest.fn();
-const mockRestore = jest.fn();
+const mockFindDeletedById = jest.fn<AnyFn>();
+const mockRestore = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
@@ -107,10 +109,10 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   },
 }));
 
-const mockEmitPluginAudit = jest.fn();
+const mockEmitPluginAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitPluginAudit: mockEmitPluginAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 // shapePlugin adds a computed `uri`; identity-ish stub suffices here.
@@ -144,7 +146,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     user: { sub: 'user-1' },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
       requestId: 'req-1',
     },
     ...overrides,
@@ -153,8 +155,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -173,7 +175,7 @@ const existingPlugin = {
 describe('POST /plugins/:id/restore (restore)', () => {
   const handler = getHandler('post', '/:id/restore');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('restores the tombstone and returns 200 with the shaped plugin', async () => {
     mockFindDeletedById.mockResolvedValue(existingPlugin);

@@ -4,7 +4,8 @@
 import { createLogger, parsePage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
-import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
+import type { RoleAssignmentActor } from './role-authority.js';
+import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, userHasSeatInAccount } from '../helpers/seats.js';
@@ -157,7 +158,11 @@ class OrgMembersService {
 
     // Resolve the requested sort against the whitelist; an unrecognized key is
     // ignored so a hostile ?sortBy silently falls back to the default order.
-    const sortSpec = opts.sortBy ? MEMBER_SORT_FIELDS[opts.sortBy] : undefined;
+    // OWN keys only: a bare index would resolve `constructor` / `__proto__` /
+    // `toString` through Object.prototype to a truthy non-spec value.
+    const sortSpec = opts.sortBy && Object.hasOwn(MEMBER_SORT_FIELDS, opts.sortBy)
+      ? MEMBER_SORT_FIELDS[opts.sortBy]
+      : undefined;
     const sortDir = opts.sortOrder === 'desc' ? -1 : 1;
 
     const userSelect = '_id username email isEmailVerified createdAt updatedAt';
@@ -289,10 +294,18 @@ class OrgMembersService {
     }
   }
 
-  async addMember(orgId: string, body: { userId?: string; email?: string; role?: OrgMemberRole }): Promise<void> {
+  async addMember(
+    orgId: string,
+    body: { userId?: string; email?: string; role?: OrgMemberRole },
+    actor: RoleAssignmentActor,
+  ): Promise<void> {
     await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(orgId)).session(session);
       if (!org) throw new Error(OM_ORG_NOT_FOUND);
+      // Adding someone AS AN ADMIN grants the built-in Admin Role: the same
+      // assignment ceiling as granting it through the Roles API, so a
+      // `members:manage` delegate can't mint admins (themselves included).
+      if ((body.role ?? 'member') !== 'member') await assertActorMayAssignBuiltinAdmin(toOrgId(orgId), actor, session);
 
       const user = body.userId
         ? await User.findById(body.userId).session(session)
@@ -399,6 +412,7 @@ class OrgMembersService {
   async bulkAddMemberToTeams(
     contextOrgId: string,
     body: { userId?: string; email?: string; orgIds: string[]; role?: OrgMemberRole },
+    actor: RoleAssignmentActor,
   ): Promise<{ results: BulkAddResult[] }> {
     const subtree = await expandOrgScope(contextOrgId);
     const subtreeSet = new Set(subtree);
@@ -423,6 +437,11 @@ class OrgMembersService {
       }
 
       const addedRole = body.role || 'member';
+      // An admin add is an Admin-Role GRANT in each team — checked per team,
+      // through the same ceiling as addMember.
+      if (addedRole !== 'member') {
+        for (const orgId of body.orgIds) await assertActorMayAssignBuiltinAdmin(toOrgId(orgId), actor, session);
+      }
       const results: BulkAddResult[] = [];
       for (const orgId of body.orgIds) {
         const existing = await UserOrganization.findOne({
@@ -436,10 +455,15 @@ class OrgMembersService {
           [{ userId: user._id, organizationId: toOrgId(orgId), role: addedRole }],
           { session },
         );
-        // Single-source RBAC: plain members get the built-in Member Role floor
-        // per team so they resolve to the member bundle.
-        if (addedRole === 'member') {
-          await ensureBaselineRole(user._id, toOrgId(orgId), session);
+        // Single-source RBAC: EVERY membership gets the built-in Member Role
+        // floor; an admin add ALSO gets the built-in Admin Role, and the cached
+        // coarse role is DERIVED from the Roles (exactly as addMember does) —
+        // `role: 'admin'` alone would be coarse-admin with zero permissions and
+        // reverted by the next recompute.
+        await ensureBaselineRole(user._id, toOrgId(orgId), session);
+        if (addedRole === 'admin' || addedRole === 'owner') {
+          await assignBuiltinAdminRole(user._id, toOrgId(orgId), session);
+          await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
         }
         results.push({ orgId, status: 'added' });
       }
@@ -554,7 +578,7 @@ class OrgMembersService {
       // effect immediately (the JWT carries the issue-time membership role).
       await User.updateMany(
         { _id: { $in: [oldOwnerMembership.userId, newOwnerId] } },
-        { $inc: { tokenVersion: 1 } },
+        { $inc: { claimsVersion: 1 } },
         { session },
       );
     });

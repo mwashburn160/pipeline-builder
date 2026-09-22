@@ -22,11 +22,13 @@ export type Row = { id: string; [column: string]: any };
 export type NewRow = Record<string, any>;
 type Col = { __table: string; __col: string };
 type Cond =
-  | { op: 'eq' | 'gte' | 'like'; col: Col; value: unknown }
+  | { op: 'eq' | 'ne' | 'gte' | 'gt' | 'lte' | 'lt' | 'like'; col: Col; value: unknown }
   | { op: 'in'; col: Col; value: unknown[] }
-  | { op: 'isNull'; col: Col }
-  | { op: 'and'; parts: Array<Cond | undefined> };
-type Order = { dir: 'desc'; col: Col };
+  | { op: 'isNull' | 'isNotNull'; col: Col }
+  | { op: 'and' | 'or'; parts: Array<Cond | undefined> };
+type Order = { dir: 'desc' | 'asc'; col: Col };
+/** `count()` in a select's field map. */
+type Agg = { __agg: 'count' };
 
 /** Column defaults per table (applied on insert). */
 const DEFAULTS: Record<string, () => NewRow> = {
@@ -102,7 +104,7 @@ const DEFAULTS: Record<string, () => NewRow> = {
     state: 'draft', fixedVersion: null, detailsMd: null, detailsHtml: null, cveIds: [], publishedBy: null, publishedAt: null, withdrawnAt: null,
   }),
   plugins: () => ({ deletedAt: null, frozenAt: null }),
-  plugin_installs: () => ({ versionPolicy: 'minor', pinnedVersion: null, resolvedVersion: null, status: 'active', approvedBy: null, decidedAt: null }),
+  plugin_installs: () => ({ versionPolicy: 'minor', pinnedVersion: null, resolvedVersion: null, status: 'active', approvedBy: null, decidedAt: null, pendingChange: null }),
   plugin_reviews: () => ({
     version: null,
     title: null,
@@ -189,17 +191,40 @@ function tableObject(name: string): Record<string, unknown> {
   });
 }
 
+/** Comparable form of a cell / operand (dates compare by time). */
+const cmpValue = (v: unknown): unknown => (v instanceof Date ? v.getTime() : v);
+
+function compare(row: Row, c: { col: Col; value: unknown }, ok: (a: any, b: any) => boolean): boolean {
+  const v = row[c.col.__col];
+  if (v === null || v === undefined) return false;
+  const a = v instanceof Date || c.value instanceof Date ? new Date(v).getTime() : v;
+  const b = c.value instanceof Date ? c.value.getTime() : cmpValue(c.value);
+  return ok(a, b);
+}
+
+/** The jsonb-path predicate store.ts builds (`jsonPathEq`): its parts ride on the SQL object. */
+type JsonPathEq = { jsonPathEq: { column: Col; path: string[]; value: string } };
+
 function matches(row: Row, c: Cond | undefined): boolean {
   if (!c) return true;
+  const jp = (c as unknown as Partial<JsonPathEq>).jsonPathEq;
+  if (jp) {
+    let v: unknown = row[jp.column.__col];
+    for (const key of jp.path) v = v && typeof v === 'object' ? (v as Record<string, unknown>)[key] : undefined;
+    return v !== undefined && v !== null && String(v) === jp.value;
+  }
   switch (c.op) {
     case 'and': return c.parts.every((p) => matches(row, p));
-    case 'eq': return row[c.col.__col] === c.value;
+    case 'or': return c.parts.some((p) => p !== undefined && matches(row, p));
+    case 'eq': return cmpValue(row[c.col.__col]) === cmpValue(c.value);
+    case 'ne': return cmpValue(row[c.col.__col]) !== cmpValue(c.value);
     case 'isNull': return row[c.col.__col] === null || row[c.col.__col] === undefined;
+    case 'isNotNull': return row[c.col.__col] !== null && row[c.col.__col] !== undefined;
     case 'in': return c.value.includes(row[c.col.__col]);
-    case 'gte': {
-      const v = row[c.col.__col];
-      return v !== null && v !== undefined && new Date(v).getTime() >= new Date(c.value as Date).getTime();
-    }
+    case 'gte': return compare(row, c, (a, b) => a >= b);
+    case 'gt': return compare(row, c, (a, b) => a > b);
+    case 'lte': return compare(row, c, (a, b) => a <= b);
+    case 'lt': return compare(row, c, (a, b) => a < b);
     case 'like': return String(row[c.col.__col]).startsWith(String(c.value).replace(/%$/, ''));
   }
 }
@@ -212,6 +237,7 @@ function sortRows(rows: Row[], orders: Order[]): Row[] {
       const x = av instanceof Date ? av.getTime() : av;
       const y = bv instanceof Date ? bv.getTime() : bv;
       if (x === y) continue;
+      if (o.dir === 'asc') return x < y ? -1 : 1;
       return x < y ? 1 : -1;
     }
     return 0;
@@ -229,6 +255,8 @@ export interface FakeEcosystemDb {
   reset: () => void;
   /** Make the next insert into `table` throw this error. */
   failNextInsert: (table: string, err: unknown) => void;
+  /** Make the next select from `table` throw this error. */
+  failNextSelect: (table: string, err: unknown) => void;
   /** Raw `tx.execute(sql…)` calls: the handler answers each (default: no rows). */
   execute: { handler: (query: unknown) => unknown; calls: unknown[] };
 }
@@ -236,6 +264,7 @@ export interface FakeEcosystemDb {
 export function createFakeEcosystemDb(): FakeEcosystemDb {
   const tables: Record<string, Row[]> = {};
   const failures = new Map<string, unknown>();
+  const selectFailures = new Map<string, unknown>();
   const table = (name: string) => (tables[name] ??= []);
 
   const withDefaults = (name: string, row: NewRow): Row => {
@@ -251,18 +280,32 @@ export function createFakeEcosystemDb(): FakeEcosystemDb {
 
   const tableName = (t: unknown) => (t as { __tableName: string }).__tableName;
 
-  function query(name: string, fields?: Record<string, Col>) {
+  function query(name: string, fields?: Record<string, Col | Agg>) {
     let where: Cond | undefined;
     let orders: Order[] = [];
     let max = Infinity;
+    let skip = 0;
     const run = () => {
-      const rows = sortRows(table(name).filter((r) => matches(r, where)), orders).slice(0, max);
-      return rows.map((r) => (fields ? Object.fromEntries(Object.entries(fields).map(([k, c]) => [k, r[c.__col]])) : { ...r }));
+      const failure = selectFailures.get(name);
+      if (failure !== undefined) {
+        selectFailures.delete(name);
+        throw failure;
+      }
+      const hit = table(name).filter((r) => matches(r, where));
+      // An aggregate select (`{ n: count() }`) answers one row over the whole match.
+      if (fields && Object.values(fields).some((f) => '__agg' in f)) {
+        return [Object.fromEntries(Object.entries(fields).map(([k, f]) => [k, '__agg' in f ? hit.length : undefined]))];
+      }
+      const rows = sortRows(hit, orders).slice(skip, skip + max);
+      return rows.map((r) => (fields ? Object.fromEntries(Object.entries(fields).map(([k, c]) => [k, r[(c as Col).__col]])) : { ...r }));
     };
     const q: any = {
       where: (c: Cond) => { where = c; return q; },
       orderBy: (...o: Order[]) => { orders = o; return q; },
       limit: (n: number) => { max = n; return q; },
+      offset: (n: number) => { skip = n; return q; },
+      // Row locks (`SELECT … FOR UPDATE`) are a no-op in memory: the fake is single-threaded.
+      for: () => q,
       then: (resolve: (v: unknown[]) => unknown, reject: (e: unknown) => unknown) => Promise.resolve().then(run).then(resolve, reject),
     };
     return q;
@@ -271,7 +314,7 @@ export function createFakeEcosystemDb(): FakeEcosystemDb {
   const execute = { handler: (_q: unknown): unknown => ({ rows: [] }), calls: [] as unknown[] };
   const tx = {
     execute: async (q: unknown) => { execute.calls.push(q); return execute.handler(q); },
-    select: (fields?: Record<string, Col>) => ({ from: (t: unknown) => query(tableName(t), fields) }),
+    select: (fields?: Record<string, Col | Agg>) => ({ from: (t: unknown) => query(tableName(t), fields) }),
     insert: (t: unknown) => ({
       values: (v: NewRow) => {
         const name = tableName(t);
@@ -329,7 +372,15 @@ export function createFakeEcosystemDb(): FakeEcosystemDb {
     tables,
     ops: {
       eq: (col: Col, value: unknown) => ({ op: 'eq', col, value }),
+      ne: (col: Col, value: unknown) => ({ op: 'ne', col, value }),
       gte: (col: Col, value: unknown) => ({ op: 'gte', col, value }),
+      gt: (col: Col, value: unknown) => ({ op: 'gt', col, value }),
+      lte: (col: Col, value: unknown) => ({ op: 'lte', col, value }),
+      lt: (col: Col, value: unknown) => ({ op: 'lt', col, value }),
+      or: (...parts: Cond[]) => ({ op: 'or', parts }),
+      isNotNull: (col: Col) => ({ op: 'isNotNull', col }),
+      asc: (col: Col) => ({ dir: 'asc', col }),
+      count: (): Agg => ({ __agg: 'count' }),
       like: (col: Col, value: unknown) => ({ op: 'like', col, value }),
       inArray: (col: Col, value: unknown[]) => ({ op: 'in', col, value }),
       isNull: (col: Col) => ({ op: 'isNull', col }),
@@ -338,17 +389,36 @@ export function createFakeEcosystemDb(): FakeEcosystemDb {
     },
     pipelineData: {
       schema,
-      withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
+      // A transaction: a throw out of `fn` rolls every table back to where it
+      // was (row objects are restored IN PLACE, so a test's references stay live).
+      withTenantTx: async (fn: (t: typeof tx) => unknown) => {
+        const snapshot = Object.entries(tables).map(([name, rows]) => [name, rows.map((r) => [r, { ...r }] as const)] as const);
+        const known = new Set(Object.keys(tables));
+        try {
+          return await fn(tx);
+        } catch (err) {
+          for (const name of Object.keys(tables)) if (!known.has(name)) delete tables[name];
+          for (const [name, rows] of snapshot) {
+            tables[name] = rows.map(([ref, copy]) => {
+              for (const k of Object.keys(ref)) if (!(k in copy)) delete ref[k];
+              return Object.assign(ref, copy);
+            });
+          }
+          throw err;
+        }
+      },
       runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
     },
     seed,
     reset: () => {
       for (const k of Object.keys(tables)) delete tables[k];
       failures.clear();
+      selectFailures.clear();
       execute.handler = () => ({ rows: [] });
       execute.calls.length = 0;
     },
     execute,
     failNextInsert: (name, err) => { failures.set(name, err); },
+    failNextSelect: (name, err) => { selectFailures.set(name, err); },
   };
 }

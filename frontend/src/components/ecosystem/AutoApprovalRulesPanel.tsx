@@ -22,6 +22,7 @@ import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { AutoRule, AutoRuleConditions, PublisherTier } from '@/types/ecosystem';
 import { EcosystemActionDialog } from './EcosystemActionDialog';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 interface Props {
   can: (permission: string) => boolean;
@@ -67,16 +68,41 @@ const EMPTY_CONDITIONS: AutoRuleConditions = {
   bumps: ['patch'],
 };
 
+/** The server's bounds (`AutoRuleConditionsSchema`, `parseName`), checked here
+ *  first so a refusal never costs a step-up. */
+const NAME_MAX = 255;
+const MAX_PER_LISTING_PER_DAY = 1000;
+const MAX_PER_DAY = 100_000;
+
+/** Why a rule would be refused, or null. */
+export function ruleProblem(value: { name: string; conditions: AutoRuleConditions }): string | null {
+  const { name, conditions: c } = value;
+  if (!name.trim()) return 'Give the rule a name.';
+  if (name.trim().length > NAME_MAX) return `The name is at most ${NAME_MAX} characters.`;
+  if (c.requestKinds.length === 0) return 'Choose at least one request kind.';
+  if (c.publisherTiers.length === 0) return 'Choose at least one publisher tier.';
+  if (c.requestKinds.includes('new_version') && c.bumps.length === 0) return 'Choose which version bumps new versions may auto-approve.';
+  if (c.maxPerListingPerDay != null && (!Number.isInteger(c.maxPerListingPerDay) || c.maxPerListingPerDay > MAX_PER_LISTING_PER_DAY)) return `Max per listing per day is a whole number up to ${MAX_PER_LISTING_PER_DAY}.`;
+  if (c.maxPerDay != null && (!Number.isInteger(c.maxPerDay) || c.maxPerDay > MAX_PER_DAY)) return `Max per day is a whole number up to ${MAX_PER_DAY}.`;
+  return null;
+}
+
+type RuleValue = { name: string; conditions: AutoRuleConditions };
+
 /** Create or edit a rule's name and conditions (the step-up confirmation follows). */
-function RuleFormDialog({ rule, onClose, onSave }: {
+function RuleFormDialog({ rule, draft, initialError, onClose, onSave }: {
   rule: AutoRule | null;
+  /** What was typed before the confirmation (or the server) refused it. */
+  draft?: RuleValue;
+  initialError?: string | null;
   onClose: () => void;
-  onSave: (value: { name: string; conditions: AutoRuleConditions }) => void;
+  onSave: (value: RuleValue) => void;
 }) {
-  const [name, setName] = useState(rule?.name ?? '');
-  const [c, setC] = useState<AutoRuleConditions>(rule?.conditions ?? EMPTY_CONDITIONS);
+  const [name, setName] = useState(draft?.name ?? rule?.name ?? '');
+  const [c, setC] = useState<AutoRuleConditions>(draft?.conditions ?? rule?.conditions ?? EMPTY_CONDITIONS);
   const num = (v: string) => (v.trim() === '' ? undefined : Math.max(0, Math.floor(Number(v))));
-  const valid = !!name.trim() && c.requestKinds.length > 0 && c.publisherTiers.length > 0;
+  const problem = ruleProblem({ name, conditions: c });
+  const valid = problem === null;
 
   return (
     <Modal
@@ -93,6 +119,7 @@ function RuleFormDialog({ rule, onClose, onSave }: {
       )}
     >
       <div className="space-y-4 text-sm">
+        <ErrorAlert message={initialError ?? null} />
         <p className="text-xs text-fg-muted">
           {rule
             ? 'Changing the conditions (or re-enabling the rule) is a proposal: it takes effect once a second approver confirms it.'
@@ -141,14 +168,15 @@ function RuleFormDialog({ rule, onClose, onSave }: {
             <Input type="number" min={0} value={c.maxPerDay ?? ''} onChange={(e) => setC({ ...c, maxPerDay: num(e.target.value) })} />
           </FormField>
         </div>
+        {problem && name.trim() && <p className="text-xs text-warning-strong" role="status">{problem}</p>}
       </div>
     </Modal>
   );
 }
 
 type Pending =
-  | { kind: 'form'; rule: AutoRule | null }
-  | { kind: 'save'; rule: AutoRule | null; value: { name: string; conditions: AutoRuleConditions } }
+  | { kind: 'form'; rule: AutoRule | null; draft?: RuleValue; error?: string | null }
+  | { kind: 'save'; rule: AutoRule | null; value: RuleValue }
   | { kind: 'enable' | 'disable' | 'approve' | 'delete'; rule: AutoRule };
 
 /**
@@ -173,16 +201,30 @@ export function AutoApprovalRulesPanel({ can, currentUserId }: Props) {
   const close = () => setPending(null);
   const rules = rulesQ.data ?? [];
 
+  /** From a save confirmation back to the form, values intact (only if that
+   *  confirmation is still the current step — see AdvisoriesPanel). */
+  const backToForm = (p: Pending, error: string | null) => {
+    setPending((cur) => (cur === p && p.kind === 'save' ? { kind: 'form', rule: p.rule, draft: p.value, error } : cur === p ? null : cur));
+  };
+
   const run = async (token?: string) => {
     if (!pending) return;
     if (pending.kind === 'save') {
-      if (pending.rule) {
-        await api.updateAutoRule(pending.rule.id, pending.value, token);
-        toast.success('Change proposed. It takes effect once a second approver confirms it.');
-      } else {
-        await api.createAutoRule(pending.value, token);
-        toast.success('Rule created, disabled until a second approver confirms it.');
+      const current = pending;
+      try {
+        if (current.rule) {
+          await api.updateAutoRule(current.rule.id, current.value, token);
+          toast.success('Change proposed. It takes effect once a second approver confirms it.');
+        } else {
+          await api.createAutoRule(current.value, token);
+          toast.success('Rule created, disabled until a second approver confirms it.');
+        }
+      } catch (err) {
+        // A refusal returns to the filled-in form with the reason.
+        backToForm(current, formatError(err, 'Could not save the rule'));
+        return;
       }
+      close(); // done — the dialog's own close that follows must not reopen the form
     } else if (pending.kind === 'enable') {
       await api.updateAutoRule(pending.rule.id, { enabled: true }, token);
       toast.success('Enabling proposed. It takes effect once a second approver confirms it.');
@@ -291,6 +333,8 @@ export function AutoApprovalRulesPanel({ can, currentUserId }: Props) {
       {pending?.kind === 'form' && (
         <RuleFormDialog
           rule={pending.rule}
+          draft={pending.draft}
+          initialError={pending.error}
           onClose={close}
           onSave={(value) => setPending({ kind: 'save', rule: pending.rule, value })}
         />
@@ -302,7 +346,7 @@ export function AutoApprovalRulesPanel({ can, currentUserId }: Props) {
           details={<ul className="list-disc pl-5 text-xs">{describeConditions(pending.value.conditions).map((l) => <li key={l}>{l}</li>)}</ul>}
           stepUp
           onSubmit={(_r, token) => run(token)}
-          onClose={close}
+          onClose={() => backToForm(pending, null)}
         />
       )}
       {pending && pending.kind !== 'form' && pending.kind !== 'save' && (

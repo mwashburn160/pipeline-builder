@@ -78,7 +78,7 @@ describe('AuditPage — verify integrity gating', () => {
     render(<AuditPage />);
     fireEvent.click(await screen.findByRole('button', { name: /verify integrity/i }));
     expect(await screen.findByText(/chain intact \(7 events\)/i)).toBeInTheDocument();
-    expect(verifyAuditChain).toHaveBeenCalledWith('org-1');
+    expect(verifyAuditChain).toHaveBeenCalledWith('org-1', expect.anything());
   });
 
   it('surfaces a tamper result with the broken-at id', async () => {
@@ -247,5 +247,16 @@ describe('AuditPage — identity filters', () => {
     expect(await screen.findByText(/no matching audit events/i)).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole('button', { name: /clear filters/i })[0]);
     await waitFor(() => expect(lastFilters()).not.toHaveProperty('roleId'));
+  });
+});
+
+describe('AuditPage — date range', () => {
+  it('sends the local day bounds, so "To" includes the whole day named', async () => {
+    routerQuery = { from: '2026-09-01', to: '2026-09-21' };
+    render(<AuditPage />);
+    await waitFor(() => expect(listAuditEvents).toHaveBeenCalled());
+    const f = lastFilters();
+    expect(f.from).toBe(new Date(2026, 8, 1, 0, 0, 0, 0).toISOString());
+    expect(f.to).toBe(new Date(2026, 8, 21, 23, 59, 59, 999).toISOString());
   });
 });

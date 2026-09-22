@@ -33,6 +33,7 @@ import {
   previewDiscountForOrg,
   loadManageableSubscription,
 } from '../helpers/discount-helpers.js';
+import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
 import { getAuditClient } from '../services/audit.js';
@@ -48,6 +49,9 @@ const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
  * person needs an `aal: 2` session while the policy is on.
  */
 const ADMIN_MFA = requireOrgAdminAssurance({ machines: 'allow' }) as RequestHandler;
+
+/** Billing is owned by the account ROOT — a team org can't mutate it (see refuseTeamBilling). */
+const ROOT_ONLY = refuseTeamBilling as RequestHandler;
 
 /** Public shape of a discount record (nothing sensitive — tokens are separate). */
 function toDiscountResponse(d: DiscountDocument): Record<string, unknown> {
@@ -298,7 +302,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // POST /billing/subscriptions/:id/discounts — redeem a token or public alias.
-  router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.discount.apply'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, audited('billing.discount.apply'), withRoute(async ({ req, res, orgId, userId }) => {
     const validation = validateBody(req, DiscountRedeemSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
@@ -323,7 +327,7 @@ export function createDiscountRoutes(): Router {
   // recurring discount (no more per-period credits). Credits already granted
   // persist on the balance until consumed — there is nothing to detach at the
   // provider (discounts are usage credits, not coupons).
-  router.delete('/subscriptions/:id/discounts/:discountId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, audited('billing.discount.remove'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.delete('/subscriptions/:id/discounts/:discountId', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, audited('billing.discount.remove'), withRoute(async ({ req, res, orgId, userId }) => {
     const discountId = getParam(req.params, 'discountId');
     if (!discountId) return sendError(res, 400, 'discountId is required', ErrorCode.MISSING_REQUIRED_FIELD);
 

@@ -202,10 +202,14 @@ describe('authorizeScope', () => {
       .toEqual(['pull']);
   });
 
-  it('grants a TEAM pull-only on its parent org namespace (parent public plugins)', () => {
+  it('grants a TEAM pull-only on its parent org namespace — only the parent\'s PUBLIC plugins (E22)', () => {
     const team = { type: 'jwt' as const, orgId: 'acme-team', parentOrgId: 'acme', userId: 'u1', isAdmin: true, isSuperAdmin: false, canWritePlugins: true };
-    expect(authorizeScope(team, { type: 'repository', name: 'org-acme/shared-plugin', actions: ['pull', 'push'] }))
+    const ctx = { parentPublicPlugins: new Set(['shared-plugin']) };
+    expect(authorizeScope(team, { type: 'repository', name: 'org-acme/shared-plugin', actions: ['pull', 'push'] }, ctx))
       .toEqual(['pull']);
+    // The parent's org-only / private plugin — and any repo when the public set is unknown — stays the parent's.
+    expect(authorizeScope(team, { type: 'repository', name: 'org-acme/internal-only', actions: ['pull'] }, ctx)).toEqual([]);
+    expect(authorizeScope(team, { type: 'repository', name: 'org-acme/shared-plugin', actions: ['pull'] })).toEqual([]);
     // Its own namespace keeps full access.
     expect(authorizeScope(team, { type: 'repository', name: 'org-acme-team/mine', actions: ['pull', 'push'] }))
       .toEqual(['pull', 'push']);
@@ -422,9 +426,20 @@ describe('authorizeScope — quarantine/*', () => {
     lookalikeUser: { type: 'jwt' as const, orgId: '000000000000000000000001', userId: 'service:plugin', isAdmin: true, isSuperAdmin: true, canWritePlugins: true },
   };
 
-  it('grants the plugin service principal pull + push (never delete)', () => {
+  it('grants the plugin service principal PULL only (its scans) — the build pushes with its own credential (E21)', () => {
     expect(authorizeScope(pluginService, { type: 'repository', name: REPO, actions: ['pull', 'push', 'delete', '*'] }))
-      .toEqual(['pull', 'push']);
+      .toEqual(['pull']);
+  });
+
+  it('grants a quarantine build credential push/pull on ITS repository and base-image pulls — nothing else (E21)', () => {
+    const build = { type: 'quarantine' as const, submissionId: REPO.slice('quarantine/'.length) };
+    expect(authorizeScope(build, { type: 'repository', name: REPO, actions: ['pull', 'push', 'delete'] })).toEqual(['pull', 'push']);
+    expect(authorizeScope(build, { type: 'repository', name: 'quarantine/another-submission', actions: ['pull', 'push'] })).toEqual([]);
+    expect(authorizeScope(build, { type: 'repository', name: 'library/alpine', actions: ['pull', 'push'] })).toEqual(['pull']);
+    expect(authorizeScope(build, { type: 'repository', name: 'system/pipeline-plugin-base', actions: ['pull', 'push'] })).toEqual(['pull']);
+    expect(authorizeScope(build, { type: 'repository', name: 'org-acme/app', actions: ['pull'] })).toEqual([]);
+    expect(authorizeScope(build, { type: 'repository', name: 'public/acme/app', actions: ['pull'] })).toEqual([]);
+    expect(authorizeScope(build, { type: 'registry', name: 'catalog', actions: ['*'] })).toEqual([]);
   });
 
   it.each(Object.entries(others))('grants %s NOTHING on quarantine/*, pull included', (_name, identity) => {

@@ -1,4 +1,5 @@
 import { FormSecurityGroupConfig } from '@/types/form-types';
+import { useId } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -30,14 +31,16 @@ interface SecurityGroupEditorProps {
 export default function SecurityGroupEditor({
   securityGroupType, securityGroup, onTypeChange, onSecurityGroupChange, disabled,
 }: SecurityGroupEditorProps) {
+  const uid = useId();
   const update = (fields: Partial<FormSecurityGroupConfig>) =>
     onSecurityGroupChange({ ...securityGroup, ...fields });
 
   return (
     <div className="space-y-3">
       <div>
-        <label className="label">Security group type</label>
+        <label className="label" htmlFor={`${uid}-security-group-type`}>Security group type</label>
         <Select
+          id={`${uid}-security-group-type`}
           value={securityGroupType}
           onChange={(e) => onTypeChange(e.target.value as SecurityGroupType)}
           disabled={disabled}
@@ -74,8 +77,9 @@ export default function SecurityGroupEditor({
       {securityGroupType === 'securityGroupLookup' && (
         <div className="space-y-3 pl-4 border-l-2 border-default">
           <div>
-            <label className="label">Security group name *</label>
+            <label className="label" htmlFor={`${uid}-security-group-name`}>Security group name *</label>
             <Input
+              id={`${uid}-security-group-name`}
               type="text"
               value={securityGroup.securityGroupName}
               onChange={(e) => update({ securityGroupName: e.target.value })}
@@ -83,8 +87,9 @@ export default function SecurityGroupEditor({
             />
           </div>
           <div>
-            <label className="label">VPC ID *</label>
+            <label className="label" htmlFor={`${uid}-vpc-id`}>VPC ID *</label>
             <Input
+              id={`${uid}-vpc-id`}
               type="text"
               value={securityGroup.vpcId}
               onChange={(e) => update({ vpcId: e.target.value })}

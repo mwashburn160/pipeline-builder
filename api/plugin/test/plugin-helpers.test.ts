@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({}));
@@ -18,7 +19,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({}));
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {}));
 
 const { createBuildJobData, pluginUri, shapePlugin } = await import('../src/helpers/plugin-helpers.js');
 
@@ -66,6 +67,7 @@ describe('plugin-helpers', () => {
         requestId: 'req-1',
         orgId: 'org-1',
         userId: 'user-1',
+        access: { isSystemAdmin: false, canPublish: false },
         buildRequest: {
           contextDir: '/tmp/ctx',
           dockerfile: 'Dockerfile',
@@ -99,6 +101,7 @@ describe('plugin-helpers', () => {
         requestId: 'req-1',
         orgId: 'org-1',
         userId: 'user-1',
+        access: { isSystemAdmin: false, canPublish: false },
         buildRequest: {
           contextDir: '/tmp/ctx',
           dockerfile: 'Dockerfile',

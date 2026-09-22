@@ -136,7 +136,7 @@ export function TabBar({ items, activeId, onSelect, disabledIds, className = '',
 
   return (
     <div className={`border-b border-default mb-6 ${className}`}>
-      <div role="tablist" aria-label={ariaLabel} aria-orientation="horizontal" className="-mb-px flex space-x-6" onKeyDown={onKeyDown}>
+      <div role="tablist" tabIndex={-1} aria-label={ariaLabel} aria-orientation="horizontal" className="-mb-px flex space-x-6" onKeyDown={onKeyDown}>
         {items.map((item) => {
           const active = item.id === activeId;
           const disabled = isDisabled(item.id);

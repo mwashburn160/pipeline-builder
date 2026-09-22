@@ -41,6 +41,7 @@ import {
   SA_INVALID_IP_ALLOWLIST,
   SA_INVALID_NAME,
   SA_INVALID_SCOPE,
+  SA_SCOPE_NOT_PERMITTED,
   SA_KEY_EXPIRY_INVALID,
   SA_KEY_LIMIT,
   SA_KEY_NOT_FOUND,
@@ -79,6 +80,7 @@ const serviceAccountErrors = {
   [SA_INVALID_IP_ALLOWLIST]: { status: 400, message: 'ipAllowlist entries must be IP addresses or CIDR blocks' },
   [SA_KEY_NOT_FOUND]: { status: 404, message: 'Key not found or already revoked' },
   [SA_INVALID_SCOPE]: { status: 400, message: 'scope is not a recognised capability scope' },
+  [SA_SCOPE_NOT_PERMITTED]: { status: 403, message: 'You cannot issue a key with this capability: scim needs organization admin (or members:manage and roles:manage) on an SSO-entitled organization, and registry:push needs plugins:write' },
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'One or more roles do not exist in this organization' },
   [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can grant a superadmin role' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot grant a service account a role carrying permissions you do not hold yourself' },
@@ -215,7 +217,7 @@ export const createOrganizationServiceAccountKey = withController('Create servic
     ...(body.ipAllowlist ? { ipAllowlist: body.ipAllowlist } : {}),
     ...(body.scope ? { scope: body.scope as TokenScope } : {}),
     client: clientInfoOf(req),
-  });
+  }, assignmentActor(req));
   audit(req, 'org.service-account.key.create', {
     targetType: 'service-account',
     targetId: accountId,

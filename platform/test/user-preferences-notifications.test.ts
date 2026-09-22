@@ -23,7 +23,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({ loadActiveOrgInfo: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
-  publishUserRevocation: jest.fn(), publishUsersRevocation: jest.fn(), publishUserDeletionRevocation: jest.fn(),
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
+  publishUserRevocation: jest.fn(),
+  publishUsersRevocation: jest.fn(),
+  publishUserDeletionRevocation: jest.fn(),
 }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({ seedDefaultRoles: jest.fn() }));
 jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertNotLastPrivilegedMember: jest.fn() }));
@@ -31,6 +35,8 @@ jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: {} }
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({ withMongoTransaction: (fn: (s: unknown) => unknown) => fn({}) }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),

@@ -301,7 +301,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendReply();
+      void handleSendReply();
     }
   };
 

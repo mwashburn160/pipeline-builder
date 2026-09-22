@@ -49,12 +49,14 @@ jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }))
 
 const generateNewToken = jest.fn<AnyFn>();
 const listTokenHistory = jest.fn<AnyFn>();
+const getOwnPasswordPolicy = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getAccessToken: () => null,
     generateNewToken: (...a: unknown[]) => generateNewToken(...a),
     listTokenHistory: (...a: unknown[]) => listTokenHistory(...a),
+    getOwnPasswordPolicy: (...a: unknown[]) => getOwnPasswordPolicy(...a),
   },
 }));
 
@@ -75,6 +77,7 @@ beforeEach(() => {
   window.location.hash = '';
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' } });
   listTokenHistory.mockResolvedValue({ success: true, data: { tokens: [] } });
+  getOwnPasswordPolicy.mockResolvedValue({ success: true, data: { minLength: 8, maxLength: 128 } });
 });
 
 afterEach(() => { window.location.hash = ''; });
@@ -102,7 +105,7 @@ describe('Security — one page, four answers', () => {
   });
 
   it('mints a machine token with the chosen lifetime and capability scope', async () => {
-    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 'tok.en.value', expiresIn: 7 * 86400 } });
+    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 'tok.en.value', refreshToken: 'refresh.value', expiresIn: 900 } });
     query = { tab: 'keys' };
     render(<SecurityPage />);
 
@@ -117,7 +120,7 @@ describe('Security — one page, four answers', () => {
   });
 
   it('sends no scope and no subset for a FULL-access token, only the lifetime', async () => {
-    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 't', expiresIn: 30 * 86400 } });
+    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 't', refreshToken: 'r', expiresIn: 900 } });
     query = { tab: 'keys' };
     render(<SecurityPage />);
     fireEvent.click(screen.getByRole('button', { name: /full access/i }));
@@ -127,7 +130,7 @@ describe('Security — one page, four answers', () => {
 
   it('defaults to SELECTED permissions, seeded with the read-only permissions the person holds', async () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1', permissions: ['pipelines:read', 'pipelines:write', 'plugins:read'] } });
-    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 't', expiresIn: 30 * 86400 } });
+    generateNewToken.mockResolvedValue({ success: true, data: { accessToken: 't', refreshToken: 'r', expiresIn: 900 } });
     query = { tab: 'keys' };
     render(<SecurityPage />);
     fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
@@ -285,5 +288,24 @@ describe('the nav says what is there', () => {
     const security = items.find((i) => i.href === '/dashboard/security');
     expect(security?.requiredPermission).toBeUndefined();
     expect(security?.adminOnly).toBeUndefined();
+  });
+});
+
+describe('Security — the password form', () => {
+  it('states and enforces the minimum the person\'s orgs actually require', async () => {
+    getOwnPasswordPolicy.mockResolvedValue({ success: true, data: { minLength: 14, maxLength: 128 } });
+    render(<SecurityPage />);
+    expect(await screen.findByText('At least 14 characters.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'tenletters' } });
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'tenletters' } });
+    fireEvent.click(screen.getByRole('button', { name: /change password/i }));
+    expect(await screen.findByText('New password must be at least 14 characters')).toBeInTheDocument();
+  });
+
+  it('is not offered to an account with no password (OAuth / SSO only)', () => {
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1', authFactors: { hasPassword: false, passkeyCount: 0, hasTotp: false, providers: ['google'] } } });
+    render(<SecurityPage />);
+    expect(screen.queryByRole('button', { name: /change password/i })).not.toBeInTheDocument();
+    expect(screen.getByText('passkey-section')).toBeInTheDocument();
   });
 });

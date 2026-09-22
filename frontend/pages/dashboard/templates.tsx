@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { LayoutTemplate, RefreshCw, Sparkles, Upload, Trash2, Pencil } from 'lucide-react';
@@ -65,6 +65,7 @@ function coerceValue(type: TemplateInput['type'], raw: string | boolean): string
  * path, so compliance + quota still apply).
  */
 export default function TemplatesPage() {
+  const uid = useId();
   const { accessDenied, user, isReady, can } = useAuthGuard();
   const toast = useToast();
   const router = useRouter();
@@ -365,12 +366,12 @@ export default function TemplatesPage() {
         <Modal title={`Use “${selected.name}”`} onClose={() => (submitting ? undefined : setSelected(null))} maxWidth="max-w-lg" footer={modalFooter}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-fg-muted mb-1">Project <span className="text-danger">*</span></label>
-              <Input value={project} onChange={(e) => setProject(e.target.value)} placeholder="my-service" disabled={submitting} />
+              <label className="block text-sm font-medium text-fg-muted mb-1" htmlFor={`${uid}-project`}>Project <span className="text-danger">*</span></label>
+              <Input id={`${uid}-project`} value={project} onChange={(e) => setProject(e.target.value)} placeholder="my-service" disabled={submitting} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-fg-muted mb-1">Pipeline name</label>
-              <Input value={pipelineName} onChange={(e) => setPipelineName(e.target.value)} placeholder="(defaults to org-project-pipeline)" disabled={submitting} />
+              <label className="block text-sm font-medium text-fg-muted mb-1" htmlFor={`${uid}-pipeline-name`}>Pipeline name</label>
+              <Input id={`${uid}-pipeline-name`} value={pipelineName} onChange={(e) => setPipelineName(e.target.value)} placeholder="(defaults to org-project-pipeline)" disabled={submitting} />
             </div>
             <div>
               <label htmlFor="tpl-pipeline-visibility" className="block text-sm font-medium text-fg-muted mb-1">Pipeline visibility</label>

@@ -244,14 +244,46 @@ pb_check_alert_delivery() {
     echo "" >&2
     return 1
   fi
+  # LIVE check: a URL can be well-formed and still dead (webhook revoked,
+  # channel archived, app removed) — Slack then answers 403/404/410 and every
+  # alert vanishes exactly as with a placeholder. Post one clearly-labelled test
+  # message to each. A definitive rejection fails the deploy; not being able to
+  # reach Slack from THIS host (no egress, proxy) only warns — the cluster's
+  # own path is proven after the deploy by post-provision-smoke.sh.
+  # SKIP_ALERT_TEST_SEND=1 skips the send (e.g. re-running setup repeatedly).
+  if [ "${SKIP_ALERT_TEST_SEND:-0}" != 1 ]; then
+    _pb_send_slack_test SLACK_CRITICAL_WEBHOOK_URL "$crit" || bad=1
+    _pb_send_slack_test SLACK_WARNING_WEBHOOK_URL  "$warn" || bad=1
+    [ "$bad" -eq 0 ] || return 1
+  fi
   echo "  alert delivery: ops-team Slack configured (critical + warning)"
   return 0
+}
+
+# Internal: POST one test message to a Slack incoming webhook. Returns non-zero
+# only when Slack definitively REJECTED it (the URL is dead); a transport
+# failure from this host is a warning. Not called directly.
+_pb_send_slack_test() {
+  local name="$1" url="$2" code
+  command -v curl >/dev/null 2>&1 || { echo "  WARN: curl not found — skipping the $name test send" >&2; return 0; }
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -X POST \
+    -H 'Content-Type: application/json' \
+    --data "{\"text\":\"Pipeline Builder deploy pre-flight: ${name} delivery test from $(hostname 2>/dev/null || echo setup) — safe to ignore.\"}" \
+    "$url" 2>/dev/null) || code=000
+  case "$code" in
+    2??) echo "  alert delivery: $name accepted a test message" ; return 0 ;;
+    000) echo "  WARN: could not reach Slack from this host to test $name (no egress?) — the post-deploy smoke check tests it from inside the cluster" >&2; return 0 ;;
+    400|403|404|410)
+      echo "ERROR: Slack REJECTED the test message for $name (HTTP $code) — the webhook is revoked, its channel archived, or the URL is wrong." >&2
+      return 1 ;;
+    *) echo "  WARN: unexpected HTTP $code from Slack for $name — check the webhook" >&2; return 0 ;;
+  esac
 }
 
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
   local pg pgapp mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
-  local powsecret emailhash
+  local powsecret emailhash auditkey reghttp auditheads
   # No token secret is generated here any more: every token is asymmetrically
   # signed and its private key is a FILE, never an env value — the user-token key
   # from deploy/bin/token-signing-keys.sh (or KMS), and the per-service internal
@@ -295,6 +327,13 @@ pb_gen_env_secrets() {
   # address in the clear). Generated even while ANONYMOUS_SUBMISSIONS_ENABLED is
   # off, so flipping the flag never boots the plugin service on a placeholder —
   # it refuses to (fail closed) when the flag is on and either is missing.
+  # Audit hash-chain HMAC key (platform refuses to boot without it; >= 32
+  # chars). Lives only in .env / the app-secrets Secret, never in the database.
+  auditkey=$(openssl rand -base64 48 | tr -d '=+/')
+  # Registry upload-session signing secret, shared by every registry replica.
+  reghttp=$(openssl rand -base64 32 | tr -d '=+/')
+  # The audit-heads MinIO user (bucket-scoped Put/Get on the Object-Lock bucket).
+  auditheads=$(openssl rand -base64 24 | tr -d '=+/')
   powsecret=$(openssl rand -base64 32 | tr -d '=+/')
   emailhash=$(openssl rand -base64 32 | tr -d '=+/')
   sed -i.bak \
@@ -316,6 +355,9 @@ pb_gen_env_secrets() {
     -e "s|PLUGIN_S3_SECRET_KEY=CHANGE_ME|PLUGIN_S3_SECRET_KEY=${s3plugin}|" \
     -e "s|GRAFANA_ADMIN_PASSWORD=CHANGE_ME|GRAFANA_ADMIN_PASSWORD=${grafana}|" \
     -e "s|KIALI_SIGNING_KEY=CHANGE_ME|KIALI_SIGNING_KEY=${kiali}|" \
+    -e "s|^AUDIT_CHAIN_HMAC_KEY=CHANGE_ME$|AUDIT_CHAIN_HMAC_KEY=${auditkey}|" \
+    -e "s|^REGISTRY_HTTP_SECRET=CHANGE_ME$|REGISTRY_HTTP_SECRET=${reghttp}|" \
+    -e "s|^AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY=CHANGE_ME$|AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY=${auditheads}|" \
     -e "s|^SUBMISSION_POW_SECRET=CHANGE_ME$|SUBMISSION_POW_SECRET=${powsecret}|" \
     -e "s|^SUBMISSION_EMAIL_HASH_SECRET=CHANGE_ME$|SUBMISSION_EMAIL_HASH_SECRET=${emailhash}|" \
     -e "s|GHCR_USER=mwashburn160|GHCR_USER=${ghcr_user}|" \
@@ -327,7 +369,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|AUDIT_CHAIN_HMAC_KEY|AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY|REGISTRY_HTTP_SECRET|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

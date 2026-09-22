@@ -6,8 +6,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Modal } from '@/components/ui/Modal';
-import { ModalFooter } from '@/components/ui/ModalFooter';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
 import { Card } from '@/components/ui/Card';
 import { RetryError } from '@/components/ui/RetryError';
@@ -95,7 +94,7 @@ export function QuotasAdmin({
   fetchAtRisk: () => void;
   /** Zero the selected org's usage counters mid-period. Rejects on failure so
    *  the confirm modal can surface the error and stay open. */
-  onResetUsage: () => Promise<void>;
+  onResetUsage: (stepUpToken: string) => Promise<void>;
 }) {
   const toast = useToast();
   // A TEAM's tier is inherited and its limits are pooled at the root (the quota
@@ -106,10 +105,10 @@ export function QuotasAdmin({
   // Usage-reset confirm modal (sysadmin operational action).
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const doReset = async () => {
+  const doReset = async (stepUpToken: string) => {
     setResetting(true);
     try {
-      await onResetUsage();
+      await onResetUsage(stepUpToken);
       setResetOpen(false);
     } catch (err) {
       toast.error(formatError(err, 'Failed to reset usage'));
@@ -418,34 +417,31 @@ export function QuotasAdmin({
         </div>
       </div>
 
+      {/* Step-up gated: the step-up dialog IS the confirmation, and its token
+          rides the request (sent bare, the global dialog's replay reset the
+          counters while this page kept showing the old figures). */}
       {resetOpen && orgData && (
-        <Modal
-          title="Reset usage counters"
-          onClose={() => !resetting && setResetOpen(false)}
-          footer={
-            <ModalFooter
-              onCancel={() => setResetOpen(false)}
-              onConfirm={doReset}
-              confirmLabel="Reset usage"
-              confirmVariant="danger"
-              loading={resetting}
-            />
-          }
-        >
-          <div className="space-y-3 text-sm text-fg-muted">
-            <p>
-              This zeroes every usage counter for{' '}
-              <span className="font-medium text-fg">{orgData.name}</span>{' '}
-              (<span className="font-mono text-xs">{orgData.orgId}</span>) immediately,
-              before the natural period reset. Quota <strong>limits</strong> and tier are
-              left unchanged.
-            </p>
-            <p className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-              This is an operational reset that affects what the org can consume this
-              period. It is audit-logged and cannot be undone.
-            </p>
-          </div>
-        </Modal>
+        <StepUpModal
+          title="Reset usage counters?"
+          action={`Reset every usage counter for ${orgData.name}`}
+          details={(
+            <div className="space-y-3">
+              <p>
+                This zeroes every usage counter for{' '}
+                <span className="font-medium text-fg">{orgData.name}</span>{' '}
+                (<span className="font-mono text-xs">{orgData.orgId}</span>) immediately,
+                before the natural period reset. Quota <strong>limits</strong> and tier are
+                left unchanged.
+              </p>
+              <p className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                This is an operational reset that affects what the org can consume this
+                period. It is audit-logged and cannot be undone.
+              </p>
+            </div>
+          )}
+          onConfirmed={doReset}
+          onClose={() => { if (!resetting) setResetOpen(false); }}
+        />
       )}
 
     </DashboardLayout>

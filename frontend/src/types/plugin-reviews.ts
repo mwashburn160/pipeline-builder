@@ -54,7 +54,8 @@ export interface ReviewBody {
   rating: number;
   title?: string;
   body?: string;
-  version?: string;
+  /** `null` on an edit clears a previously recorded version. */
+  version?: string | null;
 }
 
 /** One review in the Ecosystem console's moderation queue. */

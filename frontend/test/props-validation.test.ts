@@ -33,14 +33,14 @@ describe('validateFormState', () => {
     const state = validState();
     state.project = '';
     const errors = validateFormState(state);
-    expect(errors['project']).toBe('Project is required');
+    expect(errors.project).toBe('Project is required');
   });
 
   it('should require organization', () => {
     const state = validState();
     state.organization = '  ';
     const errors = validateFormState(state);
-    expect(errors['organization']).toBe('Organization is required');
+    expect(errors.organization).toBe('Organization is required');
   });
 
   describe('synth source validation', () => {

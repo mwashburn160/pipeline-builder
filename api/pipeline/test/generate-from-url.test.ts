@@ -3,25 +3,25 @@
 
 // Mock function references  must be defined before jest.mock() calls
 
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockParseGitUrl = jest.fn();
-const mockAnalyzeRepository = jest.fn();
-const mockBuildEnhancedPrompt = jest.fn();
-const mockStreamPipelineConfig = jest.fn();
-const mockGetAvailableProviders = jest.fn();
-const mockValidateBody = jest.fn();
-const mockSendBadRequest = jest.fn();
-const mockSendInternalError = jest.fn();
-const mockSendSuccess = jest.fn();
-const mockSendQuotaReserveDenied = jest.fn();
-const mockCreateSafeClient = jest.fn();
-const mockPluginClientPost = jest.fn();
-const mockDbSelect = jest.fn();
+const mockParseGitUrl = jest.fn<AnyFn>();
+const mockAnalyzeRepository = jest.fn<AnyFn>();
+const mockBuildEnhancedPrompt = jest.fn<AnyFn>();
+const mockStreamPipelineConfig = jest.fn<AnyFn>();
+const mockGetAvailableProviders = jest.fn<AnyFn>();
+const mockValidateBody = jest.fn<AnyFn>();
+const mockSendBadRequest = jest.fn<AnyFn>();
+const mockSendInternalError = jest.fn<AnyFn>();
+const mockSendSuccess = jest.fn<AnyFn>();
+const mockSendQuotaReserveDenied = jest.fn<AnyFn>();
+const mockCreateSafeClient = jest.fn<AnyFn>();
+const mockPluginClientPost = jest.fn<AnyFn>();
+const mockDbSelect = jest.fn<AnyFn>();
 const mockReserveQuota = jest.fn<(...args: any[]) => any>().mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 1000, used: 1, remaining: 999 } });
-const mockDecrementQuota = jest.fn();
+const mockDecrementQuota = jest.fn<AnyFn>();
 
 // Mocks  must be defined before imports
 
@@ -83,14 +83,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 // Shared ctx.log spy so tests can assert what the handler logs — e.g. that a
 // gitUrl carrying embedded credentials is never logged. Cleared per test.
-const mockCtxLog = jest.fn();
+const mockCtxLog = jest.fn<AnyFn>();
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   createAuthenticatedWithOrgRoute: () => [],
   rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
-  incrementQuotaFromCtx: jest.fn(),
+  incrementQuotaFromCtx: jest.fn<AnyFn>(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.context?.identity?.orgId || 'test-org' },
@@ -116,14 +116,14 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 }));
 
 const mockDbChain = {
-  from: jest.fn().mockReturnThis(),
-  where: jest.fn().mockReturnThis(),
-  limit: jest.fn().mockResolvedValue([]),
+  from: jest.fn<AnyFn>().mockReturnThis(),
+  where: jest.fn<AnyFn>().mockReturnThis(),
+  limit: jest.fn<AnyFn>().mockResolvedValue([]),
   // Make the chain thenable so `await db.select().from().where()` resolves to []
   then: jest.fn((resolve: Function) => resolve([])),
 };
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: {
     SSE_STREAM_TIMEOUT_MS: 300000,
   },
@@ -134,53 +134,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     };
     return { get, getAny: get };
   })(),
-  db: {
-    select: (...args: any[]) => {
-      mockDbSelect(...args);
-      return mockDbChain;
-    },
-  },
-  // findExistingPluginNames now reads through withTenantTx (RLS-safe); route the
-  // tx's select to the same mockDbChain the bare-db path used.
-  withTenantTx: (fn: (tx: { select: (...a: any[]) => unknown }) => unknown) => fn({
-    select: (...args: any[]) => {
-      mockDbSelect(...args);
-      return mockDbChain;
-    },
-  }),
-  schema: {
-    pluginStats: { listingId: 'listingId', ratingBayes: 'ratingBayes', ratingCount: 'ratingCount', healthScore: 'healthScore' },
-    plugin: {
-      name: 'name',
-      description: 'description',
-      version: 'version',
-      pluginType: 'pluginType',
-      computeType: 'computeType',
-      commands: 'commands',
-      installCommands: 'installCommands',
-      orgId: 'orgId',
-      isActive: 'isActive',
-      deletedAt: 'deletedAt',
-      visibility: 'visibility',
-    },
-  },
 }));
 const mockResolvableListings = jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []);
 const mockGenListingSource = {
   liveListings: jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []),
   publishersByIds: jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []),
 };
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  CoreConstants: {
-    SSE_STREAM_TIMEOUT_MS: 300000,
-  },
-  Config: (() => {
-    const get = (section: string) => {
-      if (section === 'server') return { services: { pluginHost: 'plugin', pluginPort: 3000 } };
-      return {};
-    };
-    return { get, getAny: get };
-  })(),
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   db: {
     select: (...args: any[]) => {
       mockDbSelect(...args);
@@ -254,7 +214,7 @@ const { createGeneratePipelineRoutes } = await import('../src/routes/generate-pi
 
 // Helpers
 
-const stubQuotaService = { increment: jest.fn().mockResolvedValue(undefined) } as any;
+const stubQuotaService = { increment: jest.fn<AnyFn>().mockResolvedValue(undefined) } as any;
 const router = createGeneratePipelineRoutes(stubQuotaService);
 
 /**
@@ -284,10 +244,10 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     headers: { authorization: 'Bearer test-token' },
     context: {
       identity: { orgId: 'TEST-ORG' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
       requestId: 'test-req-id',
     },
-    on: jest.fn(),
+    on: jest.fn<AnyFn>(),
     ...overrides,
   };
 }
@@ -299,13 +259,13 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 function mockSseRes(): any {
   const res: any = {};
   const chunks: string[] = [];
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  res.setHeader = jest.fn();
-  res.setTimeout = jest.fn();
-  res.flushHeaders = jest.fn();
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.setHeader = jest.fn<AnyFn>();
+  res.setTimeout = jest.fn<AnyFn>();
+  res.flushHeaders = jest.fn<AnyFn>();
   res.write = jest.fn((chunk: string) => { chunks.push(chunk); return true; });
-  res.end = jest.fn();
+  res.end = jest.fn<AnyFn>();
   res.headersSent = false;
   res.chunks = chunks;
   return res;

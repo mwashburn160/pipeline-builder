@@ -250,7 +250,7 @@ function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: stri
     setScannedCount(0);
     setTags(null);
     setManualOpen(null);
-    (async () => {
+    void (async () => {
       try {
         const res = await api.listImageTags(repo);
         if (cancelled) return;

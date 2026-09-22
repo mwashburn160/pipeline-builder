@@ -17,6 +17,7 @@
  * below.
  */
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
@@ -52,7 +53,7 @@ let jtiSeq = 0;
 function stepUpToken(
   over: Record<string, unknown> = {},
   signOpts: { key?: TestSigningKey; expiresIn?: number; issuer?: string; audience?: string } = {},
-): Promise<string> {
+): string {
   jtiSeq += 1;
   return signTestUserToken(
     { type: 'step-up', sub: 'user-1', jti: `jti-${jtiSeq}`, ...over },
@@ -171,14 +172,14 @@ describe('requireStepUp', () => {
 
   it('passes a valid, caller-bound token', async () => {
     const token = await stepUpToken({ sub: 'user-1' });
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     const r = res();
     await requireStepUp(req({ user: { sub: 'user-1' }, headers: { 'x-step-up-token': token } }), r, next as never);
     expect(next).toHaveBeenCalledTimes(1);
   });
 
   it('401 STEP_UP_REQUIRED when the header is absent', async () => {
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     const r = res();
     await requireStepUp(req({ user: { sub: 'user-1' } }), r, next as never);
     expect(next).not.toHaveBeenCalled();
@@ -187,7 +188,7 @@ describe('requireStepUp', () => {
 
   it('401 when the token belongs to a DIFFERENT user (no cross-session reuse)', async () => {
     const token = await stepUpToken({ sub: 'user-2' });
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     const r = res();
     await requireStepUp(req({ user: { sub: 'user-1' }, headers: { 'x-step-up-token': token } }), r, next as never);
     expect(next).not.toHaveBeenCalled();
@@ -196,11 +197,11 @@ describe('requireStepUp', () => {
 
   it('401 on the second use of the same token (single-use)', async () => {
     const token = await stepUpToken({ sub: 'user-1' });
-    const first = jest.fn();
+    const first = jest.fn<AnyFn>();
     await requireStepUp(req({ user: { sub: 'user-1' }, headers: { 'x-step-up-token': token } }), res(), first as never);
     expect(first).toHaveBeenCalledTimes(1);
 
-    const second = jest.fn();
+    const second = jest.fn<AnyFn>();
     const r2 = res();
     await requireStepUp(req({ user: { sub: 'user-1' }, headers: { 'x-step-up-token': token } }), r2, second as never);
     expect(second).not.toHaveBeenCalled();
@@ -208,7 +209,7 @@ describe('requireStepUp', () => {
   });
 
   it('401 when unauthenticated (must run after requireAuth)', async () => {
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     const r = res();
     await requireStepUp(req({ headers: { 'x-step-up-token': await stepUpToken() } }), r, next as never);
     expect(next).not.toHaveBeenCalled();
@@ -216,7 +217,7 @@ describe('requireStepUp', () => {
   });
 
   it('EXEMPTS a verified service principal — step-up is a re-verify-the-human gate', async () => {
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     await requireStepUp(req({ user: { sub: 'service:pipeline', principalType: 'service' } }), res(), next as never);
     expect(next).toHaveBeenCalledTimes(1);
   });

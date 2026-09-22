@@ -20,10 +20,12 @@ import {
   INFRA_ROUTE_EXCEPTIONS,
   compareRouteTableSnapshot,
   declaredAuditActions,
+  findInternalRouteViolations,
   findRouteCoverageViolations,
   findSystemOrgGuardViolations,
+  type InternalRouteDeclaration,
   type RouteCoverageException,
-} from '@pipeline-builder/api-core/lib/testing/route-coverage.js';
+} from '@pipeline-builder/api-core/testing';
 
 process.env.JWT_SECRET ||= 'route-coverage-test-secret';
 // The upload route builds its multer instance at module load and mkdir's the
@@ -77,6 +79,15 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
 ];
 
+/**
+ * This service's INTERNAL routes and their callers — checked against the code
+ * in both directions (and mirrored by the Istio `plugin-allow` policy).
+ */
+const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
+  // image-registry: which of an org's plugins its teams may pull (E22).
+  { method: 'GET', path: '/internal/plugins/public-names', callers: ['image-registry'] },
+];
+
 let table: RouteTableEntry[];
 
 beforeAll(async () => {
@@ -114,6 +125,10 @@ describe('plugin route coverage', () => {
   it('has no stale coverage exceptions', () => {
     const { unusedExceptions } = findRouteCoverageViolations(table, EXCEPTIONS);
     expect(unusedExceptions).toEqual([]);
+  });
+
+  it('admits only the declared callers on every internal route', () => {
+    expect(findInternalRouteViolations(table, INTERNAL_ROUTES)).toEqual([]);
   });
 
   it('declares only audit actions platform accepts from a service', () => {

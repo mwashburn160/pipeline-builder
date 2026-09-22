@@ -5,21 +5,23 @@
  * Tests for execution report routes.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockGetExecutionCount = jest.fn();
-const mockListPipelineExecutions = jest.fn();
-const mockGetSuccessRate = jest.fn();
-const mockGetAverageDuration = jest.fn();
-const mockGetStageFailures = jest.fn();
-const mockGetStageBottlenecks = jest.fn();
-const mockGetActionFailures = jest.fn();
-const mockGetErrors = jest.fn();
-const mockGetDoraMetrics = jest.fn();
-const mockGetDoraTrend = jest.fn();
-const mockGetBuildHealth = jest.fn();
-const mockResolveOrgRollup = jest.fn();
+const mockGetExecutionCount = jest.fn<AnyFn>();
+const mockListPipelineExecutions = jest.fn<AnyFn>();
+const mockGetSuccessRate = jest.fn<AnyFn>();
+const mockGetAverageDuration = jest.fn<AnyFn>();
+const mockGetStageFailures = jest.fn<AnyFn>();
+const mockGetStageBottlenecks = jest.fn<AnyFn>();
+const mockGetActionFailures = jest.fn<AnyFn>();
+const mockGetErrors = jest.fn<AnyFn>();
+const mockGetDoraMetrics = jest.fn<AnyFn>();
+const mockGetDoraTrend = jest.fn<AnyFn>();
+const mockGetBuildHealth = jest.fn<AnyFn>();
+const mockResolveOrgRollup = jest.fn<AnyFn>();
 
 // The single reports:rollup predicate — shared by the api-core `userHasPermission`
 // mock and the helpers `rollupIds` mock so the two can't diverge in-test.
@@ -27,9 +29,9 @@ const permCheck = (req: any, perm: string) =>
   req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendSuccess: jest.fn(),
-  sendError: jest.fn(),
-  sendBadRequest: jest.fn(),
+  sendSuccess: jest.fn<AnyFn>(),
+  sendError: jest.fn<AnyFn>(),
+  sendBadRequest: jest.fn<AnyFn>(),
   getServiceAuthHeader: jest.fn(() => ({})),
   // Pass query.from/to through verbatim so tests can assert on the values
   // they sent, with a sensible fallback when the test omits them.
@@ -54,9 +56,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       : { error: 'invalid' }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
-    const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
+    const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
 }));
@@ -66,7 +68,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 // below loads that module, so stub pipeline-core here to keep its full config
 // graph (aws-cdk-lib, etc.) out of this api-core-mocking suite. resolveOrgRollup
 // itself is mocked, so Config.get is never actually invoked.
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: {
     get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }),
   },
@@ -89,7 +91,7 @@ jest.unstable_mockModule('../src/helpers/report-helpers.js', () => {
   };
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     getExecutionCount: mockGetExecutionCount,
     listPipelineExecutions: mockListPipelineExecutions,
@@ -308,7 +310,7 @@ describe('Execution Report Routes', () => {
     });
 
     it('400s on a bad date range and does not query', async () => {
-      (parseDateRange as jest.Mock).mockReturnValueOnce({ error: 'Date range exceeds maximum of 365 days' });
+      (parseDateRange as jest.Mock<AnyFn>).mockReturnValueOnce({ error: 'Date range exceeds maximum of 365 days' });
       const handler = getHandler('/dora');
       await handler({ query: { from: 'x', to: 'y' } }, {});
 

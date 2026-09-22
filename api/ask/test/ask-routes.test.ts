@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- Mocks (before imports) ---------------------------------------------------
@@ -23,7 +24,7 @@ const mockResolveModel = jest.fn<(...a: any[]) => any>(() => ({ id: 'model' }));
 const mockCreateModelWithKey = jest.fn<(...a: any[]) => any>(() => ({ id: 'model' }));
 const mockGetAvailableProviders = jest.fn<(...a: any[]) => any>(() => [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet-5', name: 'Claude Sonnet 5' }] }]);
 
-jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   answerHowTo: mockAnswerHowTo,
   streamHowTo: mockStreamHowTo,
   resolveModel: mockResolveModel,
@@ -62,7 +63,7 @@ jest.unstable_mockModule('../src/services/docs-index.js', () => ({
 const auditRecord = jest.fn();
 jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: auditRecord }) }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -73,7 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   observe: jest.fn(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 },
 }));
 
@@ -117,6 +118,19 @@ beforeEach(() => {
   mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 100, used: 1, remaining: 99, resetAt: '2026-09-01T00:00:00Z' } });
 });
 
+/** The provider responds with `text` (the non-stream route collects the stream). */
+function answersWith({ text, sources }: { text: string; sources: unknown[] }) {
+  mockStreamHowTo.mockReturnValue({
+    sources,
+    events: (async function* () { yield { type: 'provider-responded' }; yield { type: 'text', text }; })(),
+  });
+}
+
+/** The provider call fails before it ever responded (bad key, 5xx, network). */
+function failsBeforeProvider(err: Error) {
+  mockStreamHowTo.mockReturnValue({ sources: [], events: (async function* () { throw err; })() });
+}
+
 // -- Tests --------------------------------------------------------------------
 
 describe('GET /ask/providers', () => {
@@ -132,17 +146,17 @@ describe('POST /ask', () => {
   const handler = getHandler('post', '/');
 
   it('reserves aiCalls with a SERVICE-minted header, not the user bearer', async () => {
-    mockAnswerHowTo.mockResolvedValue({ text: 'answer', sources: [{ id: 'deployment.md#x' }] });
+    answersWith({ text: 'answer', sources: [{ id: 'deployment.md#x' }] });
     await handler(mockReq({ query: 'how do I deploy', provider: 'anthropic', model: 'claude-sonnet-5' }), mockRes());
 
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask', orgId: 'org-1', role: 'member' });
     expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
     expect(mockReserveQuota).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), 'Bearer USER-BEARER-tok');
-    expect(mockAnswerHowTo).toHaveBeenCalled();
+    expect(mockStreamHowTo).toHaveBeenCalled();
   });
 
   it('audits an ask.query turn with safe metadata (no raw query) on success', async () => {
-    mockAnswerHowTo.mockResolvedValue({ text: 'answer', sources: [{ id: 'deployment.md#x' }] });
+    answersWith({ text: 'answer', sources: [{ id: 'deployment.md#x' }] });
     await handler(mockReq({ query: 'how do I deploy my app' }), mockRes());
 
     expect(auditRecord).toHaveBeenCalledWith(
@@ -158,7 +172,7 @@ describe('POST /ask', () => {
   });
 
   it('audits an ask.query failure when answering throws', async () => {
-    mockAnswerHowTo.mockRejectedValue(new Error('LLM down'));
+    failsBeforeProvider(new Error('LLM down'));
     await handler(mockReq({ query: 'anything here' }), mockRes());
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'ask.query', outcome: 'failure' }),
@@ -171,7 +185,7 @@ describe('POST /ask', () => {
     await handler(mockReq({ query: '   ' }), res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockReserveQuota).not.toHaveBeenCalled();
-    expect(mockAnswerHowTo).not.toHaveBeenCalled();
+    expect(mockStreamHowTo).not.toHaveBeenCalled();
   });
 
   it('returns 429 (not 403) when the org is at its aiCalls cap', async () => {
@@ -179,19 +193,36 @@ describe('POST /ask', () => {
     const res = mockRes();
     await handler(mockReq({ query: 'hi there friend' }), res);
     expect(res.status).toHaveBeenCalledWith(429);
-    expect(mockAnswerHowTo).not.toHaveBeenCalled();
+    expect(mockStreamHowTo).not.toHaveBeenCalled();
   });
 
   it('keeps the slot when a failure happens AFTER the provider answered', async () => {
-    mockAnswerHowTo.mockResolvedValue({ text: 'answer', sources: [] });
+    answersWith({ text: 'answer', sources: [] });
     // The success audit throws after the (paid) provider round-trip completed.
     auditRecord.mockImplementationOnce(() => { throw new Error('audit sink exploded'); });
     await handler(mockReq({ query: 'how do I deploy' }), mockRes());
     expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
+  it('KEEPS the slot when the provider responded and THEN failed (a paid call)', async () => {
+    mockStreamHowTo.mockReturnValue({
+      sources: [],
+      events: (async function* () { yield { type: 'provider-responded' }; yield { type: 'text', text: 'part' }; throw new Error('socket hang up'); })(),
+    });
+    await handler(mockReq({ query: 'how do I deploy' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('returns the collected answer text + sources', async () => {
+    answersWith({ text: 'the answer', sources: [{ id: 'a.md' }] });
+    const res = mockRes();
+    await handler(mockReq({ query: 'how do I deploy' }), res);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { text: 'the answer', sources: [{ id: 'a.md' }] } }));
+    expect(mockStreamHowTo).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: expect.any(Number) }));
+  });
+
   it('refunds the slot when answering throws', async () => {
-    mockAnswerHowTo.mockRejectedValue(new Error('LLM down'));
+    failsBeforeProvider(new Error('LLM down'));
     await handler(mockReq({ query: 'how do I deploy', provider: 'anthropic', model: 'claude-sonnet-5' }), mockRes());
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-09-01T00:00:00Z',

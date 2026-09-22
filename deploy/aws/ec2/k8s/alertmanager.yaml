@@ -68,7 +68,7 @@ spec:
 # Receives alerts from Prometheus (prometheus.yml `alerting.alertmanagers`
 # points here), routes them by `severity` label, and forwards to Slack.
 # The Slack webhook URLs are MOUNTED FILES from the `alertmanager-slack` Secret
-# (config/alertmanager/alertmanager.yml reads them with `api_url_file`), not env
+# (deploy/shared/config/alertmanager/alertmanager.yml reads them with `api_url_file`), not env
 # vars — Alertmanager never expanded env vars in its config, which is why the
 # env-var wiring that used to be here delivered nothing. The Secret is created
 # unconditionally by setup, which REFUSES to deploy while the URLs are still

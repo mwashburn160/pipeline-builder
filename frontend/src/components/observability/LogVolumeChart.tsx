@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useMemo } from 'react';
-import type { LogVolumeResponse } from '@/types/logs';
-import { normalizeLevel, type LogLevel } from '@/types/logs';
+import { normalizeLevel, type LogLevel, type LogVolumeResponse } from '@/types/logs';
 
 /**
  * Log-volume histogram: one stacked bar per time bucket, split by level.
@@ -35,11 +34,13 @@ interface Bucket {
 interface LogVolumeChartProps {
   data?: LogVolumeResponse;
   loading?: boolean;
+  /** The volume read failed: show that, never "no log volume". */
+  error?: boolean;
   /** Click a bar to zoom the window to that bucket. */
   onSelectBucket?: (fromMs: number, toMs: number) => void;
 }
 
-export function LogVolumeChart({ data, loading, onSelectBucket }: LogVolumeChartProps) {
+export function LogVolumeChart({ data, loading, error, onSelectBucket }: LogVolumeChartProps) {
   const { buckets, peak, stepMs } = useMemo(() => {
     const byTime = new Map<number, Bucket>();
     for (const series of data?.series ?? []) {
@@ -68,6 +69,13 @@ export function LogVolumeChart({ data, loading, onSelectBucket }: LogVolumeChart
 
   if (loading && buckets.length === 0) {
     return <div className="h-24 animate-pulse rounded bg-surface-muted" aria-hidden />;
+  }
+  if (error && buckets.length === 0) {
+    return (
+      <div className="flex h-24 items-center justify-center rounded border border-dashed border-gray-200 text-xs text-fg-muted dark:border-gray-700">
+        Log volume could not be loaded
+      </div>
+    );
   }
   if (buckets.length === 0) {
     return (
@@ -109,7 +117,9 @@ export function LogVolumeChart({ data, loading, onSelectBucket }: LogVolumeChart
               {...(onSelectBucket
                 ? {
                   type: 'button' as const,
-                  onClick: () => onSelectBucket(bucket.time * 1000, bucket.time * 1000 + stepMs),
+                  // Loki's count_over_time([step]) stamped at T counts the lines
+                  // in (T - step, T], so the bucket's window ENDS at its stamp.
+                  onClick: () => onSelectBucket(bucket.time * 1000 - stepMs, bucket.time * 1000),
                   'aria-label': `Zoom to ${label}`,
                 }
                 : {})}

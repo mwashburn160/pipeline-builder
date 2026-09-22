@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 
 let selectResults: unknown[][] = [];
 
@@ -30,7 +31,7 @@ const buildComplianceAuditConditions = jest.fn((filter: Record<string, unknown> 
   return conditions;
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {
     complianceAuditLog: { createdAt: 'col_created', orgId: 'col_org' },
   },

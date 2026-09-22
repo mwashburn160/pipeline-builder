@@ -43,6 +43,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: { findById: jest.fn() },
   UserOrganization: { findOne: jest.fn() },
   ImpersonationRequest: { findOne: (...a: unknown[]) => mockImpFindOne(...a) },
+  // A revoked key's exchanged token is refused (live by default here).
+  PersonalAccessToken: { exists: async () => ({ _id: 'key' }) },
 }));
 
 jest.unstable_mockModule('../src/utils/index.js', () => ({

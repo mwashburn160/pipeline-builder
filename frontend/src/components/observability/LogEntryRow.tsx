@@ -8,8 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import { COPY_FEEDBACK_RESET_MS } from '@/lib/constants';
-import type { LogEntry } from '@/types/logs';
-import { normalizeLevel, type LogLevel } from '@/types/logs';
+import { normalizeLevel, type LogEntry, type LogLevel } from '@/types/logs';
 
 /**
  * One log line, expandable into its detail view.

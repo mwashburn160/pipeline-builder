@@ -279,7 +279,9 @@ class InvitationService {
       if (user.email !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
 
       const org = await Organization.findById(invitation.organizationId).session(session);
-      if (!org) throw new Error(INV_ORG_NOT_FOUND);
+      // A soft-deleted org (inside its restore window) is gone for joining: an
+      // invitation minted before the delete must not re-populate it.
+      if (!org || (org as { deletedAt?: Date | null }).deletedAt) throw new Error(INV_ORG_NOT_FOUND);
 
       const existingMembership = await UserOrganization.findOne({
         userId: user._id, organizationId: org._id,
@@ -358,13 +360,21 @@ class InvitationService {
         });
         await user.save({ session });
       } else if (!user.oauth?.[oauthProvider as keyof typeof user.oauth]) {
+        // Same rule as social login: never auto-link a provider onto an account
+        // a second factor protects (key must match auth-errors.ts — mapped to 409
+        // by OAUTH_ERROR_MAP, which the accept-oauth controller spreads in).
+        const { loadSignInMethods } = await import('../helpers/sign-in-methods.js');
+        const methods = await loadSignInMethods(String(user._id), session);
+        if (methods.hasTotp || methods.passkeyCount > 0) throw new Error('OAUTH_LINK_REQUIRES_SIGN_IN');
         await User.findByIdAndUpdate(user._id, {
           $set: { [`oauth.${oauthProvider}`]: { id: oauthData.id, email: oauthData.email, name: oauthData.name, picture: oauthData.picture, linkedAt: new Date() } },
         }, { session });
       }
 
       const org = await Organization.findById(invitation.organizationId).session(session);
-      if (!org) throw new Error(INV_ORG_NOT_FOUND);
+      // A soft-deleted org (inside its restore window) is gone for joining: an
+      // invitation minted before the delete must not re-populate it.
+      if (!org || (org as { deletedAt?: Date | null }).deletedAt) throw new Error(INV_ORG_NOT_FOUND);
 
       const existingMembership = await UserOrganization.findOne({
         userId: user._id, organizationId: org._id,
@@ -443,6 +453,9 @@ class InvitationService {
 
     const [invitations, total] = await Promise.all([
       Invitation.find(query)
+        // The token IS the invitation's bearer credential (anyone holding it can
+        // accept) — it never leaves the server in a listing.
+        .select('-token')
         .populate('invitedBy', 'username email')
         .populate('acceptedBy', 'username email')
         .sort({ createdAt: -1 })

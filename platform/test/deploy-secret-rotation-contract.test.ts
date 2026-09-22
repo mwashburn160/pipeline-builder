@@ -14,7 +14,8 @@
  * these assertions.
  */
 
-import { readFileSync } from 'fs';
+import { describe, it, expect } from '@jest/globals';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 // Jest runs with cwd = `platform/`; the deploy tree is at the repo root.
@@ -156,12 +157,13 @@ describe('secret-rotation shell plumbing', () => {
     expect(k8sResources).toContain('_PREVIOUS)$/');
   });
 
-  it('keeps every njs copy free of signing secrets, and identical', () => {
-    // All four copies of jwt.js must agree — they are byte-identical by design.
-    const [first, ...rest] = ALL_TARGETS.map((t) => read(`${t}/nginx/jwt.js`));
-    for (const copy of rest) expect(copy).toBe(first);
-    expect(first).not.toContain('process.env.JWT_SECRET');
-    expect(first).not.toContain('createHmac');
+  it('keeps the one shared njs jwt.js free of signing secrets, with no per-target copies', () => {
+    // jwt.js lives once, in deploy/shared/nginx/ — a per-target copy is how a
+    // fix lands in one environment only.
+    for (const target of ALL_TARGETS) expect(existsSync(join(REPO_ROOT, target, 'nginx/jwt.js'))).toBe(false);
+    const jwt = read('deploy/shared/nginx/jwt.js');
+    expect(jwt).not.toContain('process.env.JWT_SECRET');
+    expect(jwt).not.toContain('createHmac');
   });
 
   it('routes every target\'s JWKS path to platform, unauthenticated', () => {

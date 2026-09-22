@@ -1,4 +1,4 @@
-import { useState, useImperativeHandle, useRef, forwardRef } from 'react';
+import { useState, useImperativeHandle, useRef, forwardRef, useId } from 'react';
 import { Upload } from 'lucide-react';
 import { BuilderProps } from '@/types';
 
@@ -34,6 +34,7 @@ interface UploadConfigTabProps {
  */
 const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
   ({ disabled }, ref) => {
+    const uid = useId();
     const [propsInput, setPropsInput] = useState('');
     const [propsFile, setPropsFile] = useState<File | null>(null);
     const [propsError, setPropsError] = useState<string | null>(null);
@@ -121,7 +122,7 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
 
     return (
       <div>
-        <label className="label">
+        <label className="label" htmlFor={`${uid}-props-json`}>
           Pipeline Props (JSON)
         </label>
 
@@ -158,6 +159,7 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
         </div>
 
         <textarea
+            id={`${uid}-props-json`}
           value={propsInput}
           onChange={(e) => {
             setPropsInput(e.target.value);

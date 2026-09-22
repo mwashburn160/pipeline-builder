@@ -7,6 +7,7 @@
  * compliant NEW password → the session the sign-in earned.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -15,17 +16,17 @@ process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
 process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type */
-const mockAudit = jest.fn();
+const mockAudit = jest.fn<AnyFn>();
 const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({ accessToken: 'access.jwt', refreshToken: 'r', expiresIn: 900 }));
 const mockAssertAcceptable = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
-const mockPublishRevocation = jest.fn(async () => undefined);
+const mockPublishRevocation = jest.fn(async (..._args: unknown[]) => undefined);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) => res.status(status).json({ success: false, message: msg, code }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/client-info.js', () => ({ clientInfoOf: () => ({ ip: '10.0.0.1' }) }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/session-cookie.js', () => ({
@@ -33,9 +34,9 @@ jest.unstable_mockModule('../src/helpers/session-cookie.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({
   isBootstrapExceptionOpen: async () => false,
-  recordBootstrapSession: jest.fn(),
+  recordBootstrapSession: jest.fn<AnyFn>(),
 }));
-jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishUserRevocation: mockPublishRevocation }));
+jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishSessionSlotRevocation: async () => true, publishAccessKeyRevocation: async () => true, publishUserRevocation: mockPublishRevocation }));
 jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   assertNewPasswordAcceptable: (...a: unknown[]) => mockAssertAcceptable(...a),
 }));
@@ -51,7 +52,11 @@ const account = {
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: () => ({ select: async () => account }) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ issueTokens: (...a: unknown[]) => mockIssueTokens(...a) }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
+  issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
+}));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (_schema: unknown, b: unknown) => b,
   requiredPasswordChangeSchema: {},
@@ -59,13 +64,20 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 
 const { completeRequiredPasswordChange } = await import('../src/controllers/password-change-required.js');
 const {
-  createPasswordChangeChallenge, peekPasswordChangeChallenge, _resetPasswordChangeChallengesForTests,
+  createPasswordChangeChallenge, claimPasswordChangeChallenge, restorePasswordChangeChallenge, _resetPasswordChangeChallengesForTests,
 } = await import('../src/services/password-change-challenge.js');
+
+/** Inspect a challenge without spending it (claim, then hand straight back). */
+async function peekPasswordChangeChallenge(id: string) {
+  const pending = await claimPasswordChangeChallenge(id);
+  if (pending) await restorePasswordChangeChallenge(id, pending);
+  return pending;
+}
 
 function makeRes() {
   const res: any = { locals: {} };
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 /**

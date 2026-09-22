@@ -4,251 +4,37 @@
 /**
  *  PromQL-aware org_id matcher injection.
  *
- * Replaces the substring tenancy gate in alert-rule-service.ts. The previous
- * check (`expr.includes(\`org_id="<orgId>"\`)`) caught the common case but
- * had two problems * 1. An attacker can write `vector(0) + sum(rate(http_requests_total[5m]))`
- * and append `# org_id="org-acme"` somewhere  the substring check
- * passes, the expr still fires across every org.
- * 2. Honest operators have to manually paste the same matcher into every
- * metric selector, which is tedious for compound expressions.
+ * The tenancy gate for operator-authored alert rules: every metric selector
+ * in an org's expression is pinned to `org_id="<org>"` so a rule can never
+ * evaluate another tenant's series.
  *
- * This module solves both: a real PromQL parser walks the expression, finds
- * every metric selector, and either VALIDATES that the org_id matcher is
- * present (strict) or INJECTS it automatically (lenient  preferred).
+ * Design (the invariant, not a pattern match):
+ * - A real TOKENIZER lexes the expression into identifiers, numbers /
+ *   durations, operators, punctuation and string literals — all three PromQL
+ *   string forms (`"…"`, `'…'` with escapes, and backtick raw strings, which
+ *   have no escapes). Nothing is ever inferred by regex over raw text, so a
+ *   matcher name or value can't be smuggled past the gate inside a string the
+ *   scanner mis-delimited (e.g. `{job=~"org_id='X'|.+"}`, `{xorg_id="X"}`,
+ *   or a backtick string containing `"`).
+ * - Every label-set is parsed matcher-by-matcher (name, operator, value).
+ *   Anything that isn't a well-formed matcher list is rejected.
+ * - `org_id="<org>"` is injected into EVERY selector regardless of which
+ *   matchers it already has (Prometheus ANDs repeated matchers on one label),
+ *   so no existing matcher — regex, negative, or otherwise — can widen scope.
+ *   The only selector left untouched is one that already carries that exact
+ *   equality matcher (tokenized), which keeps the rewrite idempotent.
+ * - Unknown characters and `#` comments are rejected (fail closed).
  *
- * Scope of the parser: enough to find metric selectors reliably. NOT a
- * full PromQL evaluator. Handles * - bare metric names → `up`
- * - metric with selector → `http_requests_total{status="5xx"}`
- * - functions / aggregations → `rate(...)`, `sum by (org_id) (...)`
- * - string literals (single/double quoted)
- * - comments via `#` (rejected  operators shouldn't have them)
- * - reserved words → `by`, `without`, `on`, `ignoring`, etc.
- *
- * Out of scope (will reject loudly) * - `@` modifier with timestamps (real but rare in alert rules)
- * - subqueries `[5m:1m]` (parser doesn't track subquery depth  bracket
- * counting is good enough to skip them but we don't dive in to inject)
+ * An identifier is treated as a metric selector unless it is a PromQL lexer
+ * KEYWORD (aggregators, set operators, modifiers) or is followed by `(` (a
+ * function call). Function names are NOT keywords to Prometheus — `sum(rate)`
+ * selects a metric called `rate` — so they're deliberately not exempted here.
+ * Misclassifying a keyword as a metric only makes Prometheus reject the
+ * rewritten rule (fail closed); the reverse would leak, so the keyword list
+ * is kept to real lexer keywords.
  */
 
 import { errorMessage } from '@pipeline-builder/api-core';
-
-/** Set of PromQL reserved words / function names that look like metric
- * names but aren't. Identifiers in this set never get the org_id matcher
- * even if not followed by `(`  covers things like `by (foo)` where `by`
- * isn't followed by a paren immediately. */
-const RESERVED = new Set<string>([
-  // Keywords (binary / scalar operator modifiers)
-  'and', 'or', 'unless', 'bool',
-  // Vector matching modifiers
-  'on', 'ignoring', 'group_left', 'group_right',
-  // Aggregation modifiers
-  'by', 'without',
-  // Time modifiers
-  'offset', 'start', 'end',
-  // Common functions / aggregators  these are caught by the `(` check
-  // already, but keeping them here is defense-in-depth against odd
-  // whitespace (e.g. `sum (` with a space).
-  'sum', 'avg', 'min', 'max', 'count', 'stddev', 'stdvar',
-  'rate', 'increase', 'irate', 'delta', 'idelta', 'deriv',
-  'histogram_quantile', 'histogram_count', 'histogram_sum',
-  'quantile_over_time', 'avg_over_time', 'sum_over_time',
-  'min_over_time', 'max_over_time', 'count_over_time',
-  'last_over_time', 'present_over_time',
-  'predict_linear', 'holt_winters', 'absent', 'absent_over_time',
-  'changes', 'resets', 'sort', 'sort_desc', 'topk', 'bottomk',
-  'clamp', 'clamp_max', 'clamp_min', 'round', 'floor', 'ceil',
-  'abs', 'exp', 'ln', 'log2', 'log10', 'sqrt',
-  'time', 'timestamp', 'vector', 'scalar',
-  'label_replace', 'label_join',
-  'year', 'month', 'day_of_month', 'day_of_week', 'hour', 'minute',
-  'days_in_month',
-  // Boolean-ish constants
-  'true', 'false', 'nan', 'inf',
-]);
-
-/**
- * Walk an expression and return every metric-selector location. A metric
- * selector is an identifier that is NOT a reserved word and NOT followed
- * immediately by `(`. Returns the labelset shape as well  so callers can
- * inspect whether the org_id matcher is present.
- */
-interface MetricSelectorMatch {
-  /** Position of the identifier start in the source expression. */
-  start: number;
-  /** Position one past the end of the labelset (or the identifier if no labelset). */
-  end: number;
-  /** The identifier text. */
-  name: string;
-  /** Raw labelset content (between `{` and `}`), or null when there were no `{}`. */
-  labelsetRaw: string | null;
-  /** Position of the `{` if one exists  used by the injector to write at the right spot. */
-  labelsetOpen: number | null;
-  /** Position of the matching `}`. */
-  labelsetClose: number | null;
-}
-
-/** Identifier regex matching PromQL's grammar. */
-const IDENT_RE = /[a-zA-Z_:][a-zA-Z0-9_:]*/y; // sticky for incremental scan
-
-/** Aggregation / matching keywords whose argument list `(...)` contains
- * label names, not sub-expressions. After seeing one of these we skip
- * the entire balanced paren group so its contents don't get treated as
- * metric selectors. */
-const LABEL_LIST_KEYWORDS = new Set<string>([
-  'by', 'without', 'on', 'ignoring', 'group_left', 'group_right',
-]);
-
-/**
- * Given the index of an opening `{`, return the index one past its matching
- * `}`, honoring string literals inside the label set (values can contain
- * `{` / `}`). Throws on an unbalanced brace so callers fail closed.
- */
-function scanLabelSetClose(expr: string, open: number): number {
-  let depth = 1;
-  let k = open + 1;
-  let inStr: '"' | "'" | null = null;
-  while (k < expr.length && depth > 0) {
-    const ch = expr[k];
-    if (inStr) {
-      if (ch === '\\' && k + 1 < expr.length) { k += 2; continue; }
-      if (ch === inStr) inStr = null;
-    } else if (ch === '"' || ch === "'") {
-      inStr = ch;
-    } else if (ch === '{') {
-      depth++;
-    } else if (ch === '}') {
-      depth--;
-    }
-    k++;
-  }
-  if (depth !== 0) {
-    // Unbalanced braces  bail so the caller's validator can flag it.
-    throw new PromQLRewriteError('Unbalanced `{` / `}` in expression');
-  }
-  return k;
-}
-
-function findMetricSelectors(expr: string): MetricSelectorMatch[] {
-  const out: MetricSelectorMatch[] = [];
-  let i = 0;
-  let inString: '"' | "'" | null = null;
-
-  while (i < expr.length) {
-    const c = expr[i];
-
-    // Skip string literals  identifier-looking text inside a string isn't a metric.
-    if (inString) {
-      if (c === '\\' && i + 1 < expr.length) { i += 2; continue; }
-      if (c === inString) inString = null;
-      i++;
-      continue;
-    }
-    if (c === '"' || c === "'") { inString = c; i++; continue; }
-
-    // A `{`-led selector with NO leading metric name  a bare label-set such as
-    // `{job="platform"}`, `{__name__=~"plugin_builds_total"}`, or `{on="x"}`.
-    // Without this branch the scanner skips the `{` and then either mis-reads
-    // the first label NAME as a bare metric, or  when that name is a reserved
-    // word (`{on=…}`, `{sum=…}`)  records NOTHING at all, letting the selector
-    // slip past the org_id tenancy gate entirely (injectOrgId injects nothing,
-    // validateOrgIdMatchers returns ok over an empty list). Record it as a
-    // nameless selector so it is org-scoped / validated like every other one.
-    if (c === '{') {
-      const close = scanLabelSetClose(expr, i);
-      out.push({
-        start: i,
-        end: close,
-        name: '',
-        labelsetRaw: expr.substring(i + 1, close - 1),
-        labelsetOpen: i,
-        labelsetClose: close - 1,
-      });
-      i = close;
-      continue;
-    }
-
-    // PromQL doesn't have line comments in expressions; reject them
-    // upstream rather than silently skipping over.
-
-    // Skip whitespace, operators, punctuation we don't care about.
-    if (!/[a-zA-Z_:]/.test(c)) { i++; continue; }
-
-    // Filter out identifier-starts that are actually duration suffixes
-    // `[5m]`, `1h30m`, etc. PromQL durations attach a unit character
-    // (`s`, `m`, `h`, `d`, `w`, `y`, or `ms`) directly to a digit. If the
-    // previous non-whitespace char is a digit AND we're inside `[...]`,
-    // this identifier is a duration unit, not a metric.
-    const prev = i > 0 ? expr[i - 1]: '';
-    if (/[0-9]/.test(prev)) { i++; continue; }
-
-    // Identifier candidate. Scan it.
-    IDENT_RE.lastIndex = i;
-    const m = IDENT_RE.exec(expr);
-    if (!m) { i++; continue; }
-    const identStart = i;
-    const identEnd = i + m[0].length;
-    i = identEnd;
-
-    // Label-list keyword (`by (foo)` / `without (le)` / etc.). Skip the
-    // entire following `(...)` so we don't treat the label names inside
-    // as metrics.
-    if (LABEL_LIST_KEYWORDS.has(m[0])) {
-      let j = identEnd;
-      while (j < expr.length && /\s/.test(expr[j])) j++;
-      if (expr[j] === '(') {
-        let depth = 1;
-        let k = j + 1;
-        while (k < expr.length && depth > 0) {
-          if (expr[k] === '(') depth++;
-          else if (expr[k] === ')') depth--;
-          k++;
-        }
-        i = k;
-      }
-      continue;
-    }
-
-    if (RESERVED.has(m[0])) continue;
-
-    // Peek for the next non-whitespace character. `(` → function. `{` → selector.
-    // Anything else (operator, end of expr, `[`, etc.) → bare metric.
-    let j = identEnd;
-    while (j < expr.length && /\s/.test(expr[j])) j++;
-    const peek = expr[j];
-
-    if (peek === '(') continue; // function call  skip
-
-    if (peek === '{') {
-      // Parse the labelset to find the matching close brace, respecting
-      // string literals inside (label values can contain `{` / `}`).
-      const k = scanLabelSetClose(expr, j);
-      out.push({
-        start: identStart,
-        end: k,
-        name: m[0],
-        labelsetRaw: expr.substring(j + 1, k - 1),
-        labelsetOpen: j,
-        labelsetClose: k - 1,
-      });
-      i = k;
-      continue;
-    }
-
-    // Bare metric (no labelset).
-    out.push({
-      start: identStart,
-      end: identEnd,
-      name: m[0],
-      labelsetRaw: null,
-      labelsetOpen: null,
-      labelsetClose: null,
-    });
-  }
-
-  if (inString) {
-    throw new PromQLRewriteError('Unterminated string literal in expression');
-  }
-  return out;
-}
 
 /** Custom error type so callers can distinguish parse failures from other throws. */
 export class PromQLRewriteError extends Error {
@@ -258,99 +44,335 @@ export class PromQLRewriteError extends Error {
   }
 }
 
-/** Detect whether a labelset contains an `org_id="..."` or `org_id=~"..."`
- * matcher with the expected value. Walks labels via a small state machine
- * (not split-by-comma) because label values can contain commas. */
-function labelsetHasOrgId(labelset: string, orgId: string): boolean {
-  // Match `org_id` followed by `=` / `=~` / `!=` / `!~` then a quoted string.
-  // We accept `=` and `=~` (both flag the rule as scoped to this org); `!=`
-  // and `!~` are NOT acceptable  they'd EXCLUDE the org, the opposite of
-  // what we want.
-  const re = /org_id\s*(=~?|!~?)\s*(["'])([^"']*)\2/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(labelset))) {
-    const op = m[1];
-    const value = m[3];
-    if ((op === '=' || op === '=~') && value === orgId) return true;
-    // `=` to a DIFFERENT org → cross-tenant attempt; explicit caller-visible
-    // failure rather than silently passing.
-    if (op === '=' && value !== orgId) {
-      throw new PromQLRewriteError( `expression references org_id="${value}" which doesn't match the rule's own org ("${orgId}")`,
-      );
-    }
+/**
+ * PromQL lexer keywords (matched case-insensitively, as Prometheus does).
+ * These can never be metric names.
+ */
+const KEYWORDS = new Set<string>([
+  // Aggregation operators
+  'sum', 'avg', 'count', 'min', 'max', 'group', 'stddev', 'stdvar',
+  'topk', 'bottomk', 'count_values', 'quantile', 'limitk', 'limit_ratio',
+  // Set / binary operators
+  'and', 'or', 'unless', 'atan2',
+  // Modifiers
+  'bool', 'by', 'without', 'on', 'ignoring', 'group_left', 'group_right',
+  'offset',
+  // Number literals
+  'inf', 'nan',
+]);
+
+/** Keywords whose parenthesized argument list holds label NAMES, not sub-expressions. */
+const LABEL_LIST_KEYWORDS = new Set<string>([
+  'by', 'without', 'on', 'ignoring', 'group_left', 'group_right',
+]);
+
+const MATCH_OPS = new Set(['=', '!=', '=~', '!~']);
+
+type TokenKind = 'ident' | 'number' | 'string' | 'op' | 'punct';
+
+interface Token {
+  kind: TokenKind;
+  /** Raw source text of the token. */
+  text: string;
+  /** Start offset in the source. */
+  start: number;
+  /** One past the end offset in the source. */
+  end: number;
+  /** Decoded value for string tokens; null when the literal uses escapes we
+   * don't decode (such a value is never treated as equal to anything). */
+  value?: string | null;
+}
+
+const IDENT_START = /[a-zA-Z_:]/;
+const IDENT_PART = /[a-zA-Z0-9_:]/;
+const NUMBER_PART = /[a-zA-Z0-9_.]/;
+const WHITESPACE = /\s/;
+/** Multi-char operators first so the longest match wins. */
+const OPERATORS = ['=~', '!~', '!=', '==', '<=', '>=', '=', '<', '>', '+', '-', '*', '/', '%', '^', '@'];
+const PUNCT = new Set(['(', ')', '{', '}', '[', ']', ',', ':']);
+
+/** Lex a string literal starting at `i` (which holds the quote char). */
+function lexString(expr: string, i: number): Token {
+  const quote = expr[i];
+  let k = i + 1;
+  let hasEscape = false;
+  if (quote === '`') {
+    // Raw string: no escapes, ends at the next backtick.
+    const close = expr.indexOf('`', k);
+    if (close === -1) throw new PromQLRewriteError('Unterminated string literal in expression');
+    return { kind: 'string', text: expr.slice(i, close + 1), start: i, end: close + 1, value: expr.slice(k, close) };
   }
-  return false;
+  while (k < expr.length) {
+    const ch = expr[k];
+    if (ch === '\\') {
+      if (k + 1 >= expr.length) break;
+      hasEscape = true;
+      k += 2;
+      continue;
+    }
+    if (ch === '\n') break; // interpreted strings can't span lines
+    if (ch === quote) {
+      return {
+        kind: 'string',
+        text: expr.slice(i, k + 1),
+        start: i,
+        end: k + 1,
+        value: hasEscape ? null : expr.slice(i + 1, k),
+      };
+    }
+    k++;
+  }
+  throw new PromQLRewriteError('Unterminated string literal in expression');
+}
+
+/** Tokenize a PromQL expression. Throws PromQLRewriteError on anything it can't lex. */
+export function tokenize(expr: string): Token[] {
+  const out: Token[] = [];
+  let i = 0;
+  while (i < expr.length) {
+    const c = expr[i];
+    if (WHITESPACE.test(c)) { i++; continue; }
+    if (c === '#') throw new PromQLRewriteError('Comments (#) are not allowed in alert-rule expressions');
+    if (c === '"' || c === "'" || c === '`') {
+      const t = lexString(expr, i);
+      out.push(t);
+      i = t.end;
+      continue;
+    }
+    // Numbers / durations / hex (`5m`, `1h30m`, `0.95`, `1e3`, `0x1f`, `.5`).
+    if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(expr[i + 1] ?? ''))) {
+      let k = i + 1;
+      while (k < expr.length) {
+        const ch = expr[k];
+        if (NUMBER_PART.test(ch)) { k++; continue; }
+        // Signed exponent: `1e-3`, `2E+5`.
+        if ((ch === '+' || ch === '-') && /[eE]/.test(expr[k - 1]) && !/^0[xX]/.test(expr.slice(i, k))) { k++; continue; }
+        break;
+      }
+      out.push({ kind: 'number', text: expr.slice(i, k), start: i, end: k });
+      i = k;
+      continue;
+    }
+    if (IDENT_START.test(c)) {
+      let k = i + 1;
+      while (k < expr.length && IDENT_PART.test(expr[k])) k++;
+      out.push({ kind: 'ident', text: expr.slice(i, k), start: i, end: k });
+      i = k;
+      continue;
+    }
+    const op = OPERATORS.find((o) => expr.startsWith(o, i));
+    if (op) {
+      out.push({ kind: 'op', text: op, start: i, end: i + op.length });
+      i += op.length;
+      continue;
+    }
+    if (PUNCT.has(c)) {
+      out.push({ kind: 'punct', text: c, start: i, end: i + 1 });
+      i++;
+      continue;
+    }
+    throw new PromQLRewriteError(`Unexpected character ${JSON.stringify(c)} at position ${i}`);
+  }
+  return out;
+}
+
+interface Matcher {
+  name: string | null; // null = the label name used escapes we don't decode
+  op: string;
+  value: string | null;
+}
+
+interface Selector {
+  /** Metric name, or '' for a nameless `{…}` selector. */
+  name: string;
+  /** Offset of the `{`, or null for a bare metric without a label-set. */
+  open: number | null;
+  /** Offset just past the metric identifier (where a bare metric's `{…}` goes). */
+  identEnd: number;
+  /** True when the label-set holds no elements. */
+  emptyLabelset: boolean;
+  matchers: Matcher[];
+}
+
+function isTok(t: Token | undefined, text: string): boolean {
+  return !!t && (t.kind === 'punct' || t.kind === 'op') && t.text === text;
 }
 
 /**
- * Inject `org_id="<orgId>"` into every metric selector that doesn't already
- * have it. Operators write `rate(http_requests_total[5m])` and the rule
- * stored in the DB becomes `rate(http_requests_total{org_id="org-acme"}[5m])`.
- *
- * Returns the rewritten expression. Throws PromQLRewriteError on * - malformed expression (unbalanced braces, unterminated strings)
- * - cross-tenant attempts (`org_id="org-other"` referenced by org-acme)
- *
- * The rewrite is idempotent  running it twice produces the same output.
+ * Parse the label-set whose `{` is at token index `i`. Returns the matchers
+ * and the token index just past the closing `}`. A bare quoted string element
+ * (Prometheus 3 `{"metric.name", …}`) is accepted as a name element.
  */
-export function injectOrgId(expr: string, orgId: string): string {
-  if (expr.includes('#')) {
-    throw new PromQLRewriteError('Comments (#) are not allowed in alert-rule expressions');
+function parseLabelset(tokens: Token[], i: number): { matchers: Matcher[]; next: number; empty: boolean } {
+  const matchers: Matcher[] = [];
+  let k = i + 1;
+  let elements = 0;
+  for (;;) {
+    const t = tokens[k];
+    if (!t) throw new PromQLRewriteError('Unbalanced `{` / `}` in expression');
+    if (isTok(t, '}')) return { matchers, next: k + 1, empty: elements === 0 };
+    if (t.kind !== 'ident' && t.kind !== 'string') {
+      throw new PromQLRewriteError(`Malformed label matcher near position ${t.start}`);
+    }
+    const nameTok = t;
+    const opTok = tokens[k + 1];
+    if (nameTok.kind === 'string' && (isTok(opTok, ',') || isTok(opTok, '}'))) {
+      // Quoted metric-name element.
+      elements++;
+      k += isTok(opTok, ',') ? 2 : 1;
+      continue;
+    }
+    if (!opTok || opTok.kind !== 'op' || !MATCH_OPS.has(opTok.text)) {
+      throw new PromQLRewriteError(`Malformed label matcher near position ${nameTok.start}`);
+    }
+    const valTok = tokens[k + 2];
+    if (!valTok || valTok.kind !== 'string') {
+      throw new PromQLRewriteError(`Label matcher value must be a string literal near position ${opTok.start}`);
+    }
+    matchers.push({
+      name: nameTok.kind === 'ident' ? nameTok.text : (nameTok.value ?? null),
+      op: opTok.text,
+      value: valTok.value ?? null,
+    });
+    elements++;
+    k += 3;
+    const sep = tokens[k];
+    if (isTok(sep, ',')) { k++; continue; }
+    if (isTok(sep, '}')) continue;
+    throw new PromQLRewriteError('Unbalanced `{` / `}` in expression');
   }
+}
 
-  const selectors = findMetricSelectors(expr);
+/** Find every metric selector in the expression. */
+function findSelectors(expr: string): Selector[] {
+  const tokens = tokenize(expr);
+  const out: Selector[] = [];
+  let bracketDepth = 0;
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
 
-  // Walk back-to-front so positions in earlier matches don't shift.
-  const sorted = [...selectors].sort((a, b) => b.start - a.start);
-  let out = expr;
+    if (isTok(t, '[')) { bracketDepth++; i++; continue; }
+    if (isTok(t, ']')) { bracketDepth = Math.max(0, bracketDepth - 1); i++; continue; }
+    if (isTok(t, '}')) throw new PromQLRewriteError('Unbalanced `{` / `}` in expression');
 
-  for (const sel of sorted) {
-    if (sel.labelsetRaw !== null) {
-      if (labelsetHasOrgId(sel.labelsetRaw, orgId)) continue;
-      // Inject as the first label so the wire form is stable + easy to
-      // grep for. Strip a leading comma if the labelset wasn't empty.
-      const trimmed = sel.labelsetRaw.trim();
-      const inserted = trimmed.length === 0
-        ? `org_id="${orgId}"`
-        : `org_id="${orgId}",${sel.labelsetRaw}`;
-      out = out.substring(0, sel.labelsetOpen! + 1) + inserted + out.substring(sel.labelsetClose!);
-    } else {
-      // Bare metric  wrap with `{org_id="..."}`.
-      out = out.substring(0, sel.end) + `{org_id="${orgId}"}` + out.substring(sel.end);
+    // Nameless selector: `{job="x"}`, `{__name__=~"…"}`.
+    if (isTok(t, '{')) {
+      const ls = parseLabelset(tokens, i);
+      out.push({ name: '', open: t.start, identEnd: t.start, emptyLabelset: ls.empty, matchers: ls.matchers });
+      i = ls.next;
+      continue;
+    }
+
+    if (t.kind !== 'ident' || bracketDepth > 0) { i++; continue; }
+
+    const lower = t.text.toLowerCase();
+    const next = tokens[i + 1];
+
+    if (LABEL_LIST_KEYWORDS.has(lower)) {
+      // Skip the label-name list `(a, b)` that may follow.
+      if (isTok(next, '(')) {
+        let k = i + 2;
+        while (k < tokens.length && !isTok(tokens[k], ')')) {
+          if (tokens[k].kind !== 'ident' && tokens[k].kind !== 'string' && !isTok(tokens[k], ',')) {
+            throw new PromQLRewriteError(`Malformed label list after "${t.text}"`);
+          }
+          k++;
+        }
+        if (k >= tokens.length) throw new PromQLRewriteError(`Unbalanced parentheses after "${t.text}"`);
+        i = k + 1;
+      } else {
+        i++;
+      }
+      continue;
+    }
+    if (KEYWORDS.has(lower)) { i++; continue; }
+    // `@ start()` / `@ end()` and every other call: a function name, not a metric.
+    if (isTok(next, '(')) { i++; continue; }
+
+    if (isTok(next, '{')) {
+      const ls = parseLabelset(tokens, i + 1);
+      out.push({ name: t.text, open: next.start, identEnd: t.end, emptyLabelset: ls.empty, matchers: ls.matchers });
+      i = ls.next;
+      continue;
+    }
+
+    out.push({ name: t.text, open: null, identEnd: t.end, emptyLabelset: true, matchers: [] });
+    i++;
+  }
+  return out;
+}
+
+const ORG_ID_RE = /^[A-Za-z0-9_.:-]+$/;
+
+function assertOrgId(orgId: string): void {
+  if (!ORG_ID_RE.test(orgId)) throw new PromQLRewriteError('Invalid organization id for PromQL scoping');
+}
+
+/** True when the selector already carries the exact `org_id="<orgId>"` equality matcher. */
+function isPinned(sel: Selector, orgId: string): boolean {
+  return sel.matchers.some((m) => m.name === 'org_id' && m.op === '=' && m.value === orgId);
+}
+
+/** An `org_id="<other>"` equality is an explicit cross-tenant reference — refuse it loudly. */
+function assertNoForeignOrg(sel: Selector, orgId: string): void {
+  for (const m of sel.matchers) {
+    if (m.name === 'org_id' && m.op === '=' && m.value !== null && m.value !== orgId) {
+      throw new PromQLRewriteError(
+        `expression references org_id="${m.value}" which doesn't match the rule's own org ("${orgId}")`,
+      );
     }
   }
+}
 
+/**
+ * Inject `org_id="<orgId>"` into every metric selector. Operators write
+ * `rate(http_requests_total[5m])` and the rule stored in the DB becomes
+ * `rate(http_requests_total{org_id="org-acme"}[5m])`. Existing matchers are
+ * kept and ANDed with the injected one; only a selector that already carries
+ * the exact equality matcher is left alone (idempotent).
+ *
+ * Throws PromQLRewriteError on malformed expressions (unlexable input,
+ * unbalanced braces, unterminated strings, malformed matchers) and on
+ * explicit cross-tenant references (`org_id="org-other"`).
+ */
+export function injectOrgId(expr: string, orgId: string): string {
+  assertOrgId(orgId);
+  const selectors = findSelectors(expr);
+  const matcher = `org_id="${orgId}"`;
+
+  // Walk back-to-front so earlier offsets don't shift.
+  let out = expr;
+  for (const sel of [...selectors].reverse()) {
+    assertNoForeignOrg(sel, orgId);
+    if (isPinned(sel, orgId)) continue;
+    if (sel.open === null) {
+      out = out.slice(0, sel.identEnd) + `{${matcher}}` + out.slice(sel.identEnd);
+    } else {
+      const insert = sel.emptyLabelset ? matcher : `${matcher},`;
+      out = out.slice(0, sel.open + 1) + insert + out.slice(sel.open + 1);
+    }
+  }
   return out;
 }
 
 /**
- * Validation-only mode: returns ok=true if every metric selector already
- * includes the matcher, ok=false with a message otherwise. Doesn't rewrite.
- * Used by routes that want to surface a fix-it message to the operator
- * rather than silently rewriting their expression.
+ * Validation-only mode: ok=true iff every metric selector carries the exact
+ * `org_id="<orgId>"` equality matcher. Regex / negative forms never count —
+ * `injectOrgId` (which runs first on every write path) adds the equality.
  */
 export function validateOrgIdMatchers(expr: string, orgId: string): { ok: true } | { ok: false; message: string } {
-  let selectors: MetricSelectorMatch[];
   try {
-    if (expr.includes('#')) {
-      return { ok: false, message: 'Comments (#) are not allowed in alert-rule expressions' };
+    assertOrgId(orgId);
+    for (const sel of findSelectors(expr)) {
+      assertNoForeignOrg(sel, orgId);
+      if (!isPinned(sel, orgId)) {
+        const what = sel.name ? `metric "${sel.name}"` : 'label-set selector {…}';
+        return { ok: false, message: `${what} needs an org_id="${orgId}" matcher to scope it to your org` };
+      }
     }
-    selectors = findMetricSelectors(expr);
   } catch (err) {
     return { ok: false, message: errorMessage(err) };
-  }
-  for (const sel of selectors) {
-    try {
-      const has = sel.labelsetRaw !== null && labelsetHasOrgId(sel.labelsetRaw, orgId);
-      if (!has) {
-        const what = sel.name ? `metric "${sel.name}"` : 'label-set selector {…}';
-        return {
-          ok: false,
-          message: `${what} needs an org_id="${orgId}" matcher to scope it to your org`,
-        };
-      }
-    } catch (err) {
-      return { ok: false, message: errorMessage(err) };
-    }
   }
   return { ok: true };
 }

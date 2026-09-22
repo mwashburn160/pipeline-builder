@@ -210,13 +210,13 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
         if (res.success) {
           toast.success('Service account created');
           setName(''); setDescription(''); setBudget(''); setRoleIds([]);
-        } else toast.error('Failed to create service account');
+        } else {toast.error('Failed to create service account');}
       } else if (pending.kind === 'details') {
         const res = await api.updateServiceAccount(orgId, pending.accountId, pending.changes, stepUpToken);
         if (res.success) {
           toast.success('Service account updated');
           setDetailsDraft(null);
-        } else toast.error('Failed to update service account');
+        } else {toast.error('Failed to update service account');}
       } else if (pending.kind === 'key') {
         setNewKey(null);
         const res = await api.createServiceAccountKey(orgId, pending.accountId, {
@@ -229,7 +229,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
           setNewKey(res.data.key);
           setKeyDraft(null);
           toast.success(`Key created for ${pending.accountName}`);
-        } else toast.error('Failed to create key');
+        } else {toast.error('Failed to create key');}
       } else if (pending.kind === 'toggle') {
         const res = await api.updateServiceAccount(orgId, pending.accountId, { disabled: pending.disabled }, stepUpToken);
         if (res.success) toast.success(pending.disabled ? 'Service account disabled' : 'Service account enabled');
@@ -245,7 +245,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
             delete next[pending.accountId];
             return next;
           });
-        } else toast.error('Failed to update roles');
+        } else {toast.error('Failed to update roles');}
       } else {
         const res = await api.deleteServiceAccount(orgId, pending.accountId, stepUpToken);
         if (res.success) toast.success(`${pending.name} deleted`);
@@ -266,7 +266,7 @@ export function ServiceAccountsSection({ orgId, readOnly }: { orgId: string; rea
     try {
       const res = await api.revokeServiceAccountKey(orgId, account.id, keyId);
       if (res.success) { toast.success('Key revoked'); await reload(); }
-      else toast.error('Failed to revoke key');
+      else {toast.error('Failed to revoke key');}
     } catch (err) {
       toast.error(formatError(err, 'Failed to revoke key'));
     } finally {

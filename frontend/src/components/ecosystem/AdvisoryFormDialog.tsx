@@ -9,7 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
-import { ADVISORY_SEVERITIES, ADVISORY_SUMMARY_MAX, SEVERITY_LABELS, parseCveIds } from '@/lib/advisories';
+import { ADVISORY_SEVERITIES, ADVISORY_SUMMARY_MAX, SEVERITY_LABELS, advisoryRangeProblem, isSemverVersion, parseCveIds, vulnIdsProblem } from '@/lib/advisories';
 import { formatError } from '@/lib/constants';
 import type { AdvisoryInput, AdvisorySeverity, AdvisoryView } from '@/types/ecosystem';
 
@@ -27,6 +27,11 @@ interface Props {
   listingsLoading?: boolean;
   /** Editing an existing draft: pre-fills every field. */
   initial?: AdvisoryView;
+  /** What the person had typed before a later step (the confirmation, the
+   *  server) refused it — restored instead of an empty form. */
+  draft?: AdvisoryFormValue;
+  /** The refusal that sent them back here, shown above the form. */
+  initialError?: string | null;
   intro?: ReactNode;
   /** Throws to keep the dialog open with the error shown; resolves = close. */
   onSubmit: (value: AdvisoryFormValue) => Promise<void>;
@@ -40,21 +45,27 @@ interface Props {
  * sanitizes them into `detailsHtml`).
  */
 export function AdvisoryFormDialog({
-  title, confirmLabel, listings, listingsLoading = false, initial, intro, onSubmit, onClose,
+  title, confirmLabel, listings, listingsLoading = false, initial, draft, initialError = null, intro, onSubmit, onClose,
 }: Props) {
   const editing = !!initial;
-  const [listingId, setListingId] = useState(initial?.listingId ?? '');
-  const [affectedRange, setAffectedRange] = useState(initial?.affectedRange ?? '');
-  const [severity, setSeverity] = useState<AdvisorySeverity>(initial?.severity ?? 'high');
-  const [summary, setSummary] = useState(initial?.summary ?? '');
-  const [detailsMd, setDetailsMd] = useState(initial?.detailsMd ?? '');
-  const [cves, setCves] = useState(initial?.cveIds.join(', ') ?? '');
-  const [fixedVersion, setFixedVersion] = useState(initial?.fixedVersion ?? '');
+  const d = draft?.advisory;
+  const [listingId, setListingId] = useState(draft?.listingId ?? initial?.listingId ?? '');
+  const [affectedRange, setAffectedRange] = useState(d?.affectedRange ?? initial?.affectedRange ?? '');
+  const [severity, setSeverity] = useState<AdvisorySeverity>(d?.severity ?? initial?.severity ?? 'high');
+  const [summary, setSummary] = useState(d?.summary ?? initial?.summary ?? '');
+  const [detailsMd, setDetailsMd] = useState((d && 'detailsMd' in d ? d.detailsMd : initial?.detailsMd) ?? '');
+  const [cves, setCves] = useState((d && 'cveIds' in d ? d.cveIds?.join(', ') : initial?.cveIds.join(', ')) ?? '');
+  const [fixedVersion, setFixedVersion] = useState((d && 'fixedVersion' in d ? d.fixedVersion : initial?.fixedVersion) ?? '');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
 
   const summaryTooLong = summary.trim().length > ADVISORY_SUMMARY_MAX;
-  const incomplete = !listingId || !affectedRange.trim() || !summary.trim() || summaryTooLong;
+  // The server's own checks, run here first (see lib/advisories).
+  const rangeProblem = affectedRange.trim() ? advisoryRangeProblem(affectedRange) : null;
+  const fixedProblem = fixedVersion.trim() && !isSemverVersion(fixedVersion) ? 'Must be a semver version, e.g. 1.4.2.' : null;
+  const cveProblem = cves.trim() ? vulnIdsProblem(cves) : null;
+  const incomplete = !listingId || !affectedRange.trim() || !summary.trim() || summaryTooLong
+    || !!rangeProblem || !!fixedProblem || !!cveProblem;
 
   const submit = async () => {
     setBusy(true);
@@ -111,7 +122,7 @@ export function AdvisoryFormDialog({
           </FormField>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Affected versions" required hint="A semver range, e.g. >=1.0.0 <1.4.2">
+          <FormField label="Affected versions" required hint="A semver range, e.g. >=1.0.0 <1.4.2" error={rangeProblem ?? undefined}>
             <Input value={affectedRange} onChange={(e) => setAffectedRange(e.target.value)} placeholder=">=1.0.0 <1.4.2" disabled={busy} />
           </FormField>
           <FormField label="Severity" required>
@@ -132,10 +143,10 @@ export function AdvisoryFormDialog({
           <Textarea rows={6} value={detailsMd} onChange={(e) => setDetailsMd(e.target.value)} disabled={busy} className="font-mono text-xs" />
         </FormField>
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="CVE ids" hint="Comma or space separated, e.g. CVE-2026-1234">
+          <FormField label="CVE ids" hint="Comma or space separated, e.g. CVE-2026-1234" error={cveProblem ?? undefined}>
             <Input value={cves} onChange={(e) => setCves(e.target.value)} disabled={busy} />
           </FormField>
-          <FormField label="Fixed version" hint="Optional: the first version with the fix.">
+          <FormField label="Fixed version" hint="Optional: the first version with the fix." error={fixedProblem ?? undefined}>
             <Input value={fixedVersion} onChange={(e) => setFixedVersion(e.target.value)} placeholder="1.4.2" disabled={busy} />
           </FormField>
         </div>

@@ -15,6 +15,7 @@
  * then under-grants, which is safe).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -63,18 +64,19 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: stri
 const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string }>>();
 const mockExpandOrgScope = jest.fn<(...a: unknown[]) => Promise<string[]>>();
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   resolveOrgLineage: mockResolveOrgLineage,
   expandOrgScope: mockExpandOrgScope,
 }));
 
-jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn<AnyFn>() }));
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
-  getOrganizationQuotaStatus: jest.fn(),
+  getOrganizationQuotaStatus: jest.fn<AnyFn>(),
   QuotaType: {},
 }));
 
-const mockOrgFindById = jest.fn<(...a: unknown[]) => unknown>();
+const mockOrgFindById = jest.fn<AnyFn>();
 const mockOrgUpdateOne = jest.fn<(...a: unknown[]) => Promise<{ matchedCount: number }>>();
 const mockOrgUpdateMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserUpdateMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -96,6 +98,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 // The post-commit revocation publish — asserted to cover every affected member.
 const mockPublishUsersRevocation = jest.fn<(...a: unknown[]) => Promise<void>>();
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
   publishUsersRevocation: mockPublishUsersRevocation,
 }));
 
@@ -108,14 +112,14 @@ function makeOrgDoc(initial: { _id: string; tier?: string; parentOrgId?: string;
     tier: initial.tier,
     parentOrgId: initial.parentOrgId,
     quotas: initial.quotas,
-    markModified: jest.fn(),
+    markModified: jest.fn<AnyFn>(),
     save: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
   };
 }
 
 /** The $inc tokenVersion write, if it fired. */
 const tokenBump = () =>
-  mockUserUpdateMany.mock.calls.find((c) => (c[1] as any)?.$inc?.tokenVersion === 1);
+  mockUserUpdateMany.mock.calls.find((c) => (c[1] as any)?.$inc?.claimsVersion === 1);
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -397,7 +401,7 @@ describe('setSeatLimit — tier downgrade invalidation (billing tier push)', () 
     await setSeatLimit('root-1', 5, ['audit_log'], 'pro'); // advanced_reporting dropped AND team→pro
 
     // Exactly one tokenVersion bump write (not one per reduction).
-    const bumps = mockUserUpdateMany.mock.calls.filter((c) => (c[1] as any)?.$inc?.tokenVersion === 1);
+    const bumps = mockUserUpdateMany.mock.calls.filter((c) => (c[1] as any)?.$inc?.claimsVersion === 1);
     expect(bumps).toHaveLength(1);
     // Both the shrunk features AND the new tier propagate to the team in one write.
     expect(mockOrgUpdateMany).toHaveBeenCalledWith(
@@ -451,5 +455,16 @@ describe('quota reseed — billing-owned retention dims are EXCLUDED', () => {
     expect((doc.quotas as any).plugins).toBe(100);
     expect((doc.quotas as any).eventRetentionDays).toBeUndefined();
     expect((doc.quotas as any).doraRetentionDays).toBeUndefined();
+  });
+});
+
+describe('setSeatLimit — root-only', () => {
+  it('refuses a TEAM id instead of redirecting the write to its root', async () => {
+    const { ORG_SEAT_LIMIT_NOT_ROOT } = await import('../src/services/org-errors.js');
+    mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
+
+    await expect(setSeatLimit('team-7', 5, ['sso'])).rejects.toThrow(ORG_SEAT_LIMIT_NOT_ROOT);
+    expect(mockOrgUpdateOne).not.toHaveBeenCalled();
+    expect(mockOrgUpdateMany).not.toHaveBeenCalled();
   });
 });

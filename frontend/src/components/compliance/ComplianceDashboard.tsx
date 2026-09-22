@@ -140,7 +140,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
       api.getComplianceAuditLog({ result, limit: 1 })
         .then((res) => (res.success && res.data?.pagination?.total) || 0)
         .catch(() => 0);
-    Promise.all([fetchCount('pass'), fetchCount('warn'), fetchCount('block')]).then(
+    void Promise.all([fetchCount('pass'), fetchCount('warn'), fetchCount('block')]).then(
       ([pass, warn, block]) => {
         if (cancelled) return;
         setStats((s) => ({ ...s, pass, warn, block }));

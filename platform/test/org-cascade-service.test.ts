@@ -10,7 +10,9 @@
  * environment, not by these unit tests.
  */
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({
@@ -19,25 +21,25 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
-const mockHttpDelete = jest.fn();
+const mockHttpDelete = jest.fn<AnyFn>();
 
 // `runWithTenantContext` is a pass-through in tests  we don't need RLS
 // behaviour, just the callback to run. Real RLS plumbing is covered by the
 // pipeline-data test suite.
-const mockUpdateChain = { set: jest.fn(), where: jest.fn() };
-const mockDeleteChain = { where: jest.fn() };
-const mockSelectChain = { from: jest.fn(), where: jest.fn() };
+const mockUpdateChain = { set: jest.fn<AnyFn>(), where: jest.fn<AnyFn>() };
+const mockDeleteChain = { where: jest.fn<AnyFn>() };
+const mockSelectChain = { from: jest.fn<AnyFn>(), where: jest.fn<AnyFn>() };
 
 // Every statement must run inside withTenantTx (which applies the RLS context);
 // the transaction handle is the only way to reach the query builders here.
 const mockTx = {
   update: jest.fn(() => mockUpdateChain),
   delete: jest.fn(() => mockDeleteChain),
-  select: jest.fn(() => mockSelectChain),
+  select: jest.fn((..._args: unknown[]) => mockSelectChain),
 };
 const mockWithTenantTx = jest.fn(async (fn: (tx: typeof mockTx) => unknown) => fn(mockTx));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   withTenantTx: (fn: (tx: typeof mockTx) => unknown) => mockWithTenantTx(fn),
   schema: {
     plugin: { orgId: 'plugins.org_id' },
@@ -78,18 +80,26 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   softDeleteRetentionMs: () => 30 * 24 * 60 * 60 * 1000,
 }));
 
-const mockInvitationDeleteMany = jest.fn();
-const mockInvitationFind = jest.fn();
-const mockAuditDeleteMany = jest.fn();
-const mockAuditFind = jest.fn();
-const mockAuditCreate = jest.fn();
-const mockArchivedBulkWrite = jest.fn();
-const mockIdpDeleteMany = jest.fn();
-const mockOrgFindById = jest.fn();
+const mockInvitationDeleteMany = jest.fn<AnyFn>();
+const mockInvitationFind = jest.fn<AnyFn>();
+const mockAuditDeleteMany = jest.fn<AnyFn>();
+const mockAuditFind = jest.fn<AnyFn>();
+const mockAuditCreate = jest.fn<AnyFn>();
+const mockArchivedBulkWrite = jest.fn<AnyFn>();
+const mockIdpDeleteMany = jest.fn<AnyFn>();
+const mockOrgFindById = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
   default: { deleteMany: mockAuditDeleteMany, find: mockAuditFind, create: mockAuditCreate },
+}));
+// The chain head the audit append reads/advances (no live Mongo here).
+jest.unstable_mockModule('../src/models/audit-chain-head.js', () => ({
+  __esModule: true,
+  default: {
+    findById: () => ({ select: () => ({ lean: async () => null }) }),
+    updateOne: async () => ({}),
+  },
 }));
 jest.unstable_mockModule('../src/models/archived-audit-events.js', () => ({
   __esModule: true,
@@ -108,19 +118,24 @@ jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   default: { deleteMany: mockIdpDeleteMany, find: mongoFinds.orgIdpConfig },
 }));
 // IdP group → Role mappings (3a) — cleaned up with the IdP config they belong to.
-const mockIdpGroupMappingDeleteMany = jest.fn();
+const mockIdpGroupMappingDeleteMany = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({
   __esModule: true,
   default: { deleteMany: mockIdpGroupMappingDeleteMany, find: mongoFinds.idpGroupMapping },
 }));
 
-const mockOrgDomainDeleteMany = jest.fn();
-const mockJoinRequestDeleteMany = jest.fn();
-const mockServiceAccountFind = jest.fn();
-const mockServiceAccountDeleteMany = jest.fn();
-const mockSaKeyDeleteMany = jest.fn();
-const mockRoleAssignmentDeleteMany = jest.fn();
-const mockSamlSessionDeleteMany = jest.fn();
+const mockOrgDomainDeleteMany = jest.fn<AnyFn>();
+const mockJoinRequestDeleteMany = jest.fn<AnyFn>();
+const mockServiceAccountFind = jest.fn<AnyFn>();
+const mockServiceAccountDeleteMany = jest.fn<AnyFn>();
+const mockSaKeyDeleteMany = jest.fn<AnyFn>();
+/** Members' personal (`pb_pat`) keys scoped to the org — same model as SA keys,
+ *  told apart by the filter (`userId` vs `serviceAccountId`). */
+const mockPersonalPatDeleteMany = jest.fn<AnyFn>();
+const mockMfaResetDeleteMany = jest.fn<AnyFn>();
+const mockImpersonationDeleteMany = jest.fn<AnyFn>();
+const mockRoleAssignmentDeleteMany = jest.fn<AnyFn>();
+const mockSamlSessionDeleteMany = jest.fn<AnyFn>();
 
 /**
  * Mongoose query stub covering every chain the cascade + export use
@@ -143,6 +158,8 @@ const mongoFinds = {
   joinRequest: jest.fn(() => findChain()),
   samlSession: jest.fn(() => findChain()),
   personalAccessToken: jest.fn(() => findChain()),
+  mfaResetRequest: jest.fn(() => findChain()),
+  impersonationRequest: jest.fn(() => findChain()),
   userOrganization: jest.fn(() => findChain()),
   roleAssignment: jest.fn(() => findChain()),
   role: jest.fn(() => findChain()),
@@ -169,7 +186,19 @@ jest.unstable_mockModule('../src/models/service-account.js', () => ({
 }));
 jest.unstable_mockModule('../src/models/personal-access-token.js', () => ({
   __esModule: true,
-  default: { deleteMany: mockSaKeyDeleteMany, updateMany: jest.fn(), find: mongoFinds.personalAccessToken },
+  default: {
+    deleteMany: (filter: Record<string, unknown>) => ('userId' in filter ? mockPersonalPatDeleteMany(filter) : mockSaKeyDeleteMany(filter)),
+    updateMany: jest.fn<AnyFn>(),
+    find: mongoFinds.personalAccessToken,
+  },
+}));
+jest.unstable_mockModule('../src/models/mfa-reset-request.js', () => ({
+  __esModule: true,
+  default: { deleteMany: mockMfaResetDeleteMany, find: mongoFinds.mfaResetRequest },
+}));
+jest.unstable_mockModule('../src/models/impersonation-request.js', () => ({
+  __esModule: true,
+  default: { deleteMany: mockImpersonationDeleteMany, find: mongoFinds.impersonationRequest },
 }));
 jest.unstable_mockModule('../src/models/role-assignment.js', () => ({
   __esModule: true,
@@ -228,6 +257,9 @@ beforeEach(() => {
   mockServiceAccountFind.mockReturnValue(findChain([{ _id: 'sa-1' }]));
   mockServiceAccountDeleteMany.mockResolvedValue({ deletedCount: 1 });
   mockSaKeyDeleteMany.mockResolvedValue({ deletedCount: 2 });
+  mockPersonalPatDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  mockMfaResetDeleteMany.mockResolvedValue({ deletedCount: 0 });
+  mockImpersonationDeleteMany.mockResolvedValue({ deletedCount: 0 });
   mockRoleAssignmentDeleteMany.mockResolvedValue({ deletedCount: 1 });
   // Default: org has no per-org KMS config.
   mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => null }) });
@@ -317,6 +349,29 @@ describe('cascadeDeleteOrg', () => {
     expect(mockDeleteChain.where).toHaveBeenCalledTimes(22);
   });
 
+  it("deletes members' org-scoped personal keys, MFA-reset and impersonation requests", async () => {
+    mockPersonalPatDeleteMany.mockResolvedValue({ deletedCount: 3 });
+    mockMfaResetDeleteMany.mockResolvedValue({ deletedCount: 1 });
+    mockImpersonationDeleteMany.mockResolvedValue({ deletedCount: 2 });
+
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    // Personal keys only (userId set) — never another org's, never SA keys.
+    expect(mockPersonalPatDeleteMany).toHaveBeenCalledWith({ userId: { $ne: null }, organizationId: 'org-acme' });
+    expect(mockMfaResetDeleteMany).toHaveBeenCalledWith({ organizationId: 'org-acme' });
+    expect(mockImpersonationDeleteMany).toHaveBeenCalledWith({ orgId: 'org-acme' });
+    expect(report.mongo).toMatchObject({ personalAccessTokens: 3, mfaResetRequests: 1, impersonationRequests: 2 });
+  });
+
+  it('reports every failed Mongo leg in mongoFailures (the purge defers on it)', async () => {
+    mockSamlSessionDeleteMany.mockRejectedValue(new Error('mongo blip'));
+    mockServiceAccountFind.mockImplementation(() => { throw new Error('sa blip'); });
+
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+
+    expect(report.mongoFailures).toEqual(expect.arrayContaining(['samlSessions', 'serviceAccounts']));
+  });
+
   it('drops mongo invitations + audit events + idp configs + saml sessions', async () => {
     mockInvitationDeleteMany.mockResolvedValue({ deletedCount: 3 });
     mockAuditDeleteMany.mockResolvedValue({ deletedCount: 12 });
@@ -334,10 +389,14 @@ describe('cascadeDeleteOrg', () => {
       joinRequests: 0,
       // SAML SLO rows are org-scoped and went with the org.
       samlSessions: 4,
+      personalAccessTokens: 0,
+      mfaResetRequests: 0,
+      impersonationRequests: 0,
       // Service accounts are org property — the purge takes them and their keys.
       serviceAccounts: 1,
       serviceAccountKeys: 2,
     });
+    expect(report.mongoFailures).toEqual([]);
     expect(mockSamlSessionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-acme' });
     // The live delete is exactly this org's own hash chain (chain key =
     // affectedOrgId). An event this org's members performed on ANOTHER org
@@ -565,7 +624,7 @@ describe('exportOrg', () => {
   });
 
   it('never exports a service-account key HASH (the stored form of the secret)', async () => {
-    const select = jest.fn(() => findChain([{ _id: 'k1' }]));
+    const select = jest.fn((..._args: unknown[]) => findChain([{ _id: 'k1' }]));
     mockServiceAccountFind.mockReturnValue(findChain([{ _id: 'sa-1' }]));
     mongoFinds.personalAccessToken.mockReturnValue({ select } as never);
 

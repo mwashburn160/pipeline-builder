@@ -20,7 +20,7 @@
  * correctness prerequisite).
  */
 
-import { createLogger, withLeaderLock, type LockRedis, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, withLeaderLock, type LockRedis, type Scheduler, errorMessage } from '@pipeline-builder/api-core';
 import { getRedisClient } from './redis-client.js';
 
 const logger = createLogger('leader-lock');
@@ -61,4 +61,29 @@ export async function runWithLeaderLock(
   // it exposes set/get/del/eval, satisfying LockRedis including the atomic CAS
   // release used by withLeaderLock, which itself never rejects on Redis errors.
   return withLeaderLock(redis as unknown as LockRedis, key, ttlMs, guarded);
+}
+
+/**
+ * A periodic platform sweep: api-core's `createScheduler` (unref'd interval,
+ * start-once, error isolation, and a SAME-POD re-entrancy guard — a cycle
+ * slower than its interval is skipped rather than overlapping itself) whose
+ * every cycle runs under {@link runWithLeaderLock} (CROSS-POD: one replica per
+ * window, lock held for the run's duration by withLeaderLock).
+ *
+ * The lock TTL is floored at 60s so a small interval can't make it near-zero.
+ */
+export function createLockedSweep(opts: {
+  name: string;
+  lockKey: string;
+  intervalMs: number;
+  run: () => Promise<void>;
+  runOnStart?: boolean;
+}): Scheduler {
+  const lockTtlMs = Math.max(opts.intervalMs, 60_000);
+  return createScheduler({
+    name: opts.name,
+    intervalMs: opts.intervalMs,
+    runOnStart: opts.runOnStart,
+    run: async () => { await runWithLeaderLock(opts.lockKey, lockTtlMs, opts.run); },
+  });
 }

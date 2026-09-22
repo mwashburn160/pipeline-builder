@@ -65,6 +65,11 @@ const chainable = <T>(value: T) => {
   return self as never;
 };
 
+// The guarded removal runs in a transaction; inline it (no live Mongo).
+jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
+  withMongoTransaction: (fn: (s: unknown) => unknown) => fn(undefined),
+}));
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // The last-sign-in-method guard reads through `helpers/sign-in-methods`, which
   // asks whether the account has a CONFIRMED authenticator app. It is never one
@@ -87,7 +92,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     updateOne: async (f: Record<string, unknown>, update: { $set: Partial<Cred> }) => {
       const c = creds.find((x) => match(x, f));
       if (c) Object.assign(c, update.$set);
-      return { modifiedCount: c ? 1 : 0 };
+      return { matchedCount: c ? 1 : 0, modifiedCount: c ? 1 : 0 };
     },
     findOneAndUpdate: (f: Record<string, unknown>, update: { $set: Partial<Cred> }) => {
       const c = creds.find((x) => match(x, f));
@@ -101,6 +106,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     },
   },
   User: {
+    // The guarded removal's conflict marker (see helpers/sign-in-methods.ts).
+    updateOne: async () => ({ matchedCount: 1 }),
     findById: (id: string) => chainable(users[String(id)] ?? null),
     findOneAndUpdate: (f: { _id: string; webauthnUserId?: unknown }, update: { $set: { webauthnUserId: string } }) => {
       const u = users[String(f._id)];
@@ -284,6 +291,21 @@ describe('counter policy', () => {
     await expect(svc.verifyStepUp(ownerId, ceremonyId, assertionResponse(c.credentialId)))
       .rejects.toThrow(E.WEBAUTHN_COUNTER_REGRESSION);
     expect(creds[0].counter).toBe(9);
+  });
+
+  it('refuses when a CONCURRENT use moved the counter between the read and the write (a racing clone)', async () => {
+    const c = addCred({ counter: 9 });
+    // The other copy of the authenticator lands first, advancing the stored
+    // counter while this assertion (verified against 9) is still in flight.
+    mockVerifyAuthentication.mockImplementation(async () => {
+      creds[0].counter = 12;
+      return authInfo(10);
+    });
+    const { ceremonyId } = await svc.stepUpOptions(ownerId);
+    await expect(svc.verifyStepUp(ownerId, ceremonyId, assertionResponse(c.credentialId)))
+      .rejects.toThrow(E.WEBAUTHN_COUNTER_REGRESSION);
+    // The conditional write missed, so the newer counter stands.
+    expect(creds[0].counter).toBe(12);
   });
 });
 

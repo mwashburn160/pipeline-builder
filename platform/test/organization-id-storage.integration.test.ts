@@ -29,7 +29,7 @@
  *   RUN_MONGO_INTEGRATION=1 pnpm --filter platform test -- organization-id-storage
  */
 
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { it, expect, beforeAll, afterAll } from '@jest/globals';
 import { integrationSuite } from './helpers/integration-gate.js';
 
 // The real models transitively import platform config, which validates required

@@ -168,7 +168,7 @@ export async function createRole(
 
 /**
  * Update a custom Role's name/description/permissions. Seeded (`system`)
- * Roles are immutable here. Bumps `tokenVersion` for every current member when
+ * Roles are immutable here. Bumps `claimsVersion` for every current member when
  * permissions change so the new grants take effect on their next token refresh.
  *
  * `actor` is the caller's permission ceiling, applied in BOTH directions:
@@ -216,7 +216,7 @@ export async function updateRole(
     permsChanged = true;
   }
 
-  // Atomic: the Role edit and the members' tokenVersion bump must commit
+  // Atomic: the Role edit and the members' claimsVersion bump must commit
   // together. A crash between them would otherwise persist the new permissions
   // while leaving members' JWTs carrying the OLD grants until token expiry — a
   // stale-permission window. Mirrors how `deleteRole` already threads a session.
@@ -226,17 +226,17 @@ export async function updateRole(
     // Permission change must reach members' JWTs — invalidate their access tokens.
     if (permsChanged) {
       // USERS only: a service account assigned to this Role holds no session and
-      // no `tokenVersion` — its next exchange (≤5 minutes) re-derives the new
+      // no `claimsVersion` — its next exchange (≤5 minutes) re-derives the new
       // permissions, so there is nothing to invalidate for it.
       bumpedMemberIds = (await RoleAssignment.find({ roleId, userId: { $ne: null } }).session(session).select('userId').lean())
         .map((m) => m.userId)
         .filter((id): id is mongoose.Types.ObjectId => !!id);
       if (bumpedMemberIds.length > 0) {
-        await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { tokenVersion: 1 } }, { session });
+        await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { claimsVersion: 1 } }, { session });
       }
     }
   });
-  // Post-commit: publish the members' now-current tokenVersion so the stateless
+  // Post-commit: publish the members' now-current access version so the stateless
   // services reject their in-flight tokens immediately (best-effort).
   await publishUsersRevocation(bumpedMemberIds);
 
@@ -253,7 +253,7 @@ export async function updateRole(
 }
 
 /**
- * Delete a custom Role and all its assignments, bumping `tokenVersion` for each
+ * Delete a custom Role and all its assignments, bumping `claimsVersion` for each
  * affected member. Seeded (`system`) Roles can't be deleted.
  * Throws `RL_ROLE_NOT_FOUND`, `RL_SYSTEM_IMMUTABLE`.
  */
@@ -280,10 +280,10 @@ export async function deleteRole(orgId: string, roleId: string, actor: RoleAssig
     await RoleAssignment.deleteMany({ roleId }, { session });
     await Role.deleteOne({ _id: roleId }, { session });
     if (bumpedMemberIds.length > 0) {
-      await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { tokenVersion: 1 } }, { session });
+      await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { claimsVersion: 1 } }, { session });
     }
   });
-  // Post-commit: publish the affected members' now-current tokenVersion.
+  // Post-commit: publish the affected members' now-current access version.
   await publishUsersRevocation(bumpedMemberIds);
   logger.info('Deleted custom Role', { organizationId: orgId, roleId });
 }
@@ -368,10 +368,10 @@ export async function addUserToRole(
     await recomputeUserOrgRole(user._id, oid, session);
     // An assignment change alters the user's effective PERMISSIONS (carried in the
     // JWT), even when the cached role doesn't flip (custom permission-only Role).
-    // Bump tokenVersion so a refresh reissues a token with the new grants.
-    await User.updateOne({ _id: user._id }, { $inc: { tokenVersion: 1 } }, { session });
+    // Bump claimsVersion so a refresh reissues a token with the new grants.
+    await User.updateOne({ _id: user._id }, { $inc: { claimsVersion: 1 } }, { session });
   });
-  // Post-commit: publish the user's now-current tokenVersion.
+  // Post-commit: publish the user's now-current access version.
   await publishUserRevocation(String(user._id));
 
   logger.info('Assigned user to Role', { organizationId: orgId, roleId, userId: String(user._id) });
@@ -505,9 +505,9 @@ export async function removeUserFromRole(
     await RoleAssignment.deleteOne({ userId, roleId }, { session });
     await recomputeUserOrgRole(userId, oid, session);
     // Assignment change alters effective permissions (JWT) — force a reissue.
-    await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } }, { session });
+    await User.updateOne({ _id: userId }, { $inc: { claimsVersion: 1 } }, { session });
   });
-  // Post-commit: publish the user's now-current tokenVersion.
+  // Post-commit: publish the user's now-current access version.
   await publishUserRevocation(String(userId));
 
   logger.info('Removed user from Role', { organizationId: orgId, roleId, userId });

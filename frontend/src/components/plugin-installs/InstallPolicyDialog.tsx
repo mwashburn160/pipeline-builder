@@ -20,7 +20,7 @@ import type { ListingVersionState, VersionPolicy } from '@/types/plugin-installs
  * yanked and paused versions can't be picked.
  */
 export function InstallPolicyDialog({
-  publisher, name, title, initialPolicy = 'minor', initialVersion, submitLabel = 'Save', onSubmit, onClose,
+  publisher, name, title, initialPolicy = 'minor', initialVersion, submitLabel = 'Save', latestNeedsApproval = false, onSubmit, onClose,
 }: {
   publisher: string;
   name: string;
@@ -28,6 +28,10 @@ export function InstallPolicyDialog({
   initialPolicy?: VersionPolicy;
   initialVersion?: string | null;
   submitLabel?: string;
+  /** Widening to `latest` needs an approver for this caller: choosing it sends
+   *  a change REQUEST (the caller's `onSubmit` turns the server's `requestable`
+   *  refusal into one), so the option says so. */
+  latestNeedsApproval?: boolean;
   /** `version` is undefined for "the latest stable version" (server default). */
   onSubmit: (body: { versionPolicy: VersionPolicy; version?: string }) => Promise<void>;
   onClose: () => void;
@@ -67,9 +71,18 @@ export function InstallPolicyDialog({
         <p className="text-sm text-fg-muted">
           <span className="font-mono">{publisher}/{name}</span>
         </p>
-        <FormField label="Version policy" hint="Which new versions your pipelines pick up automatically. A major version never flows in without an upgrade.">
+        <FormField
+          label="Version policy"
+          hint={latestNeedsApproval && initialPolicy !== 'latest'
+            ? 'Following every new version (latest) needs an approver in your organization — choosing it sends them a request.'
+            : 'Which new versions your pipelines pick up automatically. A major version never flows in without an upgrade.'}
+        >
           <Select aria-label="Version policy" value={policy} onChange={(e) => setPolicy(e.target.value as VersionPolicy)}>
-            {VERSION_POLICIES.map((p) => <option key={p} value={p}>{VERSION_POLICY_LABELS[p]}</option>)}
+            {VERSION_POLICIES.map((p) => (
+              <option key={p} value={p}>
+                {VERSION_POLICY_LABELS[p]}{p === 'latest' && latestNeedsApproval && initialPolicy !== 'latest' ? ' (sends a request to an approver)' : ''}
+              </option>
+            ))}
           </Select>
         </FormField>
         <FormField label="Baseline version" hint="The version the policy's range starts from.">

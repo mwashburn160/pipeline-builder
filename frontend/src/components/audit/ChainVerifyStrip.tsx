@@ -1,13 +1,27 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import type { AuditChainVerification } from '@/types/audit';
+import type { AuditChainBreak, AuditChainVerification } from '@/types/audit';
+
+const BREAK_TEXT: Record<AuditChainBreak, string> = {
+  'hash-mismatch': 'an event was altered',
+  'broken-link': 'an event was deleted or re-ordered',
+  'sequence-gap': 'an event was deleted',
+  'head-mismatch': 'the chain diverges from its published head',
+  'tail-truncated': 'the newest events were deleted (chain no longer reaches its head)',
+  'published-head-invalid': 'the published chain head failed its signature check',
+};
+
+function describeBreak(result: AuditChainVerification): string {
+  const what = result.reason ? BREAK_TEXT[result.reason] : 'chain broken';
+  return result.brokenAt ? `${what} (at ${result.brokenAt})` : what;
+}
 
 interface ChainVerifyStripProps {
   /** Org whose hash-chain is verified; empty means "nothing in scope". */
@@ -26,22 +40,41 @@ export function ChainVerifyStrip({ orgId, renderOrgRef }: ChainVerifyStripProps)
   const [result, setResult] = useState<AuditChainVerification | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset any stale verify result when the org in scope changes.
-  useEffect(() => { setResult(null); setError(null); }, [orgId]);
+  // The verification in flight, and which org it is for. A verify started for
+  // org A that resolved after the scope moved to org B used to paint A's
+  // verdict ("Chain intact") next to B's name.
+  const inFlight = useRef<{ orgId: string; ctrl: AbortController } | null>(null);
+
+  // Reset any stale verify result — and drop the one in flight — when the org
+  // in scope changes (and on unmount).
+  useEffect(() => {
+    setResult(null);
+    setError(null);
+    setVerifying(false);
+    return () => { inFlight.current?.ctrl.abort(); inFlight.current = null; };
+  }, [orgId]);
 
   const runVerify = async () => {
     if (!orgId) return;
+    inFlight.current?.ctrl.abort();
+    const mine = { orgId, ctrl: new AbortController() };
+    inFlight.current = mine;
     setVerifying(true);
     setResult(null);
     setError(null);
     try {
-      const res = await api.verifyAuditChain(orgId);
+      const res = await api.verifyAuditChain(orgId, { signal: mine.ctrl.signal });
+      if (inFlight.current !== mine) return; // superseded or scope moved
       if (res.success && res.data) setResult(res.data);
       else setError(res.message || 'Failed to verify audit chain');
     } catch (e) {
+      if (inFlight.current !== mine) return;
       setError(formatError(e, 'Failed to verify audit chain'));
     } finally {
-      setVerifying(false);
+      if (inFlight.current === mine) {
+        inFlight.current = null;
+        setVerifying(false);
+      }
     }
   };
 
@@ -80,7 +113,7 @@ export function ChainVerifyStrip({ orgId, renderOrgRef }: ChainVerifyStripProps)
         <Badge color="red">
           <span className="inline-flex items-center gap-1">
             <ShieldAlert className="w-3.5 h-3.5" />
-            TAMPER DETECTED — chain broken at {result.brokenAt ?? 'unknown'}
+            TAMPER DETECTED — {describeBreak(result)}
           </span>
         </Badge>
       ))}

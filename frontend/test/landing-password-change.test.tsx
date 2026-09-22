@@ -21,7 +21,7 @@ const completeRequiredPasswordChange = jest.fn<AnyFn>();
 const loginWithPasskey = jest.fn<AnyFn>();
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
-  useAuth: () => ({ login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, isLoading: false }),
+  useAuth: () => ({ login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, isSubmitting: false }),
 }));
 jest.mock('next/router', () => ({
   __esModule: true,

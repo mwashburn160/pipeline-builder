@@ -7,27 +7,28 @@
  * fire-and-forget (never throws to the caller).
  */
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 jest.unstable_mockModule('../src/utils/logger.js', () => ({
   createLogger: () => ({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
+    info: jest.fn<AnyFn>(),
+    warn: jest.fn<AnyFn>(),
+    error: jest.fn<AnyFn>(),
+    debug: jest.fn<AnyFn>(),
   }),
 }));
 
 jest.unstable_mockModule('../src/middleware/auth.js', () => ({
   getServiceAuthHeader: jest.fn(() => 'service-token-raw'),
   // wireAuthzDenialAuditor registers via this; capture the sink for assertions.
-  setAuthzDenialAuditor: jest.fn(),
+  setAuthzDenialAuditor: jest.fn<AnyFn>(),
 }));
 
 // Capture the post() calls made by the client under test.
 const mockPost = jest.fn<(...args: any[]) => Promise<any>>();
 jest.unstable_mockModule('../src/services/http-client.js', () => ({
-  createSafeClient: () => ({ post: mockPost, get: jest.fn(), put: jest.fn(), delete: jest.fn() }),
+  createSafeClient: () => ({ post: mockPost, get: jest.fn<AnyFn>(), put: jest.fn<AnyFn>(), delete: jest.fn<AnyFn>() }),
 }));
 
 const { createRemoteAuditClient, wireAuthzDenialAuditor } = await import('../src/services/remote-audit-client.js');
@@ -58,10 +59,10 @@ describe('createRemoteAuditClient.record', () => {
     // runServer's crash handler exited, and the pod crash-looped on its first
     // audited write or authz.denied event.
     const { getServiceAuthHeader } = await import('../src/middleware/auth.js');
-    (getServiceAuthHeader as jest.Mock).mockImplementationOnce(() => {
+    (getServiceAuthHeader as jest.Mock<AnyFn>).mockImplementationOnce(() => {
       throw new Error('service signing key unavailable');
     });
-    const unhandled = jest.fn();
+    const unhandled = jest.fn<AnyFn>();
     process.on('unhandledRejection', unhandled);
     try {
       const client = createRemoteAuditClient();
@@ -131,7 +132,7 @@ describe('wireAuthzDenialAuditor', () => {
   afterEach(() => { jest.clearAllMocks(); });
 
   it('registers a sink that forwards a failure-outcome authz.denied event to the client', () => {
-    const record = jest.fn();
+    const record = jest.fn<AnyFn>();
     const fakeClient = { record } as any;
     wireAuthzDenialAuditor('pipeline', () => fakeClient);
 
@@ -152,7 +153,7 @@ describe('wireAuthzDenialAuditor', () => {
   });
 
   it('defaults a missing actorId to "anonymous"', () => {
-    const record = jest.fn();
+    const record = jest.fn<AnyFn>();
     wireAuthzDenialAuditor('quota', () => ({ record } as any));
     const sink = (setAuthzDenialAuditor as any).mock.calls[0][0] as (info: any) => void;
     sink({ method: 'DELETE', path: '/quotas/x', required: 'system-admin' });
@@ -172,6 +173,7 @@ describe('remote-audit spool integration', () => {
       ack: async () => undefined,
       requeue: async (es: any[]) => { buf.unshift(...es); },
       recover: async () => 0,
+      heartbeat: async () => undefined,
       depth: async () => buf.length,
     };
   }

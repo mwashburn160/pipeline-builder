@@ -11,13 +11,15 @@
  *   - clears the interval on `stopQueueMetricsScraper` and on SIGTERM
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import type { Queue } from 'bullmq';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockSetGauge = jest.fn();
+const mockSetGauge = jest.fn<AnyFn>();
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   setGauge: mockSetGauge,
 }));
 
@@ -30,7 +32,7 @@ const {
 
 function makeQueue(counts: Record<string, number>): Queue {
   return {
-    getJobCounts: jest.fn().mockResolvedValue(counts),
+    getJobCounts: jest.fn<AnyFn>().mockResolvedValue(counts),
   } as unknown as Queue;
 }
 
@@ -95,7 +97,7 @@ describe('startQueueMetricsScraper', () => {
 
   it('does not crash on a Redis failure mid-scrape', async () => {
     const broken = {
-      getJobCounts: jest.fn().mockRejectedValue(new Error('ECONNRESET')),
+      getJobCounts: jest.fn<AnyFn>().mockRejectedValue(new Error('ECONNRESET')),
     } as unknown as Queue;
     startQueueMetricsScraper([{ name: 'plugin-build', queue: broken }], 1000);
     await Promise.resolve();
@@ -114,7 +116,7 @@ describe('startQueueMetricsScraper', () => {
     await Promise.resolve();
     await Promise.resolve();
     // Only one immediate sample, not two
-    const queueCallCount = (q.getJobCounts as jest.Mock).mock.calls.length;
+    const queueCallCount = (q.getJobCounts as jest.Mock<AnyFn>).mock.calls.length;
     expect(queueCallCount).toBe(1);
   });
 });
@@ -125,12 +127,12 @@ describe('stopQueueMetricsScraper', () => {
     startQueueMetricsScraper([{ name: 'plugin-build', queue: q }], 1000);
     await Promise.resolve();
     await Promise.resolve();
-    const before = (q.getJobCounts as jest.Mock).mock.calls.length;
+    const before = (q.getJobCounts as jest.Mock<AnyFn>).mock.calls.length;
 
     stopQueueMetricsScraper();
     jest.advanceTimersByTime(5000);
     await Promise.resolve();
     await Promise.resolve();
-    expect((q.getJobCounts as jest.Mock).mock.calls.length).toBe(before);
+    expect((q.getJobCounts as jest.Mock<AnyFn>).mock.calls.length).toBe(before);
   });
 });

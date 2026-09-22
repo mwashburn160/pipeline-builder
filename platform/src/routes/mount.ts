@@ -21,7 +21,7 @@ import type { Express, RequestHandler } from 'express';
 import {
   authRoutes, deviceAuthRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes,
   invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes,
-  orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminSummaryRoutes, impersonateRoutes,
+  orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminConsoleRoutes, adminSummaryRoutes, impersonateRoutes,
   scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes,
 } from './index.js';
 
@@ -87,6 +87,9 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/admin/orgs/:orgId/k8s-namespace.yaml', orgNamespaceRoutes);
   app.use('/admin/users/:id/grants', userGrantsRoutes);
   app.use('/admin/users/:id/mfa-reset', mfaResetAdminRoutes);
+  // nginx's auth_request gate for the admin consoles (pgAdmin/mongo-express/
+  // Grafana/Kiali) on the AWS targets.
+  app.use('/admin/console-check', adminConsoleRoutes);
   app.use('/admin/summary', adminSummaryRoutes);
   app.use('/admin/impersonate', impersonateRoutes);
 }

@@ -259,7 +259,7 @@ class UserProfileService {
     const deleted = await withMongoTransaction((session) => deleteUserCascade(session, userId));
     if (!deleted) throw new Error(PROFILE_USER_NOT_FOUND);
     // Revoke the deleted user's outstanding tokens on the stateless services.
-    await publishUserDeletionRevocation(userId, deleted.tokenVersion);
+    await publishUserDeletionRevocation(userId, deleted.accessVersion);
     logger.info('Account deleted', { userId });
   }
 
@@ -278,7 +278,10 @@ class UserProfileService {
     await assertNewPasswordAcceptable(newPassword, { userId });
 
     user.password = newPassword;
+    // HARD revocation: every session ends (tokenVersion) and every refresh slot
+    // is dropped — a password change is what someone does when they fear theft.
     user.tokenVersion += 1;
+    user.refreshSessions = [];
     await user.save();
     // Post-commit: publish the now-current tokenVersion so the stateless services
     // reject every outstanding token immediately (best-effort).
@@ -377,6 +380,8 @@ class UserProfileService {
       // For a machine slot this is the last RENEWAL; for an interactive one the
       // last refresh / org switch.
       lastUsedAt: new Date(slot.lastUsedAt).toISOString(),
+      // A machine credential's fixed end (null = ends with its refresh token).
+      expiresAt: slot.expiresAt ? new Date(slot.expiresAt).toISOString() : null,
       signedInAt: new Date(slot.authTime).toISOString(),
       userAgent: slot.userAgent ?? null,
       lastIp: slot.lastIp ?? null,
@@ -406,8 +411,9 @@ class UserProfileService {
 
   /**
    * Revoke ONE session slot: that device is signed out, or that stored machine
-   * credential stops renewing (its current access token still works until it
-   * expires — "sign out everywhere" is the immediate kill switch). Returns the
+   * credential stops. Its current access token dies with it — platform checks
+   * the slot, and `revoke:sid:<sid>` is published for every other service (see
+   * `authService.revokeRefreshSession`). Returns the
    * revoked slot's kind, or null when the user has no such slot.
    */
   async revokeSession(userId: string, sessionId: string): Promise<{ kind: RefreshSession['kind'] } | null> {

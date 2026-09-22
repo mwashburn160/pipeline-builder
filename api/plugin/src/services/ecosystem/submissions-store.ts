@@ -24,7 +24,7 @@ import {
   type PluginSubmissionInsert,
   type SubmissionStatus,
 } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, gte, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 
 type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 
@@ -50,12 +50,30 @@ export const submissions = {
       if (filter.listingId) where.push(eq(S().listingId, filter.listingId));
       return tx.select().from(S()).where(and(...where)).orderBy(desc(S().createdAt)).limit(filter.limit ?? 5_000);
     }),
-  /** Submissions created since `since` by this email hash (the per-email daily cap). */
-  countByEmailSince: (emailHash: string, since: Date): Promise<number> =>
-    elevated(async (tx) => (await tx.select({ id: S().id }).from(S()).where(and(eq(S().emailHash, emailHash), gte(S().createdAt, since)))).length),
-  /** Submissions created since `since` from this client-IP hash (the per-IP daily cap). */
-  countByIpSince: (ipHash: string, since: Date): Promise<number> =>
-    elevated(async (tx) => (await tx.select({ id: S().id }).from(S()).where(and(eq(S().clientIpHash, ipHash), gte(S().createdAt, since)))).length),
+  /** Undecided submissions whose `expires_at` has passed, oldest first (the expiry sweep, E4). */
+  dueForExpiry: (now: Date, limit: number): Promise<PluginSubmission[]> =>
+    elevated(async (tx) => tx.select().from(S())
+      .where(and(inArray(S().status, ['pending_verification', 'pending_review']), lte(S().expiresAt, now)))
+      .orderBy(asc(S().expiresAt)).limit(limit)),
+  /**
+   * Null both email columns of up to `limit` decided submissions whose
+   * `email_purge_after` has passed — one statement, the predicate in SQL, so
+   * the purge never depends on a row cap. Returns how many rows it cleared.
+   */
+  purgeEmails: (now: Date, limit: number): Promise<number> =>
+    elevated(async (tx) => {
+      const res = await tx.execute(sql`
+        UPDATE plugin_submissions
+           SET email_hash = NULL, email_enc = NULL, updated_at = now()
+         WHERE id IN (
+           SELECT id FROM plugin_submissions
+            WHERE email_purge_after <= ${now}
+              AND (email_hash IS NOT NULL OR email_enc IS NOT NULL)
+            LIMIT ${limit})
+        RETURNING id`);
+      const rows = (res as { rows?: unknown[] } | null)?.rows;
+      return Array.isArray(rows) ? rows.length : 0;
+    }),
   insert: (values: PluginSubmissionInsert): Promise<PluginSubmission> =>
     elevated(async (tx) => (await tx.insert(S()).values(values).returning())[0] as PluginSubmission),
   update: (id: string, patch: Partial<PluginSubmissionInsert>): Promise<PluginSubmission | null> =>
@@ -82,13 +100,18 @@ export const TOP_LISTINGS_FOR_NAMES = 100;
  */
 export async function topInstalledListings(limit = TOP_LISTINGS_FOR_NAMES): Promise<Array<Pick<PluginListing, 'id' | 'name' | 'publisherId'>>> {
   return elevated(async (tx) => {
-    const stats = (await tx.select().from(schema.pluginStats))
-      .filter((s) => (s.installCount ?? 0) > 0)
-      .sort((a, b) => (b.installCount ?? 0) - (a.installCount ?? 0))
-      .slice(0, limit);
-    if (stats.length === 0) return [];
-    const rows = await tx.select().from(schema.pluginListing).where(inArray(schema.pluginListing.id, stats.map((s) => s.listingId)));
-    return rows.map((l) => ({ id: l.id, name: l.name, publisherId: l.publisherId }));
+    // Ordered and limited in SQL (E13) — never the whole stats table in memory.
+    const top = await tx.select({ listingId: schema.pluginStats.listingId, installCount: schema.pluginStats.installCount })
+      .from(schema.pluginStats)
+      .where(gt(schema.pluginStats.installCount, 0))
+      .orderBy(desc(schema.pluginStats.installCount))
+      .limit(limit);
+    if (top.length === 0) return [];
+    const rows = await tx.select({ id: schema.pluginListing.id, name: schema.pluginListing.name, publisherId: schema.pluginListing.publisherId })
+      .from(schema.pluginListing)
+      .where(inArray(schema.pluginListing.id, top.map((s) => s.listingId)));
+    const rank = new Map(top.map((s, i) => [s.listingId, i]));
+    return rows.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
   });
 }
 

@@ -81,7 +81,6 @@ function CuratedMark({ iconKey, className }: { iconKey: string; className: strin
   if (!asset) return null;
   return asset.hex
     ? <MaskMark url={asset.url} hex={asset.hex} className={className} />
-    // eslint-disable-next-line @next/next/no-img-element
     : <img src={asset.url} alt="" className={`object-contain ${className}`} />;
 }
 
@@ -135,7 +134,6 @@ export function PluginIcon({ listing, size = 'md' }: { listing: IconFields; size
   if (uploaded) {
     return (
       <span className={`${tile} overflow-hidden`} data-testid="plugin-icon-uploaded">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={uploaded} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
       </span>
     );

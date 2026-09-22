@@ -177,14 +177,14 @@ describe('DiscountsPage — extracted modals', () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Discount created'));
   });
 
-  it('applies a discount to an org picked from the loaded options', async () => {
+  it('applies a discount to an org picked from a server search', async () => {
     listPage.data = [discount];
     apiMock.applyDiscountToOrg.mockResolvedValue({ success: true, data: {} });
     render(<DiscountsPage />);
 
     fireEvent.click(screen.getByRole('button', { name: /Apply to org/ }));
-    await screen.findByRole('option', { name: 'Acme' });
-    fireEvent.change(screen.getByLabelText('Target organization'), { target: { value: 'org-a' } });
+    fireEvent.focus(screen.getByLabelText('Target organization'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Acme' }));
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     await waitFor(() => expect(apiMock.applyDiscountToOrg).toHaveBeenCalledWith('d1', 'org-a'));

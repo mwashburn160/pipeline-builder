@@ -28,10 +28,12 @@ import {
   type TokenScope,
 } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
+import { MFA_REQUIRED_FOR_ORG } from './auth-errors.js';
 import { PROFILE_PAT_LIMIT, PROFILE_USER_NOT_FOUND } from './user-errors.js';
 import type { ClientInfo } from '../helpers/client-info.js';
+import { publishAccessKeyRevocation } from '../helpers/session-revocation.js';
 import { PersonalAccessToken, User, type PersonalAccessTokenDocument } from '../models/index.js';
-import { membershipForOrg, signApiKeyToken, signServiceAccountToken, type SessionAuth } from '../utils/token.js';
+import { enforceOrgAssurance, membershipForOrg, signApiKeyToken, signServiceAccountToken, type SessionAuth } from '../utils/token.js';
 
 const logger = createLogger('api-key-service');
 
@@ -89,6 +91,9 @@ export type ExchangeRefusal =
   | 'expired'
   | 'user_gone'
   | 'authority_revoked'
+  // The key's org requires MFA and the key was created from a single-factor
+  // session (or its passkey is not on the org's authenticator allowlist).
+  | 'mfa_required'
   // Service-account keys (`pb_sa_…`) add their own refusals — see
   // `service-account-service.resolveServiceAccountExchange`.
   | 'account_gone'
@@ -123,14 +128,17 @@ export type ExchangeResult = ExchangeSuccess | { ok: false; reason: ExchangeRefu
 /**
  * Why a self-rotation was refused. Extends {@link ExchangeRefusal} with the
  * reasons only rotation has: the presented key is a person's (`not_service_account`),
- * the caller asked to revoke the key it presented (`self_revoke`), the requested
- * lifetime is out of range (`expiry_invalid`), or the account is at its
- * active-key cap with nothing safe to retire (`key_limit`).
+ * the caller asked to revoke the key it presented (`self_revoke`) or a sibling
+ * NEWER than it (`newer_sibling` — only a key's predecessors are its to retire),
+ * the requested lifetime is out of range or longer than the presented key's own
+ * (`expiry_invalid`), or the account is at its active-key cap with nothing safe
+ * to retire (`key_limit`).
  */
 export type RotationRefusal =
   | ExchangeRefusal
   | 'not_service_account'
   | 'self_revoke'
+  | 'newer_sibling'
   | 'expiry_invalid'
   | 'key_limit';
 
@@ -249,6 +257,10 @@ class ApiKeyService {
       amr: auth.amr,
       aal: auth.aal,
       authTime: auth.authTime,
+      // The passkey model behind a `webauthn` session, so every exchange can
+      // re-apply the key's org authenticator allowlist.
+      ...(auth.aaguid ? { aaguid: auth.aaguid } : {}),
+      ...(auth.aalAssertedBy ? { aalAssertedBy: auth.aalAssertedBy } : {}),
     });
     return { key, view: toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown }) };
   }
@@ -344,7 +356,10 @@ class ApiKeyService {
       { $set: { revoked: true, revokedAt: new Date() } },
       { returnDocument: 'after' },
     ).lean();
-    return doc ? toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown }) : null;
+    if (!doc) return null;
+    // Its live exchanged token dies now, everywhere (`revoke:key:<id>`).
+    await publishAccessKeyRevocation(id);
+    return toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown });
   }
 
   /** Delete every key of the given service accounts (account delete). The ORG
@@ -364,7 +379,11 @@ class ApiKeyService {
       { $set: { revoked: true, revokedAt: new Date() } },
       { returnDocument: 'after' },
     ).lean();
-    return doc ? toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown }) : null;
+    if (!doc) return null;
+    // The key's live exchanged token (`jti` = key id) dies now, everywhere:
+    // platform checks the record; other services read `revoke:key:<id>`.
+    await publishAccessKeyRevocation(id);
+    return toView(doc as unknown as PersonalAccessTokenDocument & { _id: unknown });
   }
 
   /**
@@ -420,6 +439,25 @@ class ApiKeyService {
     }
 
     const scope = (record.scope ?? undefined) as TokenScope | undefined;
+    // The org's assurance rules apply to a key exactly as to a session — the
+    // SAME enforcement point (`enforceOrgAssurance`): the org's authenticator
+    // allowlist can demote the key's passkey-earned `aal`, and an org that now
+    // requires MFA refuses a key created from a single-factor session. A
+    // capability-scoped key is the same deliberate carve-out as a scoped
+    // machine session.
+    let auth: SessionAuth;
+    try {
+      auth = await enforceOrgAssurance(user, membership, {
+        amr: record.amr ?? [],
+        aal: record.aal,
+        authTime: new Date(record.authTime),
+        ...(record.aaguid ? { aaguid: record.aaguid } : {}),
+        ...(record.aalAssertedBy ? { aalAssertedBy: record.aalAssertedBy } : {}),
+      }, { scope });
+    } catch (err) {
+      if (err instanceof Error && err.message === MFA_REQUIRED_FOR_ORG) return { ok: false, reason: 'mfa_required' };
+      throw err;
+    }
     // A permission-scoped key carries subset ∩ the owner's CURRENT permissions
     // in the key's org — re-derived here, on every exchange.
     const permissions = Array.isArray(record.permissions) ? record.permissions : undefined;
@@ -427,7 +465,7 @@ class ApiKeyService {
       user,
       membership,
       String(record._id),
-      { amr: record.amr, aal: record.aal, authTime: new Date(record.authTime) },
+      auth,
       scope,
       permissions,
     );
@@ -549,12 +587,17 @@ class ApiKeyService {
 
     // Lifetime: what the caller asked for, else the ORIGINAL lifetime of the key
     // being replaced (so a 30-day credential stays a 30-day credential without
-    // the rotator having to know the number). Clamped to the 365-day ceiling.
+    // the rotator having to know the number). NEVER longer than that original
+    // lifetime: a rotation replaces a credential, it does not upgrade one — a
+    // leaked 1-day key must not be able to mint itself a 365-day successor.
     const previousLifetimeSec = Math.round(
       (new Date(record.doc.expiresAt).getTime() - new Date(record.doc.createdAt).getTime()) / 1000,
     );
     const requested = input.expiresInSeconds ?? previousLifetimeSec;
-    if (!Number.isFinite(requested) || requested < 60 || requested > MAX_KEY_EXPIRES_IN_SECONDS) {
+    if (
+      !Number.isFinite(requested) || requested < 60
+      || requested > MAX_KEY_EXPIRES_IN_SECONDS || requested > previousLifetimeSec
+    ) {
       return { ok: false, reason: 'expiry_invalid' };
     }
     const expiresInSeconds = Math.floor(requested);
@@ -568,11 +611,16 @@ class ApiKeyService {
         serviceAccountId: new Types.ObjectId(accountId), revoked: false, expiresAt: { $gt: new Date() },
       }).sort({ createdAt: 1 }).lean();
       if (active.length < MAX_ACTIVE_KEYS_PER_ACCOUNT) break;
-      const victim = active.find((k) => String(k._id) !== String(record.doc._id));
-      // Only the presented key is active and we are at the cap (cap of 1): there
-      // is nothing safe to retire, so refuse rather than orphan the caller.
+      // Only a PREDECESSOR of the presented key may be retired — the same rule as
+      // `revokeSiblingKey`, so a stale key can't clear out its newer siblings.
+      const presentedAt = new Date(record.doc.createdAt).getTime();
+      const victim = active.find((k) => String(k._id) !== String(record.doc._id)
+        && new Date(k.createdAt).getTime() < presentedAt);
+      // Nothing older than the presented key is active and we are at the cap:
+      // there is nothing safe to retire, so refuse rather than orphan the caller.
       if (!victim) return { ok: false, reason: 'key_limit' };
       await PersonalAccessToken.updateOne({ _id: victim._id }, { $set: { revoked: true, revokedAt: new Date() } });
+      await publishAccessKeyRevocation(String(victim._id));
       prunedKeyIds.push(String(victim._id));
     }
 
@@ -603,7 +651,10 @@ class ApiKeyService {
    * second half of a rotation, once the replacement is safely stored.
    *
    * Refuses to revoke the presented key itself (`self_revoke`): the whole point
-   * of the ordering is that the caller always holds a working credential.
+   * of the ordering is that the caller always holds a working credential. And
+   * only a key's PREDECESSORS are its to retire (`newer_sibling` otherwise): the
+   * rotated-in key revokes the one it replaced, never a sibling issued after it
+   * — so a stale or leaked older key cannot knock out the account's newer ones.
    */
   async revokeSiblingKey(
     rawKey: string,
@@ -621,15 +672,26 @@ class ApiKeyService {
     );
     if (!resolved.ok) return { ok: false, reason: resolved.reason };
 
+    const target = await PersonalAccessToken.findOne({
+      _id: new Types.ObjectId(keyId),
+      serviceAccountId: new Types.ObjectId(String(record.doc.serviceAccountId)),
+    }).select('createdAt').lean();
+    if (target && new Date(target.createdAt).getTime() >= new Date(record.doc.createdAt).getTime()) {
+      return { ok: false, reason: 'newer_sibling' };
+    }
+
     const revoked = await PersonalAccessToken.findOneAndUpdate(
       {
         _id: new Types.ObjectId(keyId),
         serviceAccountId: new Types.ObjectId(String(record.doc.serviceAccountId)),
         revoked: false,
+        // Re-asserted in the write: only a predecessor of the presented key.
+        createdAt: { $lt: new Date(record.doc.createdAt) },
       },
       { $set: { revoked: true, revokedAt: new Date() } },
       { returnDocument: 'after' },
     ).lean();
+    if (revoked) await publishAccessKeyRevocation(keyId);
     // Already revoked (or never this account's) is IDEMPOTENT success for a
     // rotator: the desired end state — that key cannot be exchanged — holds.
     return {
@@ -663,10 +725,10 @@ class ApiKeyService {
 
   /** Revoke every live key a user holds (sign out everywhere, account teardown). */
   async revokeAllForUser(userId: string): Promise<void> {
-    await PersonalAccessToken.updateMany(
-      { userId: new Types.ObjectId(String(userId)), revoked: false },
-      { $set: { revoked: true, revokedAt: new Date() } },
-    );
+    const filter = { userId: new Types.ObjectId(String(userId)), revoked: false };
+    const live = await PersonalAccessToken.find(filter).select('_id').lean();
+    await PersonalAccessToken.updateMany(filter, { $set: { revoked: true, revokedAt: new Date() } });
+    await publishAccessKeyRevocation(live.map((k) => String(k._id)));
   }
 }
 

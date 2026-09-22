@@ -15,11 +15,13 @@
  * - Forwards caller orgId (lowercased) to the SQL parameters.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockFindById = jest.fn();
-const mockExecute = jest.fn();
+const mockFindById = jest.fn<AnyFn>();
+const mockExecute = jest.fn<AnyFn>();
 
 // The listing half of lookup (plan §3.5) — unit-tested in installs-lookup.test.ts.
 jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
@@ -28,7 +30,7 @@ jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
   verifyListedImage: jest.fn(async () => undefined),
 }));
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
-  pluginService: { findById: mockFindById, find: jest.fn(), findPaginated: jest.fn() },
+  pluginService: { findById: mockFindById, find: jest.fn<AnyFn>(), findPaginated: jest.fn<AnyFn>() },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -38,41 +40,33 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any) => {
     res.status(statusCode).json({ success: true, statusCode, data });
   }),
-  sendPaginatedNested: jest.fn(),
-  sendEntityNotFound: jest.fn(),
+  sendPaginatedNested: jest.fn<AnyFn>(),
+  sendEntityNotFound: jest.fn<AnyFn>(),
   normalizeArrayFields: (x: any) => x,
   validateQuery: () => ({ ok: true, value: {} }),
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   PluginFilterSchema: {},
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
-  incCounter: jest.fn(),
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  incCounter: jest.fn<AnyFn>(),
   withRoute: (h: Function) => async (req: any, res: any) => {
-    await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId ?? 'org-1', userId: 'u-1' });
+    await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId ?? 'org-1', userId: 'u-1' });
   },
-  incrementQuotaFromCtx: jest.fn(),
+  incrementQuotaFromCtx: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
-  verifyImageSignature: jest.fn(),
-  fetchImageSbom: jest.fn(),
+  verifyImageSignature: jest.fn<AnyFn>(),
+  fetchImageSbom: jest.fn<AnyFn>(),
   ImageVerificationError: class extends Error {},
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
   CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
   Config: { get: () => ({}) },
-  // The route was migrated from direct `db.execute(...)` to
-  // `withTenantTx(tx => tx.execute(...))`. The mock hands back a tx whose
-  // execute funnels through the same mockExecute spy so per-test
-  // mockExecute.mockResolvedValue(...) calls still drive responses.
-  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
-    execute: (...args: unknown[]) => mockExecute(...args),
-  }),
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
   isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
   // The route was migrated from direct `db.execute(...)` to
@@ -86,7 +80,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 
 const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 
-const mockQuotaService = { increment: jest.fn(), check: jest.fn(), getUsage: jest.fn() } as any;
+const mockQuotaService = { increment: jest.fn<AnyFn>(), check: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() } as any;
 const router = createReadPluginRoutes(mockQuotaService);
 
 function getHandler(path: string) {
@@ -101,7 +95,7 @@ function getHandler(path: string) {
 }
 
 function mockRes() {
-  const res: any = { status: jest.fn(), json: jest.fn(), setHeader: jest.fn() };
+  const res: any = { status: jest.fn<AnyFn>(), json: jest.fn<AnyFn>(), setHeader: jest.fn<AnyFn>() };
   res.status.mockReturnValue(res);
   res.json.mockReturnValue(res);
   return res;

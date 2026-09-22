@@ -16,11 +16,20 @@ metadata:
   namespace: pipeline-builder
 data:
   pgbouncer.ini: |
+    # POOL SIZING vs Postgres max_connections. pgbouncer runs 2 replicas, and
+    # EACH opens its own server connections, so the budget is per replica x 2.
+    # Every database carries a hard max_db_connections (pool + reserve included):
+    #   15 + 10 + 20 + 35 + 5 (public) = 85 per replica  ->  170 for both,
+    # under postgres max_connections=200 (postgres.yaml), which leaves 30 for
+    # superuser_reserved_connections, the exporter, pgAdmin and db-backup. The
+    # old layout (25/20/40/80 + reserves, no caps) could ask for ~195 from ONE
+    # replica against Postgres' default of 100 — "sorry, too many clients".
+    # Raising a tier's pool means raising max_connections to match.
     [databases]
-    pipeline_builder = host=postgres port=5432 dbname=pipeline_builder
-    pipeline_builder_developer = host=postgres port=5432 dbname=pipeline_builder pool_size=20
-    pipeline_builder_pro       = host=postgres port=5432 dbname=pipeline_builder pool_size=40
-    pipeline_builder_unlimited = host=postgres port=5432 dbname=pipeline_builder pool_size=80
+    pipeline_builder = host=postgres port=5432 dbname=pipeline_builder pool_size=15 max_db_connections=15
+    pipeline_builder_developer = host=postgres port=5432 dbname=pipeline_builder pool_size=10 max_db_connections=10
+    pipeline_builder_pro       = host=postgres port=5432 dbname=pipeline_builder pool_size=20 max_db_connections=20
+    pipeline_builder_unlimited = host=postgres port=5432 dbname=pipeline_builder pool_size=35 max_db_connections=35
     # The anonymous public plugin directory (plugin-ecosystem §6a): only the
     # view-only ecosystem_public_reader logs in here, on a small separate pool.
     pipeline_builder_public = host=postgres port=5432 dbname=pipeline_builder pool_size=5 max_db_connections=5
@@ -84,7 +93,16 @@ metadata:
   labels:
     app: pgbouncer
 spec:
-  replicas: 1
+  # Two replicas: pgbouncer is the path EVERY service's DB connection takes, so
+  # one pod was a single point of failure (a node drain, an OOM or a bad
+  # sidecar dropped the Service to zero endpoints). Stateless — the pools are
+  # sized per replica (see the ConfigMap above) — so it rolls with no downtime.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: pgbouncer
@@ -98,6 +116,22 @@ spec:
         app: pgbouncer
     spec:
       serviceAccountName: pgbouncer
+      # Replicas on DIFFERENT nodes, and different AZs where possible: two pods on
+      # one node survive nothing a node failure or drain does. ScheduleAnyway so a
+      # small cluster still schedules both rather than leaving one Pending.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: pgbouncer
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: pgbouncer
       # Prometheus exporter, run as a NATIVE sidecar (an initContainer with
       # `restartPolicy: Always`) rather than a second entry under `containers`.
       # That distinction is load-bearing: a native sidecar reports under
@@ -251,3 +285,17 @@ spec:
         - name: config
           configMap:
             name: pgbouncer-config
+
+---
+# Keep at least one pgbouncer serving through voluntary disruptions (node
+# drains, Karpenter consolidation) — the whole fleet's DB path runs through it.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pgbouncer
+  namespace: pipeline-builder
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pgbouncer

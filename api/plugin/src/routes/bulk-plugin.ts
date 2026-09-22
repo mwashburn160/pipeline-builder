@@ -167,7 +167,9 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // Loaded once for both per-row gates below (visibility for non-admins, and
     // the compliance re-check for everyone).
     const recheck = needsComplianceRecheck(updateData);
-    const catalogEdited = PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(updateData, f));
+    // Catalog fields and visibility are frozen on a frozen/listed version (E19).
+    const catalogEdited = PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(updateData, f))
+      || updateData.visibility !== undefined;
     const matched = (!isSystemAdmin(req) || recheck || catalogEdited) ? await pluginService.findByIds(ids, orgId) : [];
     if (!isSystemAdmin(req)) {
       const forbidden = matched.filter(
@@ -212,6 +214,8 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     if (catalogEdited) {
       for (const row of matched) {
         if (row.orgId !== orgId) continue; // not the caller's row — updateMany won't touch it
+        const onlyVisibility = !PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(updateData, f));
+        if (onlyVisibility && row.visibility === updateData.visibility) continue; // no change to a frozen field
         const reason = await pluginService.versionImmutability(row);
         if (reason) skipped.push({ id: row.id, reason, statusCode: 409, code: ErrorCode.PLUGIN_VERSION_FROZEN });
       }

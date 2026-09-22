@@ -10,6 +10,7 @@
  * silently breaking all inter-service hierarchy/name lookups.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -31,6 +32,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stub: the auth middleware resolves impersonation sessions by jti.
   ImpersonationRequest: {},
+  // A revoked key's exchanged token is refused (live by default here).
+  PersonalAccessToken: { exists: async () => ({ _id: 'key' }) },
   // findById THROWS a CastError for a non-ObjectId sub — exactly what a
   // 'service:*' sub would trigger if the branch under test didn't short-circuit.
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
@@ -153,7 +156,7 @@ describe('service-token kill-switch (SERVICE_TOKEN_DENYLIST)', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
-    expect((res.json as jest.Mock).mock.calls[0][0]).toMatchObject({ code: 'TOKEN_REVOKED' });
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0]).toMatchObject({ code: 'TOKEN_REVOKED' });
   });
 
   it('requireServiceAuth still admits a service that is not denylisted', async () => {

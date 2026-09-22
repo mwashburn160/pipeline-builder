@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
-import { createEnvRedisAuditSpool, type AuditSpool, type AuditSpoolEntry } from './audit-spool.js';
+import { auditSpoolKey, createEnvRedisAuditSpool, type AuditSpool, type AuditSpoolEntry } from './audit-spool.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
 import { getServiceAuthHeader, setAuthzDenialAuditor, type AuthzDenialInfo } from '../middleware/auth.js';
 import type { ServiceConfig } from '../types/common.js';
@@ -272,6 +272,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.install.deny',
   'plugin.install.create',
   'plugin.install.upgrade',
+  // A member's request to change an install past what they may do alone, and its decision.
+  'plugin.install.change-request',
+  'plugin.install.change-approve',
+  'plugin.install.change-reject',
   'plugin.install.remove',
   'org.plugin-install-policy.update',
   // Reviews and replies.
@@ -407,7 +411,11 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
     port: config.port ?? parseInt(process.env.PLATFORM_SERVICE_PORT ?? '3000', 10),
     timeout: config.timeout ?? 3000,
   };
-  const client = createSafeClient(serviceConfig);
+  // Its own breaker route class: audit ingest failing (5xx while platform's
+  // audit store is degraded) must not open the breaker that platform's JWKS and
+  // key-exchange calls ride on — that would turn an audit brownout into an auth
+  // outage in every service.
+  const client = createSafeClient(serviceConfig, { breakerClass: 'audit' });
   const spool = config.spool;
   const drainBatchSize = config.drainBatchSize ?? 100;
 
@@ -493,7 +501,11 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
     // Reclaim any batch stranded on the in-progress list by a prior crash, then
     // attempt to flush it. Both are best-effort (the spool swallows its errors).
     void spool.recover().then(() => drain());
-    drainTimer = setInterval(() => { void drain(); }, config.drainIntervalMs ?? 30_000);
+    // Every tick: heartbeat (so peers never reclaim a batch this pod is still
+    // delivering — even mid-drain), reclaim batches of pods that died, drain.
+    drainTimer = setInterval(() => {
+      void spool.heartbeat().then(() => spool.recover()).then(() => drain());
+    }, config.drainIntervalMs ?? 30_000);
     // Don't let the drain timer keep the process alive on shutdown.
     (drainTimer as unknown as { unref?: () => void }).unref?.();
   }
@@ -560,7 +572,7 @@ export function wireAuthzDenialAuditor(serviceName: string, getClient: () => Rem
 /**
  * A service-scoped audit client: a durable-spool-backed {@link RemoteAuditClient}
  * with the service name pre-bound for emission. Replaces the per-service
- * boilerplate of `createRemoteAuditClient({ spool: createEnvRedisAuditSpool() ?? undefined })`
+ * boilerplate of `createRemoteAuditClient({ spool: createEnvRedisAuditSpool({ key }) ?? undefined })`
  * plus a hand-rolled `emit<Service>Audit` wrapper that repeats the service name.
  */
 export interface ServiceAuditClient {
@@ -578,7 +590,7 @@ export interface ServiceAuditClient {
  * (e.g. reuse a service's existing ioredis connection).
  */
 export function createServiceAuditClient(serviceName: string, config: RemoteAuditClientConfig = {}): ServiceAuditClient {
-  const spool = config.spool ?? createEnvRedisAuditSpool() ?? undefined;
+  const spool = config.spool ?? createEnvRedisAuditSpool({ key: auditSpoolKey(serviceName) }) ?? undefined;
   const client = createRemoteAuditClient({ ...config, spool });
   return {
     emit: (event) => client.record(event, serviceName),

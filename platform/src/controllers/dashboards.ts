@@ -205,7 +205,7 @@ export const createDashboard = withController('Create dashboard', async (req, re
     audit(req, 'dashboard.create', { targetType: 'dashboard', targetId: created.id, details: { name: created.name, visibility } });
     sendSuccess(res, 201, { dashboard: created });
   } catch (err) {
-    releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger));
+    releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger), reservation);
     throw err;
   }
 });
@@ -302,7 +302,7 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
   // Release the quota slot the create path reserved against the dashboard's
   // owning org. Sysadmins deleting another org's dashboard release against
   // that org's quota, not the sysadmin's.
-  releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger));
+  releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger), null);
 
   // canWrite lets sysadmins delete any dashboard, so the affected org may
   // differ from the actor's org — record the dashboard's own orgId.
@@ -413,7 +413,7 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
   try {
     const ok = await dashboardService.restore(id, { userId });
     if (!ok) {
-      releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger));
+      releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger), reservation);
       return sendError(res, 404, 'Dashboard not found');
     }
     audit(req, 'dashboard.restore', {
@@ -424,7 +424,7 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
     });
     sendSuccess(res, 200, undefined, 'Dashboard restored');
   } catch (err) {
-    releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger));
+    releaseFeatureQuota(existing.orgId, 'dashboards', logger.warn.bind(logger), reservation);
     // The (org_id, name) unique index is partial (WHERE deleted_at IS NULL), so a
     // live namesake can coexist with this tombstone; restoring then collides.
     // Surface as 409, not a raw 500.
@@ -474,7 +474,7 @@ export const cloneDashboard = withController('Clone dashboard', async (req, res)
     audit(req, 'dashboard.clone', { targetType: 'dashboard', targetId: cloned.id, details: { sourceId, name: cloned.name } });
     sendSuccess(res, 201, { dashboard: cloned });
   } catch (err) {
-    releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger));
+    releaseFeatureQuota(orgId, 'dashboards', logger.warn.bind(logger), reservation);
     throw err;
   }
 });

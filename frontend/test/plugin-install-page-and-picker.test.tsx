@@ -26,7 +26,7 @@ jest.mock('@/generated/plugin-icons', () => ({ __esModule: true, PLUGIN_ICONS: {
 const api = {
   getListingInstallState: jest.fn<AnyFn>(),
   listPlugins: jest.fn<AnyFn>(),
-  getPluginCatalog: jest.fn<AnyFn>(),
+  getAllPluginCatalog: jest.fn<AnyFn>(),
   getPluginShadowing: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, k: string) => (api as Record<string, unknown>)[k] }) }));
@@ -85,7 +85,7 @@ describe('pipeline editor plugin picker', () => {
 
   beforeEach(() => {
     api.listPlugins.mockReturnValue(ok({ plugins: [{ id: 'p1', orgId: 'org-1', name: 'my-build', version: '1.0.0', category: 'build', visibility: 'org', isDefault: true, isActive: true }] }));
-    api.getPluginCatalog.mockReturnValue(ok({ listings: [officialEntry('trivy'), acme, notInstalled] }));
+    api.getAllPluginCatalog.mockResolvedValue([officialEntry('trivy'), acme, notInstalled]);
     api.getPluginShadowing.mockReturnValue(ok({ shadowing: [{ name: 'my-build', pluginIds: ['p1'], listing: { publisherHandle: 'pipeline-builder', name: 'my-build', publisherTier: 'official' } }] }));
   });
 

@@ -5,7 +5,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { describe, it, test, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { auditLog } from '../src/utils/audit-log.js';
 
 const AUDIT_DIR = path.join(os.homedir(), '.pipeline-manager');

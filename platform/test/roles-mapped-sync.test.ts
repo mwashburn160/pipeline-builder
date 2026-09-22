@@ -41,6 +41,8 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
   publishUserRevocation: jest.fn(async () => undefined),
   publishUsersRevocation: jest.fn(async () => undefined),
 }));

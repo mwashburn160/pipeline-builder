@@ -25,6 +25,14 @@
  *    second pass saw the first pass's pending reservation).
  */
 
+import {
+  type AnyFn,
+  generateTestSigningKey,
+  installTestJwks,
+  signTestUserToken,
+  type TestSigningKey,
+  stubModule,
+} from '@pipeline-builder/api-core/testing';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import http from 'node:http';
@@ -32,9 +40,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
-import {
-  generateTestSigningKey, installTestJwks, signTestUserToken, type TestSigningKey,
-} from '@pipeline-builder/api-core/lib/testing/user-tokens.js';
 import express from 'express';
 import jwt from 'jsonwebtoken';
 
@@ -105,33 +110,33 @@ const realServer = {
 
 const app = express();
 app.use(express.json());
-const sseManager = { bindStreamOwner: jest.fn(async () => undefined), send: jest.fn() };
+const sseManager = { bindStreamOwner: jest.fn(async () => undefined), send: jest.fn<AnyFn>() };
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   ...realServer,
   createApp: () => ({ app, sseManager }),
-  runServer: jest.fn(),
-  postgresHealthCheck: jest.fn(),
-  redisHealthCheck: jest.fn(),
-  combineHealthChecks: jest.fn(),
-}));
+  runServer: jest.fn<AnyFn>(),
+  postgresHealthCheck: jest.fn<AnyFn>(),
+  redisHealthCheck: jest.fn<AnyFn>(),
+  combineHealthChecks: jest.fn<AnyFn>(),
+}, { extraOverrides: 'drop' })); // assembled from api-server's internal files, which carry non-barrel exports
 
 // -- Infra doubles ------------------------------------------------------------
 
 const mockEnqueueBuild = jest.fn(async () => undefined);
 jest.unstable_mockModule('../src/queue/plugin-build-queue.js', () => ({
-  startWorker: jest.fn(),
+  startWorker: jest.fn<AnyFn>(),
   waitForWorkerReady: jest.fn(async () => undefined),
   shutdownQueue: jest.fn(async () => undefined),
 }));
 // The anonymous-submission gate queue (plan §4) — index.ts starts its worker at boot.
 jest.unstable_mockModule('../src/queue/submission-build-queue.js', () => ({
-  startSubmissionWorker: jest.fn(),
+  startSubmissionWorker: jest.fn<AnyFn>(),
   shutdownSubmissionQueue: jest.fn(async () => undefined),
   enqueueSubmissionBuild: jest.fn(async () => undefined),
 }));
 // The nightly vuln-rescan scheduler (W0.6) — index.ts builds + starts it at boot.
-const mockRescanScheduler = { start: jest.fn(), stop: jest.fn() };
+const mockRescanScheduler = { start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() };
 jest.unstable_mockModule('../src/queue/vuln-rescan.js', () => ({ createVulnRescanScheduler: () => mockRescanScheduler }));
 // The ecosystem-notification digest dispatcher (plan §5b) — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
@@ -146,11 +151,11 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   getDeadLetterQueue: () => ({ getJob: async () => null, getJobs: async () => [], getJobCounts: async () => ({}) }),
   findFailedJob: async () => null,
   dlqJobId: (q: string, id: string) => `dlq-${q}:${id}`,
-  getTierQueue: jest.fn(),
+  getTierQueue: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({ purgeDlq: jest.fn(async () => 0) }));
 // Plugin-ecosystem upkeep scheduler + the boot-time Official-publisher assertion.
-const mockMaintenanceScheduler = { start: jest.fn(), stop: jest.fn() };
+const mockMaintenanceScheduler = { start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() };
 jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
   createEcosystemMaintenanceScheduler: () => mockMaintenanceScheduler,
 }));
@@ -170,13 +175,13 @@ jest.unstable_mockModule('../src/services/ecosystem/stats.js', () => ({
 const tombstone = { id: '', orgId: 'org-1', name: 'p', version: '1.0.0', visibility: 'org', createdBy: 'user-1', keywords: [], installCommands: [], commands: [] };
 const pluginService = {
   findDeletedById: jest.fn(async (id: string) => ({ ...tombstone, id })),
-  restore: jest.fn(async (id: string) => ({ ...tombstone, id })),
-  purgeById: jest.fn(async (id: string) => id),
-  bulkDelete: jest.fn(async (ids: string[]) => ids.map((id) => ({ id }))),
+  restore: jest.fn(async (id: string, ..._rest: unknown[]) => ({ ...tombstone, id })),
+  purgeById: jest.fn(async (id: string, ..._rest: unknown[]) => id),
+  bulkDelete: jest.fn(async (ids: string[], ..._rest: unknown[]) => ids.map((id) => ({ id }))),
   findById: jest.fn(async (id: string) => ({ ...tombstone, id })),
   update: jest.fn(async (id: string) => ({ ...tombstone, id })),
   assertDeployable: jest.fn(async () => undefined),
-  purgeExpired: jest.fn(),
+  purgeExpired: jest.fn<AnyFn>(),
   // W0.5 delete safety + W0.4/§3.1a immutability checks the write routes run.
   findByIds: jest.fn(async (ids: string[]) => ids.map((id) => ({ ...tombstone, id }))),
   deleteBlockers: jest.fn(async () => ({ frozen: false, listed: false, inUse: 0 })),
@@ -186,13 +191,13 @@ const pluginService = {
 };
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn() }),
-  emitPluginAudit: jest.fn(),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
+  emitPluginAudit: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(async () => undefined),
   deletePluginArtifact: jest.fn(async () => undefined),
-  getPluginArtifactToFile: jest.fn(),
+  getPluginArtifactToFile: jest.fn<AnyFn>(),
   pluginArtifactKey: (orgId: string, requestId: string) => `${orgId}/${requestId}.zip`,
   pluginQuarantineBucket: () => 'plugin-quarantine',
   submissionArtifactKey: (id: string) => `submissions/${id}.zip`,
@@ -201,8 +206,8 @@ jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () =
   AIEmptyOutputError: class extends Error {},
   dockerfileViolations: () => [],
   getAvailableProviders: () => [],
-  generatePluginConfig: jest.fn(),
-  streamPluginConfig: jest.fn(),
+  generatePluginConfig: jest.fn<AnyFn>(),
+  streamPluginConfig: jest.fn<AnyFn>(),
 }));
 
 await import('../src/index.js');

@@ -175,11 +175,41 @@
       "error",
       {
         "selector": "CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value='drizzle-orm'] > ArrowFunctionExpression[body.type='ObjectExpression']",
-        "message": "Don't hand-roll the 'drizzle-orm' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use drizzleMock({ … }) from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js' (see docs/testing.md)."
+        "message": "Don't hand-roll the 'drizzle-orm' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use drizzleMock({ … }) from '@pipeline-builder/api-core/testing' (see docs/testing.md)."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value='drizzle-orm'] > ArrowFunctionExpression > BlockStatement > ReturnStatement[argument.type='ObjectExpression']",
+        "message": "Don't hand-roll the 'drizzle-orm' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use drizzleMock({ … }) from '@pipeline-builder/api-core/testing' (see docs/testing.md)."
       },
       {
         "selector": "CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value='@pipeline-builder/api-core'] > ArrowFunctionExpression[body.type='ObjectExpression']",
         "message": "Don't hand-roll the '@pipeline-builder/api-core' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use your project's apiCoreMock({ … }) from test/helpers/mock-api-core.ts (see docs/testing.md)."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value='@pipeline-builder/api-core'] > ArrowFunctionExpression > BlockStatement > ReturnStatement[argument.type='ObjectExpression']",
+        "message": "Don't hand-roll the '@pipeline-builder/api-core' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use your project's apiCoreMock({ … }) from test/helpers/mock-api-core.ts (see docs/testing.md)."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value=/^@pipeline-builder\\x2f(?!api-core$)/] > ArrowFunctionExpression[body.type='ObjectExpression']",
+        "message": "Don't hand-roll the '@pipeline-builder/*' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use stubModule('<specifier>', { … }) from '@pipeline-builder/api-core/testing' — it stubs every export in the package's lib/testing/exports.json (see docs/testing.md)."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value=/^@pipeline-builder\\x2f(?!api-core$)/] > ArrowFunctionExpression > BlockStatement > ReturnStatement[argument.type='ObjectExpression']",
+        "message": "Don't hand-roll the '@pipeline-builder/*' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. Use stubModule('<specifier>', { … }) from '@pipeline-builder/api-core/testing' — it stubs every export in the package's lib/testing/exports.json (see docs/testing.md)."
+      }
+    ],
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "@pipeline-builder/api-core/lib/testing",
+              "@pipeline-builder/api-core/lib/testing/*"
+            ],
+            "message": "Import test helpers from '@pipeline-builder/api-core/testing' (its own package entry), not the built lib/testing path."
+          }
+        ]
       }
     ]
   },

@@ -10,22 +10,23 @@
  * Redis connection was up.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetRedisClient = jest.fn<() => Promise<unknown>>();
-const mockLoggerError = jest.fn();
+const mockLoggerError = jest.fn<AnyFn>();
 const mockWithLeaderLock = jest.fn<(...a: any[]) => Promise<boolean>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: mockLoggerError, debug: jest.fn() }),
+  createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: mockLoggerError, debug: jest.fn<AnyFn>() }),
   withLeaderLock: (...a: any[]) => mockWithLeaderLock(...a),
 }));
 jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
   getRedisClient: () => mockGetRedisClient(),
 }));
 
-const { runWithLeaderLock } = await import('../src/utils/leader-lock.js');
+const { runWithLeaderLock, createLockedSweep } = await import('../src/utils/leader-lock.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -46,5 +47,35 @@ describe('runWithLeaderLock', () => {
     await expect(runWithLeaderLock('platform:leader:x', 1000, async () => { throw new Error('boom'); }))
       .resolves.toBe(true);
     expect(mockLoggerError).toHaveBeenCalled();
+  });
+});
+
+describe('createLockedSweep', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('runs each cycle under the leader lock with a TTL floored at 60s', async () => {
+    mockGetRedisClient.mockResolvedValue({});
+    const run = jest.fn(async () => undefined);
+    const sweep = createLockedSweep({ name: 't', lockKey: 'platform:leader:t', intervalMs: 1000, run });
+    sweep.start();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(mockWithLeaderLock).toHaveBeenCalledWith(expect.anything(), 'platform:leader:t', 60_000, expect.any(Function));
+    expect(run).toHaveBeenCalledTimes(1);
+    sweep.stop();
+  });
+
+  it('never overlaps itself on one pod when a cycle outlasts the interval', async () => {
+    mockGetRedisClient.mockResolvedValue(undefined);
+    let release!: () => void;
+    const run = jest.fn(() => new Promise<void>((r) => { release = r; }));
+    const sweep = createLockedSweep({ name: 't', lockKey: 'platform:leader:t', intervalMs: 1000, run });
+    sweep.start();
+    await jest.advanceTimersByTimeAsync(3500);
+    expect(run).toHaveBeenCalledTimes(1);
+    release();
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(run).toHaveBeenCalledTimes(2);
+    sweep.stop();
   });
 });

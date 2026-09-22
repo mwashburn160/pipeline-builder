@@ -6,7 +6,7 @@
  *
  * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
  * classes, pagination constants) live in
- * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Only ask-specific
+ * `@pipeline-builder/api-core/testing`. Only ask-specific
  * defaults belong here.
  *
  * Ask was the last service still hand-rolling this mock inline in three suites —
@@ -14,7 +14,7 @@
  * docs/testing.md for why a whole-namespace literal goes stale).
  */
 import { jest } from '@jest/globals';
-import { baseApiCoreMock, loggerMock, passThroughMiddleware } from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
+import { baseApiCoreMock, loggerMock, passThroughMiddleware } from '@pipeline-builder/api-core/testing';
 
 export { loggerMock };
 

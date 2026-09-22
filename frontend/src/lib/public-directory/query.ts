@@ -72,6 +72,26 @@ export function isFilteredQuery(query: DirectoryQuery): boolean {
   return FILTER_KEYS.some((k) => query[k] !== undefined);
 }
 
+/**
+ * How a directory URL presents itself to search engines.
+ *
+ * The indexable pages are the directory home and one page per category. Every
+ * other combination — a search, a facet, a sort, a page past the first — is a
+ * view OF those pages: crawlable (`follow`, so the plugin links in it are
+ * found) but not indexed (`noindex`), with its canonical pointing at the page
+ * it narrows. Before this, each facet permutation was its own indexable page
+ * canonicalising to itself: an unbounded set of near-duplicates.
+ *
+ * `category` is the one browse facet; on `/plugins?category=x` it canonicalises
+ * to the category page, which is the same listing with its own copy.
+ */
+export function directorySeo(query: DirectoryQuery): { canonicalPath: string; noindex: boolean } {
+  const { category, ...rest } = query;
+  const canonicalPath = category ? `/plugins/category/${encodeURIComponent(category)}` : '/plugins';
+  const narrowed = Object.values(rest).some((v) => v !== undefined && v !== '');
+  return { canonicalPath, noindex: narrowed };
+}
+
 /** `?a=b&…` (or '') for a query, in canonical key order. */
 export function toSearchString(query: DirectoryQuery, extra: Record<string, string | number> = {}): string {
   const params = new URLSearchParams();

@@ -36,8 +36,8 @@ describe('extractListResponse', () => {
   });
 
   it('should return empty items for unexpected object format', () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const response = { unexpected: 'data' };
     const result = extractListResponse(response, 'pipelines');
@@ -50,8 +50,8 @@ describe('extractListResponse', () => {
   });
 
   it('should throw for non-object, non-array response', () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     expect(() => extractListResponse('invalid', 'pipelines')).toThrow(
       'Unexpected API response format',
@@ -62,8 +62,8 @@ describe('extractListResponse', () => {
   });
 
   it('should throw for null response', () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
     expect(() => extractListResponse(null, 'plugins')).toThrow(
       'Unexpected API response format',

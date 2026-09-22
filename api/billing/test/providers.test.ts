@@ -5,16 +5,18 @@
  * Tests for payment providers and provider factory.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: jest.fn<AnyFn>() }));
 
 // Mock Mongoose Subscription model. findOne returns a promise that also has a
 // chainable `.sort()` (the provider does `findOne(...).sort({createdAt:-1})`),
 // so both `await findOne(...)` and `await findOne(...).sort(...)` resolve.
-const mockFindOne = jest.fn();
+const mockFindOne = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     findOne: (...args: unknown[]) => {
@@ -25,31 +27,31 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 }));
 
 // Mock AWS SDK clients
-const mockMeteringSend = jest.fn();
-const mockEntitlementSend = jest.fn();
+const mockMeteringSend = jest.fn<AnyFn>();
+const mockEntitlementSend = jest.fn<AnyFn>();
 jest.unstable_mockModule('@aws-sdk/client-marketplace-metering', () => ({
-  MarketplaceMeteringClient: jest.fn().mockImplementation(() => ({ send: mockMeteringSend })),
-  ResolveCustomerCommand: jest.fn(),
+  MarketplaceMeteringClient: jest.fn<AnyFn>().mockImplementation(() => ({ send: mockMeteringSend })),
+  ResolveCustomerCommand: jest.fn<AnyFn>(),
   // Echo the input so tests can assert on the ProductCode + UsageRecords sent.
-  BatchMeterUsageCommand: jest.fn().mockImplementation((input: unknown) => ({ input })),
+  BatchMeterUsageCommand: jest.fn<AnyFn>().mockImplementation((input: unknown) => ({ input })),
 }));
 jest.unstable_mockModule('@aws-sdk/client-marketplace-entitlement-service', () => ({
-  MarketplaceEntitlementServiceClient: jest.fn().mockImplementation(() => ({ send: mockEntitlementSend })),
-  GetEntitlementsCommand: jest.fn(),
+  MarketplaceEntitlementServiceClient: jest.fn<AnyFn>().mockImplementation(() => ({ send: mockEntitlementSend })),
+  GetEntitlementsCommand: jest.fn<AnyFn>(),
 }));
 
 // Mock Stripe SDK
-const mockStripeCustomersCreate = jest.fn();
-const mockStripeCustomersRetrieve = jest.fn();
-const mockStripeSubscriptionsCreate = jest.fn();
-const mockStripeSubscriptionsUpdate = jest.fn();
-const mockStripeSubscriptionsRetrieve = jest.fn();
-const mockStripePaymentMethodsList = jest.fn();
-const mockStripePortalCreate = jest.fn();
-const mockStripeCouponsCreate = jest.fn();
-const mockStripeBalanceTxnCreate = jest.fn();
+const mockStripeCustomersCreate = jest.fn<AnyFn>();
+const mockStripeCustomersRetrieve = jest.fn<AnyFn>();
+const mockStripeSubscriptionsCreate = jest.fn<AnyFn>();
+const mockStripeSubscriptionsUpdate = jest.fn<AnyFn>();
+const mockStripeSubscriptionsRetrieve = jest.fn<AnyFn>();
+const mockStripePaymentMethodsList = jest.fn<AnyFn>();
+const mockStripePortalCreate = jest.fn<AnyFn>();
+const mockStripeCouponsCreate = jest.fn<AnyFn>();
+const mockStripeBalanceTxnCreate = jest.fn<AnyFn>();
 jest.unstable_mockModule('stripe', () => {
-  const StripeMock = jest.fn().mockImplementation(() => ({
+  const StripeMock = jest.fn<AnyFn>().mockImplementation(() => ({
     customers: { create: mockStripeCustomersCreate, retrieve: mockStripeCustomersRetrieve, createBalanceTransaction: mockStripeBalanceTxnCreate },
     subscriptions: {
       create: mockStripeSubscriptionsCreate,

@@ -6,6 +6,7 @@ import { Types } from 'mongoose';
 import { assertNotLastPrivilegedMember } from './role-crud.js';
 import { USER_OWNER_HAS_ORGS } from './user-errors.js';
 import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
+import SamlSession from '../models/saml-session.js';
 
 /**
  * Delete a user account and everything keyed to it, inside the caller's
@@ -19,7 +20,7 @@ import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, PersonalAccessToken, Ro
  *     admin/superadmin-granting Role.
  *
  * Removes the user, their memberships, Role assignments, PATs, passkeys, TOTP
- * enrolment, preferences and domain-join requests. A leftover join request would otherwise let an admin
+ * enrolment, preferences, SAML SLO sessions and domain-join requests. A leftover join request would otherwise let an admin
  * approve it later and mint a membership for a user who no longer exists — an
  * orphan row that still counts toward the org's seats.
  *
@@ -31,13 +32,14 @@ import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, PersonalAccessToken, Ro
  * instead, so none of these statements can reach them. The org purge is what
  * deletes accounts (see `org-cascade-service`).
  *
- * Returns the deleted user's `tokenVersion` (for post-commit revocation
- * publishing), or `null` when the user did not exist.
+ * Returns the deleted user's ACCESS-token version (`tokenVersion` +
+ * `claimsVersion`, for post-commit revocation publishing), or `null` when the
+ * user did not exist.
  */
 export async function deleteUserCascade(
   session: ClientSession,
   userId: string | Types.ObjectId,
-): Promise<{ tokenVersion: number } | null> {
+): Promise<{ accessVersion: number } | null> {
   const uid = new Types.ObjectId(String(userId));
 
   if (await UserOrganization.countDocuments({ userId: uid, role: 'owner' }).session(session) > 0) {
@@ -65,5 +67,9 @@ export async function deleteUserCascade(
   await MfaResetRequest.deleteMany({ targetUserId: uid }, { session });
   await UserPreferences.deleteMany({ userId: uid }, { session });
   await JoinRequest.deleteMany({ userId: uid }, { session });
-  return { tokenVersion: deleted.tokenVersion ?? 0 };
+  // SAML SLO bookkeeping for the person's sessions (NameID / SessionIndex per
+  // platform session). Left behind, an IdP-initiated logout could still match a
+  // deleted account's rows until their TTL lapsed. `userId` is stored as a string.
+  await SamlSession.deleteMany({ userId: String(uid) }, { session });
+  return { accessVersion: (deleted.tokenVersion ?? 0) + (deleted.claimsVersion ?? 0) };
 }

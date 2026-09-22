@@ -48,8 +48,8 @@ jest.unstable_mockModule('../src/middleware/index.js', () => ({
   requireSystemAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
-jest.unstable_mockModule('../src/helpers/audit-chain.js', () => ({
-  verifyAuditChain: jest.fn(),
+jest.unstable_mockModule('../src/services/audit-head-export.js', () => ({
+  verifyAuditChainAnchored: jest.fn(),
 }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
@@ -168,7 +168,8 @@ describe('GET /audit — createdAt from/to range filter', () => {
     expect(filter.createdFrom).toBeInstanceOf(Date);
     expect(filter.createdTo).toBeInstanceOf(Date);
     expect((filter.createdFrom as Date).toISOString()).toBe(new Date('2026-07-01').toISOString());
-    expect((filter.createdTo as Date).toISOString()).toBe(new Date('2026-07-31').toISOString());
+    // A bare date as the upper bound means "through the END of that day".
+    expect((filter.createdTo as Date).toISOString()).toBe('2026-07-31T23:59:59.999Z');
   });
 
   it('threads a one-sided range (only from) into findEvents', async () => {

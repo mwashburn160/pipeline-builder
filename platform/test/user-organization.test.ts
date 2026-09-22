@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
 import mongoose from 'mongoose';
 import UserOrganization from '../src/models/user-organization.js';
 
@@ -105,7 +106,7 @@ describe('UserOrganization model', () => {
     const schema = UserOrganization.schema;
     const indexes = schema.indexes();
     const compoundIndex = indexes.find(
-      ([fields]: [Record<string, number>, ...unknown[]]) =>
+      ([fields]: [Record<string, unknown>, ...unknown[]]) =>
         fields && fields.userId === 1 && fields.organizationId === 1,
     );
     expect(compoundIndex).toBeDefined();

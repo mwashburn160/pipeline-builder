@@ -6,7 +6,7 @@
  *
  * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
  * classes, pagination constants, audit/boot wiring, the permission gate) live in
- * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Only
+ * `@pipeline-builder/api-core/testing`. Only
  * image-registry-specific defaults belong here.
  */
 import { jest } from '@jest/globals';
@@ -15,7 +15,7 @@ import {
   loggerMock,
   mockPermissionGate,
   serviceAuditDefaults,
-} from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
+} from '@pipeline-builder/api-core/testing';
 
 export { loggerMock };
 

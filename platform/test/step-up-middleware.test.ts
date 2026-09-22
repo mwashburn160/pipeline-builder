@@ -13,6 +13,7 @@
  * Deep imports: the real api-core modules, not the mocked barrel.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import jwt from 'jsonwebtoken';
 
@@ -57,7 +58,7 @@ async function run(req: any) {
   const res = mockRes();
   const next = jest.fn();
   await requireStepUp(req, res, next);
-  const body = (res.json as jest.Mock).mock.calls[0]?.[0] as { code?: string; errorCode?: string } | undefined;
+  const body = (res.json as jest.Mock<AnyFn>).mock.calls[0]?.[0] as { code?: string; errorCode?: string } | undefined;
   return { res, next, code: body?.code ?? body?.errorCode };
 }
 

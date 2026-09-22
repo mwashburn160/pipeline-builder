@@ -15,9 +15,11 @@
  * still needs `registry:write` (a read-only holder is refused there).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // --- service mocks (the two handlers' only backend calls) -------------------
@@ -28,9 +30,9 @@ jest.unstable_mockModule('../src/services/storage-usage.js', () => ({ computeSto
 jest.unstable_mockModule('../src/services/registry-gc.js', () => ({ runRegistryGc }));
 
 // --- api-server mock: withRoute passthrough ---------------------------------
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
-    const ctx = { log: jest.fn(), requestId: 'test-req' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'test-req' };
     try {
       await handler({ req, res, ctx });
     } catch (err) {
@@ -38,7 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
       if (!r.headersSent) r.status(500).json({ success: false, message: (err as Error)?.message });
     }
   },
-  incCounter: jest.fn(),
+  incCounter: jest.fn<AnyFn>(),
 }));
 
 // --- api-core mock: send helpers + capability-aware gates --------------------
@@ -71,7 +73,7 @@ beforeAll(async () => {
     next();
   });
   app.use('/api/admin', createAdminRoutes());
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   const { port } = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
 });

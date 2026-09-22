@@ -72,7 +72,7 @@ export function useMemberTeamsPanel({
     try {
       await switchOrganization(team.orgId);
       toast.success(`Switched to ${team.orgName}`);
-      router.replace(router.asPath);
+      void router.replace(router.asPath);
     } catch (err) {
       toast.error(`Couldn't open ${team.orgName}: ${formatError(err, 'the switch was refused')}`);
     }

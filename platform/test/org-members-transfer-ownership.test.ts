@@ -30,13 +30,14 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: async (id: string) => [id] }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, expandOrgScope: async (id: string) => [id] }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
   seatCapacityStillWithinCap: jest.fn(async () => true),
   userHasSeatInAccount: jest.fn(async () => false),
 }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
+  assertActorMayAssignBuiltinAdmin: async () => undefined,
   ensureBaselineRole: jest.fn(async () => undefined),
   assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
@@ -90,7 +91,7 @@ describe('OrgMembersService.transferOwnership', () => {
     expect(newOwnerMembership.save).toHaveBeenCalled();
 
     // Both users' tokens invalidated in one $inc, targeting old + new owner.
-    const bump = mockUserUpdateMany.mock.calls.find((c) => (c[1] as any)?.$inc?.tokenVersion === 1);
+    const bump = mockUserUpdateMany.mock.calls.find((c) => (c[1] as any)?.$inc?.claimsVersion === 1);
     expect(bump).toBeDefined();
     expect((bump![0] as any)._id.$in).toEqual(['old-owner', 'new-owner']);
 

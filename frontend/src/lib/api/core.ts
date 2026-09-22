@@ -75,6 +75,17 @@ function writeStore(store: 'local' | 'session', key: string, value: string | nul
 }
 
 /** SSE event received from AI streaming endpoints. */
+/** `fetch` options plus the api client's own knobs. */
+export interface ApiRequestOptions extends RequestInit {
+  /**
+   * `false` for a call that must never be replayed by the global step-up dialog
+   * — one whose response is a one-time secret, or the start of a browser
+   * ceremony. Such a caller asks for the step-up before the call and reports a
+   * refusal itself. Defaults to replayable.
+   */
+  replayOnStepUp?: boolean;
+}
+
 export interface StreamEvent {
   type: 'partial' | 'done' | 'error' | 'analyzing' | 'analyzed' | 'checking-plugins' | 'creating-plugins'
     // "Ask" agent stream: grounded sources, answer tokens, tool activity, and
@@ -105,6 +116,7 @@ export class ApiCore {
    *  token?" check, which the cookie made impossible to ask. */
   private sessionGeneration = 0;
   private sessionExpiredCallbacks: Set<() => void> = new Set();
+  private accessTokenListeners: Set<(token: string | null) => void> = new Set();
   private authChannel: BroadcastChannel | null = null;
 
   private static REFRESH_BUFFER_MS = REFRESH_BUFFER_MS;
@@ -118,6 +130,23 @@ export class ApiCore {
   onSessionExpired(callback: () => void): () => void {
     this.sessionExpiredCallbacks.add(callback);
     return () => { this.sessionExpiredCallbacks.delete(callback); };
+  }
+
+  /**
+   * Called with the new access token whenever it changes (sign-in, refresh,
+   * org switch, a sibling tab's handoff) and with `null` when the session ends.
+   * For state derived from the token OUTSIDE the api client — the admin-console
+   * cookie, which must follow the token or be dropped. Returns an unsubscribe.
+   */
+  onAccessTokenChange(callback: (token: string | null) => void): () => void {
+    this.accessTokenListeners.add(callback);
+    return () => { this.accessTokenListeners.delete(callback); };
+  }
+
+  private notifyAccessToken(token: string | null): void {
+    this.accessTokenListeners.forEach((cb) => {
+      try { cb(token); } catch { /* ignore listener errors */ }
+    });
   }
 
   private notifySessionExpired(): void {
@@ -268,6 +297,7 @@ export class ApiCore {
       // JWT parsing failed - non-critical
     }
     this.scheduleProactiveRefresh();
+    this.notifyAccessToken(accessToken);
   }
 
   /**
@@ -334,8 +364,8 @@ export class ApiCore {
    * operator's own session back up from the refresh cookie, which was never
    * disturbed. A cookie the server no longer accepts means the operator's
    * session ended meanwhile — sign out rather than strand them on a dead
-   * token. The login screen is the landing route '/' (there is no '/login'
-   * page — that path 404s); this matches useAuth/useAuthGuard.
+   * token. The sign-in form lives on the landing route '/' (`/login` only
+   * records a return path and forwards there); this matches useAuth/useAuthGuard.
    */
   async stopImpersonation(): Promise<void> {
     if (typeof window === 'undefined') return;
@@ -420,6 +450,7 @@ export class ApiCore {
     writeStore('local', SESSION_MARKER_KEY, null);
     writeStore('session', IMPERSONATION_TOKEN_KEY, null);
     writeStore('session', IMPERSONATION_REQUEST_KEY, null);
+    this.notifyAccessToken(null);
   }
 
   /**
@@ -457,7 +488,7 @@ export class ApiCore {
   /** Build auth + org headers for the current session. */
   authHeaders(): Record<string, string> {
     const headers: Record<string, string> = {};
-    if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+    if (this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
     if (this.organizationId) headers['x-org-id'] = this.organizationId;
     return headers;
   }
@@ -486,7 +517,7 @@ export class ApiCore {
    */
   async request<T>(
     endpoint: string,
-    options: RequestInit = {},
+    options: ApiRequestOptions = {},
     _retryCount = 0,
     // Tracked separately from `_retryCount` so a 503 retry (which bumps
     // `_retryCount`) can't consume the one-shot 401 token-refresh — a GET that
@@ -528,8 +559,10 @@ export class ApiCore {
       else callerSignal.addEventListener('abort', onCallerAbort, { once: true });
     }
 
+    // Client-only knobs never reach `fetch`.
+    const { replayOnStepUp, ...init } = options;
     const response = await fetch(url, {
-      ...options,
+      ...init,
       headers,
       credentials: 'same-origin',
       // Never conditionally-cache API responses. Express sets an ETag on every
@@ -570,36 +603,23 @@ export class ApiCore {
     const statusCode = response.status;
 
     // Step-up rejection: don't trigger the access-token refresh dance —
-    // refreshing won't help, the request needs a fresh step-up. Throw
-    // a typed error AND dispatch a window event so a global layout
-    // listener can re-prompt automatically (covers stale tabs that
-    // fired a destructive call after their local token expired).
+    // refreshing won't help, the request needs a fresh step-up.
     if (statusCode === 401 && isStepUpErrorCode(data.code)) {
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('step-up-required', {
-          detail: {
-            code: data.code,
-            message: data.message,
-            endpoint,
-            // RESUME, don't re-ask. The refusal happened BEFORE the server did
-            // anything, so replaying the identical request with the fresh token
-            // is exactly what the user would do by hand — except they had to
-            // guess which control to click again. `retry` is what the global
-            // listener calls once the person re-verifies.
-            retry: (stepUpToken: string) => this.request<T>(
-              endpoint,
-              { ...options, headers: { ...(options.headers as Record<string, string>), ...this.stepUpHeader(stepUpToken) } },
-              _retryCount,
-              _refreshed,
-            ),
-          },
-        }));
-      }
-      throw new StepUpRequiredError(
+      const error = new StepUpRequiredError(
         data.message || 'Step-up confirmation required',
         String(data.code),
         data.details,
       );
+      // A call whose RESULT is a one-time secret or the start of a browser
+      // ceremony (access / service-account / SCIM keys, recovery codes, TOTP
+      // enrolment, passkey registration options) is never replayed from the
+      // global dialog: the replay's secret would land nowhere, and a WebAuthn
+      // ceremony needs the click that started it. Those callers ask for the
+      // step-up FIRST and surface a refusal themselves.
+      if (typeof window !== 'undefined' && replayOnStepUp !== false) {
+        this.offerStepUpResume<T>(error, endpoint, data, options, _retryCount, _refreshed);
+      }
+      throw error;
     }
 
     // MFA refusal (#8): the session is genuinely valid, it is just not strong
@@ -843,6 +863,59 @@ export class ApiCore {
       this.refreshCooldownUntil = 0;
       if (this.canRefresh()) void this.refreshAccessToken();
     }, REFRESH_FAILURE_COOLDOWN_MS);
+  }
+
+  /**
+   * Hand a step-up refusal to the global dialog (`step-up-required`), and — if
+   * a listener takes it (`preventDefault`) — attach the replay to the error as
+   * its `resume` promise.
+   *
+   * RESUME, don't re-ask. The refusal happened BEFORE the server did anything,
+   * so replaying the identical request with the fresh token is exactly what the
+   * user would do by hand. The replay's RESULT goes back to the code that made
+   * the call (`continueAfterStepUp` / `withStepUpResume`), so it can refresh
+   * what it shows instead of leaving the page stale while the write succeeded
+   * behind it. `cancel` (the dialog closed unconfirmed) rejects the promise with
+   * the original refusal.
+   */
+  private offerStepUpResume<T>(
+    error: StepUpRequiredError,
+    endpoint: string,
+    data: { code?: string; message?: string },
+    options: ApiRequestOptions,
+    _retryCount: number,
+    _refreshed: boolean,
+  ): void {
+    let settle: { resolve: (v: T) => void; reject: (e: unknown) => void } = { resolve: () => undefined, reject: () => undefined };
+    const resume = new Promise<T>((resolve, reject) => { settle = { resolve, reject }; });
+    // Nobody is obliged to await it; an unobserved rejection is not an error.
+    resume.catch(() => undefined);
+    const event = new CustomEvent('step-up-required', {
+      cancelable: true,
+      detail: {
+        code: data.code,
+        message: data.message,
+        endpoint,
+        retry: async (stepUpToken: string) => {
+          try {
+            const result = await this.request<T>(
+              endpoint,
+              { ...options, headers: { ...(options.headers as Record<string, string>), ...this.stepUpHeader(stepUpToken) } },
+              _retryCount,
+              _refreshed,
+            );
+            settle.resolve(result);
+            return result;
+          } catch (err) {
+            settle.reject(err);
+            throw err;
+          }
+        },
+        cancel: () => settle.reject(error),
+      },
+    });
+    window.dispatchEvent(event);
+    if (event.defaultPrevented) error.attachResume(resume);
   }
 
   /** Build the header object an api method threads when called with a

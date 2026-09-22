@@ -35,6 +35,7 @@ const mockApi = {
   getProfile: jest.fn<AnyFn>(async () => profile()),
   getUserOrganizations: jest.fn<AnyFn>(async () => ({ data: { organizations: [{ organizationId: 'o1', organizationName: 'Org', role: 'owner' }] } })),
   setOrganizationId: jest.fn<AnyFn>(),
+  onAccessTokenChange: () => () => undefined,
   onSessionExpired: jest.fn<AnyFn>((cb: () => void) => { sessionExpired = cb; return () => { sessionExpired = null; }; }),
   logout: jest.fn<AnyFn>(async () => undefined),
 };

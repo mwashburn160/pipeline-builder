@@ -48,6 +48,13 @@ interface Props {
    * a refusal comes back with that code, so a stale tab re-prompts correctly.
    */
   requireStrongFactor?: boolean;
+  /**
+   * Something the caller still needs before it can act (a required reason left
+   * empty, an invalid form field): every way to confirm is disabled and this
+   * says why. Validating AFTER the step-up spent a single-use token (and the
+   * person's fingerprint or code) on a request that could only be refused.
+   */
+  confirmDisabledReason?: string | null;
   onClose: () => void;
 }
 
@@ -98,7 +105,7 @@ function optionLabel(option: ReauthProvider): string {
  * the authenticator field, or the password box — which for a TOTP-only account
  * is the difference between typing a code and hunting for the field.
  */
-export function StepUpModal({ action, title, details, onConfirmed, requireStrongFactor = false, onClose }: Props) {
+export function StepUpModal({ action, title, details, onConfirmed, requireStrongFactor = false, confirmDisabledReason = null, onClose }: Props) {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
@@ -133,6 +140,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
 
   const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (confirmDisabledReason) return;
     if (!password) {
       setError('Password is required');
       return;
@@ -151,7 +159,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
     } finally {
       setSubmitting(false);
     }
-  }, [password, finish]);
+  }, [password, finish, confirmDisabledReason]);
 
   const handlePasskey = useCallback(async () => {
     setPasskeyPending(true);
@@ -207,7 +215,9 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
     onClose();
   }, [onClose]);
 
-  const busy = submitting || pendingProvider !== null || passkeyPending || totpPending;
+  const inFlight = submitting || pendingProvider !== null || passkeyPending || totpPending;
+  // Disables every confirm control while the caller's own input is incomplete.
+  const busy = inFlight || !!confirmDisabledReason;
   // On a strong-factor-only route the password and provider paths are hidden:
   // they can still MINT a step-up token, but the server refuses it, so offering
   // them would only produce a confusing second failure.
@@ -290,12 +300,12 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                     ref={preferred === 'totp' ? assignFocus : undefined}
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleTotp(); } }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!confirmDisabledReason) void handleTotp(); } }}
                     autoComplete="one-time-code"
                     placeholder="123456"
                     aria-label="Authentication code"
                     className="flex-1"
-                    disabled={busy}
+                    disabled={inFlight}
                   />
                   <Button
                     type="button"
@@ -324,7 +334,7 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
                   autoComplete="current-password"
                   placeholder="Password"
                   className="w-full"
-                  disabled={busy}
+                  disabled={inFlight}
                 />
               </>
             )}
@@ -382,6 +392,9 @@ export function StepUpModal({ action, title, details, onConfirmed, requireStrong
           </>
         )}
 
+        {confirmDisabledReason && (
+          <p className="text-xs text-warning-strong" role="status" data-testid="step-up-blocked">{confirmDisabledReason}</p>
+        )}
         <ErrorAlert message={error} />
 
         <div className="flex justify-end gap-2 pt-1">

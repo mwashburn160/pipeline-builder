@@ -7,7 +7,7 @@ import pico from 'picocolors';
 import { ApiClient } from './api-client.js';
 import { getSecretValue } from './aws-secrets.js';
 import { type Config, getApiConfig, getConfigWithOptions } from './config-loader.js';
-import { clearSession, isSessionUsable, loadSession, saveSession, type StoredSession } from './credential-store.js';
+import { clearSession, isSessionUsable, loadSession, saveSession, withRefreshLock, type StoredSession } from './credential-store.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
 import { formatDuration, generateExecutionId } from '../config/cli.constants.js';
 
@@ -85,7 +85,18 @@ export function printSslWarning(verifySsl?: boolean): void {
  * `X-Pb-Client` is mandatory on /auth/refresh (the CSRF gate) and its value also
  * picks the transport: anything but `web` keeps the body flow the CLI uses.
  */
-async function refreshStoredSession(baseUrl: string, session: StoredSession): Promise<string | undefined> {
+async function refreshStoredSession(baseUrl: string, stale: StoredSession): Promise<string | undefined> {
+  // One refresh at a time per machine (see `withRefreshLock`): a second process
+  // re-reads the store under the lock and uses the pair the first one saved,
+  // rather than spending the same single-use refresh token again.
+  return withRefreshLock(async () => {
+    const current = loadSession(baseUrl);
+    if (isSessionUsable(current)) return current.accessToken;
+    return renewSession(baseUrl, current ?? stale);
+  });
+}
+
+async function renewSession(baseUrl: string, session: StoredSession): Promise<string | undefined> {
   if (!session.refreshToken) return undefined;
   try {
     const response = await axios.post<{ data?: { accessToken?: string; refreshToken?: string; expiresIn?: number } }>(

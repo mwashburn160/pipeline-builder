@@ -5,10 +5,12 @@
  * Tests for billing helper functions.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockBillingEventCreate = jest.fn();
+const mockBillingEventCreate = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/models/billing-event.js', () => ({
   BillingEvent: {
@@ -20,19 +22,30 @@ jest.unstable_mockModule('../src/models/billing-event.js', () => ({
 // is touched. (A failed sync no longer writes an entitlementSyncPending marker — it
 // publishes a durable-bus retry instead — so this stub is now just a no-op guard.)
 const mockSubscriptionUpdateOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ modifiedCount: 1 });
+// findById backs (a) syncEntitlements' occurredAt read (`.select().lean()`) and
+// (b) the retry consumer's re-read of the CURRENT row (awaited directly).
+const mockSubscriptionRow = jest.fn<(...args: unknown[]) => unknown>().mockReturnValue(null);
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     updateOne: (...args: unknown[]) => mockSubscriptionUpdateOne(...args),
+    findById: (...args: unknown[]) => {
+      const p = Promise.resolve(mockSubscriptionRow(...args));
+      return Object.assign(p, { select: () => ({ lean: () => p }) });
+    },
   },
+}));
+const mockPlanFindById = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ tier: 'pro' });
+jest.unstable_mockModule('../src/models/plan.js', () => ({
+  Plan: { findById: (...args: unknown[]) => mockPlanFindById(...args) },
 }));
 
 // billing-helpers now imports the provider factory + service audit client (for the
 // auto-prune line-item removal). Stub both so no real Stripe/AWS SDK is loaded.
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
-  getPaymentProvider: () => ({ syncAddons: jest.fn() }),
+  getPaymentProvider: () => ({ syncAddons: jest.fn<AnyFn>() }),
 }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 const mockClientPut = jest.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -43,14 +56,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
   // api-server's app-factory wires this at module load to inject the metrics
   // counter into api-core helpers; tests just need it to be callable.
-  setCounterEmitter: jest.fn(),
+  setCounterEmitter: jest.fn<AnyFn>(),
   getServiceAuthHeader: jest.fn(() => 'Bearer test-service'),
 }));
 
 // Stub api-server so its idempotency-middleware + app-factory don't try to
 // initialize a real Prometheus registry at module load.
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
-  incCounter: jest.fn(),
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  incCounter: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
@@ -81,7 +94,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const { effectiveEntitlements } = await import(
     '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
   );
-  return {
+  return stubModule('@pipeline-builder/pipeline-core', {
     Config: { get, getAny: get },
     effectiveEntitlements,
     // billing-helpers imports incCounter from api-server, whose
@@ -91,7 +104,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
       IDEMPOTENCY_TTL_MS: 300_000,
       IDEMPOTENCY_MAX_STORE_SIZE: 10_000,
     },
-  };
+  });
 });
 
 jest.unstable_mockModule('../src/config.js', () => ({
@@ -175,7 +188,7 @@ describe('calculatePeriodEnd', () => {
 // createBillingEvent
 
 describe('createBillingEvent', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('creates billing event with correct fields', async () => {
     mockBillingEventCreate.mockResolvedValue({});
@@ -276,7 +289,7 @@ describe('buildSubscriptionResponse', () => {
 // syncTierToQuotaService
 
 describe('syncTierToQuotaService', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns true on success', async () => {
     mockClientPut.mockResolvedValue({ statusCode: 200 });
@@ -306,7 +319,7 @@ describe('syncEntitlements durable-bus retry', () => {
     mockPublish.mockResolvedValue('1-0');
     // A failed sync publishes a retry event to the durable bus (replaces the old
     // entitlementSyncPending marker + polling reconciler).
-    setEntitlementSyncBus({ publish: mockPublish, subscribe: jest.fn() } as never);
+    setEntitlementSyncBus({ publish: mockPublish, subscribe: jest.fn<AnyFn>() } as never);
   });
   afterEach(() => setEntitlementSyncBus(null));
 
@@ -334,12 +347,18 @@ describe('syncEntitlements durable-bus retry', () => {
     });
   });
 
-  it('a retry carries the ORIGINAL change time, which is what compliance receives', async () => {
+  it('a retry carries the ROW\'s change time (updatedAt), which is what every leg receives', async () => {
+    const updatedAt = new Date('2026-09-01T12:00:00.000Z');
+    mockSubscriptionRow.mockReturnValue({ _id: 'sub-1', status: 'active', planId: 'pro-plan', addons: [], metadata: {}, updatedAt });
     mockClientPut.mockResolvedValue({ statusCode: 500 });
     await syncEntitlements('org-1', 'pro' as any, 'Bearer tok', 'sub-1');
+    // Every leg (not just compliance) carries the same moment.
+    for (const call of mockClientPut.mock.calls) {
+      expect((call[1] as { occurredAt?: string }).occurredAt).toBe(updatedAt.toISOString());
+    }
     const { occurredAt } = mockPublish.mock.calls[0][1] as { occurredAt: string };
     const complianceBody = (call: unknown[]) => call[1] as { occurredAt?: string };
-    const inline = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/api/compliance/entitlements/'));
+    const inline = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/compliance/entitlements/'));
     // The inline attempt and the queued retry share one timestamp …
     expect(complianceBody(inline!).occurredAt).toBe(occurredAt);
 
@@ -349,8 +368,47 @@ describe('syncEntitlements durable-bus retry', () => {
     mockClientPut.mockClear();
     mockClientPut.mockResolvedValue({ statusCode: 200 });
     await handler!({ payload: mockPublish.mock.calls[0][1] });
-    const replay = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/api/compliance/entitlements/'));
+    const replay = mockClientPut.mock.calls.find((c) => String(c[0]).includes('/compliance/entitlements/'));
     expect(complianceBody(replay!).occurredAt).toBe(occurredAt);
+    mockSubscriptionRow.mockReturnValue(null);
+  });
+
+  describe('retry consumer re-reads the CURRENT subscription (never replays a stale payload)', () => {
+    let handler: ((env: { payload: unknown }) => Promise<void>) | undefined;
+    beforeEach(() => {
+      startEntitlementSyncConsumer({ subscribe: (o: { handler: typeof handler }) => { handler = o.handler; return { stop: async () => {} }; } } as never);
+      mockClientPut.mockResolvedValue({ statusCode: 200 });
+    });
+    afterEach(() => { mockSubscriptionRow.mockReturnValue(null); });
+    const quotaBody = () => mockClientPut.mock.calls.find((c) => String(c[0]).startsWith('/quotas/'))?.[1] as { tier?: string } | undefined;
+    const stalePayload = { orgId: 'org-1', tier: 'enterprise', subscriptionId: 'sub-1', addons: [{ bundleId: 'b1', quantity: 2 }], occurredAt: '2026-01-01T00:00:00.000Z' };
+
+    it('a sub canceled since the failure is pushed at the developer baseline, not the queued paid tier', async () => {
+      mockSubscriptionRow.mockReturnValue({ _id: 'sub-1', status: 'canceled', planId: 'ent', addons: [{ bundleId: 'b1', quantity: 2 }], metadata: {}, updatedAt: new Date('2026-09-02T00:00:00Z') });
+      await handler!({ payload: stalePayload });
+      expect(quotaBody()?.tier).toBe('developer');
+      expect(mockPlanFindById).not.toHaveBeenCalled();
+    });
+
+    it('a plan change since the failure is pushed from the CURRENT plan', async () => {
+      mockSubscriptionRow.mockReturnValue({ _id: 'sub-1', status: 'active', planId: 'team-plan', addons: [], metadata: {}, updatedAt: new Date('2026-09-02T00:00:00Z') });
+      mockPlanFindById.mockResolvedValueOnce({ tier: 'team' });
+      await handler!({ payload: stalePayload });
+      expect(mockPlanFindById).toHaveBeenCalledWith('team-plan');
+      expect(quotaBody()?.tier).toBe('team');
+    });
+
+    it('a grace-downgraded past_due row is pushed at developer', async () => {
+      mockSubscriptionRow.mockReturnValue({ _id: 'sub-1', status: 'past_due', planId: 'ent', addons: [], metadata: { gracePeriodDowngradedAt: 'x' }, updatedAt: new Date() });
+      await handler!({ payload: stalePayload });
+      expect(quotaBody()?.tier).toBe('developer');
+    });
+
+    it('drops (acks) the retry when the subscription row is gone', async () => {
+      mockSubscriptionRow.mockReturnValue(null);
+      await expect(handler!({ payload: stalePayload })).resolves.toBeUndefined();
+      expect(mockClientPut).not.toHaveBeenCalled();
+    });
   });
 
   it('never throws even if the bus publish rejects (preserves fail-open contract)', async () => {
@@ -387,12 +445,12 @@ describe('syncEntitlements durable-bus retry', () => {
 // syncEntitlements — reporting retention leg (Phase 8)
 
 describe('syncEntitlements reporting retention leg', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   /** The PUT call for the reporting retention-sync leg (or undefined). */
   const retentionCall = () =>
     mockClientPut.mock.calls.find(
-      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/api/reports/retention-sync/'),
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/reports/retention-sync/'),
     );
 
   it('pushes the tier-baseline retention (30/180) to reporting with the org path + service auth headers', async () => {
@@ -404,9 +462,9 @@ describe('syncEntitlements reporting retention leg', () => {
     const call = retentionCall();
     expect(call).toBeDefined();
     // Path carries the root orgId (mirrors platform's seat-limit route shape).
-    expect(call![0]).toBe('/api/reports/retention-sync/org-1');
+    expect(call![0]).toBe('/reports/retention-sync/org-1');
     // Body carries the EFFECTIVE event/dora retention days.
-    expect(call![1]).toEqual({ eventRetentionDays: 30, doraRetentionDays: 180 });
+    expect(call![1]).toEqual({ eventRetentionDays: 30, doraRetentionDays: 180, occurredAt: expect.any(String) });
     // Same auth mechanism as the seat leg: threaded bearer + x-org-id.
     expect(call![2]).toMatchObject({
       headers: { 'Authorization': 'Bearer tok', 'x-org-id': 'org-1' },
@@ -422,7 +480,7 @@ describe('syncEntitlements reporting retention leg', () => {
 
     const call = retentionCall();
     expect(call).toBeDefined();
-    expect(call![1]).toEqual({ eventRetentionDays: 30, doraRetentionDays: 180 + 365 });
+    expect(call![1]).toEqual({ eventRetentionDays: 30, doraRetentionDays: 180 + 365, occurredAt: expect.any(String) });
   });
 
   it('stacks retention_pack event grants (base 30 + 2× retention_pack ⇒ 210)', async () => {
@@ -433,7 +491,7 @@ describe('syncEntitlements reporting retention leg', () => {
     ]);
 
     const call = retentionCall();
-    expect(call![1]).toEqual({ eventRetentionDays: 30 + 180, doraRetentionDays: 180 });
+    expect(call![1]).toEqual({ eventRetentionDays: 30 + 180, doraRetentionDays: 180, occurredAt: expect.any(String) });
   });
 
   it('passes -1 (unlimited) through untouched for the unlimited tier', async () => {
@@ -445,7 +503,7 @@ describe('syncEntitlements reporting retention leg', () => {
     ]);
 
     const call = retentionCall();
-    expect(call![1]).toEqual({ eventRetentionDays: -1, doraRetentionDays: -1 });
+    expect(call![1]).toEqual({ eventRetentionDays: -1, doraRetentionDays: -1, occurredAt: expect.any(String) });
   });
 
   it('D7: clamps a summed retention above 730 down to the ceiling (defensive)', async () => {
@@ -458,7 +516,7 @@ describe('syncEntitlements reporting retention leg', () => {
     ]);
 
     const call = retentionCall();
-    expect(call![1]).toEqual({ eventRetentionDays: 730, doraRetentionDays: 180 });
+    expect(call![1]).toEqual({ eventRetentionDays: 730, doraRetentionDays: 180, occurredAt: expect.any(String) });
   });
 
   it('returns false (fail-open) when ONLY the reporting leg fails', async () => {
@@ -466,7 +524,7 @@ describe('syncEntitlements reporting retention leg', () => {
     // (returns false) and the durable-bus retry is covered in the bus-retry suite.
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
-      if (path.includes('/api/reports/retention-sync/')) return Promise.resolve({ statusCode: 500 });
+      if (path.includes('/reports/retention-sync/')) return Promise.resolve({ statusCode: 500 });
       return Promise.resolve({ statusCode: 200 });
     });
 
@@ -480,7 +538,7 @@ describe('syncEntitlements reporting retention leg', () => {
   it('never fails the sync when the reporting leg THROWS (fail-open)', async () => {
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
-      if (path.includes('/api/reports/retention-sync/')) return Promise.reject(new Error('reporting down'));
+      if (path.includes('/reports/retention-sync/')) return Promise.reject(new Error('reporting down'));
       return Promise.resolve({ statusCode: 200 });
     });
 
@@ -495,12 +553,12 @@ describe('syncEntitlements reporting retention leg', () => {
 // syncEntitlements — compliance content-set leg (compliance add-ons)
 
 describe('syncEntitlements compliance content-set leg', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   /** The PUT call for the compliance entitlements leg (or undefined). */
   const complianceCall = () =>
     mockClientPut.mock.calls.find(
-      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/api/compliance/entitlements/'),
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('/compliance/entitlements/'),
     );
 
   it('pushes an EMPTY set for a plain tier with no compliance entitlement', async () => {
@@ -512,7 +570,7 @@ describe('syncEntitlements compliance content-set leg', () => {
     const call = complianceCall();
     expect(call).toBeDefined();
     // Path carries the root orgId (mirrors reporting's retention-sync shape).
-    expect(call![0]).toBe('/api/compliance/entitlements/org-1');
+    expect(call![0]).toBe('/compliance/entitlements/org-1');
     // Body carries the derived sets PLUS the entitlement-change `occurredAt`
     // (handshake #1) — an ISO string the compliance watermark orders pushes by.
     expect(call![1]).toMatchObject({ sets: [] });
@@ -567,7 +625,7 @@ describe('syncEntitlements compliance content-set leg', () => {
     // fails open; the durable-bus retry is covered in the bus-retry suite.
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
-      if (path.includes('/api/compliance/entitlements/')) return Promise.resolve({ statusCode: 500 });
+      if (path.includes('/compliance/entitlements/')) return Promise.resolve({ statusCode: 500 });
       return Promise.resolve({ statusCode: 200 });
     });
 
@@ -581,7 +639,7 @@ describe('syncEntitlements compliance content-set leg', () => {
   it('never fails the sync when the compliance leg THROWS (fail-open)', async () => {
     mockClientPut.mockImplementation((...args: unknown[]) => {
       const path = args[0] as string;
-      if (path.includes('/api/compliance/entitlements/')) return Promise.reject(new Error('compliance down'));
+      if (path.includes('/compliance/entitlements/')) return Promise.reject(new Error('compliance down'));
       return Promise.resolve({ statusCode: 200 });
     });
 

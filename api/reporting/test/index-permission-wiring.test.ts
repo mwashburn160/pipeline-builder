@@ -17,6 +17,7 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Capture every app.use(...) call so we can inspect the middleware stacks.
@@ -57,7 +58,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ErrorCode: new Proxy({}, { get: (_t, k) => k }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   createApp: () => ({ app, sseManager: {} }),
   runServer: jest.fn(),
   createAuthenticatedWithOrgRoute: () => [],

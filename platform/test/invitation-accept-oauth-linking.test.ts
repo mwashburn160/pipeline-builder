@@ -42,6 +42,10 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   recomputeUserOrgRole: jest.fn(async () => undefined),
 }));
 jest.unstable_mockModule('../src/utils/email.js', () => ({ emailService: { sendInvitationAccepted: jest.fn(async () => undefined) } }));
+const mockSignInMethods = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({ hasPassword: true, hasProvider: false, passkeyCount: 0, hasTotp: false }));
+jest.unstable_mockModule('../src/helpers/sign-in-methods.js', () => ({
+  loadSignInMethods: (...a: unknown[]) => mockSignInMethods(...a),
+}));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));
@@ -98,6 +102,16 @@ describe('acceptViaOAuth — linking', () => {
 
     await invitationService.acceptViaOAuth('tok', 'google', oauth).catch(() => undefined);
     expect(mockUserFindByIdAndUpdate).toHaveBeenCalledWith('real', expect.anything(), expect.anything());
+  });
+
+  it('REFUSES to auto-link onto an account a second factor protects', async () => {
+    mockUserFindOne
+      .mockReturnValueOnce(q(null))
+      .mockReturnValueOnce(q({ _id: 'real', email: EMAIL, isEmailVerified: true }));
+    mockSignInMethods.mockResolvedValueOnce({ hasPassword: true, hasProvider: false, passkeyCount: 0, hasTotp: true });
+
+    await expect(invitationService.acceptViaOAuth('tok', 'google', oauth)).rejects.toThrow('OAUTH_LINK_REQUIRES_SIGN_IN');
+    expect(mockUserFindByIdAndUpdate).not.toHaveBeenCalled();
   });
 
   it('matches the provider identity first, without an email lookup', async () => {

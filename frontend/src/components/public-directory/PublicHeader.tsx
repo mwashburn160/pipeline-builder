@@ -57,7 +57,11 @@ export function PublicHeader() {
             type="button"
             onClick={toggle}
             className="rounded-lg p-2 text-fg-muted transition-colors hover:text-fg"
-            aria-label="Toggle dark mode"
+            aria-label="Dark mode"
+            // A toggle's state is part of its name: without it a screen reader
+            // hears the same "button" whichever mode is on. Only after mount —
+            // the preference is browser-only, and SSR must not guess it.
+            aria-pressed={mounted ? isDark : undefined}
           >
             {/* The icon depends on a browser-only preference: render it after mount. */}
             {mounted && isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}

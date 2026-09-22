@@ -18,7 +18,9 @@
  * arguments the route hands the builder and on the emitted status/body.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSendSuccess = jest.fn((res: any, status: number, data: unknown) => {
@@ -27,16 +29,16 @@ const mockSendSuccess = jest.fn((res: any, status: number, data: unknown) => {
 
 // requireAuth records the options it was constructed with so we can assert the
 // route opts into header-based org override.
-const mockRequireAuth = jest.fn((_opts: unknown) => (_req: any, _res: any, next: () => void) => next());
+const mockRequireAuth = jest.fn((..._opts: unknown[]) => (_req: any, _res: any, next: () => void) => next());
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   requireAuth: (...a: unknown[]) => mockRequireAuth(...a),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any) =>
-    handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId }),
+    handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.orgId }),
 }));
 
 const mockBuildUsageRollupFor = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -54,13 +56,13 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
 
 // Subscription.findOne(...).lean()  and  Plan.findById(...).lean()
 const mockSubscriptionLean = jest.fn<() => Promise<unknown>>();
-const mockSubscriptionFindOne = jest.fn(() => ({ lean: () => mockSubscriptionLean() }));
+const mockSubscriptionFindOne = jest.fn((..._args: unknown[]) => ({ lean: () => mockSubscriptionLean() }));
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { findOne: (...a: unknown[]) => mockSubscriptionFindOne(...(a as [])) },
 }));
 
 const mockPlanLean = jest.fn<() => Promise<unknown>>();
-const mockPlanFindById = jest.fn(() => ({ lean: () => mockPlanLean() }));
+const mockPlanFindById = jest.fn((..._args: unknown[]) => ({ lean: () => mockPlanLean() }));
 jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: { findById: (...a: unknown[]) => mockPlanFindById(...(a as [])) },
 }));
@@ -85,8 +87,8 @@ function getHandler(method: string, path: string) {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 

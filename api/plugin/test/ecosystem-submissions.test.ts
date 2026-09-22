@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, jest } from '@jest/globals';
 import AdmZip from 'adm-zip';
+import { PgDialect } from 'drizzle-orm/pg-core';
 
 process.env.PLUGIN_UPLOAD_DIR = mkdtempSync(join(tmpdir(), 'plugin-submissions-upload-'));
 // realpath: the Dockerfile containment check compares resolved paths (macOS /var → /private/var).
@@ -102,6 +103,25 @@ const goodZip = (name?: string, version?: string, extra?: Record<string, string>
 let base = '';
 let server: import('node:http').Server;
 const replay = new Set<string>();
+/** The in-memory daily-cap counters (key → count + window end). */
+const caps = new Map<string, { n: number; until: number }>();
+let capsDown = false;
+const dialect = new PgDialect();
+
+/** The email purge's SQL (`submissions.purgeEmails`), run against the in-memory table. */
+function purgeHandler(q: unknown): unknown {
+  const { sql: text, params } = dialect.sqlToQuery(q as never);
+  if (!/UPDATE plugin_submissions\s+SET email_hash = NULL, email_enc = NULL/.test(text)) return { rows: [] };
+  expect(text).toMatch(/email_purge_after <= \$1/);
+  expect(text).toMatch(/email_hash IS NOT NULL OR email_enc IS NOT NULL/);
+  const [nowIso, limit] = params as [string | Date, number];
+  const now = new Date(nowIso).getTime();
+  const due = (db.tables.plugin_submissions ?? [])
+    .filter((r) => r.emailPurgeAfter && new Date(r.emailPurgeAfter).getTime() <= now && (r.emailHash !== null || r.emailEnc !== null))
+    .slice(0, Number(limit));
+  for (const r of due) Object.assign(r, { emailHash: null, emailEnc: null });
+  return { rows: due.map((r) => ({ id: r.id })) };
+}
 let emailEnabled = true;
 const enqueued: string[] = [];
 
@@ -126,6 +146,19 @@ beforeEach(() => {
   emailEnabled = true;
   setEmailStatusProbeForTests(async () => emailEnabled);
   submissionsSvc.setPowReplayStoreForTests({ claim: async (key) => (replay.has(key) ? false : (replay.add(key), true)) });
+  caps.clear();
+  capsDown = false;
+  submissionsSvc.setDailyCapStoreForTests({
+    incr: async (key, ttlMs) => {
+      if (capsDown) throw new Error('redis down');
+      const now = Date.now();
+      const cur = caps.get(key);
+      const next = cur && cur.until > now ? { n: cur.n + 1, until: cur.until } : { n: 1, until: now + ttlMs };
+      caps.set(key, next);
+      return next.n;
+    },
+  });
+  db.execute.handler = purgeHandler;
   submissionsSvc.setSubmissionEnqueueForTests(async (id) => { enqueued.push(id); });
   seedPublishers(db);
   db.seed('publishers', { handle: 'community', ownerOrgId: null, displayName: 'Community', tier: 'unverified' });
@@ -308,9 +341,52 @@ describe('POST / (submit into quarantine)', () => {
     // Same IP, another email: the IP cap still binds.
     expect((await submit({ zip: goodZip('p10'), email: 'other@example.com' })).body.code).toBe('SUBMISSION_LIMIT');
     // A day later the window has rolled.
-    for (const r of db.tables.plugin_submissions!) r.createdAt = new Date(Date.now() - 25 * 3_600_000);
+    for (const c of caps.values()) c.until = Date.now() - 1;
     expect((await submit({ zip: goodZip('p11') })).status).toBe(202);
   });
+
+  it('counts the attempt BEFORE opening the package, so a refused zip still spends the slot', async () => {
+    for (let i = 0; i < 3; i++) expect((await submit({ zip: zipOf({ Dockerfile: DOCKERFILE }) })).status).toBe(400);
+    expect((await submit({ zip: goodZip('p1') })).body.code).toBe('SUBMISSION_LIMIT');
+  });
+
+  it('fails closed (503) when the cap counters are unavailable', async () => {
+    capsDown = true;
+    const res = await submit({ zip: goodZip() });
+    expect(res.status).toBe(503);
+    expect(db.tables.plugin_submissions ?? []).toHaveLength(0);
+  });
+
+  it('refuses a name or version that is not the plugin-spec shape (CR/LF, uppercase) — E15', async () => {
+    const res = await submit({ zip: zipOf({ 'plugin-spec.yaml': SPEC('"Evil\\r\\nBcc"'), 'Dockerfile': DOCKERFILE }) });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/name must match/);
+    const badVersion = await submit({ zip: zipOf({ 'plugin-spec.yaml': SPEC('ok-name', '"1.0.0\\nx"'), 'Dockerfile': DOCKERFILE }) });
+    expect(badVersion.status).toBe(400);
+    expect(badVersion.body.message).toMatch(/version must be semver/);
+  });
+
+  it('extracts an anonymous package under tight caps — a small zip bomb is refused (E14)', async () => {
+    process.env.SUBMISSION_MAX_ZIP_BYTES = '2048';
+    try {
+      // 64 KiB of zeros compresses to a few hundred bytes: under the zip cap, over 10 × it once expanded.
+      const bomb = zipOf({ 'plugin-spec.yaml': SPEC(), 'Dockerfile': DOCKERFILE, 'pad.bin': '0'.repeat(64 * 1024) });
+      expect(bomb.length).toBeLessThan(2048);
+      const res = await submit({ zip: bomb });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/maximum extracted size \(20480 bytes\)/);
+    } finally {
+      delete process.env.SUBMISSION_MAX_ZIP_BYTES;
+    }
+  });
+
+  it('caps the entry count of an anonymous package at 2000', async () => {
+    const files: Record<string, string> = { 'plugin-spec.yaml': SPEC(), 'Dockerfile': DOCKERFILE };
+    for (let i = 0; i < 2001; i++) files[`f/${i}.txt`] = 'x';
+    const res = await submit({ zip: zipOf(files) });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/maximum entry count \(2000\)/);
+  }, 30_000);
 
   it('refuses packages the platform cannot build from source', async () => {
     const prebuilt = await submit({ zip: zipOf({ 'plugin-spec.yaml': SPEC(), 'config.yaml': 'buildType: prebuilt\n', 'image.tar': 'x' }) });
@@ -332,6 +408,8 @@ describe('the name gate (E9)', () => {
     expect((await submit({ zip: goodZip('terraform') })).body.details.reason).toBe('trusted_listing');
     db.seed('plugin_stats', { listingId: tf.id, installCount: 40 });
     expect((await submit({ zip: goodZip('terraf0rm') })).body.details.reason).toBe('confusable');
+    // Refused attempts spend the daily cap too (counted before the package is opened).
+    caps.clear();
     expect((await submit({ zip: goodZip('terraform-docs') })).status).toBe(202);
   });
 
@@ -428,6 +506,19 @@ describe('POST /inspect', () => {
     form.append('plugin', new Blob([new Uint8Array(goodZip())]), 'p.zip');
     expect((await fetch(`${base}/inspect`, { method: 'POST', body: form })).status).toBe(400);
   });
+
+  it('caps inspections per client IP per day (no email on this path) — E14', async () => {
+    const inspect = async () => {
+      const form = new FormData();
+      form.append('plugin', new Blob([new Uint8Array(goodZip())]), 'p.zip');
+      form.append('pow', await pow());
+      return fetch(`${base}/inspect`, { method: 'POST', body: form });
+    };
+    for (let i = 0; i < submissionsSvc.INSPECTS_PER_DAY; i++) expect((await inspect()).status).toBe(200);
+    const over = await inspect();
+    expect(over.status).toBe(429);
+    expect(((await over.json()) as any).code).toBe('SUBMISSION_LIMIT');
+  });
 });
 
 // -----------------------------------------------------------------------------
@@ -435,6 +526,25 @@ describe('POST /inspect', () => {
 // -----------------------------------------------------------------------------
 
 describe('the quarantine gate pipeline', () => {
+  it('writes the gate report and the moderation request TOGETHER — a failed request insert records no report (E6)', async () => {
+    greenBuild();
+    const { id } = await submitted();
+    db.failNextInsert('plugin_publish_requests', new Error('connection reset'));
+    await expect(pipeline.runSubmissionGates(id)).rejects.toThrow('connection reset');
+    expect(row(id)).toMatchObject({ status: 'pending_review', gateReport: null });
+    // The queue's retry runs the gates again and queues it.
+    expect(await pipeline.runSubmissionGates(id)).toBe('queued');
+    expect(await pipeline.runSubmissionGates(id)).toBe('skipped');
+  });
+
+  it('a submission with a report but NO open request is not stranded: the gates run again (E6)', async () => {
+    greenBuild();
+    const { id } = await submitted();
+    row(id).gateReport = { gates: [], completedAt: new Date().toISOString() };
+    expect(await pipeline.runSubmissionGates(id)).toBe('queued');
+    expect(db.tables.plugin_publish_requests!.filter((r) => r.kind === 'submission')).toHaveLength(1);
+  });
+
   it('all green → one `submission` request on the community publisher (anonymous, no org), N2 to moderators; no plugins row', async () => {
     const { deps } = greenBuild();
     const { id } = await submitted();
@@ -557,6 +667,49 @@ describe('moderating a submission', () => {
     await expect(decisions.secondApprove(moderator('mod-2') as any, requestId, null)).rejects.toThrow(/no longer matches/);
     expect(h.registryPost).not.toHaveBeenCalled();
     expect(db.tables.plugin_publish_requests!.find((r) => r.id === requestId)!.status).toBe('pending_second_approval');
+  });
+
+  it('claims the submission before publishing: an expiry racing the approval can no longer take it (E10)', async () => {
+    const { id, requestId } = await queued();
+    await decisions.approve(moderator('mod-1') as any, requestId, null);
+    let seenDuringPublish: string | undefined;
+    h.registryPost.mockImplementationOnce(async (_path: string, body: any) => {
+      seenDuringPublish = row(id).status;
+      // The expiry sweep runs mid-publish: the claimed row is not "undecided" any more.
+      row(id).expiresAt = new Date(Date.now() - 1000);
+      expect(await submissionsSvc.expireSubmissions()).toBe(0);
+      return { statusCode: 200, body: { data: { imageRepository: `public/${body.publisherHandle}/${body.name}`, digest: body.digest } } };
+    });
+    await decisions.secondApprove(moderator('mod-2') as any, requestId, null);
+    expect(seenDuringPublish).toBe('publishing');
+    expect(row(id).status).toBe('approved');
+  });
+
+  it('hands the claim back and records nothing when the publish fails (E5/E10)', async () => {
+    const { id, requestId } = await queued();
+    await decisions.approve(moderator('mod-1') as any, requestId, null);
+    h.registryPost.mockImplementationOnce(async () => ({ statusCode: 502, body: { message: 'registry down' } }));
+    await expect(decisions.secondApprove(moderator('mod-2') as any, requestId, null)).rejects.toThrow(/registry down|HTTP 502/);
+    expect(row(id).status).toBe('pending_review');
+    expect(db.tables.plugin_listings ?? []).toEqual([]);
+    expect(db.tables.plugin_publish_requests!.find((r) => r.id === requestId)!.status).toBe('pending_second_approval');
+  });
+
+  it('re-runs the name gate at approval: a name reserved meanwhile is refused (E18)', async () => {
+    const { requestId } = await queued();
+    await decisions.approve(moderator('mod-1') as any, requestId, null);
+    db.seed('ecosystem_reserved_names', { name: 'my-linter', reason: 'trademark' });
+    await expect(decisions.secondApprove(moderator('mod-2') as any, requestId, null)).rejects.toMatchObject({ code: 'NAME_TAKEN' });
+    expect(h.registryPost).not.toHaveBeenCalled();
+  });
+
+  it('a community listing with NO recorded owner (email purged) is taken, not open to anyone (E18)', async () => {
+    const community = db.tables.publishers!.find((p) => p.handle === 'community')!;
+    const l = db.seed('plugin_listings', { publisherId: community.id, name: 'my-linter', latestVersion: '0.9.0' });
+    db.seed('plugin_listing_versions', { listingId: l.id, version: '0.9.0', publishedBy: 'x' });
+    const res = await submit({});
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('NAME_TAKEN');
   });
 
   it('a tenant can neither submit nor withdraw a `submission` request', async () => {

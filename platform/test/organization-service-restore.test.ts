@@ -7,20 +7,21 @@
  * soft-deleted org is treated as not-found for mutations).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockOrgFindById = jest.fn();
-const mockOrgFindOne = jest.fn();
-const mockUserOrgFind = jest.fn();
-const mockUserUpdateMany = jest.fn();
+const mockOrgFindById = jest.fn<AnyFn>();
+const mockOrgFindOne = jest.fn<AnyFn>();
+const mockUserOrgFind = jest.fn<AnyFn>();
+const mockUserUpdateMany = jest.fn<AnyFn>();
 const mockPrepareTeamRestore = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockOrgFind = jest.fn();
+const mockOrgFind = jest.fn<AnyFn>();
 const mockGetOrgName = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  decryptSecret: jest.fn(),
-  encryptSecret: jest.fn(),
+  decryptSecret: jest.fn<AnyFn>(),
+  encryptSecret: jest.fn<AnyFn>(),
   isEncryptedBlob: jest.fn(() => false),
   QUOTA_TIERS: { developer: { limits: {} }, pro: { limits: {} }, team: { limits: {} }, enterprise: { limits: {} } },
 }));
@@ -38,18 +39,19 @@ jest.unstable_mockModule('mongoose', () => {
   }
   const startSession = jest.fn(async () => ({
     withTransaction: async (cb: () => Promise<unknown>) => cb(),
-    endSession: jest.fn(),
+    endSession: jest.fn<AnyFn>(),
   }));
-  return { default: { startSession }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { default: { startSession }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
-jest.unstable_mockModule('../src/middleware/quota.js', () => ({ getOrganizationQuotaStatus: jest.fn(), QuotaType: {} }));
+jest.unstable_mockModule('../src/middleware/quota.js', () => ({ getOrganizationQuotaStatus: jest.fn<AnyFn>(), QuotaType: {} }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { quota: { tier: {} } } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   getOrgName: (...a: unknown[]) => mockGetOrgName(...a),
-  expandOrgScope: jest.fn(),
-  resolveOrgLineage: jest.fn(),
+  expandOrgScope: jest.fn<AnyFn>(),
+  resolveOrgLineage: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/services/org-hierarchy-service.js', () => ({
   orgHierarchyService: { prepareTeamRestore: (...a: unknown[]) => mockPrepareTeamRestore(...a) },
@@ -64,12 +66,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findOne: (...a: unknown[]) => mockOrgFindOne(...a),
     find: (...a: unknown[]) => mockOrgFind(...a),
   },
-  User: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a), updateOne: jest.fn() },
-  UserOrganization: { find: (...a: unknown[]) => mockUserOrgFind(...a), deleteMany: jest.fn(), countDocuments: jest.fn(async () => 0) },
+  User: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a), updateOne: jest.fn<AnyFn>() },
+  UserOrganization: { find: (...a: unknown[]) => mockUserOrgFind(...a), deleteMany: jest.fn<AnyFn>(), countDocuments: jest.fn(async () => 0) },
   Invitation: { distinct: () => ({ session: () => Promise.resolve([]) }) },
-  OrgIdpConfig: { find: jest.fn(), exists: jest.fn(async () => null) },
-  Role: { create: jest.fn(), find: jest.fn(), findOne: jest.fn(), exists: jest.fn(), deleteMany: jest.fn() },
-  RoleAssignment: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), deleteMany: jest.fn() },
+  OrgIdpConfig: { find: jest.fn<AnyFn>(), exists: jest.fn(async () => null) },
+  Role: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), findOne: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>(), deleteMany: jest.fn<AnyFn>() },
+  RoleAssignment: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>(), deleteMany: jest.fn<AnyFn>() },
 }));
 
 const { organizationService } = await import('../src/services/organization-service.js');
@@ -82,7 +84,7 @@ beforeEach(() => {
 
 describe('organizationService.restore', () => {
   it('clears the tombstone and bumps active members tokenVersion', async () => {
-    const save = jest.fn();
+    const save = jest.fn<AnyFn>();
     const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(), save };
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
 
@@ -95,12 +97,12 @@ describe('organizationService.restore', () => {
     expect(doc.purgeAfter).toBeNull();
     expect(save).toHaveBeenCalled();
     // Members re-invalidated so re-issued tokens see the org live again.
-    expect(mockUserUpdateMany).toHaveBeenCalledWith({ _id: { $in: ['u1', 'u2'] } }, { $inc: { tokenVersion: 1 } });
+    expect(mockUserUpdateMany).toHaveBeenCalledWith({ _id: { $in: ['u1', 'u2'] } }, { $inc: { claimsVersion: 1 } });
     expect(result).toEqual({ id: 'org-acme', name: 'Acme', membersInvalidated: 2 });
   });
 
   it('excludes the acting admin so restore never logs out the restorer', async () => {
-    const save = jest.fn();
+    const save = jest.fn<AnyFn>();
     const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(), save };
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
 
@@ -108,13 +110,13 @@ describe('organizationService.restore', () => {
     const result = await organizationService.restore('org-acme', 'u1');
 
     // Only the OTHER member (u2) is invalidated; u1's session stays valid.
-    expect(mockUserUpdateMany).toHaveBeenCalledWith({ _id: { $in: ['u2'] } }, { $inc: { tokenVersion: 1 } });
+    expect(mockUserUpdateMany).toHaveBeenCalledWith({ _id: { $in: ['u2'] } }, { $inc: { claimsVersion: 1 } });
     expect(result).toEqual({ id: 'org-acme', name: 'Acme', membersInvalidated: 1 });
   });
 
   it('a TEAM restore runs the parent/seat checks and re-syncs tier + entitlements before un-tombstoning', async () => {
-    const save = jest.fn();
-    const set = jest.fn();
+    const save = jest.fn<AnyFn>();
+    const set = jest.fn<AnyFn>();
     const doc: any = { _id: { toString: () => 'team-1' }, name: 'Blue', parentOrgId: 'root-1', deletedAt: new Date(), purgeAfter: new Date(), save, set };
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
     mockPrepareTeamRestore.mockResolvedValue({ tier: 'enterprise', featureEntitlements: ['sso'] });
@@ -128,8 +130,8 @@ describe('organizationService.restore', () => {
   });
 
   it('a refused TEAM restore leaves the tombstone in place', async () => {
-    const save = jest.fn();
-    const doc: any = { _id: { toString: () => 'team-1' }, parentOrgId: 'root-1', deletedAt: new Date(), purgeAfter: new Date(), save, set: jest.fn() };
+    const save = jest.fn<AnyFn>();
+    const doc: any = { _id: { toString: () => 'team-1' }, parentOrgId: 'root-1', deletedAt: new Date(), purgeAfter: new Date(), save, set: jest.fn<AnyFn>() };
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
     mockPrepareTeamRestore.mockRejectedValue(new Error('ORG_SEAT_LIMIT'));
 
@@ -139,7 +141,7 @@ describe('organizationService.restore', () => {
   });
 
   it('a ROOT restore does not run the team checks', async () => {
-    const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(), save: jest.fn() };
+    const doc: any = { _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), purgeAfter: new Date(), save: jest.fn<AnyFn>() };
     mockOrgFindOne.mockReturnValue({ session: () => Promise.resolve(doc) });
     await organizationService.restore('org-acme');
     expect(mockPrepareTeamRestore).not.toHaveBeenCalled();
@@ -156,7 +158,7 @@ describe('organizationService.restore', () => {
 
 describe('organizationService.update — soft-delete guard', () => {
   it('treats a soft-deleted org as not-found (returns null, no write)', async () => {
-    const save = jest.fn();
+    const save = jest.fn<AnyFn>();
     mockOrgFindById.mockResolvedValue({ _id: { toString: () => 'org-acme' }, name: 'Acme', deletedAt: new Date(), save });
 
     const result = await organizationService.update('org-acme', { name: 'New' });

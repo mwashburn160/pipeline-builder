@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const stepUp = jest.fn((_req: unknown, _res: unknown, next: () => void) => next());
@@ -21,7 +22,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, statusCode: number, message: string, code?: string, details?: unknown) =>
     res.status(statusCode).json({ success: false, message, code, ...(details ? { details } : {}) }),
 }));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (fn: (a: unknown) => Promise<void>) => async (rq: any, rs: any) => {
     try {
       await fn({ req: rq, res: rs, ctx: { log: jest.fn() }, orgId: 'org-acme', userId: 'u-acme' });

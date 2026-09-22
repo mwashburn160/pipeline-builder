@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { useId } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -26,6 +27,7 @@ export function CreateOrgModal({
   onSubmit,
   onClose,
 }: CreateOrgModalProps) {
+  const uid = useId();
   if (!open) return null;
   return (
     <Modal
@@ -49,10 +51,10 @@ export function CreateOrgModal({
       </p>
       <div className="space-y-3">
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted">
+          <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-team-name`}>
             Team name
           </label>
-          <Input
+          <Input id={`${uid}-team-name`}
             type="text"
             placeholder="e.g. mobile-team, qa-shared, project-foo"
             value={orgName}

@@ -3,7 +3,7 @@
 
 import type { RedisCacheClient } from './cache-service.js';
 import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from './env-redis.js';
-import type { SessionRevocationState, TokenRevocationStore } from '../middleware/auth.js';
+import type { CredentialRevocationRefs, SessionRevocationState, TokenRevocationStore } from '../middleware/auth.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
@@ -35,6 +35,54 @@ export const SESSION_REVOCATION_KEY_PREFIX = 'authrev:jti:';
 export function sessionRevocationKey(jti: string): string {
   return `${SESSION_REVOCATION_KEY_PREFIX}${jti}`;
 }
+
+/**
+ * Redis key namespaces for revoking ONE credential rather than a whole user:
+ *
+ * - `revoke:sid:<sid>`   — one refresh-session slot (a signed-out device, a
+ *                          revoked machine session). Rejects every access token
+ *                          whose `sid` claim names it.
+ * - `revoke:key:<keyId>` — one access key (PAT or service-account key). Rejects
+ *                          the key's exchanged token (`token_use: 'api_key'`,
+ *                          `jti` = key id) and anything derived from it
+ *                          (`parentKeyId`).
+ *
+ * Platform PUBLISHES these ({@link publishCredentialRevocation}); every service
+ * READS them in `requireAuth`. Presence is the whole signal — the value is `1`.
+ */
+export const CREDENTIAL_REVOCATION_PREFIX = {
+  sid: 'revoke:sid:',
+  key: 'revoke:key:',
+} as const;
+
+/** Which credential a {@link credentialRevocationKey} names. */
+export type CredentialKind = keyof typeof CREDENTIAL_REVOCATION_PREFIX;
+
+/** The revocation key for one session slot (`sid`) or one access key (`key`). */
+export function credentialRevocationKey(kind: CredentialKind, id: string): string {
+  return `${CREDENTIAL_REVOCATION_PREFIX[kind]}${id}`;
+}
+
+/**
+ * Atomic "set if greater" for the per-user tokenVersion. A plain SET let two
+ * concurrent publishes land out of order — an older version overwriting a newer
+ * one silently UN-revoked every token between them. The script only ever raises
+ * the stored version, and only ever lengthens the entry's TTL.
+ *
+ * KEYS[1] = revocation key; ARGV[1] = version; ARGV[2] = ttl seconds.
+ * Returns 1 when it wrote, 0 when an equal-or-newer version was already there.
+ */
+export const SET_IF_GREATER_LUA = `
+local cur = tonumber(redis.call('GET', KEYS[1]))
+local v = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+if cur and cur >= v then
+  if redis.call('TTL', KEYS[1]) < ttl then redis.call('EXPIRE', KEYS[1], ttl) end
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ttl)
+return 1
+`;
 
 /**
  * Build a {@link TokenRevocationStore} backed by a Redis client, for a stateless
@@ -85,6 +133,24 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
           error: errorMessage(err),
         });
         return 'unavailable';
+      }
+    },
+    async isCredentialRevoked(refs: CredentialRevocationRefs): Promise<boolean> {
+      const keys = [
+        ...(refs.sid ? [credentialRevocationKey('sid', refs.sid)] : []),
+        ...refs.keyIds.map((id) => credentialRevocationKey('key', id)),
+      ];
+      if (keys.length === 0) return false;
+      try {
+        const values = await Promise.all(keys.map((k) => redis.get(k)));
+        return values.some((v) => v !== null && v !== undefined);
+      } catch (err) {
+        // Fail-open, like getCurrentVersion: a one-credential revocation is the
+        // same class of signal as a tokenVersion bump, and a Redis outage must
+        // not lock every session out. Counted so it is alertable.
+        emitCounter('token_revocation_fail_open_total', { reason: 'credential-read-error' });
+        logger.debug('Credential-revocation read failed (fail-open)', { error: errorMessage(err) });
+        return false;
       }
     },
   };
@@ -149,6 +215,11 @@ export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
       }
       return createRedisTokenRevocationStore(redis).getSessionRevocation!(jti);
     },
+    async isCredentialRevoked(refs: CredentialRevocationRefs): Promise<boolean> {
+      const redis = await client();
+      if (!redis) return false;
+      return createRedisTokenRevocationStore(redis).isCredentialRevoked!(refs);
+    },
   };
 }
 
@@ -156,6 +227,9 @@ export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
  * Publish a user's current `tokenVersion` so the stateless services see the
  * revocation immediately (platform side). Best-effort — never throws; a failure
  * just means the services fall back to natural token expiry for this change.
+ *
+ * The write is an atomic set-if-greater ({@link SET_IF_GREATER_LUA}), so an
+ * out-of-order publish can never lower the stored version.
  *
  * The key is written with a TTL equal to the access-token lifetime: any token
  * that could still carry an older version has expired by the time the entry
@@ -173,8 +247,11 @@ export async function publishTokenRevocation(
   ttlSeconds: number,
 ): Promise<void> {
   try {
-    // ioredis-style variadic SET with expiry: SET key val EX ttl.
-    await redis.set(tokenRevocationKey(userId), String(tokenVersion), 'EX', Math.max(1, Math.floor(ttlSeconds)));
+    // Atomic set-if-greater: concurrent publishes can arrive out of order, and a
+    // plain SET would let the older version win. A client that can't run Lua is
+    // refused (caught below) rather than written racily.
+    if (typeof redis.eval !== 'function') throw new Error('Redis client cannot run scripts (eval unavailable)');
+    await redis.eval(SET_IF_GREATER_LUA, 1, tokenRevocationKey(userId), String(tokenVersion), Math.max(1, Math.floor(ttlSeconds)));
   } catch (err) {
     logger.warn('Token-revocation publish failed (services fall back to token expiry)', {
       userId, error: errorMessage(err),
@@ -207,6 +284,36 @@ export async function publishSessionRevocation(
   } catch (err) {
     logger.warn('Session-revocation publish failed (other services will honour the token until it expires)', {
       error: errorMessage(err),
+    });
+    return false;
+  }
+}
+
+/**
+ * Publish that ONE credential — a session slot (`sid`) or an access key
+ * (`key`) — has been revoked, so every service rejects the tokens that name it
+ * on the next request (platform side).
+ *
+ * `ttlSeconds` MUST be at least the longest lifetime of any token that can
+ * carry this id (an access token minted from the slot, an exchanged key token,
+ * or a token derived from one): the entry lapsing first would read as "not
+ * revoked" while such a token is still alive.
+ *
+ * Returns whether the publish landed, so the caller can report a revocation
+ * that did not reach the other services instead of claiming success.
+ */
+export async function publishCredentialRevocation(
+  redis: RedisCacheClient,
+  kind: CredentialKind,
+  id: string,
+  ttlSeconds: number,
+): Promise<boolean> {
+  try {
+    await redis.set(credentialRevocationKey(kind, id), '1', 'EX', Math.max(1, Math.ceil(ttlSeconds)));
+    return true;
+  } catch (err) {
+    logger.warn('Credential-revocation publish failed (services honour the credential until its tokens expire)', {
+      kind, error: errorMessage(err),
     });
     return false;
   }

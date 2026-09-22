@@ -8,32 +8,34 @@
  * unhandled axios error.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import { jest } from '@jest/globals';
+import { jest, beforeAll, afterAll, beforeEach, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const listRepositories = jest.fn<() => Promise<{ repositories: string[] }>>();
 const listTags = jest.fn<(name: string) => Promise<{ name: string; tags: string[] }>>();
-const getManifest = jest.fn();
+const getManifest = jest.fn<AnyFn>();
 const isNotFound = (e: unknown): boolean => (e as { response?: { status?: number } })?.response?.status === 404;
 
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   listRepositories,
   listTags,
   getManifest,
-  deleteManifest: jest.fn(),
-  putManifest: jest.fn(),
-  headManifest: jest.fn(),
-  headBlob: jest.fn(),
-  getBlobStream: jest.fn(),
-  mountBlob: jest.fn(),
+  deleteManifest: jest.fn<AnyFn>(),
+  putManifest: jest.fn<AnyFn>(),
+  headManifest: jest.fn<AnyFn>(),
+  headBlob: jest.fn<AnyFn>(),
+  getBlobStream: jest.fn<AnyFn>(),
+  mountBlob: jest.fn<AnyFn>(),
   isNotFound,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
-    const ctx = { log: jest.fn(), requestId: 'test-req' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'test-req' };
     try {
       await handler({ req, res, ctx, orgId: '000000000000000000000001', userId: 'admin' });
     } catch (err) {
@@ -42,7 +44,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
       if (!r.headersSent) r.status(status).json({ success: false, message: (err as Error)?.message });
     }
   },
-  incCounter: jest.fn(),
+  incCounter: jest.fn<AnyFn>(),
 }));
 
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
@@ -55,7 +57,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, string>, key: string) => params[key],
   parsePaginationParams: (q: Record<string, unknown>) => ({ limit: q.limit ? Number(q.limit) : 100 }),
   runConcurrent: async <T>(items: T[], _n: number, fn: (t: T) => Promise<void>) => {
-    for (const it of items) await fn(it);
+    for (const item of items) await fn(item);
   },
 }));
 
@@ -76,7 +78,7 @@ beforeAll(async () => {
     next();
   });
   app.use('/api/images', createImageRoutes());
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   const { port } = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
 });
@@ -85,7 +87,7 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 const getTags = async (name: string) => {
   const res = await fetch(`${baseUrl}/api/images/${encodeURIComponent(name)}/tags`);

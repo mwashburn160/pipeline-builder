@@ -65,6 +65,13 @@ export interface RedisCacheClient {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
   del(...keys: string[]): Promise<number>;
+  /**
+   * Server-side Lua (ioredis `eval(script, numKeys, ...keysAndArgs)`). Optional
+   * so a plain key/value fake still satisfies the interface; the writers that
+   * need atomic compare-and-set (e.g. `publishTokenRevocation`) refuse a client
+   * without it rather than fall back to a racy read-modify-write.
+   */
+  eval?(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
 }
 
 export interface CacheConfig {

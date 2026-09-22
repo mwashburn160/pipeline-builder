@@ -9,7 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /** Every SQL text the store sends, reconstructed from the tagged-template chunks. */
@@ -22,16 +22,17 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   sql: (strings: TemplateStringsArray, ..._values: unknown[]) => ({ text: strings.join('?') }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   drizzleRows: <T>(rows: T[]) => rows,
-  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
-  withTenantTx: async (fn: (tx: unknown) => unknown) => fn({
-    execute: async (q: { text: string }) => {
-      executed.push(q.text);
-      return { rows: /SELECT/i.test(q.text) ? selectRows : [] };
-    },
-  }),
 }));
+
+/** The caller's transaction (the store never opens its own). */
+const tx = {
+  execute: async (q: { text: string }) => {
+    executed.push(q.text);
+    return { rows: /SELECT/i.test(q.text) ? selectRows : [] };
+  },
+} as never;
 
 const { EntitlementWatermarkStore } = await import('../src/services/entitlement-watermark-store.js');
 
@@ -42,14 +43,14 @@ describe('EntitlementWatermarkStore — no runtime DDL', () => {
 
   it('getLastOccurredAt issues only a SELECT', async () => {
     selectRows = [{ last_occurred_at: '2026-09-01T00:00:00.000Z' }];
-    const at = await new EntitlementWatermarkStore().getLastOccurredAt('org-1');
+    const at = await new EntitlementWatermarkStore().getLastOccurredAt(tx, 'org-1');
     expect(at).toEqual(new Date('2026-09-01T00:00:00.000Z'));
     expect(executed).toHaveLength(1);
     expect(executed.some((q) => DDL.test(q))).toBe(false);
   });
 
   it('record issues only the conditional upsert', async () => {
-    await new EntitlementWatermarkStore().record('org-1', new Date('2026-09-02T00:00:00.000Z'));
+    await new EntitlementWatermarkStore().record(tx, 'org-1', new Date('2026-09-02T00:00:00.000Z'));
     expect(executed).toHaveLength(1);
     expect(executed[0]).toMatch(/INSERT INTO compliance_entitlement_watermark/);
     expect(executed.some((q) => DDL.test(q))).toBe(false);

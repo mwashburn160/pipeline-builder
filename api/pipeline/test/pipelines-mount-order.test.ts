@@ -23,6 +23,7 @@
 import http from 'node:http';
 
 import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import express from 'express';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -84,7 +85,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   AIGenerateFromUrlBodySchema: {},
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ services: { pluginHost: 'localhost', pluginPort: 0 } }) },
   CoreConstants: {
     SSE_STREAM_TIMEOUT_MS: 1000,
@@ -93,6 +94,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     CACHE_CONTROL_DETAIL: 'private',
     // Read by the real idempotency middleware.
     IDEMPOTENCY_TTL_MS: 60_000,
+    IDEMPOTENCY_PENDING_TTL_MS: 30_000,
     IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000,
     IDEMPOTENCY_MAX_STORE_SIZE: 1000,
   },
@@ -120,7 +122,7 @@ const authStandIn = (req: any, _res: any, next: () => void) => {
 /** Mirrors api-server's chain shape: auth → orgId → idempotency (→ tenant scope). */
 const authChain = () => [authStandIn, idempotencyMiddleware()];
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: (_qs: unknown, type: string) => (_req: any, _res: any, next: () => void) => {
     if (type === 'apiCalls') passes.apiCallsCheck++;
@@ -143,7 +145,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incrementQuotaFromCtx: jest.fn(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({}),
   schema: {},
   reportingService: {

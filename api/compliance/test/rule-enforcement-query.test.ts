@@ -16,6 +16,7 @@
 
 import { resolve } from 'path';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { createRecordingDb, paramsForColumn } from './helpers/recording-db.js';
 
@@ -37,8 +38,8 @@ const crud = await import('@pipeline-builder/pipeline-data/lib/api/crud-service.
 const builders = await import('@pipeline-builder/pipeline-data/lib/api/query-builders.js');
 const { schema } = await import('@pipeline-builder/pipeline-data/lib/database/drizzle-schema.js');
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ ...crud, ...builders, schema, ...fakeTenancy }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({ CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 } }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { ...crud, ...builders, schema, ...fakeTenancy }, { extraOverrides: 'drop' }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', { CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 } }));
 jest.unstable_mockModule('../src/helpers/rule-change-notifier.js', () => ({ notifyPublishedRuleChange: async () => undefined }));
 
 const { ComplianceRuleService } = await import('../src/services/compliance-rule-service.js');

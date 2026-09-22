@@ -24,7 +24,7 @@ import {
   declaredAuditActions,
   findRouteCoverageViolations,
   type RouteCoverageException,
-} from '@pipeline-builder/api-core/lib/testing/route-coverage.js';
+} from '@pipeline-builder/api-core/testing';
 
 process.env.JWT_SECRET ||= 'route-coverage-test-secret';
 // `src/config.js` throws when billing is enabled without a Mongo URI, and the

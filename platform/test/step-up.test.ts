@@ -10,13 +10,14 @@
  * weakens the auth check or stops legitimate flows.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockUserFindById = jest.fn();
-const mockAudit = jest.fn();
-const mockIssueStepUpToken = jest.fn();
-const mockIncCounter = jest.fn();
+const mockUserFindById = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
+const mockIssueStepUpToken = jest.fn<AnyFn>();
+const mockIncCounter = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => {
@@ -34,7 +35,7 @@ jest.unstable_mockModule('mongoose', () => {
     method() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
@@ -44,12 +45,14 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter:
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   findRefreshSession: jest.fn(async () => undefined),
-  signApiKeyToken: jest.fn(),
-  signServiceAccountToken: jest.fn(),
+  signApiKeyToken: jest.fn<AnyFn>(),
+  signServiceAccountToken: jest.fn<AnyFn>(),
   membershipForOrg: jest.fn(async () => undefined),
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUpToken(...a),
 }));
@@ -103,7 +106,7 @@ describe('stepUpVerify', () => {
   });
 
   it('returns 401 when the user is missing in Mongo', async () => {
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(null) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(null) });
     const req: any = { body: { password: 'p' }, user: { sub: 'u1' } };
     const res = mockRes();
     await (stepUpVerify as unknown as (req: any, res: any) => Promise<void>)(req, res);
@@ -111,8 +114,8 @@ describe('stepUpVerify', () => {
   });
 
   it('audits and returns 401 on bad password', async () => {
-    const user = { comparePassword: jest.fn().mockResolvedValue(false), email: 'a@b' };
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(user) });
+    const user = { comparePassword: jest.fn<AnyFn>().mockResolvedValue(false), email: 'a@b' };
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(user) });
     const req: any = { body: { password: 'wrong' }, user: { sub: 'u1' } };
     const res = mockRes();
     await (stepUpVerify as unknown as (req: any, res: any) => Promise<void>)(req, res);
@@ -130,8 +133,8 @@ describe('stepUpVerify', () => {
   });
 
   it('issues a token and returns it on good password', async () => {
-    const user = { comparePassword: jest.fn().mockResolvedValue(true), email: 'a@b' };
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(user) });
+    const user = { comparePassword: jest.fn<AnyFn>().mockResolvedValue(true), email: 'a@b' };
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(user) });
     mockIssueStepUpToken.mockReturnValue({ token: 'jwt.token.here', expiresAt: 1700000000 });
 
     const req: any = { body: { password: 'right' }, user: { sub: 'u1' } };

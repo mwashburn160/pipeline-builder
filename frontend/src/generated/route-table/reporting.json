@@ -740,6 +740,23 @@
     "audit": []
   },
   {
+    "method": "GET",
+    "path": "/reports/retention-sync/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "PUT",
     "path": "/reports/retention-sync/:orgId",
     "auth": true,

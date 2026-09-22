@@ -12,6 +12,7 @@
  * ordinary step-up token issued (with `method: 'reauth'`).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -28,9 +29,9 @@ let entitledOrgs: Set<string>;
 let passkeyCount: number;
 let hasTotp = false;
 
-const mockAudit = jest.fn();
-const mockIncCounter = jest.fn();
-const mockIssueStepUpToken = jest.fn(() => ({ token: 'stepup.jwt', expiresAt: 1234 }));
+const mockAudit = jest.fn<AnyFn>();
+const mockIncCounter = jest.fn<AnyFn>();
+const mockIssueStepUpToken = jest.fn((..._args: unknown[]) => ({ token: 'stepup.jwt', expiresAt: 1234 }));
 const mockVerifyOAuthReauthCode = jest.fn<(p: string, c: string) => Promise<{ userInfo: { id: string; email: string }; authTime?: number }>>();
 const mockExchangeAndValidate = jest.fn<(...a: unknown[]) => Promise<{ subject: string; issuer: string; email: string; authTime?: number }>>();
 
@@ -76,6 +77,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),

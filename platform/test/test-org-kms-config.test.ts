@@ -11,14 +11,15 @@
  * misconfiguration BEFORE a PUT triggers a real rotation.
  */
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { z } from 'zod';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockOrgFindById = jest.fn();
-const mockDeriveKeyAsync = jest.fn();
-const mockPerOrgCtor = jest.fn();
-const mockAudit = jest.fn();
+const mockOrgFindById = jest.fn<AnyFn>();
+const mockDeriveKeyAsync = jest.fn<AnyFn>();
+const mockPerOrgCtor = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -53,7 +54,7 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId };
   }
-  const api = { Types: { Mixed: class {}, ObjectId }, Schema, models: {}, model: jest.fn() };
+  const api = { Types: { Mixed: class {}, ObjectId }, Schema, models: {}, model: jest.fn<AnyFn>() };
   return { ...api, default: api };
 });
 
@@ -73,8 +74,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 // The controller imports captureOrgSecrets + reencryptOrgSecrets for the
 // PUT path; for testOrgKmsConfig they're irrelevant but still resolved.
 jest.unstable_mockModule('../src/services/secret-reencrypt.js', () => ({
-  captureOrgSecrets: jest.fn(),
-  reencryptOrgSecrets: jest.fn(),
+  captureOrgSecrets: jest.fn<AnyFn>(),
+  reencryptOrgSecrets: jest.fn<AnyFn>(),
 }));
 
 // Post-zod migration the controller validates via utils/validation.js. The
@@ -191,7 +192,7 @@ describe('testOrgKmsConfig', () => {
     );
 
     expect(res.status).toHaveBeenCalledWith(200);
-    const payload = (res.json as jest.Mock).mock.calls[0][0].data;
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
     expect(payload.ok).toBe(true);
     expect(payload.keyId).toBe('alias/pb');
     // 32 bytes of 0x11 → SHA-256 prefix is deterministic.
@@ -213,6 +214,6 @@ describe('testOrgKmsConfig', () => {
       res,
     );
     expect(res.status).toHaveBeenCalledWith(400);
-    expect((res.json as jest.Mock).mock.calls[0][0].message).toMatch(/AccessDenied/);
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0].message).toMatch(/AccessDenied/);
   });
 });

@@ -141,7 +141,7 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
       setOpen(false);
       const orgName = organizations.find(o => o.id === orgId)?.name || orgId;
       toast.success(`Switched to ${orgName}`);
-      router.replace(router.asPath);
+      void router.replace(router.asPath);
     } catch (err) {
       toast.error(formatError(err, 'Failed to switch organization'));
     } finally {
@@ -216,6 +216,8 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   // up/down affordance. Dropdown opens below, left-aligned.
   if (variant === 'header') {
     return (
+      // Delegates arrow/Home/End/Escape navigation for the menu it wraps; the wrapper itself is not a control.
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions
       <div ref={ref} onKeyDown={onMenuKeyDown} className={`relative ${className}`}>
         <button
           type="button"
@@ -243,6 +245,8 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   // the right (the full card doesn't fit in a 64px rail).
   if (collapsed) {
     return (
+      // Delegates arrow/Home/End/Escape navigation for the menu it wraps; the wrapper itself is not a control.
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions
       <div ref={ref} onKeyDown={onMenuKeyDown} className={`relative flex justify-center ${className}`}>
         <Tooltip content={`${canSwitch ? `Organization: ${activeName} — click to switch` : `Organization: ${activeName}`}${viaAncestorNote ? ` (${viaAncestorNote})` : ''}`}>
           <button
@@ -268,6 +272,8 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   // uppercase Organization/Team caption over the active name, with the
   // up/down switcher affordance on the right.
   return (
+    // Delegates arrow/Home/End/Escape navigation for the menu it wraps; the wrapper itself is not a control.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div ref={ref} onKeyDown={onMenuKeyDown} className={`relative ${className}`}>
       <button
         type="button"

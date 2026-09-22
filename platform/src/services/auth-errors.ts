@@ -22,6 +22,18 @@ export const ONBOARDING_NO_ORG = 'ONBOARDING_NO_ORG';
  *  onto a pre-existing but UNVERIFIED account. Mapped to 409 by the OAuth + OIDC
  *  callback error maps (single source, shared by both). */
 export const ACCOUNT_EMAIL_UNVERIFIED = 'ACCOUNT_EMAIL_UNVERIFIED';
+
+/** A social sign-in reached an existing account that has a second factor
+ *  enrolled (authenticator app or passkey) and is not yet linked to this
+ *  provider. Auto-linking by email would let the provider identity stand in
+ *  for that factor, so it is refused: the person signs in the way they already
+ *  can. → 409 */
+export const OAUTH_LINK_REQUIRES_SIGN_IN = 'OAUTH_LINK_REQUIRES_SIGN_IN';
+
+/** A social sign-in reached an account whose only second factor is a passkey:
+ *  there is no code to ask for on this leg, so the person signs in with the
+ *  passkey instead. → 403 */
+export const OAUTH_PASSKEY_REQUIRED = 'OAUTH_PASSKEY_REQUIRED';
 /** A platform administrator's sign-in must never depend on a tenant-run IdP.
  *  Mapped to 403 in OIDC_ERROR_MAP. */
 export const SSO_SUPERADMIN_REFUSED = 'SSO_SUPERADMIN_REFUSED';
@@ -66,10 +78,6 @@ export const TOKEN_SCOPE_ESCALATION = 'TOKEN_SCOPE_ESCALATION';
 /** A credential was derived from a token carrying no `amr`/`aal`/`auth_time`
  *  claims, so its assurance can't be inherited. Fail closed → 401. */
 export const SESSION_AUTH_MISSING = 'SESSION_AUTH_MISSING';
-
-/** A machine session (a stored credential from generate-token) was presented on
- *  POST /auth/refresh, which only renews interactive sessions. → 401 */
-export const MACHINE_SESSION_NOT_REFRESHABLE = 'MACHINE_SESSION_NOT_REFRESHABLE';
 
 /** The active org requires MFA (#8) and its grace period has passed, but the
  *  session being minted is only `aal: 1`. Thrown by `mintTokens`, the single

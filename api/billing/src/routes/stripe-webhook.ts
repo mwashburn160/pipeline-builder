@@ -10,22 +10,27 @@ import {
 } from '@pipeline-builder/api-core';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
+import type { StripeEventMeta } from '../helpers/stripe-helpers.js';
 import { handleInvoiceUpcoming, handlePaymentFailed, handlePaymentSucceeded } from '../helpers/stripe-invoice-handlers.js';
 import { handleChargeRefunded, handleChargeDisputeCreated, handleInvoiceReversal } from '../helpers/stripe-reversals.js';
 import { handleSubscriptionCreated, handleSubscriptionDeleted, handleSubscriptionUpdated } from '../helpers/stripe-subscription-handlers.js';
-import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
+import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent, webhookEventStatus } from '../models/webhook-dedupe.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { StripeProvider } from '../providers/stripe-provider.js';
 
 const logger = createLogger('billing-stripe-webhook');
 
-/** Stripe event type → handler dispatch map (built once at module load). */
-const STRIPE_EVENT_HANDLERS: Readonly<Record<string, (data: unknown) => Promise<void>>> = {
-  'customer.subscription.created': (data) => handleSubscriptionCreated(data as Stripe.Subscription),
-  'customer.subscription.updated': (data) => handleSubscriptionUpdated(data as Stripe.Subscription),
-  'customer.subscription.deleted': (data) => handleSubscriptionDeleted(data as Stripe.Subscription),
-  'invoice.payment_succeeded': (data) => handlePaymentSucceeded(data as Stripe.Invoice),
-  'invoice.payment_failed': (data) => handlePaymentFailed(data as Stripe.Invoice),
+/**
+ * Stripe event type → handler dispatch map (built once at module load). Each
+ * handler gets the event envelope (`id` + `created`) too: the lifecycle handlers
+ * order events per subscription on `created`, since Stripe delivers unordered.
+ */
+const STRIPE_EVENT_HANDLERS: Readonly<Record<string, (data: unknown, event: StripeEventMeta) => Promise<void>>> = {
+  'customer.subscription.created': (data, event) => handleSubscriptionCreated(data as Stripe.Subscription, event),
+  'customer.subscription.updated': (data, event) => handleSubscriptionUpdated(data as Stripe.Subscription, event),
+  'customer.subscription.deleted': (data, event) => handleSubscriptionDeleted(data as Stripe.Subscription, event),
+  'invoice.payment_succeeded': (data, event) => handlePaymentSucceeded(data as Stripe.Invoice, event),
+  'invoice.payment_failed': (data, event) => handlePaymentFailed(data as Stripe.Invoice, event),
   'invoice.upcoming': (data) => handleInvoiceUpcoming(data as Stripe.Invoice),
   // Reversals: reverse the ledger row + claw back credits granted inside the
   // clawback window (defuses subscribe-grab-refund/chargeback abuse).
@@ -86,21 +91,28 @@ export function createStripeWebhookRoutes(): Router {
 
       // Two-phase idempotency guard (crash-durable): Stripe retries the same
       // event.id on transient failures. Take a SHORT-LIVED in-progress claim
-      // before processing — a duplicate/concurrent delivery short-circuits with
-      // 200 (so Stripe stops retrying) and skips side-effects. The durable
+      // before processing. A delivery of an already-DONE event short-circuits
+      // with 200 (so Stripe stops retrying) and skips side-effects. A delivery
+      // that races a LIVE in-progress claim answers 409 instead: the first
+      // attempt may still fail and release its claim, and a 200 here would tell
+      // Stripe the event landed when nobody has finished it. The durable
       // done-marker is written only AFTER the handler succeeds, so a mid-process
-      // crash lets the claim expire and Stripe's retry re-runs the event instead
-      // of it being stranded as "processed" for 30d.
+      // crash lets the claim expire and Stripe's retry re-runs the event.
       const claimToken = await claimWebhookEvent('stripe', event.id);
       if (!claimToken) {
-        logger.info('Skipping duplicate Stripe delivery', { eventId: event.id, type: event.type });
-        return sendSuccess(res, 200, { received: true, duplicate: true });
+        const status = await webhookEventStatus('stripe', event.id);
+        if (status === 'done') {
+          logger.info('Skipping duplicate Stripe delivery', { eventId: event.id, type: event.type });
+          return sendSuccess(res, 200, { received: true, duplicate: true });
+        }
+        logger.info('Stripe delivery raced an in-progress attempt — asking Stripe to retry', { eventId: event.id, type: event.type });
+        return sendError(res, 409, 'Event is already being processed; retry later', ErrorCode.CONFLICT);
       }
 
       try {
         const handler = STRIPE_EVENT_HANDLERS[event.type];
         if (handler) {
-          await handler(event.data.object);
+          await handler(event.data.object, { id: event.id, created: event.created });
         } else {
           logger.debug('Unhandled Stripe event type', { type: event.type });
         }

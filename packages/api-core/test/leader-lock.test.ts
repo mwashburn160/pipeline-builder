@@ -8,7 +8,7 @@ import { withLeaderLock } from '../src/services/leader-lock.js';
  *  `getOwner` controls what GET returns at release time ('self' = our token). */
 function fakeRedis(opts: { acquire: boolean; getOwner?: 'self' | string }) {
   let stored: string | null = null;
-  const set = jest.fn(async (_key: string, val: string) => {
+  const set = jest.fn(async (_key: string, val: string, ..._rest: unknown[]) => {
     if (!opts.acquire) return null;
     stored = val;
     return 'OK';
@@ -73,7 +73,7 @@ describe('withLeaderLock', () => {
     const set = jest.fn(async () => 'OK');
     const get = jest.fn(async () => null);
     const del = jest.fn(async () => 1);
-    const evalFn = jest.fn(async () => 1);
+    const evalFn = jest.fn(async (..._args: unknown[]) => 1);
     const redis = { set, get, del, eval: evalFn };
     const ran = await withLeaderLock(redis as never, 'k', 1000, async () => {});
     expect(ran).toBe(true);
@@ -81,5 +81,78 @@ describe('withLeaderLock', () => {
     expect(evalFn).toHaveBeenCalledWith(expect.stringContaining('redis.call'), 1, 'k', expect.any(String));
     expect(del).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe('withLeaderLock — heartbeat + readiness (S5)', () => {
+  /** A Lua-capable fake: tracks the owner token and PEXPIRE extensions. */
+  function luaRedis() {
+    const state: { owner: string | null; extends: number; status?: string; readyCb?: () => void } = { owner: null, extends: 0 };
+    const client: any = {
+      set: jest.fn(async (_k: string, v: string) => { if (state.owner) return null; state.owner = v; return 'OK'; }),
+      get: jest.fn(async () => state.owner),
+      del: jest.fn(async () => 1),
+      eval: jest.fn(async (script: string, _n: number, _k: string, token: string) => {
+        if (script.includes('pexpire')) { if (state.owner === token) { state.extends++; return 1; } return 0; }
+        if (state.owner === token) { state.owner = null; return 1; }
+        return 0;
+      }),
+    };
+    return { client, state };
+  }
+
+  it('heartbeats (compare-and-PEXPIRE) while a long run is in progress', async () => {
+    jest.useFakeTimers();
+    try {
+      const { client, state } = luaRedis();
+      let finish!: () => void;
+      const running = withLeaderLock(client, 'job', 300, () => new Promise<void>((r) => { finish = r; }));
+      await jest.advanceTimersByTimeAsync(0);
+      await jest.advanceTimersByTimeAsync(1000); // > 3 × (ttl/3)
+      expect(state.extends).toBeGreaterThanOrEqual(3);
+      finish();
+      await expect(running).resolves.toBe(true);
+      const beats = state.extends;
+      await jest.advanceTimersByTimeAsync(1000);
+      expect(state.extends).toBe(beats); // heartbeat stops with the run
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('aborts run.signal when a heartbeat finds the lock taken over', async () => {
+    jest.useFakeTimers();
+    try {
+      const { client, state } = luaRedis();
+      let seen: AbortSignal | undefined;
+      let finish!: () => void;
+      const running = withLeaderLock(client, 'job', 300, ({ signal }) => { seen = signal; return new Promise<void>((r) => { finish = r; }); });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(seen!.aborted).toBe(false);
+      state.owner = 'someone-else'; // our lock lapsed and another pod took it
+      await jest.advanceTimersByTimeAsync(150);
+      expect(seen!.aborted).toBe(true);
+      finish();
+      await running;
+      expect(state.owner).toBe('someone-else'); // release never frees theirs
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('waits for a connecting client to be ready before SET NX (first tick after boot runs)', async () => {
+    const { client } = luaRedis();
+    let onReady: (() => void) | undefined;
+    client.status = 'connecting';
+    client.once = (_e: string, cb: () => void) => { onReady = cb; };
+    client.off = () => undefined;
+    const fn = jest.fn(async () => {});
+    const running = withLeaderLock(client, 'job', 5000, fn);
+    await new Promise((r) => setImmediate(r));
+    expect(client.set).not.toHaveBeenCalled();
+    client.status = 'ready';
+    onReady!();
+    await expect(running).resolves.toBe(true);
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });

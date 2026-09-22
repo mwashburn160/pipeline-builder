@@ -13,6 +13,7 @@ import { LinkButton } from '@/components/ui/LinkButton';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { takeSsoIntent } from '@/lib/sso-intent';
 import { isReauthState, publishReauthResult } from '@/lib/step-up-reauth';
 import { isSsoTestState, publishSsoTestResult, SSO_TEST_CHANNEL } from '@/components/sso/test-channel';
 
@@ -105,7 +106,10 @@ export default function SsoCallbackPage() {
       setError(`Single sign-on was cancelled or denied by your identity provider (${idpError}).`);
       return;
     }
-    if (!orgId || !code || !state) {
+    // Only a sign-in THIS tab started completes here (login CSRF): an arrival
+    // whose state isn't the one recorded before leaving for the IdP is refused.
+    const intent = takeSsoIntent();
+    if (!orgId || !code || !state || intent !== state) {
       setError('This single sign-on link has no pending sign-in. Start again from the sign-in page.');
       return;
     }

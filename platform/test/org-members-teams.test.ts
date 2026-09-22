@@ -8,27 +8,32 @@
  *     rejecting targets outside the context org's subtree.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockOrgFind = jest.fn();
-const mockUserFindById = jest.fn();
-const mockUserFindOne = jest.fn();
-const mockUserOrgFind = jest.fn();
-const mockUserOrgFindOne = jest.fn();
-const mockUserOrgCreate = jest.fn();
-const mockExpandOrgScope = jest.fn();
-const mockEnsureBaselineRole = jest.fn();
+const mockOrgFind = jest.fn<AnyFn>();
+const mockUserFindById = jest.fn<AnyFn>();
+const mockUserFindOne = jest.fn<AnyFn>();
+const mockUserOrgFind = jest.fn<AnyFn>();
+const mockUserOrgFindOne = jest.fn<AnyFn>();
+const mockUserOrgCreate = jest.fn<AnyFn>();
+const mockExpandOrgScope = jest.fn<AnyFn>();
+const mockEnsureBaselineRole = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 // org-members-service now assigns the built-in Member Role to plain members via
 // roles-service.ensureBaselineRole — mock it as a no-op so these tests stay
 // focused on the membership writes (and avoid loading the real roles-service).
+const mockAssignBuiltinAdmin = jest.fn(async (..._args: unknown[]) => true);
+const mockAssertMayAssignAdmin = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
-  assignBuiltinAdminRole: jest.fn(async () => true),
+  assignBuiltinAdminRole: (...a: unknown[]) => (mockAssignBuiltinAdmin as any)(...a),
   recomputeUserOrgRole: jest.fn(async () => undefined),
+  assertActorMayAssignBuiltinAdmin: (...a: unknown[]) => (mockAssertMayAssignAdmin as any)(...a),
 }));
+const ADMIN = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] };
 
 jest.unstable_mockModule('mongoose', () => {
   class Schema {
@@ -36,11 +41,12 @@ jest.unstable_mockModule('mongoose', () => {
     index() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { default: { Types: { ObjectId: class {} } }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { default: { Types: { ObjectId: class {} } }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a),
   resolveOrgLineage: (...a: unknown[]) => Promise.resolve({ rootOrgId: a[0] }),
 }));
@@ -62,7 +68,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {
     findById: (...a: unknown[]) => mockUserFindById(...a),
     findOne: (...a: unknown[]) => mockUserFindOne(...a),
-    updateOne: jest.fn(),
+    updateOne: jest.fn<AnyFn>(),
   },
   UserOrganization: {
     find: (...a: unknown[]) => mockUserOrgFind(...a),
@@ -172,7 +178,7 @@ describe('orgMembersService.bulkAddMemberToTeams', () => {
 
     const { results } = await orgMembersService.bulkAddMemberToTeams('ctx', {
       userId: 'u1', orgIds: ['teamA', 'teamB'], role: 'member',
-    });
+    }, ADMIN);
 
     expect(results).toEqual([
       { orgId: 'teamA', status: 'already_member' },
@@ -185,10 +191,33 @@ describe('orgMembersService.bulkAddMemberToTeams', () => {
     );
   });
 
+  it('an ADMIN bulk-add runs the Admin-Role ceiling per team and assigns the built-in Admin Role', async () => {
+    mockExpandOrgScope.mockResolvedValue(['ctx', 'teamA']);
+    mockUserFindById.mockReturnValue(sessionReturns({ _id: 'u1' }));
+    mockOrgFind.mockReturnValue({ select: () => ({ session: () => Promise.resolve([{ _id: 'teamA' }]) }) });
+    mockUserOrgFindOne.mockReturnValueOnce(sessionReturns(null));
+    mockUserOrgCreate.mockResolvedValue([{ _id: 'new' }]);
+
+    await orgMembersService.bulkAddMemberToTeams('ctx', { userId: 'u1', orgIds: ['teamA'], role: 'admin' }, ADMIN);
+
+    expect(mockAssertMayAssignAdmin).toHaveBeenCalledWith('teamA', ADMIN, expect.anything());
+    expect(mockEnsureBaselineRole).toHaveBeenCalled();
+    expect(mockAssignBuiltinAdmin).toHaveBeenCalledWith('u1', 'teamA', expect.anything());
+  });
+
+  it('a delegate who may not grant Admin is refused before any membership is written', async () => {
+    mockExpandOrgScope.mockResolvedValue(['ctx', 'teamA']);
+    mockUserFindById.mockReturnValue(sessionReturns({ _id: 'u1' }));
+    mockAssertMayAssignAdmin.mockRejectedValueOnce(new Error('RL_ASSIGN_EXCEEDS_CEILING') as never);
+    await expect(orgMembersService.bulkAddMemberToTeams('ctx', { userId: 'u1', orgIds: ['teamA'], role: 'admin' }, { isSuperAdmin: false, isOrgAdmin: false, permissions: [] }))
+      .rejects.toThrow('RL_ASSIGN_EXCEEDS_CEILING');
+    expect(mockUserOrgCreate).not.toHaveBeenCalled();
+  });
+
   it('rejects when any target is outside the context org subtree', async () => {
     mockExpandOrgScope.mockResolvedValue(['ctx', 'teamA']);
     await expect(
-      orgMembersService.bulkAddMemberToTeams('ctx', { userId: 'u1', orgIds: ['teamA', 'evil-org'] }),
+      orgMembersService.bulkAddMemberToTeams('ctx', { userId: 'u1', orgIds: ['teamA', 'evil-org'] }, ADMIN),
     ).rejects.toThrow(OM_TARGETS_OUT_OF_SCOPE);
     // Short-circuits before resolving the user or writing anything.
     expect(mockUserFindById).not.toHaveBeenCalled();
@@ -199,7 +228,7 @@ describe('orgMembersService.bulkAddMemberToTeams', () => {
     mockExpandOrgScope.mockResolvedValue(['ctx', 'teamA']);
     mockUserFindOne.mockReturnValue(sessionReturns(null));
     await expect(
-      orgMembersService.bulkAddMemberToTeams('ctx', { email: 'nobody@example.com', orgIds: ['teamA'] }),
+      orgMembersService.bulkAddMemberToTeams('ctx', { email: 'nobody@example.com', orgIds: ['teamA'] }, ADMIN),
     ).rejects.toThrow(OM_USER_NOT_FOUND);
     expect(mockUserOrgCreate).not.toHaveBeenCalled();
   });

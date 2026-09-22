@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies before imports
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { readFileSync as realReadFileSync } from 'node:fs';
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
-const mockExistsSync = jest.fn();
-const mockReadFileSync = jest.fn();
-const mockYamlParse = jest.fn();
+const mockExistsSync = jest.fn<AnyFn>();
+const mockReadFileSync = jest.fn<AnyFn>();
+const mockYamlParse = jest.fn<AnyFn>();
 
 // A transitively-imported module (cli.constants) reads package.json from `fs`
 // at load time. Pass those reads through to the real fs so module init works;
@@ -31,9 +32,9 @@ const fsStub = {
   readFileSync: mockReadFileSync,
   statSync: jest.fn(() => ({ isFile: () => false, mode: 0o600, size: 0 })),
   mkdtempSync: jest.fn(() => '/tmp/pm-test'),
-  writeFileSync: jest.fn(),
-  rmSync: jest.fn(),
-  mkdirSync: jest.fn(),
+  writeFileSync: jest.fn<AnyFn>(),
+  rmSync: jest.fn<AnyFn>(),
+  mkdirSync: jest.fn<AnyFn>(),
 };
 jest.unstable_mockModule('fs', () => ({ __esModule: true, ...fsStub, default: fsStub }));
 jest.unstable_mockModule('node:fs', () => ({ __esModule: true, ...fsStub, default: fsStub }));
@@ -64,9 +65,9 @@ describe('config.loader', () => {
 
     // Reset mock implementations (but NOT restoreAllMocks — that un-does jest.mock auto-mocks)
     jest.resetAllMocks();
-    jest.spyOn(console, 'log').mockImplementation();
-    jest.spyOn(console, 'warn').mockImplementation();
-    jest.spyOn(console, 'error').mockImplementation();
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {

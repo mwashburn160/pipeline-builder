@@ -8,6 +8,7 @@
 
 import { EventEmitter } from 'events';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const DIGEST = `sha256:${'e'.repeat(64)}`;
@@ -67,7 +68,7 @@ const mockConfigGet = (section: string): unknown => {
   if (section === 'server') return { services: { imageRegistryHost: 'image-registry', imageRegistryPort: 3000 } };
   return {};
 };
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: mockConfigGet, getAny: mockConfigGet },
 }));
 

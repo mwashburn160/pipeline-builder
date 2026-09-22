@@ -13,13 +13,14 @@
  */
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 
 import { SYSTEM_ORG, moderator, seedPublishers, setupEcosystemHarness, tenant, wireEcosystemHarness } from './helpers/ecosystem-harness.js';
 
 const setGauge = jest.fn();
 const incCounter = jest.fn();
 const observe = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ setGauge, incCounter, observe }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { setGauge, incCounter, observe }));
 
 const h = setupEcosystemHarness();
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
@@ -56,7 +57,7 @@ beforeEach(() => {
   h.notify.mockReset().mockResolvedValue('sent' as never);
   h.audit.mockClear();
   h.membership.mockReset().mockResolvedValue(false as never);
-  h.quota.getTier.mockResolvedValue('team' as never);
+  h.quota.getTierStrict.mockResolvedValue('team' as never);
   h.platform.eligibility.mockReset().mockResolvedValue({ verifiedDomains: ['acme.dev'], owners: 1, ownersWithMfa: 1 } as never);
   h.platform.approvers.mockReset().mockResolvedValue({ holders: 3, eligible: 3, superadmins: 1 } as never);
   setGauge.mockClear();
@@ -121,12 +122,12 @@ describe('Verified eligibility at decision time', () => {
     expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'pending' });
 
     expect((await decisions.approve(MOD_A, v.request.id, null)).executed).toBe(false);
-    h.quota.getTier.mockResolvedValue('pro' as never);
+    h.quota.getTierStrict.mockResolvedValue('pro' as never);
     await rejects(decisions.secondApprove(MOD_B, v.request.id, null), 'VERIFIED_PLAN_REQUIRED');
     expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'pending_second_approval' });
     expect(acme.tier).toBe('community');
 
-    h.quota.getTier.mockResolvedValue('team' as never);
+    h.quota.getTierStrict.mockResolvedValue('team' as never);
     await decisions.secondApprove(MOD_B, v.request.id, null);
     expect(acme.tier).toBe('verified');
   });
@@ -134,7 +135,10 @@ describe('Verified eligibility at decision time', () => {
   it('a quota-service failure at decision time is "unknown" (fail closed)', async () => {
     seedPublishers(db);
     const v = await requestsSvc.submit(APPLICANT, { kind: 'verify', application: {} });
-    h.quota.getTier.mockRejectedValueOnce(new Error('down') as never);
+    h.quota.getTierStrict.mockRejectedValueOnce(new Error('down') as never);
+    await rejects(decisions.approve(MOD_A, v.request.id, null), 'SERVICE_UNAVAILABLE');
+    // The real client answers an outage with null (never DEFAULT_TIER): unknown too.
+    h.quota.getTierStrict.mockResolvedValueOnce(null as never);
     await rejects(decisions.approve(MOD_A, v.request.id, null), 'SERVICE_UNAVAILABLE');
   });
 
@@ -155,7 +159,7 @@ describe('Verified eligibility at decision time', () => {
   });
 
   it('checkVerifiedEligibility uses the org\'s current plan when no token answer is given', async () => {
-    h.quota.getTier.mockResolvedValue('developer' as never);
+    h.quota.getTierStrict.mockResolvedValue('developer' as never);
     const e = await eligibility.checkVerifiedEligibility('org-acme');
     expect(e.checks[0]).toMatchObject({ id: 'plan', ok: false });
     expect(() => eligibility.assertVerifiedEligible(e, 'decision')).toThrow(expect.objectContaining({ code: 'VERIFIED_PLAN_REQUIRED' }) as any);

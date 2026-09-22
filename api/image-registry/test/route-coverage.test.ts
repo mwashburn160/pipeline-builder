@@ -23,7 +23,7 @@ import {
   findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
   type RouteCoverageException,
-} from '@pipeline-builder/api-core/lib/testing/route-coverage.js';
+} from '@pipeline-builder/api-core/testing';
 
 process.env.JWT_SECRET ||= 'route-coverage-test-secret';
 // `src/config/index.ts` validates these at import; nothing here signs a token
@@ -52,6 +52,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     path: '/token',
     waive: 'all',
     reason: 'The Docker registry token endpoint (Distribution token-auth spec) — pre-auth by design: it verifies `Authorization: Basic` credentials itself (resolveIdentity, rate-limited per IP + username) and mints the scoped registry JWT, so it cannot sit behind requireAuth or a permission a caller does not yet have.',
+  },
+  {
+    method: 'POST',
+    path: '/internal/quarantine/:submissionId/credential',
+    waive: 'audit',
+    reason: 'Mints the short-lived, registry-only credential ONE anonymous submission build pushes with (E21). It changes no durable state and grants nothing beyond `quarantine/<submissionId>` (+ base-image pulls); the submission gate run it serves is audited by the plugin service, and the quarantine repo\'s deletion by registry.gc. Plugin-only via requireInternalService.',
   },
   {
     method: 'POST',
@@ -84,6 +90,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // Anonymous submissions (§4.2 / W5): the plugin service drops a decided or
   // expired submission's quarantined build.
   { method: 'DELETE', path: '/internal/quarantine/:submissionId', callers: ['plugin'] },
+  // …and mints the registry-only credential its quarantine build pushes with (E21).
+  { method: 'POST', path: '/internal/quarantine/:submissionId/credential', callers: ['plugin'] },
 ];
 
 let table: RouteTableEntry[];

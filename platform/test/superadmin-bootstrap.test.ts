@@ -49,6 +49,15 @@ jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   },
 }));
 
+jest.unstable_mockModule('../src/models/audit-chain-head.js', () => ({
+  __esModule: true,
+  default: {
+    findById: () => ({ select: () => ({ lean: async () => null }) }),
+    updateOne: async () => ({}),
+  },
+}));
+process.env.AUDIT_CHAIN_HMAC_KEY = 'test-audit-chain-hmac-key-0123456789abcdef';
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const { bootstrapSuperAdmins, maybePromoteNewUser } = await import('../src/services/superadmin-bootstrap.js');

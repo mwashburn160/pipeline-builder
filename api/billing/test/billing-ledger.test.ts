@@ -8,11 +8,13 @@
  * reconciliation), and the paginated invoice list. Models are mocked (no Mongo).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockSendSuccess = jest.fn();
-const mockSendError = jest.fn();
+const mockSendSuccess = jest.fn<AnyFn>();
+const mockSendError = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
@@ -48,13 +50,13 @@ jest.unstable_mockModule('../src/config.js', () => ({
   config: { platformService: { host: 'platform', port: 3000 } },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (fn: Function) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     if (!orgId) return mockSendError(res, 400, 'Organization ID is required', 'MISSING_REQUIRED_FIELD');
     await fn({ req, res, orgId });
   },
-  incCounter: jest.fn(),
+  incCounter: jest.fn<AnyFn>(),
 }));
 
 // In-memory BillingInvoice store keyed by externalInvoiceId.

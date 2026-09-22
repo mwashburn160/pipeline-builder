@@ -30,7 +30,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, expandOrgScope: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn(), pooledFeatureEntitlements: jest.fn() }));
 
 // The AI-config audit records only the changed provider slot NAMES — mirror the

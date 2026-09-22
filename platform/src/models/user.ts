@@ -46,10 +46,10 @@ interface OAuthProviders {
 /**
  * - `interactive` — a person signed in (password, OAuth, SSO). Renewed by
  *   POST /auth/refresh; capped at `MAX_REFRESH_SESSIONS`, oldest pushed out.
- * - `machine` — a stored credential opened by POST /user/generate-token (e.g.
- *   `pipeline-manager infra store-token`). Renewed only by generate-token from
- *   the slot's own token; never refreshable; capped separately, least recently
- *   used evicted.
+ * - `machine` — a stored credential opened by POST /user/generate-token. Has a
+ *   fixed end (`expiresAt` = the requested lifetime); renewed by POST
+ *   /auth/refresh with the slot's OWN refresh token (its access tokens have the
+ *   normal short lifetime); capped separately, least recently used evicted.
  */
 export type RefreshSessionKind = 'interactive' | 'machine';
 
@@ -63,6 +63,9 @@ export interface RefreshSession {
   createdAt: Date;
   /** Last refresh / renewal / switch-org. */
   lastUsedAt: Date;
+  /** MACHINE slots: the fixed end of the credential (generate-token's
+   *  `expiresIn`). Renewal never extends it; nothing is minted past it. */
+  expiresAt?: Date;
   /** Capability scope of the tokens this slot mints (a narrow machine credential).
    *  Stored server-side so renewal can never widen it. */
   scope?: string;
@@ -73,6 +76,9 @@ export interface RefreshSession {
   /** AAGUID of the passkey that opened a `webauthn` session, so every issuance
    *  can re-apply the active org's authenticator allowlist. */
   aaguid?: string;
+  /** The org whose `idpEnforcesMfa` statement earned the slot its `aal: 2` —
+   *  honoured only inside that org's lineage (see `enforceOrgAssurance`). */
+  aalAssertedBy?: string;
   /** Authentication methods of the sign-in that opened the slot (JWT `amr`). */
   amr: AuthMethod[];
   /** Assurance level of that sign-in (JWT `aal`). Never raised by renewal. */
@@ -146,7 +152,24 @@ export interface UserDocument extends Document {
    * sysadmin handling can't accidentally elevate.
    */
   isSuperAdmin?: boolean;
+  /**
+   * HARD revocation counter. Bumped (with every refresh slot cleared) when the
+   * person's sessions must END: removal, deactivation, sign-out everywhere,
+   * password reset/change, MFA reset. Refresh tokens carry it, so a bump means
+   * signing in again.
+   */
   tokenVersion: number;
+  /**
+   * CLAIMS counter. Bumped when what an access token SAYS went stale (a Role,
+   * tier, feature, ownership or hierarchy change) but the person's sessions
+   * stay valid: outstanding access tokens are rejected immediately, and the next
+   * refresh re-mints them with current claims. Access tokens carry the sum —
+   * see `accessTokenVersion` in utils/token.ts.
+   */
+  claimsVersion: number;
+  /** Bumped by every guarded credential removal so two concurrent removals
+   *  write-conflict (see `removeUnlessLastSignInMethod`). No other meaning. */
+  credentialsEpoch?: number;
   /** One refresh-token slot per signed-in device or stored machine credential,
    *  oldest first (each kind capped — see `MAX_REFRESH_SESSIONS`). Only the SHA-256 of the current token is stored.
    *  Rotation swaps a slot's hash; reuse of a rotated token revokes that slot. */
@@ -308,6 +331,14 @@ const userSchema = new Schema<UserDocument>(
       type: Number,
       default: 0,
     },
+    claimsVersion: {
+      type: Number,
+      default: 0,
+    },
+    credentialsEpoch: {
+      type: Number,
+      select: false,
+    },
     refreshSessions: {
       type: [{
         _id: false,
@@ -316,9 +347,11 @@ const userSchema = new Schema<UserDocument>(
         hash: { type: String, required: true },
         createdAt: { type: Date, required: true },
         lastUsedAt: { type: Date, required: true },
+        expiresAt: { type: Date },
         scope: { type: String },
         permissions: { type: [String], default: undefined },
         aaguid: { type: String },
+        aalAssertedBy: { type: String },
         amr: { type: [String], required: true },
         aal: { type: Number, enum: [1, 2], required: true },
         mfaEnrollmentPending: { type: Boolean },

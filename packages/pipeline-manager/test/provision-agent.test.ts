@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // child_process is mocked so prereq checks are hermetic + fast (no real docker/aws).
-import { describe, it, test, expect, jest, beforeEach, afterAll } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterAll } from '@jest/globals';
 
 jest.mock('child_process', () => ({
   execSync: jest.fn(() => {

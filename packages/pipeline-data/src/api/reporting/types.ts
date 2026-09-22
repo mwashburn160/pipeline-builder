@@ -184,6 +184,15 @@ export interface ReportingRetentionOptions {
   maxBatchesPerTable?: number;
   /** Fixed "now" for the whole sweep (default `new Date()`). */
   now?: Date;
+  /**
+   * Resolve the org whose `dora_settings` retention governs `orgId`'s rows — its
+   * account ROOT. Retention is a billing entitlement synced onto the root only,
+   * so a team's rows must follow the root's (purchased) window, not the env
+   * default. Return `null` when the root can't be resolved: that org is SKIPPED
+   * this tick (never purged on a possibly-shorter window). Default: identity
+   * (every org is its own root — a flat deployment).
+   */
+  resolveRetentionOrgId?: (orgId: string) => Promise<string | null>;
 }
 
 /** Per-run purge tallies (also logged). */

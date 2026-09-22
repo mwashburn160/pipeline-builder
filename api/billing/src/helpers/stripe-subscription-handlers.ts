@@ -19,11 +19,12 @@ import { billingServiceAuth, createBillingEvent, calculatePeriodEnd, syncEntitle
 import type { PrunedAddon } from './billing-helpers.js';
 import { clearDiscountsOnCancel } from './discount-helpers.js';
 import { runSignupPromotions } from './signup-promotions.js';
-import { findSubscriptionByStripeId, mapStripeStatus } from './stripe-helpers.js';
+import { claimStripeEventOrder, findSubscriptionByStripeId, mapStripeStatus, type StripeEventMeta } from './stripe-helpers.js';
 import { config } from '../config.js';
 import { Plan, type PlanDocument } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument, type BillingInterval } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
+import { StripeProvider } from '../providers/stripe-provider.js';
 
 const logger = createLogger('billing-stripe-webhook');
 
@@ -47,6 +48,37 @@ export function planFromStripePrice(priceId: string): { planId: string; interval
 }
 
 /**
+ * Apply the per-subscription ordering watermark; returns false (and meters) when
+ * this event is older than one already applied to the row, so the caller skips it.
+ */
+export async function acceptStripeEvent(subscription: SubscriptionDocument, event: StripeEventMeta, type: string): Promise<boolean> {
+  if (await claimStripeEventOrder(subscription._id, event)) return true;
+  logger.info('Skipping out-of-order Stripe event (older than the applied watermark)', {
+    eventId: event.id, type, subscriptionId: subscription._id.toString(),
+  });
+  incCounter('billing_stripe_stale_event_total', { type });
+  return false;
+}
+
+/**
+ * Re-read the LIVE subscription from Stripe (one cheap GET) so a `.updated`
+ * applies Stripe's current state rather than the event's snapshot. Only for the
+ * real Stripe provider; a `resource_missing` (already deleted — its `.deleted`
+ * event follows) falls back to the payload. Any other error is rethrown so the
+ * webhook 500s and Stripe retries, rather than applying a possibly-stale body.
+ */
+async function liveStripeSubscription(payload: Stripe.Subscription): Promise<Stripe.Subscription> {
+  const provider = getPaymentProvider();
+  if (!(provider instanceof StripeProvider)) return payload;
+  try {
+    return await provider.getStripeClient().subscriptions.retrieve(payload.id);
+  } catch (err) {
+    if ((err as { code?: string })?.code === 'resource_missing') return payload;
+    throw err;
+  }
+}
+
+/**
  * Handle a subscription created by Stripe — the self-serve **Checkout** flow
  * (`POST /subscriptions/checkout` → hosted Checkout → this event) or an
  * out-of-band create (Stripe dashboard / API). Without this the local DB drifts
@@ -61,11 +93,11 @@ export function planFromStripePrice(priceId: string): { planId: string; interval
  * - `orgId` but no `planId` (a bare dashboard create) → can't resolve the plan;
  *   log + meter for operator follow-up. No `orgId` → unbound; meter + event.
  */
-export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription): Promise<void> {
+export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subscription, event: StripeEventMeta): Promise<void> {
   const externalId = stripeSubscription.id;
   const existing = await findSubscriptionByStripeId(externalId);
   if (existing) {
-    return handleSubscriptionUpdated(stripeSubscription);
+    return handleSubscriptionUpdated(stripeSubscription, event);
   }
   const orgId = (stripeSubscription.metadata?.orgId || '').trim();
   if (!orgId) {
@@ -141,6 +173,8 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
     }
     throw err;
   }
+  // Seed the ordering watermark with the provisioning event.
+  await claimStripeEventOrder(subscription._id, event);
 
   // Grant the paid tier only for an entitlement-worthy status (Checkout lands
   // `active`; a card-decline would land `incomplete` and stay unprovisioned until
@@ -175,14 +209,27 @@ async function cancelDuplicateStripeSub(externalId: string, orgId: string): Prom
  * Stripe (dashboard/API) — the latter recovered by reversing the price map and
  * re-syncing tier entitlements (preserving purchased add-ons).
  */
-export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription): Promise<void> {
-  const externalId = stripeSubscription.id;
+export async function handleSubscriptionUpdated(payload: Stripe.Subscription, event: StripeEventMeta): Promise<void> {
+  const externalId = payload.id;
   const subscription = await findSubscriptionByStripeId(externalId);
 
   if (!subscription) {
-    logger.warn('No subscription found for Stripe subscription', { externalId });
-    return;
+    // No local row yet. Stripe may deliver `.updated` BEFORE `.created` (no
+    // ordering guarantee): when the sub carries our Checkout metadata, provision
+    // it through the created path. Otherwise THROW so the webhook 500s and Stripe
+    // retries — an in-app create binds `externalId` moments after the provider
+    // call, and a silent 200 here dropped that sub's lifecycle for good.
+    const orgId = (payload.metadata?.orgId || '').trim();
+    const planId = (payload.metadata?.planId || '').trim();
+    if (orgId && planId) {
+      logger.info('Stripe .updated arrived before any local row — provisioning via the created path', { externalId, orgId });
+      return handleSubscriptionCreated(await liveStripeSubscription(payload), event);
+    }
+    throw new Error(`No local subscription for Stripe subscription ${externalId} (not yet bound); retry`);
   }
+
+  if (!(await acceptStripeEvent(subscription, event, 'customer.subscription.updated'))) return;
+  const stripeSubscription = await liveStripeSubscription(payload);
 
   const previousStatus = subscription.status;
   const newStatus = mapStripeStatus(stripeSubscription.status);
@@ -341,7 +388,7 @@ export async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subsc
  * run the signup promotions/referral the create path withheld. A dangling planId
  * is surfaced (WARN + audit row + metric) instead of silently granting nothing.
  */
-async function grantOnBecomingEntitled(
+export async function grantOnBecomingEntitled(
   subscription: SubscriptionDocument,
   alreadySyncedPlan: PlanDocument | null,
   opts: { previousStatus: string; referralCode?: string },
@@ -372,7 +419,7 @@ async function grantOnBecomingEntitled(
  * Handle subscription deletion from Stripe.
  * Marks subscription as canceled and downgrades the org to developer tier.
  */
-export async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription): Promise<void> {
+export async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription, event: StripeEventMeta): Promise<void> {
   const externalId = stripeSubscription.id;
   const subscription = await findSubscriptionByStripeId(externalId);
 
@@ -380,6 +427,10 @@ export async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subsc
     logger.warn('No subscription found for deleted Stripe subscription', { externalId });
     return;
   }
+  // Deletion is terminal in Stripe — no later event can revive the sub — so it
+  // always applies, but it still advances the watermark so a stale `.updated`
+  // (e.g. →active) delivered after it is skipped instead of reviving the row.
+  await claimStripeEventOrder(subscription._id, { ...event, created: Math.max(event.created, Math.floor(Date.now() / 1000)) });
 
   const previousStatus = subscription.status;
   subscription.status = 'canceled';

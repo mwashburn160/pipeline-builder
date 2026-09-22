@@ -32,6 +32,8 @@ import {
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 
+import { attachmentDisposition } from '../helpers/content-disposition.js';
+import { normalizeSearchQuery } from '../helpers/search-query.js';
 import { fetchPublicImageSbom, ImageVerificationError, SbomBusyError } from '../helpers/supply-chain.js';
 
 /** Publisher handle (same shape as the `public/<handle>` registry namespace). */
@@ -92,6 +94,8 @@ const ReviewQuerySchema = z.object({
 
 /** Reviews change with every vote and write; keep the edge copy short. */
 const REVIEWS_CACHE = 'public, max-age=60, s-maxage=60, stale-while-revalidate=300';
+/** The same page read fresh (the viewer's own change): never stored by any cache. */
+const REVIEWS_FRESH_CACHE = 'private, no-store';
 
 /** First value of a possibly-repeated query param (Express gives arrays for `?a=1&a=2`). */
 function firstValues(query: Request['query']): Record<string, unknown> {
@@ -102,8 +106,9 @@ function firstValues(query: Request['query']): Record<string, unknown> {
 
 /** Record a zero-result search (§6a "what people look for"). Best effort, never blocks the answer. */
 function logSearchMiss(q: string, category: string | undefined): void {
+  // Normalized at write, so the maintenance sweep can fold repeats into one counted row (E17).
   void db.insert(schema.ecosystemSearchMiss)
-    .values({ query: q.slice(0, 200), category: category ?? null })
+    .values({ query: normalizeSearchQuery(q), category: category ?? null })
     .catch(() => { /* analytics only */ });
 }
 
@@ -203,7 +208,7 @@ export function createPublicDirectoryRoutes(): Router {
     }
 
     res.setHeader('Cache-Control', SBOM_CACHE);
-    res.setHeader('Content-Disposition', `attachment; filename="${p.publisher}-${p.name}-${version}.spdx.json"`);
+    res.setHeader('Content-Disposition', attachmentDisposition(`${p.publisher}-${p.name}-${version}.spdx.json`));
     res.status(200).type('application/spdx+json').send(JSON.stringify(sbom));
   }, { requireOrgId: false }));
 
@@ -215,7 +220,10 @@ export function createPublicDirectoryRoutes(): Router {
     if (!parsed.success) return sendBadRequest(res, 'Invalid review query', ErrorCode.VALIDATION_ERROR);
     const page = await listPublicReviews(p.publisher, p.name, parsed.data);
     if (!page) return notFound(res);
-    res.setHeader('Cache-Control', REVIEWS_CACHE);
+    // A viewer re-reading right after their own write (`?fresh=1`), or any
+    // credentialed request, must not get — or seed — the shared edge copy (E24).
+    const fresh = firstValues(req.query).fresh === '1' || typeof req.headers.authorization === 'string';
+    res.setHeader('Cache-Control', fresh ? REVIEWS_FRESH_CACHE : REVIEWS_CACHE);
     return sendSuccess(res, 200, page);
   }, { requireOrgId: false }));
 

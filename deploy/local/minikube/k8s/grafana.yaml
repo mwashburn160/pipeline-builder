@@ -244,7 +244,7 @@ metadata:
   labels:
     app: grafana
 ---
-# nginx -> grafana (the /grafana/ subpath route).
+# nginx -> grafana (the /grafana/ subpath route); prometheus scrapes /metrics.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -260,6 +260,7 @@ spec:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/nginx
+              - cluster.local/ns/pipeline-builder/sa/prometheus
       to:
         - operation:
             ports: ["3000"]
@@ -277,7 +278,9 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels:
-              app: nginx
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [nginx, prometheus]
       ports:
         - port: 3000

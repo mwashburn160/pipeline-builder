@@ -16,7 +16,7 @@ import { Construct } from 'constructs';
 import { PipelineConfiguration } from './pipeline-configuration.js';
 import { PluginLookup } from './plugin-lookup.js';
 import { SourceBuilder } from './source-builder.js';
-import { StageBuilder } from './stage-builder.js';
+import { StageBuilder, codePipelineStageName } from './stage-builder.js';
 import { StepManifestRecorder } from './step-manifest-recorder.js';
 import type { StageOptions, SynthOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
@@ -78,7 +78,9 @@ interface DeployPair {
 }
 
 /**
- * Build the `pb.deploys` tag value: `<stage>:<env>` pairs joined by `+`.
+ * Build the `pb.deploys` tag value: `<stage>:<env>` pairs joined by `+`, where
+ * `<stage>` is the CodePipeline stage name ({@link codePipelineStageName} — the
+ * wave id events report as `detail.stage`), never the display `stageName`.
  *
  * A stage is a deploy iff it declares an `environment`. Precedence:
  *  - Multi-env: any stage with a per-stage `environment` — list each such stage.
@@ -101,18 +103,18 @@ function buildDeploysTag(props: BuilderProps): string | undefined {
   let pairs: DeployPair[];
   if (stagesWithEnv.length > 0) {
     pairs = stagesWithEnv.map(s => ({
-      str: `${tagSafeToken(s.stageName)}:${tagSafeToken(s.environment as string)}`,
+      str: `${tagSafeToken(codePipelineStageName(s))}:${tagSafeToken(s.environment as string)}`,
       env: s.environment as string,
     }));
   } else if (props.environment) {
     let stageName: string;
     if (stages.length === 1) {
-      stageName = stages[0].stageName;
+      stageName = codePipelineStageName(stages[0]);
     } else if (stages.length > 1) {
       // Pipeline-level environment on a multi-stage pipeline: attribute it to the
       // LAST stage (deploys are conventionally final) rather than an unmatched
       // literal `Deploy`. Warn so authors move to explicit per-stage `environment`.
-      stageName = stages[stages.length - 1].stageName;
+      stageName = codePipelineStageName(stages[stages.length - 1]);
       createLogger('pipeline-builder').warn(
         `Pipeline-level environment "${props.environment}" attributed to the last stage ` +
         `"${stageName}" of a ${stages.length}-stage pipeline. Declare a per-stage ` +

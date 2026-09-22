@@ -1,15 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
 // Mock output-utils to capture console output
-const printSection = jest.fn();
-const printKeyValue = jest.fn();
-const printInfo = jest.fn();
-const printSuccess = jest.fn();
-const printError = jest.fn();
-const printWarning = jest.fn();
+const printSection = jest.fn<AnyFn>();
+const printKeyValue = jest.fn<AnyFn>();
+const printInfo = jest.fn<AnyFn>();
+const printSuccess = jest.fn<AnyFn>();
+const printError = jest.fn<AnyFn>();
+const printWarning = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
   __esModule: true,
@@ -19,15 +20,15 @@ jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
   printSuccess,
   printError,
   printWarning,
-  printDebug: jest.fn(),
-  printDivider: jest.fn(),
-  outputData: jest.fn(),
-  formatTable: jest.fn(),
-  ensureOutputDirectory: jest.fn(),
-  fileExists: jest.fn(),
-  unwrapEnvelope: jest.fn(),
-  extractSingleResponse: jest.fn(),
-  extractListResponse: jest.fn(),
+  printDebug: jest.fn<AnyFn>(),
+  printDivider: jest.fn<AnyFn>(),
+  outputData: jest.fn<AnyFn>(),
+  formatTable: jest.fn<AnyFn>(),
+  ensureOutputDirectory: jest.fn<AnyFn>(),
+  fileExists: jest.fn<AnyFn>(),
+  unwrapEnvelope: jest.fn<AnyFn>(),
+  extractSingleResponse: jest.fn<AnyFn>(),
+  extractListResponse: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('../src/config/cli.constants.js', () => ({
@@ -42,7 +43,7 @@ const { validateEntityId, printCommandHeader, printSslWarning, printExecutionSum
   await import('../src/utils/command-utils.js');
 
 describe('printCommandHeader', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('should return an execution ID', () => {
     const id = printCommandHeader('Test Command');
@@ -55,7 +56,7 @@ describe('printCommandHeader', () => {
   });
 
   it('suppresses all decorative output when quiet (still returns the id) — keeps --json stdout clean', () => {
-    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const id = printCommandHeader('Status', undefined, { quiet: true });
     expect(id).toBe('ABCD1234');
     expect(printSection).not.toHaveBeenCalled();
@@ -65,7 +66,7 @@ describe('printCommandHeader', () => {
 });
 
 describe('printSslWarning', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('should warn when verifySsl is false', () => {
     printSslWarning(false);
@@ -84,7 +85,7 @@ describe('printSslWarning', () => {
 });
 
 describe('printExecutionSummary', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('should print key-value with execution ID and duration', () => {
     printExecutionSummary('ABCD1234', 1500);

@@ -37,6 +37,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   resolveUserFeatures: () => [],
 }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   resolveOrgLineage: async (orgId: string) => ({ rootOrgId: orgId }),
   getParentOrgId: async () => undefined,
 }));

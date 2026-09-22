@@ -262,7 +262,8 @@ export function Sidebar({
             <button
               onClick={onToggleDark}
               className="rounded-lg p-1.5 text-fg-muted hover:bg-surface-muted hover:text-fg transition-colors"
-              aria-label="Toggle dark mode"
+              aria-label="Dark mode"
+              aria-pressed={isDark}
             >
               {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>

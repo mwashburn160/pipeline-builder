@@ -40,7 +40,7 @@ import {
   findRouteCoverageViolations,
   type InternalRouteDeclaration,
   type RouteCoverageException,
-} from '@pipeline-builder/api-core/lib/testing/route-coverage.js';
+} from '@pipeline-builder/api-core/testing';
 import express, { type NextFunction, type Request, type Response } from 'express';
 
 // Mounting the real routers loads the controller → service → config graph, so

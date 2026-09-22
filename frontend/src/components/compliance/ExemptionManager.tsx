@@ -172,7 +172,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       // the pipeline it was meant for. Trim and case-fold, and refuse the file
       // rather than guess.
       const badType: number[] = [];
-      const exemptions = parsed.rows
+      const parsedExemptions = parsed.rows
         .map((r, i) => ({ r, row: i + 2 })) // +2: 1-based, after the header
         .filter(({ r }) => r.ruleId?.trim() && r.entityId?.trim() && r.reason?.trim())
         .map(({ r, row }) => {
@@ -196,12 +196,12 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         return;
       }
 
-      if (exemptions.length === 0) {
+      if (parsedExemptions.length === 0) {
         setBulkError('No rows had all required fields filled.');
         return;
       }
 
-      const res = await api.bulkCreateExemptions(exemptions);
+      const res = await api.bulkCreateExemptions(parsedExemptions);
       if (res.success && res.data) {
         setBulkResult({ created: res.data.created, skipped: res.data.skipped, total: parsed.rowCount });
         fetchExemptions();

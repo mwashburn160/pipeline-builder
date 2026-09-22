@@ -110,13 +110,16 @@ export function createUpdatePluginRoutes(): Router {
     // A version referenced by a publish request, or published to a listing,
     // has its catalog metadata frozen with it (§3.1a, §3.4): changing a live
     // listing goes through a listing_update request instead.
+    // Its VISIBILITY is frozen too (E19): a version waiting for approval must
+    // still be `public` when it is published.
     const catalogEdited = PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(body, f));
-    if (catalogEdited) {
+    const visibilityChanged = body.visibility !== undefined && body.visibility !== existing.visibility;
+    if (catalogEdited || visibilityChanged) {
       const frozen = await pluginService.versionImmutability(existing);
       if (frozen) {
         return sendError(res, 409, frozen === 'listed'
-          ? 'This plugin version is published to the ecosystem; its catalog details are frozen with it. Request a listing update instead.'
-          : 'This plugin version is referenced by a publish request; its catalog details are frozen with it.',
+          ? 'This plugin version is published to the ecosystem; its catalog details and visibility are frozen with it. Request a listing update instead.'
+          : 'This plugin version is referenced by a publish request; its catalog details and visibility are frozen with it.',
         ErrorCode.PLUGIN_VERSION_FROZEN);
       }
     }

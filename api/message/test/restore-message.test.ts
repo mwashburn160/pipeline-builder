@@ -14,13 +14,15 @@
  * message (`restore(id, orgId, userId)`).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
 
-const mockFindDeletedById = jest.fn<(...args: unknown[]) => unknown>();
-const mockRestore = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindDeletedById = jest.fn<AnyFn>();
+const mockRestore = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -31,7 +33,7 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 
 // Remote-audit spy: the restore handler emits an attributed `message.restore`
 // event via getAuditClient().record with SAFE METADATA ONLY (never the body).
-const mockAuditRecord = jest.fn();
+const mockAuditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
@@ -63,7 +65,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   getContext: (req: any) => req.context,
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -85,7 +87,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   createAuthenticatedWithOrgRoute: jest.fn(() => []),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
 }));
 
@@ -114,7 +116,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     user: { sub: 'user-1' },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
       requestId: 'req-1',
     },
     ...overrides,
@@ -123,8 +125,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -142,10 +144,10 @@ const ownRootTombstone = {
 describe('POST /messages/:id/restore (restore)', () => {
   const handler = getHandler('post', '/:id/restore');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('lets a non-admin restore their own root message (org-pinned) and returns 200', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindDeletedById.mockResolvedValue(ownRootTombstone);
     mockRestore.mockResolvedValue(ownRootTombstone);
 
@@ -163,7 +165,7 @@ describe('POST /messages/:id/restore (restore)', () => {
   });
 
   it('emits an attributed message.restore audit event (metadata only, no body)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindDeletedById.mockResolvedValue(ownRootTombstone);
     mockRestore.mockResolvedValue({ ...ownRootTombstone, messageType: 'announcement' });
 
@@ -191,7 +193,7 @@ describe('POST /messages/:id/restore (restore)', () => {
   });
 
   it('lets a sysadmin restore cross-org, dropping the org pin', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     const crossOrgTombstone = { id: 'msg-1', orgId: 'other-org', createdBy: 'someone-else', threadId: null, messageType: 'conversation' };
     mockFindDeletedById.mockResolvedValue(crossOrgTombstone);
     mockRestore.mockResolvedValue(crossOrgTombstone);
@@ -211,7 +213,7 @@ describe('POST /messages/:id/restore (restore)', () => {
   });
 
   it('returns 403 when a non-admin tries to restore someone else\'s message', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindDeletedById.mockResolvedValue({ ...ownRootTombstone, createdBy: 'other-user' });
 
     const req = mockReq();
@@ -229,7 +231,7 @@ describe('POST /messages/:id/restore (restore)', () => {
   });
 
   it('returns 403 when a non-admin tries to restore a reply (non-root)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindDeletedById.mockResolvedValue({ ...ownRootTombstone, threadId: 'root-1' });
 
     const req = mockReq();
@@ -247,7 +249,7 @@ describe('POST /messages/:id/restore (restore)', () => {
   });
 
   it('returns 404 when the tombstone does not exist (non-admin)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindDeletedById.mockResolvedValue(null);
 
     const req = mockReq({ params: { id: 'nonexistent' } });
@@ -260,7 +262,7 @@ describe('POST /messages/:id/restore (restore)', () => {
   });
 
   it('returns 404 when restore returns null (matched no rows)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindDeletedById.mockResolvedValue(ownRootTombstone);
     mockRestore.mockResolvedValue(null);
 
@@ -283,7 +285,7 @@ describe('POST /messages/:id/restore (restore)', () => {
   });
 
   it('returns 500 on service error', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindDeletedById.mockRejectedValue(new Error('DB error'));
 
     const req = mockReq();

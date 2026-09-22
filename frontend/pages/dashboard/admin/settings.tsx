@@ -29,6 +29,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { RetryError } from '@/components/ui/RetryError';
 import api from '@/lib/api';
+import { AdminConsoleLinks } from '@/components/admin/AdminConsoleLinks';
 import { formatError } from '@/lib/constants';
 
 interface AdminSummary {
@@ -141,6 +142,10 @@ export default function PlatformSettingsPage() {
           </div>
         </div>
       </Card>
+
+      {/* The operator consoles (AWS gateway only) — each opens behind the
+          gateway's sysadmin + AAL2 check. */}
+      {user && <div className="mb-4"><AdminConsoleLinks user={user} /></div>}
 
       {loading && !summary && <LoadingSpinner />}
 

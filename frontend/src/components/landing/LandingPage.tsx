@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
+import { storeSsoIntent } from '@/lib/sso-intent';
 import { startOAuthLogin } from '@/lib/oauth-intent';
 import { peekReturnPath } from '@/lib/return-to';
 import { formatError, providerLabel } from '@/lib/constants';
@@ -67,7 +68,7 @@ function NavBar() {
           <Link href="/plugins" className="hidden sm:inline-flex text-sm font-medium text-fg-muted hover:text-fg px-2 py-1.5">
             Browse plugins
           </Link>
-          <button onClick={toggleDark} className="p-2 text-fg-muted hover:text-fg transition-colors" aria-label="Toggle dark mode">
+          <button onClick={toggleDark} className="p-2 text-fg-muted hover:text-fg transition-colors" aria-label="Dark mode" aria-pressed={isDark}>
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
           <Link href="/auth/register" className="hidden sm:inline-flex btn btn-primary text-sm px-4 py-1.5">
@@ -160,7 +161,7 @@ function LostFactorHelp() {
 // ---------------------------------------------------------------------------
 
 function Hero() {
-  const { login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, isLoading } = useAuth();
+  const { login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, isSubmitting } = useAuth();
   const router = useRouter();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -363,7 +364,10 @@ function Hero() {
         ? await api.getSsoUrl(ssoAccount.orgId)
         : await api.startSsoByEmail(identifier.trim());
       const url = res.data?.url;
-      if (!url) throw new Error('Your organization’s identity provider could not be reached.');
+      const state = res.data?.state;
+      if (!url || !state) throw new Error('Your organization’s identity provider could not be reached.');
+      // The landing page completes only a sign-in this tab started (login CSRF).
+      storeSsoIntent(state);
       window.location.href = url;
     } catch (err) {
       setError(formatError(err, 'Could not start single sign-on'));
@@ -718,7 +722,7 @@ function Hero() {
                 // Anyone who tabs straight past gets the answer now rather than
                 // after the debounce.
                 onBlur={() => { void discoverSso(identifier); }}
-                disabled={isLoading || ssoBusy}
+                disabled={isSubmitting || ssoBusy}
               />
               {/* An SSO-backed domain gets NO password field. The backend refuses
                   a password (and a social grant) for these accounts anyway, so
@@ -761,12 +765,12 @@ function Hero() {
                       aria-label="Password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      disabled={isLoading}
+                      disabled={isSubmitting}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
-                      disabled={isLoading}
+                      disabled={isSubmitting}
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
                       aria-pressed={showPassword}
                       className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-fg-muted hover:text-fg focus:outline-none focus:ring-2 focus:ring-brand"
@@ -774,8 +778,8 @@ function Hero() {
                       {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
                     </button>
                   </div>
-                  <Button type="submit" fullWidth disabled={isLoading} className="text-sm">
-                    {isLoading
+                  <Button type="submit" fullWidth disabled={isSubmitting} className="text-sm">
+                    {isSubmitting
                       ? <><LoadingSpinner size="sm" className="mr-2" /> Signing in...</>
                       : <><LogIn className="w-4 h-4 mr-1.5" /> Sign in</>
                     }
@@ -812,7 +816,7 @@ function Hero() {
                       variant="secondary"
                       fullWidth
                       onClick={handlePasskeySignIn}
-                      disabled={isLoading || passkeyBusy || oauthBusy !== null}
+                      disabled={isSubmitting || passkeyBusy || oauthBusy !== null}
                       className="text-sm"
                     >
                       {passkeyBusy
@@ -827,7 +831,7 @@ function Hero() {
                       variant="secondary"
                       fullWidth
                       onClick={() => startOAuth(p)}
-                      disabled={isLoading || oauthBusy !== null}
+                      disabled={isSubmitting || oauthBusy !== null}
                       className="text-sm"
                     >
                       {oauthBusy === p

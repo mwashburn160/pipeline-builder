@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useId } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Input } from '@/components/ui/Input';
@@ -21,6 +21,7 @@ interface StorageUsageModalProps {
  * worth pruning. Read-only; fail-soft when the endpoint isn't deployed (404).
  */
 export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
+  const uid = useId();
   const [storagePrefix, setStoragePrefix] = useState('');
   const [storageLoading, setStorageLoading] = useState(false);
   const [storageResult, setStorageResult] = useState<RegistryStorageUsage | null>(null);
@@ -73,8 +74,8 @@ export function StorageUsageModal({ open, onClose }: StorageUsageModalProps) {
           automatically. Results are cached ~60s server-side.
         </p>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted">Namespace prefix</label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-namespace-prefix`}>Namespace prefix</label>
+          <Input id={`${uid}-namespace-prefix`}
             type="text"
             placeholder="org-acme/"
             value={storagePrefix}

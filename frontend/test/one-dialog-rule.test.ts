@@ -62,8 +62,8 @@ function openingTags(src: string, tag: string): string[] {
     let depth = 0;
     for (let i = from; i < src.length; i += 1) {
       const c = src[i];
-      if (c === '{') depth += 1;
-      else if (c === '}') depth -= 1;
+      if (c === '{') {depth += 1;}
+      else if (c === '}') {depth -= 1;}
       else if (c === '>' && depth === 0) { out.push(src.slice(from, i + 1)); break; }
     }
   }

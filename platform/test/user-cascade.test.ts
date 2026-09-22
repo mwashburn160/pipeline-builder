@@ -24,6 +24,7 @@ const deleteMany = (name: string) => jest.fn(async (_filter: unknown, opts: { se
 const mockOwnerCount = jest.fn<() => Promise<number>>();
 const mockFindByIdAndDelete = jest.fn<() => { select: () => Promise<unknown> }>();
 const mockAssertNotLast = jest.fn<(...a: unknown[]) => Promise<void>>();
+const mockSamlDeleteFilter = jest.fn();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findByIdAndDelete: (...a: unknown[]) => { calls.push('User'); return mockFindByIdAndDelete(...(a as [])); } },
@@ -36,6 +37,10 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserTotp: { deleteMany: deleteMany('UserTotp') },
   MfaRecoveryCodes: { deleteMany: deleteMany('MfaRecoveryCodes') },
   MfaResetRequest: { deleteMany: deleteMany('MfaResetRequest') },
+}));
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({
+  __esModule: true,
+  default: { deleteMany: (...a: [unknown, { session?: unknown }]) => { mockSamlDeleteFilter(a[0]); return deleteMany('SamlSession')(...a); } },
 }));
 jest.unstable_mockModule('../src/services/role-crud.js', () => ({
   assertNotLastPrivilegedMember: (...a: unknown[]) => mockAssertNotLast(...a),
@@ -56,11 +61,13 @@ beforeEach(() => {
 
 describe('deleteUserCascade', () => {
   it('deletes the account and everything keyed to it — join requests included — in the session', async () => {
-    await expect(deleteUserCascade(session as never, userId)).resolves.toEqual({ tokenVersion: 4 });
+    await expect(deleteUserCascade(session as never, userId)).resolves.toEqual({ accessVersion: 4 });
     expect(calls).toEqual(expect.arrayContaining([
       'UserOrganization:tx', 'RoleAssignment:tx', 'PersonalAccessToken:tx', 'WebAuthnCredential:tx',
-      'UserPreferences:tx', 'JoinRequest:tx',
+      'UserPreferences:tx', 'JoinRequest:tx', 'SamlSession:tx',
     ]));
+    // SAML SLO rows key the person by string id.
+    expect(mockSamlDeleteFilter).toHaveBeenCalledWith({ userId: userId });
     expect(mockAssertNotLast).toHaveBeenCalledWith(session, expect.any(Types.ObjectId));
   });
 

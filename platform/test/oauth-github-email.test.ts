@@ -17,14 +17,15 @@
  * exchange + `/user` + `/user/emails` calls are deterministic.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockFindOrCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockAudit = jest.fn();
-const mockIncCounter = jest.fn();
+const mockFindOrCreate = jest.fn<AnyFn>();
+const mockIssueTokens = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
+const mockIncCounter = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => { res.status(status).json({ success: false, message: msg }); return res; },
@@ -110,12 +111,14 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   findRefreshSession: jest.fn(async () => undefined),
-  signApiKeyToken: jest.fn(),
-  signServiceAccountToken: jest.fn(),
+  signApiKeyToken: jest.fn<AnyFn>(),
+  signServiceAccountToken: jest.fn<AnyFn>(),
   membershipForOrg: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
@@ -130,23 +133,32 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
+jest.unstable_mockModule('../src/helpers/sign-in-methods.js', () => ({
+  loadSignInMethods: async () => ({ hasPassword: false, hasProvider: true, passkeyCount: 0, hasTotp: false }),
+}));
 
 const { verifyOAuthCode, handleCallback, getAuthUrl } =
   await import('../src/controllers/oauth.js');
 const { OAUTH_EMAIL_UNVERIFIED } = await import('../src/services/auth-errors.js');
 
+/** The browser-binding cookie the last minted flow set (helpers/login-binding.ts). */
+let bindingCookie = '';
 function makeRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.cookie = jest.fn((name: string, value: string) => { if (name === 'pb_login_binding') bindingCookie = value; return res; });
+  res.clearCookie = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
+/** The request surface of the browser that started the flow (carries its binding cookie). */
+const browser = () => ({ headers: { cookie: `pb_login_binding=${bindingCookie}` } });
 
 /** Mint a fresh one-time state bound to `provider` via the real getAuthUrl. */
 async function mintState(provider: string): Promise<string> {
   const res = makeRes();
   await (getAuthUrl as any)({ params: { provider } }, res);
-  return (res.json as jest.Mock).mock.calls[0][0].state as string;
+  return (res.json as jest.Mock<AnyFn>).mock.calls[0][0].state as string;
 }
 
 function okJson(body: unknown) {
@@ -158,7 +170,7 @@ function okJson(body: unknown) {
  * then `/user/emails`.
  */
 function stubGitHubFetch(profile: unknown, emails: unknown) {
-  global.fetch = jest.fn()
+  global.fetch = jest.fn<AnyFn>()
     .mockResolvedValueOnce(okJson({ access_token: 'gh-tok' }))
     .mockResolvedValueOnce(okJson(profile))
     .mockResolvedValueOnce(okJson(emails)) as any;
@@ -184,7 +196,7 @@ describe('GitHub verifyOAuthCode verified-email resolution', () => {
       ],
     );
 
-    const identity = await verifyOAuthCode('github', 'auth-code', state);
+    const identity = await verifyOAuthCode('github', 'auth-code', state, browser());
     expect(identity).toMatchObject({ id: '555', email: 'real@verified.test' });
     // The unverified profile email is never surfaced downstream.
     expect(identity.email).not.toBe('attacker@evil.test');
@@ -200,7 +212,7 @@ describe('GitHub verifyOAuthCode verified-email resolution', () => {
       ],
     );
 
-    const identity = await verifyOAuthCode('github', 'auth-code', state);
+    const identity = await verifyOAuthCode('github', 'auth-code', state, browser());
     expect(identity.email).toBe('primary@verified.test');
   });
 
@@ -214,7 +226,7 @@ describe('GitHub verifyOAuthCode verified-email resolution', () => {
       ],
     );
 
-    const identity = await verifyOAuthCode('github', 'auth-code', state);
+    const identity = await verifyOAuthCode('github', 'auth-code', state, browser());
     expect(identity.email).toBe('verified@x.test');
   });
 
@@ -228,7 +240,7 @@ describe('GitHub verifyOAuthCode verified-email resolution', () => {
       ],
     );
 
-    await expect(verifyOAuthCode('github', 'auth-code', state))
+    await expect(verifyOAuthCode('github', 'auth-code', state, browser()))
       .rejects.toThrow(OAUTH_EMAIL_UNVERIFIED);
     expect(mockFindOrCreate).not.toHaveBeenCalled();
   });
@@ -241,7 +253,7 @@ describe('GitHub verifyOAuthCode verified-email resolution', () => {
     );
 
     const res = makeRes();
-    await (handleCallback as any)({ params: { provider: 'github' }, body: { code: 'c', state } }, res);
+    await (handleCallback as any)({ ...browser(), params: { provider: 'github' }, body: { code: 'c', state } }, res);
 
     expect(mockFindOrCreate).not.toHaveBeenCalled();
     expect(mockIssueTokens).not.toHaveBeenCalled();
@@ -262,7 +274,7 @@ describe('GitHub verifyOAuthCode verified-email resolution', () => {
     mockFindOrCreate.mockResolvedValue({ _id: 'u1', lastActiveOrgId: { toString: () => 'org-1' } });
 
     const res = makeRes();
-    await (handleCallback as any)({ params: { provider: 'github' }, body: { code: 'c', state } }, res);
+    await (handleCallback as any)({ ...browser(), params: { provider: 'github' }, body: { code: 'c', state } }, res);
 
     expect(mockFindOrCreate).toHaveBeenCalledWith('github', expect.objectContaining({ email: 'real@verified.test' }));
     expect(res.status).toHaveBeenCalledWith(200);

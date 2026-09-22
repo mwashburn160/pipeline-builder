@@ -17,6 +17,7 @@
 
 import { startAuthentication, startRegistration, WebAuthnAbortService } from '@simplewebauthn/browser';
 import api from './api';
+import type { PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/browser';
 import type { Passkey } from '@/types';
 
 export {
@@ -36,16 +37,36 @@ export function cancelPasskeyCeremony(): void {
   WebAuthnAbortService.cancelCeremony();
 }
 
+/** A registration challenge, fetched and waiting for the browser ceremony. */
+export interface PendingPasskeyRegistration {
+  ceremonyId: string;
+  options: PublicKeyCredentialCreationOptionsJSON;
+}
+
 /**
- * Enrol a new passkey. `stepUpToken` comes from a StepUpModal — the server gates
- * the challenge on it, so an account without a password earns it by
- * re-authenticating with its own provider.
+ * Enrolment, step 1: fetch the registration challenge. `stepUpToken` comes from
+ * a StepUpModal — the server gates the challenge on it, so an account without a
+ * password earns it by re-authenticating with its own provider.
+ *
+ * Split from step 2 because `navigator.credentials.create()` must run inside a
+ * fresh user gesture. After a step-up (a typed password, a popup, another
+ * WebAuthn prompt) plus this fetch, Safari no longer counts the original click
+ * and refuses the ceremony with NotAllowedError — so the caller shows an
+ * explicit "Create passkey" button and runs step 2 from ITS click.
  */
-export async function registerPasskey(name: string, stepUpToken?: string): Promise<{ passkey: Passkey; recoveryCodes?: string[] }> {
+export async function beginPasskeyRegistration(stepUpToken?: string): Promise<PendingPasskeyRegistration> {
   const optionsRes = await api.getPasskeyRegistrationOptions(stepUpToken);
   const pending = optionsRes.data;
   if (!pending) throw new Error(optionsRes.message || 'Could not start passkey registration');
+  return pending;
+}
 
+/** Enrolment, step 2 — call it from a click handler: the browser ceremony, then
+ *  storing the new credential. */
+export async function finishPasskeyRegistration(
+  pending: PendingPasskeyRegistration,
+  name: string,
+): Promise<{ passkey: Passkey; recoveryCodes?: string[] }> {
   const response = await startRegistration({ optionsJSON: pending.options });
 
   const verified = await api.verifyPasskeyRegistration({ ceremonyId: pending.ceremonyId, response, name });

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { complianceRule } from '../src/database/schema/compliance.js';
 

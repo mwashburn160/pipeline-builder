@@ -7,6 +7,7 @@
  * label-set injection / detection, cross-tenant rejection.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from '../src/services/promql-rewriter.js';
 
 describe('injectOrgId  basic shapes', () => {
@@ -29,9 +30,9 @@ describe('injectOrgId  basic shapes', () => {
     expect(injectOrgId(expr, 'acme')).toBe(expr);
   });
 
-  it('leaves the expression unchanged with the regex form (=~)', () => {
-    const expr = 'http_requests_total{org_id=~"acme",status="500"}';
-    expect(injectOrgId(expr, 'acme')).toBe(expr);
+  it('still injects the equality matcher alongside a regex org_id (=~) — regexes never count as pinned', () => {
+    expect(injectOrgId('http_requests_total{org_id=~"acme",status="500"}', 'acme'))
+      .toBe('http_requests_total{org_id="acme",org_id=~"acme",status="500"}');
   });
 
   it('is idempotent  running twice produces the same output', () => {
@@ -182,5 +183,89 @@ describe('validateOrgIdMatchers  validation-only mode', () => {
 
   it('accepts a nameless label-set selector that carries org_id', () => {
     expect(validateOrgIdMatchers('{org_id="acme",job="x"}', 'acme')).toEqual({ ok: true });
+  });
+});
+
+describe('injectOrgId  tokenizer-level tenancy bypasses (survey 2026-09-21)', () => {
+  // The old regex matcher saw `org_id='X'` INSIDE the regex value and treated
+  // the selector as already pinned — the injected expression then matched
+  // every org via `|.+`.
+  it('injects into a selector whose regex VALUE merely contains org_id=\'X\'', () => {
+    expect(injectOrgId('up{job=~"org_id=\'acme\'|.+"}', 'acme'))
+      .toBe('up{org_id="acme",job=~"org_id=\'acme\'|.+"}');
+  });
+
+  it('does not accept a label whose name merely ENDS in org_id (xorg_id)', () => {
+    expect(injectOrgId('up{xorg_id="acme"}', 'acme')).toBe('up{org_id="acme",xorg_id="acme"}');
+    expect(validateOrgIdMatchers('up{xorg_id="acme"}', 'acme').ok).toBe(false);
+  });
+
+  it('does not treat a foreign xorg_id value as a cross-tenant pin either (just ANDs)', () => {
+    expect(injectOrgId('up{xorg_id="other"}', 'acme')).toBe('up{org_id="acme",xorg_id="other"}');
+  });
+
+  it('tokenizes backtick raw strings (a `"` inside cannot desync the scanner)', () => {
+    // Old scanner: the `"` inside the backticks opened a string, hiding the
+    // following `other_metric` selector from injection entirely.
+    expect(injectOrgId('up{job=`a"`} + other_metric{job=`"`}', 'acme'))
+      .toBe('up{org_id="acme",job=`a"`} + other_metric{org_id="acme",job=`"`}');
+  });
+
+  it('recognizes an exact org_id pin written as a backtick raw string', () => {
+    expect(injectOrgId('up{org_id=`acme`}', 'acme')).toBe('up{org_id=`acme`}');
+  });
+
+  it('injects when the org_id value uses escapes (never assumed equal)', () => {
+    expect(injectOrgId('up{org_id="ac\\x6de"}', 'acme')).toBe('up{org_id="acme",org_id="ac\\x6de"}');
+  });
+
+  it('ANDs with negative / wildcard org_id matchers instead of trusting them', () => {
+    expect(injectOrgId('up{org_id!="nobody"}', 'acme')).toBe('up{org_id="acme",org_id!="nobody"}');
+    expect(injectOrgId('up{org_id=~".+"}', 'acme')).toBe('up{org_id="acme",org_id=~".+"}');
+  });
+
+  it('treats a function name used WITHOUT a call as a metric (sum(rate) selects metric "rate")', () => {
+    expect(injectOrgId('sum(rate)', 'acme')).toBe('sum(rate{org_id="acme"})');
+    expect(injectOrgId('vector + up', 'acme')).toBe('vector{org_id="acme"} + up{org_id="acme"}');
+  });
+
+  it('handles a quoted (UTF-8) metric-name element inside braces', () => {
+    expect(injectOrgId('{"my.metric", job="x"}', 'acme')).toBe('{org_id="acme","my.metric", job="x"}');
+  });
+
+  it('leaves subquery/duration brackets alone', () => {
+    expect(injectOrgId('max_over_time(rate(up[5m])[1h:1m])', 'acme'))
+      .toBe('max_over_time(rate(up{org_id="acme"}[5m])[1h:1m])');
+  });
+
+  it('handles offset and @ modifiers', () => {
+    expect(injectOrgId('up offset 5m', 'acme')).toBe('up{org_id="acme"} offset 5m');
+    expect(injectOrgId('up @ end()', 'acme')).toBe('up{org_id="acme"} @ end()');
+  });
+
+  it('rejects unlexable characters and malformed matchers', () => {
+    expect(() => injectOrgId('up | down', 'acme')).toThrow(PromQLRewriteError);
+    expect(() => injectOrgId('up{job}', 'acme')).toThrow(/Malformed label matcher/);
+    expect(() => injectOrgId('up{job=foo}', 'acme')).toThrow(/string literal/);
+    expect(() => injectOrgId('up{job="a"}}', 'acme')).toThrow(/Unbalanced/);
+    expect(() => injectOrgId('up{job=`unterminated}', 'acme')).toThrow(/Unterminated/);
+  });
+
+  it('allows # inside a string literal but not as a comment', () => {
+    expect(injectOrgId('up{job="a#b"}', 'acme')).toBe('up{org_id="acme",job="a#b"}');
+  });
+
+  it('is idempotent over every exploit shape', () => {
+    for (const e of ['up{job=~"org_id=\'acme\'|.+"}', 'up{xorg_id="acme"}', 'up{job=`a"`}', '{on="x"}', 'sum(rate)']) {
+      const once = injectOrgId(e, 'acme');
+      expect(injectOrgId(once, 'acme')).toBe(once);
+      expect(validateOrgIdMatchers(once, 'acme')).toEqual({ ok: true });
+    }
+  });
+
+  it('validation mode rejects the exploit strings un-rewritten', () => {
+    expect(validateOrgIdMatchers('up{job=~"org_id=\'acme\'|.+"}', 'acme').ok).toBe(false);
+    expect(validateOrgIdMatchers('up{org_id=~"acme"}', 'acme').ok).toBe(false);
+    expect(validateOrgIdMatchers('up{job=`org_id="acme"`}', 'acme').ok).toBe(false);
   });
 });

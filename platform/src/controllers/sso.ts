@@ -32,6 +32,7 @@ import { audit } from '../helpers/audit.js';
 import { isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
+import { bindLoginToBrowser, clearLoginBinding, isBoundToThisBrowser } from '../helpers/login-binding.js';
 import { idpEnforcesMfa, MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { deliverSessionTokens } from '../helpers/session-cookie.js';
@@ -66,7 +67,7 @@ const MAX_PENDING_STATES = config.oauth.maxPendingStates;
  *  The verifier lives HERE and nowhere else: it never reaches the browser, and
  *  consuming the state destroys it, so a code can be redeemed exactly once, by
  *  the server that started the flow. */
-const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string; codeVerifier?: string }>({
+const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string; codeVerifier?: string; binding: string }>({
   prefix: 'sso:state:',
   ttlMs: config.oauth.stateTtlMs,
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
@@ -85,8 +86,8 @@ const pendingSsoStates = createPendingStateStore<{ orgId: string; nonce: string;
  * by what we register with the IdP, not by the client. Discovery runs here so an
  * unreachable IdP fails now, before the browser leaves.
  */
-async function beginSsoLogin(orgId: string): Promise<{ url: string; state: string }> {
-  if (await getEnforcedIdpProtocol(orgId) === 'saml') return beginSamlLogin(orgId);
+async function beginSsoLogin(orgId: string, binding: string): Promise<{ url: string; state: string }> {
+  if (await getEnforcedIdpProtocol(orgId) === 'saml') return beginSamlLogin(orgId, binding);
 
   const cfg = await getEnforcedLoginConfig(orgId);
 
@@ -94,7 +95,7 @@ async function beginSsoLogin(orgId: string): Promise<{ url: string; state: strin
   const nonce = crypto.randomBytes(16).toString('hex');
   const { url, codeVerifier } = await buildAuthorizeUrl(cfg, state, nonce);
 
-  await pendingSsoStates.put(state, { orgId, nonce, ...(codeVerifier && { codeVerifier }) });
+  await pendingSsoStates.put(state, { orgId, nonce, binding, ...(codeVerifier && { codeVerifier }) });
 
   return { url, state };
 }
@@ -105,7 +106,8 @@ async function beginSsoLogin(orgId: string): Promise<{ url: string; state: strin
  * step-up, where the session already names the org), never through `discover`.
  */
 export const getSsoAuthUrl = withController('Get SSO URL', async (req, res) => {
-  sendSuccess(res, 200, await beginSsoLogin(getParam(req.params, 'orgId')!));
+  // Bound to THIS browser (a Lax nonce cookie) — see helpers/login-binding.ts.
+  sendSuccess(res, 200, await beginSsoLogin(getParam(req.params, 'orgId')!, bindLoginToBrowser(res)));
 }, { ...OIDC_ERROR_MAP, ...SAML_ERROR_MAP });
 
 /**
@@ -134,7 +136,7 @@ export const startSsoLogin = withController('Start SSO', async (req, res) => {
     return;
   }
 
-  sendSuccess(res, 200, await beginSsoLogin(coverage.orgId));
+  sendSuccess(res, 200, await beginSsoLogin(coverage.orgId, bindLoginToBrowser(res)));
 }, { ...OIDC_ERROR_MAP, ...SAML_ERROR_MAP });
 
 /** Label a failed provisioning attempt for the audit row + metric. Only the seat
@@ -182,6 +184,8 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
   let provider: string;
   try {
     if (!pending || pending.orgId !== orgId) throw new Error('OIDC_INVALID_STATE');
+    // LOGIN CSRF: honoured only in the browser that started this flow.
+    if (!isBoundToThisBrowser(req, pending.binding)) throw new Error('OIDC_INVALID_STATE');
     const cfg = await getEnforcedLoginConfig(orgId);
     provider = cfg.provider;
     // The PKCE verifier comes from the (now consumed) state — never from the
@@ -189,7 +193,7 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
     identity = await exchangeAndValidate(cfg, body.code, pending.nonce, { codeVerifier: pending.codeVerifier });
     // The org's IdP vouching for an email proves nothing unless the org owns
     // that domain — checked before the identity can reach or create any account.
-    await assertSsoIdentityTrusted(orgId, identity);
+    await assertSsoIdentityTrusted(orgId, identity, { protocol: 'oidc', provider: cfg.provider });
   } catch (err) {
     audit(req, 'user.login.failed', {
       targetType: 'user',
@@ -263,7 +267,7 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
   // the evidence, and an unmarked IdP stays aal 1 rather than being guessed at.
   const tokens = await issueTokens(user, orgId, {
     kind: 'interactive',
-    auth: signInAuth('sso', { idpMfa: await idpEnforcesMfa(orgId) }),
+    auth: signInAuth('sso', { ...(await idpEnforcesMfa(orgId) ? { idpMfaOrgId: orgId } : {}) }),
     client: clientInfoOf(req),
   });
 
@@ -272,6 +276,8 @@ export const handleSsoCallback = withController('SSO callback', async (req, res)
   logger.info('[SSO] login successful', { orgId, userId: user._id, provider });
 
   // Same transport split as password/OAuth login: cookie for the browser.
+  // The flow is complete: its browser binding has done its job.
+  clearLoginBinding(res);
   sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 }, { ...OIDC_ERROR_MAP, ...MFA_POLICY_ERROR_MAP });
 

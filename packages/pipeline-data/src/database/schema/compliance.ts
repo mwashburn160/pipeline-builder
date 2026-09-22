@@ -160,7 +160,7 @@ export const complianceRule = pgTable('compliance_rules', {
   // not key-existence, which we never run against `tags`. Scoped to
   // `scope = 'published'` so only the curated catalog (a handful of rows) is
   // indexed, not every org's private rule tags.
-  // MIGRATION REQUIRED: run `pnpm drizzle-kit generate` after pulling.
+  // Created by postgres-init.sql.
   publishedTagsGinIdx: index('compliance_rule_published_tags_gin_idx')
     .using('gin', table.tags.op('jsonb_path_ops'))
     .where(sql`scope = 'published'`),
@@ -212,7 +212,7 @@ export const complianceAuditLog = pgTable('compliance_audit_log', {
   // pattern (audit log UIs sort newest-first). Postgres can use the asc
   // index for desc scans, but a matching DESC index lets index-only scans
   // satisfy `ORDER BY created_at DESC LIMIT n` without a reverse step.
-  // MIGRATION REQUIRED: run `pnpm drizzle-kit generate` after pulling.
+  // Created by postgres-init.sql.
   orgCreatedAtDescIdx: index('compliance_audit_org_created_desc_idx')
     .on(table.orgId, sql`${table.createdAt} DESC`),
   orgTargetResultIdx: index('compliance_audit_org_target_result_idx')
@@ -291,7 +291,7 @@ export const complianceScan = pgTable('compliance_scans', {
   // True when the scan stopped early at a configured per-scan cap (so the
   // counts above represent a subset, not the full entity universe). Surfaced
   // in the scan-status UI so users know whether to widen the filter.
-  // MIGRATION REQUIRED: run `pnpm drizzle-kit generate` after pulling.
+  // Created by postgres-init.sql.
   truncated: boolean('truncated').default(false).notNull(),
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),

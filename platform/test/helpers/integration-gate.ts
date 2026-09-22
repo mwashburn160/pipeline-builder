@@ -33,6 +33,7 @@
  *   suite('TOTP enrolment (real Mongo replica set)', () => { … });
  */
 
+import { describe, it } from '@jest/globals';
 const isEnabled = (): boolean =>
   process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';
 

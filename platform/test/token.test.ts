@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock config and models before importing
-import { jest, describe, it, expect, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect } from '@jest/globals';
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     auth: {
@@ -26,12 +27,21 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 // to the role's base permission bundle with no group grants in these tests.
 const emptyFindChain = () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) });
 
+const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>(() => ({ select: () => ({ lean: async () => null }) }));
+const mockPublishSlot = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
+jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: (...a: unknown[]) => mockPublishSlot(...a),
+}));
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
   User: {
-    updateOne: jest.fn().mockResolvedValue({}),
+    updateOne: jest.fn<AnyFn>().mockResolvedValue({}),
+    // The slot ids before/after the write (eviction publishing). Default:
+    // unreadable, so nothing is published.
+    findById: (...a: unknown[]) => mockUserFindById(...a),
   },
   Organization: {},
   UserOrganization: {},
@@ -77,6 +87,7 @@ function mockUser(overrides: Partial<{
   isEmailVerified: boolean;
   lastActiveOrgId: { toString(): string } | string;
   tokenVersion: number;
+  claimsVersion: number;
 }> = {}) {
   return {
     _id: overrides._id || { toString: () => 'user-123' },
@@ -85,6 +96,7 @@ function mockUser(overrides: Partial<{
     isEmailVerified: overrides.isEmailVerified ?? true,
     lastActiveOrgId: 'lastActiveOrgId' in overrides ? overrides.lastActiveOrgId : { toString: () => 'org-456' },
     tokenVersion: overrides.tokenVersion ?? 1,
+    ...(overrides.claimsVersion !== undefined ? { claimsVersion: overrides.claimsVersion } : {}),
   } as any;
 }
 
@@ -178,6 +190,12 @@ describe('token utilities', () => {
       });
     });
 
+    it('the ACCESS token carries tokenVersion + claimsVersion; the REFRESH token only the hard tokenVersion', async () => {
+      const { accessToken, refreshToken } = await issueTokens(mockUser({ tokenVersion: 2, claimsVersion: 5 }), undefined, login());
+      expect((jwt.decode(accessToken) as { tokenVersion: number }).tokenVersion).toBe(7);
+      expect((jwt.decode(refreshToken) as { tokenVersion: number }).tokenVersion).toBe(2);
+    });
+
     it('records the token version at time of issuance', async () => {
       const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const user = mockUser({ tokenVersion: 7 });
@@ -186,14 +204,14 @@ describe('token utilities', () => {
       expect(set.issuedTokens.$slice[0].$concatArrays[1][0].$literal.tokenVersionAtIssue).toBe(7);
     });
 
-    it('records expiresAt aligned to the JWT exp claim', async () => {
+    it('records expiresAt aligned to the access token\'s exp claim', async () => {
       const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const before = Date.now();
-      await issueTokens(mockUser(), undefined, login({ expiresIn: 600 }));
+      await issueTokens(mockUser(), undefined, login());
       const set = (User.updateOne.mock.calls.at(-1)?.[1] as any)[0].$set;
       const recordedExpiresMs = (set.issuedTokens.$slice[0].$concatArrays[1][0].$literal.expiresAt as Date).getTime();
       // Within 2 seconds of expected window (test execution jitter).
-      expect(Math.abs(recordedExpiresMs - (before + 600 * 1000))).toBeLessThan(2000);
+      expect(Math.abs(recordedExpiresMs - (before + 7200 * 1000))).toBeLessThan(2000);
     });
 
     it('should default access-token expiresIn to config value when override is omitted', async () => {
@@ -203,34 +221,39 @@ describe('token utilities', () => {
       expect(decoded.exp - decoded.iat).toBe(7200);
     });
 
-    it('should honor a custom expiresIn override (regression: --days 30 from store-token CLI)', async () => {
-      const THIRTY_DAYS_SEC = 30 * 24 * 60 * 60;
-      const { accessToken, expiresIn } = await issueTokens(mockUser(), undefined, login({ expiresIn: THIRTY_DAYS_SEC }));
-      expect(expiresIn).toBe(THIRTY_DAYS_SEC);
-      const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
-      expect(decoded.exp - decoded.iat).toBe(THIRTY_DAYS_SEC);
+    // A machine credential's lifetime is its SLOT's; its ACCESS tokens never
+    // outlive a person's (so a revocation entry sized to that lifetime can never
+    // lapse under a live token), and are renewed through the slot's refresh token.
+    it.each([
+      ['30 days', 30 * 24 * 60 * 60],
+      ['90 days', 90 * 24 * 60 * 60],
+      ['365 days (CLI cap)', 365 * 24 * 60 * 60],
+    ])('caps a %s machine credential\'s access token at the normal lifetime; the slot + refresh token carry the lifetime', async (_label, lifetime) => {
+      const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
+      const before = Date.now();
+      const { accessToken, refreshToken, expiresIn } = await issueTokens(mockUser(), undefined, { kind: 'machine', auth: signInAuth('pwd'), lifetimeSeconds: lifetime });
+      expect(expiresIn).toBe(7200);
+      const access = jwt.decode(accessToken) as { exp: number; iat: number };
+      expect(access.exp - access.iat).toBe(7200);
+      const refresh = jwt.decode(refreshToken) as { exp: number; iat: number };
+      expect(Math.abs(refresh.exp - refresh.iat - lifetime)).toBeLessThanOrEqual(1);
+      const set = (User.updateOne.mock.calls.at(-1)?.[1] as any)[0].$set;
+      const added = set.refreshSessions.$concatArrays[1].$concatArrays[1][0].$literal;
+      expect(Math.abs((added.expiresAt as Date).getTime() - (before + lifetime * 1000))).toBeLessThan(2000);
     });
 
-    it('should honor a 90-day expiresIn override', async () => {
-      const NINETY_DAYS_SEC = 90 * 24 * 60 * 60;
-      const { accessToken, expiresIn } = await issueTokens(mockUser(), undefined, login({ expiresIn: NINETY_DAYS_SEC }));
-      expect(expiresIn).toBe(NINETY_DAYS_SEC);
+    it('never mints an access token past a SHORT machine credential\'s end (1 hour)', async () => {
+      const { accessToken, refreshToken } = await issueTokens(mockUser(), undefined, { kind: 'machine', auth: signInAuth('pwd'), lifetimeSeconds: 3600 });
       const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
-      expect(decoded.exp - decoded.iat).toBe(NINETY_DAYS_SEC);
+      expect(Math.abs(decoded.exp - decoded.iat - 3600)).toBeLessThanOrEqual(1);
+      const refresh = jwt.decode(refreshToken) as { exp: number; iat: number };
+      expect(Math.abs(refresh.exp - refresh.iat - 3600)).toBeLessThanOrEqual(1);
     });
 
-    it('should honor a 365-day expiresIn override (CLI cap)', async () => {
-      const ONE_YEAR_SEC = 365 * 24 * 60 * 60;
-      const { accessToken, expiresIn } = await issueTokens(mockUser(), undefined, login({ expiresIn: ONE_YEAR_SEC }));
-      expect(expiresIn).toBe(ONE_YEAR_SEC);
-      const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
-      expect(decoded.exp - decoded.iat).toBe(ONE_YEAR_SEC);
-    });
-
-    it('should accept short custom expiresIn (e.g. 1 hour)', async () => {
-      const { accessToken } = await issueTokens(mockUser(), undefined, login({ expiresIn: 3600 }));
-      const decoded = jwt.decode(accessToken) as { exp: number; iat: number };
-      expect(decoded.exp - decoded.iat).toBe(3600);
+    it('an interactive session\'s refresh token keeps the configured refresh lifetime', async () => {
+      const { refreshToken } = await issueTokens(mockUser(), undefined, login());
+      const refresh = jwt.decode(refreshToken) as { exp: number; iat: number };
+      expect(refresh.exp - refresh.iat).toBe(2592000);
     });
   });
 
@@ -238,7 +261,7 @@ describe('token utilities', () => {
     it('mints a least-privilege reporting:ingest token — even from a super-admin operator', async () => {
       // CRITICAL: a scoped token minted by a super-admin must NOT inherit sysadmin.
       const user = { ...mockUser(), isSuperAdmin: true } as any;
-      const { accessToken } = await issueTokens(user, undefined, { kind: 'machine', auth: signInAuth('pwd'), expiresIn: 3600, scope: 'reporting:ingest' });
+      const { accessToken } = await issueTokens(user, undefined, { kind: 'machine', auth: signInAuth('pwd'), lifetimeSeconds: 3600, scope: 'reporting:ingest' });
       const decoded = jwt.decode(accessToken) as any;
       expect(decoded.scope).toBe('reporting:ingest');
       expect(decoded.role).toBe('member');
@@ -279,5 +302,26 @@ describe('token utilities', () => {
       // Interactive slots pass through untouched.
       expect(set.refreshSessions.$concatArrays[0].$filter.cond).toEqual({ $ne: ['$$this.kind', 'machine'] });
     });
+  });
+});
+
+describe('slot eviction', () => {
+  it('publishes revoke:sid for a slot the per-kind cap pushed out — its live token dies everywhere', async () => {
+    const slots = (ids: string[]) => ({ select: () => ({ lean: async () => ({ refreshSessions: ids.map((id) => ({ id })) }) }) });
+    mockUserFindById
+      .mockReturnValueOnce(slots(['oldest', 'kept'])) // before the write
+      .mockReturnValueOnce(slots(['kept', 'new-slot'])); // after it
+    await issueTokens(mockUser(), undefined, login());
+    expect(mockPublishSlot).toHaveBeenCalledWith(['oldest']);
+  });
+
+  it('publishes nothing when the after-state cannot be read (never "all evicted")', async () => {
+    mockPublishSlot.mockClear();
+    const slots = (ids: string[]) => ({ select: () => ({ lean: async () => ({ refreshSessions: ids.map((id) => ({ id })) }) }) });
+    mockUserFindById
+      .mockReturnValueOnce(slots(['a', 'b']))
+      .mockReturnValueOnce({ select: () => ({ lean: async () => { throw new Error('down'); } }) });
+    await issueTokens(mockUser(), undefined, login());
+    expect(mockPublishSlot).not.toHaveBeenCalled();
   });
 });

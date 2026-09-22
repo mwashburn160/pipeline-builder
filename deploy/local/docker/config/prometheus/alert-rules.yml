@@ -51,12 +51,27 @@ groups:
         # Per-org success-rate aggregation. `by (org_id)` produces one
         # series per org; alerts fire per org and carry that org_id label
         # which the relay routes on.
+        #
+        # The ratio is (successes / total) with the DENOMINATOR filtered to
+        # non-zero (`> 0`) — never clamped to a floor of 1: a per-second rate is
+        # almost always < 1, so clamping it turned a healthy low-volume org (one
+        # successful build every few minutes) into a ~0% "success rate" that
+        # paged. Successes are `or`-ed with 0 so an org whose builds ALL fail
+        # still produces a series. The activity floor (>= 3 builds in the
+        # window) keeps a single failure from reading as a 0% success rate.
+        # Proven by the promtool cases in alert-rules.test.yml.
         expr: |
           (
-            sum by (org_id) (rate(plugin_builds_total{status="success",org_id=~".+"}[5m]))
+            (
+              sum by (org_id) (rate(plugin_builds_total{status="success",org_id=~".+"}[5m]))
+              or
+              sum by (org_id) (rate(plugin_builds_total{org_id=~".+"}[5m])) * 0
+            )
             /
-            clamp_min(sum by (org_id) (rate(plugin_builds_total{org_id=~".+"}[5m])), 1)
+            (sum by (org_id) (rate(plugin_builds_total{org_id=~".+"}[5m])) > 0)
           ) < 0.9
+          and
+          sum by (org_id) (increase(plugin_builds_total{org_id=~".+"}[5m])) >= 3
         for: 10m
         labels:
           severity: warning
@@ -94,12 +109,20 @@ groups:
         # deploys), mirroring PluginBuildFailureRateHigh. `by (org_id)` produces
         # one series per org; alerts fire per org and carry that org_id for
         # relay routing. Warns rather than pages — a broad-but-not-outage signal.
+        # Same ratio shape as PluginBuildFailureRateHigh (non-zero denominator,
+        # successes `or` 0, >= 3 stage results as the activity floor).
         expr: |
           (
-            sum by (org_id) (rate(pipeline_stage_result_total{result="succeeded",org_id=~".+"}[5m]))
+            (
+              sum by (org_id) (rate(pipeline_stage_result_total{result="succeeded",org_id=~".+"}[5m]))
+              or
+              sum by (org_id) (rate(pipeline_stage_result_total{org_id=~".+"}[5m])) * 0
+            )
             /
-            clamp_min(sum by (org_id) (rate(pipeline_stage_result_total{org_id=~".+"}[5m])), 1)
+            (sum by (org_id) (rate(pipeline_stage_result_total{org_id=~".+"}[5m])) > 0)
           ) < 0.9
+          and
+          sum by (org_id) (increase(pipeline_stage_result_total{org_id=~".+"}[5m])) >= 3
         for: 10m
         labels:
           severity: warning
@@ -108,54 +131,6 @@ groups:
         annotations:
           summary: "Pipeline stage success rate below 90% for org {{ $labels.org_id }}"
           description: "5-min stage success rate is {{ $value | humanizePercentage }} over the last 10 minutes — inspect recent pipeline executions."
-
-      # per-plugin variants of the org-wide alert above. The
-      # `plugin_builds_total` counter carries `plugin_name` so groupings
-      # `by (org_id, plugin_name)` produce one series per (org, plugin)
-      # pair without a metric change. Thresholds are stricter than the
-      # org-wide rules (80% vs 90% success, 25% timeout share) — a single
-      # plugin going bad shouldn't have to drag the org's overall rate
-      # under 90% before paging. Floor of `rate > 0.01` (≥3 builds per
-      # 5min) prevents firing on plugins with only one or two builds
-      # where a single failure trivially crosses the percentage gate.
-      - alert: PluginBuildFailureRateHighPerPlugin
-        expr: |
-          (
-            sum by (org_id, plugin_name) (rate(plugin_builds_total{status="success",org_id=~".+",plugin_name=~".+"}[5m]))
-            /
-            clamp_min(sum by (org_id, plugin_name) (rate(plugin_builds_total{org_id=~".+",plugin_name=~".+"}[5m])), 1)
-          ) < 0.8
-          and
-          sum by (org_id, plugin_name) (rate(plugin_builds_total{org_id=~".+",plugin_name=~".+"}[5m])) > 0.01
-        for: 15m
-        labels:
-          severity: warning
-          component: plugin
-          tenancy: org
-        annotations:
-          summary: "Plugin {{ $labels.plugin_name }} success rate below 80% for org {{ $labels.org_id }}"
-          description: "Per-plugin 5-min success rate is {{ $value | humanizePercentage }} over the last 15 minutes — check plugin source or build environment."
-
-      - alert: PluginBuildTimeoutRateHighPerPlugin
-        # Most often a regression in the plugin's build script or a
-        # dependency that's now resolving slowly. Same activity floor as
-        # the failure-rate variant.
-        expr: |
-          (
-            sum by (org_id, plugin_name) (rate(plugin_builds_total{status="timeout",org_id=~".+",plugin_name=~".+"}[5m]))
-            /
-            clamp_min(sum by (org_id, plugin_name) (rate(plugin_builds_total{org_id=~".+",plugin_name=~".+"}[5m])), 1)
-          ) > 0.25
-          and
-          sum by (org_id, plugin_name) (rate(plugin_builds_total{org_id=~".+",plugin_name=~".+"}[5m])) > 0.01
-        for: 15m
-        labels:
-          severity: warning
-          component: plugin
-          tenancy: org
-        annotations:
-          summary: "Plugin {{ $labels.plugin_name }} timing out for org {{ $labels.org_id }}"
-          description: "{{ $value | humanizePercentage }} of recent builds timed out — check build complexity or dependency resolution times."
 
   # Platform-wide rules — metrics that aren't org-labeled (shared queue,
   # shared registry). Routed to the ops-team Slack channels.
@@ -187,6 +162,45 @@ groups:
         annotations:
           summary: "{{ $labels.job }} is not responding to scrapes"
           description: "Prometheus has failed to scrape {{ $labels.job }} ({{ $labels.instance }}) for 5m. The target is configured but unreachable — restart loop, OOM, or a hung process. Check: docker compose ps && docker compose logs {{ $labels.job }}"
+
+      # ---- Gateway (nginx) ----
+      # From nginx/metrics.js: real per-route counters recorded at log time
+      # (nginx_http_requests_total{service,status_class} and the
+      # nginx_http_request_duration_seconds histogram). These see what CLIENTS
+      # see — including 502/504s the upstream never logged because it was down.
+      # Same ratio discipline as the per-org rules: non-zero denominator plus an
+      # activity floor, so a quiet gateway with one bad request stays quiet.
+      - alert: GatewayError5xxRatioHigh
+        expr: |
+          (
+            sum(rate(nginx_http_requests_total{status_class="5xx"}[5m]))
+            /
+            (sum(rate(nginx_http_requests_total[5m])) > 0)
+          ) > 0.05
+          and
+          sum(increase(nginx_http_requests_total[5m])) >= 20
+        for: 5m
+        labels:
+          severity: critical
+          component: nginx
+          tenancy: platform
+        annotations:
+          summary: "Gateway 5xx ratio above 5%"
+          description: "{{ $value | humanizePercentage }} of requests through nginx returned 5xx over the last 5 minutes. Break it down by route: sum by (service) (rate(nginx_http_requests_total{status_class=\"5xx\"}[5m]))."
+
+      - alert: GatewayLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(nginx_http_request_duration_seconds_bucket{service!~"ws|plugin-logs|registry-v2|metrics"}[5m]))) > 2
+          and
+          sum(increase(nginx_http_request_duration_seconds_count{service!~"ws|plugin-logs|registry-v2|metrics"}[5m])) >= 20
+        for: 10m
+        labels:
+          severity: warning
+          component: nginx
+          tenancy: platform
+        annotations:
+          summary: "Gateway p95 latency above 2s"
+          description: "p95 request latency through nginx is {{ $value | humanizeDuration }} (excluding websocket, build-log stream and registry blob routes)."
 
       # ---- Datastores ----
       # These complement ServiceDown rather than duplicating it. ServiceDown

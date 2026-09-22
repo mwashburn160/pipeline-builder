@@ -391,7 +391,9 @@ class UserAdminService {
           throw new Error(`Password must be at least ${options.passwordMinLength} characters`);
         }
         user.password = body.password;
+        // HARD revocation: an admin password reset ends every session.
         user.tokenVersion = (user.tokenVersion || 0) + 1;
+        user.refreshSessions = [];
         changes.push('password');
       }
 
@@ -449,8 +451,8 @@ class UserAdminService {
       return user;
     });
 
-    // Post-commit: a password reset or role change (via recompute) bumps
-    // tokenVersion — publish the now-current value so the stateless services see
+    // Post-commit: a password reset (tokenVersion) or role change (claimsVersion,
+    // via the Role services) moved the access version — publish the now-current value so the stateless services see
     // it immediately. Unconditional + idempotent (best-effort): a no-bump edit
     // just re-publishes the unchanged version.
     await publishUserRevocation(String(updatedUser._id));
@@ -469,7 +471,7 @@ class UserAdminService {
     if (!deleted) throw new Error(UA_USER_NOT_FOUND);
     // Revoke the deleted user's outstanding tokens on the stateless services
     // (platform's requireAuth already rejects the missing user). Best-effort.
-    await publishUserDeletionRevocation(id, deleted.tokenVersion);
+    await publishUserDeletionRevocation(id, deleted.accessVersion);
     logger.info('User deleted by admin', { userId: id });
   }
 
@@ -482,16 +484,16 @@ class UserAdminService {
     // `+isSuperAdmin` (schema is `select: false`) is required because the
     // caller resolves feature flags with a sysadmin-bypass branch. `+tokenVersion`
     // (also `select: false`) is needed to bump it below.
-    const user = await User.findById(id).select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides +tokenVersion');
+    const user = await User.findById(id).select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion claimsVersion');
     if (!user) throw new Error(UA_USER_NOT_FOUND);
 
     user.featureOverrides = new Map(Object.entries(overrides));
     // Resolved feature flags are baked into the access token (utils/token.ts), so
     // a grant/revoke here must invalidate the user's outstanding tokens — else the
-    // stale feature set lingers until natural expiry. Bump tokenVersion (mirrors
-    // updateUserById's password/role bump) so requireAuth rejects old tokens and a
-    // refresh reissues a JWT carrying the new features.
-    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    // stale feature set lingers until natural expiry. A CLAIMS change: bump
+    // claimsVersion so every service rejects the old access tokens and the next
+    // refresh reissues one carrying the new features (the sessions stay valid).
+    user.claimsVersion = (user.claimsVersion || 0) + 1;
     await user.save();
 
     // Post-commit: publish the now-current tokenVersion so the stateless services

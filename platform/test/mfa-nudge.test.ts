@@ -23,6 +23,7 @@
  *     gets 401 rather than a write against `undefined`.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -34,7 +35,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, code: number, message: string, errorCode?: string) => res.status(code).json({ success: false, message, code: errorCode }),
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-const mockAudit = jest.fn();
+const mockAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: mockAudit }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { updateOne: (...a: unknown[]) => mockUpdateOne(...a) },
@@ -148,7 +149,7 @@ describe('the writes', () => {
 describe('the routes — own account, no permission, no step-up', () => {
   it('snoozes for the caller and reports the deadline it chose', async () => {
     const res = makeRes();
-    await snoozeMfaPrompt(req(), res, jest.fn() as any);
+    await snoozeMfaPrompt(req(), res);
     expect(res._status).toBe(200);
     expect(res._body.data.snoozeDays).toBe(SNOOZE_DAYS);
     expect(new Date(res._body.data.snoozedUntil).getTime()).toBeGreaterThan(Date.now());
@@ -159,7 +160,7 @@ describe('the routes — own account, no permission, no step-up', () => {
 
   it('records a decline, and audits it', async () => {
     const res = makeRes();
-    await declineMfaPrompt(req(), res, jest.fn() as any);
+    await declineMfaPrompt(req(), res);
     expect(res._status).toBe(200);
     expect(res._body.data.declinedAt).toEqual(expect.any(String));
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.mfa.prompt_declined', {
@@ -169,7 +170,7 @@ describe('the routes — own account, no permission, no step-up', () => {
 
   it('restores the prompt, and audits that too — "declined" must not read as permanent', async () => {
     const res = makeRes();
-    await resetMfaPrompt(req(), res, jest.fn() as any);
+    await resetMfaPrompt(req(), res);
     expect(res._status).toBe(200);
     expect(res._body.data).toEqual({ cleared: true });
     expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $unset: { mfaNudge: '' } });
@@ -184,7 +185,7 @@ describe('the routes — own account, no permission, no step-up', () => {
     ['restore', resetMfaPrompt],
   ])('refuses an anonymous caller (%s) with 401 and writes nothing', async (_name, handler) => {
     const res = makeRes();
-    await (handler as any)(req(null), res, jest.fn() as any);
+    await (handler as any)(req(null), res, jest.fn<AnyFn>() as any);
     expect(res._status).toBe(401);
     expect(mockUpdateOne).not.toHaveBeenCalled();
   });

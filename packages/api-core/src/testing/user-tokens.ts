@@ -12,7 +12,7 @@
  * by the suites of every package:
  *
  * ```ts
- * import { installTestJwks, signTestUserToken } from '@pipeline-builder/api-core/lib/testing/user-tokens.js';
+ * import { installTestJwks, signTestUserToken } from '@pipeline-builder/api-core/testing';
  *
  * const jwks = installTestJwks();
  * const token = signTestUserToken({ sub: 'u1', role: 'member', ... });

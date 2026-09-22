@@ -169,7 +169,7 @@ export default function ObservabilityIndexPage() {
             <h2 className="text-sm font-semibold text-fg">Alert destinations</h2>
           </div>
           <p className="text-xs text-fg-muted">
-            Slack, webhook, in-app — where this org's alerts get delivered.
+            Slack, webhook, in-app — where this org&apos;s alerts get delivered.
           </p>
         </Link>
 

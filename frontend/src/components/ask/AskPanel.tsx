@@ -433,7 +433,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
         {/* Composer */}
         <form
           className="mt-3 pt-3 border-t border-default"
-          onSubmit={(e) => { e.preventDefault(); send(input); }}
+          onSubmit={(e) => { e.preventDefault(); void send(input); }}
         >
           <div className="flex items-end gap-2">
             <textarea
@@ -441,7 +441,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
               aria-label="Ask a question"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(input); }
               }}
               rows={2}
               placeholder="Ask a question…"

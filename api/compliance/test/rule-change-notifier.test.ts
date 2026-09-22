@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockPost = jest.fn<(...args: unknown[]) => Promise<unknown>>();
-const mockFindSubscribers = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockPost = jest.fn<AnyFn>();
+const mockFindSubscribers = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: () => 'Bearer test-service-token',

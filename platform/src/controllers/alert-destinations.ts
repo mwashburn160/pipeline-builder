@@ -194,7 +194,7 @@ export const createAlertDestination = withController('Create alert destination',
   } catch (err) {
     // Roll back the reserved slot on any failure — keeps the counter accurate
     // when the DB write fails after the quota service already committed.
-    releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger));
+    releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger), reservation);
     throw err;
   }
 });
@@ -277,7 +277,7 @@ export const deleteAlertDestination = withController('Delete alert destination',
 
   // Release the quota slot the create path reserved. Fire-and-forget — a
   // stuck counter resolves on the next period reset.
-  releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger));
+  releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger), null);
 
   audit(req, 'alert.destination.delete', { targetType: 'alert-destination', targetId: id });
   sendSuccess(res, 200, undefined, 'Destination deleted');
@@ -303,13 +303,13 @@ export const restoreAlertDestination = withController('Restore alert destination
   try {
     const ok = await alertDestinationService.restore(id, { orgId, userId });
     if (!ok) {
-      releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger));
+      releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger), reservation);
       return sendError(res, 404, 'Destination not found');
     }
     audit(req, 'alert.destination.restore', { targetType: 'alert-destination', targetId: id });
     sendSuccess(res, 200, undefined, 'Destination restored');
   } catch (err) {
-    releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger));
+    releaseFeatureQuota(orgId, 'alertDestinations', logger.warn.bind(logger), reservation);
     throw err;
   }
 });

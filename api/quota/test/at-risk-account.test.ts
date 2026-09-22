@@ -19,7 +19,9 @@
  * still 403s at the tenancy guard, before the read gate is reached.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const findByOrgId = jest.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -52,7 +54,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn((res: any, status: number, message: string, code?: string) => res.status(status).json({ success: false, statusCode: status, message, code })),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId ?? req.params?.orgId });
   },
@@ -118,7 +120,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
   });
 
   it('returns the caller\'s OWN org at-risk dims (same-org, no sysadmin)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     findByOrgId.mockResolvedValue(summary('org-1', {
       plugins: status(100, 95), // 95% — at-risk
       pipelines: status(10, 2), // 20% — fine
@@ -143,7 +145,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
   });
 
   it('rejects a non-sysadmin reading ANOTHER org (403) and never queries it', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
 
     const res = makeRes();
     await runStack(getStack('/:orgId/at-risk'), {
@@ -157,7 +159,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
   });
 
   it('honors a custom threshold', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     findByOrgId.mockResolvedValue(summary('org-1', {
       plugins: status(100, 55), // 55%
       pipelines: status(100, 5), // 5%
@@ -175,7 +177,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
   });
 
   it('reports limit === 0 dims as 100% (permanently at-risk)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     findByOrgId.mockResolvedValue(summary('org-1', {
       plugins: status(0, 0), pipelines: status(100, 1), apiCalls: status(100, 1),
     }));
@@ -190,7 +192,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
   });
 
   it('still lets a sysadmin read a single org (cross-org allowed by the guard)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     findByOrgId.mockResolvedValue(summary('org-2', {
       plugins: status(100, 90), pipelines: status(100, 90), apiCalls: status(100, 90),
     }));
@@ -208,7 +210,7 @@ describe('GET /quotas/:orgId/at-risk (account-scoped)', () => {
   });
 
   it('returns an empty list when nothing is at-risk', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     findByOrgId.mockResolvedValue(summary('org-1', {
       plugins: status(100, 10), pipelines: status(100, 10), apiCalls: status(100, 10),
     }));

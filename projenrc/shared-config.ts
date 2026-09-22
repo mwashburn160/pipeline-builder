@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as path from 'node:path';
+import type { Tasks } from 'projen';
 
 /**
  * Shared TypeScript Compiler Options
@@ -71,7 +72,7 @@ interface JestConfigurable {
     deps: { removeDependency: (name: string) => void };
     addDevDeps: (...deps: string[]) => void;
     jest?: { config: Record<string, unknown> };
-    tasks: { tryFind: (n: string) => { env: (k: string, v: string) => void } | undefined };
+    tasks: Tasks;
 }
 
 // ESM relative imports carry explicit `.js` extensions; strip them so ts-jest
@@ -146,4 +147,16 @@ export function configureEsmJest(project: JestConfigurable): void {
         ];
     }
     project.tasks.tryFind('test')?.env('NODE_OPTIONS', '--experimental-vm-modules');
+    // Type-check the TEST tree. ts-jest runs transpile-only (isolatedModules), and
+    // `compile` only covers src/, so a suite calling a function with the wrong
+    // signature, or a mock whose shape drifted from the real module, used to pass
+    // CI silently — 3,800 such errors had accumulated. `test` spawns this first,
+    // so `build` (the gate) fails on ANY test type error: zero, not a ratchet.
+    const typecheckTests = project.tasks.addTask('typecheck:tests', {
+        description: 'Type-check the test tree (test/tsconfig.json) with zero errors',
+        exec: 'tsc --noEmit -p test/tsconfig.json',
+    });
+    project.tasks.tryFind('test')?.prependSpawn(typecheckTests);
+    // `test:update` (jest --updateSnapshot) runs the same ESM suites.
+    project.tasks.tryFind('test:update')?.env('NODE_OPTIONS', '--experimental-vm-modules');
 }

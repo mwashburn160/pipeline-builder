@@ -15,7 +15,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService, type PluginRuntimeFilter, type PluginRuntimeStats } from '@pipeline-builder/pipeline-data';
 import { Router, type Request, type Response } from 'express';
 import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField, rollupIds } from '../helpers/report-helpers.js';
-import { parseOrgReportRange } from '../helpers/retention-cap.js';
+import { parseOrgReportRange, retentionOrgIdFor } from '../helpers/retention-cap.js';
 
 /** Plugin name shape (the plugin spec's `name` rule). */
 const PLUGIN_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,254}$/;
@@ -53,7 +53,7 @@ export function parsePluginRuntimeFilter(query: Request['query']): PluginRuntime
  * filters, rollup. Sends the 400 itself and returns undefined on bad input.
  */
 async function pluginRuntimeStats(req: Request, res: Response, orgId: string): Promise<PluginRuntimeStats[] | undefined> {
-  const range = await parseOrgReportRange(req.query, orgId, 'event');
+  const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
   if ('error' in range) {
     sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     return undefined;
@@ -91,14 +91,14 @@ export function createPluginReportRoutes(): Router {
   router.get('/build-success-rate', withRoute(async ({ req, res, orgId }) => {
     const interval = parseReportInterval(req.query);
     if (typeof interval === 'object') return sendBadRequest(res, interval.error, ErrorCode.VALIDATION_ERROR);
-    const range = await parseOrgReportRange(req.query, orgId, 'event');
+    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const orgIds = await rollupIds(req, orgId);
     sendSuccess(res, 200, { timeline: await reportingService.getBuildSuccessRate(orgId, interval, range.from, range.to, orgIds) });
   }));
 
   router.get('/build-duration', withRoute(async ({ req, res, orgId }) => {
-    const range = await parseOrgReportRange(req.query, orgId, 'event');
+    const range = await parseOrgReportRange(req.query, orgId, 'event', retentionOrgIdFor(req, orgId));
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const orgIds = await rollupIds(req, orgId);
     sendSuccess(res, 200, { plugins: await reportingService.getBuildDuration(orgId, range.from, range.to, orgIds) });

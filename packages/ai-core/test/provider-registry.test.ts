@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 
 // Mock all AI SDK providers BEFORE importing the module under test
@@ -20,12 +21,12 @@ const mockBedrockFactory = jest.fn((id: string) => ({ ...mockBedrockModel, model
 const mockCompatModel = { provider: 'openai-compatible', modelId: '' };
 const mockCompatFactory = jest.fn((id: string) => ({ ...mockCompatModel, modelId: id }));
 
-const createAnthropic = jest.fn(() => mockAnthropicFactory);
-const createOpenAI = jest.fn(() => mockOpenAIFactory);
-const createGoogleGenerativeAI = jest.fn(() => mockGoogleFactory);
-const createXai = jest.fn(() => mockXaiFactory);
-const createAmazonBedrock = jest.fn(() => mockBedrockFactory);
-const createOpenAICompatible = jest.fn(() => mockCompatFactory);
+const createAnthropic = jest.fn((_opts?: unknown) => mockAnthropicFactory);
+const createOpenAI = jest.fn((_opts?: unknown) => mockOpenAIFactory);
+const createGoogleGenerativeAI = jest.fn((_opts?: unknown) => mockGoogleFactory);
+const createXai = jest.fn((_opts?: unknown) => mockXaiFactory);
+const createAmazonBedrock = jest.fn((_opts?: unknown) => mockBedrockFactory);
+const createOpenAICompatible = jest.fn((_opts?: unknown) => mockCompatFactory);
 
 jest.unstable_mockModule('@ai-sdk/anthropic', () => ({ createAnthropic }));
 jest.unstable_mockModule('@ai-sdk/openai', () => ({ createOpenAI }));
@@ -35,8 +36,8 @@ jest.unstable_mockModule('@ai-sdk/amazon-bedrock', () => ({ createAmazonBedrock 
 jest.unstable_mockModule('@ai-sdk/openai-compatible', () => ({ createOpenAICompatible }));
 
 // Bedrock is keyless — it authenticates through the AWS credential chain.
-const credentialChain = jest.fn();
-const fromNodeProviderChain = jest.fn(() => credentialChain);
+const credentialChain = jest.fn<AnyFn>();
+const fromNodeProviderChain = jest.fn((_opts?: unknown) => credentialChain);
 jest.unstable_mockModule('@aws-sdk/credential-providers', () => ({ fromNodeProviderChain }));
 
 // Helpers

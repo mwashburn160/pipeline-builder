@@ -38,7 +38,7 @@ describe('buildGroundingContext', () => {
 });
 
 describe('answerHowTo', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('injects retrieved docs into the system message and returns sources', async () => {
     const index = buildGroundingIndex(docs);
@@ -69,7 +69,7 @@ describe('answerHowTo', () => {
 });
 
 describe('streamHowTo', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns sources immediately, then provider-responded and the text', async () => {
     streamParts = [

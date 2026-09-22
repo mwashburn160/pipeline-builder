@@ -16,7 +16,6 @@ import Link from 'next/link';
 import { ArrowLeft, ShieldCheck, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
-import { useQuery } from '@/hooks/useQuery';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { RetryError } from '@/components/ui/RetryError';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -27,7 +26,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import { queries } from '@/lib/api-cache';
+import { useOrgNames } from '@/components/ui/OrgPicker';
 import type { OrgIdpConfigDto } from '@/types';
 
 export default function IdpRosterPage() {
@@ -46,15 +45,13 @@ export default function IdpRosterPage() {
   const loading = roster.loading;
   const load = roster.refetch;
 
-  // orgId → display name, a best-effort enrichment through the shared org-list
-  // cache (the orgs page and audit log read the same list), so a failure there
-  // never blanks the roster. Missing entries fall back to the id.
-  const orgList = useQuery(enabled ? queries.listOrganizations({ limit: 200 }) : null);
-  const orgNames = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const o of orgList.data?.data?.organizations ?? []) map[o.id] = o.name;
-    return map;
-  }, [orgList.data]);
+  // orgId → display name for exactly the orgs in the roster (a best-effort
+  // enrichment — a failure never blanks the roster; missing names fall back to
+  // the id). It used to page the first 200 orgs of the fleet and show
+  // "(unknown org)" for every configured org past that.
+  const rosterOrgIds = useMemo(() => configs.map((c) => c.orgId), [configs]);
+  const orgNameMap = useOrgNames(rosterOrgIds, enabled);
+  const orgNames = useMemo(() => Object.fromEntries(orgNameMap) as Record<string, string>, [orgNameMap]);
 
   const columns: Column<OrgIdpConfigDto>[] = useMemo(() => [
     {

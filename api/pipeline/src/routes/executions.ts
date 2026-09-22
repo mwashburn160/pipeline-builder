@@ -78,7 +78,8 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
       // Short idempotency window: refuse a duplicate trigger for the same
       // (org, pipeline) within the window rather than starting a second run.
       // Fails open when Redis is unavailable (single-replica / outage).
-      if (!(await executionIdempotency.claim(orgId, pipelineId))) {
+      const claim = await executionIdempotency.claim(orgId, pipelineId);
+      if (!claim) {
         ctx.log('WARN', 'Duplicate pipeline execution trigger suppressed', { pipelineId });
         return sendError(res, 409, 'A pipeline execution was just triggered; please wait a moment before retrying', ErrorCode.CONFLICT);
       }
@@ -107,10 +108,14 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         return sendSuccess(res, 202, { executionId });
       } catch (err) {
         incCounter('pipeline_executions_total', { outcome: 'failed' });
-        // The run never started — reopen the idempotency window so the user's
-        // legitimate retry isn't blocked for the full TTL with a misleading 409.
-        await executionIdempotency.release(orgId, pipelineId);
         const code = errorMessage(err);
+        // Reopen the idempotency window ONLY when the run definitely never
+        // started (nothing to start). After an AWS error or a timeout the start
+        // may have landed — keeping the short window is what stops the user's
+        // retry from launching a duplicate run.
+        if (code === PE_PIPELINE_NOT_REGISTERED || code === PE_AWS_PIPELINE_NOT_FOUND) {
+          await executionIdempotency.release(orgId, pipelineId, claim);
+        }
         if (code === PE_PIPELINE_NOT_REGISTERED) {
           return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);
         }

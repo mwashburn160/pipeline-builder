@@ -41,7 +41,9 @@ CodePipeline tags the forwarder reads:
 | Tag | Value |
 |---|---|
 | `pb.pipeline-id` | the platform `pipelineId` (the registry join key) |
-| `pb.deploys` | `<stage>:<env>` pairs joined by `+`, e.g. `Deploy-stg:staging+Deploy-prod:production` |
+| `pb.deploys` | `<stage>:<env>` pairs joined by `+`, e.g. `Deploy-stg-alias:staging+prod-wave:production` |
+
+`<stage>` is the **CodePipeline stage name** — the stage's `alias`, or `<stageName>-alias` when it has none — because that is the name CodePipeline events report and the forwarder matches. A stage named `Deploy-prod` with no alias therefore appears as `Deploy-prod-alias`.
 
 - The literal environment name **`production`** is the DORA **headline** — its card is the summary, and MTTR is measured production-only.
 - A stage listed in `pb.deploys` is a deploy; the forwarder sets `environment` only on those stages' events. A stage that is **absent** is not a deployment and never enters DORA.

@@ -8,6 +8,7 @@
  * not be able to read. Absent when nothing is inherited.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -23,7 +24,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 // These reads are `canAdministerOrg`-gated and that gate runs FOR REAL (see
 // helpers/controller-helper-mock.ts). The fixture below is a genuine
@@ -35,7 +36,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
 }));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 // Only reached when the admin-actions policy changes; stubbed so its graph stays out.
 jest.unstable_mockModule('../src/services/admin-mfa-claims.js', () => ({ refreshAdminPolicyClaims: jest.fn(async () => 0) }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
@@ -49,7 +50,7 @@ jest.unstable_mockModule('../src/helpers/impersonation-policy.js', () => ({
   IMPERSONATION_POLICIES: ['open', 'consent', 'denied'],
   MIN_SYSADMINS_FOR_DENIED: 2,
   resolveEffectiveImpersonationPolicy: (...a: unknown[]) => mockImpPolicy(...a),
-  resolveImpersonationPolicy: jest.fn(),
+  resolveImpersonationPolicy: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   Organization: { exists: async () => true },
@@ -86,7 +87,7 @@ describe('GET /organization/:id/mfa-policy — inheritedFromName', () => {
   it('names the parent that imposes the requirement', async () => {
     mockMfaPolicy.mockResolvedValue({ requireMfa: true, enforced: true, own: false, idpEnforcesMfa: false, inheritedFrom: 'root' });
     const res = makeRes();
-    await getMfaPolicy(req(), res, jest.fn() as any);
+    await getMfaPolicy(req(), res);
 
     expect(res._status).toBe(200);
     expect(res._body.data).toMatchObject({ inheritedFrom: 'root', inheritedFromName: 'Acme Root' });
@@ -96,7 +97,7 @@ describe('GET /organization/:id/mfa-policy — inheritedFromName', () => {
   it('omits it (and reads nothing) when the policy is the org\'s own', async () => {
     mockMfaPolicy.mockResolvedValue({ requireMfa: false, enforced: false, own: false, idpEnforcesMfa: false });
     const res = makeRes();
-    await getMfaPolicy(req(), res, jest.fn() as any);
+    await getMfaPolicy(req(), res);
 
     expect(res._body.data).not.toHaveProperty('inheritedFromName');
     expect(mockGetOrgName).not.toHaveBeenCalled();
@@ -107,7 +108,7 @@ describe('GET /organization/:id/impersonation-policy — inheritedFromName', () 
   it('names the parent whose stricter policy applies', async () => {
     mockImpPolicy.mockResolvedValue({ impersonationPolicy: 'denied', allowSelfApproval: false, own: { impersonationPolicy: 'open' }, inheritedFrom: 'root' });
     const res = makeRes();
-    await getImpersonationPolicy(req(), res, jest.fn() as any);
+    await getImpersonationPolicy(req(), res);
 
     expect(res._status).toBe(200);
     expect(res._body.data).toMatchObject({ inheritedFrom: 'root', inheritedFromName: 'Acme Root', impersonationPolicy: 'denied' });
@@ -116,7 +117,7 @@ describe('GET /organization/:id/impersonation-policy — inheritedFromName', () 
   it('omits it when nothing is inherited', async () => {
     mockImpPolicy.mockResolvedValue({ impersonationPolicy: 'consent', allowSelfApproval: true });
     const res = makeRes();
-    await getImpersonationPolicy(req(), res, jest.fn() as any);
+    await getImpersonationPolicy(req(), res);
 
     expect(res._body.data).not.toHaveProperty('inheritedFromName');
   });
@@ -141,7 +142,7 @@ describe('policy reads — the canAdministerOrg gate', () => {
       const res = makeRes();
       // `null`, not `undefined` — an explicit `undefined` would re-trigger the
       // parent-admin default parameter.
-      await handler(req(user) as any, res, jest.fn() as any);
+      await handler(req(user) as any, res);
       expect(res._status).toBe(status);
     }
     expect(mockMfaPolicy).not.toHaveBeenCalled();

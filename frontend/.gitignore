@@ -40,3 +40,4 @@ junit.xml
 /coverage/
 /.next/
 /public/plugin-icons/
+!/.eslintrc.json

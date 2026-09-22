@@ -22,7 +22,7 @@ import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { pluginPagePath } from '@/lib/public-directory/links';
 import { VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
-import type { InstallView } from '@/types/plugin-installs';
+import type { InstallChangeRequestView, InstallView } from '@/types/plugin-installs';
 
 /**
  * Pending install requests (§3.2): members holding `plugins:install` request
@@ -59,7 +59,8 @@ export function ApprovalsTab({ onDecided }: { onDecided?: () => void }) {
   };
 
   return (
-    <div className="space-y-4" data-testid="approvals-tab">
+    <div className="space-y-6" data-testid="approvals-tab">
+    <div className="space-y-4">
       {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
       {list.error && !list.data ? (
         <RetryError message={formatError(list.error, 'Could not load install requests')} onRetry={list.refetch} />
@@ -110,6 +111,128 @@ export function ApprovalsTab({ onDecided }: { onDecided?: () => void }) {
         />
       )}
     </div>
+    <ChangeRequests onDecided={onDecided} />
+    </div>
+  );
+}
+
+/**
+ * Requested install CHANGES (a major / breaking upgrade, or a move to `latest`,
+ * that the requester's policy tier needs an approver for) — oldest first, beside
+ * the install requests. Approving applies the change (re-validated server-side);
+ * rejecting drops it and tells the requester why.
+ */
+function ChangeRequests({ onDecided }: { onDecided?: () => void }) {
+  const toast = useToast();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<InstallChangeRequestView | null>(null);
+  const list = useFetch(async (signal): Promise<InstallChangeRequestView[]> => {
+    const res = await api.listInstallChangeRequests({ signal });
+    return res.data?.changeRequests ?? [];
+  }, []);
+  const rows = list.data ?? [];
+
+  const decide = async (row: InstallChangeRequestView, fn: () => Promise<unknown>, done: string) => {
+    setBusyId(row.installId);
+    setError(null);
+    try {
+      await fn();
+      toast.success(done);
+      clearPluginCache();
+      list.refetch();
+      onDecided?.();
+    } catch (e) {
+      setError(formatError(e, 'Could not decide the change'));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <section className="space-y-3" aria-labelledby="change-requests-heading">
+      <h3 id="change-requests-heading" className="text-sm font-semibold text-fg">Requested install changes</h3>
+      {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
+      {list.error && !list.data ? (
+        <RetryError message={formatError(list.error, 'Could not load change requests')} onRetry={list.refetch} />
+      ) : list.loading && !list.data ? (
+        <div className="flex items-center gap-2 py-4 text-sm text-fg-muted"><LoadingSpinner size="sm" /> Loading change requests…</div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-fg-muted">No install changes are waiting for approval.</p>
+      ) : (
+        <ul className="divide-y divide-default rounded-xl border border-default" aria-label="Requested install changes">
+          {rows.map((row) => (
+            <li key={row.installId} className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between" data-testid="change-request-row">
+              <div className="min-w-0 space-y-1">
+                <p className="font-mono text-sm font-semibold text-fg">{row.listing}</p>
+                <p className="text-xs text-fg-muted">
+                  {row.from.version ? `v${row.from.version}` : 'current'} · {VERSION_POLICY_LABELS[row.from.versionPolicy]}
+                  {' → '}v{row.to.version} · {VERSION_POLICY_LABELS[row.to.versionPolicy]}
+                </p>
+                <p className="text-xs text-fg-subtle">
+                  Requested by {row.requestedBy} <RelativeTime value={row.requestedAt} />
+                </p>
+                {row.note && <p className="text-sm text-fg">“{row.note}”</p>}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  loading={busyId === row.installId}
+                  onClick={() => void decide(row, () => api.approveInstallChange(row.installId), `Approved the change to ${row.listing}`)}
+                  aria-label={`Approve the change to ${row.listing}`}
+                >
+                  Approve
+                </Button>
+                <Button size="sm" variant="secondary" disabled={busyId === row.installId} onClick={() => setRejecting(row)} aria-label={`Reject the change to ${row.listing}`}>
+                  Reject
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rejecting && (
+        <ReasonDialog
+          title={`Reject the change to ${rejecting.listing}?`}
+          confirmLabel="Reject"
+          onClose={() => setRejecting(null)}
+          onConfirm={(reason) => decide(rejecting, () => api.rejectInstallChange(rejecting.installId, reason || undefined), `Rejected the change to ${rejecting.listing}`)}
+        />
+      )}
+    </section>
+  );
+}
+
+function ReasonDialog({ title, confirmLabel, onConfirm, onClose }: {
+  title: string;
+  confirmLabel: string;
+  onConfirm: (reason: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      title={title}
+      onClose={onClose}
+      dirty={reason.trim().length > 0}
+      footer={(
+        <ModalFooter
+          onCancel={onClose}
+          confirmLabel={confirmLabel}
+          confirmVariant="danger"
+          loading={busy}
+          onConfirm={() => {
+            setBusy(true);
+            void onConfirm(reason.trim()).finally(() => { setBusy(false); onClose(); });
+          }}
+        />
+      )}
+    >
+      <FormField label="Reason (optional)" hint="Sent to the requester.">
+        <Textarea aria-label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={3} maxLength={1000} />
+      </FormField>
+    </Modal>
   );
 }
 

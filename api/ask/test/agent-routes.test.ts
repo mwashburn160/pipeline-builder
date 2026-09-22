@@ -8,7 +8,9 @@
  * completed turn.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const SERVICE_TOKEN = 'Bearer service-minted-token';
@@ -33,19 +35,19 @@ function turn(...inner: Array<Record<string, unknown>>): Array<Record<string, un
 function text(t: string, id = 't1'): Array<Record<string, unknown>> {
   return [{ type: 'text-start', id }, { type: 'text-delta', id, text: t }, { type: 'text-end', id }];
 }
-const streamText = jest.fn(() => ({
+const streamText = jest.fn((..._args: unknown[]) => ({
   fullStream: (async function* () { for (const p of streamParts) yield p; })(),
   usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
 }));
 const stepCountIs = jest.fn((n: number) => n);
-jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({ streamText, stepCountIs }));
+jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', { streamText, stepCountIs }));
 
 const mockGetServiceAuthHeader = jest.fn<(...a: unknown[]) => string>(() => SERVICE_TOKEN);
-const mockReserveQuota = jest.fn<(...a: unknown[]) => unknown>(() =>
+const mockReserveQuota = jest.fn<AnyFn>(() =>
   Promise.resolve({ exceeded: false, quota: { type: 'aiCalls', resetAt: '2026-09-01T00:00:00Z' } }));
-const mockDecrementQuota = jest.fn();
+const mockDecrementQuota = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+  createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() }),
   getServiceAuthHeader: mockGetServiceAuthHeader,
   reserveQuota: mockReserveQuota,
   decrementQuota: mockDecrementQuota,
@@ -61,27 +63,27 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   handleAIError: jest.fn((res: { status: (n: number) => { json: (b: unknown) => unknown } }, m: string) => res.status(502).json({ message: m })),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: { context: { identity: { orgId?: string; userId?: string } } }, res: unknown) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
-    if (!orgId) return (res as { status: (n: number) => { json: (b: unknown) => unknown } }).status(400).json({ message: 'org required' });
+    if (!orgId) { (res as { status: (n: number) => { json: (b: unknown) => unknown } }).status(400).json({ message: 'org required' }); return; }
     await handler({ req, res, ctx, orgId, userId: ctx.identity.userId || '' });
   },
-  incCounter: jest.fn(),
-  observe: jest.fn(),
-  withSpan: (_name: string, fn: (span: unknown) => Promise<unknown>) => fn({ addEvent: jest.fn(), setAttributes: jest.fn() }),
+  incCounter: jest.fn<AnyFn>(),
+  observe: jest.fn<AnyFn>(),
+  withSpan: (_name: string, fn: (span: unknown) => Promise<unknown>) => fn({ addEvent: jest.fn<AnyFn>(), setAttributes: jest.fn<AnyFn>() }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({ CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', { CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex: jest.fn(async () => ({ search: () => [], size: 1 })) }));
-jest.unstable_mockModule('../src/services/model.js', () => ({ resolveAskModel: jest.fn(() => ({ id: 'model' })) }));
+jest.unstable_mockModule('../src/services/model.js', () => ({ resolveAskModel: jest.fn(() => ({ id: 'model' })), ASK_MAX_OUTPUT_TOKENS: 2048 }));
 const buildAgentTools = jest.fn(() => ({}));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools }));
-const pipelineClient = jest.fn(() => ({ get: jest.fn(), post: jest.fn() }));
-const pluginClient = jest.fn(() => ({ get: jest.fn(), post: jest.fn() }));
+const pipelineClient = jest.fn((..._args: unknown[]) => ({ get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() }));
+const pluginClient = jest.fn(() => ({ get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/services/internal-http.js', () => ({ pipelineClient, pluginClient }));
-const auditRecord = jest.fn();
+const auditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: auditRecord }) }));
 
 const { createAgentRoutes } = await import('../src/routes/agent.js');
@@ -97,15 +99,15 @@ function getHandler(method: string, path: string) {
   return s[s.length - 1].handle;
 }
 function mockReq(body: unknown, auth = 'Bearer USER-tok'): any {
-  return { body, headers: { authorization: auth }, context: { identity: { orgId: 'ORG-1', userId: 'u9' }, log: jest.fn(), requestId: 'r1' } };
+  return { body, headers: { authorization: auth }, context: { identity: { orgId: 'ORG-1', userId: 'u9' }, log: jest.fn<AnyFn>(), requestId: 'r1' } };
 }
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  res.write = jest.fn().mockReturnValue(true);
-  res.end = jest.fn().mockReturnValue(res);
-  res.on = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.write = jest.fn<AnyFn>().mockReturnValue(true);
+  res.end = jest.fn<AnyFn>().mockReturnValue(res);
+  res.on = jest.fn<AnyFn>().mockReturnValue(res);
   res.writableFinished = false;
   return res;
 }
@@ -132,7 +134,7 @@ describe('POST /ask/agent/stream', () => {
 
   it('rejects a request with no Authorization header (no quota reserved)', async () => {
     const res = mockRes();
-    const req = { body: { query: 'help me' }, headers: {}, context: { identity: { orgId: 'ORG-1', userId: 'u9' }, log: jest.fn(), requestId: 'r1' } };
+    const req = { body: { query: 'help me' }, headers: {}, context: { identity: { orgId: 'ORG-1', userId: 'u9' }, log: jest.fn<AnyFn>(), requestId: 'r1' } };
     await handler(req, res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockReserveQuota).not.toHaveBeenCalled();
@@ -240,5 +242,23 @@ describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
     streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
     expect(stepCountIs).toHaveBeenCalledWith(6);
+  });
+
+  it('caps every model step\'s output tokens', async () => {
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(streamText).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 2048 }));
+  });
+
+  it('an in-process generating tool reserves its OWN aiCalls slot (not free on the turn\'s slot)', async () => {
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ chargeAiCall: () => Promise<boolean>; maxOutputTokens: number }])[0];
+    expect(deps.maxOutputTokens).toBe(2048);
+    mockReserveQuota.mockClear();
+    await expect(deps.chargeAiCall()).resolves.toBe(true);
+    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
+    mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'aiCalls', resetAt: 'x' } });
+    await expect(deps.chargeAiCall()).resolves.toBe(false);
   });
 });

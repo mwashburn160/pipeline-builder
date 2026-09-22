@@ -13,12 +13,16 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 let storedUser: Record<string, unknown> | null = { _id: 'u1', lastActiveOrgId: 'org-1', isSuperAdmin: false };
 let rolePermissions: string[] = [];
-const mockMembershipForOrg = jest.fn(async () => ({ organizationId: 'org-1', role: 'member', rolePermissions }));
+const mockMembershipForOrg = jest.fn(async (..._args: unknown[]) => ({ organizationId: 'org-1', role: 'member', rolePermissions }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: () => ({ select: () => ({ lean: async () => storedUser }) }) },
 }));
-jest.unstable_mockModule('../src/utils/token.js', () => ({ membershipForOrg: mockMembershipForOrg }));
+jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
+  membershipForOrg: mockMembershipForOrg,
+}));
 
 const { callerRestriction, resolveRequestedPermissions } = await import('../src/helpers/token-permissions.js');
 

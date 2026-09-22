@@ -14,7 +14,6 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { emitComplianceAudit } from '../services/audit.js';
-import { entitlementWatermarkStore } from '../services/entitlement-watermark-store.js';
 import { subscriptionService, KNOWN_CONTENT_SETS } from '../services/subscription-service.js';
 
 /**
@@ -71,27 +70,24 @@ export function createEntitlementSyncRoutes(): Router {
     const validation = validateBody(req, EntitlementsSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
-    // Sync-race guard: pushes can arrive out of order (concurrent purchase + the
-    // periodic drift reconciler, retries, at-least-once delivery). Apply only a
-    // push STRICTLY NEWER than the last-applied change; a stale one is ignored so
-    // it can't revert a newer entitlement state. The watermark is advanced only
-    // AFTER a successful reconcile (below), so a mid-sync failure re-drives.
-    const occurredAt = validation.value.occurredAt ? new Date(validation.value.occurredAt) : undefined;
-    if (occurredAt) {
-      const last = await entitlementWatermarkStore.getLastOccurredAt(orgId);
-      if (last && occurredAt.getTime() <= last.getTime()) {
-        ctx.log('COMPLETED', 'Skipped stale entitlement sync', { orgId, occurredAt: occurredAt.toISOString(), last: last.toISOString() });
-        return sendSuccess(res, 200, { ok: true, skipped: true });
-      }
-    }
-
     // Clamp to the sets the compliance side actually curates — an unknown/removed
     // set name is ignored rather than 400'ing the whole sync.
     const known = new Set<string>(KNOWN_CONTENT_SETS);
     const sets = validation.value.sets.filter((s) => known.has(s));
 
+    // Sync-race guard: pushes can arrive out of order (concurrent purchase + the
+    // periodic drift reconciler, retries, at-least-once delivery). The service
+    // applies only a push STRICTLY NEWER than the last-applied change, and does
+    // the watermark check, the reconcile and the watermark record in ONE
+    // transaction under a per-org advisory lock — so two concurrent pushes can't
+    // both pass the check and then apply in the wrong order.
+    const occurredAt = validation.value.occurredAt ? new Date(validation.value.occurredAt) : undefined;
     const actor = req.user?.sub ?? 'service:billing';
-    const { activated, deactivated } = await subscriptionService.syncEntitledSets(orgId, sets, actor);
+    const { skipped, activated, deactivated } = await subscriptionService.syncEntitledSets(orgId, sets, actor, occurredAt ? { occurredAt } : {});
+    if (skipped) {
+      ctx.log('COMPLETED', 'Skipped stale entitlement sync', { orgId, occurredAt: occurredAt?.toISOString() });
+      return sendSuccess(res, 200, { ok: true, skipped: true });
+    }
 
     // Audit the genuine posture changes only (the ids whose ACTIVE state flipped).
     // Reuse `compliance.rule.toggle` — the same action the user-driven activate/
@@ -117,10 +113,6 @@ export function createEntitlementSyncRoutes(): Router {
         details: { isActive: false, source: 'entitlement-sync' },
       });
     }
-
-    // Advance the watermark only after a successful reconcile so a mid-sync
-    // failure leaves the last-applied marker untouched (billing re-drives).
-    if (occurredAt) await entitlementWatermarkStore.record(orgId, occurredAt);
 
     ctx.log('COMPLETED', 'Synced compliance entitlement sets', {
       orgId, sets, activated: activated.length, deactivated: deactivated.length,

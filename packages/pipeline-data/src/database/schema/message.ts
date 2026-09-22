@@ -134,6 +134,8 @@ export const message = pgTable('messages', {
 
   // Composite index for org inbox (orgId + active)
   orgActiveIdx: index('message_org_active_idx').on(table.orgId, table.isActive),
+  // GIN over the per-participant read receipts (`read_by ? <orgId>` unread counts).
+  readByIdx: index('message_read_by_idx').using('gin', table.readBy),
 }));
 
 /**

@@ -355,10 +355,26 @@ export interface JwtPayload {
    */
   impersonationReadOnly?: boolean;
   /**
-   * The user's `tokenVersion` at the moment this token was issued. Every
-   * privilege change (deactivate / role or tier downgrade / membership or
-   * ownership change / password change / logout-all) increments the user's
-   * server-side `tokenVersion`, so a token whose embedded version is behind the
+   * The refresh-session slot (interactive or machine) this access token was
+   * minted with. Revoking that ONE slot publishes `revoke:sid:<sid>` (see
+   * `credentialRevocationKey`), which every service checks in `requireAuth`, so
+   * a single signed-out device / machine credential stops working everywhere
+   * immediately instead of at natural expiry. Absent on PATs and impersonation.
+   */
+  sid?: string;
+  /**
+   * The access key (PAT / service-account key id) this token was DERIVED from,
+   * when it is not itself the exchanged key token (whose key id is its `jti`) —
+   * e.g. a switch-org or generate-token mint made while holding an exchanged
+   * key token. Revoking the key publishes `revoke:key:<keyId>`, which rejects
+   * every token that names it here or as its `jti`.
+   */
+  parentKeyId?: string;
+  /**
+   * The user's ACCESS version at the moment this token was issued: the hard
+   * `tokenVersion` (deactivate / password change / logout-all — clears slots)
+   * plus `claimsVersion` (role, tier, membership or ownership changes — re-minted
+   * on refresh). Both only grow, so a token whose embedded version is behind the
    * current one has been REVOKED. Platform validates this against Mongo; the
    * stateless services validate it against a Redis-published current-version
    * store (see `setTokenRevocationStore`). Absent on machine/service tokens.

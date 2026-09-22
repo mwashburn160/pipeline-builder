@@ -20,7 +20,7 @@
  */
 
 import crypto from 'crypto';
-import { createLogger, sendError, sendQuotaReserveDenied, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendQuotaReserveDenied, sendSuccess, type QuotaReserveResult } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { audit } from '../helpers/audit.js';
 import { hasVerifiedDomain, unverifiedDomains } from '../helpers/sso-enforcement.js';
@@ -29,7 +29,9 @@ import { incCounter } from '../observability/metrics.js';
 import {
   IDP_DOMAIN_NOT_VERIFIED,
   IDP_OIDC_INCOMPLETE,
+  IDP_RESERVED_ISSUER,
   IDP_SAML_INCOMPLETE,
+  IDP_SECRET_REQUIRED,
   IDP_SSO_REQUIRED_NO_DOMAIN,
   IDP_SSO_REQUIRED_UNTESTED,
   IGM_PROVIDER_UNSUPPORTED,
@@ -105,6 +107,8 @@ export type IdpSurface = 'admin' | 'self-service';
 export const ORG_IDP_ERROR_MAP = {
   [IDP_SAML_INCOMPLETE]: { status: 400, message: 'A SAML configuration needs the identity provider\'s entity ID, SSO URL and at least one signing certificate' },
   [IDP_OIDC_INCOMPLETE]: { status: 400, message: 'An OIDC configuration needs a provider, client ID and client secret' },
+  [IDP_SECRET_REQUIRED]: { status: 400, message: 'Re-enter the client secret: the provider, discovery URL, region or user pool changed, and a stored secret is never sent to a different identity provider' },
+  [IDP_RESERVED_ISSUER]: { status: 400, message: 'This identity provider cannot use Google\'s issuer. Choose the Google provider (which always uses Google\'s own discovery document) instead of a custom discovery URL or entity ID.' },
   [IGM_PROVIDER_UNSUPPORTED]: { status: 400, message: 'This identity provider issues no group claims, so a groups claim cannot be set for it' },
   [IDP_SSO_REQUIRED_UNTESTED]: { status: 409, message: 'Single sign-on can only be required once the connection is enabled and a test connection has succeeded against the current settings. Run Test connection, then try again.' },
   [IDP_SSO_REQUIRED_NO_DOMAIN]: { status: 409, message: 'Verify at least one email domain before requiring single sign-on — the policy applies to people in your verified domains.' },
@@ -131,6 +135,24 @@ async function assertDomainsVerified(res: Response, orgId: string, domains: stri
   return false;
 }
 
+/** The settings that decide WHICH identity provider (and so which token
+ *  endpoint) the client secret is sent to. */
+const SECRET_BOUND_FIELDS = ['provider', 'discoveryUrl', 'region', 'userPoolId'] as const;
+
+/**
+ * Whether `incoming` moves the connection to a different IdP than `existing`:
+ * any secret-bound field present in the body with a different value. An omitted
+ * field is "keep" (PATCH semantics); an empty string counts as the field unset.
+ */
+function retargetsIdp(existing: OrgIdpConfigDto, incoming: Record<string, unknown>): boolean {
+  return SECRET_BOUND_FIELDS.some((field) => {
+    if (!(field in incoming) || incoming[field] === undefined) return false;
+    const next = incoming[field] === '' ? undefined : incoming[field];
+    const prev = (existing as unknown as Record<string, unknown>)[field] ?? undefined;
+    return (prev === '' ? undefined : prev) !== next;
+  });
+}
+
 /** Read one org's config. A missing config is a NORMAL state (most orgs never
  *  set one up), so this is 200 with `config: null` rather than 404 — a 404
  *  spammed the console on every org-detail load and forced callers to swallow it. */
@@ -155,7 +177,13 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
   // plaintext before validation; `upsert` re-encrypts it and it is never
   // returned to the caller. A fresh create has no stored secret, so the
   // schema's required-secret rule still applies there.
+  // ...but ONLY while it still goes to the same IdP: a change of provider,
+  // discovery URL, region or user pool needs the secret re-entered, so a stored
+  // secret is never carried to a token endpoint it wasn't entered for.
   if (existing && !body.clientSecret) {
+    if (existing.protocol !== 'saml' && body.protocol !== 'saml' && retargetsIdp(existing, body)) {
+      throw new Error(IDP_SECRET_REQUIRED);
+    }
     const login = await orgIdpService.getLoginConfig(orgId);
     if (login) body.clientSecret = login.clientSecret;
   }
@@ -167,14 +195,13 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
   // Reserve the `idpConfigs` slot only on a fresh insert; updating an existing
   // config doesn't consume a new one. The per-org unique index caps orgs at one
   // config today, but the quota is in place for the day that relaxes.
-  let reserved = false;
+  let reservation: QuotaReserveResult | null = null;
   if (!existing) {
-    const reservation = await reserveFeatureQuota(orgId, 'idpConfigs');
+    reservation = await reserveFeatureQuota(orgId, 'idpConfigs');
     if (reservation.exceeded) {
       sendQuotaReserveDenied(res, 'idpConfigs', reservation);
       return;
     }
-    reserved = true;
   }
 
   try {
@@ -188,7 +215,7 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
     auditCertificateRotation(req, orgId, certsOf(existing), certsOf(config), surface);
     sendSuccess(res, 200, { config });
   } catch (err) {
-    if (reserved) releaseFeatureQuota(orgId, 'idpConfigs', logger.warn.bind(logger));
+    if (reservation) releaseFeatureQuota(orgId, 'idpConfigs', logger.warn.bind(logger), reservation);
     throw err;
   }
 }
@@ -204,6 +231,13 @@ export async function patchOrgIdp(req: Request, res: Response, orgId: string, su
   // change from a save that re-sent the same value.
   const existing = await orgIdpService.findByOrg(orgId);
   const before = certsOf(existing);
+
+  // The stored secret follows the connection only while it points at the same
+  // IdP (see `upsertOrgIdp`): retargeting it needs the secret re-entered.
+  if (existing && existing.protocol !== 'saml' && !parsed.clientSecret
+    && retargetsIdp(existing, parsed as Record<string, unknown>)) {
+    throw new Error(IDP_SECRET_REQUIRED);
+  }
 
   // "SSO required" governs the org's VERIFIED domains; with none it would
   // govern nobody, so switching it on is refused rather than stored as a no-op.
@@ -243,7 +277,7 @@ export async function deleteOrgIdp(req: Request, res: Response, orgId: string, s
     return;
   }
 
-  releaseFeatureQuota(orgId, 'idpConfigs', logger.warn.bind(logger));
+  releaseFeatureQuota(orgId, 'idpConfigs', logger.warn.bind(logger), null);
 
   audit(req, 'admin.org-idp.delete', {
     targetType: 'org-idp-config',

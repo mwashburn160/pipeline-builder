@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import path from 'path';
 
 import {
-  ValidationError, checkPluginConfig, checkPluginSpec, checkPluginTemplates, formatPluginTemplateIssue,
+  PLUGIN_NAME_PATTERN, PLUGIN_VERSION_PATTERN, ValidationError, checkPluginConfig, checkPluginSpec, checkPluginTemplates, formatPluginTemplateIssue,
   pluginSpecRequiredFieldsProblem, type PluginTemplateEngine, type PluginTemplateIssue,
 } from '@pipeline-builder/api-core';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -20,7 +20,7 @@ import { BUILD_TEMP_ROOT } from './docker-build.js';
 import type { BuildType } from './docker-build.js';
 import type { PluginConfig, PluginContractFields } from './plugin-helpers.js';
 import { validateSafePath } from './safe-path.js';
-import { readAndExtractZip } from './zip-extract.js';
+import { readAndExtractZip, type ExtractionLimits } from './zip-extract.js';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -99,18 +99,45 @@ function parsePluginSpec(specText: string): PluginSpec {
 // Main parser
 // -----------------------------------------------------------------------------
 
+/** Longest accepted plugin name (the CLI's `new-plugin` bound). */
+export const PLUGIN_NAME_MAX = 64;
+
+/**
+ * The name/version shape every upload must have. Enforced server-side for
+ * EVERY path (tenant upload, anonymous submission, the quarantine worker): both
+ * flow into registry repository names, listing URLs and notification
+ * subjects, so a CR/LF or a path separator in either is an injection, not a typo.
+ */
+export function pluginIdentityProblem(spec: Pick<PluginSpec, 'name' | 'version'>): string | null {
+  if (typeof spec.name === 'string' && (spec.name.length > PLUGIN_NAME_MAX || !PLUGIN_NAME_PATTERN.test(spec.name))) {
+    return `plugin-spec.yaml: name must match ${PLUGIN_NAME_PATTERN} and be at most ${PLUGIN_NAME_MAX} characters`;
+  }
+  if (typeof spec.version === 'string' && (spec.version.length > 50 || !PLUGIN_VERSION_PATTERN.test(spec.version))) {
+    return `plugin-spec.yaml: version must be semver (${PLUGIN_VERSION_PATTERN})`;
+  }
+  return null;
+}
+
+/** Per-call extraction overrides (the anonymous path's tighter caps and its own directory). */
+export interface ParseZipOptions {
+  /** Decompression limits for this call (default: the service-wide ones). */
+  limits?: ExtractionLimits;
+  /** Directory the package is extracted under (default: the build temp root). */
+  extractRoot?: string;
+}
+
 /**
  * Parse, validate, and extract a plugin ZIP archive in a single pass.
  * Opens the ZIP once: reads config + spec as text, extracts all files to disk.
  */
-export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
-  const extractDir = path.join(BUILD_TEMP_ROOT, uuid());
+export async function parsePluginZip(zipPath: string, opts: ParseZipOptions = {}): Promise<ParsedPlugin> {
+  const extractDir = path.join(opts.extractRoot ?? BUILD_TEMP_ROOT, uuid());
   await fs.mkdir(extractDir, { recursive: true });
 
   try {
     // --- Single-pass: extract all + capture text entries ---------------------
     const textEntries = ['config.yaml', 'config.yml', 'plugin-spec.yaml', 'README.md'];
-    const texts = await readAndExtractZip(zipPath, textEntries, extractDir);
+    const texts = await readAndExtractZip(zipPath, textEntries, extractDir, opts.limits);
 
     // --- Config -------------------------------------------------------------
     const config = parsePluginConfig(texts.get('config.yaml') ?? texts.get('config.yml'));
@@ -130,6 +157,8 @@ export async function parsePluginZip(zipPath: string): Promise<ParsedPlugin> {
 
     const requiredProblem = pluginSpecRequiredFieldsProblem(pluginSpec);
     if (requiredProblem) throw new ValidationError(requiredProblem);
+    const identityProblem = pluginIdentityProblem(pluginSpec);
+    if (identityProblem) throw new ValidationError(identityProblem);
 
     // --- Template validation: batch-check all {{ ... }} tokens ----------------
     validatePluginTemplates(pluginSpec);

@@ -7,6 +7,7 @@ import {
 } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import { z } from 'zod';
+import { verifyQuarantineCredential } from './quarantine-credential.js';
 import { config } from '../config/index.js';
 
 const logger = createLogger('auth-resolver');
@@ -49,6 +50,12 @@ export type Identity =
      */
     serviceName?: string;
   }
+  /**
+   * An anonymous submission's BUILD (E21): the registry-only credential
+   * image-registry minted for `quarantine/<submissionId>`. Never a platform
+   * principal — it has no org, no user and no permissions.
+   */
+  | { type: 'quarantine'; submissionId: string }
   | { type: 'management' };
 
 /**
@@ -57,7 +64,7 @@ export type Identity =
  * platform's type to avoid cross-service coupling — the fields we read are
  * the contractual ones.
  */
-interface PlatformJwtPayload {
+export interface PlatformJwtPayload {
   sub: string;
   organizationId?: string;
   /** Set when the active org is a team: its direct parent org (the org whose
@@ -85,6 +92,30 @@ interface PlatformJwtPayload {
  * inside the owning org's namespace, and nothing else.
  */
 const REGISTRY_PUSH_SCOPE = 'registry:push';
+
+/** The only internal service whose token may push plugin images (its own builds). */
+export const PLUGIN_PUSH_SERVICE = 'plugin';
+/** The deploy scripts' identity (the bootstrap base-image push) — the only service token honoured as a superadmin. */
+export const BOOTSTRAP_SERVICE = 'deploy-bootstrap';
+
+/**
+ * Whether a verified token may PUSH plugin images into its org's namespace (E22):
+ *
+ *  - a SERVICE principal: only `plugin` (its own builds), and only with
+ *    `plugins:write` (or an admin role) on the token — no other internal
+ *    service writes images, whatever permissions its token claims;
+ *  - an ORG SERVICE ACCOUNT: `plugins:write`, or the `registry:push` scope —
+ *    the CI push identity (#12), which platform mints only while the account's
+ *    creator still holds `plugins:write` (I10);
+ *  - a USER: `plugins:write` or an admin role. A `registry:push` scope on a
+ *    person's key grants nothing here: that scope is the machine credential's.
+ */
+export function mayPushPlugins(decoded: Pick<PlatformJwtPayload, 'principalType' | 'isAdmin' | 'permissions' | 'scope'>, serviceName: string | undefined): boolean {
+  const holdsWrite = !!decoded.isAdmin || (decoded.permissions?.includes('plugins:write') ?? false);
+  if (decoded.principalType === 'service') return serviceName === PLUGIN_PUSH_SERVICE && holdsWrite;
+  if (decoded.principalType === 'service_account') return holdsWrite || decoded.scope === REGISTRY_PUSH_SCOPE;
+  return holdsWrite;
+}
 
 /**
  * Resolve incoming `Authorization: Basic <creds>` to a caller identity by
@@ -118,6 +149,11 @@ const REGISTRY_PUSH_SCOPE = 'registry:push';
  * Returns `null` if all paths fail. Caller should respond 401 in that case.
  */
 export async function resolveIdentity(username: string, password: string): Promise<Identity | null> {
+  // A quarantine build credential (E21) — verified locally, and tried first: it
+  // is never a platform token, so no other path could accept it anyway.
+  const submissionId = await verifyQuarantineCredential(password);
+  if (submissionId) return { type: 'quarantine', submissionId };
+
   // Path 0: opaque access key — exchange it, then fall into Path 1 on the
   // result. A key is recognised by its shape, so this never intercepts a JWT.
   if (isOpaqueApiKey(password)) {
@@ -219,19 +255,14 @@ async function verifyPlatformJwt(token: string): Promise<Identity | null> {
       ...(serviceName ? { serviceName } : {}),
       userId: decoded.sub,
       isAdmin: !!decoded.isAdmin,
-      isSuperAdmin: !!decoded.isSuperAdmin,
-      // Push to the org's own namespace requires plugins:write (or admin, who holds
-      // it implicitly) — otherwise any member could overwrite a plugin image. Pull
-      // stays open to all members.
-      // A `registry:push` scoped key is the CI push identity (#12): it carries no
-      // permissions at all (that is the point of a scoped mint), so it would
-      // otherwise be pull-only. It grants the same raw-image write `plugins:write`
-      // grants a person — bounded by the namespace rules in `authorizeScope`,
-      // which key off `orgId`/`isSuperAdmin`, both of which a scoped token cannot
-      // raise. Any OTHER scope (e.g. `reporting:ingest`) grants nothing here.
-      canWritePlugins: !!decoded.isAdmin
-        || decoded.scope === REGISTRY_PUSH_SCOPE
-        || (decoded.permissions?.includes('plugins:write') ?? false),
+      // A SERVICE token is a superadmin only as the deploy bootstrap (its
+      // base-image push); no other internal service's claim is honoured.
+      isSuperAdmin: !!decoded.isSuperAdmin && (decoded.principalType !== 'service' || serviceName === BOOTSTRAP_SERVICE),
+      // Push to the org's own namespace (mayPushPlugins): the plugin service's
+      // builds, a service account's CI push identity, a plugin-writing person.
+      // Pull stays open to all members. Bounded by the namespace rules in
+      // `authorizeScope`, which key off `orgId`/`isSuperAdmin`.
+      canWritePlugins: mayPushPlugins(decoded, serviceName),
     };
   } catch {
     // Error contents may include the raw decode string (which is the user's

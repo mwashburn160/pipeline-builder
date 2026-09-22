@@ -52,6 +52,65 @@ export function callerRestriction(req: Request): CallerRestriction {
   };
 }
 
+/**
+ * Whether the calling token belongs to a person's own SESSION SLOT — the only
+ * thing a new session / machine credential may be derived from.
+ *
+ * Refused: an exchanged access-key token (`token_use: 'api_key'` — a PAT or a
+ * service-account key; a service account never has a slot), an impersonation
+ * token, and any token without a `sid`. Deriving a session from one of those
+ * would turn a 5-minute, key-revocable token (or an operator's pinned view) into
+ * a long-lived credential that outlives revoking the key or ending the
+ * impersonation.
+ */
+export function callerHasSessionSlot(req: Request): boolean {
+  const user = req.user as {
+    sid?: string; token_use?: string; impersonatorId?: string; principalType?: string;
+  } | undefined;
+  return !!user?.sid
+    && user.token_use !== 'api_key'
+    && !user.impersonatorId
+    && (user.principalType === undefined || user.principalType === 'user');
+}
+
+/** Error code for a mint refused by {@link callerHasSessionSlot}. */
+export const SESSION_SLOT_REQUIRED = 'SESSION_SLOT_REQUIRED';
+
+/**
+ * Capability scopes whose credential must be backed by a PERMISSION the creator
+ * holds right now. A scoped token carries no permissions itself, so without
+ * this any member — or a permission-restricted key — could mint a credential
+ * for a capability they could not exercise directly (e.g. push plugin images).
+ */
+const SCOPE_REQUIRED_PERMISSIONS: Partial<Record<TokenScope, readonly Permission[]>> = {
+  'registry:push': ['plugins:write'],
+};
+
+/**
+ * Refuse minting a capability-`scope`d credential the creator could not
+ * exercise: `registry:push` needs `plugins:write` held NOW, re-resolved from the
+ * creator's Roles and bounded by the calling token's own permissions (so a
+ * permission-restricted PAT's subset is honoured).
+ */
+export async function assertScopeMintable(
+  req: Request,
+  userId: string,
+  scope: TokenScope | undefined,
+): Promise<PermissionSubsetResult> {
+  const needed = scope ? SCOPE_REQUIRED_PERMISSIONS[scope] : undefined;
+  if (!needed || needed.length === 0) return { ok: true };
+  const held = await creatorPermissions(req, userId);
+  const missing = needed.filter((p) => !held.has(p));
+  if (missing.length === 0) return { ok: true };
+  return {
+    ok: false,
+    status: 403,
+    code: 'SCOPE_PERMISSION_MISSING',
+    message: `A ${scope} credential requires a permission you do not hold (${missing.join(', ')})`,
+    missing: [...missing],
+  };
+}
+
 /** The outcome of validating a requested permission subset. */
 export type PermissionSubsetResult =
   | { ok: true; permissions?: Permission[] }

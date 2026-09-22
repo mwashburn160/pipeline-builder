@@ -28,7 +28,7 @@ import { buildAgentTools } from '../services/agent-tools.js';
 import { getAuditClient } from '../services/audit.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { pipelineClient, pluginClient } from '../services/internal-http.js';
-import { resolveAskModel } from '../services/model.js';
+import { ASK_MAX_OUTPUT_TOKENS, resolveAskModel } from '../services/model.js';
 
 const logger = createLogger('ask-agent');
 
@@ -65,7 +65,8 @@ const AGENT_SYSTEM = [
  * `propose_pipeline`/`propose_plugin` → pipeline/plugin `/generate` — each reserve
  * their OWN `aiCalls` slot (they are separate model invocations), so a turn that
  * drafts a pipeline/plugin draws more than one slot. `propose_template` generates
- * in-process and draws none beyond this turn's.
+ * in-process and reserves its own slot per invocation (see `chargeAiCall`); every
+ * model call is capped at ASK_MAX_OUTPUT_TOKENS.
  *
  * SSE events:
  *   { type: 'token', data: string }             — assistant text delta
@@ -141,6 +142,14 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         // Authenticated org — injected into tenant-scoping tool inputs so the
         // model can't target another tenant (prompt-injection defense).
         orgId,
+        // An in-process generating tool pays its OWN aiCalls slot (the turn's slot
+        // covers the agent's reasoning only).
+        chargeAiCall: async () => {
+          const extra = await reserveQuota(quotaService, orgId, 'aiCalls', quotaAuth);
+          if (!extra.exceeded) incCounter('ai_tool_generation_charged_total', { tool: 'propose_template' });
+          return !extra.exceeded;
+        },
+        maxOutputTokens: ASK_MAX_OUTPUT_TOKENS,
       });
 
       initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
@@ -156,6 +165,9 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           messages: [...(history ?? []), { role: 'user', content: query }],
           tools,
           stopWhen: stepCountIs(6),
+          // Per-step output cap: with the 6-step bound this caps what one turn's
+          // single aiCalls slot can cost.
+          maxOutputTokens: ASK_MAX_OUTPUT_TOKENS,
           abortSignal,
         });
 

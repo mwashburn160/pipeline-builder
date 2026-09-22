@@ -90,3 +90,27 @@ describe('the per-user MFA-reset enrolment grace', () => {
     await expect(issueTokens(lapsed, 'org', pwd)).rejects.toThrow('MFA_REQUIRED_FOR_ORG');
   });
 });
+
+describe('org-asserted assurance (idpEnforcesMfa) holds only in the asserting org\'s lineage', () => {
+  const sso = { kind: 'interactive' as const, auth: signInAuth('sso', { idpMfaOrgId: 'org' }) };
+
+  it('records the asserting org and earns aal 2 inside it', async () => {
+    expect(sso.auth).toMatchObject({ aal: 2, aalAssertedBy: 'org' });
+    expect(claims((await issueTokens(user(), 'org', sso)).accessToken).aal).toBe(2);
+  });
+
+  it('is aal 1 in an org outside that lineage — one org cannot vouch for a session elsewhere', async () => {
+    expect(claims((await issueTokens(user(), 'other-org', sso)).accessToken).aal).toBe(1);
+  });
+
+  it('so a foreign org that REQUIRES MFA refuses it', async () => {
+    policy = { requireMfa: true, enforced: true };
+    await expect(issueTokens(user(), 'other-org', sso)).rejects.toThrow('MFA_REQUIRED_FOR_ORG');
+  });
+
+  it('a passkey (intrinsic aal 2) carries no assertion and is not downgraded', async () => {
+    const passkey = signInAuth('webauthn');
+    expect(passkey.aalAssertedBy).toBeUndefined();
+    expect(claims((await issueTokens(user(), 'other-org', { kind: 'interactive', auth: passkey })).accessToken).aal).toBe(2);
+  });
+});

@@ -12,6 +12,10 @@
  *   GET    /plugins/installs                                plugins:read
  *   POST   /plugins/installs                                plugins:install        install, or request it (approval policy)
  *   PATCH  /plugins/installs/:id                            plugins:install        upgrade / change the version policy
+ *   GET    /plugins/installs/change-requests                plugin_installs:manage the org's pending install changes
+ *   POST   /plugins/installs/:id/change-requests            plugins:install        request a change that needs an approver
+ *   POST   /plugins/installs/:id/change-requests/approve    plugin_installs:manage apply it
+ *   POST   /plugins/installs/:id/change-requests/reject     plugin_installs:manage drop it (reason)
  *   DELETE /plugins/installs/:id                            plugins:install        uninstall / withdraw a request
  *   POST   /plugins/installs/:id/approve                    plugin_installs:manage
  *   POST   /plugins/installs/:id/deny                       plugin_installs:manage
@@ -25,8 +29,8 @@ import { Router, type RequestHandler } from 'express';
 
 import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
 import {
-  approveInstall, catalog, createInstall, denyInstall, getPolicy, installState, listInstalls, putPolicy, removeInstall,
-  shadowing, updateInstall,
+  approveInstall, approveInstallChange, catalog, createInstall, denyInstall, getPolicy, installState, listInstallChangeRequests, listInstalls,
+  putPolicy, rejectInstallChange, removeInstall, requestInstallChange, shadowing, updateInstall,
 } from '../services/ecosystem/installs.js';
 
 const query = (q: unknown): Record<string, unknown> => (q && typeof q === 'object' ? q as Record<string, unknown> : {});
@@ -51,6 +55,28 @@ export function createInstallRoutes(): Router {
     audited('plugin.install.create', 'plugin.install.request') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
       sendSuccess(res, 201, await createInstall(caller, bodyOf(req)));
+    }));
+
+  // Before `/installs/:id…`, so `change-requests` is never read as an install id.
+  router.get('/installs/change-requests', requirePermission('plugin_installs:manage') as RequestHandler, ecosystemRoute(async ({ res, caller }) => {
+    sendSuccess(res, 200, await listInstallChangeRequests(caller));
+  }));
+
+  router.post('/installs/:id/change-requests', requirePermission('plugins:install') as RequestHandler, audited('plugin.install.change-request') as RequestHandler,
+    ecosystemRoute(async ({ req, res, caller }) => {
+      sendSuccess(res, 201, await requestInstallChange(caller, param(req, 'id'), bodyOf(req)));
+    }));
+
+  router.post('/installs/:id/change-requests/approve', requirePermission('plugin_installs:manage') as RequestHandler,
+    audited('plugin.install.change-approve', 'plugin.install.upgrade') as RequestHandler,
+    ecosystemRoute(async ({ req, res, caller }) => {
+      sendSuccess(res, 200, await approveInstallChange(caller, param(req, 'id')));
+    }));
+
+  router.post('/installs/:id/change-requests/reject', requirePermission('plugin_installs:manage') as RequestHandler,
+    audited('plugin.install.change-reject') as RequestHandler,
+    ecosystemRoute(async ({ req, res, caller }) => {
+      sendSuccess(res, 200, await rejectInstallChange(caller, param(req, 'id'), bodyOf(req).reason));
     }));
 
   router.patch('/installs/:id', requirePermission('plugins:install') as RequestHandler, audited('plugin.install.upgrade') as RequestHandler,

@@ -5,7 +5,6 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
-import { useOrgOptions } from '@/hooks/useOrgOptions';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
@@ -45,7 +44,6 @@ export default function DiscountsPage() {
   const toast = useToast();
   // Org picker for "Apply to org" — mirrors the Users page rather than a raw
   // org-id text field, so operators pick from names instead of pasting ids.
-  const { orgOptions, loadOrgOptions } = useOrgOptions();
 
   // When the billing-discounts feature is off the admin endpoints return 404.
   // We catch that in the fetcher and render a dedicated empty state rather than
@@ -109,9 +107,6 @@ export default function DiscountsPage() {
 
   const openApply = (d: Discount) => {
     setApplyDiscount(d);
-    // Populate the org picker. Best-effort — a failure just leaves it empty
-    // (any prefilled target org stays selectable via its own fallback option).
-    loadOrgOptions();
   };
 
   // ── Edit (isActive / maxRedemptions / redeemBy / appliesToTiers) ──────
@@ -333,7 +328,6 @@ export default function DiscountsPage() {
         <ApplyDiscountModal
           key={applyDiscount.id}
           discount={applyDiscount}
-          orgOptions={orgOptions}
           onClose={() => setApplyDiscount(null)}
           onApplied={(org) => {
             setApplyDiscount(null);

@@ -1,5 +1,5 @@
 import { Select } from '@/components/ui/Select';
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useId } from 'react';
 import { MetadataEntry } from '@/types/form-types';
 import { Button } from '@/components/ui/Button';
 import { useCombobox } from '@/hooks/useCombobox';
@@ -168,6 +168,7 @@ function MetadataKeyCombobox({
  * to the selected type. Boolean entries render as a true/false dropdown.
  */
 export default function MetadataEditor({ value, onChange, disabled, label }: MetadataEditorProps) {
+  const uid = useId();
   // Stable, client-only row ids kept in lockstep with `value` so React keys by
   // row identity (not index) — the key/value fields are free-text and may be
   // empty/duplicate. These ids are never serialized into the onChange payload.
@@ -204,8 +205,8 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
 
   return (
     <div>
-      {label && <label className="label">{label}</label>}
-      <div className="space-y-2">
+      {label && <span className="label" id={`${uid}-metadata`}>{label}</span>}
+      <div role="group" aria-labelledby={label ? `${uid}-metadata` : undefined} className="space-y-2">
         {value.map((entry, idx) => (
           <div key={ids[idx]} className="flex items-center space-x-2">
             <MetadataKeyCombobox

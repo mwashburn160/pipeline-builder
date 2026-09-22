@@ -226,7 +226,7 @@ export default function PipelineDetailPage() {
       // before landing on the list page.
       invalidate.pipelines();
       toast.success('Pipeline deleted');
-      router.push('/dashboard/pipelines');
+      void router.push('/dashboard/pipelines');
     } catch (e) {
       setActionError(formatError(e, 'Failed to delete pipeline'));
     } finally {

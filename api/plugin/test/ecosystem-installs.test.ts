@@ -12,6 +12,7 @@
  * N26, N27) — publishers never learn who installed.
  */
 
+import type { Row } from './helpers/fake-ecosystem-db.js';
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 
 import {
@@ -55,7 +56,7 @@ async function rejects(p: Promise<unknown>, code: string, reason?: string): Prom
   throw new Error(`expected ${code}`);
 }
 
-function listing(publisher: { id: string; handle: string }, name: string, versions: Array<string | Record<string, unknown>>, extra: Record<string, unknown> = {}) {
+function listing(publisher: Row, name: string, versions: Array<string | Record<string, unknown>>, extra: Record<string, unknown> = {}) {
   const l = db.seed('plugin_listings', { publisherId: publisher.id, name, summary: `${name} summary`, category: 'security', keywords: ['scan'], ...extra });
   const vs = versions.map((v) => {
     const over = typeof v === 'string' ? { version: v } : v;
@@ -185,8 +186,47 @@ describe('updateInstall / removeInstall', () => {
     expect((await installs.updateInstall(MEMBER(), row.id, { versionPolicy: 'patch' })).install).toMatchObject({ versionPolicy: 'patch', pinnedVersion: '2.0.0' });
   });
 
+  it('lets a member REQUEST a gated change; an approver applies it (audited, N11 → approvers, N12 → requester)', async () => {
+    const { row } = await installed({}, 'community');
+    await rejects(installs.updateInstall(MEMBER(), row.id, { version: '2.0.0' }), 'INSUFFICIENT_PERMISSIONS');
+    const { changeRequest } = await installs.requestInstallChange(MEMBER(), row.id, { version: '2.0.0', note: 'Need the new flags' });
+    expect(changeRequest).toMatchObject({
+      installId: row.id, listing: 'acme/lint', from: { version: '1.0.0', versionPolicy: 'minor' }, to: { version: '2.0.0', versionPolicy: 'minor' }, requestedBy: 'u-member', note: 'Need the new flags',
+    });
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.change-request', affectedOrgId: 'org-b' }));
+    expect(h.notify).toHaveBeenCalledWith('N11', [expect.objectContaining({ orgId: 'org-b', permission: 'plugin_installs:manage' })], expect.objectContaining({ subject: 'Install change requested: acme/lint' }));
+    // One pending change per install; the views carry it.
+    await rejects(installs.requestInstallChange(MEMBER(), row.id, { version: '2.0.0' }), 'DUPLICATE_ENTRY');
+    expect((await installs.listInstalls(MEMBER(), {})).installs[0]!.pendingChange).toMatchObject({ version: '2.0.0' });
+    await rejects(installs.listInstallChangeRequests(MEMBER()), 'INSUFFICIENT_PERMISSIONS');
+    expect((await installs.listInstallChangeRequests(ADMIN())).changeRequests.map((c) => c.installId)).toEqual([row.id]);
+
+    const out = await installs.approveInstallChange(ADMIN(), row.id);
+    expect(out.install).toMatchObject({ pinnedVersion: '2.0.0', pendingChange: null });
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.change-approve' }));
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.upgrade', details: expect.objectContaining({ requestedBy: 'u-member' }) }));
+    expect(h.notify).toHaveBeenCalledWith('N12', [{ kind: 'user', userId: 'u-member', orgId: 'org-b' }], expect.objectContaining({ subject: 'Install change approved: acme/lint' }));
+    await rejects(installs.approveInstallChange(ADMIN(), row.id), 'CONFLICT');
+  });
+
+  it('rejects a change request with a reason, and refuses a request that needs no approval', async () => {
+    const { row } = await installed({}, 'community');
+    // A patch move is not gated: PATCH it.
+    await rejects(installs.requestInstallChange(MEMBER(), row.id, { version: '1.1.0' }), 'VALIDATION_ERROR');
+    await installs.requestInstallChange(MEMBER(), row.id, { versionPolicy: 'latest' });
+    await rejects(installs.rejectInstallChange(MEMBER(), row.id, 'no'), 'INSUFFICIENT_PERMISSIONS');
+    const out = await installs.rejectInstallChange(ADMIN(), row.id, 'Stay on 1.x until the audit');
+    expect(out.install).toMatchObject({ versionPolicy: 'minor', pendingChange: null });
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.change-reject', details: expect.objectContaining({ reason: 'Stay on 1.x until the audit' }) }));
+    expect(h.notify).toHaveBeenCalledWith('N12', expect.anything(), expect.objectContaining({ text: expect.stringContaining('Stay on 1.x until the audit') }));
+    await rejects(installs.rejectInstallChange(ADMIN(), row.id, null), 'CONFLICT');
+  });
+
   it('needs an approver to cross a major (or widen to latest) on an approval-gated tier', async () => {
     const { row } = await installed({}, 'community');
+    // The views say so up front, so the UI can gate its Upgrade / latest controls (E24).
+    expect((await installs.listInstalls(MEMBER(), {})).installs[0]).toMatchObject({ needsApproval: true });
+    expect((await installs.listInstalls(ADMIN(), {})).installs[0]).toMatchObject({ needsApproval: false });
     await rejects(installs.updateInstall(MEMBER(), row.id, { version: '2.0.0' }), 'INSUFFICIENT_PERMISSIONS');
     await rejects(installs.updateInstall(MEMBER(), row.id, { versionPolicy: 'latest' }), 'INSUFFICIENT_PERMISSIONS');
     expect((await installs.updateInstall(MEMBER(), row.id, { version: '1.1.0' })).install.pinnedVersion).toBe('1.1.0');
@@ -319,6 +359,16 @@ describe('catalog, install state, installs list and shadowing', () => {
     expect((await installs.catalog(MEMBER(), { installed: 'false' })).listings.map((e) => e.listing.name)).toEqual(['lint']);
   });
 
+  it('pages the catalog with total + hasMore instead of silently capping it (E24)', async () => {
+    seedAll();
+    const first = await installs.catalog(MEMBER(), { limit: '2' });
+    expect(first).toMatchObject({ total: 3, limit: 2, offset: 0, hasMore: true });
+    expect(first.listings.map((e) => e.listing.name)).toEqual(['lint', 'semgrep']);
+    const rest = await installs.catalog(MEMBER(), { limit: '2', offset: '2' });
+    expect(rest).toMatchObject({ total: 3, hasMore: false });
+    expect(rest.listings.map((e) => e.listing.name)).toEqual(['trivy']);
+  });
+
   it('install state lists versions newest first and the caller\'s abilities', async () => {
     seedAll();
     const state = await installs.installState(MEMBER(), 'pipeline-builder', 'trivy');
@@ -417,15 +467,14 @@ describe('installing-org fan-out (§5b: N8, N13, N14, N26, N27)', () => {
     db.seed('plugin_installs', { orgId: 'org-pending', listingId: l.id, status: 'pending_approval', installedBy: 'u', pinnedVersion: '1.0.0' });
     db.seed('plugin_install_policies', { orgId: 'org-explicit', officialInstalls: 'explicit' });
     db.seed('plugin_install_policies', { orgId: 'org-blocked', blockedListings: [{ publisher: 'pipeline-builder', name: 'trivy' }] });
-    let call = 0;
-    db.execute.handler = () => (call++ === 0
-      ? { rows: [{ org_id: 'ORG-USER', spec: null }, { org_id: 'org-explicit', spec: null }, { org_id: 'org-blocked', spec: null }, { org_id: 'org-v2', spec: '^2.0.0' }, { org_id: 'org-pending', spec: null }] }
-      : [{ org_id: 'org-deployed' }]);
+    // One manifest query (live pipelines only); with a version, only that version's rows.
+    db.execute.handler = (q) => (JSON.stringify(q).includes('plugin_version')
+      ? { rows: [{ org_id: 'org-deployed' }, { org_id: 'org-v2' }] }
+      : { rows: [{ org_id: 'ORG-USER' }, { org_id: 'org-explicit' }, { org_id: 'org-blocked' }, { org_id: 'org-v2' }, { org_id: 'org-pending' }, { org_id: 'org-deployed' }] });
     const all = await installNotify.installingOrgs(official as any, l as any);
     expect(all.map((o) => [o.orgId, !!o.install])).toEqual([['org-deployed', false], ['org-pinned', true], ['org-user', false], ['org-v2', false]]);
-    call = 0;
     const v2 = await installNotify.installingOrgs(official as any, l as any, '2.0.0');
-    expect(v2.map((o) => o.orgId)).toEqual(['org-deployed', 'org-user', 'org-v2']);
+    expect(v2.map((o) => o.orgId)).toEqual(['org-deployed', 'org-v2']);
   });
 
   it('announces a new version: N27 inside the range, N13 outside (immediate for a major)', async () => {
@@ -533,11 +582,17 @@ describe('installing-org fan-out (§5b: N8, N13, N14, N26, N27)', () => {
 });
 
 describe('store: implicit Official users and shadowing rows', () => {
-  it('filters definitions by the version spec and keeps manifests', async () => {
-    let call = 0;
-    db.execute.handler = () => (call++ === 0 ? { rows: [{ org_id: 'a', spec: '^1.0.0' }, { org_id: 'b', spec: '2.0.0' }, { org_id: null, spec: null }] } : { rows: [{ org_id: 'c' }, { org_id: null }] });
+  it('reads ONE manifest query: live pipelines only, the Official publisher by id, the exact version (E8/E12)', async () => {
+    const { PgDialect } = await import('drizzle-orm/pg-core');
+    const dialect = new PgDialect();
+    db.execute.handler = () => ({ rows: [{ org_id: 'C' }, { org_id: null }, { org_id: 'a' }] });
     expect(await store.implicitOfficialUsers('trivy', '1.5.0')).toEqual(['a', 'c']);
-    expect(db.execute.calls).toHaveLength(2);
+    expect(db.execute.calls).toHaveLength(1);
+    const { sql: text, params } = dialect.sqlToQuery(db.execute.calls[0] as never);
+    expect(text).toMatch(/FROM pipeline_step_manifests m\s+JOIN pipelines pl ON pl\.id = m\.pipeline_id AND pl\.deleted_at IS NULL/);
+    expect(text).toMatch(/JOIN publishers pub ON pub\.id = m\.plugin_publisher_id/);
+    expect(text).not.toMatch(/jsonb_array_elements|props/);
+    expect(params).toEqual(['pipeline-builder', 'trivy', '1.5.0']);
   });
 
   it('returns nothing for no names', async () => {

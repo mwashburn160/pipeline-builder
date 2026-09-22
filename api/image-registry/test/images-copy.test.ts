@@ -17,9 +17,11 @@
  * req.user from a header to stand in for what requireAuth populates.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, describe, it, expect, beforeEach, beforeAll, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // --- registry-client mock ---------------------------------------------------
@@ -30,30 +32,30 @@ const putManifest = jest.fn<(name: string, ref: string, raw: Buffer, mediaType: 
 const isNotFound = (e: unknown): boolean => (e as { statusCode?: number })?.statusCode === 404;
 
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
-  listRepositories: jest.fn(),
-  listTags: jest.fn(),
+  listRepositories: jest.fn<AnyFn>(),
+  listTags: jest.fn<AnyFn>(),
   getManifest,
   headManifest,
   mountBlob,
   putManifest,
-  deleteManifest: jest.fn(),
-  headBlob: jest.fn(),
-  getBlobStream: jest.fn(),
+  deleteManifest: jest.fn<AnyFn>(),
+  headBlob: jest.fn<AnyFn>(),
+  getBlobStream: jest.fn<AnyFn>(),
   isNotFound,
 }));
 
 // --- durable-audit mock (assert registry.image.copy is emitted) -------------
-const emitImageRegistryAudit = jest.fn();
+const emitImageRegistryAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitImageRegistryAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 // --- api-server mock: withRoute passthrough + metric counter ----------------
-const incCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+const incCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
-    const ctx = { log: jest.fn(), requestId: 'test-req' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'test-req' };
     try {
       await handler({ req, res, ctx });
     } catch (err) {
@@ -66,7 +68,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 // --- api-core mock ----------------------------------------------------------
-const emitAudit = jest.fn();
+const emitAudit = jest.fn<AnyFn>();
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
@@ -105,7 +107,7 @@ beforeAll(async () => {
     next();
   });
   app.use('/api/images', createImageRoutes());
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   const { port } = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
 });

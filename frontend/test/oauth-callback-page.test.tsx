@@ -10,7 +10,7 @@
 
 import { it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import OAuthCallbackPage from '../pages/auth/callback/[provider]';
 import { OAUTH_INTENT_KEY } from '../src/lib/oauth-intent';
 
@@ -22,9 +22,10 @@ jest.mock('next/router', () => ({
 }));
 
 const mockRefreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
+const mockCompleteMfaLogin = jest.fn<AnyFn>().mockResolvedValue({ status: 'complete' });
 jest.mock('@/hooks/useAuth', () => ({
   __esModule: true,
-  useAuth: () => ({ refreshUser: mockRefreshUser }),
+  useAuth: () => ({ refreshUser: mockRefreshUser, completeMfaLogin: mockCompleteMfaLogin }),
 }));
 
 jest.mock('framer-motion', () => ({
@@ -73,10 +74,27 @@ it('rejects an open-redirect return URL', async () => {
 it('fails closed when the stored intent state does not match', async () => {
   stash({ state: 'other', kind: 'invite', inviteToken: 't', provider: 'google' });
   render(<OAuthCallbackPage />);
-  expect(await screen.findByText(/no longer matches your pending request/i)).toBeInTheDocument();
+  expect(await screen.findByText(/no longer matches a sign-in started in this browser/i)).toBeInTheDocument();
   expect(mockApi.completeOAuthCallback).not.toHaveBeenCalled();
   expect(mockApi.acceptInvitationOAuth).not.toHaveBeenCalled();
   expect(sessionStorage.getItem(OAUTH_INTENT_KEY)).toBeNull();
+});
+
+it('LOGIN CSRF: refuses an arrival with NO stored intent (a code planted from someone else\'s flow)', async () => {
+  render(<OAuthCallbackPage />);
+  expect(await screen.findByText(/no longer matches a sign-in started in this browser/i)).toBeInTheDocument();
+  expect(mockApi.completeOAuthCallback).not.toHaveBeenCalled();
+});
+
+it('asks for the authenticator code when the platform answers with an MFA challenge', async () => {
+  stash({ state: 's1', kind: 'login', returnUrl: '/dashboard' });
+  mockApi.completeOAuthCallback.mockResolvedValue({ success: true, data: { mfaRequired: true, challengeId: 'chal-1' } });
+  render(<OAuthCallbackPage />);
+  const input = await screen.findByLabelText(/authentication code/i);
+  fireEvent.change(input, { target: { value: '123456' } });
+  fireEvent.click(screen.getByRole('button', { name: /verify/i }));
+  await waitFor(() => expect(mockCompleteMfaLogin).toHaveBeenCalledWith('chal-1', '123456'));
+  expect(mockRefreshUser).not.toHaveBeenCalled();
 });
 
 it('accepts an invite, then restarts a normal login with a fresh login intent', async () => {

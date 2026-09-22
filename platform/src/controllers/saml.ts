@@ -47,6 +47,7 @@ import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
+import { clearLoginBinding, isBoundToThisBrowser } from '../helpers/login-binding.js';
 import { idpEnforcesMfa } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { deliverSessionTokens } from '../helpers/session-cookie.js';
@@ -82,7 +83,7 @@ export const SAML_PROVIDER_KEY = 'saml';
  * multi-replica deployment behaves identically on both protocols. It travels to
  * the IdP as `RelayState` and comes back on the assertion POST.
  */
-const pendingSamlStates = createPendingStateStore<{ orgId: string }>({
+const pendingSamlStates = createPendingStateStore<{ orgId: string; binding: string }>({
   prefix: 'saml:state:',
   ttlMs: config.oauth.samlRequestTtlMs,
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
@@ -98,7 +99,7 @@ const pendingSamlStates = createPendingStateStore<{ orgId: string }>({
  * request's client info and its cookie/body transport choice. Short-lived and
  * consume-once.
  */
-const pendingSamlHandoffs = createPendingStateStore<{ orgId: string; userId: string; issuer: string; session: SamlSessionRef }>({
+const pendingSamlHandoffs = createPendingStateStore<{ orgId: string; userId: string; issuer: string; session: SamlSessionRef; binding: string }>({
   prefix: 'saml:handoff:',
   ttlMs: config.oauth.samlHandoffTtlMs,
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
@@ -123,11 +124,13 @@ export function __resetSamlControllerStores(): void {
  * the enforcement gates (enabled + `sso`-entitled) have already run; the config
  * resolver below re-applies them regardless.
  */
-export async function beginSamlLogin(orgId: string): Promise<{ url: string; state: string }> {
+export async function beginSamlLogin(orgId: string, binding: string): Promise<{ url: string; state: string }> {
   const cfg = await getEnforcedSamlConfig(orgId);
   const state = crypto.randomBytes(32).toString('hex');
   const url = await buildSamlAuthorizeUrl(cfg, state);
-  await pendingSamlStates.put(state, { orgId });
+  // The browser binding rides the state to the ACS (which can't see the Lax
+  // cookie — it is a cross-site POST) and from there onto the handoff.
+  await pendingSamlStates.put(state, { orgId, binding });
   return { url, state };
 }
 
@@ -227,11 +230,11 @@ function refuseAssertion(req: Request, res: Response, orgId: string, err: unknow
 /** Consume the RelayState and confirm it was minted for THIS org. Consumed on
  *  ANY lookup — valid or not — so a state can never be probed or replayed, the
  *  same one-time contract the OIDC callback keeps. */
-async function consumeRelayState(orgId: string, relayState: string | undefined): Promise<string> {
+async function consumeRelayState(orgId: string, relayState: string | undefined): Promise<{ state: string; binding: string }> {
   if (!relayState) throw new Error('SAML_IDP_INITIATED');
   const pending = await pendingSamlStates.consume(relayState);
   if (!pending || pending.orgId !== orgId) throw new Error('SAML_INVALID_STATE');
-  return relayState;
+  return { state: relayState, binding: pending.binding };
 }
 
 /**
@@ -253,7 +256,7 @@ async function provisionFromAssertion(
 
   // The org's IdP vouching for an email proves nothing unless the org has
   // proven it owns that domain.
-  await assertSsoIdentityTrusted(orgId, identity);
+  await assertSsoIdentityTrusted(orgId, identity, { protocol: 'saml' });
 
   // Seats are checked BEFORE the identity becomes an account, so a sign-in the
   // seat cap will refuse doesn't leave a user record (and its personal org)
@@ -314,19 +317,21 @@ export const handleSamlAcs = withController('SAML ACS', async (req, res) => {
   }
 
   let result: { userId: string; issuer: string; session: SamlSessionRef };
+  let binding: string;
   try {
     // An assertion with no RelayState is unsolicited — IdP-initiated — and is
     // refused before anything else happens.
-    const state = await consumeRelayState(orgId, body.RelayState);
+    const relay = await consumeRelayState(orgId, body.RelayState);
+    binding = relay.binding;
     const cfg = await getEnforcedSamlConfig(orgId);
-    result = await provisionFromAssertion(req, orgId, cfg, body.SAMLResponse, state, body.RelayState);
+    result = await provisionFromAssertion(req, orgId, cfg, body.SAMLResponse, relay.state, body.RelayState);
   } catch (err) {
     refuseAssertion(req, res, orgId, err);
     return;
   }
 
   const handoff = crypto.randomBytes(32).toString('hex');
-  await pendingSamlHandoffs.put(handoff, { orgId, ...result });
+  await pendingSamlHandoffs.put(handoff, { orgId, ...result, binding });
   res.redirect(302, `${samlLandingUrl(orgId)}?handoff=${handoff}`);
 }, SAML_ERROR_MAP);
 
@@ -347,6 +352,9 @@ export const completeSamlLogin = withController('SAML complete', async (req, res
 
   const pending = await pendingSamlHandoffs.consume(body.handoff);
   if (!pending || pending.orgId !== orgId) throw new Error('SAML_INVALID_STATE');
+  // LOGIN CSRF: the handoff is redeemable only by the browser that started the
+  // sign-in (the binding cookie set at initiate — helpers/login-binding.ts).
+  if (!isBoundToThisBrowser(req, pending.binding)) throw new Error('SAML_INVALID_STATE');
 
   // Lazily imported for the same reason `helpers/auth-factors.ts` does it: this
   // module is reached from `controllers/sso.ts` on EVERY `/authorize` call (the
@@ -372,7 +380,7 @@ export const completeSamlLogin = withController('SAML complete', async (req, res
     // An org that marks its IdP as MFA-enforcing earns `aal 2` through SAML on
     // the same terms as OIDC — the assertion proves the IdP authenticated the
     // person, and the org vouches for how strongly it did so.
-    auth: signInAuth('sso', { idpMfa: await idpEnforcesMfa(orgId) }),
+    auth: signInAuth('sso', { ...(await idpEnforcesMfa(orgId) ? { idpMfaOrgId: orgId } : {}) }),
     client: clientInfoOf(req),
   });
 
@@ -396,5 +404,7 @@ export const completeSamlLogin = withController('SAML complete', async (req, res
   incCounter('platform_logins_total');
   logger.info('[SAML] login successful', { orgId, userId: String(user._id) });
 
+  // The flow is complete: its browser binding has done its job.
+  clearLoginBinding(res);
   sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 }, { ...SAML_ERROR_MAP, [SSO_SUPERADMIN_REFUSED]: { status: 403, message: 'Platform administrators cannot sign in through an organization\'s single sign-on' } });

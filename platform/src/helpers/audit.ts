@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { auditSpoolKey, createEnvRedisAuditSpool, createLogger, emitCounter, errorMessage, type AuditSpool, type RemoteAuditEvent } from '@pipeline-builder/api-core';
 import { currentTraceId } from '@pipeline-builder/api-server';
 import type { Request } from 'express';
 import { appendAuditEvent } from './audit-chain.js';
 import { type AuditAction } from '../models/audit-event.js';
+import type { AuditCreateInput } from '../services/audit-service.js';
 
 const logger = createLogger('audit');
 
@@ -94,10 +95,114 @@ export function audit(
     traceId: currentTraceId(),
   };
 
-  // Funnel through the single shared "append to chain" function so every row is
-  // tamper-evidence chained. Still fire-and-forget: a chain/hash error never
-  // drops the event (append is best-effort) and a write error is swallowed here.
-  appendAuditEvent(event).catch((err) => {
-    logger.warn('Failed to write audit event', { action, error: errorMessage(err) });
+  recordAuditEvent({
+    ...event,
+    // Stable per-emission key so a spooled retry of an append that actually
+    // committed (e.g. a timeout after the write) dedups instead of doubling.
+    idempotencyKey: randomUUID(),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Durable local delivery
+//
+// Platform writes its own audit events straight to Mongo. A write that fails
+// (Mongo blip, failover, chain-slot contention exhausted) used to be logged and
+// DROPPED — for a security log that is the wrong failure mode. Failed events
+// now go to the same bounded, crash-safe Redis spool the remote-audit client
+// uses (own key), and a background drain re-appends them.
+// ---------------------------------------------------------------------------
+
+/** Spool key for platform-local audit events (distinct from any service's). */
+export const LOCAL_AUDIT_SPOOL_KEY = auditSpoolKey('platform-local');
+
+let localSpool: AuditSpool | null | undefined;
+
+function getLocalSpool(): AuditSpool | null {
+  if (localSpool === undefined) localSpool = createEnvRedisAuditSpool({ key: LOCAL_AUDIT_SPOOL_KEY });
+  return localSpool;
+}
+
+/** Test seam: inject (or clear with `undefined`) the local spool. */
+export function setLocalAuditSpoolForTest(spool: AuditSpool | null | undefined): void {
+  localSpool = spool;
+}
+
+/** Wire shape of a spooled local event — dates travel as ISO strings. The spool
+ *  entry type is the remote-audit event; a local entry reuses the envelope. */
+type SpooledLocalEvent = Omit<AuditCreateInput, 'occurredAt'> & { occurredAt?: string };
+
+async function spoolLocalEvent(event: AuditCreateInput, occurredAt: Date): Promise<void> {
+  const spool = getLocalSpool();
+  if (!spool) {
+    emitCounter('audit_local_dropped_total', { action: event.action });
+    logger.error('Audit event DROPPED — write failed and no spool is configured (REDIS_URL/REDIS_SENTINELS unset)', {
+      action: event.action,
+    });
+    return;
+  }
+  const wire: SpooledLocalEvent = { ...event, occurredAt: (event.occurredAt ?? occurredAt).toISOString() };
+  await spool.enqueue({ event: wire as unknown as RemoteAuditEvent, serviceName: 'platform' });
+}
+
+/**
+ * Durably record an audit event from platform code that has no response to
+ * fail (request handlers via `audit()`, background sweeps, the authz-denial
+ * sink). Fire-and-forget: returns immediately; a failed append is spooled and
+ * retried by {@link drainLocalAuditSpool}.
+ */
+export function recordAuditEvent(event: AuditCreateInput): void {
+  const occurredAt = new Date();
+  appendAuditEvent(event).catch((err) => {
+    logger.warn('Audit write failed; spooling for retry', { action: event.action, error: errorMessage(err) });
+    void spoolLocalEvent(event, occurredAt).catch(() => undefined);
+  });
+}
+
+/** Outcome of one drain pass. */
+export interface LocalSpoolDrainResult {
+  delivered: number;
+  failed: number;
+}
+
+/**
+ * One drain tick: refresh this pod's spool-owner heartbeat, reclaim entries
+ * stranded in flight by an owner whose heartbeat went stale (a crashed pod —
+ * not only at boot, since the pod that crashed may never come back), then
+ * re-append up to `max` spooled local events. Delivered entries are acked,
+ * failures returned to the head of the spool (retried next pass). Never throws.
+ */
+export async function drainLocalAuditSpool(max = 200): Promise<LocalSpoolDrainResult> {
+  const result: LocalSpoolDrainResult = { delivered: 0, failed: 0 };
+  const spool = getLocalSpool();
+  if (!spool) return result;
+  await spool.heartbeat();
+  await recoverLocalAuditSpool();
+  const batch = await spool.take(max);
+  if (batch.length === 0) return result;
+  const delivered: typeof batch = [];
+  const failed: typeof batch = [];
+  for (const entry of batch) {
+    const wire = entry.event as unknown as SpooledLocalEvent;
+    try {
+      await appendAuditEvent({ ...wire, ...(wire.occurredAt ? { occurredAt: new Date(wire.occurredAt) } : {}) } as AuditCreateInput);
+      delivered.push(entry);
+    } catch (err) {
+      logger.warn('Spooled audit re-append failed (requeued)', { action: wire.action, error: errorMessage(err) });
+      failed.push(entry);
+    }
+  }
+  await spool.ack(delivered);
+  await spool.requeue(failed);
+  result.delivered = delivered.length;
+  result.failed = failed.length;
+  if (result.delivered > 0) emitCounter('audit_local_redelivered_total', {}, result.delivered);
+  return result;
+}
+
+/** Reclaim entries left in flight by owners whose heartbeat is stale. Runs on
+ *  every drain tick. */
+export async function recoverLocalAuditSpool(): Promise<number> {
+  const spool = getLocalSpool();
+  return spool ? spool.recover() : 0;
 }

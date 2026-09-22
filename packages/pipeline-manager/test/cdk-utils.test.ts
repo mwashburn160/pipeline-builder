@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import path from 'path';
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-const mockExecSync = jest.fn();
+const mockExecSync = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('child_process', () => ({
   __esModule: true,
@@ -74,7 +75,7 @@ describe('ensureCdkAvailable', () => {
   });
 
   it('should throw when cdk is not available', () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     mockExecSync.mockImplementation(() => {
       throw new Error('command not found');
     });
@@ -83,7 +84,7 @@ describe('ensureCdkAvailable', () => {
   });
 
   it('should print install hint when cdk is missing', () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     mockExecSync.mockImplementation(() => {
       throw new Error('command not found');
     });
@@ -160,7 +161,7 @@ describe('executeCdkShellCommand', () => {
   });
 
   it('should log error to stderr when debug is true and command fails', () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockExecSync.mockImplementation(() => {
       throw new Error('CDK failed');
     });
@@ -171,7 +172,7 @@ describe('executeCdkShellCommand', () => {
   });
 
   it('should not log error when debug is false and command fails', () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockExecSync.mockImplementation(() => {
       throw new Error('CDK failed');
     });
@@ -189,14 +190,14 @@ describe('ensureBundlerAvailable', () => {
   });
 
   it('passes when both esbuild and pnpm are available', () => {
-    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     mockExecSync.mockReturnValue('1.0.0' as any);
     expect(() => ensureBundlerAvailable()).not.toThrow();
     logSpy.mockRestore();
   });
 
   it('throws when esbuild is missing (pnpm present)', () => {
-    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     mockExecSync.mockImplementation((cmd: unknown) => {
       if (String(cmd).includes('esbuild')) throw new Error('not found');
       return '10.33.0' as any;
@@ -206,7 +207,7 @@ describe('ensureBundlerAvailable', () => {
   });
 
   it('throws listing both when neither is available', () => {
-    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     mockExecSync.mockImplementation(() => { throw new Error('not found'); });
     expect(() => ensureBundlerAvailable()).toThrow(/esbuild, pnpm/);
     logSpy.mockRestore();

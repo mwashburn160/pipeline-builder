@@ -31,6 +31,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
 }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   resolveOrgLineage: (...a: unknown[]) => mockResolveLineage(...a),
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
@@ -56,6 +57,8 @@ const {
   unverifiedDomains,
   GOOGLE_ISSUER,
 } = await import('../src/helpers/sso-enforcement.js');
+
+const OIDC = { protocol: 'oidc', provider: 'generic-oidc' } as const;
 
 /** One enabled IdP candidate, as the service returns it. */
 function candidate(orgId: string, over: Record<string, unknown> = {}) {
@@ -83,34 +86,50 @@ beforeEach(() => {
 describe('assertSsoIdentityTrusted', () => {
   it('REFUSES an admin-run IdP vouching for a domain the org has not verified', async () => {
     verifiedDomains([{ orgId: 'victim-org', domain: 'victim.com' }]);
-    await expect(assertSsoIdentityTrusted('attacker-org', { issuer: 'https://idp.attacker.test', email: 'ceo@victim.com' }))
+    await expect(assertSsoIdentityTrusted('attacker-org', { issuer: 'https://idp.attacker.test', email: 'ceo@victim.com' }, OIDC))
       .rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
   });
 
   it('accepts an identity on a domain the org verified', async () => {
     verifiedDomains([{ orgId: 'org-1', domain: 'acme.com' }]);
-    await expect(assertSsoIdentityTrusted('org-1', { issuer: 'https://idp.acme.com', email: 'u@ACME.com' }))
+    await expect(assertSsoIdentityTrusted('org-1', { issuer: 'https://idp.acme.com', email: 'u@ACME.com' }, OIDC))
       .resolves.toBeUndefined();
   });
 
   it("accepts a team's identity on a domain its account root verified", async () => {
     mockResolveLineage.mockResolvedValue({ parentOrgId: 'root', rootOrgId: 'root' });
     verifiedDomains([{ orgId: 'root', domain: 'acme.com' }]);
-    await expect(assertSsoIdentityTrusted('team', { issuer: 'https://idp.acme.com', email: 'u@acme.com' }))
+    await expect(assertSsoIdentityTrusted('team', { issuer: 'https://idp.acme.com', email: 'u@acme.com' }, OIDC))
       .resolves.toBeUndefined();
   });
 
   it('fails closed to the org\'s own domains when the lineage cannot be read', async () => {
     mockResolveLineage.mockRejectedValue(new Error('mongo down'));
     verifiedDomains([{ orgId: 'root', domain: 'acme.com' }]);
-    await expect(assertSsoIdentityTrusted('team', { issuer: 'https://idp.acme.com', email: 'u@acme.com' }))
+    await expect(assertSsoIdentityTrusted('team', { issuer: 'https://idp.acme.com', email: 'u@acme.com' }, OIDC))
       .rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
   });
 
-  it('trusts Google, which owns the addresses it signs', async () => {
-    await expect(assertSsoIdentityTrusted('org-1', { issuer: GOOGLE_ISSUER, email: 'someone@gmail.com' }))
+  it('trusts Google, which owns the addresses it signs — via the google provider only', async () => {
+    await expect(assertSsoIdentityTrusted('org-1', { issuer: GOOGLE_ISSUER, email: 'someone@gmail.com' }, { protocol: 'oidc', provider: 'google' }))
       .resolves.toBeUndefined();
     expect(mockDomainExists).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a SAML IdP whose entityId is Google\'s issuer asserting a foreign-domain email', async () => {
+    verifiedDomains([{ orgId: 'victim-org', domain: 'victim.com' }]);
+    await expect(assertSsoIdentityTrusted('attacker-org', { issuer: 'https://accounts.google.com', email: 'ceo@victim.com' }, { protocol: 'saml' }))
+      .rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
+  });
+
+  it('REFUSES a generic OIDC IdP whose discovery document claims Google\'s issuer', async () => {
+    await expect(assertSsoIdentityTrusted('attacker-org', { issuer: GOOGLE_ISSUER, email: 'ceo@victim.com' }, OIDC))
+      .rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
+  });
+
+  it('REFUSES the google provider when the issuer is not Google\'s', async () => {
+    await expect(assertSsoIdentityTrusted('attacker-org', { issuer: 'https://idp.attacker.test', email: 'ceo@victim.com' }, { protocol: 'oidc', provider: 'google' }))
+      .rejects.toThrow('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');
   });
 });
 

@@ -14,6 +14,7 @@ import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { publishSsoTestResult, SSO_TEST_CHANNEL } from '@/components/sso/test-channel';
 import { takeReturnPath } from '@/lib/return-to';
+import { takeSsoIntent } from '@/lib/sso-intent';
 
 /**
  * SAML 2.0 sign-in landing page.
@@ -123,9 +124,14 @@ export default function SamlLandingPage() {
       setError(ERROR_MESSAGES[code] ?? GENERIC_ERROR);
       return;
     }
-    if (!orgId || !handoff) {
-      // Somebody bookmarked or reloaded this page: there is no assertion behind
-      // it and nothing to complete. Say so rather than spinning forever.
+    // Only a sign-in THIS tab started completes here (login CSRF). The SAML
+    // state never comes back to this page (the IdP posted it to the ACS), so the
+    // check is that one was started at all; the platform also verifies the
+    // browser binding cookie when the handoff is redeemed.
+    const intent = takeSsoIntent();
+    if (!orgId || !handoff || !intent) {
+      // Somebody bookmarked or reloaded this page, or the handoff came from a
+      // sign-in another browser started: there is nothing to complete here.
       setError('This single sign-on link has no pending sign-in. Start again from the sign-in page.');
       return;
     }

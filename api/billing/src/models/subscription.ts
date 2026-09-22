@@ -53,6 +53,11 @@ export interface SubscriptionDocument extends Document {
    *  promotion-spend reconcile stays exact while the array stays bounded. Absent
    *  on ordinary rows (counted as 1). */
   creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number }>;
+  /** `created` of the newest Stripe lifecycle event applied to this row
+   *  (customer.subscription.* + invoice.payment_*). Stripe does not deliver in
+   *  order, so an event older than this watermark is skipped — see
+   *  `claimStripeEventOrder`. Null until the first event lands. */
+  lastStripeEventAt?: Date | null;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -118,6 +123,7 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
       }],
       default: [],
     },
+    lastStripeEventAt: { type: Date, default: null },
     metadata: { type: Schema.Types.Mixed, default: {} },
   },
   {

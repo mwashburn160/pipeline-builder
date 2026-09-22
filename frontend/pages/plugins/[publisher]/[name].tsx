@@ -26,19 +26,20 @@ import { TabBar } from '@/components/ui/TabBar';
 import { Callout } from '@/components/ui/Callout';
 import { CodeBlock } from '@/components/ui/CodeBlock';
 import { resolveSiteUrl, type WithSiteUrl } from '@/lib/site-url';
-import { getListing } from '@/lib/public-directory/api';
+import { getListing, getListingReviews } from '@/lib/public-directory/api';
+import { DEFAULT_REVIEW_SORT, REVIEWS_PAGE_SIZE } from '@/components/reviews/ReviewsSection';
 import { cachePublicly, markUnavailable } from '@/lib/public-directory/server';
 import {
   categoryPagePath, loginHref, pipelineSnippet, pluginPagePath, safeExternalUrl,
 } from '@/lib/public-directory/links';
 import { categoryLabel, pluginJsonLd, vendorDisclaimer } from '@/lib/public-directory/listing';
-import { OFFICIAL_PUBLISHER, type ListingDetail } from '@/lib/public-directory/types';
+import { OFFICIAL_PUBLISHER, type ListingDetail, type ReviewPage } from '@/lib/public-directory/types';
 import { InstallControls } from '@/components/plugin-installs/InstallControls';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 
 export type PluginPageProps = WithSiteUrl & (
-  | { listing: ListingDetail; tab: ListingTab; unavailable?: false }
+  | { listing: ListingDetail; tab: ListingTab; unavailable?: false; initialReviews?: ReviewPage | null }
   | { listing: null; tab: ListingTab; unavailable: true; publisher: string; name: string }
 );
 
@@ -83,7 +84,7 @@ function SignedInInstall({ listing }: { listing: ListingDetail }) {
   );
 }
 
-function PluginPageBody({ listing, tab, siteUrl }: { listing: ListingDetail; tab: ListingTab; siteUrl: string }) {
+function PluginPageBody({ listing, tab, siteUrl, initialReviews }: { listing: ListingDetail; tab: ListingTab; siteUrl: string; initialReviews?: ReviewPage | null }) {
   const path = pluginPagePath(listing.publisher.handle, listing.name);
   const url = `${siteUrl}${path}`;
   const disclaimer = vendorDisclaimer(listing);
@@ -162,7 +163,7 @@ function PluginPageBody({ listing, tab, siteUrl }: { listing: ListingDetail; tab
         {active === 'versions' && <VersionsPanel listing={listing} />}
         {active === 'configuration' && <ConfigurationPanel listing={listing} />}
         {active === 'supply-chain' && <SupplyChainPanel listing={listing} />}
-        {active === 'reviews' && <ReviewsPanel listing={listing} />}
+        {active === 'reviews' && <ReviewsPanel listing={listing} initialReviews={initialReviews} />}
       </div>
     </>
   );
@@ -172,7 +173,7 @@ export default function PluginPage(props: PluginPageProps) {
   return (
     <PublicLayout>
       {props.listing
-        ? <PluginPageBody listing={props.listing} tab={props.tab} siteUrl={props.siteUrl} />
+        ? <PluginPageBody listing={props.listing} tab={props.tab} siteUrl={props.siteUrl} initialReviews={props.initialReviews} />
         : (
           <>
             <DirectoryHead
@@ -210,6 +211,17 @@ export const getServerSideProps: GetServerSideProps<PluginPageProps> = async ({ 
     markUnavailable(res);
     return { props: { siteUrl, listing: null, tab, unavailable: true, publisher, name } };
   }
+  // The Reviews tab server-renders its first page (the defaults the controls
+  // open on), so the reviews are in the HTML. A failure here just leaves the
+  // client to load them, as it does for every other sort and page.
+  const reviews = tab === 'reviews'
+    ? await getListingReviews(publisher, name, { sort: DEFAULT_REVIEW_SORT, limit: REVIEWS_PAGE_SIZE })
+    : null;
   cachePublicly(res);
-  return { props: { siteUrl, listing: result.data.listing, tab } };
+  return {
+    props: {
+      siteUrl, listing: result.data.listing, tab,
+      ...(reviews?.ok ? { initialReviews: reviews.data } : {}),
+    },
+  };
 };

@@ -34,6 +34,37 @@ describe('plugin installs API', () => {
     expect(calls[1].init.method).toBeUndefined();
   });
 
+  it('drains every catalog page for the pipeline editor', async () => {
+    const pages = [
+      { listings: [{ listing: { id: 'a' } }, { listing: { id: 'b' } }], hasMore: true },
+      { listings: [{ listing: { id: 'c' } }], hasMore: false },
+    ];
+    const paths: string[] = [];
+    const core = {
+      request: jest.fn<AnyFn>((path: string) => { paths.push(path); return Promise.resolve({ success: true, data: pages[paths.length - 1] }); }),
+      stepUpHeader: () => ({}),
+    } as unknown as ApiCore;
+    const all = await pluginInstallsApi(core).getAllPluginCatalog();
+    expect(all.map((e) => e.listing.id)).toEqual(['a', 'b', 'c']);
+    expect(paths).toEqual(['/api/plugins/catalog?limit=200&offset=0', '/api/plugins/catalog?limit=200&offset=2']);
+  });
+
+  it('install change requests hit their routes', async () => {
+    const { api, calls } = fakeCore();
+    await api.requestInstallChange('i/1', { version: '2.0.0', note: 'n' });
+    await api.listInstallChangeRequests();
+    await api.approveInstallChange('i1');
+    await api.rejectInstallChange('i1', 'no');
+    expect(calls.map((c) => [c.init.method ?? 'GET', c.path])).toEqual([
+      ['POST', '/api/plugins/installs/i%2F1/change-requests'],
+      ['GET', '/api/plugins/installs/change-requests'],
+      ['POST', '/api/plugins/installs/i1/change-requests/approve'],
+      ['POST', '/api/plugins/installs/i1/change-requests/reject'],
+    ]);
+    expect(body(calls[0].init)).toEqual({ version: '2.0.0', note: 'n' });
+    expect(body(calls[3].init)).toEqual({ reason: 'no' });
+  });
+
   it('reads a listing install state with encoded segments', async () => {
     const { api, calls } = fakeCore();
     await api.getListingInstallState('acme co', 'tf/plan');

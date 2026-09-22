@@ -9,9 +9,11 @@
  * The caller allow-list itself is pinned by route-coverage.test.ts.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import { jest } from '@jest/globals';
+import { jest, beforeAll, afterAll, beforeEach, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
 
@@ -43,15 +45,15 @@ jest.unstable_mockModule('../src/services/registry-gc.js', () => ({
   QUARANTINE_PREFIX: 'quarantine/',
 }));
 
-const emitImageRegistryAudit = jest.fn();
+const emitImageRegistryAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitImageRegistryAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
-    const ctx = { log: jest.fn(), requestId: 'test-req' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'test-req' };
     try {
       await handler({ req, res, ctx });
     } catch (err) {
@@ -92,7 +94,7 @@ beforeAll(async () => {
     next();
   });
   app.use('/internal', createInternalRoutes());
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 

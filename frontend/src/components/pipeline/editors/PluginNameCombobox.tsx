@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useId } from 'react';
 import { Input } from '@/components/ui/Input';
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import { ShadowingNotice } from '@/components/plugin-installs/ShadowingNotice';
@@ -43,6 +43,7 @@ type Option = { key: string; pick: PluginPick };
 export default function PluginNameCombobox({
   value, publisher, onChange, onSelectPlugin, disabled, label = 'Plugin', error,
 }: PluginNameComboboxProps) {
+  const uid = useId();
   const { open, setOpen, filter, activeIndex, setActiveIndex, wrapperRef, inputRef, handleInputChange, handleKeyDown, dismiss, listboxId, optionId, inputAriaProps } = useCombobox(onChange);
 
   const [hasOpened, setHasOpened] = useState(false);
@@ -82,7 +83,7 @@ export default function PluginNameCombobox({
 
   return (
     <div>
-      <label className="label">{label} Name *</label>
+      <label className="label" htmlFor={`${uid}-name`}>{label} Name *</label>
       <div ref={wrapperRef} className="relative">
         <div className="flex items-center gap-2">
           {publisher && (
@@ -91,6 +92,7 @@ export default function PluginNameCombobox({
             </span>
           )}
           <Input
+            id={`${uid}-name`}
             ref={inputRef}
             type="text"
             value={value}

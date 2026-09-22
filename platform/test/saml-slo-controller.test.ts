@@ -16,6 +16,7 @@
  *   - the sign-in records the IdP handle against the session's `sid`.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -94,7 +95,7 @@ function makeRes() {
   res.redirect = jest.fn().mockReturnValue(res);
   return res;
 }
-const redirectOf = (res: any) => (res.redirect as jest.Mock).mock.calls[0][1] as string;
+const redirectOf = (res: any) => (res.redirect as jest.Mock<AnyFn>).mock.calls[0][1] as string;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -116,7 +117,7 @@ describe('SP-initiated (POST /auth/sso/logout)', () => {
     await (startSsoLogout as any)(req, res);
     expect(mockFindOneAndDelete).toHaveBeenCalledWith({ userId: 'u1', sessionId: 'sess-1' });
     expect(mockBuildRequestUrl).toHaveBeenCalledWith(CFG, expect.objectContaining({ nameID: 'ada@acme.test', sessionIndex: '_s1' }), '');
-    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ redirectUrl: 'https://idp.test/slo?SAMLRequest=x&Signature=y' });
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0]).toEqual({ redirectUrl: 'https://idp.test/slo?SAMLRequest=x&Signature=y' });
     expect(mockAudit).toHaveBeenCalledWith(req, 'sso.saml.logout', expect.objectContaining({ details: { direction: 'sp', stage: 'request' } }));
   });
 
@@ -124,7 +125,7 @@ describe('SP-initiated (POST /auth/sso/logout)', () => {
     mockFindOneAndDelete.mockResolvedValue(null);
     const res = makeRes();
     await (startSsoLogout as any)(req, res);
-    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ redirectUrl: null });
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0]).toEqual({ redirectUrl: null });
     expect(mockBuildRequestUrl).not.toHaveBeenCalled();
   });
 
@@ -133,12 +134,12 @@ describe('SP-initiated (POST /auth/sso/logout)', () => {
     mockGetCfg.mockResolvedValue({ ...CFG, sloUrl: undefined });
     const noSlo = makeRes();
     await (startSsoLogout as any)(req, noSlo);
-    expect((noSlo.json as jest.Mock).mock.calls[0][0]).toEqual({ redirectUrl: null });
+    expect((noSlo.json as jest.Mock<AnyFn>).mock.calls[0][0]).toEqual({ redirectUrl: null });
 
     mockGetCfg.mockResolvedValue({ ...CFG, entityId: 'https://new-idp.test' });
     const repointed = makeRes();
     await (startSsoLogout as any)(req, repointed);
-    expect((repointed.json as jest.Mock).mock.calls[0][0]).toEqual({ redirectUrl: null });
+    expect((repointed.json as jest.Mock<AnyFn>).mock.calls[0][0]).toEqual({ redirectUrl: null });
     expect(mockBuildRequestUrl).not.toHaveBeenCalled();
   });
 });

@@ -5,7 +5,7 @@ import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals
 import { createScheduler } from '../src/services/scheduler.js';
 
 describe('createScheduler', () => {
-  beforeEach(() => jest.useFakeTimers());
+  beforeEach(() => { jest.useFakeTimers(); });
   afterEach(() => { jest.clearAllTimers(); jest.useRealTimers(); });
 
   it('runs once on start, then every interval, and stops cleanly', async () => {
@@ -65,7 +65,7 @@ describe('createScheduler', () => {
   });
 
   it('with a lock, runs the cycle only when the lock is acquired', async () => {
-    const acquired = { set: jest.fn(async () => 'OK'), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
+    const acquired = { set: jest.fn(async (..._args: unknown[]) => 'OK'), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
     const run = jest.fn<() => Promise<void>>(async () => {});
     const s = createScheduler({ name: 'test', intervalMs: 1000, run, lock: { redis: () => acquired, key: 'k', ttlMs: 500 } });
     s.start();
@@ -76,7 +76,7 @@ describe('createScheduler', () => {
   });
 
   it('with a lock, skips the cycle when another holder owns it (SET NX → null)', async () => {
-    const contended = { set: jest.fn(async () => null), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
+    const contended = { set: jest.fn(async (..._args: unknown[]) => null), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
     const run = jest.fn<() => Promise<void>>(async () => {});
     const s = createScheduler({ name: 'test', intervalMs: 1000, run, lock: { redis: () => contended, key: 'k', ttlMs: 500 } });
     s.start();

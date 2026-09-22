@@ -10,23 +10,25 @@
  * filter to the service layer.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import * as z from 'zod';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockFind = jest.fn();
-const mockIncrementQuotaFromCtx = jest.fn();
+const mockFind = jest.fn<AnyFn>();
+const mockIncrementQuotaFromCtx = jest.fn<AnyFn>();
 const mockNormalizeArrayFields = jest.fn((p: unknown) => p);
 const mockSendBadRequest = jest.fn((res: any, msg: string, code?: string) =>
   res.status(400).json({ message: msg, code }));
 const mockSendSuccess = jest.fn((res: any, status: number, data: any) =>
   res.status(status).json({ success: true, statusCode: status, data }));
-const mockSendEntityNotFound = jest.fn((res: any) => res.status(404).json({}));
-const mockSendError = jest.fn((res: any, status: number, msg: string, code?: string) =>
+const mockSendEntityNotFound = jest.fn((res: any, ..._rest: unknown[]) => res.status(404).json({}));
+const mockSendError = jest.fn((res: any, status: number, msg: string, code?: string, ..._rest: unknown[]) =>
   res.status(status).json({ message: msg, code }));
 const mockVerify = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const mockFetchSbom = jest.fn<(...a: unknown[]) => Promise<Record<string, unknown>>>();
-const mockFindById = jest.fn();
+const mockFindById = jest.fn<AnyFn>();
 
 class ImageVerificationError extends Error {
   constructor(message: string) { super(message); this.name = 'ImageVerificationError'; }
@@ -49,7 +51,7 @@ jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
-  pluginService: { find: mockFind, findFirst: mockFind, findPaginated: jest.fn(), findById: mockFindById },
+  pluginService: { find: mockFind, findFirst: mockFind, findPaginated: jest.fn<AnyFn>(), findById: mockFindById },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -77,33 +79,30 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }).strict(),
 }));
 
-const mockIncCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+const mockIncCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: (...a: unknown[]) => mockIncCounter(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {
-    await handler({ req, res, ctx: { log: jest.fn() }, orgId: 'org-1', userId: 'u-1' });
+    await handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: 'org-1', userId: 'u-1' });
   },
   incrementQuotaFromCtx: (...a: unknown[]) => mockIncrementQuotaFromCtx(...a),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
   CoreConstants: { CACHE_CONTROL_LIST: 'public, max-age=60', CACHE_CONTROL_DETAIL: 'public, max-age=300' },
   Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },
-  db: { execute: jest.fn().mockResolvedValue({ rows: [] }) },
-  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  CoreConstants: { CACHE_CONTROL_LIST: 'public, max-age=60', CACHE_CONTROL_DETAIL: 'public, max-age=300' },
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
   isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
-  db: { execute: jest.fn().mockResolvedValue({ rows: [] }) },
-  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
+  db: { execute: jest.fn<AnyFn>().mockResolvedValue({ rows: [] }) },
+  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn<AnyFn>().mockResolvedValue({ rows: [] }) })),
 }));;
 
 const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 
-const stubQuotaService = { increment: jest.fn() } as any;
+const stubQuotaService = { increment: jest.fn<AnyFn>() } as any;
 
 function getLookupHandler() {
   const router = createReadPluginRoutes(stubQuotaService);
@@ -117,14 +116,14 @@ function getLookupHandler() {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
-  const setHeader = jest.fn();
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
+  const setHeader = jest.fn<AnyFn>();
   return { res: { status, json, setHeader }, status, json };
 }
 
 describe('POST /plugins/lookup — filter validation', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns 400 when filter is missing', async () => {
     const handler = getLookupHandler();
@@ -268,16 +267,16 @@ function getSbomHandler() {
 }
 
 function makeDownloadRes() {
-  const send = jest.fn();
-  const type = jest.fn().mockReturnValue({ send });
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json, type });
-  const setHeader = jest.fn();
+  const send = jest.fn<AnyFn>();
+  const type = jest.fn<AnyFn>().mockReturnValue({ send });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json, type });
+  const setHeader = jest.fn<AnyFn>();
   return { res: { status, json, setHeader }, status, type, send, setHeader };
 }
 
 describe('GET /plugins/:id/sbom', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   const imagePlugin = {
     id: 'p1',
@@ -370,7 +369,7 @@ describe('lookupWarnings', () => {
 });
 
 describe('POST /plugins/lookup — answer carries warnings', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('resolves with the exact-name / not-yanked filter and returns { plugin, warnings }', async () => {
     mockFind.mockResolvedValue({

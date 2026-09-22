@@ -66,6 +66,10 @@ spec:
               valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-access-key } }
             - name: PLUGIN_S3_SECRET_KEY
               valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-secret-key } }
+            - name: AUDIT_HEADS_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: audit-heads-access-key } }
+            - name: AUDIT_HEADS_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: audit-heads-secret-key } }
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -83,6 +87,10 @@ spec:
               }
               until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
               for b in message-attachments registry loki thanos plugins plugin-quarantine; do mc mb --ignore-existing "local/$b"; done
+              # Object Lock can only be switched on at bucket creation.
+              mc mb --ignore-existing --with-lock local/audit-heads
+              mc retention info local/audit-heads --default >/dev/null 2>&1 \
+                || die "audit-heads exists WITHOUT Object Lock — delete and let minio-init recreate it"
               # These were `|| true`. They are re-run every provision and fail
               # benignly when already configured, but the blanket mask also hid
               # real failures — and a silently-absent lifecycle rule is not
@@ -132,6 +140,16 @@ spec:
               echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
               run_ok "policy create plugin-quarantine-rw" mc admin policy create local plugin-quarantine-rw /tmp/q.json
               run_ok "policy attach plugin-quarantine-rw -> plugins user" mc admin policy attach local plugin-quarantine-rw --user "$PLUGIN_S3_ACCESS_KEY"
+              # audit-heads: the platform's signed audit chain-head export. Created
+              # WITH Object Lock (write-once; versioning implied), and its user may
+              # only Put (with its lock headers)/Get/List — no delete — so not even a
+              # stolen platform credential can erase the heads that expose a
+              # truncated audit log.
+              echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectRetention","s3:GetObject","s3:GetObjectVersion"],"Resource":["arn:aws:s3:::audit-heads/*"]},{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketObjectLockConfiguration"],"Resource":["arn:aws:s3:::audit-heads"]}]}' > /tmp/a.json
+              run_ok "policy create audit-heads-put" mc admin policy create local audit-heads-put /tmp/a.json
+              mc admin user add local "$AUDIT_HEADS_ACCESS_KEY" "$AUDIT_HEADS_SECRET_KEY" || die "user add audit-heads failed"
+              run_ok "policy attach audit-heads-put" mc admin policy attach local audit-heads-put --user "$AUDIT_HEADS_ACCESS_KEY"
+              mc admin user info local "$AUDIT_HEADS_ACCESS_KEY" >/dev/null || die "user audit-heads missing after add"
               echo 'minio-init done'
 ---
 apiVersion: v1

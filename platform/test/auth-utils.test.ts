@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, test } from '@jest/globals';
-import jwt from 'jsonwebtoken';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
@@ -15,13 +15,13 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: jest.fn(),
+  sendError: jest.fn<AnyFn>(),
   // Consumed transitively via token.js -> org-hierarchy.js.
   resolveUserFeatures: jest.fn(() => ({})),
   resolveUserPermissions: jest.fn(() => []),
-  resolveOrgLineageWith: jest.fn(),
-  isAncestorOrgWith: jest.fn(),
-  expandOrgScopeWith: jest.fn(),
+  resolveOrgLineageWith: jest.fn<AnyFn>(),
+  isAncestorOrgWith: jest.fn<AnyFn>(),
+  expandOrgScopeWith: jest.fn<AnyFn>(),
   toOrgIdString: (id: unknown) => String(id),
 }));
 
@@ -30,8 +30,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: {},
   UserPreferences: {},
   Organization: {
-    findById: jest.fn().mockReturnValue({
-      select: jest.fn().mockResolvedValue(null),
+    findById: jest.fn<AnyFn>().mockReturnValue({
+      select: jest.fn<AnyFn>().mockResolvedValue(null),
     }),
   },
   User: {},

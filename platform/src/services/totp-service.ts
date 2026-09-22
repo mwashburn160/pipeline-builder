@@ -52,7 +52,7 @@ import {
   TOTP_SSO_ENFORCED,
 } from './totp-errors.js';
 import { config } from '../config/index.js';
-import { loadSignInMethods, retainsSignInMethod } from '../helpers/sign-in-methods.js';
+import { removeUnlessLastSignInMethod } from '../helpers/sign-in-methods.js';
 import { findSsoEnforcementForEmail } from '../helpers/sso-enforcement.js';
 import { User, UserTotp } from '../models/index.js';
 import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob.js';
@@ -223,8 +223,10 @@ export async function activate(userId: string, code: string): Promise<{ recovery
     throw new Error(TOTP_INVALID_CODE);
   }
 
-  await UserTotp.updateOne(
-    { userId },
+  // The lockout is re-checked IN the write (see `notLockedOut`): a guess that
+  // read the enrolment before a parallel run of failures locked it can't land.
+  const claimed = await UserTotp.findOneAndUpdate(
+    { userId, activatedAt: null, lastUsedStep: doc.lastUsedStep, ...notLockedOut() },
     {
       $set: {
         activatedAt: new Date(),
@@ -234,7 +236,9 @@ export async function activate(userId: string, code: string): Promise<{ recovery
         lockedUntil: null,
       },
     },
-  );
+    { projection: { _id: 1 } },
+  ).lean();
+  if (!claimed) await refuseLostClaim(userId);
   const recoveryCodes = await issueRecoveryCodesIfAbsent(userId);
   logger.info('TOTP enrolment activated', { userId, recoveryCodesMinted: !!recoveryCodes });
   return { recoveryCodes: recoveryCodes ?? [] };
@@ -262,15 +266,15 @@ export async function verifyCode(userId: string, code: string): Promise<TotpVeri
   if (step !== null) {
     // CONDITIONAL on the step we read: of two concurrent uses of the same code,
     // only the first update matches, and the loser is treated as a replay.
+    // The lockout is part of the same condition, so a correct guess that read
+    // the enrolment just before a parallel run of failures locked it is refused
+    // too — the lockout can't be raced.
     const claimed = await UserTotp.findOneAndUpdate(
-      { userId, lastUsedStep: doc.lastUsedStep },
+      { userId, lastUsedStep: doc.lastUsedStep, ...notLockedOut() },
       { $set: { lastUsedStep: step, lastUsedAt: new Date(), failedAttempts: 0, lockedUntil: null } },
       { projection: { _id: 1 } },
     ).lean();
-    if (!claimed) {
-      await recordFailure(userId);
-      throw new Error(TOTP_INVALID_CODE);
-    }
+    if (!claimed) await refuseLostClaim(userId);
     return {
       method: 'totp',
       recoveryCodesRemaining: (await getRecoveryCodeStatus(userId)).remaining,
@@ -300,12 +304,30 @@ export async function verifyCode(userId: string, code: string): Promise<TotpVeri
 export async function disable(userId: string): Promise<void> {
   const existing = await UserTotp.exists({ userId, activatedAt: { $ne: null } });
   if (!existing) throw new Error(TOTP_NOT_ENROLLED);
-  if (!retainsSignInMethod(await loadSignInMethods(userId), 'totp')) {
-    throw new Error(TOTP_LAST_SIGN_IN_METHOD);
-  }
-  await UserTotp.deleteOne({ userId });
+  // The last-method check and the delete are ONE atomic decision (see
+  // `removeUnlessLastSignInMethod`), so a concurrent credential removal can't
+  // slip between them.
+  await removeUnlessLastSignInMethod(userId, 'totp', TOTP_LAST_SIGN_IN_METHOD, async (session) =>
+    (await UserTotp.deleteOne({ userId }, { session })).deletedCount > 0);
   const codesRemoved = await removeRecoveryCodesIfNoFactor(userId);
   logger.info('TOTP disabled', { userId, recoveryCodesRemoved: codesRemoved });
+}
+
+/** The filter half that makes a claim land only while no lockout is live. */
+function notLockedOut(): { $or: Array<Record<string, unknown>> } {
+  return { $or: [{ lockedUntil: null }, { lockedUntil: { $lte: new Date() } }] };
+}
+
+/**
+ * A conditional claim missed: either a lockout landed meanwhile
+ * (`TOTP_LOCKED_OUT`), or a concurrent use of the same code won — a replay,
+ * counted as a failure (`TOTP_INVALID_CODE`). Always throws.
+ */
+async function refuseLostClaim(userId: string): Promise<never> {
+  const now = await UserTotp.findOne({ userId }).select('lockedUntil').lean() as { lockedUntil?: Date | null } | null;
+  assertNotLockedOut(now?.lockedUntil);
+  await recordFailure(userId);
+  throw new Error(TOTP_INVALID_CODE);
 }
 
 /** Refuse every verification while a lockout is live. */

@@ -92,9 +92,13 @@ export function Modal({
   return createPortal(
     <>
     <div className="modal-backdrop" onClick={requestClose} role="presentation">
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- stopPropagation only, see onClick */}
       <div
         ref={panelRef}
         className={panelClasses}
+        // Not an interaction: it only keeps a click INSIDE the dialog from
+        // reaching the backdrop's close handler (React bubbles through portals,
+        // so a target-check on the backdrop would not cover nested popovers).
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

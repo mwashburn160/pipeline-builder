@@ -104,11 +104,38 @@ const DEPLOYS_TAG = 'pb.deploys';
 // account id, so it is safe to read/forward.
 const ORG_ID_TAG = 'OrgId';
 const clientsByRegion = new Map<string, CodePipelineClientLike>();
-// pipelineId=null is a negative cache (resolved-but-untagged); `ts` lets negatives
-// expire so a pipeline tagged AFTER its first event becomes resolvable without
-// recycling the warm container. Positive results stay cached for the lifetime.
-const resolvedByArn = new Map<string, { pipelineId: string | null; orgId: string | null; deploys: Map<string, string>; ts: number }>();
+
+/**
+ * A Map that holds at most `max` entries, evicting the least recently SET one.
+ * Every per-key cache in this module is keyed by something unbounded (pipeline
+ * ARN, pipeline × commit, org), and a fleet forwarder's warm container can live
+ * for hours across thousands of pipelines — an unbounded Map is a slow leak that
+ * ends in an OOM-killed Lambda and a redelivered batch.
+ */
+class BoundedMap<K, V> extends Map<K, V> {
+  constructor(private readonly max: number) { super(); }
+  override set(key: K, value: V): this {
+    if (super.has(key)) {
+      super.delete(key); // refresh recency
+    } else if (this.size >= this.max) {
+      const oldest = this.keys().next().value;
+      if (oldest !== undefined) super.delete(oldest);
+    }
+    return super.set(key, value);
+  }
+}
+
+/** Upper bound for every per-key cache below. */
+const CACHE_MAX_ENTRIES = 5000;
+
+// `ts` lets BOTH outcomes expire: a negative (resolved-but-untagged) so a
+// pipeline tagged AFTER its first event becomes resolvable, and a positive so a
+// re-synth that changes `pb.deploys` (a stage renamed, an environment added) or
+// `OrgId` is picked up without recycling the warm container — a lifetime cache
+// kept attributing deploys to stages that no longer exist.
+const resolvedByArn = new BoundedMap<string, { pipelineId: string | null; orgId: string | null; deploys: Map<string, string>; ts: number }>(CACHE_MAX_ENTRIES);
 const NEG_CACHE_TTL_MS = 5 * 60 * 1000;
+const POS_CACHE_TTL_MS = 15 * 60 * 1000;
 
 /** Resolved pipeline metadata read from the CodePipeline resource tags. */
 interface ResolvedPipeline {
@@ -161,9 +188,9 @@ async function pipelineClient(region: string): Promise<CodePipelineClientLike> {
  */
 async function resolvePipeline(arn: string, region: string): Promise<ResolvedPipeline> {
   const cached = resolvedByArn.get(arn);
-  // Serve a positive hit for the container lifetime; serve a negative hit only
-  // until it expires (then re-resolve, in case the pipeline was since tagged).
-  if (cached && (cached.pipelineId !== null || Date.now() - cached.ts < NEG_CACHE_TTL_MS)) {
+  // Serve a hit until its TTL (short for a negative, longer for a positive),
+  // then re-resolve so tag changes land.
+  if (cached && Date.now() - cached.ts < (cached.pipelineId !== null ? POS_CACHE_TTL_MS : NEG_CACHE_TTL_MS)) {
     return { pipelineId: cached.pipelineId, orgId: cached.orgId, deploys: cached.deploys };
   }
   try {
@@ -385,13 +412,16 @@ interface CommitInfo { commitTimestamp?: string; commitCount?: number }
 
 // Per-(pipeline,sha) resolved result — computed once, reused across the many events
 // (PIPELINE/STAGE/ACTION) that share a source revision and across redeliveries.
-const commitResultCache = new Map<string, CommitInfo>();
+// Only RESOLVED results are cached — an empty `{}` (SCM cooldown, a timeout, a
+// 404 from a repo whose token was just added) must not pin "no commit info" for
+// that sha for the container's lifetime.
+const commitResultCache = new BoundedMap<string, CommitInfo>(CACHE_MAX_ENTRIES);
 // Last sha we successfully resolved per pipeline — the exclusive lower bound for the
 // next range ("commits since the last deploy"). In-memory only: a cold start resets
 // it, so the first post-cold event resolves as a single commit (expected, defensive).
-const lastShaByPipeline = new Map<string, string>();
+const lastShaByPipeline = new BoundedMap<string, string>(CACHE_MAX_ENTRIES);
 // Per-sha CodeCommit metadata cache (date + first-parent) for range walks.
-const commitMetaCache = new Map<string, { date?: string; parents?: string[] }>();
+const commitMetaCache = new BoundedMap<string, { date?: string; parents?: string[] }>(CACHE_MAX_ENTRIES);
 // SCM rate-limit cooldown: after a 403/429 we stop calling the SCM for a while.
 let scmCooldownUntil = 0;
 const SCM_COOLDOWN_MS = 2 * 60 * 1000;
@@ -405,7 +435,7 @@ const SCM_FETCH_TIMEOUT_MS = 3000;
 // container-global token). Each org's token lives at `<prefix>/<orgId>/github-token`,
 // derived from PLATFORM_SECRET_NAME (`<prefix>/<containerOrg>/platform`). null caches
 // a definitive miss (no secret / read failed) → unauthenticated best-effort.
-const githubTokenByOrg = new Map<string, string | null>();
+const githubTokenByOrg = new BoundedMap<string, string | null>(CACHE_MAX_ENTRIES);
 
 /**
  * Derive a specific org's github-token secret name from PLATFORM_SECRET_NAME
@@ -624,8 +654,10 @@ async function resolveCommitInfo(pipelineId: string, orgId: string | null, regio
     info = {};
   }
 
-  commitResultCache.set(rkey, info);
-  if (info.commitTimestamp) lastShaByPipeline.set(pipelineId, src.sha);
+  if (info.commitTimestamp) {
+    commitResultCache.set(rkey, info);
+    lastShaByPipeline.set(pipelineId, src.sha);
+  }
   return info;
 }
 
@@ -885,8 +917,8 @@ async function sqsClient(region: string): Promise<SqsClientLike> {
 // throughput to another). Keyed by orgId ('' bucket = pipeline with no OrgId tag).
 // The DLQ depth (`dropped`) is genuinely fleet-global — one shared DLQ — so it is a
 // single snapshot posted alongside each org's health, documented as the shared depth.
-const forwardedByOrg = new Map<string, number>();
-const lastEventAtByOrg = new Map<string, string>();
+const forwardedByOrg = new BoundedMap<string, number>(CACHE_MAX_ENTRIES);
+const lastEventAtByOrg = new BoundedMap<string, string>(CACHE_MAX_ENTRIES);
 let lastHealthAt = 0;
 let lastRedriveAt = 0;
 const HEALTH_THROTTLE_MS = 60 * 1000;

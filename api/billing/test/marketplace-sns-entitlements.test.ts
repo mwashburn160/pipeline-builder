@@ -21,7 +21,9 @@
  * network + crypto).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSendSuccess = jest.fn((res: any, status: number, data: unknown) => {
@@ -37,21 +39,21 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAuth: () => (_req: any, _res: any, next: () => void) => next(),
 }));
 
-const mockIncCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+const mockIncCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: (...a: unknown[]) => mockIncCounter(...a),
   withRoute: (handler: Function) => async (req: any, res: any) =>
-    handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId }),
+    handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.orgId }),
 }));
 
 // Mutable so a test can flip the expected SNS topic ARN.
 const mockConfig = { marketplace: { snsTopicArns: [] as string[] } };
 jest.unstable_mockModule('../src/config.js', () => ({ config: mockConfig }));
 
-const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-08-01T00:00:00.000Z'));
-const mockCreateBillingEvent = jest.fn(async () => undefined);
-const mockRecordReactivate = jest.fn(async () => undefined);
-const mockSyncEntitlements = jest.fn(async () => undefined);
+const mockCalculatePeriodEnd = jest.fn((..._args: unknown[]) => new Date('2026-08-01T00:00:00.000Z'));
+const mockCreateBillingEvent = jest.fn(async (..._args: unknown[]) => undefined);
+const mockRecordReactivate = jest.fn(async (..._args: unknown[]) => undefined);
+const mockSyncEntitlements = jest.fn(async (..._args: unknown[]) => undefined);
 // Double-billing prune: default no-op (returns []); a dedicated test overrides it.
 const mockApplyTierIncludedAddonPrune = jest.fn(
   (_sub: { addons?: Array<{ bundleId: string; quantity: number }> }) => [] as Array<{ bundleId: string; features: string[] }>,
@@ -107,10 +109,12 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 const mockClaimWebhookEvent = jest.fn<(...a: unknown[]) => Promise<string | null>>();
 const mockMarkWebhookEventDone = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockReleaseWebhookEvent = jest.fn<(...a: unknown[]) => Promise<void>>();
+const mockWebhookEventStatus = jest.fn<(...a: unknown[]) => Promise<string | null>>();
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
   claimWebhookEvent: (...a: unknown[]) => mockClaimWebhookEvent(...a),
   markWebhookEventDone: (...a: unknown[]) => mockMarkWebhookEventDone(...a),
   releaseWebhookEvent: (...a: unknown[]) => mockReleaseWebhookEvent(...a),
+  webhookEventStatus: (...a: unknown[]) => mockWebhookEventStatus(...a),
 }));
 
 const mockGetEntitlements = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -155,8 +159,8 @@ function getHandler(method: string, path: string) {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -321,6 +325,7 @@ describe('POST /marketplace/sns — idempotency', () => {
 
   it('short-circuits a duplicate delivery with 200 and skips all side-effects', async () => {
     mockClaimWebhookEvent.mockResolvedValue(null); // already processed
+    mockWebhookEventStatus.mockResolvedValue('done');
     const res = mockRes();
     await handler({ body: snsEnvelope({ Type: 'Notification', Message: notification('unsubscribe-success') }) }, res);
 
@@ -331,6 +336,18 @@ describe('POST /marketplace/sns — idempotency', () => {
     expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
     expect(mockReleaseWebhookEvent).not.toHaveBeenCalled();
+    expect(mockMarkWebhookEventDone).not.toHaveBeenCalled();
+  });
+
+  it('answers 503 (retry) — not 200 — when a concurrent delivery holds a LIVE claim', async () => {
+    mockClaimWebhookEvent.mockResolvedValue(null);
+    mockWebhookEventStatus.mockResolvedValue('in_progress');
+    const res = mockRes();
+    res.setHeader = jest.fn<AnyFn>();
+    await handler({ body: snsEnvelope({ Type: 'Notification', Message: notification('unsubscribe-success') }) }, res);
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
     expect(mockMarkWebhookEventDone).not.toHaveBeenCalled();
   });
 
@@ -463,7 +480,7 @@ describe('POST /marketplace/sns — Notification status changes', () => {
   });
 
   it('takes the NEWEST subscription for the customer (sort createdAt desc)', async () => {
-    const sortSpy = jest.fn(() => Promise.resolve(subDoc()));
+    const sortSpy = jest.fn((..._args: unknown[]) => Promise.resolve(subDoc()));
     mockSubscriptionFindOne.mockReturnValue({ sort: sortSpy });
     const res = mockRes();
     await handler({ body: snsEnvelope({ Message: notification('subscribe-success') }) }, res);
@@ -566,7 +583,8 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
 
     // Cadence re-derived + period advanced; persisted.
     expect(doc.interval).toBe('annual');
-    expect(doc.currentPeriodEnd).toEqual(new Date('2026-08-01T00:00:00.000Z')); // from mockCalculatePeriodEnd
+    // Period end = AWS's own term end (the entitlement expiry), not a wall-clock guess.
+    expect(doc.currentPeriodEnd).toEqual(ANNUAL_EXP);
     expect(doc.save).toHaveBeenCalledTimes(1);
     // No tier change → no entitlement sync, but an interval_changed row is recorded.
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
@@ -576,6 +594,18 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
       'sub-1',
     );
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('ADVANCES the period to the entitlement expiry on a same-plan renewal (still entitled)', async () => {
+    const doc = subDoc({ status: 'active', planId: 'team', interval: 'annual', currentPeriodEnd: new Date(Date.now() - 86_400_000) });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: ANNUAL_EXP }]);
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+
+    expect(doc.currentPeriodEnd).toEqual(ANNUAL_EXP);
+    expect(doc.save).toHaveBeenCalledTimes(1);
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
   });
 
   it('keeps an annual sub ANNUAL when the shrinking horizon (<180d) would derive monthly — no re-cadence, no period reset', async () => {

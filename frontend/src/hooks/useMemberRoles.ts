@@ -55,7 +55,7 @@ export function useMemberRoles({ orgId, canManageRoles, isAuthenticated, onRoles
   }, [orgId, canManageRoles]);
 
   useEffect(() => {
-    if (isAuthenticated && canManageRoles && orgId) fetchRoles();
+    if (isAuthenticated && canManageRoles && orgId) void fetchRoles();
   }, [isAuthenticated, canManageRoles, orgId, fetchRoles]);
 
   // The Roles a member currently holds — read straight off the roster payload

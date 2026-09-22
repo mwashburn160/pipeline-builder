@@ -31,13 +31,14 @@ jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastMod
 // button that "verifies" with a fixed token.
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ title, details, onConfirmed, onClose }: {
-    title?: string; details?: ReactNode; onConfirmed: (t: string) => Promise<void>; onClose: () => void;
+  StepUpModal: ({ title, details, onConfirmed, onClose, confirmDisabledReason }: {
+    title?: string; details?: ReactNode; onConfirmed: (t: string) => Promise<void>; onClose: () => void; confirmDisabledReason?: string | null;
   }) => (
     <div data-testid="step-up">
       <p>{title}</p>
       {details}
-      <button onClick={() => { void onConfirmed('step-tok').then(onClose, () => {}); }}>Verify step-up</button>
+      {confirmDisabledReason && <p>{confirmDisabledReason}</p>}
+      <button disabled={!!confirmDisabledReason} onClick={() => { void onConfirmed('step-tok').then(onClose, () => {}); }}>Verify step-up</button>
     </div>
   ),
 }));
@@ -147,6 +148,19 @@ const openDetail = async (item: Record<string, unknown>) => {
 };
 
 describe('Publish queue — overview and filters', () => {
+  it('pages through the queue (oldest first for open requests) and says how much is left', async () => {
+    api.listEcosystemRequests
+      .mockResolvedValueOnce({ success: true, data: { requests: [baseItem], total: 2, nextCursor: 'c1' } })
+      .mockResolvedValueOnce({ success: true, data: { requests: [{ ...baseItem, id: 'r2' }], total: 2, nextCursor: null } });
+    render(<PublishQueuePanel can={canAll} />);
+    expect(await screen.findByTestId('queue-count')).toHaveTextContent('Showing 1 of 2 — oldest first');
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(api.listEcosystemRequests).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'open', cursor: 'c1' })));
+    expect(await screen.findByTestId('queue-item-r2')).toBeInTheDocument();
+    expect(screen.getByTestId('queue-count')).toHaveTextContent('Showing 2 of 2');
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+  });
+
   it('shows pending counts, bootstrap state and the runbook link', async () => {
     render(<PublishQueuePanel can={canAll} />);
     const ov = await screen.findByTestId('queue-overview');
@@ -356,6 +370,28 @@ describe('Auto-approval rules', () => {
     }, 'step-tok'));
   });
 
+  it('a refused save returns to the FILLED form with the reason', async () => {
+    api.listAutoRules.mockResolvedValue({ success: true, data: { rules: [] } });
+    api.createAutoRule.mockRejectedValue(new Error('Invalid conditions: bumps: bad'));
+    render(<AutoApprovalRulesPanel can={canAll} currentUserId="u-me" />);
+    fireEvent.click(await screen.findByRole('button', { name: /new rule/i }));
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: 'Minor bumps' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
+    expect(await screen.findByText('Invalid conditions: bumps: bad')).toBeInTheDocument();
+    expect(screen.getByLabelText(/^name/i)).toHaveValue('Minor bumps');
+  });
+
+  it('refuses an incomplete rule before the step-up, not after it', async () => {
+    api.listAutoRules.mockResolvedValue({ success: true, data: { rules: [] } });
+    render(<AutoApprovalRulesPanel can={canAll} currentUserId="u-me" />);
+    fireEvent.click(await screen.findByRole('button', { name: /new rule/i }));
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: 'No bumps' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Patch' }));
+    expect(screen.getByText(/which version bumps/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  });
+
   it('warns that a superadmin must be the second approver with fewer than two managers', async () => {
     api.getEcosystemOverview.mockResolvedValue({ success: true, data: overview(1) });
     api.listAutoRules.mockResolvedValue({ success: true, data: { rules: [] } });
@@ -397,8 +433,9 @@ describe('Publisher verification', () => {
   it('suspending needs a reason and step-up', async () => {
     render(<PublisherVerificationPanel can={canAll} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Suspend acme' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
-    await waitFor(() => expect(api.suspendPublisher).not.toHaveBeenCalled());
+    // The reason is required BEFORE the step-up can be spent.
+    expect(screen.getByRole('button', { name: 'Verify step-up' })).toBeDisabled();
+    expect(api.suspendPublisher).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText(/reason/i), { target: { value: 'Malware' } });
     fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
     await waitFor(() => expect(api.suspendPublisher).toHaveBeenCalledWith('pub1', 'Malware', 'step-tok'));

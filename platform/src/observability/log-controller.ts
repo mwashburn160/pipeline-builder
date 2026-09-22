@@ -88,7 +88,8 @@ export function resolveWindow(query: Request['query']): ResolvedWindow | { error
   }
 
   const range = parseQueryString(query.range) ?? '1h';
-  const span = PRESETS[range];
+  // Own keys only — `?range=constructor` must not resolve through the prototype.
+  const span = Object.hasOwn(PRESETS, range) ? PRESETS[range] : undefined;
   if (span === undefined) {
     return { error: `Invalid range — must be one of ${Object.keys(PRESETS).join(', ')}, or from/to` };
   }
@@ -228,6 +229,11 @@ export const logContext = withController('Log context', async (req, res) => {
     const tenants = await tenantsForRequest(req, sysadmin);
     if (sysadmin) auditCrossOrgRead(req, tenants, 'context');
     const logQL = buildLogQL(filter);
+    // `after` deliberately STARTS AT `atMs` (inclusive): timestamps here are
+    // milliseconds while Loki's are nanoseconds, so starting one ms later would
+    // drop every other line that shares the anchor's millisecond. The anchor
+    // itself therefore comes back in `after`; the client drops that one copy by
+    // identity (time + line + labels), which only it can do.
     const [before, after] = await Promise.all([
       loki.queryLogs(logQL, tenants, { startMs: atMs - span, endMs: atMs, limit, direction: 'backward' }),
       loki.queryLogs(logQL, tenants, { startMs: atMs, endMs: atMs + span, limit, direction: 'forward' }),

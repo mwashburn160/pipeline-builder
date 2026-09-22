@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useId } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -24,6 +24,7 @@ interface RegistryGcModalProps {
  * an in-app confirm first.
  */
 export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGcModalProps) {
+  const uid = useId();
   const toast = useToast();
   const [gcPrefix, setGcPrefix] = useState('');
   const [gcDryRun, setGcDryRun] = useState(true);
@@ -90,8 +91,8 @@ export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGc
               trailing slash is added automatically.
             </p>
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-fg-muted">Namespace prefix</label>
-              <Input
+              <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-namespace-prefix`}>Namespace prefix</label>
+              <Input id={`${uid}-namespace-prefix`}
                 type="text"
                 placeholder="org-acme/"
                 value={gcPrefix}

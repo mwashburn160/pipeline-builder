@@ -90,7 +90,9 @@ export function organizationsApi(core: ApiCore) {
     // Organization endpoints
     // ============================================
     /** `opts.signal` cancels the request on the wire (shared query cache / debounced pickers). */
-    listOrganizations: async (params?: { search?: string; tier?: QuotaTier; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
+    /** `ids` (comma-joined, ≤ 100) resolves exactly those orgs — for naming
+     *  the ids a page shows rather than paging the fleet. */
+    listOrganizations: async (params?: { search?: string; tier?: QuotaTier; ids?: string; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ organizations: OrganizationListItem[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`, { signal: opts?.signal });
     },
 
@@ -447,7 +449,8 @@ export function organizationsApi(core: ApiCore) {
     ) => {
       return core.request<ApiResponse<{ key: string; accessKey: AccessKeyMeta }>>(
         `/api/organization/${orgId}/service-accounts/${accountId}/keys`,
-        { method: 'POST', headers: core.stepUpHeader(stepUpToken), body: JSON.stringify(data) },
+        // The key is shown once: never replayed by the global dialog.
+        { method: 'POST', replayOnStepUp: false, headers: core.stepUpHeader(stepUpToken), body: JSON.stringify(data) },
       );
     },
 

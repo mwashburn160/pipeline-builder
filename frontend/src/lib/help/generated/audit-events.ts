@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ce9d233d65726d41e30488a1750e07a2bcde3be15a460c7d28d3bfee873883e6
+// SOURCE-SHA256: fdcc8fc9c8c4bfd67acfb607084cfb6f1bf6cf7aea213f85689007aac4e082f4
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -65,7 +65,7 @@ export const auditEventsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This reference explains how Pipeline Builder produces, secures, and queries its audit trail, and catalogs every action it records. It's for compliance reviewers and operators. It covers the emitter paths (platform-direct writes, the service-remote POST /audit/events ingest, and the registry's Loki structured logs), the per-tenant SHA-256 hash-chain integrity model, sensitive-data scrubbing, and the full action catalog — platform-emitted lifecycle events plus the REMOTE_AUDIT_ACTIONS subset (including billing subscription, tier, addon, and discount actions). The catalog stays in sync with the AuditAction union in code; see Adding a new audit event to extend it."
+          "content": "This reference explains how Pipeline Builder produces, secures, and queries its audit trail, and catalogs every action it records. It's for compliance reviewers and operators. It covers the emitter paths (platform-direct writes, the service-remote POST /audit/events ingest, and the registry's Loki structured logs), the per-tenant HMAC hash-chain integrity model (with write-once published heads), sensitive-data scrubbing, and the full action catalog — platform-emitted lifecycle events plus the REMOTE_AUDIT_ACTIONS subset (including billing subscription, tier, addon, and discount actions). The catalog stays in sync with the AuditAction union in code; see Adding a new audit event to extend it."
         }
       ]
     },
@@ -75,7 +75,82 @@ export const auditEventsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Every event is linked into a per-tenant SHA-256 hash chain: each row stores a hash over its immutable fields plus the prevHash of the previous event in the same chain (chain key = affectedOrgId ?? orgId). Altering, reordering, or deleting a stored event breaks the chain."
+          "content": "Every event is linked into a per-tenant HMAC hash chain (chain key = affectedOrgId ?? orgId):"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Sequence, not clock. Each event gets the next per-chain seq"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "(audit_chain_heads holds each chain's { seq, hash }; it has no TTL). A UNIQUE (affectedOrgId, seq) index is the cross-replica compare-and-set, so concurrent writers can never fork a chain, and ordering never depends on replica clocks."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Keyed digest. `hash = HMAC-SHA256(AUDIT_CHAIN_HMAC_KEY, canonical fields +"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "seq + prevHash). The key is an env / KMS-backed secret that is never stored in the database — someone with write access to Mongo but not the key cannot re-chain around an edited, inserted or deleted row. Platform refuses to boot in production without it (≥ 32 chars; generate with head -c 32 /dev/urandom | base64`). Rotating it invalidates verification of rows chained under the old key — treat it like the audit trail's signing key."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Published heads (write-once). Every AUDIT_HEAD_EXPORT_INTERVAL_MS"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "(default 5 min) one platform replica publishes each advanced chain head — { chainKey, seq, hash, headCreatedAt, exportedAt }, signed with the same key — to an S3/MinIO bucket created with Object Lock: <prefix>/<chainKey>/<seq>.json plus <prefix>/<chainKey>/latest.json, each PUT carrying x-amz-object-lock-mode (AUDIT_HEAD_EXPORT_LOCK_MODE, default COMPLIANCE) and a retain-until date AUDIT_HEAD_EXPORT_RETENTION_DAYS (default 400) ahead. This is what exposes tail truncation — deleting the newest rows and rewinding the in-DB head leaves an internally consistent, shorter chain that only an external anchor can contradict."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Env var",
+            "Meaning"
+          ],
+          "rows": [
+            [
+              "AUDIT_CHAIN_HMAC_KEY",
+              "Chain HMAC key (required in production; never in the DB)"
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_S3_ENDPOINT",
+              "e.g. http://minio:9000; export disabled when unset"
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_S3_BUCKET",
+              "default audit-heads — create it with Object Lock (mc mb --with-lock)"
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_S3_REGION",
+              "default us-east-1"
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID / _SECRET_ACCESS_KEY",
+              "bucket-scoped credentials (PutObject + GetObject only)"
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_PREFIX",
+              "default audit-heads"
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_LOCK_MODE",
+              "COMPLIANCE (default), GOVERNANCE, or none for a target without Object Lock"
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_RETENTION_DAYS",
+              "object retention, default 400 (keep it above AUDIT_RETENTION_DAYS)"
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_INTERVAL_MS",
+              "export cadence, default 300000"
+            ]
+          ]
         },
         {
           "type": "list",
@@ -85,17 +160,17 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "chain and returns { ok, brokenAt?, count }. ok:false with brokenAt set means the chain is broken at that event. The dashboard Audit page surfaces this as a Verify integrity action for sysadmins."
+          "content": "chain in seq order and returns { ok, brokenAt?, reason?, count, lastSeq, unverifiable, publishedHead? }. reason is one of hash-mismatch (a field was edited), broken-link / sequence-gap (a row was deleted or re-ordered), tail-truncated (the chain no longer reaches its in-DB or published head), head-mismatch (the row at the published seq has a different hash), or published-head-invalid (the stored head's signature fails). publishedHead reports matched / absent / expired / pruned / unavailable, and stale: true when the newest events aren't externally anchored yet. The dashboard Audit page surfaces this as a Verify integrity action."
         },
         {
           "type": "list",
           "items": [
-            "Retention-aware — verify anchors on the first surviving event's"
+            "Retention-aware — verify anchors on the first surviving event, so an org"
           ]
         },
         {
           "type": "text",
-          "content": "prevHash, so an org older than the retention window (whose genesis rows have aged out under the TTL) does not false-alarm. Tampering with any event that still has a surviving successor is detected; truncation of the oldest contiguous prefix is indistinguishable from normal TTL pruning."
+          "content": "older than the retention window (whose oldest rows have aged out under the TTL) does not false-alarm, and a head older than the retention window is not required to still exist. Truncation of the oldest contiguous prefix is indistinguishable from normal TTL pruning."
         },
         {
           "type": "list",
@@ -105,7 +180,17 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "happened), stored for reviewers. It is deliberately not the chain-ordering field — the chain orders by ingest createdAt — so a delayed/spooled delivery never perturbs chain consistency or verification."
+          "content": "happened), stored for reviewers. It is not the chain-ordering field — the chain orders by seq — so a delayed/spooled delivery never perturbs chain consistency or verification."
+        },
+        {
+          "type": "list",
+          "items": [
+            "No silent loss on the platform side — a platform-local write that fails"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "(Mongo blip, failover) is spooled to Redis (audit:spool:platform-local) and re-appended by a background drain, with the same per-emission Idempotency-Key so a write that actually committed isn't doubled. Without Redis configured, a dropped event is counted in audit_local_dropped_total."
         },
         {
           "type": "text",
@@ -143,7 +228,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "dedups on it (unique index), so a retried delivery collapses to a single stored row and a single chain link."
+          "content": "dedups on it (unique per org — (orgId, idempotencyKey) — so one tenant can never pre-claim another's key), so a retried delivery collapses to a single stored row and a single chain link."
         },
         {
           "type": "list",
@@ -383,7 +468,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Plugin ecosystem: installs and policy",
-              "plugin.install.create (an install that needed no approval, active at once), plugin.install.request (an install that became a pending request), plugin.install.approve / plugin.install.deny (actor = the approver), plugin.install.upgrade (a change of version or version policy), plugin.install.remove (uninstall, or a withdrawn request), org.plugin-install-policy.update (org-local; set by plugin_installs:manage with a step-up). Every one: orgId = the actor's org, affectedOrgId = the installing org (a team's own installs and policy → the team). Implicit Official installs are virtual and are never audited; creating or removing an explicit Official install is"
+              "plugin.install.create (an install that needed no approval, active at once), plugin.install.request (an install that became a pending request), plugin.install.approve / plugin.install.deny (actor = the approver), plugin.install.upgrade (a change of version or version policy), plugin.install.change-request (a member asked for a change that needs an approver), plugin.install.change-approve / plugin.install.change-reject (actor = the approver; an approval also records the plugin.install.upgrade it applies), plugin.install.remove (uninstall, or a withdrawn request), org.plugin-install-policy.update (org-local; set by plugin_installs:manage with a step-up). Every one: orgId = the actor's org, affectedOrgId = the installing org (a team's own installs and policy → the team). Implicit Official installs are virtual and are never audited; creating or removing an explicit Official install is"
             ],
             [
               "Plugin ecosystem: reviews",

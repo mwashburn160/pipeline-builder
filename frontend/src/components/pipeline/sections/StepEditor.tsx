@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useId } from 'react';
 import { FormStep, FormNetworkConfig, FormPluginOptions, CommandGroup, MetadataEntry, EnvEntry } from '@/types/form-types';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
@@ -39,6 +39,7 @@ export interface StepEditorProps {
 export default function StepEditor({
   step, onChange, disabled, errorPrefix, errors = {}, availableArtifacts = [],
 }: StepEditorProps) {
+  const uid = useId();
   const updatePosition = (position: 'pre' | 'post') => onChange({ ...step, position });
   const updatePlugin = (plugin: FormPluginOptions) => onChange({ ...step, plugin });
   const updateMetadata = (metadata: MetadataEntry[]) => onChange({ ...step, metadata });
@@ -195,8 +196,8 @@ export default function StepEditor({
           </FormField>
 
           <div>
-            <label className="label">Additional input artifacts</label>
-            <div className="space-y-2">
+            <span className="label" id={`${uid}-extra-inputs`}>Additional input artifacts</span>
+            <div role="group" aria-labelledby={`${uid}-extra-inputs`} className="space-y-2">
               {step.additionalInputArtifacts.map((entry, idx) => (
                 <div key={inputIds[idx]} className="flex gap-2 items-center">
                   <Input

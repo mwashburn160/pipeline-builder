@@ -24,6 +24,7 @@
  *   - the plugin service is pointed at it (never at the tenant buildkitd).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { parse, parseAllDocuments } from 'yaml';
@@ -119,7 +120,9 @@ describe.each(K8S_TARGETS)('quarantine builder has no credential path — %s', (
     const inCluster = egress.spec.egress[0].to.map((t: Doc) => t.podSelector);
     expect(inCluster[0].matchExpressions[0].values).toEqual(['registry', 'image-registry']);
     const pub = egress.spec.egress[1].to[0].ipBlock;
-    expect(pub.except).toEqual(expect.arrayContaining(['169.254.0.0/16', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']));
+    // The shared public-egress shape (networkpolicy.yaml EGRESS SHAPE): the VPC,
+    // LANs and CGNAT, plus IMDS and the container-credential agents exactly.
+    expect(pub.except).toEqual(expect.arrayContaining(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.169.254/32', '169.254.170.0/24']));
     // No other policy names it (an extra allow would be additive).
     const others = np.filter((d) => d.metadata?.name !== `allow-${NAME}-egress` && d.metadata?.name !== `allow-${NAME}-ingress`
       && JSON.stringify(d.spec?.podSelector ?? {}).includes(NAME) && d.metadata?.name !== 'allow-internal-egress');

@@ -10,12 +10,14 @@
  * longer in config, and invalidating the plan read-cache.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockBulkWrite = jest.fn();
-const mockUpdateMany = jest.fn();
-const mockInvalidate = jest.fn();
+const mockBulkWrite = jest.fn<AnyFn>();
+const mockUpdateMany = jest.fn<AnyFn>();
+const mockInvalidate = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: {
@@ -55,7 +57,7 @@ const mockPlans = [
   },
 ];
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: {
     get: (section: string) => {
       if (section === 'billing') return { plans: mockPlans };

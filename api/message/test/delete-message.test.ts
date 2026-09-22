@@ -10,7 +10,9 @@
  * lookup the route depends on.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import {
   createMockSseManager,
@@ -22,10 +24,10 @@ import {
   routeApiServerMock,
 } from './helpers/route-test-utils.js';
 
-const mockFindById = jest.fn<(...args: unknown[]) => unknown>();
-const mockDelete = jest.fn<(...args: unknown[]) => unknown>();
-const mockDeleteThread = jest.fn<(...args: unknown[]) => unknown>();
-const mockDeleteAsSysadmin = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindById = jest.fn<AnyFn>();
+const mockDelete = jest.fn<AnyFn>();
+const mockDeleteThread = jest.fn<AnyFn>();
+const mockDeleteAsSysadmin = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -40,14 +42,14 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 // Remote-audit spy: route handlers emit attributed `message.*` events via
 // getAuditClient().record. Mock the module so tests can assert on the emitted
 // event and that NO message body reaches the trail.
-const mockAuditRecord = jest.fn();
+const mockAuditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
 }));
 
@@ -60,10 +62,10 @@ const deleteRouter = createDeleteMessageRoutes(mockSseManager);
 describe('DELETE /messages/:id', () => {
   const handler = getHandler(deleteRouter, 'delete', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('allows system admin to delete any message', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockDeleteAsSysadmin.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: '000000000000000000000001' });
     mockDeleteThread.mockResolvedValue(undefined);
 
@@ -84,7 +86,7 @@ describe('DELETE /messages/:id', () => {
   });
 
   it('allows message sender to self-delete', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindById.mockResolvedValue({ id: 'msg-1', createdBy: 'user-1' });
     mockDelete.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: 'org-1', recipientOrgId: '000000000000000000000001' });
     mockDeleteThread.mockResolvedValue(undefined);
@@ -107,7 +109,7 @@ describe('DELETE /messages/:id', () => {
   });
 
   it('returns 403 when non-admin non-sender tries to delete', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindById.mockResolvedValue({ id: 'msg-1', createdBy: 'other-user' });
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -123,7 +125,7 @@ describe('DELETE /messages/:id', () => {
   });
 
   it('returns 404 when message not found (non-admin)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockFindById.mockResolvedValue(null);
 
     const req = mockReq({ params: { id: 'nonexistent' } });
@@ -134,7 +136,7 @@ describe('DELETE /messages/:id', () => {
   });
 
   it('returns 404 when delete returns null (admin)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockDeleteAsSysadmin.mockResolvedValue(null);
 
     const req = mockReq({ params: { id: 'nonexistent' } });
@@ -153,7 +155,7 @@ describe('DELETE /messages/:id', () => {
   });
 
   it('returns 500 on service error', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockDeleteAsSysadmin.mockRejectedValue(new Error('DB error'));
 
     const req = mockReq({ params: { id: 'msg-1' } });
@@ -164,7 +166,7 @@ describe('DELETE /messages/:id', () => {
   });
 
   it('does not send SSE notification for broadcast message deletion', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockDeleteAsSysadmin.mockResolvedValue({ id: 'msg-1', threadId: null, orgId: '000000000000000000000001', recipientOrgId: '*' });
     mockDeleteThread.mockResolvedValue(undefined);
 
@@ -182,10 +184,10 @@ describe('DELETE /messages/:id', () => {
 describe('Remote audit emissions (delete)', () => {
   const deleteHandler = getHandler(deleteRouter, 'delete', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('emits message.delete with metadata (no body) on successful delete', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockDeleteAsSysadmin.mockResolvedValue({
       id: 'msg-1',
       threadId: null,

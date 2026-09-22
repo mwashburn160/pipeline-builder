@@ -5,7 +5,7 @@ import { sendSuccess } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { effectiveRetentionDays, maxRangeDaysFor } from '../helpers/retention-cap.js';
+import { effectiveRetentionDays, maxRangeDaysFor, retentionOrgIdFor } from '../helpers/retention-cap.js';
 
 /**
  * The org's EFFECTIVE report retention, read-only. Mounted under
@@ -27,8 +27,9 @@ import { effectiveRetentionDays, maxRangeDaysFor } from '../helpers/retention-ca
 export function createRetentionRoutes(): Router {
   const router = Router();
 
-  router.get('/', withRoute(async ({ res, ctx, orgId }) => {
-    const settings = await reportingService.getIncidentSettings(orgId);
+  router.get('/', withRoute(async ({ req, res, ctx, orgId }) => {
+    // A team reads its account ROOT's (billing-synced) retention.
+    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
     const eventRetentionDays = effectiveRetentionDays(settings, 'event');
     const doraRetentionDays = effectiveRetentionDays(settings, 'dora');
     ctx.log('COMPLETED', 'Read effective report retention', { eventRetentionDays, doraRetentionDays });

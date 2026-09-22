@@ -136,7 +136,15 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, quota, billing, message, reporting, compliance, image-registry]
+                values: [platform, pipeline, plugin, quota, billing, message, reporting, compliance, image-registry, ask]
       ports:
         - port: 4318
         - port: 4317
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [grafana, kiali]
+      ports:
+        - port: 16686

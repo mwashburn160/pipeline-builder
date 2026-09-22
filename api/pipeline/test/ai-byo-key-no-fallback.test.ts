@@ -13,7 +13,9 @@
  * available, proving the guard suppresses a fallback that WOULD otherwise succeed.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Configure both providers BEFORE the ai-core registry initializes.
@@ -28,7 +30,7 @@ jest.unstable_mockModule('ai', () => ({
   streamText: mockStreamText,
   Output: { object: jest.fn((opts: any) => ({ type: 'object', schema: opts.schema })) },
   tool: (def: unknown) => def,
-  generateObject: jest.fn(),
+  generateObject: jest.fn<AnyFn>(),
   stepCountIs: jest.fn((n: number) => n),
 }));
 
@@ -61,8 +63,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const mockResolvableListings = jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
-  const tx = { select: jest.fn().mockReturnThis(), from: jest.fn().mockReturnThis(), where: jest.fn<(...a: any[]) => any>().mockResolvedValue([]) };
-  return {
+  const tx = { select: jest.fn<AnyFn>().mockReturnThis(), from: jest.fn<AnyFn>().mockReturnThis(), where: jest.fn<(...a: any[]) => any>().mockResolvedValue([]) };
+  return stubModule('@pipeline-builder/pipeline-data', {
     db: tx,
     schema: { plugin: {} },
     withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
@@ -75,7 +77,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     resolvableListings: (...a: unknown[]) => mockResolvableListings(...a),
     buildPluginConditions: () => [],
     withViewerContext: (f: unknown) => f,
-  };
+  });
 });
 
 const { generatePipelineConfig } = await import('../src/services/ai-generation-service.js');
@@ -98,7 +100,7 @@ const OK_OUTPUT = {
 };
 
 describe('F3b — BYO key must not fall back to platform provider keys', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('BYO key + failed primary + fallback available → throws, never uses the platform fallback', async () => {
     mockGenerateText.mockResolvedValue(OK_OUTPUT);

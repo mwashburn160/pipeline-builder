@@ -15,6 +15,7 @@
  * config module: the module was always correct — the env that feeds it was not.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { basename, extname, join } from 'path';
 

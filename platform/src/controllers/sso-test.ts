@@ -48,6 +48,7 @@ import { requireAuth, withController } from '../helpers/controller-helper.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import {
   assertSsoIdentityTrusted,
+  type SsoIdentitySource,
   getTestableLoginConfig,
   getTestableSamlConfig,
   requireOwnOrgSso,
@@ -190,7 +191,7 @@ function failure(protocol: IdpProtocol, err: unknown): SsoTestReport {
     protocol,
     testedAt: new Date().toISOString(),
     reason: reasonOf(code),
-    message: MESSAGES[code] ?? (code === 'IDP_ERROR'
+    message: (Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : undefined) ?? (code === 'IDP_ERROR'
       ? 'The identity provider returned an error instead of signing you in.'
       : 'The test could not be completed.'),
   };
@@ -204,9 +205,10 @@ function failure(protocol: IdpProtocol, err: unknown): SsoTestReport {
  */
 async function dryRunChecks(
   orgId: string,
-  protocol: IdpProtocol,
+  source: SsoIdentitySource,
   identity: { email: string; name?: string; subject: string; issuer: string; groups: string[] },
 ): Promise<SsoTestReport> {
+  const protocol: IdpProtocol = source.protocol;
   const base = {
     protocol,
     testedAt: new Date().toISOString(),
@@ -219,7 +221,7 @@ async function dryRunChecks(
     },
   };
   try {
-    await assertSsoIdentityTrusted(orgId, identity);
+    await assertSsoIdentityTrusted(orgId, identity, source);
     const { User } = await import('../models/index.js');
     const existing = await User.findOne({ email: identity.email }).select('+isSuperAdmin').lean() as { isSuperAdmin?: boolean } | null;
     if (existing?.isSuperAdmin === true) throw new Error(SSO_SUPERADMIN_REFUSED);
@@ -318,7 +320,7 @@ export async function handleSamlTestAssertion(
   try {
     const cfg = await getTestableSamlConfig(orgId);
     const identity = await validateSamlResponse(cfg, samlResponse, relayState, relayState, { test: true });
-    report = await dryRunChecks(orgId, 'saml', identity);
+    report = await dryRunChecks(orgId, { protocol: 'saml' }, identity);
   } catch (err) {
     report = failure('saml', err);
   }
@@ -352,7 +354,7 @@ async function resolveReport(req: Request, orgId: string, body: z.infer<typeof c
   try {
     const cfg = await getTestableLoginConfig(orgId);
     const identity = await exchangeAndValidate(cfg, body.code, pending.nonce ?? '', { codeVerifier: pending.codeVerifier });
-    return { pending, report: await dryRunChecks(orgId, 'oidc', identity) };
+    return { pending, report: await dryRunChecks(orgId, { protocol: 'oidc', provider: cfg.provider }, identity) };
   } catch (err) {
     return { pending, report: failure('oidc', err) };
   }

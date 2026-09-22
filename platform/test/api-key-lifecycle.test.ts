@@ -34,6 +34,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { Types } from 'mongoose';
+import type { SessionAuth } from '../src/utils/token.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -52,6 +53,7 @@ function matches(doc: any, filter: Record<string, any> = {}): boolean {
     if (cond && typeof cond === 'object' && !(cond instanceof Date) && !(cond instanceof Types.ObjectId)) {
       if ('$in' in cond) return (cond.$in as unknown[]).map(oid).includes(oid(value));
       if ('$gt' in cond) return new Date(value).getTime() > new Date(cond.$gt).getTime();
+      if ('$lt' in cond) return new Date(value).getTime() < new Date(cond.$lt).getTime();
       if ('$ne' in cond) return oid(cond.$ne) !== oid(value);
     }
     return oid(cond) === oid(value);
@@ -139,9 +141,17 @@ const User: any = {
 
 jest.unstable_mockModule('../src/models/index.js', () => ({ PersonalAccessToken, User }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: jest.fn(async (_u: unknown, _m: unknown, auth: unknown) => auth),
   membershipForOrg: jest.fn(async () => undefined),
   signApiKeyToken: jest.fn(async () => 'jwt'),
   signServiceAccountToken: jest.fn(async () => 'jwt'),
+}));
+
+const mockPublishKeyRevocation = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
+jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: (...a: unknown[]) => mockPublishKeyRevocation(...a),
 }));
 
 const mockResolveServiceAccount = jest.fn<(...a: unknown[]) => Promise<any>>();
@@ -166,7 +176,7 @@ const ACCOUNT_ID = '653333333333333333333333';
 const OTHER_ACCOUNT = '654444444444444444444444';
 
 const DAY = 86_400;
-const auth = { amr: ['pwd', 'webauthn'], aal: 2 as const, authTime: new Date('2026-09-01T00:00:00.000Z') };
+const auth: SessionAuth = { amr: ['pwd', 'webauthn'], aal: 2 as const, authTime: new Date('2026-09-01T00:00:00.000Z') };
 
 /** Put a key straight into the collection, bypassing the service. */
 function seedKey(over: Record<string, any> = {}): any {
@@ -236,6 +246,11 @@ describe('create — minting a personal key', () => {
   it('stores the creating session\'s assurance, so an exchanged token can never raise it', async () => {
     await apiKeyService.create(USER_ID, { name: 'ci', expiresInSeconds: DAY }, auth);
     expect(keys[0]).toMatchObject({ amr: ['pwd', 'webauthn'], aal: 2, authTime: auth.authTime });
+  });
+
+  it('records the creating passkey\'s model, so every exchange re-applies the org\'s authenticator allowlist', async () => {
+    await apiKeyService.create(USER_ID, { name: 'ci', expiresInSeconds: DAY }, { ...auth, aaguid: 'aaguid-1' });
+    expect(keys[0].aaguid).toBe('aaguid-1');
   });
 
   it('records the permission SUBSET, the scope, the prefix and where it was created', async () => {
@@ -407,12 +422,15 @@ describe('revoke — scoped to the owner', () => {
 
     expect(view).toMatchObject({ id: String(rec._id), revoked: true, status: 'revoked' });
     expect(keys[0].revokedAt).toBeInstanceOf(Date);
+    // Its live exchanged token dies now on every service (`revoke:key:<id>`).
+    expect(mockPublishKeyRevocation).toHaveBeenCalledWith(String(rec._id));
   });
 
   it('REFUSES another user\'s key id — ownership is in the filter, not in a later check', async () => {
     const { rec } = seedKey({ userId: OTHER_USER });
     expect(await apiKeyService.revoke(USER_ID, String(rec._id))).toBeNull();
     expect(keys[0].revoked).toBe(false);
+    expect(mockPublishKeyRevocation).not.toHaveBeenCalled();
   });
 
   it('answers null for an already-revoked key and for a malformed id', async () => {
@@ -447,9 +465,12 @@ describe('revoke — scoped to the owner', () => {
     seedKey({ revoked: true });
     seedKey({ userId: OTHER_USER });
 
+    const live = seedKey();
     await apiKeyService.revokeAllForUser(USER_ID);
 
-    expect(keys.map((k) => k.revoked)).toEqual([true, true, false]);
+    expect(keys.map((k) => k.revoked)).toEqual([true, true, false, true]);
+    // Only the keys that were LIVE are published.
+    expect(mockPublishKeyRevocation).toHaveBeenCalledWith([String(keys[0]._id), String(live.rec._id)]);
   });
 });
 
@@ -524,17 +545,31 @@ describe('rotateServiceAccountKey — a credential replacing itself', () => {
     expect(keys).toHaveLength(1);
   });
 
-  it('PRUNES the oldest sibling at the cap — never the key being presented', async () => {
-    const { raw, rec } = sa({ createdAt: new Date('2026-01-01T00:00:00.000Z'), name: 'presented' });
-    const siblings = [2, 3, 4, 5].map((n) => sa({ createdAt: new Date(`2026-0${n}-01T00:00:00.000Z`), name: `sib${n}` }));
+  it('PRUNES the oldest PREDECESSOR at the cap — never the key being presented', async () => {
+    const siblings = [1, 2, 3, 4].map((n) => sa({ createdAt: new Date(`2026-0${n}-01T00:00:00.000Z`), name: `sib${n}` }));
+    const { raw, rec } = sa({ createdAt: new Date('2026-05-01T00:00:00.000Z'), name: 'presented' });
 
     const ok = await apiKeyService.rotateServiceAccountKey(raw) as any;
 
-    // The presented key is the OLDEST, and is still skipped: the caller is
-    // holding it.
     expect(ok.prunedKeyIds).toEqual([String(siblings[0].rec._id)]);
     expect(keys.find((k) => String(k._id) === String(rec._id)).revoked).toBe(false);
     expect(siblings[0].rec.revoked).toBe(true);
+  });
+
+  it('never prunes a sibling NEWER than the presented key — a stale key cannot clear out its successors', async () => {
+    const { raw, rec } = sa({ createdAt: new Date('2026-01-01T00:00:00.000Z'), name: 'stale' });
+    const newer = [2, 3, 4, 5].map((n) => sa({ createdAt: new Date(`2026-0${n}-01T00:00:00.000Z`), name: `sib${n}` }));
+
+    expect(await apiKeyService.rotateServiceAccountKey(raw)).toEqual({ ok: false, reason: 'key_limit' });
+    expect(rec.revoked).toBe(false);
+    expect(newer.every((s) => s.rec.revoked === false)).toBe(true);
+  });
+
+  it('REFUSES a successor that would outlive the presented key\'s own lifetime', async () => {
+    // A leaked 30-day key must not be able to mint itself a 365-day successor.
+    const { raw } = sa();
+    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: 60 * DAY })).toEqual({ ok: false, reason: 'expiry_invalid' });
+    expect(keys.filter((k) => k.prefix === 'pb_sa')).toHaveLength(1);
   });
 
   it('refuses rather than orphaning the caller when the ONLY active key is the presented one', async () => {
@@ -556,7 +591,7 @@ describe('revokeSiblingKey — the second half of a rotation', () => {
   });
 
   it('retires a sibling using the live replacement', async () => {
-    const { raw } = sa({ name: 'new' });
+    const { raw } = sa({ name: 'new', createdAt: new Date('2026-02-01T00:00:00.000Z') });
     const old = sa({ name: 'old' });
 
     const result = await apiKeyService.revokeSiblingKey(raw, String(old.rec._id), '203.0.113.7') as any;
@@ -572,6 +607,15 @@ describe('revokeSiblingKey — the second half of a rotation', () => {
     expect(old.rec.revoked).toBe(true);
   });
 
+  it('REFUSES to revoke a sibling NEWER than the presented key', async () => {
+    // Only a key's predecessors are its to retire: the replacement retires the
+    // key it replaced, never a sibling issued after it.
+    const { raw } = sa({ name: 'old' });
+    const newer = sa({ name: 'newer', createdAt: new Date('2026-03-01T00:00:00.000Z') });
+    expect(await apiKeyService.revokeSiblingKey(raw, String(newer.rec._id))).toEqual({ ok: false, reason: 'newer_sibling' });
+    expect(newer.rec.revoked).toBe(false);
+  });
+
   it('REFUSES to revoke the presented key itself', async () => {
     // The caller must always be left holding a working credential.
     const { raw, rec } = sa();
@@ -580,7 +624,7 @@ describe('revokeSiblingKey — the second half of a rotation', () => {
   });
 
   it('is IDEMPOTENT: an already-revoked sibling, and another account\'s key, are success with `alreadyRevoked`', async () => {
-    const { raw } = sa();
+    const { raw } = sa({ createdAt: new Date('2026-02-01T00:00:00.000Z') });
     const dead = sa({ revoked: true });
     const foreign = sa({ serviceAccountId: OTHER_ACCOUNT });
 

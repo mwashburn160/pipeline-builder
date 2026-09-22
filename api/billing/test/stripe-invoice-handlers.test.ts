@@ -70,6 +70,15 @@ jest.unstable_mockModule('../src/config.js', () => ({
   config: { paymentGracePeriodDays: 7 },
 }));
 
+// Ordering watermark + the shared "became entitled" grant live with the
+// subscription handlers; stub them so this suite drives only the invoice logic.
+const acceptStripeEvent = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
+const grantOnBecomingEntitled = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
+jest.unstable_mockModule('../src/helpers/stripe-subscription-handlers.js', () => ({ acceptStripeEvent, grantOnBecomingEntitled }));
+
+/** Event envelope the webhook route passes every lifecycle handler. */
+const EVT = { id: 'evt_1', created: 1767225600 };
+
 const planFindById = jest.fn<(id: unknown) => Promise<{ tier: string } | null>>();
 jest.unstable_mockModule('../src/models/plan.js', () => ({ Plan: { findById: planFindById } }));
 
@@ -148,7 +157,7 @@ describe('handlePaymentSucceeded', () => {
     const sub = makeSub();
     findSubscriptionByStripeId.mockResolvedValue(sub);
 
-    await handlePaymentSucceeded(makeInvoice());
+    await handlePaymentSucceeded(makeInvoice(), EVT);
 
     expect(sub.currentPeriodStart).toEqual(new Date(1767225600 * 1000));
     expect(sub.currentPeriodEnd).toEqual(new Date(1769904000 * 1000));
@@ -160,7 +169,7 @@ describe('handlePaymentSucceeded', () => {
     const sub = makeSub();
     findSubscriptionByStripeId.mockResolvedValue(sub);
 
-    await handlePaymentSucceeded(makeInvoice({ lines: { data: [] } }));
+    await handlePaymentSucceeded(makeInvoice({ lines: { data: [] } }), EVT);
 
     expect(calculatePeriodEnd).toHaveBeenCalledTimes(1);
     expect(sub.currentPeriodEnd).toEqual(new Date(sub.currentPeriodStart.getTime() + 30 * 86_400_000));
@@ -170,7 +179,7 @@ describe('handlePaymentSucceeded', () => {
     const sub = makeSub({ failedPaymentAttempts: 2, firstFailedAt: new Date('2026-08-10T00:00:00Z') });
     findSubscriptionByStripeId.mockResolvedValue(sub);
 
-    await handlePaymentSucceeded(makeInvoice());
+    await handlePaymentSucceeded(makeInvoice(), EVT);
 
     expect(sub.failedPaymentAttempts).toBe(0);
     expect(sub.firstFailedAt).toBeUndefined();
@@ -182,7 +191,7 @@ describe('handlePaymentSucceeded', () => {
       const sub = makeSub({ status: 'past_due', addons: [{ id: 'seat_pack', qty: 2 }] });
       findSubscriptionByStripeId.mockResolvedValue(sub);
 
-      await handlePaymentSucceeded(makeInvoice());
+      await handlePaymentSucceeded(makeInvoice(), EVT);
 
       expect(sub.status).toBe('active');
       expect(syncEntitlements).toHaveBeenCalledWith('org-1', 'pro', '', 'sub-1', [{ id: 'seat_pack', qty: 2 }]);
@@ -198,7 +207,7 @@ describe('handlePaymentSucceeded', () => {
       });
       findSubscriptionByStripeId.mockResolvedValue(sub);
 
-      await handlePaymentSucceeded(makeInvoice());
+      await handlePaymentSucceeded(makeInvoice(), EVT);
 
       // Leaving this set would make the lifecycle cron skip the org forever.
       expect(sub.metadata.gracePeriodDowngradedAt).toBeUndefined();
@@ -211,7 +220,7 @@ describe('handlePaymentSucceeded', () => {
       const sub = makeSub({ status: 'past_due' });
       findSubscriptionByStripeId.mockResolvedValue(sub);
 
-      await handlePaymentSucceeded(makeInvoice());
+      await handlePaymentSucceeded(makeInvoice(), EVT);
 
       expect(syncEntitlements).not.toHaveBeenCalled();
       expect(recordReactivatePlanMissing).toHaveBeenCalledWith(
@@ -223,7 +232,7 @@ describe('handlePaymentSucceeded', () => {
     });
 
     it('does not re-grant entitlements for an ordinary (non-recovery) renewal', async () => {
-      await handlePaymentSucceeded(makeInvoice());
+      await handlePaymentSucceeded(makeInvoice(), EVT);
 
       expect(syncEntitlements).not.toHaveBeenCalled();
       const [, , details] = createBillingEvent.mock.calls.at(-1) as [string, string, Record<string, unknown>];
@@ -235,7 +244,7 @@ describe('handlePaymentSucceeded', () => {
     it('survives a promotion re-grant failure', async () => {
       grantRecurringPromotions.mockRejectedValueOnce(new Error('promo store down'));
 
-      await expect(handlePaymentSucceeded(makeInvoice())).resolves.toBeUndefined();
+      await expect(handlePaymentSucceeded(makeInvoice(), EVT)).resolves.toBeUndefined();
       // The payment is still recorded.
       expect(createBillingEvent).toHaveBeenCalled();
     });
@@ -243,27 +252,54 @@ describe('handlePaymentSucceeded', () => {
     it('survives a ledger ingest failure', async () => {
       ingestStripeInvoice.mockRejectedValueOnce(new Error('ledger down'));
 
-      await expect(handlePaymentSucceeded(makeInvoice())).resolves.toBeUndefined();
+      await expect(handlePaymentSucceeded(makeInvoice(), EVT)).resolves.toBeUndefined();
       expect(createBillingEvent).toHaveBeenCalled();
     });
 
     it('survives a referral qualification failure', async () => {
       qualifyReferral.mockRejectedValueOnce(new Error('referral store down'));
 
-      await expect(handlePaymentSucceeded(makeInvoice())).resolves.toBeUndefined();
+      await expect(handlePaymentSucceeded(makeInvoice(), EVT)).resolves.toBeUndefined();
     });
 
     it('qualifies a referral on a paid invoice (the qualifying event)', async () => {
-      await handlePaymentSucceeded(makeInvoice());
+      await handlePaymentSucceeded(makeInvoice(), EVT);
 
       expect(qualifyReferral).toHaveBeenCalledWith('org-1');
     });
   });
 
+  it('SKIPS an event older than the subscription watermark (Stripe delivers unordered)', async () => {
+    const sub = makeSub({ status: 'past_due' });
+    findSubscriptionByStripeId.mockResolvedValue(sub);
+    acceptStripeEvent.mockResolvedValueOnce(false);
+
+    await handlePaymentSucceeded(makeInvoice(), EVT);
+
+    expect(acceptStripeEvent).toHaveBeenCalledWith(sub, EVT, 'invoice.payment_succeeded');
+    expect(sub.status).toBe('past_due');
+    expect(sub.save).not.toHaveBeenCalled();
+    expect(createBillingEvent).not.toHaveBeenCalled();
+  });
+
+  it('settles an INCOMPLETE subscription to active and grants tier + withheld signup credit', async () => {
+    const sub = makeSub({ status: 'incomplete', metadata: { pendingReferralCode: 'org-ref', keep: 1 } });
+    findSubscriptionByStripeId.mockResolvedValue(sub);
+
+    await handlePaymentSucceeded(makeInvoice(), EVT);
+
+    expect(sub.status).toBe('active');
+    expect(sub.metadata).toEqual({ keep: 1 });
+    expect(sub.save).toHaveBeenCalled();
+    expect(grantOnBecomingEntitled).toHaveBeenCalledWith(sub, null, { previousStatus: 'incomplete', referralCode: 'org-ref' });
+    const [, , details] = createBillingEvent.mock.calls.at(-1) as [string, string, Record<string, unknown>];
+    expect(details.recovered).toBe(true);
+  });
+
   it('no-ops when the subscription is unknown', async () => {
     findSubscriptionByStripeId.mockResolvedValue(null);
 
-    await handlePaymentSucceeded(makeInvoice());
+    await handlePaymentSucceeded(makeInvoice(), EVT);
 
     expect(createBillingEvent).not.toHaveBeenCalled();
     expect(ingestStripeInvoice).not.toHaveBeenCalled();
@@ -275,7 +311,7 @@ describe('handlePaymentFailed', () => {
     const sub = makeSub({ status: 'active' });
     findSubscriptionByStripeId.mockResolvedValue(sub);
 
-    await handlePaymentFailed(makeInvoice());
+    await handlePaymentFailed(makeInvoice(), EVT);
 
     expect(sub.status).toBe('past_due');
     expect(sub.failedPaymentAttempts).toBe(1);
@@ -288,7 +324,7 @@ describe('handlePaymentFailed', () => {
     const sub = makeSub({ status: 'past_due', failedPaymentAttempts: 1, firstFailedAt });
     findSubscriptionByStripeId.mockResolvedValue(sub);
 
-    await handlePaymentFailed(makeInvoice());
+    await handlePaymentFailed(makeInvoice(), EVT);
 
     // Resetting this would extend the grace period indefinitely, one retry at a time.
     expect(sub.firstFailedAt).toBe(firstFailedAt);
@@ -296,7 +332,7 @@ describe('handlePaymentFailed', () => {
   });
 
   it('records the failure event with the configured grace window', async () => {
-    await handlePaymentFailed(makeInvoice());
+    await handlePaymentFailed(makeInvoice(), EVT);
 
     const [orgId, kind, details] = createBillingEvent.mock.calls[0] as [string, string, Record<string, unknown>];
     expect(orgId).toBe('org-1');
@@ -306,7 +342,7 @@ describe('handlePaymentFailed', () => {
   });
 
   it('does NOT downgrade the tier immediately (the lifecycle cron owns that)', async () => {
-    await handlePaymentFailed(makeInvoice());
+    await handlePaymentFailed(makeInvoice(), EVT);
 
     expect(syncEntitlements).not.toHaveBeenCalled();
   });
@@ -317,7 +353,7 @@ describe('handlePaymentFailed', () => {
         const sub = makeSub({ status });
         findSubscriptionByStripeId.mockResolvedValue(sub);
 
-        await handlePaymentFailed(makeInvoice());
+        await handlePaymentFailed(makeInvoice(), EVT);
 
         // Flipping to past_due would put a dead sub back in the ENTITLED set —
         // visible, manageable, and re-synced to its paid tier by the reconciler.
@@ -327,10 +363,21 @@ describe('handlePaymentFailed', () => {
       });
   });
 
+  it('SKIPS a stale payment_failed that predates an applied recovery', async () => {
+    const sub = makeSub({ status: 'active' });
+    findSubscriptionByStripeId.mockResolvedValue(sub);
+    acceptStripeEvent.mockResolvedValueOnce(false);
+
+    await handlePaymentFailed(makeInvoice(), EVT);
+
+    expect(sub.status).toBe('active');
+    expect(sub.save).not.toHaveBeenCalled();
+  });
+
   it('no-ops when the subscription is unknown', async () => {
     findSubscriptionByStripeId.mockResolvedValue(null);
 
-    await handlePaymentFailed(makeInvoice());
+    await handlePaymentFailed(makeInvoice(), EVT);
 
     expect(createBillingEvent).not.toHaveBeenCalled();
   });

@@ -15,6 +15,7 @@ import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
 import { Button } from '@/components/ui/Button';
 import { TabBar } from '@/components/ui/TabBar';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RetryError } from '@/components/ui/RetryError';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
@@ -424,22 +425,22 @@ export default function BillingPage() {
         )}
 
         {confirmCancel && subscription && (
-          <ConfirmDialog
+          <StepUpModal
             title="Cancel your subscription?"
-            confirmLabel="Cancel subscription"
-            cancelLabel="Keep subscription"
-            tone="danger"
-            loading={actionLoading}
-            onConfirm={() => void handleCancel()}
-            onCancel={() => setConfirmCancel(false)}
-          >
-            <p>
-              Your {subscription.planName || subscription.planId} plan stays active until the end of the current
-              billing period, <strong>{formatDate(subscription.currentPeriodEnd)}</strong>. After that it isn&apos;t
-              renewed, and the plan&apos;s limits and any add-ons stop with it.
-            </p>
-            <p>You can reactivate at any time before then.</p>
-          </ConfirmDialog>
+            action="Cancel the subscription"
+            details={(
+              <>
+                <p>
+                  Your {subscription.planName || subscription.planId} plan stays active until the end of the current
+                  billing period, <strong>{formatDate(subscription.currentPeriodEnd)}</strong>. After that it isn&apos;t
+                  renewed, and the plan&apos;s limits and any add-ons stop with it.
+                </p>
+                <p>You can reactivate at any time before then.</p>
+              </>
+            )}
+            onConfirmed={handleCancel}
+            onClose={() => { if (!actionLoading) setConfirmCancel(false); }}
+          />
         )}
 
         {addon.pendingAddon && (

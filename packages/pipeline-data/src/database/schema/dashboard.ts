@@ -97,8 +97,10 @@ export const dashboard = pgTable('dashboards', {
  */
 export const dashboardPanel = pgTable('dashboard_panels', {
   id: uuid('id').primaryKey().defaultRandom(),
+  // Panels live and die with their dashboard (ON DELETE CASCADE in postgres-init.sql).
   dashboardId: uuid('dashboard_id')
-    .notNull(),
+    .notNull()
+    .references(() => dashboard.id, { onDelete: 'cascade' }),
   // Catalog key (e.g. `plugin_builds_per_min`). The server validates this
   // against QUERIES at render time.
   queryKey: varchar('query_key', { length: 100 })

@@ -6,7 +6,7 @@
  *
  * The shared primitives (REAL api-core base, logger stub, `ErrorCode` proxy,
  * error classes, the `requireInternalService` gate) live in
- * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Platform uses
+ * `@pipeline-builder/api-core/testing`. Platform uses
  * `primitiveApiCoreMock` rather than `baseApiCoreMock` on purpose: it keeps
  * api-core's REAL pagination/report constants and supplies its own (large)
  * identity/tier/permission default set, below.
@@ -19,10 +19,12 @@ import {
   mockErrorCode,
   primitiveApiCoreMock,
   withInternalServiceGate,
-} from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
+  MOCK_TIER_NAMES,
+  mockIsValidTier,
+  mockQuotaTiers,
+} from '@pipeline-builder/api-core/testing';
 // Shared tier fixture — deep path is NOT intercepted by the api-core module mock
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
-import { MOCK_TIER_NAMES, mockIsValidTier, mockQuotaTiers } from '@pipeline-builder/api-core/lib/testing/tier-mock.js';
 // Deep-import the REAL canonical constants from side-effect-free submodules (NOT
 // the mocked barrel — same trick as tier-mock: deep paths aren't intercepted by
 // the api-core module mock, and these modules have only type-imports so loading
@@ -116,7 +118,7 @@ const platformDefaults = (): Record<string, unknown> => ({
   ALL_PERMISSIONS,
   ROLE_PERMISSIONS,
   resolveUserPermissions,
-  isValidPermission: (value: string) => ALL_PERMISSIONS.includes(value),
+  isValidPermission: (value: string) => (ALL_PERMISSIONS as readonly string[]).includes(value),
   // Registry + ecosystem carve-outs for custom-Role authoring, and the system
   // org's Ecosystem Manager seed bundle (the REAL values/predicates).
   SUPERADMIN_ONLY_PERMISSIONS,
@@ -149,7 +151,7 @@ const platformDefaults = (): Record<string, unknown> => ({
   // these). Faithful to api-core so the anti-forgery gate and details scrub
   // behave for real under the mock.
   REMOTE_AUDIT_ACTIONS,
-  isRemoteAuditAction: (value: string) => REMOTE_AUDIT_ACTIONS.includes(value),
+  isRemoteAuditAction: (value: string) => (REMOTE_AUDIT_ACTIONS as readonly string[]).includes(value),
   scrubAwsIdentifiers,
   // Fine-grained RBAC helpers (faithful to api-core): superadmins hold all;
   // otherwise the resolved `permissions` claim must include it.

@@ -3,6 +3,7 @@
 
 import { createLogger, getServiceAuthHeader, QUOTA_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
+import { ORG_SEAT_LIMIT_NOT_ROOT } from './org-errors.js';
 import { config } from '../config/index.js';
 import { expandOrgScope, resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -70,13 +71,13 @@ function computeFeatureDelta(prev: readonly string[], next: readonly string[]): 
 /**
  * Invalidate every ACTIVE member's outstanding access tokens for `organizationId`
  * (a single org id, or an array spanning an account subtree) by bumping their
- * `tokenVersion` inside the caller's transaction.
+ * `claimsVersion` inside the caller's transaction.
  *
  * The JWT bakes in the org's `tier` + resolved `features` (from `tier` +
  * `featureEntitlements`) at issue time. On an account-change that REDUCES access
  * — a tier downgrade or a bundle (feature) removal — those already-issued tokens
  * would keep granting the elevated tier / `requireFeature`-gated capabilities
- * (sso, audit_log, …) until natural expiry (~15 min). Bumping `tokenVersion` makes
+ * (sso, audit_log, …) until natural expiry (~15 min). Bumping `claimsVersion` makes
  * `requireAuth` reject them on the next request; a refresh reissues a correctly
  * scoped JWT. Mirrors the bump in org-members-service.removeMember /
  * roles-service.recomputeUserOrgRole.
@@ -93,10 +94,10 @@ function computeFeatureDelta(prev: readonly string[], next: readonly string[]): 
  * token that under-grants is safe.
  *
  * Returns the affected member ids so the caller can PUBLISH each user's now-
- * current tokenVersion to the stateless services AFTER the transaction commits
+ * current access version to the stateless services AFTER the transaction commits
  * (see `publishUsersRevocation`) — publishing must never run mid-transaction.
  */
-async function bumpActiveMembersTokenVersion(
+async function bumpActiveMembersClaimsVersion(
   organizationId: string | string[],
   session: ClientSession,
 ): Promise<Types.ObjectId[]> {
@@ -113,7 +114,7 @@ async function bumpActiveMembersTokenVersion(
   if (userIds.length === 0) return [];
   await User.updateMany(
     { _id: { $in: userIds } },
-    { $inc: { tokenVersion: 1 } },
+    { $inc: { claimsVersion: 1 } },
     { session },
   );
   // `distinct` returns `any[]` (mongoose's `distinct<T>` overload doesn't infer
@@ -148,7 +149,7 @@ function isTierDowngrade(prev: QuotaTier, next: QuotaTier): boolean {
  * Both setTier and setSeatLimit change fields that pool at the account root and
  * must be mirrored onto every descendant team so a team member's token carries
  * them. The returned subtree is exactly the propagation set, so the caller bumps
- * `tokenVersion` against precisely the orgs this write touched. A root with no
+ * `claimsVersion` against precisely the orgs this write touched. A root with no
  * descendants performs no `updateMany` and returns `[root]`.
  */
 async function propagateToSubtree(
@@ -171,8 +172,10 @@ async function propagateToSubtree(
 /**
  * Set the account seat limit on the org's ROOT. Platform owns `seats` (it is
  * not a quota-service type), so billing syncs the effective seat entitlement
- * (tier base + bundles) here. Resolves to the root so a team id still targets
- * the account. Returns the resolved root id, or null if the org is missing.
+ * (tier base + bundles) here. `orgId` MUST be the account root: a team id is
+ * refused ({@link ORG_SEAT_LIMIT_NOT_ROOT}) rather than silently redirected, so
+ * a sync aimed at a team can never rewrite the whole account's entitlement.
+ * Returns the root id, or null if the org is missing.
  */
 export async function setSeatLimit(
   orgId: string,
@@ -181,12 +184,13 @@ export async function setSeatLimit(
   tier?: QuotaTier,
 ): Promise<{ rootOrgId: string; seats: number; featureDelta?: FeatureDelta } | null> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
+  if (String(rootOrgId) !== String(orgId)) throw new Error(ORG_SEAT_LIMIT_NOT_ROOT);
   const set: Record<string, unknown> = { 'quotas.seats': seats };
   // Account-level purchased feature entitlements (bundles) also live on the
   // root and are synced by billing alongside the seat limit.
   if (features !== undefined) set.featureEntitlements = features;
 
-  // Members whose tokenVersion was bumped by an access reduction (feature shrink
+  // Members whose claimsVersion was bumped by an access reduction (feature shrink
   // or tier downgrade) — published after commit (never mid-transaction).
   let bumpedMemberIds: Types.ObjectId[] = [];
   // Atomic: the root seat/entitlement write and its propagation onto descendant
@@ -284,7 +288,7 @@ export async function setSeatLimit(
     // safe). featureEntitlements + tier propagate across the whole subtree, so a
     // stale token held by ANY subtree member still over-grants — bump them all.
     if (featureShrink || tierDowngrade) {
-      bumpedMemberIds = await bumpActiveMembersTokenVersion(subtreeIds, session);
+      bumpedMemberIds = await bumpActiveMembersClaimsVersion(subtreeIds, session);
       // Security-relevant outcome: how many members were invalidated across how
       // many subtree orgs, and why — so incident review can reconstruct the blast
       // radius of an access reduction.
@@ -298,7 +302,7 @@ export async function setSeatLimit(
     }
     return { rootOrgId, seats, featureDelta };
   });
-  // Post-commit: publish the affected members' now-current tokenVersion.
+  // Post-commit: publish the affected members' now-current access version.
   await publishUsersRevocation(bumpedMemberIds);
   return outcome;
 }
@@ -474,7 +478,7 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     org.markModified('quotas');
   }
 
-  // Members whose tokenVersion was bumped by a downgrade — published post-commit.
+  // Members whose claimsVersion was bumped by a downgrade — published post-commit.
   let bumpedMemberIds: Types.ObjectId[] = [];
   // Atomic: the root's tier/quota save and the tier propagation onto its
   // descendant teams must both land or neither — a failure between them would
@@ -499,7 +503,7 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
     // across it — root + descendant teams (deduped by `distinct`). Same
     // transaction as the tier write. No bump on an upgrade.
     if (isDowngrade) {
-      bumpedMemberIds = await bumpActiveMembersTokenVersion(subtreeIds, session);
+      bumpedMemberIds = await bumpActiveMembersClaimsVersion(subtreeIds, session);
       // Security-relevant outcome: how many members were invalidated across how
       // many subtree orgs, and why — so incident review can reconstruct the blast
       // radius of the downgrade.
@@ -510,7 +514,7 @@ export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: str
       });
     }
   });
-  // Post-commit: publish the affected members' now-current tokenVersion so the
+  // Post-commit: publish the affected members' now-current access version so the
   // reduced tier / lost features take effect on the stateless services now.
   await publishUsersRevocation(bumpedMemberIds);
 

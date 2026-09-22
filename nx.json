@@ -1,24 +1,44 @@
 {
   "extends": "nx/presets/npm.json",
-  "tasksRunnerOptions": {
-    "default": {
-      "runner": "nx/tasks-runners/default",
-      "options": {
-        "cacheableOperations": [
-          "build"
-        ],
-        "parallel": 1
-      },
-      "skipNxCache": true
-    }
+  "namedInputs": {
+    "sharedGlobals": [
+      "{workspaceRoot}/jest-*.js",
+      "{workspaceRoot}/.projenrc.ts",
+      "{workspaceRoot}/projenrc/**/*"
+    ],
+    "default": [
+      "{projectRoot}/**/*",
+      "sharedGlobals"
+    ]
   },
-  "parallel": 1,
+  "parallel": 3,
   "targetDefaults": {
     "build": {
       "dependsOn": [
         "^build"
       ],
       "inputs": [
+        "default",
+        "^default",
+        "sharedGlobals",
+        "!{projectRoot}/lib/**/*",
+        "!{projectRoot}/dist/**/*"
+      ],
+      "outputs": [
+        "{projectRoot}/lib",
+        "{projectRoot}/dist"
+      ],
+      "cache": true,
+      "parallelism": false
+    },
+    "compile": {
+      "dependsOn": [
+        "pre-compile",
+        "^post-compile"
+      ],
+      "inputs": [
+        "default",
+        "^default",
         "!{projectRoot}/lib/**/*",
         "!{projectRoot}/dist/**/*"
       ],
@@ -28,10 +48,37 @@
       ],
       "cache": true
     },
+    "post-compile": {
+      "dependsOn": [
+        "compile"
+      ]
+    },
+    "eslint": {
+      "inputs": [
+        "default",
+        "!{projectRoot}/lib/**/*",
+        "!{projectRoot}/dist/**/*"
+      ],
+      "cache": true
+    },
     "test": {
       "dependsOn": [
         "^build"
-      ]
+      ],
+      "inputs": [
+        "default",
+        "^default",
+        "sharedGlobals",
+        "!{projectRoot}/lib/**/*",
+        "!{projectRoot}/dist/**/*"
+      ],
+      "parallelism": false
+    },
+    "docker:build": {
+      "parallelism": false
+    },
+    "docker:publish": {
+      "parallelism": false
     }
   },
   "release": {

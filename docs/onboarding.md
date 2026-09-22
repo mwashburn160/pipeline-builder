@@ -51,11 +51,11 @@ don't run `init-platform.sh`, `store-token`, or `setup-events` by hand:
 > **Per organization:** the `store-token` secrets are scoped per org
 > (`pipeline-builder/{orgId}/platform`). `--with-events` covers only the org you provisioned
 > with. For **each new organization** you onboard, don't re-provision — run the standalone
-> [`pipeline-manager infra store-token`](#step-5-store-the-service-account-keys-aws-targets) and
-> [`pipeline-manager infra setup-events`](#step-6-set-up-event-reporting-aws-targets)
+> [`pipeline-manager infra store-token`](#step-5--store-the-service-account-keys-aws-targets) and
+> [`pipeline-manager infra setup-events`](#step-6--set-up-event-reporting-aws-targets)
 > commands (Steps 5–6) to provision and wire that org's keys.
 
-**After provisioning, skip straight to [Step 2 — Create your organization](#step-2-create-your-organization).**
+**After provisioning, skip straight to [Step 2 — Create your organization](#step-2--create-your-organization).**
 Steps 1, 5, and 6 below are the **manual equivalents** — for when you deployed the
 platform by hand (raw `bin/setup.sh` + `init-platform.sh`) or are onboarding an
 additional organization.
@@ -82,7 +82,7 @@ and stream execution events back for analytics. Local/Minikube can skip them.
 ## Step 1 — Register the initial `system` admin *(manual installs only)*
 
 **Provisioned with `infra provision`?** This is already done — skip to
-[Step 2](#step-2-create-your-organization).
+[Step 2](#step-2--create-your-organization).
 
 For a **manual install** (you ran `bin/setup.sh` yourself), `init-platform.sh`
 registers the first admin into the reserved `system` organization and loads the
@@ -183,7 +183,7 @@ within 14 days, and one that has never been used.
 ## Step 5 — Store the service-account keys *(AWS targets)*
 
 **Provisioned with `--with-events`?** This is already done — skip to
-[Step 7](#step-7-create-your-first-pipeline).
+[Step 7](#step-7--create-your-first-pipeline).
 
 > The in-app **onboarding step** (shown after you create an organization) surfaces
 > this same `store-token` → `setup-events` sequence, with a with/without-DORA toggle
@@ -220,7 +220,7 @@ lapses — recommended, since the event Lambda depends on it. Without it, re-run
 ## Step 6 — Set up event reporting *(AWS targets)*
 
 **Provisioned with `--with-events`?** This is already done — skip to
-[Step 7](#step-7-create-your-first-pipeline).
+[Step 7](#step-7--create-your-first-pipeline).
 
 Otherwise, deploy the EventBridge → SQS → Lambda pipeline that streams
 CodePipeline/CodeBuild execution events into the reporting service — this powers the

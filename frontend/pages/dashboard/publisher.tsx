@@ -18,6 +18,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Send, Store } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { AccessDenied } from '@/components/ui/AccessDenied';
@@ -25,6 +26,7 @@ import { Callout } from '@/components/ui/Callout';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FormField } from '@/components/ui/FormField';
+import { Input } from '@/components/ui/Input';
 import { LoadingPage } from '@/components/ui/Loading';
 import { RetryError } from '@/components/ui/RetryError';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -39,6 +41,9 @@ import { PublisherInsightsPanel } from '@/components/publisher/PublisherInsights
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { PublisherContext } from '@/types/ecosystem';
+
+/** Versions offered per search in the Publish tab's picker. */
+const PICKER_PAGE = 50;
 
 const TABS = [
   { id: 'profile', label: 'Profile' },
@@ -58,13 +63,24 @@ function PublishTab({ orgId, initialPluginId, onSubmitted }: {
   initialPluginId: string | null;
   onSubmitted: () => void;
 }) {
+  // Filtered ON THE SERVER to this org's public versions, by name. It used to
+  // take the first 200 plugins the caller could see (the system catalog and
+  // other orgs' public ones included) and filter here — so an org whose own
+  // public versions sat past that page could not pick them at all.
+  const [search, setSearch] = useState('');
+  const query = useDebounce(search.trim(), 250);
   const pluginsQ = useFetch(async (signal) => {
-    const res = await api.listPlugins({ limit: '200', fields: 'id,orgId,name,version,visibility' }, { signal });
-    return (res.data?.plugins ?? []).filter((p) => !orgId || p.orgId === orgId);
-  }, [orgId]);
+    if (!orgId) return { plugins: [], total: 0 };
+    const res = await api.listPlugins({
+      orgId, visibility: 'public', limit: String(PICKER_PAGE), includeTotal: 'true',
+      fields: 'id,orgId,name,version,visibility', ...(query ? { name: query } : {}),
+    }, { signal });
+    const rows = (res.data?.plugins ?? []).filter((p) => p.orgId === orgId && p.visibility === 'public');
+    return { plugins: rows, total: res.data?.pagination?.total ?? rows.length };
+  }, [orgId, query]);
   const [pluginId, setPluginId] = useState<string>(initialPluginId ?? '');
-  const plugins = pluginsQ.data ?? [];
-  const publicOnes = plugins.filter((p) => p.visibility === 'public');
+  const publicOnes = pluginsQ.data?.plugins ?? [];
+  const truncated = (pluginsQ.data?.total ?? 0) > publicOnes.length;
 
   return (
     <SectionCard icon={Send} title="Submit to the ecosystem" description="Request a new listing, or a new version of an existing one. The ecosystem team reviews every request.">
@@ -72,17 +88,29 @@ function PublishTab({ orgId, initialPluginId, onSubmitted }: {
         {pluginsQ.error ? (
           <RetryError message={formatError(pluginsQ.error, 'Failed to load your plugins')} onRetry={pluginsQ.refetch} />
         ) : (
-          <FormField label="Plugin version" hint="Only public versions can be listed. Change a plugin's access to public on the Plugins page first.">
-            <Select value={pluginId} onChange={(e) => setPluginId(e.target.value)} disabled={pluginsQ.loading}>
-              <option value="">{pluginsQ.loading ? 'Loading…' : publicOnes.length ? 'Choose a plugin version…' : 'No public plugin versions'}</option>
-              {publicOnes.map((p) => <option key={p.id} value={p.id}>{p.name} v{p.version}</option>)}
-              {/* A deep link to a non-public version still opens its draft — the
-                  visibility gate there says why it can't be submitted. */}
-              {pluginId && !publicOnes.some((p) => p.id === pluginId) && (
-                <option value={pluginId}>{plugins.find((p) => p.id === pluginId)?.name ?? 'Selected plugin'}</option>
-              )}
-            </Select>
-          </FormField>
+          <div className="flex flex-wrap items-end gap-3">
+            <FormField label="Find a plugin" className="min-w-[14rem] flex-1">
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Plugin name" autoComplete="off" />
+            </FormField>
+            <FormField
+              label="Plugin version"
+              className="min-w-[16rem] flex-1"
+              hint={truncated
+                ? `Showing the first ${publicOnes.length} of ${pluginsQ.data?.total} matches — type more of the name to narrow it.`
+                : "Only public versions can be listed. Change a plugin's access to public on the Plugins page first."}
+            >
+              <Select value={pluginId} onChange={(e) => setPluginId(e.target.value)} disabled={pluginsQ.loading && !pluginsQ.data}>
+                <option value="">{pluginsQ.loading && !pluginsQ.data ? 'Loading…' : publicOnes.length ? 'Choose a plugin version…' : query ? 'No public version matches' : 'No public plugin versions'}</option>
+                {publicOnes.map((p) => <option key={p.id} value={p.id}>{p.name} v{p.version}</option>)}
+                {/* A deep link to a version not in this page (or not public) still
+                    opens its draft — the visibility gate there says why it can't
+                    be submitted. */}
+                {pluginId && !publicOnes.some((p) => p.id === pluginId) && (
+                  <option value={pluginId}>Selected plugin</option>
+                )}
+              </Select>
+            </FormField>
+          </div>
         )}
         {pluginId && <PublishRequestForm key={pluginId} pluginId={pluginId} onSubmitted={() => { setPluginId(''); onSubmitted(); }} />}
       </div>
@@ -134,7 +162,14 @@ export default function PublisherPage() {
       );
     }
     if (tab === 'listings') return <PublisherListingsPanel canPublish={canPublish} canManage={canManage} />;
-    if (tab === 'advisories') return <PublisherAdvisoriesPanel canManage={canManage} />;
+    // Reading the org's advisories rides `plugins:read` (the server's gate);
+    // REQUESTING one is `publishers:manage`, which the panel gates itself.
+    if (tab === 'advisories') {
+      if (!can('plugins:read')) {
+        return <Callout variant="neutral">Viewing your listings&apos; advisories needs the plugins:read permission.</Callout>;
+      }
+      return <PublisherAdvisoriesPanel canManage={canManage} />;
+    }
     if (tab === 'insights') return <PublisherInsightsPanel />;
     if (tab === 'publish') {
       if (!canPublish) {

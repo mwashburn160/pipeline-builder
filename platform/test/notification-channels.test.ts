@@ -18,6 +18,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- mocks --------------------------------------------------------------------
@@ -73,7 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     return (name: string) => byName.get(name) ?? null;
   },
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { __table: 'messages' } },
   withTenantTx: (fn: (tx: unknown) => unknown) => mockWithTenantTx(fn),
 }));

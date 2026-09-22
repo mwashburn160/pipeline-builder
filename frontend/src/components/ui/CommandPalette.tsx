@@ -139,7 +139,7 @@ export function CommandPalette({
     if (!open) { resourcesLoadedRef.current = false; return; }
     if (resourcesLoadedRef.current) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       const [pRes, plRes] = await Promise.all([
         runQuery(queries.listPipelines({ limit: '100', includeTotal: 'false' })).catch(() => null),
         api.listPlugins({ limit: '100' }).catch(() => null),

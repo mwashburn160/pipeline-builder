@@ -8,8 +8,10 @@
  * its uploader).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { Readable, Writable } from 'node:stream';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindById = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -31,17 +33,16 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requirePermission: () => (_req: any, _res: any, next: () => void) => next(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  incrementQuotaFromCtx: jest.fn(),
+  incrementQuotaFromCtx: jest.fn<AnyFn>(),
   rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
-  requireAuth: (_req: any, _res: any, next: () => void) => next(),
   requireOrgId: () => (_req: any, _res: any, next: () => void) => next(),
   withTenantContext: () => (_req: any, _res: any, next: () => void) => next(),
   createProtectedRoute: () => [],
   withRoute: (handler: Function) => async (req: any, res: any) => {
     try {
-      await handler({ req, res, ctx: { log: jest.fn() }, orgId: identity.orgId, userId: identity.userId });
+      await handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: identity.orgId, userId: identity.userId });
     } catch (err: any) {
       res.status(500).json({ message: err instanceof Error ? err.message : String(err) });
     }
@@ -57,8 +58,8 @@ jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
   },
 }));
 
-const mockGetAttachmentStreamOrNull = jest.fn<(...args: unknown[]) => unknown>();
-const mockGenerateThumbnail = jest.fn<(...args: unknown[]) => unknown>().mockResolvedValue(null);
+const mockGetAttachmentStreamOrNull = jest.fn<AnyFn>();
+const mockGenerateThumbnail = jest.fn<AnyFn>().mockResolvedValue(null);
 
 jest.unstable_mockModule('../src/services/attachment-storage.js', () => ({
   putAttachment: mockPutAttachment,
@@ -77,7 +78,7 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 
 const { createAttachmentRoutes } = await import('../src/routes/attachment-routes.js');
 
-const router: any = createAttachmentRoutes({ increment: jest.fn(), check: jest.fn(), getUsage: jest.fn() } as any);
+const router: any = createAttachmentRoutes({ increment: jest.fn<AnyFn>(), check: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() } as any);
 
 function getHandler(method: string, path: string) {
   const layer = router.stack.find((l: any) => l.route?.path === path && l.route?.methods[method]);
@@ -88,12 +89,12 @@ function getHandler(method: string, path: string) {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  res.setHeader = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.setHeader = jest.fn<AnyFn>().mockReturnValue(res);
   res.headersSent = false;
-  res.destroy = jest.fn();
-  res.end = jest.fn();
+  res.destroy = jest.fn<AnyFn>();
+  res.end = jest.fn<AnyFn>();
   return res;
 }
 
@@ -104,9 +105,9 @@ function streamRes(): any {
   const res: any = new Writable({
     write(chunk, _enc, cb) { chunks.push(Buffer.from(chunk)); cb(); },
   });
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  res.setHeader = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.setHeader = jest.fn<AnyFn>().mockReturnValue(res);
   res.headersSent = false;
   res.body = () => Buffer.concat(chunks).toString();
   return res;

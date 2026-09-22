@@ -126,6 +126,15 @@ export interface QuotaService {
    * tier-scoped scheduling boost.
    */
   getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier>;
+  /**
+   * FAIL-CLOSED twin of {@link getTier}: the org's tier as the quota service
+   * CONFIRMED it, or `null` when it could not be confirmed (unreachable, non-ok,
+   * missing or unrecognized tier). For decisions that must never be taken on a
+   * guess — anything that revokes, downgrades or deletes on the strength of a
+   * tier (e.g. a verified-publisher grace sweep) must skip the org on `null`,
+   * never act on `DEFAULT_TIER`.
+   */
+  getTierStrict(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier | null>;
 }
 
 /**
@@ -215,6 +224,22 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
   };
 
   const client = createSafeClient(serviceConfig);
+
+  /** One tier read: the confirmed tier, or why there isn't one. */
+  async function readTier(
+    orgId: string, authHeader: string, requestId?: string,
+  ): Promise<{ tier: QuotaTier; reason?: undefined; statusCode?: number } | { tier: null; reason: 'unreachable' | 'non-ok' | 'invalid-tier'; statusCode?: number }> {
+    const response = await client.get<{
+      success: boolean;
+      data?: { quota?: { tier?: string } };
+      message?: string;
+    }>(`/quotas/${encodeURIComponent(orgId)}`, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+    if (!response) return { tier: null, reason: 'unreachable' };
+    if (response.statusCode !== 200 || !response.body?.success) return { tier: null, reason: 'non-ok', statusCode: response.statusCode };
+    const tier = response.body.data?.quota?.tier;
+    if (!tier || !isValidTier(tier)) return { tier: null, reason: 'invalid-tier', statusCode: response.statusCode };
+    return { tier, statusCode: response.statusCode };
+  }
 
   return {
     async check(orgId: string, quotaType: QuotaType, authHeader: string, requestId?: string): Promise<QuotaCheckResult> {
@@ -336,24 +361,21 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
     },
 
     async getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier> {
-      const path = `/quotas/${encodeURIComponent(orgId)}`;
+      const read = await readTier(orgId, authHeader, requestId);
+      if (read.tier) return read.tier;
+      logger.warn(`QUOTA_FAIL_OPEN: tier lookup failed, defaulting to ${DEFAULT_TIER} tier`, {
+        orgId, statusCode: read.statusCode, reason: read.reason, defaultTier: DEFAULT_TIER,
+      });
+      emitCounter('quota_fail_open_total', { operation: 'tier', reason: read.reason, quotaType: 'tier' });
+      return DEFAULT_TIER;
+    },
 
-      const response = await client.get<{
-        success: boolean;
-        data?: { quota?: { tier?: string } };
-        message?: string;
-      }>(path, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
-
-      if (!response || response.statusCode !== 200 || !response.body.success) {
-        logger.warn(`QUOTA_FAIL_OPEN: tier lookup failed, defaulting to ${DEFAULT_TIER} tier`, {
-          orgId, statusCode: response?.statusCode, defaultTier: DEFAULT_TIER,
-        });
-        emitCounter('quota_fail_open_total', { operation: 'tier', reason: response ? 'non-ok' : 'unreachable', quotaType: 'tier' });
-        return DEFAULT_TIER;
-      }
-
-      const tier = response.body.data?.quota?.tier;
-      return tier && isValidTier(tier) ? tier: DEFAULT_TIER;
+    async getTierStrict(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier | null> {
+      const read = await readTier(orgId, authHeader, requestId);
+      if (read.tier) return read.tier;
+      logger.warn('QUOTA_FAIL_CLOSED: tier could not be confirmed', { orgId, statusCode: read.statusCode, reason: read.reason });
+      emitCounter('quota_fail_closed_total', { operation: 'tier', reason: read.reason, quotaType: 'tier' });
+      return null;
     },
 
     async reset(orgId: string, quotaType?: QuotaType, authHeader?: string, requestId?: string): Promise<boolean> {

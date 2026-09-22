@@ -244,17 +244,16 @@ export function DataTable<T>({
             {showColumnMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowColumnMenu(false)} onKeyDown={(e) => { if (e.key === 'Escape') setShowColumnMenu(false); }} role="presentation" />
+                {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape dismisses the popover; its checkboxes are the controls */}
                 <div
                   className="absolute right-0 top-full mt-1 z-20 w-48 rounded-lg border border-default bg-surface py-1 shadow-lg"
-                  role="menu"
+                  role="group"
                   aria-label="Toggle column visibility"
                   onKeyDown={(e) => { if (e.key === 'Escape') setShowColumnMenu(false); }}
                 >
                   {toggleableColumns.map((col) => (
                     <label
                       key={col.id}
-                      role="menuitemcheckbox"
-                      aria-checked={!hiddenColumns.has(col.id)}
                       className="flex items-center gap-2 px-3 py-1.5 text-sm text-fg-muted hover:bg-surface-muted cursor-pointer"
                     >
                       <input

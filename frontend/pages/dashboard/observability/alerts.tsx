@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { AlertTriangle, BellOff, CheckCircle2, RefreshCw, Volume2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
@@ -298,6 +298,7 @@ function SilenceModal(props: {
   onClose: () => void;
   onSubmit: (matchers: Array<{ name: string; value: string }>, durationMs: number, comment: string) => Promise<void>;
 }) {
+  const uid = useId();
   const { alert, onClose, onSubmit } = props;
   // Seed matchers with `alertname` + any org_id label so the silence narrows
   // to this specific alert in this org rather than every alert of any name.
@@ -351,8 +352,8 @@ function SilenceModal(props: {
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Duration</label>
-          <Select
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-duration`}>Duration</label>
+          <Select id={`${uid}-duration`}
             value={durationMs}
             onChange={(e) => setDurationMs(parseInt(e.target.value, 10))}
           >
@@ -360,10 +361,10 @@ function SilenceModal(props: {
           </Select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-reason`}>
             Reason <span className="text-danger">*</span>
           </label>
-          <Textarea
+          <Textarea id={`${uid}-reason`}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={3}

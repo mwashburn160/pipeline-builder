@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useId } from 'react';
 import { KeyRound, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
 import { Input } from '@/components/ui/Input';
@@ -35,6 +35,7 @@ interface Props {
  * if `reencrypt=true` (default).
  */
 export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
+  const uid = useId();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [configured, setConfigured] = useState(false);
@@ -197,8 +198,9 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           </div>
 
           <div>
-            <label className="label">KMS key id / alias</label>
+            <label className="label" htmlFor={`${uid}-kms-key-id-alias`}>KMS key id / alias</label>
             <Input
+              id={`${uid}-kms-key-id-alias`}
               type="text"
               value={keyId}
               onChange={(e) => setKeyId(e.target.value)}
@@ -209,8 +211,9 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
           </div>
 
           <div>
-            <label className="label">Wrapped master (base64)</label>
+            <label className="label" htmlFor={`${uid}-wrapped-master-base64`}>Wrapped master (base64)</label>
             <Textarea
+              id={`${uid}-wrapped-master-base64`}
               value={ciphertextBase64}
               onChange={(e) => setCiphertextBase64(e.target.value)}
               placeholder="AQICAHi..."

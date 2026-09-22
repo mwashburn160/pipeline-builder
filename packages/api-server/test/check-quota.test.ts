@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock api-core before imports
@@ -106,7 +107,7 @@ describe('checkQuota', () => {
       },
     });
     // Also mock getIdentity to return no orgId for fallback
-    (getIdentity as jest.Mock).mockReturnValue({ orgId: undefined });
+    (getIdentity as jest.Mock<AnyFn>).mockReturnValue({ orgId: undefined });
     const res = mockRes();
     const next = jest.fn();
 

@@ -13,22 +13,20 @@
  *  - 200 + correct envelope shape for instant + range + audit-store queries
  */
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
-jest.unstable_mockModule('@pipeline-builder/api-core', () => {
-  const actual = jest.requireActual('@pipeline-builder/api-core');
-  return {
-    ...actual,
-    isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
-    // sendError + sendSuccess are real (so res.json shape matches prod)
-  };
-});
+import { apiCoreMock } from './helpers/mock-api-core.js';
+// sendError + sendSuccess stay real (so res.json shape matches prod).
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  isSystemAdmin: (req: unknown) => mockIsSystemAdmin(req),
+}));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertmanagerTimeoutMs: 5000 } } }));
 
 // Mocks for the upstream clients
-const mockPromQuery = jest.fn();
-const mockPromQueryRange = jest.fn();
+const mockPromQuery = jest.fn<AnyFn>();
+const mockPromQueryRange = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/observability/prometheus-client.js', () => ({
   query: (...a: unknown[]) => mockPromQuery(...a),
@@ -51,7 +49,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controller
 // The controller now audits silence create/delete; stub the audit helper so the
 // test doesn't pull in the real audit-service / mongoose chain.
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({
-  audit: jest.fn(),
+  audit: jest.fn<AnyFn>(),
 }));
 
 const { observabilityQuery, observabilityAuditQuery, observabilityCatalog } = await import('../src/observability/controller.js');
@@ -65,7 +63,7 @@ function makeRes(): Response & { _status: number; _body: unknown } {
     _body: undefined,
     status(code: number) { this._status = code; return this; },
     json(b: unknown) { this._body = b; return this; },
-    setHeader: jest.fn(),
+    setHeader: jest.fn<AnyFn>(),
   };
   return r as Response & { _status: number; _body: unknown };
 }

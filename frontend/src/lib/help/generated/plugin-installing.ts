@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 86a964fbc4f6738616a1183ff0b6919bfb40b72ae3b0ff01c256dd0a6acedfce
+// SOURCE-SHA256: d7b69ce166429658bef947009d7c2b00f776dc57bdad02a09615f002105267bf
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -201,7 +201,11 @@ export const pluginInstallingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Upgrading means changing an install's version or its policy (the install's Upgrade action, or PATCH /api/plugins/installs/:id). It needs plugins:install. For a listing whose tier requires approval, moving across a major or breaking version, or switching the policy to latest, needs plugin_installs:manage. A team can't change or remove an install it inherits from its root organization."
+          "content": "Upgrading means changing an install's version or its policy (the install's Upgrade action, or PATCH /api/plugins/installs/:id). It needs plugins:install. For a listing whose tier requires approval, moving across a major or breaking version, or switching the policy to latest, needs plugin_installs:manage. The install views say so ahead of time: needsApproval: true on a catalog entry or an install means such a change needs an approver for you. A team can't change or remove an install it inherits from its root organization."
+        },
+        {
+          "type": "text",
+          "content": "Without plugin_installs:manage you request the change instead (POST /api/plugins/installs/:id/change-requests with { version?, versionPolicy?, note? }). The request is stored on the install as its one pending change (pendingChange on the install), your organization's approvers are notified (N11), and they approve it (the change is applied, re-checked against your policy at that moment) or reject it with a reason under Plugins → Approvals. You're told the outcome (N12). A change that needs no approval is refused as a request — apply it directly."
         },
         {
           "type": "text",
@@ -685,7 +689,7 @@ export const pluginInstallingTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Install and policy actions are recorded in your organization's audit log, with affectedOrgId = your organization: plugin.install.create (no approval needed), plugin.install.request, plugin.install.approve, plugin.install.deny, plugin.install.upgrade (details.from / details.to), plugin.install.remove (details.withdrawn for a withdrawn request) and org.plugin-install-policy.update (the changed fields, before and after). The audit page's Ecosystem quick filter shows them. See Audit Events."
+          "content": "Install and policy actions are recorded in your organization's audit log, with affectedOrgId = your organization: plugin.install.create (no approval needed), plugin.install.request, plugin.install.approve, plugin.install.deny, plugin.install.upgrade (details.from / details.to), plugin.install.change-request, plugin.install.change-approve / plugin.install.change-reject (an approval-gated change a member asked for, and its decision), plugin.install.remove (details.withdrawn for a withdrawn request) and org.plugin-install-policy.update (the changed fields, before and after). The audit page's Ecosystem quick filter shows them. See Audit Events."
         }
       ]
     },
@@ -753,6 +757,30 @@ export const pluginInstallingTopic: HelpTopic = {
               "/plugins/installs/:id/deny",
               "plugin_installs:manage",
               "Deny a pending request"
+            ],
+            [
+              "POST",
+              "/plugins/installs/:id/change-requests",
+              "plugins:install",
+              "{ version?, versionPolicy?, note? } → 201 { changeRequest }: request a change that needs an approver"
+            ],
+            [
+              "GET",
+              "/plugins/installs/change-requests",
+              "plugin_installs:manage",
+              "{ changeRequests: [{ installId, listing, from, to, requestedBy, requestedAt, note }] }, oldest first"
+            ],
+            [
+              "POST",
+              "/plugins/installs/:id/change-requests/approve",
+              "plugin_installs:manage",
+              "Apply the pending change → { install }"
+            ],
+            [
+              "POST",
+              "/plugins/installs/:id/change-requests/reject",
+              "plugin_installs:manage",
+              "{ reason? } → { install }: drop the pending change"
             ],
             [
               "GET",

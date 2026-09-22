@@ -223,7 +223,7 @@ export const completeStepUpReauth = withController('Step-up re-auth callback', a
       // The org's IdP may have been switched to another provider mid-flight.
       if (cfg.provider !== pending.provider) throw new Error(STEP_UP_REAUTH_IDENTITY_MISMATCH);
       const identity = await exchangeAndValidate(cfg, body.code, pending.nonce!, { codeVerifier: pending.codeVerifier });
-      await assertSsoIdentityTrusted(orgId, identity);
+      await assertSsoIdentityTrusted(orgId, identity, { protocol: 'oidc', provider: cfg.provider });
       const linked = user.oauth[cfg.provider];
       if (!linked?.id || linked.id !== identity.subject || linked.issuer !== identity.issuer) {
         throw new Error(STEP_UP_REAUTH_IDENTITY_MISMATCH);

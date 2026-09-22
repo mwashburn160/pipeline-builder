@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useId } from 'react';
 import { FormPluginOptions, FormPluginFilter, createEmptyPluginFilter } from '@/types/form-types';
 import type { PluginPick } from '@/lib/plugin-installs';
 import { Input } from '@/components/ui/Input';
@@ -31,6 +31,7 @@ interface PluginOptionsEditorProps {
 export default function PluginOptionsEditor({
   value, onChange, disabled, error, label = 'Plugin',
 }: PluginOptionsEditorProps) {
+  const uid = useId();
   const update = (fields: Partial<FormPluginOptions>) => onChange({ ...value, ...fields });
   const updateFilter = (fields: Partial<FormPluginFilter>) =>
     update({ filter: { ...value.filter, ...fields } });
@@ -85,8 +86,9 @@ export default function PluginOptionsEditor({
       />
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="label">{label} Publisher</label>
+          <label className="label" htmlFor={`${uid}-publisher`}>{label} Publisher</label>
           <Input
+            id={`${uid}-publisher`}
             type="text"
             value={value.publisher}
             onChange={(e) => update({ publisher: e.target.value.trim() })}
@@ -96,8 +98,9 @@ export default function PluginOptionsEditor({
           <p className="mt-1 text-xs text-fg-subtle">Set to use an installed listing from that publisher only.</p>
         </div>
         <div>
-          <label className="label">{label} Alias</label>
+          <label className="label" htmlFor={`${uid}-alias`}>{label} Alias</label>
           <Input
+            id={`${uid}-alias`}
             type="text"
             value={value.alias}
             onChange={(e) => update({ alias: e.target.value })}
@@ -110,8 +113,9 @@ export default function PluginOptionsEditor({
         <div className="mt-3 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Plugin ID</label>
+              <label className="label" htmlFor={`${uid}-plugin-id`}>Plugin ID</label>
               <Input
+                id={`${uid}-plugin-id`}
                 type="text"
                 value={value.filter.id}
                 onChange={(e) => updateFilter({ id: e.target.value })}
@@ -120,8 +124,9 @@ export default function PluginOptionsEditor({
               />
             </div>
             <div>
-              <label className="label">Org ID</label>
+              <label className="label" htmlFor={`${uid}-org-id`}>Org ID</label>
               <Input
+                id={`${uid}-org-id`}
                 type="text"
                 value={value.filter.orgId}
                 onChange={(e) => updateFilter({ orgId: e.target.value })}
@@ -132,8 +137,9 @@ export default function PluginOptionsEditor({
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="label">Access modifier</label>
+              <label className="label" htmlFor={`${uid}-access-modifier`}>Access modifier</label>
               <Select
+                id={`${uid}-access-modifier`}
                 value={value.filter.visibility}
                 onChange={(e) => updateFilter({ visibility: e.target.value })}
                 disabled={disabled}
@@ -144,8 +150,9 @@ export default function PluginOptionsEditor({
               </Select>
             </div>
             <div>
-              <label className="label">Is default</label>
+              <label className="label" htmlFor={`${uid}-is-default`}>Is default</label>
               <Select
+                id={`${uid}-is-default`}
                 value={value.filter.isDefault}
                 onChange={(e) => updateFilter({ isDefault: e.target.value })}
                 disabled={disabled}
@@ -156,8 +163,9 @@ export default function PluginOptionsEditor({
               </Select>
             </div>
             <div>
-              <label className="label">Is active</label>
+              <label className="label" htmlFor={`${uid}-is-active`}>Is active</label>
               <Select
+                id={`${uid}-is-active`}
                 value={value.filter.isActive}
                 onChange={(e) => updateFilter({ isActive: e.target.value })}
                 disabled={disabled}
@@ -170,8 +178,9 @@ export default function PluginOptionsEditor({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Filter name</label>
+              <label className="label" htmlFor={`${uid}-filter-name`}>Filter name</label>
               <Input
+                id={`${uid}-filter-name`}
                 type="text"
                 value={value.filter.name}
                 onChange={(e) => updateFilter({ name: e.target.value })}
@@ -181,8 +190,9 @@ export default function PluginOptionsEditor({
             </div>
           </div>
           <div>
-            <label className="label">Version</label>
+            <label className="label" htmlFor={`${uid}-version`}>Version</label>
             <Input
+              id={`${uid}-version`}
               type="text"
               value={value.filter.version}
               onChange={(e) => updateFilter({ version: e.target.value })}

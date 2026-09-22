@@ -17,7 +17,9 @@
  *   - `services/totp-service.ts` — the same guard for disabling TOTP.
  */
 
+import type { ClientSession } from 'mongoose';
 import { User, WebAuthnCredential, UserTotp } from '../models/index.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 /** Everything either last-factor guard needs, in one read per collection. */
 export interface SignInMethods {
@@ -33,12 +35,15 @@ export interface SignInMethods {
 
 /** Load the account's credentials. The password hash is read only to derive
  *  `hasPassword` and never leaves this function. */
-export async function loadSignInMethods(userId: string): Promise<SignInMethods> {
+export async function loadSignInMethods(userId: string, session?: ClientSession): Promise<SignInMethods> {
+  // Inside a guarded removal the reads join its transaction (so they see — and
+  // conflict with — what a concurrent removal wrote).
+  const inTx = <Q extends { session(s: ClientSession): Q }>(q: Q): Q => (session ? q.session(session) : q);
   const [user, passkeyCount, totp] = await Promise.all([
-    User.findById(userId).select('+password oauth').lean() as Promise<
+    inTx(User.findById(userId).select('+password oauth')).lean() as Promise<
     { password?: string; oauth?: Record<string, { id?: string } | undefined> } | null>,
-    WebAuthnCredential.countDocuments({ userId }),
-    UserTotp.exists({ userId, activatedAt: { $ne: null } }),
+    inTx(WebAuthnCredential.countDocuments({ userId })),
+    inTx(UserTotp.exists({ userId, activatedAt: { $ne: null } })),
   ]);
   return {
     hasPassword: typeof user?.password === 'string' && user.password.length > 0,
@@ -60,4 +65,33 @@ export async function loadSignInMethods(userId: string): Promise<SignInMethods> 
 export function retainsSignInMethod(methods: SignInMethods, removing: 'passkey' | 'totp'): boolean {
   if (methods.hasPassword || methods.hasProvider) return true;
   return removing === 'passkey' ? methods.passkeyCount > 1 : methods.passkeyCount > 0;
+}
+
+/**
+ * Remove one credential ONLY if the account still keeps a way in afterwards —
+ * atomically.
+ *
+ * A check-then-delete races: two concurrent removals (the last two passkeys of a
+ * password-less account, from two tabs) would each count "one other left" and
+ * both delete. Inside one transaction the two would still commit — they touch
+ * different documents, so Mongo sees no conflict (write skew). So the conflict
+ * is MATERIALIZED: every guarded removal first writes the same field on the
+ * person's User document (`credentialsEpoch`). Two concurrent removals now
+ * write-conflict; the loser is retried by the transaction helper, re-counts, and
+ * is refused.
+ *
+ * `remove` performs the deletion inside the transaction and returns whether it
+ * removed anything. Throws `refusal` when the guard fails.
+ */
+export async function removeUnlessLastSignInMethod(
+  userId: string,
+  removing: 'passkey' | 'totp',
+  refusal: string,
+  remove: (session: ClientSession) => Promise<boolean>,
+): Promise<boolean> {
+  return withMongoTransaction(async (session) => {
+    await User.updateOne({ _id: userId }, { $inc: { credentialsEpoch: 1 } }, { session });
+    if (!retainsSignInMethod(await loadSignInMethods(userId, session), removing)) throw new Error(refusal);
+    return remove(session);
+  });
 }

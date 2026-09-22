@@ -92,7 +92,7 @@ Read this before sizing an RPO, because the topology is the constraint:
 | **Postgres** | **single instance**, `replicas: 1`, `strategy: Recreate`, one RWO volume | **none** — no hot standby, no replica, no WAL archiving | Losing the volume loses everything written since the last dump. A pod restart is a brief outage; a lost volume is a restore. |
 | **MongoDB** | **single instance**, `replicas: 1`, running as a ONE-MEMBER replica set (`rs0`) | **none** — `rs0` exists so drivers can use transactions/change streams, *not* for redundancy | Same: one member, one volume, no second copy. |
 | **Redis** | 3 + 3 Sentinel (eks/ec2), single pod (minikube/docker) | Sentinel failover on the AWS targets | Not backed up at all, by design — see below. |
-| **MinIO** | 4-drive EC:2 (eks/ec2), single drive (local) | drive-fault tolerance, not site | Mirrored by `backup.sh` when `MINIO_ENDPOINT` is set. |
+| **MinIO** | 4-pod EC:2 (eks), 4-directory EC:2 on one EBS volume (ec2), single drive (local) | drive/pod-fault tolerance on eks only; ec2 relies on the EBS volume + DLM snapshots | Mirrored by `backup.sh` when `MINIO_ENDPOINT` is set. |
 
 Redis HA removed the old data-tier single point of failure; **Postgres is now the one that remains**, with MongoDB beside it. Neither is replicated on any target, including eks.
 
@@ -141,7 +141,7 @@ Several stateful services store into **MinIO** (S3-compatible), each with its ow
 
 **HA / topology:**
 - **EKS (production):** distributed MinIO — a **StatefulSet of 4 pods**, one pb-ebs PVC each, erasure set **EC:2** (tolerates 2 pod/drive losses), spread across nodes via anti-affinity. Clients hit the `minio` Service (round-robin); peers resolve via the `minio-headless` Service.
-- **ec2 (single-node prod-style):** single-node **multi-drive (SNMD)** — 4 hostPath drives ⇒ EC:2 (drive-fault tolerance on the one node; true node-HA needs multiple nodes).
+- **ec2 (single-node prod-style):** single-node **multi-drive (SNMD)** — 4 hostPath directories ⇒ EC:2. All four sit on the **same EBS data volume**, so this is bit-rot detection/healing, **not** drive-fault tolerance; durability is the EBS volume itself plus its daily DLM snapshots and `DeletionPolicy/UpdateReplacePolicy: Snapshot` (template.yaml). True drive/node HA needs separate volumes/nodes (EKS).
 - **docker / minikube (local dev):** single-node, single-drive — **no HA** (dev convenience). For cross-site async replication (any target) add `mc admin replicate`.
 
 Back up the MinIO drives as part of DR (EKS: the 4 `data-minio-*` PVCs; ec2: `minio-data/{1..4}`; dev: `./data/minio-data`). Fresh install — nothing to migrate.
@@ -182,7 +182,7 @@ See [Service Mesh](service-mesh.md) for the full troubleshooting table.
 
 The three kubernetes targets serve two admin consoles through nginx subpaths, the same pattern as `/pgadmin/`: **Grafana** (dashboards over Thanos → Prometheus → Loki → Jaeger; Thanos is the default datasource because it fans out to the object-store blocks that Prometheus alone drops) and **Kiali** (the Istio mesh console). Both are dropped by `LEAN=1`.
 
-Each carries its **own login** — nginx applies no auth to these routes — and both read data with **no org scoping**, unlike the tenant-facing `/dashboard/observability` pages which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them. Kiali additionally runs `view_only_mode` with read-only RBAC (no create/update/delete verbs anywhere) and `auth.strategy: token`, so signing in needs a ServiceAccount token: `kubectl -n pipeline-builder create token kiali`.
+On **AWS** (ec2, eks) the consoles — and `/pgadmin/`, `/mongo-express/` — are **off by default** (their routes 404) and, when turned on with `ADMIN_UIS_ENABLED=true`, sit behind an nginx `auth_request` to platform's superadmin + AAL2 check (`GET /admin/console-check`; see [AWS: Access Points](aws-deployment.md#access-points)). Locally (docker, minikube) nginx still applies no auth of its own. Each carries its **own login** as well, and both read data with **no org scoping**, unlike the tenant-facing `/dashboard/observability` pages which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them. Kiali additionally runs `view_only_mode` with read-only RBAC (no create/update/delete verbs anywhere) and `auth.strategy: token`, so signing in needs a ServiceAccount token: `kubectl -n pipeline-builder create token kiali`.
 
 Two limits worth knowing before relying on them. Under Istio **ambient without waypoint proxies**, Kiali's graph is **L4 only** — measured on a live cluster, ztunnel emits 553 `istio_*` series and `istio_requests_total` is zero — so you get who talks to whom, how much, and whether it is mTLS, but no HTTP rates, latency or status codes. And on **docker** only Grafana ships: that target runs no service mesh, so Kiali would render an empty graph.
 

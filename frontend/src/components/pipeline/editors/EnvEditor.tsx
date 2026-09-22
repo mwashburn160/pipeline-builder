@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useId } from 'react';
 import { EnvEntry } from '@/types/form-types';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -20,6 +20,7 @@ interface EnvEditorProps {
  * "Add Variable" button to append new empty entries.
  */
 export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps) {
+  const uid = useId();
   // Stable, client-only row ids kept in lockstep with `value` so React keys by
   // row identity (not array index) — prevents focus/value glitches on mid-list
   // removal. These ids are never serialized into the onChange payload.
@@ -45,8 +46,8 @@ export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps)
 
   return (
     <div>
-      <label className="label">Environment variables</label>
-      <div className="space-y-2">
+      <span className="label" id={`${uid}-env`}>Environment variables</span>
+      <div role="group" aria-labelledby={`${uid}-env`} className="space-y-2">
         {value.map((entry, idx) => (
           <div key={ids[idx]} className="flex items-center space-x-2">
             <Input

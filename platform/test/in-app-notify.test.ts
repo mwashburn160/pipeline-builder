@@ -6,14 +6,15 @@
  * non-2xx from the message service is a logged failed delivery — not silence.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockPost = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockWarn = jest.fn();
+const mockWarn = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createLogger: () => ({ info: jest.fn(), warn: mockWarn, error: jest.fn(), debug: jest.fn() }),
+  createLogger: () => ({ info: jest.fn<AnyFn>(), warn: mockWarn, error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() }),
   createSafeClient: () => ({ post: mockPost }),
   getServiceAuthHeader: () => 'Bearer svc',
 }));
@@ -24,7 +25,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 const { sendInAppNotification, sendInAppNotificationConfirmed } = await import('../src/helpers/in-app-notify.js');
 const notice = { recipientOrgId: 'org-1', subject: 's', content: 'c' };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('in-app notifications', () => {
   it('confirmed: a 2xx is delivered', async () => {

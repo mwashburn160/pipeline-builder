@@ -32,13 +32,64 @@ import {
   envInt,
   createEnvRedisLock,
   closeLeaderLock,
+  fetchParentOrgId,
   isBillingEnabled,
   type Scheduler,
   errorMessage,
+  SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
+import { Config } from '@pipeline-builder/pipeline-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 
 const logger = createLogger('reporting-retention');
+
+/** Deepest org → team chain the root walk follows before giving up (cycle guard). */
+const MAX_HIERARCHY_DEPTH = 16;
+
+/** Platform's `GET /organization/:id/parent`, fail-CLOSED (a non-2xx throws). */
+async function fetchParentFromPlatform(orgId: string): Promise<string | undefined> {
+  const { services } = Config.get('server');
+  return fetchParentOrgId(orgId, {
+    service: { host: services.platformHost, port: services.platformPort },
+    serviceName: 'reporting',
+    authOrgId: SYSTEM_ORG_ID,
+    throwOnHttpError: true,
+    timeout: 3000,
+  });
+}
+
+/**
+ * Build a per-sweep org → account-ROOT resolver for the retention purge.
+ * Retention is a billing entitlement synced onto the root org's `dora_settings`
+ * only, so a team's rows must be purged on the ROOT's window. Walks the parent
+ * chain via platform (memoized for the sweep, so a root with many teams costs one
+ * walk each). Any lookup failure (or a cycle / over-deep chain) resolves to
+ * `null`, which makes the sweep SKIP that org this tick — never purge a team's
+ * data on the shorter env default because the hierarchy was momentarily unknown.
+ */
+export function createRetentionRootResolver(
+  fetchParent: (orgId: string) => Promise<string | undefined> = fetchParentFromPlatform,
+): (orgId: string) => Promise<string | null> {
+  const memo = new Map<string, string | null>();
+  return async (orgId) => {
+    const cached = memo.get(orgId);
+    if (cached !== undefined) return cached;
+    let current = orgId;
+    let root: string | null = null;
+    try {
+      for (let depth = 0; depth < MAX_HIERARCHY_DEPTH; depth++) {
+        const parent = await fetchParent(current);
+        if (!parent || parent === current) { root = current; break; }
+        current = parent;
+      }
+      if (root === null) logger.warn('Retention root walk exceeded max depth; skipping org', { orgId });
+    } catch (err) {
+      logger.warn('Retention root resolution failed; org skipped this tick', { orgId, error: errorMessage(err) });
+    }
+    memo.set(orgId, root);
+    return root;
+  };
+}
 
 /** Kill-switch: `REPORTING_RETENTION_ENABLED=false` disables the sweep (rows
  *  accumulate; nothing is purged). */
@@ -84,7 +135,11 @@ export function createReportingRetentionScheduler(): Scheduler | null {
     startupDelayMs,
     run: async () => {
       try {
-        await reportingService.purgeExpiredReportingData({ batchSize, maxBatchesPerTable });
+        // A fresh resolver per sweep: hierarchy changes (a team moved) are picked
+        // up next tick, and the memo never outlives one pass.
+        await reportingService.purgeExpiredReportingData({
+          batchSize, maxBatchesPerTable, resolveRetentionOrgId: createRetentionRootResolver(),
+        });
       } catch (err) {
         logger.error('Reporting retention sweep failed', {
           error: errorMessage(err),

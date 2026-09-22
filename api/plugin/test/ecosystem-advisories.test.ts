@@ -376,7 +376,9 @@ describe('advisory lists', () => {
     expect(list.map((a) => [a.source, a.createdBy]).sort()).toEqual([['cve_rescan', 'system'], ['moderator', 'system'], ['publisher', 'u-acme']]);
     expect(list.every((a) => a.requestId !== null)).toBe(true);
     expect(await advisories.publisherAdvisories(tenant({ orgId: 'org-nobody' }) as any)).toEqual([]);
-    await rejects(advisories.publisherAdvisories(tenant({ permissions: ['plugins:read'] }) as any), 'INSUFFICIENT_PERMISSIONS');
+    // A plain member (plugins:read) reads its own publisher's advisories — never the embargoed drafts (E24).
+    expect(await advisories.publisherAdvisories(tenant({ permissions: ['plugins:read'] }) as any)).toEqual([]);
+    await rejects(advisories.publisherAdvisories(tenant({ permissions: [] }) as any), 'INSUFFICIENT_PERMISSIONS');
   });
 });
 

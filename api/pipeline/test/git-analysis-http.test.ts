@@ -10,6 +10,7 @@
 // analyzers encodeURIComponent their path segments.
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 type SafeFetchArgs = [string, Record<string, unknown>?];
@@ -19,7 +20,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   safeFetch: (...args: SafeFetchArgs) => mockSafeFetch(...args),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: {
     GITHUB_API_BASE_URL: 'https://api.github.com',
     BITBUCKET_API_BASE_URL: 'https://api.bitbucket.org/2.0',

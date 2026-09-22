@@ -57,52 +57,76 @@ export class Nx extends Component {
                 // Use npm workspace preset as base configuration
                 extends: 'nx/presets/npm.json',
 
-                // Task runner configuration
-                tasksRunnerOptions: {
-                    default: {
-                        runner: 'nx/tasks-runners/default',
-                        options: {
-                            // Cache build operations for faster rebuilds
-                            cacheableOperations: ['build'],
-                            // Serialize task execution. Nx only honors
-                            // `parallel` when it lives here (or as the
-                            // top-level `parallel` field). Setting it on
-                            // `targetDefaults.<target>` is silently ignored,
-                            // which is why earlier runs showed three builds
-                            // overlapping despite the prior setting.
-                            parallel: 1
-                        },
-                        // Skip Nx cache (using custom caching strategy)
-                        skipNxCache: true
-                    },
+                // Named inputs — what a task's cache key and `nx affected` see.
+                //   sharedGlobals: files OUTSIDE any project that change how every
+                //     project builds/tests (the jest guards at the root, and the
+                //     projen sources that generate every task, tsconfig and dep).
+                //     Without them a .projenrc.ts or jest-env-guard.js change left
+                //     every project "unaffected" and every cached result valid.
+                //   default: the project's own files + sharedGlobals.
+                // Projects whose tests read deploy/ or docs/ add those via their
+                // package.json `nx` field (REPO_FIXTURE_INPUTS in .projenrc.ts).
+                namedInputs: {
+                    sharedGlobals: [
+                        '{workspaceRoot}/jest-*.js',
+                        '{workspaceRoot}/.projenrc.ts',
+                        '{workspaceRoot}/projenrc/**/*',
+                    ],
+                    default: ['{projectRoot}/**/*', 'sharedGlobals'],
                 },
 
-                // Top-level parallel mirrors the runner option above so the
-                // setting survives any future nx changes that switch which
-                // location wins.
-                parallel: 1,
+                // Up to 3 tasks at once — for the targets that are safe to overlap
+                // (compile, eslint). `build`, `test` and the docker targets opt OUT
+                // below (`parallelism: false`): their suites share the Redis DB,
+                // the docker daemon and per-tier buildkitd, and serializing them is
+                // what keeps those runs reliable.
+                parallel: 3,
 
-                // Default configuration for build targets
+                // Default configuration per target. Split so CI and developers can
+                // run the stages separately (`nx run-many -t compile`, `-t eslint`,
+                // `-t test`); `build` remains the full compile+test+lint+package
+                // contract that gates merges and releases.
                 targetDefaults: {
                     build: {
                         // Build dependencies first (^ prefix means upstream deps)
                         dependsOn: ['^build'],
-
-                        // Exclude output directories from build inputs
-                        // This prevents cache invalidation from build outputs
+                        // Own files, upstream files and the shared globals — minus
+                        // this project's OUTPUT directories, which would otherwise
+                        // invalidate the cache on every run. (It listed ONLY the
+                        // two negations before, i.e. an effectively empty input
+                        // set: nx then fell back to hashing everything, and a root
+                        // config change could not be told from a no-op.)
                         inputs: [
+                            'default',
+                            '^default',
+                            'sharedGlobals',
                             '!{projectRoot}/lib/**/*',
-                            '!{projectRoot}/dist/**/*'
+                            '!{projectRoot}/dist/**/*',
                         ],
-
-                        // Define output directories for caching
                         outputs: [
                             '{projectRoot}/lib',
                             '{projectRoot}/dist'
                         ],
+                        cache: true,
+                        parallelism: false,
+                    },
 
-                        // Enable caching for build operations
-                        cache: true
+                    // Type-check + emit only. Upstream libs must be EMITTED (not
+                    // tested) first, including their post-compile copies.
+                    compile: {
+                        dependsOn: ['pre-compile', '^post-compile'],
+                        inputs: ['default', '^default', '!{projectRoot}/lib/**/*', '!{projectRoot}/dist/**/*'],
+                        outputs: ['{projectRoot}/lib', '{projectRoot}/dist'],
+                        cache: true,
+                    },
+                    'post-compile': {
+                        dependsOn: ['compile'],
+                    },
+
+                    // Lint is read-only (no --fix; see .projenrc.ts) and cacheable.
+                    eslint: {
+                        inputs: ['default', '!{projectRoot}/lib/**/*', '!{projectRoot}/dist/**/*'],
+                        cache: true,
                     },
 
                     // Tests resolve internal packages (`@pipeline-builder/*`) from
@@ -113,10 +137,14 @@ export class Nx extends Component {
                     // "does not provide an export named X" / stale-lib friction
                     // that let source/test drift (e.g. the accessModifier→visibility
                     // rename) reach main. Not cached: test side-effects/coverage make
-                    // caching unsafe under the custom (skipNxCache) strategy.
+                    // caching unsafe.
                     test: {
-                        dependsOn: ['^build']
-                    }
+                        dependsOn: ['^build'],
+                        inputs: ['default', '^default', 'sharedGlobals', '!{projectRoot}/lib/**/*', '!{projectRoot}/dist/**/*'],
+                        parallelism: false,
+                    },
+                    'docker:build': { parallelism: false },
+                    'docker:publish': { parallelism: false },
                 },
 
                 // Release management configuration

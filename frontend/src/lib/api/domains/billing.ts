@@ -155,10 +155,12 @@ export function billingApi(core: ApiCore) {
       });
     },
 
-    /** Cancel subscription at end of current period. */
-    cancelSubscription: async (id: string) => {
+    /** Cancel subscription at end of current period. Step-up gated: confirm in
+     *  a `StepUpModal` first and forward its token. */
+    cancelSubscription: async (id: string, stepUpToken?: string) => {
       return core.request<ApiResponse<{ subscription: Subscription; message: string }>>(`/api/billing/subscriptions/${id}/cancel`, {
         method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 
@@ -393,9 +395,11 @@ export function billingApi(core: ApiCore) {
     },
 
     /** Admin override on one subscription — plan / status / interval / cancel flag. */
-    updateAdminSubscription: async (id: string, body: AdminSubscriptionUpdate) => {
+    updateAdminSubscription: async (id: string, body: AdminSubscriptionUpdate, stepUpToken?: string) => {
+      // Step-up gated: confirm in a `StepUpModal` first and forward its token.
       return core.request<ApiResponse<{ subscription: Subscription }>>(`/api/billing/admin/subscriptions/${id}`, {
         method: 'PUT',
+        headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(body),
       });
     },

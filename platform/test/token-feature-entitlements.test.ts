@@ -12,6 +12,7 @@
  * and pays no extra DB read.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import jwt from 'jsonwebtoken';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -28,7 +29,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 // A SHARED logger stub (rather than loggerMock's fresh-spies-per-call default) so
 // the token module's `createLogger('token')` instance is capturable — the degrade
 // path must log at WARN.
-const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+const mockLogger = { info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() };
 
 // resolveUserFeatures is stubbed to surface exactly the account features it was
 // handed, so the JWT `features` claim IS the resolved account entitlement set —
@@ -38,8 +39,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => mockLogger,
 }));
 
-const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string; parentOrgId?: string }>>();
+const mockResolveOrgLineage = jest.fn<(...a: any[]) => Promise<{ rootOrgId: string; parentOrgId?: string }>>();
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   resolveOrgLineage: mockResolveOrgLineage,
   // org-authority walks up for inherited admin authority; a flat org has no parent.
   getParentOrgId: async () => undefined,
@@ -47,9 +49,9 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
-const mockOrgFindById = jest.fn<(...a: unknown[]) => unknown>();
-const mockUserOrgFindOne = jest.fn<(...a: unknown[]) => unknown>();
-const mockUserOrgFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockOrgFindById = jest.fn<(...a: any[]) => unknown>();
+const mockUserOrgFindOne = jest.fn<(...a: any[]) => unknown>();
+const mockUserOrgFind = jest.fn<(...a: any[]) => unknown>();
 const emptyRoleChain = () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) });
 
 jest.unstable_mockModule('../src/models/index.js', () => ({

@@ -25,6 +25,7 @@ const mockUoExists = jest.fn<(...a: unknown[]) => unknown>();
 const mockEnsureBaselineRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockAssignBuiltinAdminRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRecomputeUserOrgRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAssertMayAssignAdmin = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
@@ -34,7 +35,7 @@ jest.unstable_mockModule('mongoose', () => {
 });
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: async (id: string) => [id] }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, expandOrgScope: async (id: string) => [id] }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(async () => true),
   seatCapacityStillWithinCap: jest.fn(async () => true),
@@ -44,6 +45,7 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
   assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
+  assertActorMayAssignBuiltinAdmin: (...a: unknown[]) => mockAssertMayAssignAdmin(...a),
 }));
 
 // Run the transaction body inline with a fake session (no live Mongo).
@@ -85,11 +87,29 @@ beforeEach(() => {
   mockEnsureBaselineRole.mockResolvedValue(undefined);
   mockAssignBuiltinAdminRole.mockResolvedValue(true);
   mockRecomputeUserOrgRole.mockResolvedValue(undefined);
+  mockAssertMayAssignAdmin.mockResolvedValue(undefined);
 });
 
+const ADMIN = { isSuperAdmin: false, isOrgAdmin: true, permissions: [] };
+
 describe('OrgMembersService.addMember', () => {
+  it('runs the Admin-Role assignment ceiling for an ADMIN add — and refuses before writing', async () => {
+    const delegate = { isSuperAdmin: false, isOrgAdmin: false, permissions: ['members:manage'] };
+    mockAssertMayAssignAdmin.mockRejectedValue(new Error('RL_ASSIGN_EXCEEDS_CEILING'));
+
+    await expect(orgMembersService.addMember('org-1', { userId: 'u1', role: 'admin' }, delegate))
+      .rejects.toThrow('RL_ASSIGN_EXCEEDS_CEILING');
+    expect(mockAssertMayAssignAdmin).toHaveBeenCalledWith('org-1', delegate, expect.anything());
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+
+  it('needs no ceiling for a plain member add', async () => {
+    await orgMembersService.addMember('org-1', { userId: 'u1', role: 'member' }, { isSuperAdmin: false, isOrgAdmin: false, permissions: [] });
+    expect(mockAssertMayAssignAdmin).not.toHaveBeenCalled();
+  });
+
   it('gives a plain member the Member floor and NO Admin Role', async () => {
-    await orgMembersService.addMember('org-1', { userId: 'u1', role: 'member' });
+    await orgMembersService.addMember('org-1', { userId: 'u1', role: 'member' }, ADMIN);
 
     expect(mockUoCreate).toHaveBeenCalledTimes(1);
     expect((mockUoCreate.mock.calls[0] as any)[0][0]).toMatchObject({ role: 'member' });
@@ -98,7 +118,7 @@ describe('OrgMembersService.addMember', () => {
   });
 
   it('defaults to member (Member floor only) when no role is supplied', async () => {
-    await orgMembersService.addMember('org-1', { userId: 'u1' });
+    await orgMembersService.addMember('org-1', { userId: 'u1' }, ADMIN);
 
     expect((mockUoCreate.mock.calls[0] as any)[0][0]).toMatchObject({ role: 'member' });
     expect(mockEnsureBaselineRole).toHaveBeenCalledTimes(1);
@@ -106,7 +126,7 @@ describe('OrgMembersService.addMember', () => {
   });
 
   it('grants an admin the built-in Admin Role so their PERMISSIONS match the coarse role', async () => {
-    await orgMembersService.addMember('org-1', { userId: 'u1', role: 'admin' });
+    await orgMembersService.addMember('org-1', { userId: 'u1', role: 'admin' }, ADMIN);
 
     // Member floor + Admin Role both assigned through Role assignment, then a
     // recompute derives the cached coarse role (no manual membership.role split-brain).
@@ -120,7 +140,7 @@ describe('OrgMembersService.addMember', () => {
   it('does not assign any Role when the user is already a member', async () => {
     mockUoFindOne.mockReturnValue(sessionResolving({ _id: 'existing' }));
 
-    await expect(orgMembersService.addMember('org-1', { userId: 'u1', role: 'admin' }))
+    await expect(orgMembersService.addMember('org-1', { userId: 'u1', role: 'admin' }, ADMIN))
       .rejects.toThrow(OM_ALREADY_MEMBER);
 
     expect(mockUoCreate).not.toHaveBeenCalled();
@@ -131,7 +151,7 @@ describe('OrgMembersService.addMember', () => {
   it('does not assign any Role when the user does not exist', async () => {
     mockUserFindById.mockReturnValue(sessionResolving(null));
 
-    await expect(orgMembersService.addMember('org-1', { userId: 'ghost', role: 'admin' }))
+    await expect(orgMembersService.addMember('org-1', { userId: 'ghost', role: 'admin' }, ADMIN))
       .rejects.toThrow(OM_USER_NOT_FOUND);
 
     expect(mockAssignBuiltinAdminRole).not.toHaveBeenCalled();

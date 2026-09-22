@@ -27,13 +27,17 @@ metadata:
     app: registry
     app.kubernetes.io/component: registry
 spec:
-  replicas: 1
+  # Stateless — blobs live in MinIO (S3 driver) and every replica shares one
+  # REGISTRY_HTTP_SECRET (upload-session signing, below) — so it runs two
+  # replicas and rolls without downtime; a push or CodeBuild pull no longer
+  # fails for the length of every registry restart.
+  replicas: 2
   revisionHistoryLimit: 3
-  # Stateless — blobs live in MinIO (S3 driver), so this could safely RollingUpdate
-  # and run >1 replica. Recreate is retained conservatively (single replica);
-  # switch to RollingUpdate for zero-downtime rollouts if desired.
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: registry
@@ -44,6 +48,22 @@ spec:
         app.kubernetes.io/component: registry
     spec:
       serviceAccountName: registry
+      # Replicas on DIFFERENT nodes, and different AZs where possible: two pods on
+      # one node survive nothing a node failure or drain does. ScheduleAnyway so a
+      # small cluster still schedules both rather than leaving one Pending.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: registry
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: registry
       # Stateless API server — no need for the default ServiceAccount token
       # mounted at /var/run/secrets/kubernetes.io/serviceaccount/. Reduces blast
       # radius if the container is compromised (no kubelet API access).
@@ -91,6 +111,14 @@ spec:
               value: "/etc/registry/jwt-public.pem"
             - name: REGISTRY_HTTP_ADDR
               value: "0.0.0.0:5000"
+            # One upload-session signing secret for every replica (and every
+            # restart): without it each pod invents its own, and a chunked push
+            # whose PATCH lands on another replica — or outlives a rollout — fails.
+            - name: REGISTRY_HTTP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: registry-token-secret
+                  key: http-secret
             # TLS deliberately disabled — registry serves plain HTTP on
             # its in-cluster ClusterIP service; nginx fronts it on HTTPS
             # for external clients.
@@ -162,6 +190,18 @@ spec:
             items:
               - key: jwt-public.pem
                 path: jwt-public.pem
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: registry
+  labels:
+    app: registry
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: registry
 ---
 # =============================================================================
 # Registry storage config — S3 driver pointed at MinIO (replaces the image's

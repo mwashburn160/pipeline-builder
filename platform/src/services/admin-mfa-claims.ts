@@ -10,7 +10,7 @@
  * decided when a token is ISSUED. A token minted before the change still says
  * whatever the policy used to say — so turning the policy on would otherwise
  * leave every outstanding single-factor session able to act as an admin until
- * it next refreshed. This bumps `tokenVersion` for every ACTIVE member of the
+ * it next refreshed. This bumps `claimsVersion` for every ACTIVE member of the
  * org AND of its teams (a parent's setting applies to them, strictest wins),
  * and publishes the new versions so the stateless services refuse the old
  * tokens immediately — the same "privilege change ⇒ bump" rule every role,
@@ -30,7 +30,7 @@ import { User, UserOrganization } from '../models/index.js';
 const logger = createLogger('admin-mfa-claims');
 
 /**
- * Bump `tokenVersion` for every active member of `orgId` and its live teams,
+ * Bump `claimsVersion` for every active member of `orgId` and its live teams,
  * except `actorUserId`. Returns how many accounts were bumped.
  */
 export async function refreshAdminPolicyClaims(orgId: string, actorUserId: string): Promise<number> {
@@ -43,7 +43,7 @@ export async function refreshAdminPolicyClaims(orgId: string, actorUserId: strin
   const ids = [...new Set(memberships.map((m) => String(m.userId)))].filter((id) => id !== actorUserId);
   if (ids.length === 0) return 0;
 
-  await User.updateMany({ _id: { $in: ids } }, { $inc: { tokenVersion: 1 } });
+  await User.updateMany({ _id: { $in: ids } }, { $inc: { claimsVersion: 1 } });
   await publishUsersRevocation(ids);
   logger.info('Admin-actions MFA policy changed; member sessions refreshed', { orgId, count: ids.length });
   return ids.length;

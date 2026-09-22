@@ -15,13 +15,13 @@
  * A new drizzle export — or a new operator used by production code — is inherited
  * automatically, so the drift class is gone rather than merely re-synchronised.
  *
- * WHY IT LIVES IN api-core: every service already deep-imports test fixtures from
- * `@pipeline-builder/api-core/lib/testing/*` (see tier-mock.ts). The deep path is
+ * WHY IT LIVES IN api-core: every service already imports test fixtures from
+ * the `@pipeline-builder/api-core/testing` entry (see tier-mock.ts). That entry is
  * NOT intercepted by a suite's `@pipeline-builder/api-core` module mock, so the
  * factory is safe to import from inside a suite that mocks the api-core barrel.
  *
  * USAGE:
- *   import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+ *   import { drizzleMock } from '@pipeline-builder/api-core/testing';
  *   jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
  *     eq: (col: unknown, val: unknown) => ({ _kind: 'eq', col, val }),
  *   }));

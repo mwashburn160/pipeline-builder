@@ -42,7 +42,7 @@
     },
     {
       "name": "@types/node",
-      "version": "26.1.2",
+      "version": "^24",
       "type": "build"
     },
     {

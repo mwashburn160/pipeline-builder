@@ -10,18 +10,21 @@
     "compile": "pnpm dlx projen compile",
     "default": "pnpm dlx projen default",
     "eslint": "pnpm dlx projen eslint",
+    "lint:fix": "pnpm dlx projen lint:fix",
     "package": "pnpm dlx projen package",
     "post-compile": "pnpm dlx projen post-compile",
     "pre-compile": "pnpm dlx projen pre-compile",
     "test": "pnpm dlx projen test",
+    "test:update": "pnpm dlx projen test:update",
     "test:watch": "pnpm dlx projen test:watch",
+    "typecheck:tests": "pnpm dlx projen typecheck:tests",
     "watch": "pnpm dlx projen watch",
     "projen": "pnpm dlx projen"
   },
   "devDependencies": {
     "@jest/globals": "30.4.1",
     "@stylistic/eslint-plugin": "^2",
-    "@types/node": "26.1.2",
+    "@types/node": "^24",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
@@ -98,7 +101,7 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
-  "version": "4.1.13",
+  "version": "0.0.0",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
@@ -162,6 +165,12 @@
     "restoreMocks": true,
     "setupFilesAfterEnv": [
       "<rootDir>/../../jest-env-guard.js"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts",
+      "!src/testing/**",
+      "!src/index.ts"
     ],
     "coverageThreshold": {
       "global": {

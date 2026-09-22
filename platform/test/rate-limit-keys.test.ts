@@ -15,6 +15,7 @@
  * missing or malformed token without throwing.
  */
 
+import { describe, it, expect, beforeAll } from '@jest/globals';
 import type express from 'express';
 import jwt from 'jsonwebtoken';
 

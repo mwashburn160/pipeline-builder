@@ -8,6 +8,7 @@
  * resolver is used, so an absent stored field is judged by its real default.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -28,7 +29,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   refuseWeakSession: (...a: unknown[]) => (refuseWeakSession as any)(...a),
 }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 // `canAdministerOrg` lazily imports org-hierarchy on the CROSS-org branch, so
 // `isAncestorOrg` has to exist here too (a flat tree: nobody is anyone's
@@ -68,7 +69,6 @@ async function patch(body: Record<string, unknown>, aal: 1 | 2, user?: Record<st
   await updateImpersonationPolicy(
     { user: user ?? { sub: 'actor', organizationId: 'org1', role: 'admin', aal }, params: { id: 'org1' }, body } as any,
     res,
-    jest.fn() as any,
   );
   return res;
 }

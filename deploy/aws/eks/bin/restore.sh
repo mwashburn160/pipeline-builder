@@ -176,7 +176,7 @@ if [ "$MINIO_RESTORE" = "1" ]; then
 
   pf_up_minio  # forward + repoint MINIO_ENDPOINT before configuring mc aliases
 
-  MINIO_BUCKETS="${MINIO_BUCKETS:-message-attachments registry loki thanos}"
+  MINIO_BUCKETS="${MINIO_BUCKETS:-message-attachments registry loki thanos plugins plugin-quarantine audit-heads}"
   MINIO_BACKUP_TARGET_BUCKET="${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
   MC_CONFIG_DIR="${WORKDIR}/.mc"
 

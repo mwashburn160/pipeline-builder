@@ -8,7 +8,9 @@
  * every plugin in their org with one call.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Bulk routes accept FULL UUIDs only (a partial id prefix-matches in the CRUD layer).
@@ -16,13 +18,13 @@ const P1 = '11111111-1111-4111-8111-111111111111';
 const P2 = '22222222-2222-4222-8222-222222222222';
 const P3 = '33333333-3333-4333-8333-333333333333';
 
-const mockUpdateMany = jest.fn();
+const mockUpdateMany = jest.fn<AnyFn>();
 const mockFindByIds = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue([]);
-const mockBulkDelete = jest.fn();
+const mockBulkDelete = jest.fn<AnyFn>();
 const mockDeleteBlockers = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue({ frozen: false, listed: false, inUse: 0 });
 const mockClearQuotaSnapshot = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue(undefined);
 const mockPromoteNextDefault = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue(null);
-const mockDecrementQuota = jest.fn();
+const mockDecrementQuota = jest.fn<AnyFn>();
 const mockVersionImmutability = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue(null);
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
@@ -40,10 +42,10 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 // Fail-closed compliance re-check shared with single-row update.
 const mockValidatePlugin = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue({ blocked: false, violations: [] });
 
-const mockEmitPluginAudit = jest.fn();
+const mockEmitPluginAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitPluginAudit: mockEmitPluginAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -69,9 +71,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn((res: any, status: number, msg: string, _code?: string, details?: any) => res.status(status).json({ message: msg, ...details })),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any) => {
-    const ctx = { log: jest.fn(), requestId: 'r-1' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'r-1' };
     // `userId` mirrors the real wrapper, which takes it from `getIdentity` —
     // i.e. the JWT `sub`. Hardcoding it let a fixture set `user.sub` and still
     // get a different route-context userId, a request no real caller produces.
@@ -79,14 +81,17 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: { MAX_BULK_ITEMS: 100 },
 }));
 
 const { createBulkPluginRoutes } = await import('../src/routes/bulk-plugin.js');
 
+/** The quota service the routes are constructed with — refunds must go through it. */
+const quotaService = { increment: jest.fn<AnyFn>(), check: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() } as never;
+
 function getUpdateHandler() {
-  const router = createBulkPluginRoutes();
+  const router = createBulkPluginRoutes(quotaService);
   const layer = (router.stack as any[]).find(
     (l) => l.route?.path === '/bulk/update' && l.route?.methods?.put,
   );
@@ -94,13 +99,13 @@ function getUpdateHandler() {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json }, status, json };
 }
 
 describe('PUT /plugins/bulk/update — strict update-data whitelist', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('accepts the whitelisted fields', async () => {
     mockUpdateMany.mockResolvedValue([{ id: P1 }, { id: P2 }]);
@@ -162,7 +167,7 @@ describe('PUT /plugins/bulk/update — strict update-data whitelist', () => {
 });
 
 function getDeleteHandler() {
-  const router = createBulkPluginRoutes();
+  const router = createBulkPluginRoutes(quotaService);
   const layer = (router.stack as any[]).find(
     (l) => l.route?.path === '/bulk/delete' && l.route?.methods?.post,
   );
@@ -264,7 +269,7 @@ describe('POST /plugins/bulk/delete — delete safety (W0.5)', () => {
 
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
     expect(mockDecrementQuota).toHaveBeenCalledWith(
-      undefined, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, quotaResetAt.toISOString(),
+      quotaService, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, quotaResetAt.toISOString(),
     );
     expect(mockClearQuotaSnapshot).toHaveBeenCalledWith(P1);
     expect(mockPromoteNextDefault).toHaveBeenCalledTimes(1);
@@ -274,7 +279,7 @@ describe('POST /plugins/bulk/delete — delete safety (W0.5)', () => {
 
 // Attributed audit emissions — ONE event per bulk op, only when rows landed.
 describe('bulk plugin audit emissions', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('emits ONE plugin.bulk.delete with count + actually-deleted ids', async () => {
     mockBulkDelete.mockResolvedValue([{ id: P1 }, { id: P3 }]);

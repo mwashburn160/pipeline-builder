@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const findActiveMock = jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => []);
@@ -20,18 +21,18 @@ let isAdmin = false;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: () => isAdmin,
-  validateBody: (req: any, schema: any) => ({ ok: true, value: req.body }),
+  validateBody: (req: any, _schema: any) => ({ ok: true, value: req.body }),
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ data })),
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: req.user?.sub ?? 'u' }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({}));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {}));
 
 jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
   evaluateRules: jest.fn(() => ({ passed: true, violations: [], warnings: [], blocked: false, rulesEvaluated: 0, rulesSkipped: 0, exemptionsApplied: [] })),

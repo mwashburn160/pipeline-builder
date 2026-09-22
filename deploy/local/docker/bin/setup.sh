@@ -87,7 +87,7 @@ pb_sync_env_keys "$DEPLOY_DIR/.env" "$DEPLOY_DIR/.env.example"
 # ALERT DELIVERY PRE-FLIGHT. Fails the deploy while a Slack webhook URL is still
 # a placeholder — alerting that 404s into nothing is indistinguishable from
 # healthy alerting. Set both SLACK_*_WEBHOOK_URL empty in .env to run without it.
-pb_check_alert_delivery "$DEPLOY_DIR/.env" "$DEPLOY_DIR/config/alertmanager/alertmanager.yml" || exit 1
+pb_check_alert_delivery "$DEPLOY_DIR/.env" "$DEPLOY_DIR/../../shared/config/alertmanager/alertmanager.yml" || exit 1
 
 # -----------------------------------------------------------------------
 # Ensure TLS certificates exist
@@ -205,6 +205,13 @@ echo "=== Starting Docker Compose ==="
 # quick-start. Watch logs any time with: docker compose logs -f
 "${DC[@]}" up -d --remove-orphans "$@"
 echo "Stack started (detached). Follow logs with: ${DC[*]} logs -f"
+
+# Post-provision smoke checks (non-fatal): test alert -> Slack, test email.
+set -a
+# shellcheck disable=SC1091
+. "$DEPLOY_DIR/.env"
+set +a
+bash "$BIN_DIR/post-provision-smoke.sh" docker || true
 
 # Access summary (mirrors the AWS targets' "Deployment Complete" output).
 echo ""

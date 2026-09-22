@@ -77,6 +77,8 @@ jest.unstable_mockModule('../src/services/totp-service.js', () => ({
   hasActiveTotp: (...a: unknown[]) => mockHasActiveTotp(...a),
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   issueStepUpToken: jest.fn(async () => ({ token: 'stepup.jwt', expiresAt: 1 })),
   // The REAL shape — `signInAuth('pwd', { mfa: true })` is what puts `mfa` in amr.
@@ -87,8 +89,15 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
 }));
 
 const { verifyMfaLogin } = await import('../src/controllers/totp.js');
-const { createMfaChallenge, peekMfaChallenge, _resetChallengesForTests } = await import('../src/services/mfa-challenge.js');
+const { createMfaChallenge, claimMfaChallenge, restoreMfaChallenge, _resetChallengesForTests } = await import('../src/services/mfa-challenge.js');
 const { TOTP_INVALID_CODE, TOTP_LOCKED_OUT } = await import('../src/services/totp-errors.js');
+
+/** Inspect a challenge without spending it (claim, then hand straight back). */
+async function peekMfaChallenge(id: string) {
+  const pending = await claimMfaChallenge(id);
+  if (pending) await restoreMfaChallenge(id, pending);
+  return pending;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function makeRes() {
@@ -185,6 +194,20 @@ describe('POST /auth/mfa/verify', () => {
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.mfa.recovery_used', expect.objectContaining({
       details: { context: 'login', remaining: 4 },
     }));
+  });
+
+  it('one challenge yields ONE session even when two attempts race (atomic claim)', async () => {
+    mockVerifyCode.mockResolvedValue({ method: 'totp', recoveryCodesRemaining: 10 });
+    const { challengeId } = await createMfaChallenge(USER);
+    const [r1, r2] = [makeRes(), makeRes()];
+
+    await Promise.all([
+      verifyMfaLogin(body({ challengeId, code: '123456' }), r1),
+      verifyMfaLogin(body({ challengeId, code: '123456' }), r2),
+    ]);
+
+    expect(mockIssueTokens).toHaveBeenCalledTimes(1);
+    expect([r1.status.mock.calls[0][0], r2.status.mock.calls[0][0]].sort()).toEqual([200, 401]);
   });
 
   it('refuses to complete for an address the org has started enforcing SSO on', async () => {

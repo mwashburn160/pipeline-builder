@@ -40,8 +40,10 @@ import ArchivedAuditEvent from '../models/archived-audit-events.js';
 import AuditEvent from '../models/audit-event.js';
 import DeletedOrgSnapshot from '../models/deleted-org-snapshot.js';
 import IdpGroupMapping from '../models/idp-group-mapping.js';
+import ImpersonationRequest from '../models/impersonation-request.js';
 import Invitation from '../models/invitation.js';
 import JoinRequest from '../models/join-request.js';
+import MfaResetRequest from '../models/mfa-reset-request.js';
 import OrgDomain from '../models/org-domain.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
 import Organization from '../models/organization.js';
@@ -222,6 +224,30 @@ const MONGO_CASCADE_COLLECTIONS: readonly MongoCascadeCollection[] = [
     remove: async (orgId) => (await SamlSession.deleteMany({ orgId } as never)).deletedCount ?? 0,
   },
   {
+    // Members' PERSONAL keys (`pb_pat`) minted against this org. Their tokens
+    // are scoped to the org, so once it is gone a surviving key is a live
+    // credential pointing at nothing — and `createdIp` / `createdUserAgent` are
+    // the member's personal data. Service-account keys are the SA leg's.
+    // `keyHash` is the stored secret — never in an artifact.
+    name: 'personalAccessTokens',
+    read: (orgId) => PersonalAccessToken.find({ userId: { $ne: null }, organizationId: orgId } as never)
+      .select('-keyHash').lean(),
+    remove: async (orgId) => (await PersonalAccessToken.deleteMany({ userId: { $ne: null }, organizationId: orgId } as never)).deletedCount ?? 0,
+  },
+  {
+    // Two-person MFA-reset requests raised inside the org (requester,
+    // approver and target identities + reasons).
+    name: 'mfaResetRequests',
+    read: (orgId) => MfaResetRequest.find({ organizationId: orgId } as never).lean(),
+    remove: async (orgId) => (await MfaResetRequest.deleteMany({ organizationId: orgId } as never)).deletedCount ?? 0,
+  },
+  {
+    // Consent-gated impersonation requests targeting the org's members.
+    name: 'impersonationRequests',
+    read: (orgId) => ImpersonationRequest.find({ orgId } as never).lean(),
+    remove: async (orgId) => (await ImpersonationRequest.deleteMany({ orgId } as never)).deletedCount ?? 0,
+  },
+  {
     // Removed (with its keys and Role assignments) by the service-account leg
     // below, which reports BOTH counts — hence no `remove` here.
     name: 'serviceAccounts',
@@ -312,10 +338,19 @@ export interface CascadeReport {
     joinRequests: number;
     /** SAML SLO session rows (see models/saml-session.ts). */
     samlSessions: number;
+    /** Members' personal (`pb_pat`) keys minted against the org. */
+    personalAccessTokens: number;
+    mfaResetRequests: number;
+    impersonationRequests: number;
     /** Service accounts removed, and how many of their keys went with them. */
     serviceAccounts: number;
     serviceAccountKeys: number;
   };
+  /** Mongo legs that FAILED (collection names). Non-empty ⇒ the purge sweep
+   *  defers the hard delete, exactly like a failed Postgres table: tearing down
+   *  the org doc while its rows remain would orphan them forever (nothing keys
+   *  a retry off a missing org). */
+  mongoFailures: string[];
   quota: { ok: boolean; statusCode?: number };
   billing: { ok: boolean; statusCode?: number };
   /** Result of purging the org's MinIO attachment blobs via the message service
@@ -366,9 +401,13 @@ export async function cascadeDeleteOrg( orgId: string,
       orgDomains: 0,
       joinRequests: 0,
       samlSessions: 0,
+      personalAccessTokens: 0,
+      mfaResetRequests: 0,
+      impersonationRequests: 0,
       serviceAccounts: 0,
       serviceAccountKeys: 0,
     },
+    mongoFailures: [],
     quota: { ok: false },
     billing: { ok: false },
     messageBlobs: { ok: false },
@@ -440,6 +479,7 @@ export async function cascadeDeleteOrg( orgId: string,
       (report.mongo as unknown as Record<string, number>)[collection.name] = removed;
     } catch (err) {
       logger.error('Mongo cleanup failed', { collection: collection.name, orgId, error: errorMessage(err) });
+      report.mongoFailures.push(collection.name);
     }
   }
 
@@ -522,6 +562,7 @@ export async function cascadeDeleteOrg( orgId: string,
     report.mongo.serviceAccountKeys = sa.keys;
   } catch (err) {
     logger.error('Service-account cleanup failed', { orgId, error: errorMessage(err) });
+    report.mongoFailures.push('serviceAccounts');
   }
 
   // -- Quota service: HTTP DELETE /quotas/:orgId. Service-token auth  the

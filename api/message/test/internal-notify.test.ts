@@ -1,16 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/services/message-service.js', () => ({ messageService: { create: mockCreate } }));
 // The route imports `incCounter` from api-server; mock it so the real api-server
 // (and its heavier api-core surface) isn't pulled into this unit test.
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: jest.fn<AnyFn>() }));
 // runWithTenantContext just runs the callback (no real ALS/DB needed here).
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn() }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn() }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAuth: (_req: any, _res: any, next: any) => next(),
   requireServicePrincipal: (_req: any, _res: any, next: any) => next(),
@@ -23,11 +25,11 @@ const { createInternalNotifyRoutes } = await import('../src/routes/internal-noti
 
 function makeRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
-const mockSse = { send: jest.fn() } as any;
+const mockSse = { send: jest.fn<AnyFn>() } as any;
 
 /** Grab the final (real) handler for POST /internal/notify, skipping the auth middlewares. */
 function handler() {
@@ -37,7 +39,7 @@ function handler() {
   return stack[stack.length - 1].handle;
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('POST /messages/internal/notify', () => {
   it('400 when required fields are missing', async () => {
@@ -71,7 +73,7 @@ describe('POST /messages/internal/notify', () => {
     mockCreate.mockResolvedValue({ id: 'm2' });
     const res = makeRes();
     await handler()({ body: { recipientOrgId: 'org-1', recipientUserId: 'u9', subject: 'secret', content: 'body' } }, res);
-    const ssePayload = (mockSse.send as jest.Mock).mock.calls[0][3] as any;
+    const ssePayload = (mockSse.send as jest.Mock<AnyFn>).mock.calls[0][3] as any;
     expect(ssePayload.subject).toBeUndefined();
   });
 });

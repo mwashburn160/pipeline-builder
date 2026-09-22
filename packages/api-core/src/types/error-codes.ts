@@ -33,6 +33,9 @@ export enum ErrorCode {
   /** A bootstrap-admin enrolment session (`mfaEnrollmentPending`) reached a
    *  route outside the enrolment / sign-out / setup allowlist. */
   MFA_ENROLLMENT_REQUIRED = 'MFA_ENROLLMENT_REQUIRED',
+  /** A read-only impersonation token (`impersonationReadOnly`) attempted a
+   *  state-changing request (anything but GET/HEAD/OPTIONS). */
+  IMPERSONATION_READ_ONLY = 'IMPERSONATION_READ_ONLY',
   /** A plugin-ecosystem governance route (docs/plans/plugin-ecosystem.md §3.0)
    *  was called from an active org other than the system org — a token minted in
    *  a tenant org is refused even for the same user. Switch to the system org. */
@@ -188,6 +191,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.SEPARATION_OF_DUTIES]: 403,
   [ErrorCode.HUMAN_SESSION_REQUIRED]: 403,
   [ErrorCode.MFA_ENROLLMENT_REQUIRED]: 403,
+  [ErrorCode.IMPERSONATION_READ_ONLY]: 403,
   [ErrorCode.ORG_MISMATCH]: 403,
   [ErrorCode.COMPLIANCE_VIOLATION]: 403,
   [ErrorCode.NOT_FOUND]: 404,

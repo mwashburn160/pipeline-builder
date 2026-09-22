@@ -5,11 +5,14 @@
     "compile": "pnpm dlx projen compile",
     "default": "pnpm dlx projen default",
     "eslint": "pnpm dlx projen eslint",
+    "lint:fix": "pnpm dlx projen lint:fix",
     "package": "pnpm dlx projen package",
     "post-compile": "pnpm dlx projen post-compile",
     "pre-compile": "pnpm dlx projen pre-compile",
     "test": "pnpm dlx projen test",
+    "test:update": "pnpm dlx projen test:update",
     "test:watch": "pnpm dlx projen test:watch",
+    "typecheck:tests": "pnpm dlx projen typecheck:tests",
     "watch": "pnpm dlx projen watch",
     "projen": "pnpm dlx projen",
     "start": "node --import @pipeline-builder/api-server/lib/otel-bootstrap.js lib/index.js",
@@ -23,7 +26,7 @@
     "@jest/globals": "30.4.1",
     "@stylistic/eslint-plugin": "^2",
     "@types/express": "5.0.6",
-    "@types/node": "26.1.2",
+    "@types/node": "^24",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
@@ -61,7 +64,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.15",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -123,12 +126,18 @@
     "setupFilesAfterEnv": [
       "<rootDir>/../../jest-env-guard.js"
     ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts",
+      "!src/testing/**",
+      "!src/providers/payment-provider.ts"
+    ],
     "coverageThreshold": {
       "global": {
-        "statements": 92,
-        "branches": 79,
-        "functions": 88,
-        "lines": 92
+        "statements": 93,
+        "branches": 84,
+        "functions": 90,
+        "lines": 93
       },
       "**/src/helpers/stripe-invoice-handlers.ts": {
         "statements": 95,
@@ -137,12 +146,42 @@
         "lines": 95
       },
       "**/src/helpers/billing-ledger.ts": {
-        "statements": 92,
-        "branches": 56,
-        "functions": 90,
-        "lines": 92
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
       },
       "**/src/routes/stripe-webhook.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "**/src/helpers/stripe-reversals.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "**/src/helpers/promotion-engine.ts": {
+        "statements": 95,
+        "branches": 94,
+        "functions": 95,
+        "lines": 95
+      },
+      "**/src/helpers/signup-promotions.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "**/src/routes/discounts.ts": {
+        "statements": 95,
+        "branches": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "**/src/routes/billing-summary.ts": {
         "statements": 95,
         "branches": 95,
         "functions": 95,

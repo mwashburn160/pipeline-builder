@@ -62,13 +62,18 @@ export function StackedTimelineBar({ period, succeeded, failed, canceled }: Stac
   const sPct = total > 0 ? (succeeded / total) * 100 : 0;
   const fPct = total > 0 ? (failed / total) * 100 : 0;
   const cPct = total > 0 ? ((canceled ?? 0) / total) * 100 : 0;
+  // The segments are colour alone: the counts they stand for are the bar's
+  // accessible name (and its hover title), so the split is not lost on anyone
+  // who can't tell green from red.
+  const parts = [`${succeeded} succeeded`, `${failed} failed`, ...(canceled !== undefined ? [`${canceled} canceled`] : [])];
+  const summary = `${fmtDate(period)}: ${parts.join(', ')} of ${total}`;
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-fg-subtle w-16 shrink-0 tabular-nums">{fmtDate(period)}</span>
-      <div className="flex-1 h-4 bg-surface-muted rounded overflow-hidden flex">
-        {sPct > 0 && <div className="h-full bg-green-500" style={{ width: `${sPct}%` }} />}
-        {fPct > 0 && <div className="h-full bg-red-500" style={{ width: `${fPct}%` }} />}
-        {cPct > 0 && <div className="h-full bg-yellow-400" style={{ width: `${cPct}%` }} />}
+      <div className="flex-1 h-4 bg-surface-muted rounded overflow-hidden flex" role="img" aria-label={summary} title={summary}>
+        {sPct > 0 && <div className="h-full bg-green-500" style={{ width: `${sPct}%` }} title={`${succeeded} succeeded`} />}
+        {fPct > 0 && <div className="h-full bg-red-500" style={{ width: `${fPct}%` }} title={`${failed} failed`} />}
+        {cPct > 0 && <div className="h-full bg-yellow-400" style={{ width: `${cPct}%` }} title={`${canceled} canceled`} />}
       </div>
       <span className="text-xs text-fg-subtle w-12 text-right tabular-nums">{total}</span>
     </div>

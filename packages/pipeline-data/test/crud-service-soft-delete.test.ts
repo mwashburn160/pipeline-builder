@@ -11,19 +11,20 @@
  * service WITHOUT those columns exercises the no-op / no-lifecycle branches.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockSelect = jest.fn();
-const mockUpdate = jest.fn();
-const mockDelete = jest.fn();
+const mockSelect = jest.fn<AnyFn>();
+const mockUpdate = jest.fn<AnyFn>();
+const mockDelete = jest.fn<AnyFn>();
 const mockExecute = jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
-  db: { select: mockSelect, update: mockUpdate, delete: mockDelete, execute: mockExecute, transaction: jest.fn() },
+  db: { select: mockSelect, update: mockUpdate, delete: mockDelete, execute: mockExecute, transaction: jest.fn<AnyFn>() },
 }));
 
 // Pass-through tenancy: withTenantTx invokes its callback with the fake tx, and
@@ -67,9 +68,9 @@ class BaseTestService extends CrudService<TestEntity, { id?: string }, { name: s
 }
 
 // Subclass exposing the lifecycle hooks as spies.
-const onAfterRestore = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
-const onBeforePurge = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
-const onAfterPurge = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+const onAfterRestore = jest.fn<(..._args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const onBeforePurge = jest.fn<(..._args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const onAfterPurge = jest.fn<(..._args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 
 class HookedService extends BaseTestService {
   protected async onAfterRestore(): Promise<void> { await onAfterRestore(); }
@@ -90,24 +91,24 @@ const tombstone: TestEntity = {
 
 // Mock builders for each drizzle chain --------------------------------------
 function mockUpdateReturning(rows: TestEntity[]) {
-  mockUpdate.mockReturnValue({ set: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue(rows) }) }) });
+  mockUpdate.mockReturnValue({ set: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>().mockReturnValue({ returning: jest.fn<AnyFn>().mockResolvedValue(rows) }) }) });
 }
 function mockSelectLimit(rows: unknown[]) {
-  mockSelect.mockReturnValue({ from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue(rows) }) }) });
+  mockSelect.mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>().mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue(rows) }) }) });
 }
 function mockSelectOrderLimitOffset(rows: unknown[]) {
   mockSelect.mockReturnValue({
-    from: jest.fn().mockReturnValue({
-      where: jest.fn().mockReturnValue({
-        orderBy: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ offset: jest.fn().mockResolvedValue(rows) }) }),
+    from: jest.fn<AnyFn>().mockReturnValue({
+      where: jest.fn<AnyFn>().mockReturnValue({
+        orderBy: jest.fn<AnyFn>().mockReturnValue({ limit: jest.fn<AnyFn>().mockReturnValue({ offset: jest.fn<AnyFn>().mockResolvedValue(rows) }) }),
       }),
     }),
   });
 }
 // purgeExpired: select doomed ids, then delete().where().
 function mockPurge(ids: string[]) {
-  mockSelect.mockReturnValue({ from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue(ids.map((id) => ({ id }))) }) }) });
-  mockDelete.mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
+  mockSelect.mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>().mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue(ids.map((id) => ({ id }))) }) }) });
+  mockDelete.mockReturnValue({ where: jest.fn<AnyFn>().mockResolvedValue(undefined) });
 }
 
 beforeEach(() => { jest.clearAllMocks(); tenantCtx = undefined; });
@@ -116,7 +117,7 @@ describe('CrudService.restore', () => {
   it('restores a tombstone (clears isActive/deletedAt/deletedBy/purgeAfter) and returns the row', async () => {
     const svc = new BaseTestService(lifecycleSchema);
     let capturedSet: Record<string, unknown> = {};
-    mockUpdate.mockReturnValue({ set: jest.fn((v: Record<string, unknown>) => { capturedSet = v; return { where: jest.fn().mockReturnValue({ returning: jest.fn().mockResolvedValue([tombstone]) }) }; }) });
+    mockUpdate.mockReturnValue({ set: jest.fn((v: Record<string, unknown>) => { capturedSet = v; return { where: jest.fn<AnyFn>().mockReturnValue({ returning: jest.fn<AnyFn>().mockResolvedValue([tombstone]) }) }; }) });
 
     const result = await svc.restore('id-1', 'org1', 'actor');
 
@@ -174,8 +175,8 @@ describe('CrudService.findDeleted', () => {
   it('clamps limit to [1,200]', async () => {
     const svc = new BaseTestService(lifecycleSchema);
     const offsetFn = jest.fn<() => Promise<unknown[]>>().mockResolvedValue([]);
-    const limitFn = jest.fn().mockReturnValue({ offset: offsetFn });
-    mockSelect.mockReturnValue({ from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ orderBy: jest.fn().mockReturnValue({ limit: limitFn }) }) }) });
+    const limitFn = jest.fn<AnyFn>().mockReturnValue({ offset: offsetFn });
+    mockSelect.mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>().mockReturnValue({ orderBy: jest.fn<AnyFn>().mockReturnValue({ limit: limitFn }) }) }) });
     await svc.findDeleted('org1', { limit: 9999 });
     expect(limitFn).toHaveBeenCalledWith(200);
   });
@@ -247,10 +248,10 @@ describe('CrudService tombstone visibility', () => {
   function captureWhere(): () => unknown {
     let captured: unknown;
     mockSelect.mockReturnValue({
-      from: jest.fn().mockReturnValue({
+      from: jest.fn<AnyFn>().mockReturnValue({
         where: jest.fn((arg: unknown) => {
           captured = arg;
-          return { orderBy: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ offset: jest.fn().mockResolvedValue([]) }) }) };
+          return { orderBy: jest.fn<AnyFn>().mockReturnValue({ limit: jest.fn<AnyFn>().mockReturnValue({ offset: jest.fn<AnyFn>().mockResolvedValue([]) }) }) };
         }),
       }),
     });

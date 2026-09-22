@@ -15,56 +15,73 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const { createExecutionIdempotencyGuard } = await import('../src/services/execution-idempotency.js');
 
-/** Fake ioredis whose `set … NX` behaves like the real server (per-key once). */
+/** Fake ioredis: `SET … NX` per-key once, and a Lua compare-and-delete release. */
 function fakeRedis() {
-  const keys = new Set<string>();
-  const set = jest.fn(async (key: string, _val: string, ..._args: (string | number)[]) => {
+  const keys = new Map<string, string>();
+  const set = jest.fn(async (key: string, val: string, ..._args: (string | number)[]) => {
     if (keys.has(key)) return null; // NX refused — key present
-    keys.add(key);
+    keys.set(key, val);
     return 'OK';
   });
-  return { set, keys };
+  const evalFn = jest.fn(async (_script: string, _n: number, key: string | number, token: string | number) => {
+    if (keys.get(String(key)) === String(token)) { keys.delete(String(key)); return 1; }
+    return 0;
+  });
+  return { set, eval: evalFn, keys };
 }
 
 describe('execution idempotency window', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('first claim for a (org, pipeline) wins; a second inside the window is refused', async () => {
     const redis = fakeRedis();
     const guard = createExecutionIdempotencyGuard(redis, 10);
 
-    await expect(guard.claim('acme', 'p-1')).resolves.toBe(true);
-    await expect(guard.claim('acme', 'p-1')).resolves.toBe(false);
+    await expect(guard.claim('acme', 'p-1')).resolves.toEqual({ token: expect.any(String) });
+    await expect(guard.claim('acme', 'p-1')).resolves.toBeNull();
   });
 
   it('claims for different pipelines / orgs are independent', async () => {
     const redis = fakeRedis();
     const guard = createExecutionIdempotencyGuard(redis, 10);
 
-    await expect(guard.claim('acme', 'p-1')).resolves.toBe(true);
-    await expect(guard.claim('acme', 'p-2')).resolves.toBe(true); // different pipeline
-    await expect(guard.claim('beta', 'p-1')).resolves.toBe(true); // different org
+    await expect(guard.claim('acme', 'p-1')).resolves.not.toBeNull();
+    await expect(guard.claim('acme', 'p-2')).resolves.not.toBeNull(); // different pipeline
+    await expect(guard.claim('beta', 'p-1')).resolves.not.toBeNull(); // different org
   });
 
-  it('issues an atomic SET … EX <ttl> NX with a per-(org,pipeline) key', async () => {
+  it('issues an atomic SET … EX <ttl> NX with a per-(org,pipeline) key and a unique token', async () => {
     const redis = fakeRedis();
     const guard = createExecutionIdempotencyGuard(redis, 30);
 
-    await guard.claim('acme', 'p-1');
-    expect(redis.set).toHaveBeenCalledWith(
-      'pipeline-exec:acme:p-1', '1', 'EX', 30, 'NX',
-    );
+    const claim = await guard.claim('acme', 'p-1');
+    expect(redis.set).toHaveBeenCalledWith('pipeline-exec:acme:p-1', claim!.token!, 'EX', 30, 'NX');
+  });
+
+  it('release frees only its OWN claim — never a later trigger\u2019s window', async () => {
+    const redis = fakeRedis();
+    const guard = createExecutionIdempotencyGuard(redis, 10);
+    const stale = await guard.claim('acme', 'p-1');
+    // Our window expired and a newer trigger claimed it.
+    redis.keys.set('pipeline-exec:acme:p-1', 'someone-elses-token');
+    await guard.release('acme', 'p-1', stale!);
+    expect(redis.keys.get('pipeline-exec:acme:p-1')).toBe('someone-elses-token');
+
+    redis.keys.clear();
+    const mine = await guard.claim('acme', 'p-1');
+    await guard.release('acme', 'p-1', mine!);
+    expect(redis.keys.has('pipeline-exec:acme:p-1')).toBe(false);
   });
 
   it('fails OPEN (claim succeeds) when Redis is not configured', async () => {
     const guard = createExecutionIdempotencyGuard(null);
-    await expect(guard.claim('acme', 'p-1')).resolves.toBe(true);
-    await expect(guard.claim('acme', 'p-1')).resolves.toBe(true); // no dedup without redis
+    await expect(guard.claim('acme', 'p-1')).resolves.toEqual({ token: null });
+    await expect(guard.claim('acme', 'p-1')).resolves.toEqual({ token: null }); // no dedup without redis
   });
 
   it('fails OPEN when the Redis call throws (transient outage never blocks a trigger)', async () => {
-    const redis = { set: jest.fn(async () => { throw new Error('ECONNREFUSED'); }) };
+    const redis = { set: jest.fn(async () => { throw new Error('ECONNREFUSED'); }), eval: jest.fn(async () => 0) };
     const guard = createExecutionIdempotencyGuard(redis, 10);
-    await expect(guard.claim('acme', 'p-1')).resolves.toBe(true);
+    await expect(guard.claim('acme', 'p-1')).resolves.toEqual({ token: null });
   });
 });

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import path from 'node:path';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { PostStep } from '../src/agent/post-steps.js';
@@ -27,13 +28,13 @@ jest.unstable_mockModule('../src/agent/troubleshoot.js', () => ({
 // Keep AI deterministically OFF (no SDK load, no diagnosis branch).
 jest.unstable_mockModule('../src/agent/ai.js', () => ({
   isAiConfigured: () => false,
-  diagnoseFailure: jest.fn(),
-  parseGoal: jest.fn(),
+  diagnoseFailure: jest.fn<AnyFn>(),
+  parseGoal: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/agent/ports.js', () => ({ checkHostPorts, discoverHostPorts, stackRunning }));
 // Drive ask()'s readline so resolveLoadsInteractively's prompts return scripted answers.
 jest.unstable_mockModule('node:readline/promises', () => ({
-  createInterface: () => ({ question: questionMock, close: jest.fn() }),
+  createInterface: () => ({ question: questionMock, close: jest.fn<AnyFn>() }),
 }));
 
 const { runPostSteps, bootstrapAndLocate, runDeployWithRetry, preflightPorts, runTeardown, resolveLoadsInteractively } =
@@ -228,7 +229,7 @@ describe('runTeardown — gating + execution', () => {
 
 describe('resolveLoadsInteractively — prompts, re-sync, re-resolve', () => {
   const bootstrap = { repo: 'r', ref: 'main', workdir: 'pb', paths: [], full: false };
-  const flags = { init: true, buildBootstrap: false, smokeTest: false, events: false, steps: [] };
+  const flags = { init: true, autoInit: false, buildBootstrap: false, smokeTest: false, events: false, steps: [] };
 
   it('declining every load → no selections, no re-sync', async () => {
     questionMock.mockResolvedValue('n');
@@ -243,7 +244,7 @@ describe('resolveLoadsInteractively — prompts, re-sync, re-resolve', () => {
     const r = await resolveLoadsInteractively('docker', 'url', undefined, '/cwd', true, bootstrap, flags);
     expect(r.enabledLoadIds).toEqual(['plugins']);
     expect(runScript).toHaveBeenCalledTimes(1);
-    const cmd = runScript.mock.calls[0][0] as string;
+    const cmd = runScript.mock.calls[0]![0] as string;
     expect(cmd).toContain('sparse-checkout add');
     expect(cmd).toContain('deploy/plugins');
   });

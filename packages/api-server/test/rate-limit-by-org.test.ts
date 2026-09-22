@@ -8,10 +8,12 @@
  * that verified service principals are skipped.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { Request, RequestHandler, Response } from 'express';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockSendError = jest.fn();
+const mockSendError = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: mockSendError,
@@ -30,10 +32,10 @@ interface MockReq {
 }
 
 /** Invoke the middleware once and resolve after its async store settles. */
-function run(mw: (req: unknown, res: unknown, next: () => void) => void, req: MockReq): Promise<{ nexted: boolean }> {
-  const res = { setHeader: jest.fn(), getHeader: jest.fn(), status: jest.fn().mockReturnThis(), json: jest.fn() };
+function run(mw: RequestHandler, req: MockReq): Promise<{ nexted: boolean }> {
+  const res = { setHeader: jest.fn<AnyFn>(), getHeader: jest.fn<AnyFn>(), status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
   let nexted = false;
-  mw(req, res, () => { nexted = true; });
+  void mw(req as unknown as Request, res as unknown as Response, () => { nexted = true; });
   return new Promise((resolve) => setImmediate(() => resolve({ nexted })));
 }
 

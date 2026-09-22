@@ -84,7 +84,8 @@ export function createPublicSubmissionRoutes(limits: { readsPerMinute?: number; 
   const router = Router();
   router.use(availability as RequestHandler);
   // Reads (challenge, status) and writes (inspect, submit, verify) bucket
-  // separately per trusted client IP; the per-email/IP daily caps are in the service.
+  // separately per trusted client IP; the per-email/IP daily caps (and the
+  // per-IP inspect cap) are atomic Redis counters in the service.
   const reads = rateLimitByOrg({ name: 'plugin-submission-read', keyBy: 'ip', max: limits.readsPerMinute ?? 60, windowMs: 60_000 }) as RequestHandler;
   const writes = rateLimitByOrg({ name: 'plugin-submission-write', keyBy: 'ip', max: limits.writesPerMinute ?? 10, windowMs: 60_000 }) as RequestHandler;
 
@@ -99,7 +100,7 @@ export function createPublicSubmissionRoutes(limits: { readsPerMinute?: number; 
   router.post('/inspect', writes, zipUpload(), multipartErrors, anonymous(async ({ req, res }) => {
     try {
       if (!req.file) throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'No plugin file uploaded');
-      sendSuccess(res, 200, await inspectSubmission(req.file.path, bodyOf(req).pow));
+      sendSuccess(res, 200, await inspectSubmission(req.file.path, bodyOf(req).pow, req.ip ?? ''));
     } finally {
       cleanupUpload(req);
     }

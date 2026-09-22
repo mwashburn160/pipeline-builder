@@ -24,11 +24,15 @@
 
 import { generateKeyPairSync } from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
-import { installTestServiceKeys, type TestServiceKeysHandle } from '@pipeline-builder/api-core/lib/testing/service-tokens.js';
 import {
-  generateTestSigningKey, installTestJwks, signTestUserToken, testUserIdentityClaims,
+  installTestServiceKeys,
+  type TestServiceKeysHandle,
+  generateTestSigningKey,
+  installTestJwks,
+  signTestUserToken,
+  testUserIdentityClaims,
   type TestSigningKey,
-} from '@pipeline-builder/api-core/lib/testing/user-tokens.js';
+} from '@pipeline-builder/api-core/testing';
 import jwt from 'jsonwebtoken';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 

@@ -19,13 +19,15 @@
  * happy path) end-to-end through the route.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
 
-const mockFindDeletedById = jest.fn();
-const mockRestore = jest.fn();
+const mockFindDeletedById = jest.fn<AnyFn>();
+const mockRestore = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
@@ -34,10 +36,10 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   },
 }));
 
-const mockEmitPipelineAudit = jest.fn();
+const mockEmitPipelineAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitPipelineAudit: mockEmitPipelineAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
@@ -55,7 +57,7 @@ const sendBadRequest = jest.fn((res: any, msg: string, code?: string) => {
 const sendEntityNotFound = jest.fn((res: any, entity: string) => {
   res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
 });
-const requireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string) => true);
+const requireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _perm?: string, ..._rest: unknown[]) => true);
 const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?: string) => {
   const response: any = { success: true, statusCode };
   if (data !== undefined) response.data = data;
@@ -102,7 +104,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
@@ -124,7 +126,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
 }));
 
 const { createRestorePipelineRoutes } = await import('../src/routes/restore-pipeline.js');
@@ -161,7 +163,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     user: { sub: 'user-1' },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
       requestId: 'req-1',
     },
     ...overrides,
@@ -170,8 +172,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -180,7 +182,7 @@ function mockRes(): any {
 describe('POST /pipelines/:id/restore (restore)', () => {
   const handler = getHandler('post', '/:id/restore');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('restores the tombstone and returns 200 with the restored pipeline', async () => {
     mockFindDeletedById.mockResolvedValue(existingPipeline);

@@ -9,9 +9,11 @@
  * config writing, Dockerfile patching, and validation.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { EventEmitter } from 'events';
 import { Readable } from 'stream';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 function createMockChild(exitCode = 0): any {
@@ -48,8 +50,8 @@ jest.unstable_mockModule('child_process', () => ({ spawn: mockSpawn }));
 
 const DIGEST = `sha256:${'d'.repeat(64)}`;
 
-const mockMkdirSync = jest.fn();
-const mockWriteFileSync = jest.fn();
+const mockMkdirSync = jest.fn<AnyFn>();
+const mockWriteFileSync = jest.fn<AnyFn>();
 /** Dockerfile reads get a Dockerfile; buildctl's `--metadata-file` read gets the pushed digest. */
 const readFileDefault = (file: string): string => (String(file).endsWith('metadata.json')
   ? JSON.stringify({ 'containerimage.digest': DIGEST })
@@ -59,7 +61,7 @@ const mockExistsSync = jest.fn<(...args: any[]) => any>().mockReturnValue(true);
 // The docker auth config is written to a fresh temp dir (outside the build
 // context) and removed after the build/push — mock both.
 const mockMkdtempSync = jest.fn<(...args: any[]) => any>().mockReturnValue('/tmp/pb-dockercfg-test');
-const mockRmSync = jest.fn();
+const mockRmSync = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('fs', () => ({
   mkdirSync: mockMkdirSync,
@@ -103,7 +105,7 @@ const mockConfigGet = (section: string) => {
   return {};
 };
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: mockConfigGet, getAny: mockConfigGet },
 }));
 

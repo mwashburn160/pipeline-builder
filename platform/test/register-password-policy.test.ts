@@ -7,6 +7,7 @@
  * answers to the INVITING org's policy.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -24,11 +25,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemOrgId: () => false,
 }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { billing: { enabled: false }, compliance: { enabled: false } } }));
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ rejectIfSsoEnforced: async () => false }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
-jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provisionBillingSubscription: jest.fn() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
+jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provisionBillingSubscription: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/services/superadmin-bootstrap.js', () => ({ maybePromoteNewUser: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   assertNewPasswordAcceptable: (...a: unknown[]) => mockAssertAcceptable(...a),
@@ -40,10 +41,12 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
-  issueTokens: jest.fn(),
-  renewSessionTokens: jest.fn(),
+  issueTokens: jest.fn<AnyFn>(),
+  renewSessionTokens: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (_schema: unknown, body: unknown) => body, registerSchema: {}, loginSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
@@ -53,8 +56,8 @@ const { register } = await import('../src/controllers/auth.js');
 
 function makeRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 /**
@@ -71,7 +74,7 @@ const policyRefusal = (code: string, message: string) =>
 
 const body = { username: 'newbie', email: 'new@example.com', password: 'Passw0rdPassw0rd' };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('POST /auth/register — password policy', () => {
   it('checks a plain signup against the platform rules and the breach list only', async () => {

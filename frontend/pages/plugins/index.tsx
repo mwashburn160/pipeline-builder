@@ -24,7 +24,7 @@ import { resolveSiteUrl, type WithSiteUrl } from '@/lib/site-url';
 import { CATEGORY_DISPLAY_NAMES, PLUGIN_CATEGORIES } from '@/lib/plugin-categories';
 import { getCategories, searchListings } from '@/lib/public-directory/api';
 import {
-  directoryHref, isFilteredQuery, parseDirectoryQuery, toSearchString, withParam, type DirectoryQuery,
+  directoryHref, directorySeo, isFilteredQuery, parseDirectoryQuery, withParam, type DirectoryQuery,
 } from '@/lib/public-directory/query';
 import { cachePublicly, markUnavailable } from '@/lib/public-directory/server';
 import { categoryPagePath, loginHref } from '@/lib/public-directory/links';
@@ -138,7 +138,8 @@ function Home({ categories, featured, recent }: { categories: CategorySummary[];
 
 export default function PluginDirectoryPage(props: DirectoryPageProps) {
   const { siteUrl, query } = props;
-  const canonical = `${siteUrl}/plugins${toSearchString(withParam(query, 'cursor', undefined))}`;
+  const seo = directorySeo(query);
+  const canonical = `${siteUrl}${seo.canonicalPath}`;
   return (
     <PublicLayout>
       <DirectoryHead
@@ -146,7 +147,7 @@ export default function PluginDirectoryPage(props: DirectoryPageProps) {
         description={DESCRIPTION}
         canonical={canonical}
         siteUrl={siteUrl}
-        noindex={props.mode === 'unavailable' || !!query.cursor}
+        noindex={props.mode === 'unavailable' || seo.noindex}
       />
       <div className="mb-8 space-y-4">
         <div>

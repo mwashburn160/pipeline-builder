@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock api-core before imports
@@ -19,14 +20,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   errorMessage: jest.fn((err: unknown) =>
     err instanceof Error ? err.message : String(err),
   ),
-  sendError: jest.fn(),
-  sendBadRequest: jest.fn(),
-  sendInternalError: jest.fn(),
+  sendError: jest.fn<AnyFn>(),
+  sendBadRequest: jest.fn<AnyFn>(),
+  sendInternalError: jest.fn<AnyFn>(),
 }));
 
 // Mock get-context to control behavior
 jest.unstable_mockModule('../src/api/get-context.js', () => ({
-  getContext: jest.fn(),
+  getContext: jest.fn<AnyFn>(),
 }));
 
 const {
@@ -44,8 +45,8 @@ function mockReq(): any {
 
 function mockRes(): any {
   const res: any = { headersSent: false };
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -53,7 +54,7 @@ function mockContext(orgId?: string, userId?: string) {
   return {
     requestId: 'req-123',
     identity: { orgId, userId },
-    log: jest.fn(),
+    log: jest.fn<AnyFn>(),
   };
 }
 
@@ -64,15 +65,15 @@ describe('withRoute', () => {
 
   it('calls the handler with correct RouteContext', async () => {
     const ctx = mockContext('org-1', 'user-1');
-    (getContext as jest.Mock).mockReturnValue(ctx);
+    (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
-    const handler = jest.fn().mockResolvedValue(undefined);
+    const handler = jest.fn<AnyFn>().mockResolvedValue(undefined);
     const middleware = withRoute(handler);
 
     const req = mockReq();
     const res = mockRes();
 
-    await middleware(req, res, jest.fn());
+    await middleware(req, res, jest.fn<AnyFn>());
 
     expect(handler).toHaveBeenCalledTimes(1);
     const routeCtx = handler.mock.calls[0][0];
@@ -88,12 +89,12 @@ describe('withRoute', () => {
     // so context.identity.orgId is already trimmed + lowercased by the time it
     // reaches withRoute — the wrapper no longer re-lowercases it.
     const ctx = mockContext('org-lower', 'user-1');
-    (getContext as jest.Mock).mockReturnValue(ctx);
+    (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
-    const handler = jest.fn().mockResolvedValue(undefined);
+    const handler = jest.fn<AnyFn>().mockResolvedValue(undefined);
     const middleware = withRoute(handler);
 
-    await middleware(mockReq(), mockRes(), jest.fn());
+    await middleware(mockReq(), mockRes(), jest.fn<AnyFn>());
 
     const routeCtx = handler.mock.calls[0][0];
     expect(routeCtx.orgId).toBe('org-lower');
@@ -101,12 +102,12 @@ describe('withRoute', () => {
 
   it('defaults userId to empty string when missing', async () => {
     const ctx = mockContext('org-1', undefined);
-    (getContext as jest.Mock).mockReturnValue(ctx);
+    (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
-    const handler = jest.fn().mockResolvedValue(undefined);
+    const handler = jest.fn<AnyFn>().mockResolvedValue(undefined);
     const middleware = withRoute(handler);
 
-    await middleware(mockReq(), mockRes(), jest.fn());
+    await middleware(mockReq(), mockRes(), jest.fn<AnyFn>());
 
     const routeCtx = handler.mock.calls[0][0];
     expect(routeCtx.userId).toBe('');
@@ -115,13 +116,13 @@ describe('withRoute', () => {
   describe('orgId validation', () => {
     it('returns 400 when orgId is missing and requireOrgId is true (default)', async () => {
       const ctx = mockContext(undefined, 'user-1');
-      (getContext as jest.Mock).mockReturnValue(ctx);
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
-      const handler = jest.fn();
+      const handler = jest.fn<AnyFn>();
       const middleware = withRoute(handler);
 
       const res = mockRes();
-      await middleware(mockReq(), res, jest.fn());
+      await middleware(mockReq(), res, jest.fn<AnyFn>());
 
       expect(handler).not.toHaveBeenCalled();
       expect(sendBadRequest).toHaveBeenCalledWith(
@@ -132,13 +133,13 @@ describe('withRoute', () => {
 
     it('returns 400 when orgId is empty string and requireOrgId is true', async () => {
       const ctx = mockContext('', 'user-1');
-      (getContext as jest.Mock).mockReturnValue(ctx);
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
-      const handler = jest.fn();
+      const handler = jest.fn<AnyFn>();
       const middleware = withRoute(handler);
 
       const res = mockRes();
-      await middleware(mockReq(), res, jest.fn());
+      await middleware(mockReq(), res, jest.fn<AnyFn>());
 
       expect(handler).not.toHaveBeenCalled();
       expect(sendBadRequest).toHaveBeenCalledWith(
@@ -149,12 +150,12 @@ describe('withRoute', () => {
 
     it('allows missing orgId when requireOrgId is false', async () => {
       const ctx = mockContext(undefined, 'user-1');
-      (getContext as jest.Mock).mockReturnValue(ctx);
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
-      const handler = jest.fn().mockResolvedValue(undefined);
+      const handler = jest.fn<AnyFn>().mockResolvedValue(undefined);
       const middleware = withRoute(handler, { requireOrgId: false });
 
-      await middleware(mockReq(), mockRes(), jest.fn());
+      await middleware(mockReq(), mockRes(), jest.fn<AnyFn>());
 
       expect(handler).toHaveBeenCalledTimes(1);
       expect(sendBadRequest).not.toHaveBeenCalled();
@@ -164,13 +165,13 @@ describe('withRoute', () => {
   describe('error handling', () => {
     it('catches errors and returns 500', async () => {
       const ctx = mockContext('org-1', 'user-1');
-      (getContext as jest.Mock).mockReturnValue(ctx);
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
-      const handler = jest.fn().mockRejectedValue(new Error('Something broke'));
+      const handler = jest.fn<AnyFn>().mockRejectedValue(new Error('Something broke'));
       const middleware = withRoute(handler);
 
       const res = mockRes();
-      await middleware(mockReq(), res, jest.fn());
+      await middleware(mockReq(), res, jest.fn<AnyFn>());
 
       // Generic message + requestId only — the raw error is never echoed to the client.
       expect(sendInternalError).toHaveBeenCalledWith(res, 'Internal server error', { requestId: 'req-123' });
@@ -178,19 +179,19 @@ describe('withRoute', () => {
 
     it('does NOT leak a DB driver error message (SQL + params) to the client', async () => {
       const ctx = mockContext('org-1', 'user-1');
-      (getContext as jest.Mock).mockReturnValue(ctx);
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
       // drizzle's DrizzleQueryError shape: SQL + bound parameter VALUES in .message.
       const dbErr = new Error('Failed query: insert into "pipeline_registry" (...) values ($1, $2)\nparams: secret-pipeline,org-acme');
-      const handler = jest.fn().mockRejectedValue(dbErr);
+      const handler = jest.fn<AnyFn>().mockRejectedValue(dbErr);
       const middleware = withRoute(handler);
 
       const res = mockRes();
-      await middleware(mockReq(), res, jest.fn());
+      await middleware(mockReq(), res, jest.fn<AnyFn>());
 
       expect(sendInternalError).toHaveBeenCalledWith(res, 'Internal server error', { requestId: 'req-123' });
       // The SQL / params must appear in NO argument passed to the client responder.
-      const leaked = (sendInternalError as jest.Mock).mock.calls.flat().some(
+      const leaked = (sendInternalError as jest.Mock<AnyFn>).mock.calls.flat().some(
         (arg) => typeof arg === 'string' && (arg.includes('Failed query') || arg.includes('insert into') || arg.includes('secret-pipeline')),
       );
       expect(leaked).toBe(false);
@@ -198,14 +199,14 @@ describe('withRoute', () => {
 
     it('maps AppError to correct status code', async () => {
       const ctx = mockContext('org-1', 'user-1');
-      (getContext as jest.Mock).mockReturnValue(ctx);
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
       const appError = new (AppError as any)(404, 'NOT_FOUND', 'Pipeline not found');
-      const handler = jest.fn().mockRejectedValue(appError);
+      const handler = jest.fn<AnyFn>().mockRejectedValue(appError);
       const middleware = withRoute(handler);
 
       const res = mockRes();
-      await middleware(mockReq(), res, jest.fn());
+      await middleware(mockReq(), res, jest.fn<AnyFn>());
 
       expect(sendError).toHaveBeenCalledWith(res, 404, 'Pipeline not found', 'NOT_FOUND');
       expect(sendInternalError).not.toHaveBeenCalled();
@@ -213,14 +214,14 @@ describe('withRoute', () => {
 
     it('does not send response when headers already sent', async () => {
       const ctx = mockContext('org-1', 'user-1');
-      (getContext as jest.Mock).mockReturnValue(ctx);
+      (getContext as jest.Mock<AnyFn>).mockReturnValue(ctx);
 
-      const handler = jest.fn().mockRejectedValue(new Error('Late error'));
+      const handler = jest.fn<AnyFn>().mockRejectedValue(new Error('Late error'));
       const middleware = withRoute(handler);
 
       const res = mockRes();
       res.headersSent = true;
-      await middleware(mockReq(), res, jest.fn());
+      await middleware(mockReq(), res, jest.fn<AnyFn>());
 
       expect(sendError).not.toHaveBeenCalled();
       expect(sendInternalError).not.toHaveBeenCalled();

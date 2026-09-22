@@ -33,9 +33,9 @@ type Ev = { type: string; data?: unknown; message?: string };
 async function* gen(events: Ev[]) {
   for (const e of events) yield e;
 }
-async function collect(it: AsyncGenerator<Ev>): Promise<Ev[]> {
+async function collect(stream: AsyncGenerator<Ev>): Promise<Ev[]> {
   const out: Ev[] = [];
-  for await (const e of it) out.push(e);
+  for await (const e of stream) out.push(e);
   return out;
 }
 

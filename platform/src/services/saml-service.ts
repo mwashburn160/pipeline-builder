@@ -63,6 +63,7 @@ import { getSamlSpKeys } from './saml-sp-keys.js';
 import { config } from '../config/index.js';
 import { extractGroupClaim } from '../helpers/idp-claims.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
+import { isReservedIssuer } from '../helpers/reserved-issuers.js';
 
 const logger = createLogger('saml-service');
 
@@ -234,6 +235,9 @@ async function samlFor(cfg: SamlLoginConfig, purpose: SamlPurpose): Promise<SAML
   if (!cfg.entityId || !cfg.ssoUrl || cfg.certificates.length === 0) {
     throw new Error('SAML_INCOMPLETE_CONFIG');
   }
+  // A SAML IdP may never pose as a reserved issuer (Google): its entity id is
+  // whatever the admin typed, and a reserved issuer carries domain-trust.
+  if (isReservedIssuer(cfg.entityId)) throw new Error('SAML_INCOMPLETE_CONFIG');
   const keys = await getSamlSpKeys();
   const cache = purpose.flow === 'test' ? testRequestIdCache : requestIdCache;
   return new SAML({

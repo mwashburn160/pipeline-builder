@@ -31,22 +31,117 @@ export * from './database/index.js';
 
 // Query builders and services
 export * from './api/query-builders.js';
-export * from './api/access-control-builder.js';
+export {
+  escapeLikeWildcards,
+  parseBooleanFilter,
+  normalizeStringFilter,
+  buildIdCondition,
+  type BaseAccessFilter,
+  AccessControlQueryBuilder,
+} from './api/access-control-builder.js';
 export * from './api/viewer-context.js';
 export * from './api/crud-service.js';
-export * from './api/semver-range.js';
-export * from './api/public-directory.js';
-export * from './api/plugin-resolution.js';
+export {
+  parseSemver,
+  compareSemverParts,
+  compareSemver,
+  parseVersionSpec,
+  isVersionRange,
+  satisfiesVersionSpec,
+  maxSatisfying,
+  versionSpecCondition,
+  semverOrderBy,
+} from './api/semver-range.js';
+export {
+  resolveListingIcon,
+  toListingCard,
+  normalizeQuery,
+  highlightText,
+  encodeCursor,
+  decodeCursor,
+  searchPublicListings,
+  listPublicCategories,
+  getPublicListing,
+  getPublicListedVersion,
+  listPublicReviews,
+  listPublicListingsForSitemap,
+  type DirectoryTrustTier,
+  type DirectorySort,
+  DIRECTORY_SORTS,
+  DIRECTORY_TIERS,
+  DIRECTORY_MAX_QUERY_LENGTH,
+  type DirectorySearchParams,
+  type ReviewSort,
+  REVIEW_SORTS,
+  type PublicListingRow,
+} from './api/public-directory.js';
+export {
+  policyOf,
+  mergeConsumptionPolicies,
+  effectiveConsumptionPolicy,
+  applyPolicyUpdate,
+  listingBlock,
+  blockRefusal,
+  advisoryRangeCovers,
+  advisoryRangeProblem,
+  advisoriesCovering,
+  blockingAdvisories,
+  implicitInstallRange,
+  installAdmits,
+  modeAdmits,
+  selectListingVersion,
+  scopeOrgIds,
+  installModeFor,
+  drizzleListingSource,
+  resolveListingReference,
+  listedVersionWarnings,
+  listedPluginRecord,
+  loadOrgInstallContext,
+  orgListingStates,
+  resolvableListings,
+  type ConsumptionPolicy,
+  DEFAULT_CONSUMPTION_POLICY,
+  type ResolutionRefusal,
+  type ResolutionScope,
+  type ListingDataSource,
+  type ListingResolved,
+  type OrgListingState,
+} from './api/plugin-resolution.js';
 // `isSoftDeletePurgeEnabled` is the module's own env gate — `runSoftDeletePurge`
 // and the scheduler already apply it, so callers never ask separately.
 export {
   runSoftDeletePurge,
   createSoftDeletePurgeScheduler,
   type PurgeableEntity,
-  type SoftDeletePurgeOptions,
-  type SoftDeletePurgeSchedulerOptions,
 } from './api/soft-delete-sweep.js';
-export * from './api/reporting-service.js';
+export {
+  type BuildHealth,
+  type DoraLevel,
+  type DoraMetrics,
+  type DoraOptions,
+  type DoraTrendPoint,
+  type IncidentListItem,
+  type IncidentSettings,
+  type IncidentTestResult,
+  type IngestMetric,
+  type PluginRuntimeFilter,
+  type PluginRuntimeStats,
+  resolveDoraRetentionDays,
+  resolveEventRetentionDays,
+  retentionCutoff,
+  ReportingService,
+  reportingService,
+} from './api/reporting-service.js';
 
 // Filters
-export * from './core/query-filters.js';
+export {
+  type PluginFilter,
+  type PipelineFilter,
+  type PipelineTemplateFilter,
+  type MessageFilter,
+  type CompliancePolicyFilter,
+  type ComplianceRuleFilter,
+  type ComplianceExemptionFilter,
+  type ComplianceAuditFilter,
+  type ComplianceScanFilter,
+} from './core/query-filters.js';

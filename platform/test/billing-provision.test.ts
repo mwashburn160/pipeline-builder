@@ -15,6 +15,7 @@
  * reconcile-retries-and-clears, and the billing-disabled no-op.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -25,7 +26,7 @@ const mockSetPending = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockClearPending = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockListPending = jest.fn<(...a: unknown[]) => Promise<Array<{ orgId: string; planId: string }>>>();
 
-const mockIncCounter = jest.fn();
+const mockIncCounter = jest.fn<AnyFn>();
 
 const mockServiceAuthHeader = jest.fn<(...a: unknown[]) => string>(() => 'Bearer service-token');
 
@@ -63,7 +64,7 @@ jest.unstable_mockModule('../src/services/auth-service.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/utils/leader-lock.js', () => ({ runWithLeaderLock: (_key, _ttlMs, fn) => fn().then(() => true) }));
+jest.unstable_mockModule('../src/utils/leader-lock.js', () => ({ runWithLeaderLock: (_key: string, _ttlMs: number, fn: () => Promise<unknown>) => fn().then(() => true) }));
 
 const { provisionBillingSubscription, reconcilePendingBillingSubscriptions } =
   await import('../src/services/billing-provision.js');

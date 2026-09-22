@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: efd33ac738602e0ed7366766304bebd3859df0a1e4bfe4496136a5c0c841a35d
+// SOURCE-SHA256: 71a13d207355f8845758af8b67a3cb1b8e23f820d899ae63965ddfd1da40e8d2
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3150,7 +3150,7 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The gateway receives no signing secret: deploy/*/nginx/jwt.js decodes"
+            "The gateway receives no signing secret: deploy/shared/nginx/jwt.js decodes"
           ]
         },
         {
@@ -4041,12 +4041,12 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Machine — a stored credential minted by POST /user/generate-token."
+            "Machine — a stored credential minted by POST /user/generate-token. Its"
           ]
         },
         {
           "type": "text",
-          "content": "Renewed only through generate-token (a machine session is refused by POST /auth/refresh, which is what stops an operator's own CLI refresh from tripping reuse detection on a production credential). At most 10 per user, the least recently used dropped first, so a credential renewed daily is never evicted and abandoned ones are."
+          "content": "lifetime (expiresIn, 1–365 days) is the SLOT's: the response's refresh token is the thing to store, and it renews the short-lived access token through POST /auth/refresh (X-Pb-Client: cli, body { refreshToken }) until the slot's fixed end — which no renewal can move. Its access tokens never live longer than a person's (the per-tier access lifetime), so revoking the slot (Sessions → revoke) ends the credential on every service immediately (revoke:sid:<sid>). At most 10 per user, the least recently used dropped first, so a credential renewed daily is never evicted and abandoned ones are."
         },
         {
           "type": "text",
@@ -4058,7 +4058,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "generate-token from a person (an interactive session, or a PAT with no session at all) opens a new machine session holding the requested scope, leaving the caller's own login untouched. Called with a machine token, it renews that session in place under the scope stored on the slot — a machine session can never open another one, and a scoped credential can never re-mint itself unscoped, under a different scope, or as a browser session. Two store-token runs from one login therefore produce two independent credentials with their own scopes."
+          "content": "generate-token from a person's own session opens a new machine session holding the requested scope, leaving the caller's own login untouched. It is refused (403 SESSION_SLOT_REQUIRED) for anything that is not a person's session slot — an exchanged access key, a service account, an impersonation session — so revoking a key can never leave a longer-lived credential derived from it behind. Called with a machine token, it renews that session in place under the scope stored on the slot — a machine session can never open another one, and a scoped credential can never re-mint itself unscoped, under a different scope, or as a browser session. Two store-token runs from one login therefore produce two independent credentials with their own scopes."
         },
         {
           "type": "text",

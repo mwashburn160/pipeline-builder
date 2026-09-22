@@ -10,20 +10,21 @@
  *   Organization.find(filter).populate(...).sort(...).skip(n).limit(m).lean()
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockOrgFind = jest.fn();
-const mockOrgFindById = jest.fn();
-const mockOrgFindOne = jest.fn();
-const mockOrgCount = jest.fn();
-const mockUserOrgCount = jest.fn();
+const mockOrgFind = jest.fn<AnyFn>();
+const mockOrgFindById = jest.fn<AnyFn>();
+const mockOrgFindOne = jest.fn<AnyFn>();
+const mockOrgCount = jest.fn<AnyFn>();
+const mockUserOrgCount = jest.fn<AnyFn>();
 const mockUserOrgAggregate = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
-const mockIdpFind = jest.fn();
-const mockIdpDistinct = jest.fn();
+const mockIdpFind = jest.fn<AnyFn>();
+const mockIdpDistinct = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  decryptSecret: jest.fn(),
-  encryptSecret: jest.fn(),
+  decryptSecret: jest.fn<AnyFn>(),
+  encryptSecret: jest.fn<AnyFn>(),
   isEncryptedBlob: jest.fn(() => false),
   // `organization-service.setTier` now reseeds quotas from QUOTA_TIERS so
   // every QuotaTierLimits field stays in lockstep with api-core. Mirror the
@@ -96,13 +97,13 @@ jest.unstable_mockModule('mongoose', () => {
   // withTransaction just runs the callback (no real Mongo tx in unit tests).
   const startSession = jest.fn(async () => ({
     withTransaction: async (cb: () => Promise<unknown>) => cb(),
-    endSession: jest.fn(),
+    endSession: jest.fn<AnyFn>(),
   }));
-  return { default: { startSession }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { default: { startSession }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
-  getOrganizationQuotaStatus: jest.fn(),
+  getOrganizationQuotaStatus: jest.fn<AnyFn>(),
   QuotaType: {},
 }));
 
@@ -130,17 +131,17 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     findOne: (...a: unknown[]) => mockOrgFindOne(...a),
     countDocuments: (...a: unknown[]) => mockOrgCount(...a),
   },
-  User: { updateOne: jest.fn() },
-  UserOrganization: { countDocuments: (...a: unknown[]) => mockUserOrgCount(...a), create: jest.fn(), distinct: () => ({ session: () => Promise.resolve([]) }), aggregate: (...a: unknown[]) => mockUserOrgAggregate(...a) },
+  User: { updateOne: jest.fn<AnyFn>() },
+  UserOrganization: { countDocuments: (...a: unknown[]) => mockUserOrgCount(...a), create: jest.fn<AnyFn>(), distinct: () => ({ session: () => Promise.resolve([]) }), aggregate: (...a: unknown[]) => mockUserOrgAggregate(...a) },
   // seats.js (pulled in via organization-service) links against Invitation.
   Invitation: { distinct: () => ({ session: () => Promise.resolve([]) }) },
   OrgIdpConfig: {
     find: (...a: unknown[]) => mockIdpFind(...a),
-    exists: jest.fn(),
+    exists: jest.fn<AnyFn>(),
   },
   // Consumed transitively via organization-service.js -> roles-service.js.
-  Role: { create: jest.fn(), find: jest.fn(), findOne: jest.fn(), exists: jest.fn() },
-  RoleAssignment: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), countDocuments: jest.fn() },
+  Role: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), findOne: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>() },
+  RoleAssignment: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>(), countDocuments: jest.fn<AnyFn>() },
 }));
 
 const { organizationService } = await import('../src/services/organization-service.js');
@@ -203,6 +204,14 @@ describe('organizationService.list — tier filter + derived facets', () => {
     });
   });
 
+  it('narrows to the requested ids when given', async () => {
+    mockOrgFind.mockReturnValue(makeFindChain([]));
+    mockOrgCount.mockResolvedValue(0);
+
+    await organizationService.list({ ids: ['a'.repeat(24), 'b'.repeat(24)], offset: 0, limit: 10 });
+    expect(mockOrgFind).toHaveBeenCalledWith({ _id: { $in: ['a'.repeat(24), 'b'.repeat(24)] } });
+  });
+
   it('derives kmsConfigured=true iff kmsConfig.keyId is present', async () => {
     const rows = [
       { _id: 'o1', name: 'a', slug: 'a', kmsConfig: { keyId: 'alias/x' } },
@@ -263,8 +272,8 @@ describe('organizationService.setTier', () => {
       _id: initial._id,
       tier: initial.tier,
       quotas: initial.quotas,
-      markModified: jest.fn(),
-      save: jest.fn().mockResolvedValue(undefined),
+      markModified: jest.fn<AnyFn>(),
+      save: jest.fn<AnyFn>().mockResolvedValue(undefined),
     } as unknown as { _id: string; tier?: string; quotas?: unknown; markModified: jest.Mock; save: jest.Mock };
   }
 

@@ -32,7 +32,7 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
 
   useEffect(() => {
     let aborted = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await api.listImageTags(repo);
         if (aborted) return;

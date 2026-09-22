@@ -34,12 +34,15 @@ export function SideDrawer({ title, subtitle, onClose, children, ariaLabel }: Si
     <ModalPortal>
       <div className="fixed inset-0 z-40" role="presentation" onClick={onClose}>
         <div className="absolute inset-0 bg-black/30" />
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- stopPropagation only, see onClick */}
         <aside
           ref={panelRef}
           className="absolute top-0 right-0 h-full w-full max-w-2xl bg-surface shadow-2xl flex flex-col"
           role="dialog"
           aria-modal="true"
           aria-label={ariaLabel}
+          // Not an interaction: keeps a click inside the drawer from reaching
+          // the backdrop's close handler (Escape closes via useDialogBehavior).
           onClick={(e) => e.stopPropagation()}
         >
           <div className="px-5 py-4 border-b border-default flex items-start justify-between gap-3">

@@ -56,7 +56,7 @@ import {
 import { config } from '../config/index.js';
 import { aaguidPermitted, resolveEffectiveAuthenticatorPolicy } from '../helpers/authenticator-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
-import { loadSignInMethods, retainsSignInMethod } from '../helpers/sign-in-methods.js';
+import { removeUnlessLastSignInMethod } from '../helpers/sign-in-methods.js';
 import { User, WebAuthnCredential } from '../models/index.js';
 
 const rp = config.auth.webauthn;
@@ -454,8 +454,11 @@ async function verifyAssertion(
   if (!verification.verified) throw new Error(WEBAUTHN_VERIFICATION_FAILED);
 
   assertCounterProgressed(stored.counter, verification.authenticationInfo.newCounter);
-  await WebAuthnCredential.updateOne(
-    { _id: stored._id },
+  // Conditional on the counter we VERIFIED against: a concurrent use of the same
+  // credential (a cloned authenticator racing the original) that already moved
+  // it makes this a miss — which is exactly a counter regression.
+  const advanced = await WebAuthnCredential.updateOne(
+    { _id: stored._id, counter: stored.counter },
     {
       $set: {
         counter: verification.authenticationInfo.newCounter,
@@ -464,6 +467,7 @@ async function verifyAssertion(
       },
     },
   );
+  if (advanced.matchedCount === 0) throw new Error(WEBAUTHN_COUNTER_REGRESSION);
 
   return {
     userId: stored.userId.toString(),
@@ -561,27 +565,20 @@ export async function renameCredential(userId: string, id: string, name: string)
 }
 
 /**
- * Whether the account keeps a way in after losing this passkey: a password, a
- * linked social/SSO identity, or another passkey. Removing the LAST of
- * everything would lock the person out permanently, so it is refused — the UI
- * says so rather than offering a delete that 409s.
+ * Remove one of the caller's own passkeys.
  *
- * The count itself lives in `helpers/sign-in-methods.ts`, shared with the TOTP
- * guard so the two can never disagree about what "a way in" means. (An
- * authenticator app is deliberately NOT one: it is a second factor on a password
- * sign-in, so an account holding only TOTP could not sign in at all.)
+ * Refused when the account would keep no way in afterwards — a password, a
+ * linked social/SSO identity, or another passkey (`WEBAUTHN_LAST_SIGN_IN_METHOD`);
+ * removing the LAST of everything would lock the person out permanently. The
+ * count lives in `helpers/sign-in-methods.ts`, shared with the TOTP guard, and
+ * is decided ATOMICALLY with the delete (`removeUnlessLastSignInMethod`), so two
+ * concurrent removals can't both pass the check.
  */
-async function assertNotLastSignInMethod(userId: string): Promise<void> {
-  if (!retainsSignInMethod(await loadSignInMethods(userId), 'passkey')) {
-    throw new Error(WEBAUTHN_LAST_SIGN_IN_METHOD);
-  }
-}
-
-/** Remove one of the caller's own passkeys (see {@link assertNotLastSignInMethod}). */
 export async function removeCredential(userId: string, id: string): Promise<PasskeySummary> {
   const existing = await WebAuthnCredential.findOne({ _id: id, userId }).lean();
   if (!existing) throw new Error(WEBAUTHN_CREDENTIAL_NOT_FOUND);
-  await assertNotLastSignInMethod(userId);
-  await WebAuthnCredential.deleteOne({ _id: id, userId });
+  const removed = await removeUnlessLastSignInMethod(userId, 'passkey', WEBAUTHN_LAST_SIGN_IN_METHOD, async (session) =>
+    (await WebAuthnCredential.deleteOne({ _id: id, userId }, { session })).deletedCount > 0);
+  if (!removed) throw new Error(WEBAUTHN_CREDENTIAL_NOT_FOUND);
   return toSummary(existing as unknown as Parameters<typeof toSummary>[0]);
 }

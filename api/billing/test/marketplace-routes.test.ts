@@ -16,13 +16,15 @@
  * req/res — no HTTP server.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSendSuccess = jest.fn((res: any, status: number, data: unknown) => {
   res.status(status).json({ success: true, statusCode: status, data });
 });
-const mockSendError = jest.fn((res: any, status: number, msg: string) => {
+const mockSendError = jest.fn((res: any, status: number, msg: string, ..._rest: unknown[]) => {
   res.status(status).json({ success: false, statusCode: status, message: msg });
 });
 
@@ -32,19 +34,19 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAuth: () => (_req: any, _res: any, next: () => void) => next(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
-  incCounter: jest.fn(),
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  incCounter: jest.fn<AnyFn>(),
   withRoute: (handler: Function) => async (req: any, res: any) =>
-    handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId, userId: req.userId }),
+    handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.orgId, userId: req.userId }),
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
   config: { marketplace: { snsTopicArns: [] } },
 }));
 
-const mockCalculatePeriodEnd = jest.fn(() => new Date('2026-08-01T00:00:00.000Z'));
-const mockCreateBillingEvent = jest.fn(async () => undefined);
-const mockSyncEntitlements = jest.fn(async () => undefined);
+const mockCalculatePeriodEnd = jest.fn((..._args: unknown[]) => new Date('2026-08-01T00:00:00.000Z'));
+const mockCreateBillingEvent = jest.fn(async (..._args: unknown[]) => undefined);
+const mockSyncEntitlements = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   recordReactivatePlanMissing: async () => undefined,
   MANAGEABLE_SUBSCRIPTION_STATUSES: ['active', 'trialing', 'past_due'],
@@ -64,18 +66,18 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/marketplace-helpers.js', () => ({
-  verifySNSSignature: jest.fn(),
-  confirmSNSSubscription: jest.fn(),
-  mapActionToStatus: jest.fn(),
+  verifySNSSignature: jest.fn<AnyFn>(),
+  confirmSNSSubscription: jest.fn<AnyFn>(),
+  mapActionToStatus: jest.fn<AnyFn>(),
 }));
 
-const mockPlanFindOne = jest.fn();
+const mockPlanFindOne = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/plan.js', () => ({
   Plan: { findOne: (...a: unknown[]) => mockPlanFindOne(...a) },
 }));
 
-const mockSubscriptionFindOne = jest.fn();
-const mockSubscriptionCreate = jest.fn();
+const mockSubscriptionFindOne = jest.fn<AnyFn>();
+const mockSubscriptionCreate = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     findOne: (...a: unknown[]) => mockSubscriptionFindOne(...a),
@@ -83,9 +85,9 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
   },
 }));
 
-const mockPendingCreate = jest.fn();
-const mockPendingFindOneAndDelete = jest.fn();
-const mockPendingDeleteMany = jest.fn(async () => ({ deletedCount: 0 }));
+const mockPendingCreate = jest.fn<AnyFn>();
+const mockPendingFindOneAndDelete = jest.fn<AnyFn>();
+const mockPendingDeleteMany = jest.fn(async (..._args: unknown[]) => ({ deletedCount: 0 }));
 jest.unstable_mockModule('../src/models/marketplace-pending-registration.js', () => ({
   MarketplacePendingRegistration: {
     create: (...a: unknown[]) => mockPendingCreate(...a),
@@ -97,9 +99,10 @@ jest.unstable_mockModule('../src/models/marketplace-pending-registration.js', ()
 }));
 
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
-  claimWebhookEvent: jest.fn(),
-  markWebhookEventDone: jest.fn(),
-  releaseWebhookEvent: jest.fn(),
+  claimWebhookEvent: jest.fn<AnyFn>(),
+  markWebhookEventDone: jest.fn<AnyFn>(),
+  releaseWebhookEvent: jest.fn<AnyFn>(),
+  webhookEventStatus: jest.fn<AnyFn>(),
 }));
 
 // The provider must be a real AWSMarketplaceProvider *instance* for the route's
@@ -137,8 +140,8 @@ function getHandler(method: string, path: string) {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requirePermission, requireStepUp, type QuotaService } from '@pipeline-builder/api-core';
+import { requireAuth, requirePermission, requireStepUp, type QuotaService } from '@pipeline-builder/api-core';
 import { checkQuota, createAuthenticatedWithOrgRoute, type SSEManager } from '@pipeline-builder/api-server';
 import type { Express } from 'express';
 
@@ -11,6 +11,7 @@ import { createDeployGeneratedPluginRoutes } from './routes/deploy-generated-plu
 import { createEcosystemConsoleRoutes } from './routes/ecosystem-console.js';
 import { createGeneratePluginRoutes } from './routes/generate-plugin.js';
 import { createInstallRoutes } from './routes/installs.js';
+import { createInternalRoutes } from './routes/internal.js';
 import { createPublicDirectoryRoutes } from './routes/public-directory.js';
 import { createPublicSubmissionRoutes } from './routes/public-submissions.js';
 import { createPublisherRoutes } from './routes/publisher.js';
@@ -52,6 +53,10 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // `plugins` row or `public/*` without two-person moderation.
   app.use('/public/plugin-submissions', createPublicSubmissionRoutes());
   app.use('/public', createPublicDirectoryRoutes());
+
+  // -- Service-to-service routes (image-registry → the team parent-pull set).
+  //    Each route carries its own `requireInternalService` caller list.
+  app.use('/internal', requireAuth, createInternalRoutes());
 
   // -- Upload route FIRST — manages its own middleware (auth → orgId →
   //    plugins:write → rate limit → multer → tenant scope). Must be registered

@@ -77,7 +77,11 @@ Parameters:
   GhcrToken:
     Type: String
     NoEcho: true
-    Description: GitHub Container Registry (ghcr.io) token for pulling private images
+    Description: >
+      GitHub Container Registry (ghcr.io) token for pulling private images.
+      Stored in Secrets Manager (<stack>/ghcr-token) and fetched by the instance
+      at boot — it is never embedded in UserData, which any principal with
+      ec2:DescribeInstanceAttribute can read in the clear.
 
   EbsVolumeSize:
     Type: Number
@@ -85,6 +89,16 @@ Parameters:
     MinValue: 20
     MaxValue: 200
     Description: Root EBS volume size in GiB (gp3, encrypted). OS, Docker, and minikube only.
+
+  DataVolumeSnapshotRetention:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 90
+    Description: >
+      Number of daily snapshots of the data volume to keep (Data Lifecycle
+      Manager, 03:00 UTC). The data volume holds every database, the registry
+      and MinIO — on this single-node target the snapshots ARE the backups.
 
   DataVolumeSize:
     Type: Number
@@ -194,6 +208,8 @@ Conditions:
     - !Condition SesEnabled
     - !Not [!Equals [!Ref AlertEmail, ""]]
   HasEmailFrom: !Not [!Equals [!Ref EmailFrom, ""]]
+  HasGhcrToken: !Not [!Equals [!Ref GhcrToken, ""]]
+  HasAdminPassword: !Not [!Equals [!Ref AdminPassword, ""]]
   CreateSesIdentityCond: !And
     - !Condition SesEnabled
     - !Equals [!Ref CreateSesIdentity, "true"]
@@ -831,6 +847,46 @@ Resources:
               - codepipeline:GetPipelineExecution
             Resource: !Sub "arn:${AWS::Partition}:codepipeline:*:${AWS::AccountId}:*"
 
+  # ---------------------------------------------------------------------------
+  # Boot-time secrets — Secrets Manager, NOT UserData. UserData is readable in
+  # the clear by anyone with ec2:DescribeInstanceAttribute and is kept in the
+  # instance's metadata for its whole life, so NoEcho on the parameter protected
+  # nothing once the value was interpolated into it. The instance fetches these
+  # by name at boot (UserData below); the role may read exactly this stack's.
+  # ---------------------------------------------------------------------------
+  GhcrTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: HasGhcrToken
+    Properties:
+      Name: !Sub "${AWS::StackName}/ghcr-token"
+      Description: ghcr.io pull token for the pipeline-builder instance
+      SecretString: !Ref GhcrToken
+
+  AdminPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: HasAdminPassword
+    Properties:
+      Name: !Sub "${AWS::StackName}/admin-password"
+      Description: Initial platform admin password (AutoInit)
+      SecretString: !Ref AdminPassword
+
+  InstanceRoleBootSecretsPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: pipeline-builder-boot-secrets
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadBootSecrets
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            # Secrets Manager appends a random 6-char suffix to every ARN.
+            Resource:
+              - !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/ghcr-token-*"
+              - !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/admin-password-*"
+
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -842,6 +898,8 @@ Resources:
   # ---------------------------------------------------------------------------
   EC2Instance:
     Type: AWS::EC2::Instance
+    # UserData reads the boot secrets on first boot; the grant must exist first.
+    DependsOn: InstanceRoleBootSecretsPolicy
     Properties:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPairName
@@ -877,7 +935,13 @@ Resources:
             export DOMAIN="${DomainName}"
             # LEAN mode passthrough — startup.sh reads $LEAN (accepts true/false).
             export LEAN="${Lean}"
-            export GHCR_TOKEN="${GhcrToken}"
+            # Boot secrets come from Secrets Manager (see GhcrTokenSecret) — never
+            # interpolated here. An absent secret (parameter left empty) reads as "".
+            pb_boot_secret() {
+              aws secretsmanager get-secret-value --region "${AWS::Region}" \
+                --secret-id "${AWS::StackName}/$1" --query SecretString --output text 2>/dev/null || true
+            }
+            GHCR_TOKEN="$(pb_boot_secret ghcr-token)"; export GHCR_TOKEN
             # ghcr.io ignores the username for PAT auth; fixed to the image owner.
             export GHCR_USER="mwashburn160"
             export GIT_REPO="${GitRepo}"
@@ -892,9 +956,10 @@ Resources:
             export PIPELINE_SUBNET_IDS="${PrivateSubnet},${PrivateSubnet2}"
             # When "true", bootstrap.sh runs init-platform (all loads) after the cluster is up.
             export AUTO_INIT="${AutoInit}"
-            # Initial admin password for AutoInit. Empty => bootstrap.sh generates a strong
-            # random one and writes it to a root-only file (never logged). NoEcho parameter.
-            export ADMIN_PASSWORD="${AdminPassword}"
+            # Initial admin password for AutoInit (Secrets Manager, see AdminPasswordSecret).
+            # Empty => bootstrap.sh generates a strong random one and writes it to a
+            # root-only file (never logged).
+            ADMIN_PASSWORD="$(pb_boot_secret admin-password)"; export ADMIN_PASSWORD
             # AWS_REGION is the ACTUAL deploy region (the SES identity is regional;
             # bootstrap.sh pins SES_REGION to it instead of the static .env default).
             export AWS_REGION="${AWS::Region}"
@@ -988,8 +1053,13 @@ Resources:
   # ---------------------------------------------------------------------------
   # Dedicated Data EBS Volume
   # ---------------------------------------------------------------------------
+  # Snapshot on stack delete AND on replacement (an AZ or type change): this
+  # volume holds every database, the registry and MinIO — a `Delete` default
+  # would destroy all of it with the stack.
   DataVolume:
     Type: AWS::EC2::Volume
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
     Properties:
       AvailabilityZone: !Select [0, !GetAZs ""]
       Size: !Ref DataVolumeSize
@@ -1001,6 +1071,50 @@ Resources:
             - HasDomain
             - !Sub "pipeline-builder-data-${DomainName}"
             - "pipeline-builder-data"
+        # DataVolumeSnapshotPolicy targets volumes by this tag.
+        - Key: pipeline-builder-data-volume
+          Value: !Ref AWS::StackName
+
+  # Daily crash-consistent snapshots of the data volume (Data Lifecycle Manager).
+  DataVolumeSnapshotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dlm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole"
+
+  DataVolumeSnapshotPolicy:
+    Type: AWS::DLM::LifecyclePolicy
+    Properties:
+      Description: !Sub "Daily snapshots of the ${AWS::StackName} data volume"
+      State: ENABLED
+      ExecutionRoleArn: !GetAtt DataVolumeSnapshotRole.Arn
+      PolicyDetails:
+        PolicyType: EBS_SNAPSHOT_MANAGEMENT
+        ResourceTypes:
+          - VOLUME
+        TargetTags:
+          - Key: pipeline-builder-data-volume
+            Value: !Ref AWS::StackName
+        Schedules:
+          - Name: daily
+            CreateRule:
+              Interval: 24
+              IntervalUnit: HOURS
+              Times:
+                - "03:00"
+            RetainRule:
+              Count: !Ref DataVolumeSnapshotRetention
+            CopyTags: true
+            TagsToAdd:
+              - Key: pipeline-builder-snapshot
+                Value: daily
 
   DataVolumeAttachment:
     Type: AWS::EC2::VolumeAttachment

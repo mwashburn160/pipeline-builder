@@ -5,25 +5,27 @@
  * Tests for POST /reports/events ingest endpoint.
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { routeChain } from './helpers/route-chain.js';
 
 const mockSelect = jest.fn<(...args: unknown[]) => unknown>();
 const mockInsert = jest.fn<(...args: unknown[]) => unknown>();
-const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error: msg, code }));
+const mockSendError = jest.fn((_res: any, code: number, msg: string, ..._rest: unknown[]) => ({ error: msg, code }));
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
-    const ctx = { log: jest.fn(), identity: { orgId: 'test-org', userId: 'user-1' }, requestId: 'req-1' };
+    const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: 'test-org', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: opts?.requireOrgId === false ? '' : 'test-org', userId: 'user-1' });
   },
   createAuthenticatedWithOrgRoute: () => [jest.fn((_req: any, _res: any, next: any) => next())],
-  createApp: () => ({ app: { use: jest.fn(), get: jest.fn() }, sseManager: {} }),
-  runServer: jest.fn(),
-  attachRequestContext: () => jest.fn(),
+  createApp: () => ({ app: { use: jest.fn<AnyFn>(), get: jest.fn<AnyFn>() }, sseManager: {} }),
+  runServer: jest.fn<AnyFn>(),
+  attachRequestContext: () => jest.fn<AnyFn>(),
   incCounter: (...a: unknown[]) => mockIncCounter(...a),
 }));
 
@@ -48,10 +50,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       : { error: 'invalid' }),
 }));
 
-const mockSseSend = jest.fn();
-const mockIngestEvents = jest.fn<(...a: unknown[]) => Promise<unknown>>()
+const mockSseSend = jest.fn<AnyFn>();
+const mockIngestEvents = jest.fn<AnyFn>()
   .mockResolvedValue({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] });
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     invalidateOrg: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
     ingestEvents: (...a: unknown[]) => mockIngestEvents(...a),
@@ -70,7 +72,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: {
     MAX_EVENTS_PER_BATCH: 100,
   },
@@ -88,8 +90,8 @@ describe('POST /reports/events', () => {
     router = createEventIngestRoutes({ send: mockSseSend } as never);
 
     // Default: registry lookup returns a match
-    const mockFrom = jest.fn().mockReturnValue({
-      where: jest.fn().mockReturnValue({
+    const mockFrom = jest.fn<AnyFn>().mockReturnValue({
+      where: jest.fn<AnyFn>().mockReturnValue({
         limit: jest.fn<() => Promise<unknown>>().mockResolvedValue([{ pipelineId: 'p-1', orgId: 'acme' }]),
       }),
     });
@@ -106,7 +108,7 @@ describe('POST /reports/events', () => {
     expect(handler).toBeDefined();
 
     const req = { body: { events: [] }, user: { sub: 'svc', scope: 'reporting:ingest' } };
-    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
 
     await handler(req, res);
 
@@ -131,7 +133,7 @@ describe('POST /reports/events', () => {
     expect(events).toHaveLength(101); // guard: must actually exceed MAX_EVENTS_PER_BATCH (100)
 
     const req = { body: { events }, user: { sub: 'svc', scope: 'reporting:ingest' } };
-    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
 
     await handler(req, res);
 
@@ -147,7 +149,7 @@ describe('POST /reports/events', () => {
     const handler = routeChain(router, '/');
 
     const req = { body: {}, user: { sub: 'svc', scope: 'reporting:ingest' } };
-    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
 
     await handler(req, res);
 
@@ -163,7 +165,7 @@ describe('POST /reports/events', () => {
 
   const validEvent = { pipelineId: 'p-1', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'SUCCEEDED' };
   const getHandler = () => routeChain(router, '/');
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
 
   it('rejects a non-scoped token with 403 (scope is always enforced)', async () => {
     await getHandler()({ body: { events: [validEvent] }, user: { sub: 'u-1' } }, res());

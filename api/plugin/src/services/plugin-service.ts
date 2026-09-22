@@ -112,7 +112,9 @@ export class PluginService extends CrudService<
       isDefault: schema.plugin.isDefault,
     };
 
-    return sortableColumns[sortBy] || null;
+    // Own keys only: `sortBy` is client input, and a plain lookup walks the
+    // prototype (`?sortBy=constructor` returned a function, not a column).
+    return Object.hasOwn(sortableColumns, sortBy) ? sortableColumns[sortBy] : null;
   }
 
   protected getProjectColumn(): AnyColumn | null {
@@ -506,7 +508,9 @@ export class PluginService extends CrudService<
       const deployed = await withTenantTx(async (tx) => tx
         .selectDistinct({ orgId: m.orgId })
         .from(m)
-        .where(and(eq(m.pluginName, plugin.name), eq(m.pluginVersion, plugin.version), ownNamespace)));
+        .where(and(eq(m.pluginName, plugin.name), eq(m.pluginVersion, plugin.version), ownNamespace,
+          // A soft-deleted pipeline's manifest is no longer a use (E8).
+          sql`EXISTS (SELECT 1 FROM pipelines pl WHERE pl.id = ${m.pipelineId} AND pl.deleted_at IS NULL)`)));
 
       const orgs = new Set<string>();
       const defRows = (defs as { rows?: Array<{ org_id: string; spec: string | null }> }).rows

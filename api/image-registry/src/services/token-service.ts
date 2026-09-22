@@ -5,6 +5,7 @@ import { createPublicKey, randomUUID } from 'crypto';
 import { createLogger, createQuotaService, getServiceAuthHeader, registerPreviousSecretProbe, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
+import { parentPublicPlugins } from './parent-public-plugins.js';
 import type { RegistryScope } from './scope.js';
 import { computeOrgStorageUsage } from './storage-usage.js';
 import { config } from '../config/index.js';
@@ -85,7 +86,11 @@ export const REGISTRY_META_NAMESPACE_PREFIX = 'registry-meta/';
  * in the UI. Moderation tooling reads it through the plugin service.
  */
 export const QUARANTINE_NAMESPACE_PREFIX = 'quarantine/';
-/** The only service principal that may push/pull `quarantine/*`. */
+/**
+ * The only service principal that may PULL `quarantine/*` (its scans and
+ * image inspection run in the plugin pod). Nobody pushes there with a platform
+ * token: the build pushes with its own quarantine credential (E21).
+ */
 export const QUARANTINE_SERVICE_PRINCIPAL = 'plugin';
 
 /**
@@ -105,7 +110,16 @@ export const QUARANTINE_SERVICE_PRINCIPAL = 'plugin';
  * org (which owns that namespace); only super-admins (platform sysadmin) push
  * on any other namespace (e.g. cross-org or `library/*`)
  */
-export function authorizeScope(identity: Identity, requested: RequestedScope): string[] {
+export interface ScopeContext {
+  /**
+   * The names of the team's PARENT org's `public` plugins (fetched from the
+   * plugin service for this request). Absent = none are known, so no parent
+   * repository is pullable.
+   */
+  parentPublicPlugins?: ReadonlySet<string>;
+}
+
+export function authorizeScope(identity: Identity, requested: RequestedScope, ctx: ScopeContext = {}): string[] {
   // Internal management identity bypasses scope-type filtering — it needs
   // both `repository:*` (manifests/blobs) and `registry:catalog:*` access
   // for the underlying registry's management API.
@@ -116,6 +130,19 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
   if (requested.type !== 'repository') {
     // Distribution defines `repository` and `registry` types; other types
     // are extension. External callers only get `repository` scopes.
+    return [];
+  }
+
+  // An anonymous submission's build credential (E21): push/pull on its OWN
+  // `quarantine/<submissionId>`, pull on the base-image namespaces a
+  // Dockerfile's `FROM` reaches (`library/*`, `system/*`), nothing else.
+  if (identity.type === 'quarantine') {
+    if (requested.name === `${QUARANTINE_NAMESPACE_PREFIX}${identity.submissionId}`) {
+      return requested.actions.filter((a) => a === 'pull' || a === 'push');
+    }
+    if (requested.name.startsWith(LIBRARY_NAMESPACE_PREFIX) || requested.name.startsWith(SYSTEM_NAMESPACE_PREFIX)) {
+      return requested.actions.filter((a) => a === 'pull');
+    }
     return [];
   }
 
@@ -131,11 +158,12 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
   if (requested.name.startsWith(REGISTRY_META_NAMESPACE_PREFIX)) {
     return [];
   }
-  // `quarantine/*` (anonymous submissions): the plugin service principal only —
-  // also evaluated before the superadmin rule, so no human token reaches it.
+  // `quarantine/*` (anonymous submissions): PULL for the plugin service
+  // principal only — evaluated before the superadmin rule, so no human token
+  // reaches it. The build's push rides the quarantine credential above.
   if (requested.name.startsWith(QUARANTINE_NAMESPACE_PREFIX)) {
     if (identity.serviceName !== QUARANTINE_SERVICE_PRINCIPAL) return [];
-    return requested.actions.filter((a) => a === 'pull' || a === 'push');
+    return requested.actions.filter((a) => a === 'pull');
   }
 
   // SUPER-admins (platform sysadmin, e.g. the bootstrap base-image push)
@@ -188,10 +216,14 @@ export function authorizeScope(identity: Identity, requested: RequestedScope): s
   // A TEAM resolves its direct parent org's `public` plugins (api/plugin
   // read-plugins.ts: `visibility='public' AND org_id=P`), so its pipelines must
   // be able to PULL those images — otherwise the plugin resolves at lookup and
-  // then fails at CodeBuild image pull. Pull only: a team never writes into its
-  // parent's namespace. The parent id comes from the signed token claim, never
-  // from the request.
-  if (identity.parentOrgId && requested.name.startsWith(`${ORG_NAMESPACE_PREFIX}${identity.parentOrgId}/`)) {
+  // then fails at CodeBuild image pull. Pull only, and only those PUBLIC
+  // plugins' repositories (E22): the parent's org-only and private plugins stay
+  // the parent's. The parent id comes from the signed token claim, never from
+  // the request; the public set from the plugin service.
+  const parentPrefix = identity.parentOrgId ? `${ORG_NAMESPACE_PREFIX}${identity.parentOrgId}/` : null;
+  if (parentPrefix && requested.name.startsWith(parentPrefix)) {
+    const name = requested.name.slice(parentPrefix.length);
+    if (!ctx.parentPublicPlugins?.has(name)) return [];
     return requested.actions.filter((a) => a === 'pull');
   }
 
@@ -270,7 +302,9 @@ function issueRegistryToken( identity: Identity,
     iss: config.tokenSigning.issuer,
     sub: identity.type === 'management'
       ? 'management'
-      : `${identity.orgId}:${identity.userId}`,
+      : identity.type === 'quarantine'
+        ? `quarantine:${identity.submissionId}`
+        : `${identity.orgId}:${identity.userId}`,
     aud: config.tokenSigning.service,
     exp: now + config.tokenSigning.expiresInSeconds,
     nbf: now,
@@ -312,8 +346,15 @@ export async function authorizeAndIssue( identity: Identity,
 ): Promise<{ token: string; accessCount: number }> {
   const access: RegistryScope[] = [];
   let overBudget: boolean | null = null;
+  // A team pulling from its parent's namespace: which of the parent's plugins
+  // are public (one plugin-service read per issuance, cached briefly).
+  const parentPrefix = identity.type === 'jwt' && identity.parentOrgId ? `${ORG_NAMESPACE_PREFIX}${identity.parentOrgId}/` : null;
+  const ctx: ScopeContext = {};
+  if (parentPrefix && identity.type === 'jwt' && requestedScopes.some((s) => s.type === 'repository' && s.name.startsWith(parentPrefix))) {
+    ctx.parentPublicPlugins = await parentPublicPlugins(identity.parentOrgId!);
+  }
   for (const scope of requestedScopes) {
-    let granted = authorizeScope(identity, scope);
+    let granted = authorizeScope(identity, scope, ctx);
 
     // Storage budget gate. Only relevant when:
     // 1. We've granted `push` (no point checking on pull-only),

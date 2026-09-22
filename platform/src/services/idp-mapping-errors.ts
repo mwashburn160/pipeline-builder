@@ -48,6 +48,24 @@ export const IDP_SAML_INCOMPLETE = 'IDP_SAML_INCOMPLETE';
 export const IDP_OIDC_INCOMPLETE = 'IDP_OIDC_INCOMPLETE';
 
 /**
+ * The config would let an admin-run IdP present a RESERVED issuer (Google,
+ * whose identities skip domain verification): a custom discoveryUrl on the
+ * `google` provider, a generic OIDC discovery URL on Google's host, or a SAML
+ * entity id equal to Google's issuer. See helpers/reserved-issuers.ts.
+ */
+export const IDP_RESERVED_ISSUER = 'IDP_RESERVED_ISSUER';
+
+/**
+ * The edit points the connection at a DIFFERENT identity provider — provider,
+ * discoveryUrl, region or userPoolId changed — without re-entering the client
+ * secret. The stored secret is only ever carried forward to the IdP it was
+ * entered for: re-using it would hand it to whatever token endpoint the new
+ * settings resolve to (an admin, or an attacker holding an admin session, could
+ * exfiltrate it by pointing discovery at their own host).
+ */
+export const IDP_SECRET_REQUIRED = 'IDP_SECRET_REQUIRED';
+
+/**
  * "SSO required" cannot be switched on yet (#5): the policy locks people out of
  * every other sign-in method, so it is only accepted once the IdP is ENABLED and
  * a test connection has SUCCEEDED against the settings currently saved (a

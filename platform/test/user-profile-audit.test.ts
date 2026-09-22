@@ -9,24 +9,25 @@
  * call should fail these tests loudly.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockAudit = jest.fn();
-const mockUpdateProfile = jest.fn();
-const mockChangePassword = jest.fn();
-const mockFindForTokenIssue = jest.fn();
-const mockIssueTokens = jest.fn();
-const mockRenewSessionTokens = jest.fn();
+const mockAudit = jest.fn<AnyFn>();
+const mockUpdateProfile = jest.fn<AnyFn>();
+const mockChangePassword = jest.fn<AnyFn>();
+const mockFindForTokenIssue = jest.fn<AnyFn>();
+const mockIssueTokens = jest.fn<AnyFn>();
+const mockRenewSessionTokens = jest.fn<AnyFn>();
 // The caller's own slot: `undefined` (no slot — a PAT), an interactive slot (a
 // person, whose call opens a NEW machine slot), or a machine slot (renewed in place).
-const mockFindRefreshSession = jest.fn();
+const mockFindRefreshSession = jest.fn<AnyFn>();
 const mockValidateBody = jest.fn((_schema: unknown, body: unknown) => body);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
+  sendError: (res: any, status: number, msg: string, code?: string) => res.status(status).json({ success: false, message: msg, ...(code ? { code } : {}) }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
-  resolveUserFeatures: jest.fn(),
+  resolveUserFeatures: jest.fn<AnyFn>(),
   resolveUserPermissions: jest.fn(() => []),
 }));
 
@@ -41,7 +42,7 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  const model = jest.fn();
+  const model = jest.fn<AnyFn>();
   // `default` + `Document` matter: models/user.ts (reached through
   // utils/validation) imports mongoose's default export and the Document type.
   return { Types: { ObjectId: class {} }, Schema, Document: class {}, models: {}, model, default: { Schema, model, models: {} } };
@@ -71,6 +72,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
@@ -84,7 +87,13 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   changePasswordSchema: {},
 }));
 
-const { changePassword, generateToken, updateUser } = await import('../src/controllers/user-profile.js');
+const mockPasswordPolicyForPerson = jest.fn(async (..._a: unknown[]) => ({ minLength: 8 }));
+jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
+  PASSWORD_MAX_LENGTH: 128,
+  passwordPolicyForPerson: (...a: unknown[]) => mockPasswordPolicyForPerson(...a),
+}));
+
+const { changePassword, generateToken, updateUser, getOwnPasswordPolicy } = await import('../src/controllers/user-profile.js');
 
 
 function mockRes() {
@@ -175,16 +184,18 @@ describe('changePassword audit', () => {
 describe('generateToken audit', () => {
   it('records user.token.create with the actual expiresIn', async () => {
     mockFindForTokenIssue.mockResolvedValue({ _id: 'u1', lastActiveOrgId: 'org-1' });
-    mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 86400 });
+    mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresIn: 900 });
+    mockFindRefreshSession.mockResolvedValue({ id: 's1', kind: 'interactive' });
 
-    const req: any = { user: { sub: 'u1' }, headers: {}, body: { expiresIn: '86400' } };
+    const req: any = { user: { sub: 'u1', sid: 's1' }, headers: {}, body: { expiresIn: '86400' } };
     await (generateToken as unknown as (req: any, res: any) => Promise<void>)(req, mockRes());
 
     expect(mockAudit).toHaveBeenCalledWith(req, 'user.token.create', expect.objectContaining({
       targetType: 'user',
       targetId: 'u1',
       // A person's call OPENS a machine session (it never touches their login).
-      details: { expiresIn: 86400, session: 'opened' },
+      // The access token is short-lived; the credential's lifetime is the slot's.
+      details: { expiresIn: 900, lifetimeSeconds: 86400, session: 'opened' },
     }));
   });
 });
@@ -196,7 +207,7 @@ describe('generateToken — machine sessions', () => {
     return promise.then(() => res);
   };
 
-  it('renews a MACHINE caller in place, carrying the lifetime override', async () => {
+  it('renews a MACHINE caller in place — a renewal can never move the slot\'s fixed end', async () => {
     mockFindForTokenIssue.mockResolvedValue(user);
     mockFindRefreshSession.mockResolvedValue({ id: 's1', kind: 'machine' });
     mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a', expiresIn: 3600 });
@@ -205,8 +216,9 @@ describe('generateToken — machine sessions', () => {
 
     expect(mockRenewSessionTokens).toHaveBeenCalledWith(
       user, 'org-1', { sessionId: 's1', kind: 'machine' },
-      expect.objectContaining({ expiresIn: 3600, scope: 'reporting:ingest' }),
+      expect.objectContaining({ scope: 'reporting:ingest' }),
     );
+    expect(mockRenewSessionTokens.mock.calls[0][3]).not.toHaveProperty('expiresIn');
     expect(mockIssueTokens).not.toHaveBeenCalled();
   });
 
@@ -221,13 +233,21 @@ describe('generateToken — machine sessions', () => {
     expect(mockRenewSessionTokens).not.toHaveBeenCalled();
   });
 
-  it('opens a new machine slot for a caller without any slot (a PAT)', async () => {
+  it.each([
+    ['an exchanged access key (PAT)', { sub: 'u1', jti: 'pat-1', token_use: 'api_key' }],
+    ['a service account', { sub: 'sa-1', jti: 'key-1', token_use: 'api_key', principalType: 'service_account' }],
+    ['an impersonation session', { sub: 'u1', jti: 'imp-1', token_use: 'access', impersonatorId: 'op-1' }],
+    ['a token with no slot at all', { sub: 'u1', token_use: 'access' }],
+  ])('REFUSES to derive a machine credential from %s (403 SESSION_SLOT_REQUIRED)', async (_label, principal) => {
     mockFindForTokenIssue.mockResolvedValue(user);
-    mockIssueTokens.mockResolvedValue({ accessToken: 'a', expiresIn: 900 });
 
-    await run({ user: { sub: 'u1', jti: 'pat-1', token_use: 'api_key' }, body: {} });
+    const res = await run({ user: principal, body: {} });
 
-    expect(mockIssueTokens).toHaveBeenCalledWith(user, 'org-1', expect.objectContaining({ kind: 'machine' }));
+    // Revoking the key / ending the impersonation must not leave a long-lived
+    // credential behind.
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'SESSION_SLOT_REQUIRED' });
+    expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(mockRenewSessionTokens).not.toHaveBeenCalled();
   });
 
@@ -272,13 +292,14 @@ describe('generateToken — the org\'s "administrative actions require MFA" poli
     expect(mockIssueTokens).toHaveBeenCalled();
   });
 
-  it('refuses a PAT minting a machine credential while the policy is on (403 HUMAN_SESSION_REQUIRED)', async () => {
+  it('refuses a PAT minting a machine credential while the policy is on (403)', async () => {
     mockFindForTokenIssue.mockResolvedValue(user);
 
     const res = await run({ user: { sub: 'u1', jti: 'pat-1', principalType: 'user', token_use: 'api_key', aal: 2, org_admin_aal: 2 }, body: {} });
 
+    // Refused before the policy is even consulted: a key never derives a session.
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'HUMAN_SESSION_REQUIRED' });
+    expect(res.json.mock.calls[0][0]).toMatchObject({ code: 'SESSION_SLOT_REQUIRED' });
     expect(mockIssueTokens).not.toHaveBeenCalled();
   });
 
@@ -290,5 +311,17 @@ describe('generateToken — the org\'s "administrative actions require MFA" poli
     await run({ user: person(1), body: {} });
 
     expect(mockRenewSessionTokens).toHaveBeenCalled();
+  });
+});
+
+describe('getOwnPasswordPolicy', () => {
+  it('answers the strictest minimum across the caller\'s orgs (what change-password enforces)', async () => {
+    mockPasswordPolicyForPerson.mockResolvedValueOnce({ minLength: 14, orgId: 'org-strict' } as never);
+    const res = mockRes();
+    await (getOwnPasswordPolicy as unknown as (req: any, res: any) => Promise<void>)({ user: { sub: 'u1' } }, res);
+    expect(mockPasswordPolicyForPerson).toHaveBeenCalledWith('u1');
+    expect(res.status).toHaveBeenCalledWith(200);
+    // Which org sets it is not the caller's business here — only the number.
+    expect(res.json.mock.calls[0][0].data).toEqual({ minLength: 14, maxLength: 128 });
   });
 });

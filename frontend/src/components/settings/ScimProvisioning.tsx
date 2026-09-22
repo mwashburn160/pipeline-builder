@@ -76,7 +76,7 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
   const [busy, setBusy] = useState(false);
   const [newKey, setNewKey] = useState<string | null>(null);
   const [days, setDays] = useState(365);
-  const [pendingIssue, setPendingIssue] = useState(false);
+  const [pendingIssue, setPendingIssue] = useState<'account' | 'key' | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<ScimKey | null>(null);
 
   /** Every `scim`-scoped key in the org, whichever account holds it — an org that
@@ -100,24 +100,48 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
   // only meaningful in the browser, so fall back to the relative path.
   const baseUrl = typeof window === 'undefined' ? '/api/scim/v2' : `${window.location.origin}/api/scim/v2`;
 
-  /** Mint a key, creating the dedicated service account on first use. */
+  /**
+   * Issuing is TWO step-up-gated writes on first use — create the dedicated
+   * service account, then mint its key — and a step-up token is single-use.
+   * Spending one token on both made the key mint fail with STEP_UP_REPLAY right
+   * after the account was created, so every first SCIM key failed. Each write
+   * gets its own confirmation instead: `pendingIssue` walks 'account' → 'key'.
+   */
+  const scimAccount = accounts.find((a) => a.name === SCIM_ACCOUNT_NAME) ?? null;
+  const [createdAccountId, setCreatedAccountId] = useState<string | null>(null);
+
+  /** Step 1 (first use only): the account the key will belong to. */
+  const createAccount = async (stepUpToken: string) => {
+    setBusy(true);
+    let nextStage: typeof pendingIssue = null;
+    try {
+      const created = await api.createServiceAccount(orgId, {
+        name: SCIM_ACCOUNT_NAME,
+        description: 'SCIM 2.0 provisioning from your identity provider',
+        // No roles: a scoped key carries none anyway, and an unscoped key on a
+        // role-less account can do nothing either.
+        roleIds: [],
+      }, stepUpToken);
+      if (!created.success || !created.data) { toast.error('Failed to create the SCIM service account'); return; }
+      setCreatedAccountId(created.data.serviceAccount.id);
+      nextStage = 'key';
+      void reload();
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to create the SCIM service account'));
+    } finally {
+      setBusy(false);
+      setPendingIssue(nextStage);
+    }
+  };
+
+  /** Step 2: mint the key, with a confirmation of its own. */
   const issueKey = async (stepUpToken: string) => {
+    const accountId = scimAccount?.id ?? createdAccountId;
+    if (!accountId) { setPendingIssue('account'); return; }
     setBusy(true);
     setNewKey(null);
     try {
-      let account = accounts.find((a) => a.name === SCIM_ACCOUNT_NAME);
-      if (!account) {
-        const created = await api.createServiceAccount(orgId, {
-          name: SCIM_ACCOUNT_NAME,
-          description: 'SCIM 2.0 provisioning from your identity provider',
-          // No roles: a scoped key carries none anyway, and an unscoped key on a
-          // role-less account can do nothing either.
-          roleIds: [],
-        }, stepUpToken);
-        if (!created.success || !created.data) { toast.error('Failed to create the SCIM service account'); return; }
-        account = created.data.serviceAccount;
-      }
-      const res = await api.createServiceAccountKey(orgId, account.id, {
+      const res = await api.createServiceAccountKey(orgId, accountId, {
         name: `scim-${new Date().toISOString().slice(0, 10)}`,
         expiresIn: Math.floor(days) * 86400,
         scope: SCIM_SCOPE,
@@ -133,7 +157,7 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
       toast.error(formatError(err, 'Failed to issue the SCIM key'));
     } finally {
       setBusy(false);
-      setPendingIssue(false);
+      setPendingIssue(null);
     }
   };
 
@@ -142,7 +166,7 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
     try {
       const res = await api.revokeServiceAccountKey(orgId, key.accountId, key.id);
       if (res.success) { toast.success('SCIM key revoked'); await reload(); }
-      else toast.error('Failed to revoke the key');
+      else {toast.error('Failed to revoke the key');}
     } catch (err) {
       toast.error(formatError(err, 'Failed to revoke the key'));
     } finally {
@@ -206,9 +230,10 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
           onClick={() => {
             const d = Math.floor(days);
             if (!Number.isFinite(d) || d < 1 || d > 365) { toast.error('Key lifetime must be 1-365 days'); return; }
-            setPendingIssue(true);
+            setNewKey(null);
+            setPendingIssue(scimAccount || createdAccountId ? 'key' : 'account');
           }}
-          loading={busy && pendingIssue}
+          loading={busy && pendingIssue !== null}
           readOnly={readOnly}
           className="gap-1"
         >
@@ -254,8 +279,27 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
         </div>
       )}
 
-      {pendingIssue && (
+      {pendingIssue === 'account' && (
         <StepUpModal
+          key="account"
+          title="Set up SCIM provisioning?"
+          action="Create the SCIM provisioning service account"
+          details={(
+            <p>
+              Step 1 of 2: a dedicated service account, with no roles, that the provisioning key will belong
+              to. You confirm the key itself next.
+            </p>
+          )}
+          onConfirmed={createAccount}
+          // Only ever closes ITS stage: confirming moves on to 'key', and the
+          // dialog's own close after a confirm must not undo that.
+          onClose={() => setPendingIssue((cur) => (cur === 'account' ? null : cur))}
+        />
+      )}
+
+      {pendingIssue === 'key' && (
+        <StepUpModal
+          key="key"
           title="Issue a SCIM provisioning key?"
           action="Issue a SCIM provisioning key"
           details={(
@@ -265,7 +309,7 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
             </p>
           )}
           onConfirmed={issueKey}
-          onClose={() => setPendingIssue(false)}
+          onClose={() => setPendingIssue((cur) => (cur === 'key' ? null : cur))}
         />
       )}
 

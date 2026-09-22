@@ -22,6 +22,7 @@
  *     Logout, keyed by the new session.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -118,6 +119,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   signInAuth: () => ({ amr: ['sso'], aal: 1, authTime: new Date(0) }),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
@@ -146,36 +149,45 @@ function makeRes() {
   res.redirect = jest.fn().mockReturnValue(res);
   res.type = jest.fn().mockReturnValue(res);
   res.send = jest.fn().mockReturnValue(res);
+  res.cookie = jest.fn().mockReturnValue(res);
+  res.clearCookie = jest.fn().mockReturnValue(res);
   return res;
 }
 
-/** Mint a real one-time RelayState through the initiate leg. */
+const { bindLoginToBrowser } = await import('../src/helpers/login-binding.js');
+/** The browser-binding cookie the last initiate set (helpers/login-binding.ts). */
+let bindingCookie = '';
+/** The request surface of the browser that started the sign-in. */
+const browser = () => ({ headers: { cookie: `pb_login_binding=${bindingCookie}` } });
+
+/** Mint a real one-time RelayState through the initiate leg, bound to a browser. */
 async function mintState(orgId = ORG): Promise<string> {
   mockBuildSamlAuthorizeUrl.mockResolvedValue('https://idp.test/sso?SAMLRequest=x');
-  const { state } = await beginSamlLogin(orgId);
+  const binding = bindLoginToBrowser({ cookie: (_n: string, v: string) => { bindingCookie = v; } } as never);
+  const { state } = await beginSamlLogin(orgId, binding);
   return state;
 }
 
 /** The handoff the ACS put in its redirect URL. */
 function handoffFrom(res: any): string {
-  const url: string = (res.redirect as jest.Mock).mock.calls[0][1] as string;
+  const url: string = (res.redirect as jest.Mock<AnyFn>).mock.calls[0][1] as string;
   return new URL(url).searchParams.get('handoff')!;
 }
 
 /** The error code the ACS put in its redirect URL. */
 function errorFrom(res: any): string {
-  const url: string = (res.redirect as jest.Mock).mock.calls[0][1] as string;
+  const url: string = (res.redirect as jest.Mock<AnyFn>).mock.calls[0][1] as string;
   return new URL(url).searchParams.get('error')!;
 }
 
 /** Every audited action, in order. */
 function auditedActions(): string[] {
-  return (mockAudit as jest.Mock).mock.calls.map((c) => c[1] as string);
+  return (mockAudit as jest.Mock<AnyFn>).mock.calls.map((c) => c[1] as string);
 }
 
 /** The details of the first `sso.saml.refused` row. */
 function refusalDetails(): Record<string, unknown> {
-  const call = (mockAudit as jest.Mock).mock.calls.find((c) => c[1] === 'sso.saml.refused');
+  const call = (mockAudit as jest.Mock<AnyFn>).mock.calls.find((c) => c[1] === 'sso.saml.refused');
   return (call?.[2] as { details: Record<string, unknown> }).details;
 }
 
@@ -239,7 +251,7 @@ describe('ACS — accepting an assertion', () => {
     const res = makeRes();
     await (handleSamlAcs as any)({ params: { orgId: ORG }, body: { SAMLResponse: 'r', RelayState: state } }, res);
 
-    expect(mockAssertSsoIdentityTrusted).toHaveBeenCalledWith(ORG, expect.objectContaining({ email: 'ada@acme.test' }));
+    expect(mockAssertSsoIdentityTrusted).toHaveBeenCalledWith(ORG, expect.objectContaining({ email: 'ada@acme.test' }), { protocol: 'saml' });
     expect(mockAssertSeat).toHaveBeenCalledWith(ORG, 'ada@acme.test');
     // Issuer-bound linking under the dedicated `saml` provider key.
     expect(mockFindOrCreate).toHaveBeenCalledWith(
@@ -376,7 +388,7 @@ describe('completing the sign-in', () => {
   it('mints an interactive session and audits the login', async () => {
     const handoff = await acsHandoff();
     const res = makeRes();
-    await (completeSamlLogin as any)({ params: { orgId: ORG }, body: { handoff } }, res);
+    await (completeSamlLogin as any)({ ...browser(), params: { orgId: ORG }, body: { handoff } }, res);
 
     expect(mockIssueTokens).toHaveBeenCalledWith(
       expect.objectContaining({ _id: 'user-1' }), ORG, expect.objectContaining({ kind: 'interactive' }),
@@ -388,7 +400,7 @@ describe('completing the sign-in', () => {
 
   it('records the IdP session handle for Single Logout against the new session', async () => {
     const handoff = await acsHandoff();
-    await (completeSamlLogin as any)({ params: { orgId: ORG }, body: { handoff } }, makeRes());
+    await (completeSamlLogin as any)({ ...browser(), params: { orgId: ORG }, body: { handoff } }, makeRes());
     expect(mockRecordSamlSession).toHaveBeenCalledWith({
       userId: 'user-1',
       orgId: ORG,
@@ -400,17 +412,25 @@ describe('completing the sign-in', () => {
 
   it('consumes the handoff once', async () => {
     const handoff = await acsHandoff();
-    await (completeSamlLogin as any)({ params: { orgId: ORG }, body: { handoff } }, makeRes());
+    await (completeSamlLogin as any)({ ...browser(), params: { orgId: ORG }, body: { handoff } }, makeRes());
 
     const res = makeRes();
-    await (completeSamlLogin as any)({ params: { orgId: ORG }, body: { handoff } }, res);
+    await (completeSamlLogin as any)({ ...browser(), params: { orgId: ORG }, body: { handoff } }, res);
     expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('LOGIN CSRF: refuses a handoff redeemed by a browser that did not start the sign-in', async () => {
+    const handoff = await acsHandoff();
+    const res = makeRes();
+    await (completeSamlLogin as any)({ headers: {}, params: { orgId: ORG }, body: { handoff } }, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockIssueTokens).not.toHaveBeenCalled();
   });
 
   it('refuses a handoff redeemed against another org', async () => {
     const handoff = await acsHandoff();
     const res = makeRes();
-    await (completeSamlLogin as any)({ params: { orgId: 'org-other' }, body: { handoff } }, res);
+    await (completeSamlLogin as any)({ ...browser(), params: { orgId: 'org-other' }, body: { handoff } }, res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockIssueTokens).not.toHaveBeenCalled();
   });
@@ -420,7 +440,7 @@ describe('completing the sign-in', () => {
     // Promoted between the two legs — the session must still not open.
     mockFindById.mockReturnValue({ select: async () => ({ _id: 'user-1', isSuperAdmin: true }) });
     const res = makeRes();
-    await (completeSamlLogin as any)({ params: { orgId: ORG }, body: { handoff } }, res);
+    await (completeSamlLogin as any)({ ...browser(), params: { orgId: ORG }, body: { handoff } }, res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockIssueTokens).not.toHaveBeenCalled();
   });

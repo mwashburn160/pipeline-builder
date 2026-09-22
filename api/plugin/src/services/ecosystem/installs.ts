@@ -45,6 +45,7 @@ import {
   scopeOrgIds,
   INSTALL_VERSION_POLICIES,
   type ConsumptionPolicy,
+  type InstallChangeRequest,
   type InstallVersionPolicy,
   type ListingResolved,
   type OrgListingState,
@@ -62,6 +63,7 @@ import { orgApprovers } from './install-notify.js';
 import { installRows, listingSource, ownPluginsNamed, policyRows } from './installs-store.js';
 import { vulnDelta } from './policy.js';
 import { RegistryPublicationError, verifyPublication } from './registry.js';
+import { resignGrace, trustFor } from './resign.js';
 import { listingStats } from './reviews-store.js';
 import { ImageVerificationError } from '../../helpers/supply-chain.js';
 import { emitPluginAudit } from '../audit.js';
@@ -153,6 +155,8 @@ export function installView(state: OrgListingState, ownOrgId: string) {
     approvedBy: row?.approvedBy ?? null,
     createdAt: iso(row?.createdAt),
     decidedAt: iso(row?.decidedAt),
+    /** The member's pending, approval-gated change (target version + policy), or null. */
+    pendingChange: row?.pendingChange ?? null,
     upgrade: upgradeOf(state),
     blocked: blockedOf(state),
     ...installNotes(state),
@@ -231,6 +235,10 @@ function catalogEntry(caller: Caller, state: OrgListingState, policy: Consumptio
     install,
     installable: !blocked && state.listing.pausedAt === null && !hasOwnRow && can(caller, 'plugins:install'),
     requiresApproval: needsApproval(caller, policy, state.publisher.tier),
+    // Moving this install across a major/breaking version, or to `latest`,
+    // needs an approver for this caller (updateInstall refuses it otherwise) —
+    // the UI gates its Upgrade / policy→latest controls on this (E24).
+    needsApproval: needsApproval(caller, policy, state.publisher.tier),
     blocked,
     resolved: resolvedInfo(state.resolved, state.listing),
     reference: official && !shadowed ? { name: state.listing.name } : { publisher: state.publisher.handle, name: state.listing.name },
@@ -269,7 +277,15 @@ async function shadowMap(caller: Caller, names: string[]): Promise<Map<string, s
   return map;
 }
 
-/** GET /plugins/catalog — every live listing with the org's standing (max 200). */
+/** Catalog page size: default and ceiling. */
+const CATALOG_PAGE_DEFAULT = 200;
+const CATALOG_PAGE_MAX = 200;
+
+/**
+ * GET /plugins/catalog — the live listings with the org's standing, one page
+ * (`limit` ≤ 200, `offset`) of the filtered, name-sorted set, with the `total`
+ * it was cut from and `hasMore` (E24).
+ */
 export async function catalog(caller: Caller, query: Record<string, unknown>) {
   const scope = scopeOf(caller);
   const ctx = await loadOrgInstallContext(listingSource, scope);
@@ -282,7 +298,10 @@ export async function catalog(caller: Caller, query: Record<string, unknown>) {
       || s.publisher.handle.includes(q) || (s.listing.keywords ?? []).some((k) => k.toLowerCase().includes(q)))
     && (installed === null || (!('code' in s.mode)) === installed));
   states.sort((a, b) => a.listing.name.localeCompare(b.listing.name) || a.publisher.handle.localeCompare(b.publisher.handle));
-  states = states.slice(0, 200);
+  const limit = Math.min(CATALOG_PAGE_MAX, Math.max(1, Number.parseInt(String(query.limit ?? CATALOG_PAGE_DEFAULT), 10) || CATALOG_PAGE_DEFAULT));
+  const offset = Math.max(0, Number.parseInt(String(query.offset ?? 0), 10) || 0);
+  const total = states.length;
+  states = states.slice(offset, offset + limit);
   const shadows = await shadowMap(caller, states.filter((s) => s.publisher.handle === OFFICIAL_PUBLISHER_HANDLE).map((s) => s.listing.name));
   const stats = await statsFor(states.map((s) => s.listing.id));
   return {
@@ -290,6 +309,10 @@ export async function catalog(caller: Caller, query: Record<string, unknown>) {
       ...catalogEntry(caller, s, ctx.policy, s.publisher.handle === OFFICIAL_PUBLISHER_HANDLE ? shadows.get(s.listing.name) ?? [] : []),
       ...(stats.get(s.listing.id) ?? NO_STATS),
     })),
+    total,
+    limit,
+    offset,
+    hasMore: offset + states.length < total,
   };
 }
 
@@ -341,7 +364,7 @@ export async function listInstalls(caller: Caller, query: Record<string, unknown
   const views = states
     .filter((s) => ctx.installs.some((i) => i.listingId === s.listing.id && (i.orgId.toLowerCase() === own || i.status === 'active'))
       || (includeImplicit && !('code' in s.mode) && s.mode.kind === 'implicit'))
-    .map((s) => installView(s, caller.orgId))
+    .map((s) => ({ ...installView(s, caller.orgId), needsApproval: needsApproval(caller, ctx.policy, s.publisher.tier) }))
     .filter((v) => !status || v.status === status)
     .sort((a, b) => a.name.localeCompare(b.name) || a.publisherHandle.localeCompare(b.publisherHandle));
   return { installs: views, policy: ctx.policy };
@@ -497,14 +520,8 @@ async function listingOfRow(row: PluginInstall): Promise<{ publisher: Publisher;
   return { publisher, listing };
 }
 
-/**
- * PATCH /plugins/installs/:id — change the version policy or move the
- * baseline (an upgrade). Crossing a major or `breaking` version on a tier the
- * policy gates needs an approver (§3.2: majors never flow without re-approval).
- */
-export async function updateInstall(caller: Caller, id: string, body: Record<string, unknown>) {
-  need(caller, 'plugins:install');
-  const row = await ownRow(caller, id);
+/** What changing an active install to `body` means: the target, and whether it needs an approver. */
+async function planInstallChange(caller: Caller, row: PluginInstall, body: Record<string, unknown>) {
   if (row.status !== 'active') throw new ConflictError(`This install is ${row.status}; only an active install can be upgraded.`);
   const { publisher, listing } = await listingOfRow(row);
   const ref = `${publisher.handle}/${listing.name}`;
@@ -521,18 +538,126 @@ export async function updateInstall(caller: Caller, id: string, body: Record<str
     parseSemver(target.version)?.major !== parseSemver(from)?.major
     || state.versions.some((v) => v.breaking && compareSemver(v.version, from) > 0 && compareSemver(v.version, target.version) <= 0));
   const widens = versionPolicy === 'latest' && row.versionPolicy !== 'latest';
-  if ((crosses || widens) && policy.requireApprovalTiers.includes(publisher.tier) && !can(caller, 'plugin_installs:manage')) {
-    throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS,
-      `Moving ${ref} across a major or breaking version needs an approver (plugin_installs:manage) in your organization.`);
-  }
-  const updated = await installRows.update(row.id, { versionPolicy, pinnedVersion: target.version, resolvedVersion: null });
+  const gated = (crosses || widens) && policy.requireApprovalTiers.includes(publisher.tier);
+  return { publisher, listing, ref, policy, versionPolicy, target, gated };
+}
+
+/** Apply a planned change and audit it as an upgrade. */
+async function applyInstallChange(caller: Caller, row: PluginInstall, change: { versionPolicy: InstallVersionPolicy; version: string }, ref: string, extra: Record<string, unknown> = {}) {
+  const updated = await installRows.update(row.id, { versionPolicy: change.versionPolicy, pinnedVersion: change.version, resolvedVersion: null, pendingChange: null });
   if (!updated) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Install not found');
   audit(caller, 'plugin.install.upgrade', row.id, {
     listing: ref,
     from: { versionPolicy: row.versionPolicy, version: row.pinnedVersion },
-    to: { versionPolicy, version: target.version },
+    to: { versionPolicy: change.versionPolicy, version: change.version },
+    ...extra,
   });
+}
+
+/**
+ * PATCH /plugins/installs/:id — change the version policy or move the
+ * baseline (an upgrade). Crossing a major or `breaking` version on a tier the
+ * policy gates needs an approver (§3.2: majors never flow without re-approval);
+ * a member without one REQUESTS the change instead (POST …/change-requests).
+ */
+export async function updateInstall(caller: Caller, id: string, body: Record<string, unknown>) {
+  need(caller, 'plugins:install');
+  const row = await ownRow(caller, id);
+  const plan = await planInstallChange(caller, row, body);
+  if (plan.gated && !can(caller, 'plugin_installs:manage')) {
+    throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS,
+      `Moving ${plan.ref} across a major or breaking version needs an approver (plugin_installs:manage) in your organization; request the change instead.`,
+      { requestable: true });
+  }
+  await applyInstallChange(caller, row, { versionPolicy: plan.versionPolicy, version: plan.target.version }, plan.ref);
+  return { install: installView((await standing(caller, plan.listing)).state, caller.orgId), needsApproval: needsApproval(caller, plan.policy, plan.publisher.tier) };
+}
+
+/** A change request as the API shows it. */
+function changeRequestView(row: PluginInstall, ref: string) {
+  const c = row.pendingChange!;
+  return { installId: row.id, listing: ref, from: { version: row.pinnedVersion, versionPolicy: row.versionPolicy }, to: { version: c.version, versionPolicy: c.versionPolicy }, requestedBy: c.requestedBy, requestedAt: c.requestedAt, note: c.note };
+}
+
+/**
+ * POST /plugins/installs/:id/change-requests — a member asks for an install
+ * change that needs an approver (the version / policy PATCH would refuse):
+ * stored on the install as its ONE pending change, the org's approvers told
+ * (N11). A change that needs no approval is refused here — PATCH it.
+ */
+export async function requestInstallChange(caller: Caller, id: string, body: Record<string, unknown>) {
+  need(caller, 'plugins:install');
+  const row = await ownRow(caller, id);
+  if (row.pendingChange) throw new ConflictError('This install already has a change waiting for approval.', ErrorCode.DUPLICATE_ENTRY);
+  const plan = await planInstallChange(caller, row, body);
+  if (!plan.gated || can(caller, 'plugin_installs:manage')) {
+    throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `This change of ${plan.ref} needs no approval; apply it with PATCH /plugins/installs/${row.id}.`);
+  }
+  const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 1000) : null;
+  const pendingChange: InstallChangeRequest = {
+    version: plan.target.version, versionPolicy: plan.versionPolicy, requestedBy: caller.userId, requestedAt: new Date().toISOString(), note,
+  };
+  // Guarded on status: a removal or a racing request can't be overwritten.
+  const stored = await installRows.setPendingChange(row.id, pendingChange);
+  if (!stored) throw new ConflictError(`${plan.ref} changed meanwhile; reload and retry.`, ErrorCode.DUPLICATE_ENTRY);
+  audit(caller, 'plugin.install.change-request', row.id, {
+    listing: plan.ref, from: { versionPolicy: row.versionPolicy, version: row.pinnedVersion }, to: { versionPolicy: plan.versionPolicy, version: plan.target.version },
+  });
+  await enqueueEcosystemNotification('N11', [orgApprovers(caller.orgId)], {
+    subject: `Install change requested: ${plan.ref}`,
+    text: `${caller.name ?? 'A member'} asked to move ${plan.ref} from ${row.pinnedVersion ?? row.versionPolicy} to ${plan.target.version} (policy ${plan.versionPolicy})${note ? `: ${note}` : ''}. Approve or reject it on the Plugins page → Approvals.`,
+  }).catch(() => undefined);
+  return { changeRequest: changeRequestView(stored, plan.ref) };
+}
+
+/** GET /plugins/installs/change-requests — the org's pending install changes (approvers). */
+export async function listInstallChangeRequests(caller: Caller) {
+  need(caller, 'plugin_installs:manage');
+  const rows = await installRows.withPendingChange(caller.orgId);
+  const listingsById = new Map((await listingSource.liveListings({ ids: [...new Set(rows.map((r) => r.listingId))] })).map((l) => [l.id, l]));
+  const pubs = new Map((await listingSource.publishersByIds([...new Set([...listingsById.values()].map((l) => l.publisherId))])).map((p) => [p.id, p]));
+  return {
+    changeRequests: rows.map((r) => {
+      const l = listingsById.get(r.listingId);
+      const p = l ? pubs.get(l.publisherId) : undefined;
+      return changeRequestView(r, l && p ? `${p.handle}/${l.name}` : r.listingId);
+    }).sort((a, b) => a.requestedAt.localeCompare(b.requestedAt)),
+  };
+}
+
+async function decideChange(caller: Caller, id: string, approve: boolean, reason: string | null) {
+  need(caller, 'plugin_installs:manage');
+  const row = await ownRow(caller, id);
+  const change = row.pendingChange;
+  if (!change) throw new ConflictError('This install has no change waiting for approval.');
+  const { publisher, listing } = await listingOfRow(row);
+  const ref = `${publisher.handle}/${listing.name}`;
+  if (approve) {
+    // Re-validated at decision time: the version may be yanked, paused or blocked by now.
+    const plan = await planInstallChange(caller, row, { version: change.version, versionPolicy: change.versionPolicy });
+    await applyInstallChange(caller, row, { versionPolicy: plan.versionPolicy, version: plan.target.version }, ref, { requestedBy: change.requestedBy });
+    audit(caller, 'plugin.install.change-approve', row.id, { listing: ref, requestedBy: change.requestedBy, to: { versionPolicy: change.versionPolicy, version: change.version } });
+  } else {
+    if (!await installRows.clearPendingChange(row.id)) throw new ConflictError('The change was decided by someone else.');
+    audit(caller, 'plugin.install.change-reject', row.id, { listing: ref, requestedBy: change.requestedBy, ...(reason ? { reason: reason.slice(0, 200) } : {}) });
+  }
+  await enqueueEcosystemNotification('N12', [{ kind: 'user', userId: change.requestedBy, orgId: caller.orgId }], {
+    subject: `Install change ${approve ? 'approved' : 'rejected'}: ${ref}`,
+    text: approve
+      ? `Your request to move ${ref} to ${change.version} (policy ${change.versionPolicy}) was approved.`
+      : `Your request to move ${ref} to ${change.version} was rejected${reason ? `: ${reason}` : '.'}`,
+  }).catch(() => undefined);
   return { install: installView((await standing(caller, listing)).state, caller.orgId) };
+}
+
+/** POST /plugins/installs/:id/change-requests/approve — apply the pending change. */
+export function approveInstallChange(caller: Caller, id: string) {
+  return decideChange(caller, id, true, null);
+}
+
+/** POST /plugins/installs/:id/change-requests/reject — drop it, telling the requester why. */
+export function rejectInstallChange(caller: Caller, id: string, reason: unknown) {
+  return decideChange(caller, id, false, typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 1000) : null);
 }
 
 /** DELETE /plugins/installs/:id — uninstall, or withdraw a pending request. */
@@ -705,9 +830,15 @@ export async function verifyListedImage(res: Pick<ListingResolved, 'publisher' |
     throw err;
   }
   if (!verdict.signed) throw new ImageVerificationError(`Plugin ${ref} image ${version.imageDigest} has no valid platform signature`);
-  if (verdict.tier !== publisher.tier || verdict.publisher !== publisher.handle) {
+  // The signature must carry the publisher's CURRENT trust (its tier, or
+  // `unverified` while suspended — what the re-sign job signs with) and handle
+  // — or, while a re-sign of this publisher/listing is still running, the
+  // annotations it carried before the change (E1 grace; ends when the job does).
+  const matches = (a: { tier: string; handle: string }) => verdict.tier === a.tier && verdict.publisher === a.handle;
+  if (!matches({ tier: trustFor(publisher), handle: publisher.handle })
+    && !(await resignGrace(publisher.id, listing.id)).some(matches)) {
     throw new ImageVerificationError(
       `Plugin ${ref} image is signed as ${verdict.tier ?? 'unknown'}/${verdict.publisher ?? 'unknown'}, `
-      + `not ${publisher.tier}/${publisher.handle}; it must be re-signed before it resolves`);
+      + `not ${trustFor(publisher)}/${publisher.handle}; it must be re-signed before it resolves`);
   }
 }

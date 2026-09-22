@@ -9,15 +9,38 @@
  * entry — so both funnel through {@link requeueWithFreshBudget}.
  */
 
-import { createLogger, decrementQuota, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { AppError, createLogger, decrementQuota, ErrorCode, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import type { Job } from 'bullmq';
 
 import { reserveReplaySlot } from './build-quota.js';
 import { dlqJobId, findFailedJob, getDeadLetterQueue, getOrgTier, getTierQueue } from './connections.js';
-import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import type { PluginBuildJobData, PublishCaller } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('plugin-build-queue');
+
+/**
+ * Who is re-running the build (E20). A retry or replay runs on the RETRYING
+ * caller's authority, never the original uploader's snapshot: the new job's
+ * `userId` and overwrite `access` are theirs, `public` visibility survives only
+ * if they hold `plugins:publish`, and the post-build publish request is
+ * submitted as them — or dropped when they can't publish.
+ */
+export interface Retrier {
+  userId: string;
+  isSystemAdmin: boolean;
+  canPublish: boolean;
+  /** The retrier as a publish-request submitter. */
+  caller: PublishCaller;
+}
+
+/** A re-enqueue refused before anything was queued (no quota slot for a non-sysadmin). */
+export class RequeueRefusedError extends AppError {
+  constructor(message: string, statusCode: 429 | 503, code: ErrorCode) {
+    super(statusCode, code, message);
+    this.name = 'RequeueRefusedError';
+  }
+}
 
 interface RequeueOptions {
   /** Id the operator addressed (log correlation). */
@@ -33,7 +56,9 @@ interface RequeueOptions {
  * budget and hand it a freshly reserved `plugins` slot. Returns the new job id.
  *
  * - The source already RELEASED its slot on terminal failure, so the new job
- *   re-reserves one ({@link reserveReplaySlot}); at cap it proceeds slot-less.
+ *   re-reserves one ({@link reserveReplaySlot}); with none to be had only a
+ *   system admin's re-run proceeds slot-less ({@link RequeueRefusedError} otherwise).
+ * - The new job runs as the RETRIER ({@link Retrier}).
  * - If the enqueue throws, the slot reserved for it is released (with its
  *   period snapshot, so a reset in between can't steal new-period capacity) and
  *   the error propagates.
@@ -44,14 +69,26 @@ interface RequeueOptions {
 async function requeueWithFreshBudget(
   source: Job<PluginBuildJobData>,
   quotaService: QuotaService,
+  retrier: Retrier,
   { jobId, namePrefix, sourceStillPresent }: RequeueOptions,
 ): Promise<string> {
   const { orgId } = source.data;
   const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
-  const { quotaReleased, reservedResetAt } = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
+  const { quotaReleased, reservedResetAt, noSlot } = await reserveReplaySlot(quotaService, orgId, authHeader, jobId);
+  // A slot-less re-run is an operator override of the org's quota: sysadmins only.
+  if (noSlot && !retrier.isSystemAdmin) {
+    throw noSlot === 'cap'
+      ? new RequeueRefusedError('The organization is at its plugin build quota; the build was not re-queued.', 429, ErrorCode.QUOTA_EXCEEDED)
+      : new RequeueRefusedError('The quota service is unavailable; try the retry again shortly.', 503, ErrorCode.SERVICE_UNAVAILABLE);
+  }
 
+  // Re-derived from the RETRIER (see Retrier): never replay the uploader's authority.
+  const visibility = source.data.pluginRecord.visibility === 'public' && !retrier.canPublish ? 'org' : source.data.pluginRecord.visibility;
   const freshData: PluginBuildJobData = {
     ...source.data,
+    userId: retrier.userId,
+    access: { isSystemAdmin: retrier.isSystemAdmin, canPublish: retrier.canPublish },
+    pluginRecord: { ...source.data.pluginRecord, visibility },
     totalAttempts: 0,
     quotaReleased,
     // Fresh period snapshot for the newly reserved slot (undefined when none was
@@ -60,6 +97,8 @@ async function requeueWithFreshBudget(
   };
   delete (freshData as { lastError?: string }).lastError;
   delete (freshData as { failureCategory?: string }).failureCategory;
+  if (source.data.publish && retrier.canPublish) freshData.publish = { caller: retrier.caller };
+  else delete (freshData as { publish?: unknown }).publish;
 
   const tier = await getOrgTier(quotaService, orgId, authHeader);
 
@@ -97,7 +136,7 @@ async function requeueWithFreshBudget(
  * job id, or null when no failed job with that id exists — or when the job is
  * already being retried via the DLQ.
  */
-export async function retryFailedJob(jobId: string, quotaService: QuotaService): Promise<string | null> {
+export async function retryFailedJob(jobId: string, quotaService: QuotaService, retrier: Retrier): Promise<string | null> {
   const failedJob = await findFailedJob(jobId);
   if (!failedJob) return null;
 
@@ -113,7 +152,7 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
     return null;
   }
 
-  return requeueWithFreshBudget(failedJob, quotaService, {
+  return requeueWithFreshBudget(failedJob, quotaService, retrier, {
     jobId,
     namePrefix: 'retry',
     sourceStillPresent: () => failedJob.isFailed(),
@@ -124,11 +163,11 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService):
  * Replay a single DLQ job back onto the org's tier queue. Returns the new job
  * id, or null when the DLQ job no longer exists.
  */
-export async function replayDlqJob(jobId: string, quotaService: QuotaService): Promise<string | null> {
+export async function replayDlqJob(jobId: string, quotaService: QuotaService, retrier: Retrier): Promise<string | null> {
   const dlqJob = await getDeadLetterQueue().getJob(jobId);
   if (!dlqJob) return null;
 
-  return requeueWithFreshBudget(dlqJob, quotaService, {
+  return requeueWithFreshBudget(dlqJob, quotaService, retrier, {
     jobId,
     namePrefix: 'replay',
     sourceStillPresent: async () => Boolean(await getDeadLetterQueue().getJob(jobId)),

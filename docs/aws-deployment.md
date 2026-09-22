@@ -1114,11 +1114,24 @@ After deployment, access services at:
 | Application | `/` |
 | Reports Dashboard | `/dashboard/reports` |
 | Observability (native) | `/dashboard/observability` |
-| PgAdmin | `/pgadmin/` |
-| Mongo Express | `/mongo-express/` |
 | Registry UI | `/dashboard/registry` (system-admin only) |
-| Grafana | `/grafana/` (own login — `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`) |
-| Kiali (mesh graph) | `/kiali/` (read-only) |
+| PgAdmin | `/pgadmin/` — **only with `ADMIN_UIS_ENABLED=true`** |
+| Mongo Express | `/mongo-express/` — same |
+| Grafana | `/grafana/` — same (then its own login, `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`) |
+| Kiali (mesh graph) | `/kiali/` — same (read-only) |
+
+The four admin consoles are **off by default** on AWS: their routes 404. With
+`ADMIN_UIS_ENABLED=true` in `.env` (re-run setup), every request to them first
+passes an nginx `auth_request` to platform `GET /admin/console-check` — a live
+session of a **platform administrator at AAL2** — with the token taken from the
+`pb_admin_console` cookie and stripped before the console sees the request. For
+occasional use prefer `kubectl -n pipeline-builder port-forward svc/grafana 3000`.
+
+After every provision the setup scripts run `deploy/bin/post-provision-smoke.sh`:
+a test alert through Alertmanager to Slack, a test email through platform, a
+CodePipeline credential dry-run from the pipeline pod, and a probe that a
+connection the NetworkPolicies deny is actually denied. Its warnings are
+non-fatal — read the summary line.
 
 ---
 
@@ -1139,11 +1152,14 @@ deploy/aws/ec2/
 ├── k8s/                   # Kubernetes manifests
 │   └── kustomization.yaml # Kustomize entry point
 ├── nginx/
-│   ├── nginx.conf     # Nginx config (TLS + JWT)
-│   ├── jwt.js             # NJS JWT parsing
-│   └── metrics.js         # NJS metrics
-└── config/                # Prometheus, Loki, Promtail configs
+│   ├── nginx.conf         # Nginx config (routes; drift-checked against the other targets)
+│   └── registry-auth.js   # NJS registry token-realm rewrite
+└── config/                # Prometheus, Promtail, Grafana configs
 ```
+
+Shared by every target (one copy, `deploy/shared/`): `postgres-init.sql`,
+`mongodb-init.js`, `nginx/jwt.js`, `nginx/metrics.js` and
+`config/{loki,alertmanager,thanos}`.
 
 </details>
 
@@ -1162,13 +1178,14 @@ deploy/aws/eks/
 │   ├── storageclasses.yaml# pb-ebs (RWO) + pb-efs (RWX)
 │   ├── ingress.yaml       # ALB Ingress → nginx:8080 (ACM TLS at the ALB)
 │   └── *.yaml             # Full workload set, PVC-tuned for multi-node
-├── config/                # Prometheus, Loki, Alertmanager, Promtail
-├── nginx/                 # nginx.conf, jwt.js, metrics.js, registry-auth.js
+├── config/                # Prometheus, Promtail, Grafana
+├── nginx/                 # nginx.conf, admin-uis*.conf, registry-auth.js
 ├── .env.example
-├── mongodb-init.js
-├── mongodb-keyfile
-└── postgres-init.sql
+└── mongodb-keyfile        # generated per deploy, gitignored
 ```
+
+postgres-init.sql, mongodb-init.js, jwt.js/metrics.js and the
+Loki/Alertmanager/Thanos configs come from `deploy/shared/`.
 
 </details>
 

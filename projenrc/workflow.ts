@@ -26,8 +26,8 @@
  * - Automatic semantic versioning
  * - Independent changelog generation per project
  * - Build artifact caching between jobs
- * - Automatic tag pruning (30+ days old)
- * - Cache clearing to ensure fresh builds
+ * - Automatic tag pruning (15+ days old)
+ * - Every third-party action pinned to a full commit SHA (ACTIONS below)
  *
  * @see https://docs.github.com/en/actions
  * @see https://nx.dev/ci/intro/ci-with-nx
@@ -37,6 +37,24 @@ import { Component } from 'projen';
 import { GithubWorkflow } from 'projen/lib/github';
 import { JobPermission, JobStep } from 'projen/lib/github/workflows-model';
 import { TypeScriptProject } from 'projen/lib/typescript';
+
+/**
+ * Every action the generated workflows use, pinned to a full COMMIT SHA (the
+ * tag it tracked is in the comment). A tag is mutable — whoever controls the
+ * action's repo can move `v6` to new code that then runs with this repo's
+ * GHRC_TOKEN / NPM token / id-token. A SHA cannot move. Bump deliberately:
+ * `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`.
+ */
+const ACTIONS = {
+    checkout: 'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803', // v6
+    setupPnpm: 'pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86', // v6
+    setupNode: 'actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38', // v6
+    uploadArtifact: 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', // v7
+    downloadArtifact: 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c', // v8
+    dockerLogin: 'docker/login-action@dbcb813823bdd20940b903addbd779551569679f', // v4
+    setupQemu: 'docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1', // v4
+    setupBuildx: 'docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069', // v4
+} as const;
 
 /** Projects that are built as Docker images and pushed to registry */
 const IMAGE_PROJECTS = ['frontend', 'platform', 'billing', 'reporting', 'compliance', 'quota', 'message', 'pipeline', 'plugin', 'image-registry', 'ask'] as const;
@@ -107,20 +125,23 @@ export class Workflow extends Component {
             push: { branches: ['main'] },
             workflowDispatch: {},
         });
-        testWorkflow.addJobs({ test: this.createTestGateJob() });
+        testWorkflow.addJobs({
+            test: this.createTestGateJob(),
+            deploy_contracts: this.createDeployContractsJob(),
+            docker_smoke: this.createDockerSmokeJob(),
+        });
     }
 
     /**
      * Creates the initialization job that determines affected projects.
      *
      * This job:
-     * 1. Clears GitHub Actions cache to ensure fresh builds
-     * 2. Checks out the repository with full git history
-     * 3. Sets up Node.js and PNPM
-     * 4. Installs dependencies
-     * 5. Uses Nx to determine which projects are affected
-     * 6. Separates affected projects into images and libraries
-     * 7. Exports outputs for downstream jobs
+     * 1. Checks out the repository with full git history
+     * 2. Sets up Node.js and PNPM
+     * 3. Installs dependencies (frozen lockfile)
+     * 4. Uses Nx to determine which projects are affected
+     * 5. Separates affected projects into images and libraries
+     * 6. Exports outputs for downstream jobs
      *
      * Outputs:
      * - NX_BASE: The base SHA for Nx comparison
@@ -325,7 +346,7 @@ export class Workflow extends Component {
                 },
                 {
                     name: 'Upload artifact',
-                    uses: 'actions/upload-artifact@v7',
+                    uses: ACTIONS.uploadArtifact,
                     with: {
                         name: 'artifacts',
                         // Frontend's standalone+static are bundled into frontend-bundle.tar.gz
@@ -417,7 +438,7 @@ export class Workflow extends Component {
                 {
                     id: 'dnload_artifact',
                     name: 'Download artifact',
-                    uses: 'actions/download-artifact@v8',
+                    uses: ACTIONS.downloadArtifact,
                     with: {
                         name: 'artifacts',
                         path: 'dnload',
@@ -444,7 +465,7 @@ export class Workflow extends Component {
                 },
                 {
                     name: 'Login into container registry',
-                    uses: 'docker/login-action@v4',
+                    uses: ACTIONS.dockerLogin,
                     with: {
                         registry: 'ghcr.io',
                         username: '${{ github.actor }}',
@@ -455,11 +476,11 @@ export class Workflow extends Component {
                     // QEMU registers binfmt handlers so the amd64 runner can
                     // build the non-native (arm64) leg of the multi-arch image.
                     name: 'Setup QEMU',
-                    uses: 'docker/setup-qemu-action@v4',
+                    uses: ACTIONS.setupQemu,
                 },
                 {
                     name: 'Setup buildx',
-                    uses: 'docker/setup-buildx-action@v4',
+                    uses: ACTIONS.setupBuildx,
                     with: {
                         cleanup: true,
                         'cache-binary': false,
@@ -558,6 +579,27 @@ export class Workflow extends Component {
                         COSIGN_YES: 'true',
                     },
                 },
+                {
+                    // Vulnerability gate on the image just signed: grype scans the
+                    // SBOM attached above (the exact packages in the published
+                    // digest) and FAILS the release on any Critical that has a fix
+                    // available. Unfixable findings are reported but not blocking —
+                    // a release can't be held for a patch that doesn't exist.
+                    // Same pinned grype as api/plugin's Dockerfile (bump together).
+                    name: 'Scan image for vulnerabilities (grype)',
+                    run: [
+                        'set -euo pipefail',
+                        'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz',
+                        'echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c -',
+                        'tar -xzf /tmp/grype.tar.gz -C /tmp grype',
+                        'sudo install -m 0755 /tmp/grype /usr/local/bin/grype',
+                        'grype sbom:sbom.spdx.json --only-fixed --fail-on critical',
+                    ].join(' && '),
+                    env: {
+                        GRYPE_VERSION: '0.119.0',
+                        GRYPE_SHA256: '3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b',
+                    },
+                },
             ],
         };
     }
@@ -591,7 +633,7 @@ export class Workflow extends Component {
             steps: [
                 {
                     name: 'Checkout repository',
-                    uses: 'actions/checkout@v6',
+                    uses: ACTIONS.checkout,
                     // `build` bumps versions via `nx release` and pushes that commit
                     // mid-run, so the dispatch SHA is already stale by the time this
                     // job starts. Pin `main` (as every other release job does) so the
@@ -655,7 +697,7 @@ export class Workflow extends Component {
             steps: [
                 {
                     name: 'Checkout repository',
-                    uses: 'actions/checkout@v6',
+                    uses: ACTIONS.checkout,
                     with: {
                         ref: 'main',
                         'fetch-depth': 0,
@@ -682,70 +724,92 @@ export class Workflow extends Component {
     }
 
     /**
-     * Per-PR / push-to-main merge gate: run the affected projects' test target.
+     * The diff base every merge-gate job compares against, as a shell prelude
+     * that sets `$BASE` (empty = "no usable base: check everything"):
+     *   - pull_request → the PR's target branch (`origin/<base_ref>`);
+     *   - push         → `github.event.before`, the commit the push moved main
+     *                    FROM — so a push of several commits checks all of them,
+     *                    not just the last one against its parent;
+     *   - dispatch, a new branch (before = 000…0) or an unreachable SHA → empty.
+     */
+    private static readonly DIFF_BASE = [
+        'case "$GITHUB_EVENT_NAME" in pull_request) BASE="origin/$GITHUB_BASE_REF" ;; push) BASE="$PUSH_BEFORE" ;; *) BASE="" ;; esac',
+        'case "$BASE" in 0000000000000000000000000000000000000000) BASE="" ;; esac',
+        'if [ -n "$BASE" ] && ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then BASE=""; fi',
+        'echo "diff base: ${BASE:-<none: checking everything>}"',
+    ].join('; ');
+
+    /** `env` every DIFF_BASE step needs (the push `before` SHA). */
+    private static readonly DIFF_BASE_ENV = { PUSH_BEFORE: '${{ github.event.before }}' };
+
+    /** Checkout + toolchain + frozen install — the side-effect-free CI prelude. */
+    private ciSetupSteps(): JobStep[] {
+        const project = this.project as TypeScriptProject;
+        return [
+            {
+                name: 'Disable Nx telemetry and daemon',
+                run: 'echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV',
+            },
+            {
+                // Full history so the diff base (DIFF_BASE) is reachable.
+                name: 'Checkout repository',
+                uses: ACTIONS.checkout,
+                with: {
+                    'fetch-depth': 0,
+                },
+            },
+            {
+                name: 'Setup pnpm',
+                uses: ACTIONS.setupPnpm,
+                with: {
+                    version: this.pnpmVersion,
+                },
+            },
+            {
+                name: 'Setup node',
+                uses: ACTIONS.setupNode,
+                with: {
+                    cache: 'pnpm',
+                    'node-version': project.minNodeVersion,
+                    'package-manager-cache': 'pnpm',
+                },
+            },
+            {
+                name: 'Configure npm registry',
+                run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/\:_authToken=$NPM_TOKEN && npm config set \@pipeline-builder\:registry=https://registry.npmjs.org/',
+            },
+            {
+                name: 'Install dependencies',
+                run: 'pnpm install --frozen-lockfile',
+            },
+        ];
+    }
+
+    /**
+     * Per-PR / push-to-main merge gate: the affected projects' BUILD target.
      *
-     * Independent of the (manual, dispatch-only) release workflow so that every
-     * pull request and every push to main actually executes the test suite before
-     * it can merge/land. `nx affected --target test` builds upstream libs first
-     * (the `test` target's `dependsOn: ['^build']`), so tests see current exports.
+     * `build` (not `test`) because it is the whole contract — tsc compile, jest,
+     * eslint — and tests alone do not type-check (ts-jest transpiles only; the
+     * 2026-09-16 incident let nine tsc errors reach main behind a green test
+     * run). Upstream libs build first (`dependsOn: ['^build']`).
      *
-     * This job is intentionally SIDE-EFFECT-FREE (no tag pruning, no npm publish,
-     * no cache deletion, no git pushes) — it only checks out, installs, and tests.
+     * SIDE-EFFECT-FREE: no tag pruning, no publish, no cache deletion, no pushes.
      *
      * @returns Job configuration object
      */
     private createTestGateJob() {
-        const project = this.project as TypeScriptProject;
         return {
-            name: 'test',
+            name: 'build (compile + test + lint)',
             runsOn: ['ubuntu-latest'],
             permissions: {
                 contents: JobPermission.READ,
                 packages: JobPermission.READ,
             },
             steps: [
+                ...this.ciSetupSteps(),
                 {
-                    name: 'Disable Nx telemetry and daemon',
-                    run: 'echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV',
-                },
-                {
-                    // Full history so `nx affected --base origin/main` can diff.
-                    name: 'Checkout repository',
-                    uses: 'actions/checkout@v6',
-                    with: {
-                        'fetch-depth': 0,
-                    },
-                },
-                {
-                    name: 'Setup pnpm',
-                    uses: 'pnpm/action-setup@v6',
-                    with: {
-                        version: this.pnpmVersion,
-                    },
-                },
-                {
-                    name: 'Setup node',
-                    uses: 'actions/setup-node@v6',
-                    with: {
-                        cache: 'pnpm',
-                        'node-version': project.minNodeVersion,
-                        'package-manager-cache': 'pnpm',
-                    },
-                },
-                {
-                    name: 'Configure npm registry',
-                    run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/\:_authToken=$NPM_TOKEN && npm config set \@pipeline-builder\:registry=https://registry.npmjs.org/',
-                },
-                {
-                    name: 'Install dependencies',
-                    run: 'pnpm install --frozen-lockfile',
-                },
-                {
-                    // On a PR, GITHUB_BASE_REF is the target branch; fall back to
-                    // origin/main for pushes/dispatch. `nx affected` builds upstream
-                    // libs (test dependsOn ^build) then runs each affected test.
-                    name: 'Run affected tests',
-                    run: 'BASE="origin/${GITHUB_BASE_REF:-main}" && git rev-parse --verify "$BASE" >/dev/null 2>&1 || BASE="origin/main" && pnpm nx affected --target test --base "$BASE" --head HEAD --verbose',
+                    name: 'Build affected projects',
+                    run: `${Workflow.DIFF_BASE}; if [ -n "$BASE" ]; then pnpm nx affected -t build --base "$BASE" --head HEAD --verbose; else pnpm nx run-many -t build --all --verbose; fi`,
                     // Run the DB-backed integration suites too. They self-skip unless
                     // this is set and use mongodb-memory-server (an ephemeral in-process
                     // mongod — no external service), so CI is the right place to run
@@ -753,8 +817,101 @@ export class Workflow extends Component {
                     // integration test needs a LIVE platform (PLATFORM_URL) and correctly
                     // stays skipped here.
                     env: {
+                        ...Workflow.DIFF_BASE_ENV,
                         RUN_MONGO_INTEGRATION: 'true',
                     },
+                },
+            ],
+        };
+    }
+
+    /**
+     * Deploy contract gate — runs when anything under deploy/ (or the contract
+     * tests themselves) changed. Nx does not see deploy/ as part of any
+     * project's build unless a project declares it as an input, so a manifest-
+     * only change would otherwise merge with none of its drift guards run:
+     * the network-policy/mesh contracts, env contract, rule tests, rendered
+     * kustomizations, compose config and shellcheck.
+     *
+     * @returns Job configuration object
+     */
+    private createDeployContractsJob() {
+        const changed = "steps.changes.outputs.deploy == 'true'";
+        return {
+            name: 'deploy contracts',
+            runsOn: ['ubuntu-latest'],
+            permissions: {
+                contents: JobPermission.READ,
+                packages: JobPermission.READ,
+            },
+            steps: [
+                ...this.ciSetupSteps(),
+                {
+                    id: 'changes',
+                    name: 'Detect deploy changes',
+                    run: `${Workflow.DIFF_BASE}; if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- deploy/ platform/test/deploy-*.test.ts .github/workflows/; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi`,
+                    env: Workflow.DIFF_BASE_ENV,
+                },
+                {
+                    name: 'Deploy contract tests',
+                    if: changed,
+                    run: 'cd platform && NODE_OPTIONS=--experimental-vm-modules npx jest --coverage=false --ci test/deploy-',
+                },
+                {
+                    name: 'Render every k8s target',
+                    if: changed,
+                    run: 'for t in deploy/local/minikube deploy/aws/ec2 deploy/aws/eks; do echo "kustomize $t"; kubectl kustomize "$t/k8s" > /dev/null; done',
+                },
+                {
+                    name: 'Validate docker-compose',
+                    if: changed,
+                    run: 'cp deploy/local/docker/.env.example "$RUNNER_TEMP/pb.env" && docker compose --env-file "$RUNNER_TEMP/pb.env" -f deploy/local/docker/docker-compose.yml config -q',
+                },
+                {
+                    name: 'Shellcheck deploy scripts',
+                    if: changed,
+                    run: "find deploy -name '*.sh' -type f -print0 | xargs -0 shellcheck -x -S error",
+                },
+            ],
+        };
+    }
+
+    /**
+     * Dockerfile smoke build — runs when a service Dockerfile changed. The
+     * release is the only other place these are built, and it runs on demand,
+     * so a broken FROM digest, a bad checksum pin or a typo would otherwise
+     * surface mid-release. The build context is stubbed (an empty
+     * `.docker-build` bundle / Next standalone tree): this proves the Dockerfile
+     * and everything it fetches, not the app — `build` above proves the app.
+     *
+     * @returns Job configuration object
+     */
+    private createDockerSmokeJob() {
+        return {
+            name: 'dockerfile smoke build',
+            runsOn: ['ubuntu-latest'],
+            permissions: {
+                contents: JobPermission.READ,
+            },
+            steps: [
+                {
+                    name: 'Checkout repository',
+                    uses: ACTIONS.checkout,
+                    with: {
+                        'fetch-depth': 0,
+                    },
+                },
+                {
+                    name: 'Smoke-build changed Dockerfiles',
+                    run: [
+                        'set -euo pipefail',
+                        Workflow.DIFF_BASE,
+                        // Service + CodeBuild Dockerfiles; plugin images have their own pipeline.
+                        'if [ -n "$BASE" ]; then FILES=$(git diff --name-only "$BASE" HEAD | grep -E \'(^|/)Dockerfile$\' | grep -v \'^deploy/plugins/\' || true); else FILES=$(git ls-files | grep -E \'(^|/)Dockerfile$\' | grep -v \'^deploy/plugins/\'); fi',
+                        'if [ -z "$FILES" ]; then echo "No service Dockerfile changed."; exit 0; fi',
+                        'for f in $FILES; do [ -f "$f" ] || continue; d=$(dirname "$f"); echo "::group::docker build $f"; mkdir -p "$d/.docker-build/node_modules" "$d/.docker-build/lib" "$d/.next/standalone" "$d/.next/static" "$d/public"; [ -f "$d/.docker-build/package.json" ] || echo \'{}\' > "$d/.docker-build/package.json"; docker buildx build --platform linux/amd64 -f "$f" "$d"; echo "::endgroup::"; done',
+                    ].join('; '),
+                    env: Workflow.DIFF_BASE_ENV,
                 },
             ],
         };
@@ -764,18 +921,21 @@ export class Workflow extends Component {
      * Creates common bootstrap steps used across all jobs.
      *
      * These steps set up the environment for every job:
-     * 1. **Clear cache**: Removes old GitHub Actions cache entries
-     * 2. **Checkout**: Clones repository with full git history (for Nx affected)
-     * 3. **Setup PNPM**: Installs specified PNPM version
-     * 4. **Setup Node.js**: Configures Node.js with PNPM caching
-     * 5. **Configure .npmrc**: Sets up authentication for private packages
-     * 6. **Install deps**: Runs `pnpm install` with lockfile updates allowed
-     * 7. **Set git user**: Configures git for version commits
-     * 8. **Prune tags**: Deletes git tags older than 30 days
+     * 1. **Checkout**: Clones repository with full git history (for Nx affected)
+     * 2. **Setup PNPM**: Installs specified PNPM version
+     * 3. **Setup Node.js**: Configures Node.js with PNPM caching
+     * 4. **Configure .npmrc**: Sets up authentication for private packages
+     * 5. **Install deps**: `pnpm install --frozen-lockfile` — a release builds
+     *    exactly the dependency set the lockfile pins, or fails
+     * 6. **Set git user**: Configures git for version commits
+     * 7. **Prune tags**: Deletes git tags older than 15 days
      *
      * Cache Strategy:
-     * - Clears all caches at the start to ensure fresh builds
-     * - Uses PNPM content-addressable store for dependency caching
+     * - Uses the PNPM content-addressable store (setup-node cache). There is no
+     *   "Clear cache" step any more: it deleted EVERY Actions cache in the repo
+     *   (including the GHA-backed buildx layer cache docker:publish relies on) at
+     *   the start of every job, so each release ran cold, and it needed a write
+     *   token for no build reason.
      *
      * Authentication:
      * - Uses GHRC_TOKEN secret for GitHub package registry
@@ -797,25 +957,8 @@ export class Workflow extends Component {
                 run: 'echo NX_TELEMETRY_DISABLED=1 >> $GITHUB_ENV && echo NX_DAEMON=false >> $GITHUB_ENV',
             },
             {
-                name: 'Clear cache',
-                uses: 'actions/github-script@v9',
-                with: {
-                    'github-token': '${{ secrets.GHRC_TOKEN }}',
-                    script: `
-                        const caches = await github.rest.actions.getActionsCacheList({repo: context.repo.repo,owner: context.repo.owner})
-                        for (const cache of caches.data.actions_caches) {
-                        try {
-                            await github.rest.actions.deleteActionsCacheById({repo: context.repo.repo,owner: context.repo.owner,cache_id: cache.id})
-                            console.log('Successfully deleted cache with ID: ',cache.id);
-                        } catch (error) {
-                            console.log('Error deleting cache with ID: ',cache.id, error);
-                        }
-                    }`,
-                },
-            },
-            {
                 name: 'Checkout repository',
-                uses: 'actions/checkout@v6',
+                uses: ACTIONS.checkout,
                 with: {
                     ref: 'main',
                     'fetch-depth': 0,
@@ -823,14 +966,14 @@ export class Workflow extends Component {
             },
             {
                 name: 'Setup pnpm',
-                uses: 'pnpm/action-setup@v6',
+                uses: ACTIONS.setupPnpm,
                 with: {
                     version: this.pnpmVersion,
                 },
             },
             {
                 name: 'Setup node',
-                uses: 'actions/setup-node@v6',
+                uses: ACTIONS.setupNode,
                 with: {
                     cache: 'pnpm',
                     'node-version': project.minNodeVersion,
@@ -842,8 +985,12 @@ export class Workflow extends Component {
                 run: 'export NPM_TOKEN=$(echo ${{ secrets.NPM_TOKEN_ENCODED }} | base64 -d) && npm config set //registry.npmjs.org/\:_authToken=$NPM_TOKEN && npm config set \@pipeline-builder\:registry=https://registry.npmjs.org/',
             },
             {
+                // Frozen: the release must build exactly what pnpm-lock.yaml pins.
+                // `--no-frozen-lockfile` let CI silently resolve a DIFFERENT
+                // dependency set than the one reviewed (and supply-chain-screened
+                // by minimumReleaseAge) and then publish it.
                 name: 'Install dependencies',
-                run: 'pnpm install --no-frozen-lockfile',
+                run: 'pnpm install --frozen-lockfile',
             },
             {
                 name: 'Set git user',

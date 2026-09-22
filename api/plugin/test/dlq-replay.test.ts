@@ -12,36 +12,38 @@
  * - Successful replay returns the new job id and removes the DLQ entry.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const dlqGetJob = jest.fn();
-const dlqAdd = jest.fn();
-const queueAdd = jest.fn();
-const replayHelper = jest.fn();
+const dlqGetJob = jest.fn<AnyFn>();
+const dlqAdd = jest.fn<AnyFn>();
+const queueAdd = jest.fn<AnyFn>();
+const replayHelper = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // route uses getAllTierQueues; expose one entry for the single-tier
   // assertions to remain valid.
-  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: jest.fn(), getJobCounts: jest.fn() } }],
-  getDeadLetterQueue: () => ({ getJob: dlqGetJob, add: dlqAdd, getJobs: jest.fn(), getJobCounts: jest.fn() }),
-  findFailedJob: jest.fn(),
+  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() } }],
+  getDeadLetterQueue: () => ({ getJob: dlqGetJob, add: dlqAdd, getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() }),
+  findFailedJob: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
-  purgeDlq: jest.fn(),
+  purgeDlq: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/requeue.js', () => ({
   // replayDlqJob now takes (jobId, quotaService); the test only cares about the id.
   replayDlqJob: (id: string, _qs: unknown) => replayHelper(id),
-  retryFailedJob: jest.fn(),
+  retryFailedJob: jest.fn<AnyFn>(),
 }));
 
 // Quota service stub  required by createQueueStatusRoutes since.
-const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
+const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('developer') } as any;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
-  isSystemAdmin: jest.fn(),
+  isSystemAdmin: jest.fn<AnyFn>(),
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
     return isNaN(n) ? def: n;
@@ -58,9 +60,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (h: Function) => async (req: any, res: any) => {
-    await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
+    await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: 'u-1' });
   },
 }));
 
@@ -93,8 +95,8 @@ async function runReplayStack(req: any, res: any) {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, json };
 }
 
@@ -109,7 +111,7 @@ describe('POST /dlq/:jobId/replay', () => {
   // rejected with 403 before the handler runs; a custom (non-admin) role that
   // holds plugins:write is allowed through.
   it('rejects a caller without plugins:write with 403', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     const { res, json } = makeRes();
     await runReplayStack({
       __orgId: 'org-a',
@@ -121,7 +123,7 @@ describe('POST /dlq/:jobId/replay', () => {
   });
 
   it('allows a non-admin caller holding plugins:write to replay', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
     const { res, json } = makeRes();
     await runReplayStack({
@@ -134,7 +136,7 @@ describe('POST /dlq/:jobId/replay', () => {
   });
 
   it('returns 404 when DLQ job does not exist', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     dlqGetJob.mockResolvedValue(undefined);
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -147,7 +149,7 @@ describe('POST /dlq/:jobId/replay', () => {
   });
 
   it('system admin can replay a job from a different org', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-x', pluginRecord: { name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -163,7 +165,7 @@ describe('POST /dlq/:jobId/replay', () => {
   });
 
   it('org admin can replay their own org’s job', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -177,7 +179,7 @@ describe('POST /dlq/:jobId/replay', () => {
   });
 
   it('org admin CANNOT replay a job from a different org (tenant isolation)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-other', pluginRecord: { name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -191,7 +193,7 @@ describe('POST /dlq/:jobId/replay', () => {
   });
 
   it('falls back to pluginRecord.orgId for older jobs without top-level orgId', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-old', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -204,7 +206,7 @@ describe('POST /dlq/:jobId/replay', () => {
   });
 
   it('rejects when both orgId fields are missing for non-system admin', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-orphan', data: {} });
     const handler = getReplayHandler();
     const { res, json } = makeRes();

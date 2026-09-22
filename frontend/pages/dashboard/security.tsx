@@ -30,7 +30,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import { useUrlTab } from '@/hooks/useUrlTab';
-import { LoadingPage } from '@/components/ui/Loading';
+import { LoadingPage , LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { TabBar } from '@/components/ui/TabBar';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -45,7 +45,6 @@ import { DescriptionList, type DescriptionItem } from '@/components/ui/Descripti
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Input } from '@/components/ui/Input';
-import { LoadingSpinner } from '@/components/ui/Loading';
 import { RetryError } from '@/components/ui/RetryError';
 import { Select } from '@/components/ui/Select';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
@@ -116,7 +115,11 @@ export default function SecurityPage() {
 
         {activeTab === 'factors' && (
           <div className="space-y-6">
-            <Anchor id="password"><PasswordSection readOnly={isReadOnly} /></Anchor>
+            {/* An account that signs in only through Google/GitHub/SSO has no
+                password to change — the form could only fail. */}
+            {user.authFactors?.hasPassword !== false && (
+              <Anchor id="password"><PasswordSection readOnly={isReadOnly} /></Anchor>
+            )}
             <Anchor id="passkeys"><PasskeySection readOnly={isReadOnly} /></Anchor>
             <Anchor id="totp"><TotpSection readOnly={isReadOnly} /></Anchor>
             {/* Only rendered while a "not now" / "don't ask again" is actually
@@ -174,6 +177,14 @@ function PasswordSection({ readOnly }: { readOnly: boolean }) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [confirming, setConfirming] = useState(false);
   const form = useFormState();
+  // The minimum that actually applies — the strictest across the person's
+  // orgs, not the platform floor the form used to advertise (a 14-character
+  // org policy then failed every 8-character attempt only after the step-up).
+  const policy = useFetch<number>(
+    async (signal) => (await api.getOwnPasswordPolicy({ signal })).data?.minLength ?? PLATFORM_MIN_PASSWORD,
+    [],
+  );
+  const minLength = policy.data ?? PLATFORM_MIN_PASSWORD;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,8 +192,8 @@ function PasswordSection({ readOnly }: { readOnly: boolean }) {
       form.setError('New passwords do not match');
       return;
     }
-    if (newPassword.length < 8) {
-      form.setError('New password must be at least 8 characters');
+    if (newPassword.length < minLength) {
+      form.setError(`New password must be at least ${minLength} characters`);
       return;
     }
     setConfirming(true);
@@ -217,7 +228,7 @@ function PasswordSection({ readOnly }: { readOnly: boolean }) {
         <FormField label="Current password">
           <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={form.loading || readOnly} />
         </FormField>
-        <FormField label="New password" hint="At least 8 characters.">
+        <FormField label="New password" hint={`At least ${minLength} characters.`}>
           <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={form.loading || readOnly} />
         </FormField>
         <FormField label="Confirm new password">
@@ -238,6 +249,9 @@ function PasswordSection({ readOnly }: { readOnly: boolean }) {
   );
 }
 
+/** The platform's own floor, used until (or if) the effective policy loads. */
+const PLATFORM_MIN_PASSWORD = 8;
+
 /** Lifetime presets for a machine token, in days (the API caps it at 365). */
 const TOKEN_LIFETIME_DAYS = [1, 7, 30, 90, 180, MAX_CREDENTIAL_DAYS] as const;
 const DEFAULT_TOKEN_DAYS = 30;
@@ -256,7 +270,7 @@ const DEFAULT_TOKEN_DAYS = 30;
 function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: readonly string[] }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState<{ value: string; expiresIn: number; scope: string; permissions?: string[] } | null>(null);
+  const [token, setToken] = useState<{ value: string; lifetimeSeconds: number; scope: string; permissions?: string[] } | null>(null);
   const [days, setDays] = useState<number>(DEFAULT_TOKEN_DAYS);
   const [scope, setScope] = useState('');
   const [permMode, setPermMode] = useState<PermissionMode>('selected');
@@ -278,8 +292,10 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
         ...(scope ? { scope } : {}),
         ...(permissions ? { permissions } : {}),
       });
-      if (!res.success || !res.data?.accessToken) throw new Error('Failed to generate token');
-      setToken({ value: res.data.accessToken, expiresIn: res.data.expiresIn, scope, ...(permissions ? { permissions } : {}) });
+      if (!res.success || !res.data?.refreshToken) throw new Error('Failed to generate token');
+      // The REFRESH token is the stored credential: it renews the short-lived
+      // access token (POST /auth/refresh) until the credential's lifetime ends.
+      setToken({ value: res.data.refreshToken, lifetimeSeconds: days * 86400, scope, ...(permissions ? { permissions } : {}) });
       // A new issuance belongs in the history list below.
       window.dispatchEvent(new Event(TOKEN_ISSUED_EVENT));
     } catch (err) {
@@ -293,7 +309,7 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
     <SectionCard
       icon={KeyRound}
       title="Generate machine token"
-      description="Mint a long-lived token for CLI or API access. It gets its own machine session — your browser session is untouched — and is listed under Sessions, where you can stop it renewing."
+      description="Mint a long-lived token for CLI or API access. It gets its own machine session — your browser session is untouched — and is listed under Sessions, where revoking it stops it immediately."
     >
       <ErrorAlert message={error} />
 
@@ -343,16 +359,17 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
       {token && (
         <>
           <p className="mt-4 text-sm text-fg-muted">
-            Valid for {Math.round(token.expiresIn / 86400)} day{Math.round(token.expiresIn / 86400) === 1 ? '' : 's'}
+            Valid for {Math.round(token.lifetimeSeconds / 86400)} day{Math.round(token.lifetimeSeconds / 86400) === 1 ? '' : 's'}
             {token.scope
               ? <> · scoped to <code className="text-xs">{token.scope}</code></>
               : token.permissions
                 ? ` · ${token.permissions.length} selected permission${token.permissions.length === 1 ? '' : 's'}`
                 : ' · full permissions'}.
+            {' '}Store this refresh token: exchange it at <code className="text-xs">POST /api/auth/refresh</code> (header <code className="text-xs">X-Pb-Client: cli</code>) for a short-lived access token, keeping the rotated refresh token each time.
           </p>
           <SecretReveal
             value={token.value}
-            label="Machine token"
+            label="Machine refresh token"
             filename="pipeline-builder-machine-token.txt"
             onDone={() => setToken(null)}
             className="mt-2"

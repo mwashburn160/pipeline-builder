@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Select } from '@/components/ui/Select';
@@ -21,6 +21,7 @@ interface ChangeTierDialogProps {
  * tier change reseeds quota limits / affects billing).
  */
 export function ChangeTierDialog({ org, onClose, onSelect }: ChangeTierDialogProps) {
+  const uid = useId();
   const current = org.tier ?? 'developer';
   const [newTier, setNewTier] = useState<QuotaTier>(current);
   // `unlimited` is the tier every org is on when billing is disabled, and it is
@@ -53,8 +54,8 @@ export function ChangeTierDialog({ org, onClose, onSelect }: ChangeTierDialogPro
         You’ll be asked to re-verify before the change is applied.
       </p>
       <div className="space-y-1">
-        <label className="block text-xs font-medium text-fg-muted">Tier</label>
-        <Select
+        <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-tier`}>Tier</label>
+        <Select id={`${uid}-tier`}
           value={newTier}
           onChange={(e) => setNewTier(e.target.value as QuotaTier)}
           className="text-sm"

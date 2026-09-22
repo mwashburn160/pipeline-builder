@@ -230,25 +230,14 @@ spec:
 # Nothing in the pod's own logs explains it, because a container stuck in
 # postStart has no readable logs.
 #
-# PORTS-ONLY, deliberately: no `to:` ipBlock. The obvious spelling —
-# ipBlock 0.0.0.0/0 with `except: 169.254.0.0/16, 192.168.0.0/16,
-# 100.64.0.0/10`, copied from allow-plugin-external-egress — BREAKS this pod
-# under Istio ambient. Ambient redirects a pod's outbound traffic to the
-# node-local ztunnel over a LINK-LOCAL address (169.254.x), so excepting
-# 169.254.0.0/16 severs the data path: the TCP connect still succeeds (the
-# kernel completes the handshake) but no application bytes ever flow, and a
-# TLS ClientHello just times out —
-#   openssl: CONNECTED ... no peer certificate available, Cipher is (NONE)
-#   ollama:  net/http: TLS handshake timeout
-# which looks like a firewall on the far end rather than a local policy.
-# Verified empirically on a live cluster by swapping one form for the other:
-# with the ipBlock/except spelling the handshake never completes; with this
-# ports-only rule the same pod negotiates TLSv1.3 immediately. Note the carve-out
-# wins even though allow-kube-api-egress separately grants every pod an
-# unrestricted :443 rule — so treat an `except:` here as a DENY that overrides
-# other policies' allows, not merely as a narrowing of this one.
-# allow-billing-external-egress and plugin-build-isolation use this same
-# ports-only form.
+# SHAPE: the shared public-egress ipBlock (see EGRESS SHAPE in networkpolicy.yaml).
+# This rule used to be ports-only because excepting the WHOLE 169.254.0.0/16
+# range here severed ollama's TLS under Istio ambient (the handshake completed,
+# then no bytes flowed: "net/http: TLS handshake timeout") — ambient's node-side
+# plumbing uses link-local addresses. The shared shape excepts only the
+# credential addresses (169.254.169.254/32, 169.254.170.0/24), which ambient
+# never uses, so it keeps the model pull working AND keeps IMDS / the VPC /
+# the LAN out of reach of the model server.
 #
 # FQDN-scoping this to registry.ollama.ai needs Cilium (see
 # cilium-network-policies.yaml); plain NetworkPolicy cannot express it.
@@ -263,7 +252,17 @@ spec:
   policyTypes:
     - Egress
   egress:
-    - ports:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
+      ports:
         - port: 443
           protocol: TCP
         - port: 80

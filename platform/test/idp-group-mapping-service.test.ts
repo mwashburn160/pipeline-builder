@@ -57,6 +57,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
   publishUserRevocation: jest.fn(async () => undefined),
   publishUsersRevocation: jest.fn(async () => undefined),
 }));

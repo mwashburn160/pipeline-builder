@@ -6,7 +6,9 @@
  * PUT /:id/thread/read), including SSE-failure resilience.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import {
   createMockSseManager,
@@ -18,10 +20,10 @@ import {
   routeApiServerMock,
 } from './helpers/route-test-utils.js';
 
-const mockMarkAsRead = jest.fn<(...args: unknown[]) => unknown>();
-const mockEditContent = jest.fn<(...args: unknown[]) => unknown>();
-const mockMarkThreadAsRead = jest.fn<(...args: unknown[]) => unknown>();
-const mockGetUnreadCount = jest.fn<(...args: unknown[]) => unknown>();
+const mockMarkAsRead = jest.fn<AnyFn>();
+const mockEditContent = jest.fn<AnyFn>();
+const mockMarkThreadAsRead = jest.fn<AnyFn>();
+const mockGetUnreadCount = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -37,7 +39,7 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
 }));
 
@@ -50,7 +52,7 @@ const updateRouter = createUpdateMessageRoutes(mockSseManager);
 describe('PATCH /messages/:id (edit content)', () => {
   const handler = getHandler(updateRouter, 'patch', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('edits a message and returns the updated row', async () => {
     const updated = { id: 'msg-1', orgId: 'org-1', recipientOrgId: '000000000000000000000001', threadId: null, content: 'fixed text', editedAt: '2026-08-16T00:00:00Z' };
@@ -86,7 +88,7 @@ describe('PATCH /messages/:id (edit content)', () => {
 describe('PUT /messages/:id/read', () => {
   const handler = getHandler(updateRouter, 'put', '/:id/read');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('marks a message as read', async () => {
     const message = { id: 'msg-1', readBy: { 'org-1': '2026-04-27T00:00:00Z' } };
@@ -143,7 +145,7 @@ describe('PUT /messages/:id/read', () => {
 describe('PUT /messages/:id/thread/read', () => {
   const handler = getHandler(updateRouter, 'put', '/:id/thread/read');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('marks entire thread as read', async () => {
     mockMarkAsRead.mockResolvedValue({ id: 'msg-1', readBy: { 'org-1': '2026-04-27T00:00:00Z' } });
@@ -195,7 +197,7 @@ describe('PUT /messages/:id/thread/read', () => {
 // SSE Notification Resilience
 
 describe('SSE notification resilience (update)', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('does not fail HTTP response if SSE send throws on mark as read', async () => {
     mockSseManager.send.mockImplementation(() => { throw new Error('SSE failure'); });

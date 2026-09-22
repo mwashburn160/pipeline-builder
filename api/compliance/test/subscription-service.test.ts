@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Result the next select(...).where(...) chain should resolve to.
@@ -40,7 +41,9 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: { invalidateRulesCache: mockInvalidate },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  // Imported (via the entitlement watermark store) by subscription-service.
+  drizzleRows: <T>(rows: T[]) => rows,
   schema: {
     complianceRule: {
       id: 'col_id', scope: 'col_scope', deletedAt: 'col_del', isActive: 'col_active',

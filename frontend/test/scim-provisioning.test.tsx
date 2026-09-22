@@ -42,8 +42,12 @@ jest.mock('@/components/ui/Toast', () => ({
 }));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ onConfirmed }: { onConfirmed: (t: string) => void }) => (
-    <button data-testid="stepup-modal" onClick={() => onConfirmed('step-up-token')}>confirm</button>
+  // Mirrors the real dialog: confirm, then close itself.
+  StepUpModal: ({ onConfirmed, onClose, action }: { onConfirmed: (t: string) => Promise<void> | void; onClose: () => void; action: string }) => (
+    <button data-testid="stepup-modal" data-action={action} onClick={async () => {
+      await onConfirmed(`token-for:${action}`);
+      onClose();
+    }}>confirm</button>
   ),
 }));
 
@@ -106,7 +110,7 @@ it('shows the base URL the API actually serves', async () => {
   expect(screen.getByLabelText('SCIM base URL')).toHaveValue('http://localhost/api/scim/v2');
 });
 
-it('creates the dedicated account on FIRST use and mints a scim-scoped key', async () => {
+it('creates the dedicated account on FIRST use and mints a scim-scoped key — each with its OWN step-up', async () => {
   createServiceAccount.mockResolvedValue({ success: true, data: { serviceAccount: account() } });
   createServiceAccountKey.mockResolvedValue({ success: true, data: { key: 'pb_sa_rawsecret', accessKey: key() } });
 
@@ -116,19 +120,29 @@ it('creates the dedicated account on FIRST use and mints a scim-scoped key', asy
 
   // Nothing is sent until the person re-confirms — a key mint is step-up gated.
   expect(createServiceAccountKey).not.toHaveBeenCalled();
-  fireEvent.click(await screen.findByTestId('stepup-modal'));
+  const first = await screen.findByTestId('stepup-modal');
+  expect(first.getAttribute('data-action')).toMatch(/service account/i);
+  fireEvent.click(first);
 
-  await waitFor(() => expect(createServiceAccountKey).toHaveBeenCalled());
+  await waitFor(() => expect(createServiceAccount).toHaveBeenCalled());
   expect(createServiceAccount).toHaveBeenCalledWith(
     'org-1',
     expect.objectContaining({ name: 'scim-provisioning', roleIds: [] }),
-    'step-up-token',
+    'token-for:Create the SCIM provisioning service account',
   );
+  // A step-up token is single-use: the key mint asks again rather than
+  // replaying the one the account creation spent (STEP_UP_REPLAY).
+  expect(createServiceAccountKey).not.toHaveBeenCalled();
+  const second = await screen.findByTestId('stepup-modal');
+  await waitFor(() => expect(second.getAttribute('data-action')).toBe('Issue a SCIM provisioning key'));
+  fireEvent.click(screen.getByTestId('stepup-modal'));
+
+  await waitFor(() => expect(createServiceAccountKey).toHaveBeenCalled());
   expect(createServiceAccountKey).toHaveBeenCalledWith(
     'org-1',
     'sa-scim',
     expect.objectContaining({ scope: 'scim', expiresIn: 365 * 86400 }),
-    'step-up-token',
+    'token-for:Issue a SCIM provisioning key',
   );
   // Shown exactly once, at creation.
   expect(await screen.findByText('pb_sa_rawsecret')).toBeInTheDocument();

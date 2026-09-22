@@ -35,7 +35,8 @@ import { createLogger, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { QuotaTier, TokenScope } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { apiKeyService, type AccessKeyView } from './api-key-service.js';
-import type { RoleAssignmentActor } from './role-authority.js';
+import { assertActorMayAssignRole, type RoleAssignmentActor } from './role-authority.js';
+import { RL_REQUIRES_SUPERADMIN } from './roles-errors.js';
 import {
   SA_INVALID_BUDGET,
   SA_INVALID_NAME,
@@ -48,6 +49,7 @@ import {
   SA_NAME_TAKEN,
   SA_NOT_FOUND,
   SA_ORG_NOT_FOUND,
+  SA_SCOPE_NOT_PERMITTED,
 } from './service-account-errors.js';
 import { clearServiceAccountRoles, serviceAccountRoles, serviceAccountRolesFor, setServiceAccountRoles } from './service-account-roles.js';
 import type { ServiceAccountRole } from './service-account-roles.js';
@@ -357,6 +359,43 @@ export async function getServiceAccount(orgId: string, id: string): Promise<Serv
 }
 
 /**
+ * The ROLE CEILING for wielding an account's EXISTING authority: minting a key
+ * for it, or re-enabling it, hands out a credential carrying every Role it
+ * holds — so the actor must be allowed to ASSIGN each of them, exactly as if
+ * granting them now (`superadmin`-granting Roles need a platform superadmin;
+ * otherwise the Role's permissions must be within the actor's). Without this a
+ * `service_accounts:manage` delegate could mint a key for an account an admin
+ * set up, and act with more than they hold.
+ */
+async function assertActorMayWieldAccount(orgId: string, accountId: string, actor: RoleAssignmentActor): Promise<void> {
+  for (const role of await serviceAccountRoles(toOrgId(orgId), accountId)) {
+    if (role.grantsRole === 'superadmin' && !actor.isSuperAdmin) throw new Error(RL_REQUIRES_SUPERADMIN);
+    assertActorMayAssignRole(role.permissions, actor);
+  }
+}
+
+/**
+ * Who may mint a key with a CAPABILITY scope. A scoped key carries none of the
+ * account's Roles, but the capability itself is authority:
+ *   - `scim` provisions and deactivates the org's members and syncs their Roles
+ *     — org admin, or a delegate holding BOTH `members:manage` and
+ *     `roles:manage`; and only for an org entitled to SSO (SCIM ships inside it);
+ *   - `registry:push` pushes plugin images — the actor must hold `plugins:write`.
+ */
+async function assertActorMayMintScope(orgId: string, scope: TokenScope | undefined, actor: RoleAssignmentActor): Promise<void> {
+  if (!scope) return;
+  const elevated = actor.isSuperAdmin || actor.isOrgAdmin;
+  const held = new Set(actor.permissions);
+  if (scope === 'scim') {
+    if (!elevated && !(held.has('members:manage') && held.has('roles:manage'))) throw new Error(SA_SCOPE_NOT_PERMITTED);
+    const { isSsoEntitled } = await import('../helpers/sso-enforcement.js');
+    if (!(await isSsoEntitled(orgId))) throw new Error(SA_SCOPE_NOT_PERMITTED);
+    return;
+  }
+  if (scope === 'registry:push' && !elevated && !held.has('plugins:write')) throw new Error(SA_SCOPE_NOT_PERMITTED);
+}
+
+/**
  * Update an account's description, budget, disabled flag and/or Role set.
  * `roleIds` REPLACES the Role set (through the ceiling); omit it to leave Roles
  * untouched. Disabling stops every exchange immediately without destroying the
@@ -378,6 +417,11 @@ export async function updateServiceAccount(
   // Roles first: if the ceiling refuses, nothing at all changed.
   if (patch.roleIds !== undefined) {
     await setServiceAccountRoles(orgId, String(existing._id), patch.roleIds, actor);
+  }
+  // RE-ENABLING puts every key back to work with the account's Roles — the same
+  // ceiling as minting a key for it.
+  if (patch.disabled === false && existing.disabled === true) {
+    await assertActorMayWieldAccount(orgId, String(existing._id), actor);
   }
   if (Object.keys(set).length > 0) {
     await ServiceAccount.updateOne({ _id: existing._id }, { $set: set });
@@ -412,6 +456,7 @@ export async function createServiceAccountKey(
   orgId: string,
   id: string,
   input: CreateServiceAccountKeyInput,
+  actor: RoleAssignmentActor,
 ): Promise<{ key: string; view: AccessKeyView }> {
   const account = await requireAccount(orgId, id);
   const expiresInSeconds = input.expiresInSeconds ?? DEFAULT_KEY_EXPIRES_IN_SECONDS;
@@ -424,6 +469,10 @@ export async function createServiceAccountKey(
   if (active >= MAX_ACTIVE_KEYS_PER_ACCOUNT) throw new Error(SA_KEY_LIMIT);
 
   if (input.scope !== undefined && !TOKEN_SCOPES.includes(input.scope)) throw new Error(SA_INVALID_SCOPE);
+  // Nobody mints a credential more powerful than themselves: the account's
+  // Roles through the assignment ceiling, and the capability scope's own rule.
+  await assertActorMayWieldAccount(orgId, String(account._id), actor);
+  await assertActorMayMintScope(orgId, input.scope, actor);
 
   return apiKeyService.createForServiceAccount({
     serviceAccountId: account._id as Types.ObjectId,

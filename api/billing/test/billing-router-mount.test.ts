@@ -72,7 +72,7 @@ beforeAll(async () => {
     const mod = await import(path) as Record<string, () => import('express').Router>;
     app.use('/billing', mod[name]());
   }
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 

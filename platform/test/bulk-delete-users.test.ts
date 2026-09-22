@@ -11,17 +11,18 @@
  * failures must surface item-by-item.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockDeleteUserById = jest.fn();
-const mockLookupPrimaryOrgId = jest.fn();
-const mockAudit = jest.fn();
+const mockDeleteUserById = jest.fn<AnyFn>();
+const mockLookupPrimaryOrgId = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
-  resolveUserFeatures: jest.fn(),
+  resolveUserFeatures: jest.fn<AnyFn>(),
   resolveUserPermissions: jest.fn(() => []),
   isValidFeatureFlag: () => true,
   // `validateBulkArray` is the shared guard used by all bulk endpoints.
@@ -49,7 +50,7 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
@@ -62,7 +63,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   UserPreferences: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
-  Organization: { findById: jest.fn() },
+  Organization: { findById: jest.fn<AnyFn>() },
   // Linking stub only — the barrel's `User` is pulled in transitively by the
   // profile helpers the user-admin controller imports.
   User: {},
@@ -71,18 +72,20 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 // user-admin transitively imports utils/token via user-profile; mock so we
 // don't pull in the real JWT signing path (which would demand env vars).
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   findRefreshSession: jest.fn(async () => undefined),
-  signApiKeyToken: jest.fn(),
-  signServiceAccountToken: jest.fn(),
+  signApiKeyToken: jest.fn<AnyFn>(),
+  signServiceAccountToken: jest.fn<AnyFn>(),
   membershipForOrg: jest.fn(async () => undefined),
-  issueTokens: jest.fn(),
-  renewSessionTokens: jest.fn(),
+  issueTokens: jest.fn<AnyFn>(),
+  renewSessionTokens: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
-  validateBody: jest.fn(),
+  validateBody: jest.fn<AnyFn>(),
   updateProfileSchema: {},
   changePasswordSchema: {},
   adminUpdateUserSchema: {},
@@ -103,6 +106,16 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
+
+// A user's SAML SLO sessions go with the user (user-cascade imports the model directly).
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({ default: { deleteMany: async () => ({ deletedCount: 0 }) } }));
+// The password-policy helper reads platform config at import (user-profile imports it).
+jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
+  PASSWORD_MAX_LENGTH: 128,
+  passwordPolicyForPerson: async () => ({ minLength: 8 }),
+  assertNewPasswordAcceptable: async () => undefined,
+  passwordShortfall: async () => null,
+}));
 
 const { bulkDeleteUsers, deleteUserById } = await import('../src/controllers/user-admin.js');
 
@@ -187,7 +200,7 @@ describe('bulkDeleteUsers', () => {
     );
 
     expect(res.status).toHaveBeenCalledWith(200);
-    const payload = (res.json as jest.Mock).mock.calls[0][0].data;
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
     expect(payload.summary).toEqual({ requested: 2, deleted: 1, failed: 1 });
     expect(payload.results[0]).toEqual({ id: 'me', ok: false, error: 'Cannot delete your own account' });
     expect(payload.results[1]).toEqual({ id: 'someone-else', ok: true, affectedOrgId: 'org-1' });
@@ -225,7 +238,7 @@ describe('bulkDeleteUsers', () => {
       res,
     );
 
-    const payload = (res.json as jest.Mock).mock.calls[0][0].data;
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
     expect(payload.summary).toEqual({ requested: 2, deleted: 1, failed: 1 });
     expect(payload.results[1].ok).toBe(false);
     expect(payload.results[1].error).toMatch(/owner/i);
@@ -241,7 +254,7 @@ describe('bulkDeleteUsers', () => {
       res,
     );
 
-    const payload = (res.json as jest.Mock).mock.calls[0][0].data;
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
     expect(payload.results[0].error).toBe('mongo timeout');
   });
 });

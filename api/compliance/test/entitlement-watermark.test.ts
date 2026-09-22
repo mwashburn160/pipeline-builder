@@ -12,10 +12,11 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const syncEntitledSetsMock = jest.fn<(...a: unknown[]) => Promise<{ activated: string[]; deactivated: string[] }>>(
-  async () => ({ activated: [], deactivated: [] }),
+const syncEntitledSetsMock = jest.fn<(...a: unknown[]) => Promise<{ skipped: boolean; activated: string[]; deactivated: string[] }>>(
+  async () => ({ skipped: false, activated: [], deactivated: [] }),
 );
 const getActiveEntitledSetsMock = jest.fn<(orgId: string) => Promise<string[]>>(async () => []);
 const getLastOccurredAtMock = jest.fn<(orgId: string) => Promise<Date | null>>(async () => null);
@@ -43,7 +44,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: '', userId: req.user?.sub });
@@ -114,46 +115,29 @@ describe('PUT /:orgId — occurredAt watermark (#6)', () => {
     return handler({ params: { orgId: 'org-a' }, body, user } as any, res).then(() => ({ status, json }));
   }
 
-  it('applies a first push (no prior watermark) and records occurredAt', async () => {
-    getLastOccurredAtMock.mockResolvedValue(null);
+  it('hands occurredAt to the service, which checks + applies + records it in ONE locked tx', async () => {
     const { status } = await put({ sets: ['standard'], occurredAt: T2 });
     expect(status).toHaveBeenCalledWith(200);
-    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard'], 'service:billing');
-    expect(recordMock).toHaveBeenCalledWith('org-a', new Date(T2));
+    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard'], 'service:billing', { occurredAt: new Date(T2) });
+    // The route itself never touches the watermark any more (no split check/record).
+    expect(getLastOccurredAtMock).not.toHaveBeenCalled();
+    expect(recordMock).not.toHaveBeenCalled();
   });
 
-  it('SKIPS a stale push (occurredAt <= watermark) and never reconciles', async () => {
-    getLastOccurredAtMock.mockResolvedValue(new Date(T2));
+  it('relays a stale skip as { ok, skipped } with NO audit', async () => {
+    syncEntitledSetsMock.mockResolvedValueOnce({ skipped: true, activated: [], deactivated: [] } as never);
     const { status, json } = await put({ sets: ['advanced'], occurredAt: T1 });
     expect(status).toHaveBeenCalledWith(200);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ ok: true, skipped: true }),
     }));
-    expect(syncEntitledSetsMock).not.toHaveBeenCalled();
-    expect(recordMock).not.toHaveBeenCalled();
+    expect(emitComplianceAuditMock).not.toHaveBeenCalled();
   });
 
-  it('SKIPS an equal-timestamp push (idempotent replay)', async () => {
-    getLastOccurredAtMock.mockResolvedValue(new Date(T2));
-    const { json } = await put({ sets: ['standard'], occurredAt: T2 });
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ skipped: true }) }));
-    expect(syncEntitledSetsMock).not.toHaveBeenCalled();
-  });
-
-  it('applies a newer push over an older watermark', async () => {
-    getLastOccurredAtMock.mockResolvedValue(new Date(T1));
-    const { status } = await put({ sets: ['standard', 'advanced'], occurredAt: T2 });
-    expect(status).toHaveBeenCalledWith(200);
-    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard', 'advanced'], 'service:billing');
-    expect(recordMock).toHaveBeenCalledWith('org-a', new Date(T2));
-  });
-
-  it('applies a push with NO occurredAt without touching the watermark', async () => {
+  it('applies a push with NO occurredAt (no watermark option)', async () => {
     const { status } = await put({ sets: ['standard'] });
     expect(status).toHaveBeenCalledWith(200);
-    expect(getLastOccurredAtMock).not.toHaveBeenCalled();
-    expect(recordMock).not.toHaveBeenCalled();
-    expect(syncEntitledSetsMock).toHaveBeenCalled();
+    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard'], 'service:billing', {});
   });
 });
 

@@ -59,7 +59,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
   }, [toast]);
 
   useEffect(() => {
-    fetchSchedules();
+    void fetchSchedules();
     return () => { genRef.current++; };
   }, [fetchSchedules]);
 
@@ -93,7 +93,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
         toast.success('Schedule created');
       }
       closeForm();
-      fetchSchedules();
+      void fetchSchedules();
     } catch (err) {
       toast.error(formatError(err, `Failed to ${editingId ? 'update' : 'create'} schedule`));
     }
@@ -104,7 +104,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     setTogglingId(schedule.id);
     try {
       await api.toggleScanScheduleActive(schedule.id, !schedule.isActive);
-      fetchSchedules();
+      void fetchSchedules();
     } catch (err) {
       toast.error(formatError(err, 'Failed to toggle schedule'));
     }
@@ -117,7 +117,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     try {
       await api.deleteScanSchedule(schedule.id);
       toast.success('Schedule deleted');
-      fetchSchedules();
+      void fetchSchedules();
     } catch (err) {
       toast.error(formatError(err, 'Failed to delete schedule'));
     }

@@ -1,4 +1,4 @@
-import { useState, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { useState, useImperativeHandle, forwardRef, useCallback, useId } from 'react';
 import { Sparkles, ChevronDown, Plug } from 'lucide-react';
 import { BuilderProps, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -112,6 +112,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
  */
 const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProps>(
   ({ disabled }, ref) => {
+    const uid = useId();
     const [prompt, setPrompt] = useState('');
     const [generatedProps, setGeneratedProps] = useState<BuilderProps | null>(null);
     const [stageCount, setStageCount] = useState(0);
@@ -223,8 +224,9 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
 
         {/* Prompt Input */}
         <div>
-          <label className="label">Describe your pipeline</label>
+          <label className="label" htmlFor={`${uid}-describe-your-pipeline`}>Describe your pipeline</label>
           <Textarea
+            id={`${uid}-describe-your-pipeline`}
             value={prompt}
             onChange={(e) => { setPrompt(e.target.value); setError(null); }}
             placeholder={'Example: "A CI/CD pipeline for a Node.js API: install deps, run unit tests, build a Docker image, then deploy to staging on the main branch."'}
@@ -317,7 +319,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
         {previewJson && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="label">Generated configuration</label>
+              <span className="label" id={`${uid}-generated-config`}>Generated configuration</span>
               {generating ? (
                 <span className="text-xs text-brand font-medium flex items-center gap-1">
                   <LoadingSpinner size="sm" /> Streaming...
@@ -328,7 +330,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
                 </span>
               )}
             </div>
-            <pre className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
+            <pre aria-labelledby={`${uid}-generated-config`} className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
               {previewJson}
             </pre>
             <p className="mt-2 text-xs text-fg-muted">

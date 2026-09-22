@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { drizzleRows, runWithTenantContext, withTenantTx } from '@pipeline-builder/pipeline-data';
+import { drizzleRows, type withTenantTx } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 
 const logger = createLogger('entitlement-watermark');
+
+/** A `withTenantTx` transaction handle (kept local to avoid a service import cycle). */
+type SubscriptionTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 
 /**
  * Per-org "last applied entitlement change" watermark for the billing →
@@ -23,9 +26,9 @@ const logger = createLogger('entitlement-watermark');
  * metadata) and reachable from this service alone. The table is owned by the
  * schema bootstrap (`postgres-init.sql`), NOT created here: services connect as
  * a non-superuser app role with no DDL rights on `public`, so a runtime
- * `CREATE TABLE IF NOT EXISTS` fails with "permission denied for schema public". All access runs under a sysadmin tenant scope because the
- * entitlement-sync route has no org context (`:orgId` is the target root org,
- * not the token's org).
+ * `CREATE TABLE IF NOT EXISTS` fails with "permission denied for schema public". Both methods run on the CALLER's transaction: the entitlement
+ * reconcile (`subscriptionService.syncEntitledSets`) holds a per-org advisory
+ * lock in a sysadmin-scoped tx and does check → apply → record inside it.
  */
 
 /** Row shape returned by the raw watermark SELECT. */
@@ -36,38 +39,32 @@ interface WatermarkRow {
 export class EntitlementWatermarkStore {
   /**
    * The last-applied `occurredAt` for an org, or `null` if none recorded yet
-   * (first push, or an org that has never synced).
+   * (first push, or an org that has never synced). Runs on the caller's
+   * transaction — the entitlement reconcile's sysadmin-scoped, advisory-locked tx
+   * — so the check and the later {@link record} commit atomically with the apply.
    */
-  async getLastOccurredAt(orgId: string): Promise<Date | null> {
-    return runWithTenantContext({ isSuperAdmin: true }, () =>
-      withTenantTx(async (tx) => {
-        const rows = drizzleRows<WatermarkRow>((await tx.execute(sql`
-          SELECT last_occurred_at
-          FROM compliance_entitlement_watermark
-          WHERE org_id = ${orgId}
-        `)).rows);
-        const raw = rows[0]?.last_occurred_at;
-        return raw ? new Date(raw) : null;
-      }));
+  async getLastOccurredAt(tx: SubscriptionTx, orgId: string): Promise<Date | null> {
+    const rows = drizzleRows<WatermarkRow>((await tx.execute(sql`
+      SELECT last_occurred_at
+      FROM compliance_entitlement_watermark
+      WHERE org_id = ${orgId}
+    `)).rows);
+    const raw = rows[0]?.last_occurred_at;
+    return raw ? new Date(raw) : null;
   }
 
   /**
    * Record `occurredAt` as the org's watermark, but only if it is strictly
-   * newer than what is stored (a monotonic "keep the max"). Safe to call after
-   * a successful reconcile even under a concurrent newer push — the conditional
-   * `ON CONFLICT ... WHERE` never regresses the watermark.
+   * newer than what is stored (a monotonic "keep the max"), on the caller's tx.
    */
-  async record(orgId: string, occurredAt: Date): Promise<void> {
-    await runWithTenantContext({ isSuperAdmin: true }, () =>
-      withTenantTx(async (tx) => {
-        await tx.execute(sql`
-          INSERT INTO compliance_entitlement_watermark (org_id, last_occurred_at)
-          VALUES (${orgId}, ${occurredAt.toISOString()})
-          ON CONFLICT (org_id) DO UPDATE
-            SET last_occurred_at = EXCLUDED.last_occurred_at
-            WHERE compliance_entitlement_watermark.last_occurred_at < EXCLUDED.last_occurred_at
-        `);
-      }));
+  async record(tx: SubscriptionTx, orgId: string, occurredAt: Date): Promise<void> {
+    await tx.execute(sql`
+      INSERT INTO compliance_entitlement_watermark (org_id, last_occurred_at)
+      VALUES (${orgId}, ${occurredAt.toISOString()})
+      ON CONFLICT (org_id) DO UPDATE
+        SET last_occurred_at = EXCLUDED.last_occurred_at
+        WHERE compliance_entitlement_watermark.last_occurred_at < EXCLUDED.last_occurred_at
+    `);
     logger.debug('Recorded entitlement watermark', { orgId, occurredAt: occurredAt.toISOString() });
   }
 }

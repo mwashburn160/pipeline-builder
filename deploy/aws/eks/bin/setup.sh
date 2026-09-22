@@ -126,7 +126,23 @@ aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$REGION"
 #
 # Idempotent: re-applying an unchanged NodePool is a no-op, and a changed one is
 # picked up by Karpenter without recreating nodes (unless the change drifts them).
-log "Phase 1b: NodePool (compute ceiling)"
+log "Phase 1b: NodeClass (NetworkPolicy enforcement) + NodePool (compute ceiling)"
+# NetworkPolicy is NOT enforced on EKS Auto Mode until (1) the VPC CNI's
+# network-policy controller is switched on through this ConfigMap and (2) the
+# nodes' NodeClass sets `networkPolicy`. Without both, every policy in
+# k8s/networkpolicy.yaml is accepted and then silently ignored — default-deny,
+# the quarantine builder's narrow egress and the IMDS carve-outs included.
+kubectl create configmap amazon-vpc-cni -n kube-system \
+  --from-literal=enable-network-policy-controller=true \
+  --dry-run=client -o yaml | kubectl apply -f -
+# The `pipeline-builder` NodeClass = the EKS-managed `default` NodeClass's spec
+# (same node role, subnets and SGs — so its EKS access entry already covers
+# these nodes) with cluster/nodeclass.yaml's fields merged on top.
+_nc_default=$(kubectl get nodeclasses.eks.amazonaws.com default -o json)
+_nc_overlay=$(kubectl create --dry-run=client -o json -f "$DEPLOY_DIR/cluster/nodeclass.yaml")
+jq -n --argjson d "$_nc_default" --argjson o "$_nc_overlay" \
+  '$o | .spec = ($d.spec + $o.spec)' | kubectl apply -f -
+unset _nc_default _nc_overlay
 kubectl apply -f "$DEPLOY_DIR/cluster/nodepool.yaml"
 # Fail loudly here rather than 200 lines later as unschedulable pods: without a
 # usable NodePool the whole deploy is dead, and the reason is much harder to see
@@ -266,7 +282,7 @@ set +a
 # ALERT DELIVERY PRE-FLIGHT. Fails the provision while a Slack webhook URL is
 # still a placeholder — alerting that 404s into nothing is indistinguishable
 # from healthy alerting, so it has to be caught here and not at 3am.
-pb_check_alert_delivery "$ENV_FILE" "$DEPLOY_DIR/config/alertmanager/alertmanager.yml" || exit 1
+pb_check_alert_delivery "$ENV_FILE" "$(pb_shared_dir)/config/alertmanager/alertmanager.yml" || exit 1
 
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
@@ -333,6 +349,17 @@ rm -rf "$CERT_DIR"
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/../../../bin/mongo-keyfile.sh"
 pb_ensure_mongo_keyfile "$DEPLOY_DIR/mongodb-keyfile"
+
+# The ALB's subnets — the ONLY peers nginx trusts X-Forwarded-For from
+# (real_ip; see nginx.conf CLIENT IP). The ALB lands in the subnets tagged for
+# its scheme, so those CIDRs are exactly the addresses it connects from.
+_alb_subnet_tag=$([ "$DEPLOY_MODE" = public ] && echo kubernetes.io/role/elb || echo kubernetes.io/role/internal-elb)
+PB_TRUSTED_PROXY_CIDRS=$(aws ec2 describe-subnets --region "$REGION" \
+  --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:${_alb_subnet_tag},Values=1" \
+  --query 'Subnets[].CidrBlock' --output text)
+[ -n "$PB_TRUSTED_PROXY_CIDRS" ] || { echo "ERROR: no subnets tagged ${_alb_subnet_tag}=1 in $VPC_ID — cannot derive the ALB CIDRs nginx must trust" >&2; exit 1; }
+export PB_TRUSTED_PROXY_CIDRS
+echo "  nginx trusts X-Forwarded-For from the ALB subnets: $PB_TRUSTED_PROXY_CIDRS"
 
 # Config-file ConfigMaps + MongoDB keyfile (same set the ec2 manifests expect).
 pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
@@ -488,7 +515,9 @@ log "Phase 6: KEDA operator"
 # plugin.yaml ships a keda.sh/v1alpha1 ScaledObject; Auto Mode does NOT bundle
 # KEDA, so install the CRDs+operator first or the manifest apply below fails with
 # "no matches for kind ScaledObject" (mirrors ec2/bin/startup.sh).
-kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
+# v2.20.2 is the newest KEDA (tested on k8s 1.33–1.35 per the KEDA matrix); the
+# old v2.16.1 was tested only through 1.31, four minors behind EKS_VERSION=1.36.
+kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.20.2/keda-2.20.2.yaml
 kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=180s 2>/dev/null || echo "  KEDA not ready yet (the ScaledObject will reconcile once it is)"
 
 # ---- Phase 6a: metrics-server (HPA cpu/mem + KEDA cpu/mem triggers) ---------
@@ -520,7 +549,7 @@ log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
 #     confirm these are permitted (see docs/aws-deployment.md).
 # Ambient needs istioctl >= 1.24 (the `ambient` profile ships in the binary). The
 # shared ensure_istioctl guarantees it — auto-installing $ISTIO_VERSION if the host
-# has none (or too old); identical handling on every target (see common.sh).
+# has none or any OTHER version (exact match); identical on every target (see common.sh).
 ensure_istioctl "$ISTIO_VERSION"
 istioctl install --skip-confirmation \
   --set profile=ambient \
@@ -645,6 +674,14 @@ if [ "$AUTO_INIT" = true ]; then
 else
   echo "  skipped (AUTO_INIT=false / --no-auto-init)"
 fi
+
+# ---- Phase 10: post-provision smoke checks (non-fatal) ----------------------
+# Test alert through Alertmanager -> Slack, a test email through platform,
+# a CodePipeline credential dry-run from the pipeline pod, and a probe that a
+# connection the NetworkPolicies deny really is denied (Auto Mode ignores
+# NetworkPolicy unless Phase 1b's ConfigMap + NodeClass took effect).
+log "Phase 10: post-provision smoke checks"
+NAMESPACE="$NAMESPACE" ALERT_EMAIL="${ALERT_EMAIL:-}" bash "$BIN_DIR/post-provision-smoke.sh" k8s --aws || true
 
 echo ""
 echo "=== EKS deploy complete. URL: https://${DOMAIN} ==="

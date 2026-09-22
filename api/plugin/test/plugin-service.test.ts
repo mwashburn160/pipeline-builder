@@ -1,12 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 
 // Mock external dependencies — must be set up before importing the service
-const mockFind = jest.fn();
-const mockSetDefault = jest.fn();
+const mockFind = jest.fn<AnyFn>();
+const mockSetDefault = jest.fn<AnyFn>();
 // Base CrudService.update / updateMany — what the PluginService overrides delegate to.
 const mockSuperUpdate = jest.fn<(...a: any[]) => Promise<any>>();
 const mockSuperUpdateMany = jest.fn<(...a: any[]) => Promise<any[]>>();
@@ -20,52 +20,13 @@ const mockPluginResolutionOrderBy = jest.fn((..._a: any[]) => ['resolution-order
 // api-core is never mocked in this suite, so the real system-org id is safe to load first.
 const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
-  class MockCrudService {
-    find = mockFind;
-    setDefault = mockSetDefault;
-    update(...a: any[]) { return mockSuperUpdate(...a); }
-    updateMany(...a: any[]) { return mockSuperUpdateMany(...a); }
-  }
-
-  return {
-    __mockFind: mockFind,
-    __mockSetDefault: mockSetDefault,
-    CrudService: MockCrudService,
-    CoreConstants: { CACHE_TTL_ENTITY: 60 },
-    buildPluginConditions: jest.fn(() => []),
-    withViewerContext: <T>(filter: T): T => filter,
-    // The viewer is part of the findById cache key (the read predicate carries a
-    // per-user `private` rung), so the mock must provide it or the module fails
-    // to load. Constant here: this suite exercises the key's SHAPE; the
-    // per-viewer behaviour is pinned in pipeline-data's viewer-context tests.
-    viewerCacheSegment: jest.fn(() => 'v1'),
-    getTenantContext: jest.fn(() => undefined),
-    withTenantTx: jest.fn(),
-    parseSemver: realSemver.parseSemver,
-    compareSemverParts: realSemver.compareSemverParts,
-    satisfiesVersionSpec: realSemver.satisfiesVersionSpec,
-    semverOrderBy: jest.fn(() => []),
-    // Mirrors pipeline-core's owner-namespaced repository rule.
-    pluginImageRepository: (p: any) => (p.buildType === 'metadata_only' ? null : `${p.orgId === SYSTEM_ORG_ID ? 'system' : `org-${p.orgId}`}/${p.name}`),
-    ComputeType: {},
-    PluginType: {},
-    schema: {
-      plugin: {
-        id: 'id',
-        name: 'name',
-        version: 'version',
-        description: 'description',
-        createdAt: 'createdAt',
-        updatedAt: 'updatedAt',
-        isActive: 'isActive',
-        isDefault: 'isDefault',
-        orgId: 'orgId',
-        visibility: 'visibility',
-      },
-    },
-  };
-});
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
+  CoreConstants: { CACHE_TTL_ENTITY: 60 },
+  // Mirrors pipeline-core's owner-namespaced repository rule.
+  pluginImageRepository: (p: any) => (p.buildType === 'metadata_only' ? null : `${p.orgId === SYSTEM_ORG_ID ? 'system' : `org-${p.orgId}`}/${p.name}`),
+  ComputeType: {},
+  PluginType: {},
+}));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   class MockCrudService {
     find = mockFind;
@@ -74,11 +35,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     updateMany(...a: any[]) { return mockSuperUpdateMany(...a); }
   }
 
-  return {
-    __mockFind: mockFind,
-    __mockSetDefault: mockSetDefault,
+  return stubModule('@pipeline-builder/pipeline-data', {
     CrudService: MockCrudService,
-    CoreConstants: { CACHE_TTL_ENTITY: 60 },
     buildPluginConditions: jest.fn(() => []),
     withViewerContext: <T>(filter: T): T => filter,
     // The viewer is part of the findById cache key (the read predicate carries a
@@ -87,7 +45,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     // per-viewer behaviour is pinned in pipeline-data's viewer-context tests.
     viewerCacheSegment: jest.fn(() => 'v1'),
     getTenantContext: jest.fn(() => undefined),
-    withTenantTx: jest.fn(),
+    withTenantTx: jest.fn<AnyFn>(),
     parseSemver: realSemver.parseSemver,
     compareSemverParts: realSemver.compareSemverParts,
     satisfiesVersionSpec: realSemver.satisfiesVersionSpec,
@@ -95,8 +53,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     pluginResolutionOrderBy: mockPluginResolutionOrderBy,
     runWithTenantContext: jest.fn((_ctx: unknown, fn: () => unknown) => fn()),
     OFFICIAL_PUBLISHER_HANDLE: 'pipeline-builder',
-    ComputeType: {},
-    PluginType: {},
     schema: {
       plugin: {
         id: 'id',
@@ -118,7 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         imageRepository: 'manifest.imageRepository',
       },
     },
-  };
+  });
 });;
 
 // Records each tagged template's text + values so a test can read back the SQL
@@ -137,9 +93,9 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 }));
 
 // Installing orgs of a row's listing versions (W2) — the fan-out has its own suite.
-const mockInstallingOrgs = jest.fn(async (): Promise<Array<{ orgId: string; install: null }>> => []);
-const mockVersionsBySource = jest.fn(async (): Promise<any[]> => []);
-const mockListingById = jest.fn(async (): Promise<any> => null);
+const mockInstallingOrgs = jest.fn(async (..._args: unknown[]): Promise<Array<{ orgId: string; install: null }>> => []);
+const mockVersionsBySource = jest.fn(async (..._args: unknown[]): Promise<any[]> => []);
+const mockListingById = jest.fn(async (..._args: any[]): Promise<any> => null);
 const mockPublisherById = jest.fn(async (): Promise<any> => null);
 jest.unstable_mockModule('../src/services/ecosystem/install-notify.js', () => ({ installingOrgs: mockInstallingOrgs }));
 jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
@@ -170,11 +126,11 @@ describe('PluginService', () => {
   // existing row: it must apply the visibility ladder and refuse a tombstone.
   describe('deployVersion overwrite gate', () => {
     let existingRows: Array<Record<string, unknown>>;
-    const mockFor = jest.fn(async () => existingRows);
-    const mockValues = jest.fn(() => ({
+    const mockFor = jest.fn(async (..._args: unknown[]) => existingRows);
+    const mockValues = jest.fn((..._args: unknown[]) => ({
       onConflictDoUpdate: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) })),
     }));
-    const mockUpdateSet = jest.fn(() => ({ where: jest.fn() }));
+    const mockUpdateSet = jest.fn((..._args: unknown[]) => ({ where: jest.fn<AnyFn>() }));
     const selectChain = () => {
       const where = jest.fn(() => Object.assign(Promise.resolve(existingRows), { for: mockFor }));
       return { from: () => ({ where }) };
@@ -375,7 +331,7 @@ describe('PluginService', () => {
 
     it('returns null (no writes) when the target is not visible/own-org', async () => {
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
-        execute: jest.fn(),
+        execute: jest.fn<AnyFn>(),
         select: jest.fn(() => ({ from: () => ({ where: () => Promise.resolve([]) }) })),
         update: jest.fn(() => { throw new Error('must not write'); }),
       }));
@@ -689,7 +645,7 @@ describe('PluginService', () => {
     });
 
     it('clearQuotaSnapshot nulls quota_reset_at on the row', async () => {
-      const set = jest.fn(() => ({ where: jest.fn(async () => undefined) }));
+      const set = jest.fn((..._args: unknown[]) => ({ where: jest.fn(async () => undefined) }));
       txWith({ update: jest.fn(() => ({ set })) });
       await service.clearQuotaSnapshot('p-1');
       expect(set).toHaveBeenCalledWith({ quotaResetAt: null });
@@ -783,7 +739,7 @@ describe('PluginService', () => {
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
         execute: jest.fn(async () => []),
         select: jest.fn(() => ({ from: () => ({ where: () => Object.assign(Promise.resolve([]), { for: async () => [] }) }) })),
-        update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn() })) })),
+        update: jest.fn(() => ({ set: jest.fn((..._args: unknown[]) => ({ where: jest.fn<AnyFn>() })) })),
         insert: jest.fn(() => ({ values: () => ({ onConflictDoUpdate: onConflict }) })),
       }));
       const quotaResetAt = new Date('2026-09-24T00:00:00Z');

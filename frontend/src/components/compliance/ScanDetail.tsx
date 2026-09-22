@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import { ArrowLeft, Loader2, AlertTriangle, CheckCircle, XCircle, Square, ShieldOff } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
@@ -45,6 +45,7 @@ interface ScanDetailProps {
 }
 
 export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDetailProps) {
+  const uid = useId();
   const toast = useToast();
   const [scan, setScan] = useState<ComplianceScan | null>(null);
   const [scanLoading, setScanLoading] = useState(true);
@@ -75,7 +76,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
     }
   }, [scanId]);
 
-  useEffect(() => { fetchScan(); }, [fetchScan]);
+  useEffect(() => { void fetchScan(); }, [fetchScan]);
 
   const {
     items: auditEntries,
@@ -341,21 +342,21 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Entity</label>
+                <span className="block text-xs font-medium text-fg-muted mb-1">Entity</span>
                 <div className="rounded-lg border border-default bg-surface-muted px-3 py-2 text-sm text-fg truncate" title={exemptTarget.entityName || exemptTarget.entityId}>
                   {exemptTarget.entityName || exemptTarget.entityId}
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Entity type</label>
+                <span className="block text-xs font-medium text-fg-muted mb-1">Entity type</span>
                 <div className="rounded-lg border border-default bg-surface-muted px-3 py-2 text-sm text-fg capitalize">
                   {exemptTarget.entityType}
                 </div>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-fg-muted mb-1">Rule *</label>
-              <Select
+              <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-rule`}>Rule *</label>
+              <Select id={`${uid}-rule`}
                 value={exemptForm.ruleId}
                 onChange={e => setExemptForm(f => ({ ...f, ruleId: e.target.value }))}
               >
@@ -365,8 +366,8 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
               </Select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-fg-muted mb-1">Reason *</label>
-              <Textarea
+              <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-reason`}>Reason *</label>
+              <Textarea id={`${uid}-reason`}
                 value={exemptForm.reason}
                 onChange={e => setExemptForm(f => ({ ...f, reason: e.target.value }))}
                 rows={3}
@@ -374,8 +375,8 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-fg-muted mb-1">Expires (optional)</label>
-              <Input
+              <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-expires-optional`}>Expires (optional)</label>
+              <Input id={`${uid}-expires-optional`}
                 type="date"
                 value={exemptForm.expiresAt}
                 onChange={e => setExemptForm(f => ({ ...f, expiresAt: e.target.value }))}

@@ -96,6 +96,7 @@ export function RowActionsMenu({
         <div
           ref={menuRef}
           role="menu"
+          tabIndex={-1}
           onKeyDown={onMenuKeyDown}
           style={{ position: 'fixed', top: coords.top, right: coords.right, zIndex: 50 }}
           className="w-56 py-1 bg-surface border border-default rounded-xl shadow-xl text-left"

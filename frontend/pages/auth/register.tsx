@@ -67,7 +67,7 @@ function SolutionPanel({ billingOff }: { billingOff: boolean }) {
 
 export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
   const OG_IMAGE = `${siteUrl}/og-image.png`;
-  const { register, isLoading } = useAuth();
+  const { register, isSubmitting } = useAuth();
   const features = useFeatures();
   const billingEnabled = features.isEnabled('billing');
   const [username, setUsername] = useState('');
@@ -207,20 +207,20 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                 <ErrorAlert message={error} className="text-sm" />
 
                 <div>
-                  <Input id="reg-username" type="text" autoComplete="username" required className={fieldErrors.username ? 'input-error' : ''} placeholder="Username" aria-label="Username" value={username} onChange={(e) => setUsername(e.target.value)} onBlur={() => validateField('username', username)} disabled={isLoading} />
+                  <Input id="reg-username" type="text" autoComplete="username" required className={fieldErrors.username ? 'input-error' : ''} placeholder="Username" aria-label="Username" value={username} onChange={(e) => setUsername(e.target.value)} onBlur={() => validateField('username', username)} disabled={isSubmitting} />
                   {fieldErrors.username && <p className="form-error mt-1">{fieldErrors.username}</p>}
                 </div>
                 <div>
-                  <Input id="reg-email" type="email" autoComplete="email" required className={fieldErrors.email ? 'input-error' : ''} placeholder="Email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => validateField('email', email)} disabled={isLoading} />
+                  <Input id="reg-email" type="email" autoComplete="email" required className={fieldErrors.email ? 'input-error' : ''} placeholder="Email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => validateField('email', email)} disabled={isSubmitting} />
                   {fieldErrors.email && <p className="form-error mt-1">{fieldErrors.email}</p>}
                 </div>
-                <Input id="reg-org" type="text" placeholder="Organization (optional)" aria-label="Organization name" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} disabled={isLoading} />
+                <Input id="reg-org" type="text" placeholder="Organization (optional)" aria-label="Organization name" value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} disabled={isSubmitting} />
                 <div>
-                  <Input id="reg-password" type="password" autoComplete="new-password" required className={fieldErrors.password ? 'input-error' : ''} placeholder="Password (min 8 chars)" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} onBlur={() => validateField('password', password)} disabled={isLoading} />
+                  <Input id="reg-password" type="password" autoComplete="new-password" required className={fieldErrors.password ? 'input-error' : ''} placeholder="Password (min 8 chars)" aria-label="Password" value={password} onChange={(e) => setPassword(e.target.value)} onBlur={() => validateField('password', password)} disabled={isSubmitting} />
                   {fieldErrors.password && <p className="form-error mt-1">{fieldErrors.password}</p>}
                 </div>
                 <div>
-                  <Input id="reg-confirm" type="password" autoComplete="new-password" required className={fieldErrors.confirmPassword ? 'input-error' : ''} placeholder="Confirm password" aria-label="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onBlur={() => validateField('confirmPassword', confirmPassword)} disabled={isLoading} />
+                  <Input id="reg-confirm" type="password" autoComplete="new-password" required className={fieldErrors.confirmPassword ? 'input-error' : ''} placeholder="Confirm password" aria-label="Confirm password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} onBlur={() => validateField('confirmPassword', confirmPassword)} disabled={isSubmitting} />
                   {fieldErrors.confirmPassword && <p className="form-error mt-1">{fieldErrors.confirmPassword}</p>}
                 </div>
 
@@ -230,8 +230,8 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                   </p>
                 )}
 
-                <Button type="submit" disabled={isLoading} fullWidth className="text-sm mt-1">
-                  {isLoading
+                <Button type="submit" disabled={isSubmitting} fullWidth className="text-sm mt-1">
+                  {isSubmitting
                     ? <><LoadingSpinner size="sm" className="mr-2" /> Creating...</>
                     : <><UserPlus className="w-4 h-4 mr-1.5" /> Create account</>
                   }
@@ -253,7 +253,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                         variant="secondary"
                         fullWidth
                         onClick={() => startOAuth(p)}
-                        disabled={isLoading || oauthBusy !== null}
+                        disabled={isSubmitting || oauthBusy !== null}
                         className="text-sm"
                       >
                         {oauthBusy === p
@@ -280,7 +280,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
                         plan={plan}
                         selected={selectedPlan === plan.id}
                         popular={plan.tier === 'pro'}
-                        disabled={isLoading}
+                        disabled={isSubmitting}
                         onSelect={() => setSelectedPlan(plan.id)}
                       />
                     ))}

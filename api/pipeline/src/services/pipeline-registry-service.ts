@@ -34,6 +34,8 @@ type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 /** What a manifest row records about a step's plugin. */
 interface ManifestPlugin {
   publisher: string | null;
+  /** The listing publisher's id — what the cross-org plugin stats join on (a handle can change). */
+  publisherId: string | null;
   name: string;
   version: string;
   imageDigest: string | null;
@@ -69,7 +71,7 @@ async function listedStepPlugins(ids: string[], orgId: string, parentOrgId?: str
       const publisher = listing ? publishers.find((p) => p.id === listing.publisherId) : undefined;
       if (!listing || !publisher || listingBlock(ctx.policy, publisher, listing)) continue;
       if ('code' in installModeFor(publisher, listing, ctx.installs, ctx.policy, scope)) continue;
-      out.set(v.id, { publisher: publisher.handle, name: listing.name, version: v.version, imageDigest: v.imageDigest, imageRepository: v.imageRepository });
+      out.set(v.id, { publisher: publisher.handle, publisherId: publisher.id, name: listing.name, version: v.version, imageDigest: v.imageDigest, imageRepository: v.imageRepository });
     }
     return out;
   }));
@@ -105,6 +107,7 @@ async function replaceStepManifest(tx: Tx, pipelineId: string, orgId: string, st
   for (const p of rows) {
     byId.set(p.id, {
       publisher: null,
+      publisherId: null,
       name: p.name,
       version: p.version,
       imageDigest: p.imageDigest,
@@ -128,6 +131,7 @@ async function replaceStepManifest(tx: Tx, pipelineId: string, orgId: string, st
       stageName,
       actionName,
       pluginPublisher: plugin.publisher,
+      pluginPublisherId: plugin.publisherId,
       pluginName: plugin.name,
       pluginVersion: plugin.version,
       imageDigest: plugin.imageDigest,

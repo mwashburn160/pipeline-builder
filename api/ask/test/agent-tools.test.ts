@@ -6,11 +6,13 @@
  * and propose_* tools only DRAFT — they never call a create endpoint.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 
 // Mock ai-core: real-ish `tool`/`buildGroundingContext`, mocked `generateObject`.
 const mockGenerateObject = jest.fn<(...a: unknown[]) => Promise<{ object: unknown }>>();
-jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   tool: (def: unknown) => def,
   buildGroundingContext: (hits: Array<{ doc: { title?: string; text: string } }>) => hits.map((h) => `${h.doc.title}: ${h.doc.text}`).join('\n'),
   generateObject: mockGenerateObject,
@@ -18,21 +20,25 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({
 
 const { buildAgentTools } = await import('../src/services/agent-tools.js');
 
-const search = jest.fn(() => [
+const search = jest.fn((..._args: unknown[]) => [
   { doc: { id: 'deployment.md#x', title: 'Deploy', url: 'docs/deployment', text: 'Deploy steps here.' }, score: 1 },
 ]);
 const index = { size: 1, search } as never;
-const pipeline = { get: jest.fn(), post: jest.fn() };
-const plugin = { get: jest.fn(), post: jest.fn() };
+const pipeline = { get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() };
+const plugin = { get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() };
 const model = { id: 'm' } as never;
 
+const chargeAiCall = jest.fn<() => Promise<boolean>>(async () => true);
 const makeTools = () =>
-  buildAgentTools({ index, pipeline: pipeline as never, plugin: plugin as never, model, defaults: { provider: 'anthropic', model: 'claude-sonnet-5' }, orgId: 'o' }) as Record<string, { execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>> }>;
+  buildAgentTools({ index, pipeline: pipeline as never, plugin: plugin as never, model, defaults: { provider: 'anthropic', model: 'claude-sonnet-5' }, orgId: 'o', chargeAiCall, maxOutputTokens: 512 }) as Record<string, {
+    execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>>;
+    inputSchema: { safeParse: (v: unknown) => { success: boolean } };
+  }>;
 
 const call = (name: string, input: unknown) => makeTools()[name].execute(input, {});
 
 describe('buildAgentTools', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('answer_how_to returns grounded context + sources', async () => {
     const out = await call('answer_how_to', { query: 'how do I deploy' });
@@ -71,7 +77,9 @@ describe('buildAgentTools', () => {
       model,
       defaults: { provider: 'anthropic', model: 'claude-sonnet-5', repoToken: 'ghp_secret' },
       orgId: 'o',
-    }) as Record<string, { execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>>; inputSchema: { shape: Record<string, unknown> } }>;
+      chargeAiCall,
+      maxOutputTokens: 512,
+    }) as unknown as Record<string, { execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>>; inputSchema: { shape: Record<string, unknown> } }>;
     const out = await tools.propose_pipeline_from_repo.execute({ gitUrl: 'https://github.com/o/app' }, {});
     expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate/from-url', {
       gitUrl: 'https://github.com/o/app', provider: 'anthropic', model: 'claude-sonnet-5', repoToken: 'ghp_secret',
@@ -118,5 +126,28 @@ describe('buildAgentTools', () => {
     expect(out).toEqual({ kind: 'template', template: { name: 'node-ci', props: { steps: '{{ vars.CMD }}' }, inputs: [{ name: 'CMD' }] } });
     // never touches an HTTP create endpoint
     expect(pipeline.post).not.toHaveBeenCalled();
+  });
+
+  it('propose_template CHARGES its own aiCalls slot and caps output tokens', async () => {
+    mockGenerateObject.mockResolvedValue({ object: { name: 't', props: {} } });
+    await call('propose_template', { prompt: 'reusable node CI' });
+    expect(chargeAiCall).toHaveBeenCalledTimes(1);
+    expect(mockGenerateObject).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 512 }));
+  });
+
+  it('propose_template declines WITHOUT generating when the org is out of aiCalls', async () => {
+    chargeAiCall.mockResolvedValueOnce(false);
+    const out = await call('propose_template', { prompt: 'reusable node CI' });
+    expect(mockGenerateObject).not.toHaveBeenCalled();
+    expect(out).toMatchObject({ kind: 'template', error: expect.stringContaining('quota') });
+  });
+
+  it('model-supplied ids that land in a URL path reject `..` and slashes', () => {
+    const tools = makeTools();
+    for (const bad of ['..', '../admin', 'a/b', 'a%2Fb', '', 'x'.repeat(200)]) {
+      expect(tools.inspect_pipeline.inputSchema.safeParse({ id: bad }).success).toBe(false);
+      expect(tools.propose_pipeline_from_template.inputSchema.safeParse({ templateId: bad, project: 'p' }).success).toBe(false);
+    }
+    expect(tools.inspect_pipeline.inputSchema.safeParse({ id: '6f1c2a3b-0000-4000-8000-000000000000' }).success).toBe(true);
   });
 });

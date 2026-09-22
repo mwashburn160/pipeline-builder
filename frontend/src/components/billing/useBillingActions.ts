@@ -194,13 +194,16 @@ export function useBillingActions({
     }
   };
 
-  // Cancelling is confirmed first — it's a step-up-gated, account-wide change.
+  // Cancelling is step-up gated and account-wide: the StepUpModal that asks for
+  // the confirmation IS the confirm dialog, and its token rides the request.
+  // (Sent without one, the refusal went to the global dialog, whose replay
+  // cancelled the plan while this page kept showing it active.)
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const handleCancel = async () => {
+  const handleCancel = async (stepUpToken: string) => {
     if (!subscription) return;
     setActionLoading(true);
     try {
-      const res = await api.cancelSubscription(subscription.id);
+      const res = await api.cancelSubscription(subscription.id, stepUpToken);
       if (res.success) {
         toast.success('Subscription will be canceled at end of billing period');
         setConfirmCancel(false);

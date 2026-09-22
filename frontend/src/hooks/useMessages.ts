@@ -309,7 +309,7 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   // three from refs, so this resets to page 0 for the new query/endpoint without
   // churning the SSE/poll effects.
   useEffect(() => {
-    fetchMessages();
+    void fetchMessages();
   }, [fetchMessages, search, view, filterKey]);
 
   // The shared count is only ever set from the SERVER (`fetchUnreadCount`), never
@@ -331,13 +331,13 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     const unsub = onNotification((notification) => {
       switch (notification.data?.action) {
         case 'NEW_MESSAGE':
-          fetchMessages();
-          fetchUnreadCount();
+          void fetchMessages();
+          void fetchUnreadCount();
           break;
         case 'UNREAD_COUNT':
           // A signal only: the count is per-viewer and the channel per-org, so
           // the frame cannot carry a number that is right for every recipient.
-          fetchUnreadCount();
+          void fetchUnreadCount();
           break;
         case 'MESSAGE_DELETED':
           if (notification.data.messageId) {
@@ -350,7 +350,7 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
             }
             setMessages(prev => prev.filter(m => m.id !== goneId));
           }
-          fetchUnreadCount();
+          void fetchUnreadCount();
           break;
       }
     });

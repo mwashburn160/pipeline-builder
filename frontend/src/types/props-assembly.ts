@@ -81,8 +81,8 @@ function assembleNetworkConfig(
       };
     case 'vpcLookup': {
       const tags: Record<string, string> = {};
-      for (const t of network.tags.filter((t: TagEntry) => t.key.trim())) {
-        tags[t.key] = t.value;
+      for (const tag of network.tags.filter((entry: TagEntry) => entry.key.trim())) {
+        tags[tag.key] = tag.value;
       }
       return {
         type: 'vpcLookup',

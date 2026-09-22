@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 type Row = Record<string, unknown>;
@@ -23,7 +24,7 @@ let results: Row[][] = [];
 const tenantContexts: unknown[] = [];
 
 const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   ...actualData,
   withTenantTx: async (fn: (tx: unknown) => Promise<unknown>) => {
     const q: Captured = { where: undefined, orderBy: [] };

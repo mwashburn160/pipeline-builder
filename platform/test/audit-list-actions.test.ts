@@ -7,6 +7,7 @@
  * service as one filter (one query, real pagination).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -21,8 +22,10 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
   requireSystemAdmin: () => true,
   withController: (_name: string, fn: (req: unknown, res: unknown) => Promise<void>) => fn,
 }));
-jest.unstable_mockModule('../src/helpers/audit-chain.js', () => ({ verifyAuditChain: jest.fn() }));
-jest.unstable_mockModule('../src/helpers/service-tenant.js', () => ({ resolveServiceTenant: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit-chain.js', () => ({ verifyAuditChain: jest.fn<AnyFn>(), PublishedHeadInvalidError: class extends Error {} }));
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: {} }));
+jest.unstable_mockModule('../src/services/audit-head-export.js', () => ({ verifyAuditChainAnchored: jest.fn<AnyFn>() }));
+jest.unstable_mockModule('../src/helpers/service-tenant.js', () => ({ resolveServiceTenant: jest.fn<AnyFn>() }));
 
 const { listAuditEvents } = await import('../src/controllers/audit.js');
 
@@ -42,7 +45,7 @@ const call = async (query: Record<string, unknown>) => {
   return out;
 };
 
-beforeEach(() => findEvents.mockClear());
+beforeEach(() => { findEvents.mockClear(); });
 
 describe('GET /audit?actions=', () => {
   it('passes a trimmed group to the service as one filter', async () => {
@@ -69,5 +72,17 @@ describe('GET /audit?actions=', () => {
     const out = await call({ actions });
     expect(out.statusCode).toBe(400);
     expect(findEvents).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /audit?to=', () => {
+  it('reads a bare date as the END of that day, so the day named is included', async () => {
+    await call({ to: '2026-09-21' });
+    expect((findEvents.mock.calls[0][0] as { createdTo: Date }).createdTo.toISOString()).toBe('2026-09-21T23:59:59.999Z');
+  });
+
+  it('keeps a full timestamp exactly as sent', async () => {
+    await call({ to: '2026-09-21T10:00:00.000Z' });
+    expect((findEvents.mock.calls[0][0] as { createdTo: Date }).createdTo.toISOString()).toBe('2026-09-21T10:00:00.000Z');
   });
 });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock config before importing schemas that depend on it
-import { jest, describe, it, expect, test } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: {
     auth: { passwordMinLength: 8 },
@@ -280,6 +280,20 @@ describe('orgIdpCreateSchema', () => {
   it('requires discoveryUrl for generic-oidc', () => {
     expect(orgIdpCreateSchema.safeParse({ ...valid, provider: 'generic-oidc' }).success).toBe(false);
     expect(orgIdpCreateSchema.safeParse({ ...valid, provider: 'generic-oidc', discoveryUrl: 'https://idp/.well-known' }).success).toBe(true);
+  });
+
+  it('refuses reserved (Google) issuers on admin-run IdPs', () => {
+    // google provider: only its hard-coded discovery document.
+    expect(orgIdpCreateSchema.safeParse({ ...valid, provider: 'google', discoveryUrl: 'https://evil.test/.well-known/openid-configuration' }).success).toBe(false);
+    expect(orgIdpCreateSchema.safeParse({ ...valid, provider: 'google' }).success).toBe(true);
+    // generic OIDC on Google's host.
+    expect(orgIdpCreateSchema.safeParse({ ...valid, provider: 'generic-oidc', discoveryUrl: 'https://accounts.google.com/.well-known/openid-configuration' }).success).toBe(false);
+    // SAML entity id equal to Google's issuer (either form); Workspace's SAML entity id stays usable.
+    const saml = { orgId: 'org-1', protocol: 'saml', samlSsoUrl: 'https://idp.test/sso', samlCertificates: ['A'.repeat(64)] };
+    expect(orgIdpCreateSchema.safeParse({ ...saml, samlEntityId: 'https://accounts.google.com' }).success).toBe(false);
+    expect(orgIdpCreateSchema.safeParse({ ...saml, samlEntityId: 'accounts.google.com/' }).success).toBe(false);
+    expect(orgIdpCreateSchema.safeParse({ ...saml, samlEntityId: 'https://accounts.google.com/o/saml2?idpid=C01' }).success).toBe(true);
+    expect(orgIdpPatchSchema.safeParse({ samlEntityId: 'https://accounts.google.com' }).success).toBe(false);
   });
 
   it('rejects a wrongly-typed optional field', () => {

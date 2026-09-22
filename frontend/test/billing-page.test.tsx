@@ -69,6 +69,19 @@ for (const [path, name] of [
   jest.doMock(path, () => ({ __esModule: true, [name]: () => null }));
 }
 
+// The step-up dialog IS the cancel confirmation: render its details, and a
+// confirm that hands over a token.
+jest.mock('@/components/admin/StepUpModal', () => ({
+  __esModule: true,
+  StepUpModal: ({ details, onConfirmed, onClose }: { details: React.ReactNode; onConfirmed: (t: string) => void; onClose: () => void }) => (
+    <div>
+      {details}
+      <button onClick={onClose}>Keep subscription</button>
+      <button onClick={() => onConfirmed('step-up-token')}>Cancel subscription</button>
+    </div>
+  ),
+}));
+
 const getPlans = jest.fn<AnyFn>();
 const getSubscription = jest.fn<AnyFn>();
 const changeSubscription = jest.fn<AnyFn>();
@@ -158,7 +171,7 @@ describe('BillingPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel Subscription' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel subscription' }));
-    await waitFor(() => expect(cancelSubscription).toHaveBeenCalledWith('sub-1'));
+    await waitFor(() => expect(cancelSubscription).toHaveBeenCalledWith('sub-1', 'step-up-token'));
   });
 
   it('shows a retryable error when usage fails to load, instead of dropping the section', async () => {

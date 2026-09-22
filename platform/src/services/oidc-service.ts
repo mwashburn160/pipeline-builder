@@ -33,6 +33,7 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 import { extractGroupClaim } from '../helpers/idp-claims.js';
 import { PKCE_METHOD_S256, createCodeVerifier, pkceAuthorizeParams } from '../helpers/pkce.js';
+import { GOOGLE_DISCOVERY_URL, isCustomGoogleDiscoveryUrl, isReservedDiscoveryUrl, isReservedIssuer } from '../helpers/reserved-issuers.js';
 
 const logger = createLogger('oidc-service');
 
@@ -256,8 +257,13 @@ export function ssoCallbackUrl(orgId: string): string {
  * Resolve the effective discovery URL for a config:
  *   - `cognito`      → DERIVED from region + userPoolId (no hand-entered URL)
  *   - `generic-oidc` → the admin-supplied `discoveryUrl` (schema-required)
- *   - `google`       → the well-known Google issuer
+ *   - `google`       → ALWAYS the hard-coded Google discovery document. A
+ *                      custom discoveryUrl is refused: Google identities skip
+ *                      domain verification, so the document they are verified
+ *                      against must never be admin-chosen.
  *   - `github`       → NOT an OpenID provider → OIDC_PROVIDER_UNSUPPORTED
+ *
+ * A generic OIDC discovery URL on a reserved (Google) host is refused too.
  */
 function discoveryUrlFor(cfg: OidcLoginConfig): string {
   if (cfg.provider === 'cognito') {
@@ -266,8 +272,14 @@ function discoveryUrlFor(cfg: OidcLoginConfig): string {
     // AWS account id, so deriving/storing this leaks no account identifier.
     return `https://cognito-idp.${cfg.region}.amazonaws.com/${cfg.userPoolId}/.well-known/openid-configuration`;
   }
-  if (cfg.discoveryUrl) return cfg.discoveryUrl;
-  if (cfg.provider === 'google') return 'https://accounts.google.com/.well-known/openid-configuration';
+  if (cfg.provider === 'google') {
+    if (isCustomGoogleDiscoveryUrl(cfg.discoveryUrl)) throw new Error('OIDC_PROVIDER_UNSUPPORTED');
+    return GOOGLE_DISCOVERY_URL;
+  }
+  if (cfg.discoveryUrl) {
+    if (isReservedDiscoveryUrl(cfg.discoveryUrl)) throw new Error('OIDC_PROVIDER_UNSUPPORTED');
+    return cfg.discoveryUrl;
+  }
   // generic-oidc always carries a discoveryUrl (schema-enforced); reaching here
   // means github (no id_token) or a malformed named-provider config.
   throw new Error('OIDC_PROVIDER_UNSUPPORTED');
@@ -373,6 +385,9 @@ export async function exchangeAndValidate(
   opts: { codeVerifier?: string } = {},
 ): Promise<OidcIdentity> {
   const discovery = await fetchDiscovery(discoveryUrlFor(cfg));
+  // An admin-run discovery document can claim any issuer; only the `google`
+  // provider (hard-coded discovery) may present Google's.
+  if (cfg.provider !== 'google' && isReservedIssuer(discovery.issuer)) throw new Error('OIDC_PROVIDER_UNSUPPORTED');
 
   // No silent downgrade: if the challenge went out, the verifier must come back.
   const pkce = usePkce(discovery);

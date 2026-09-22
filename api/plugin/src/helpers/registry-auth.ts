@@ -63,14 +63,9 @@ export type RegistryAccess = 'push' | 'pull';
  *    public realm with no credentials and gets 401.
  */
 export function writeAuthConfig(registry: RegistryInfo, orgId: string, ttlSeconds: number, access: RegistryAccess = 'push'): string {
-  // Write OUTSIDE any build context. The previous in-context `.docker/config.json`
-  // was baked into published images by a plugin Dockerfile's `COPY . .`, leaking
-  // an owner-scoped platform JWT. Every client reads it via the DOCKER_CONFIG
-  // env, so its location is independent of the build context.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-dockercfg-'));
   // Signed as `plugin` — this IS the plugin service, and since #14 a service
-  // holds only its own key. image-registry's authorizer never looks at the name,
-  // only at `plugins:write`.
+  // holds only its own key. image-registry grants push to a SERVICE principal
+  // only when it is `plugin` and carries `plugins:write`.
   const password = signServiceToken({
     serviceName: 'plugin',
     orgId,
@@ -78,7 +73,22 @@ export function writeAuthConfig(registry: RegistryInfo, orgId: string, ttlSecond
     permissions: access === 'push' ? ['plugins:write'] : [],
     ttlSeconds,
   });
-  const auth = Buffer.from(`_token:${password}`).toString('base64');
+  return writeDockerConfig(registry, '_token', password);
+}
+
+/**
+ * Write `username:password` to a fresh `$DOCKER_CONFIG/config.json` for the
+ * registry and its token realm (see {@link writeAuthConfig}). Returns the
+ * directory; the caller removes it. Also used for the quarantine build's
+ * registry-only credential (image-registry `/internal/quarantine/:id/credential`).
+ */
+export function writeDockerConfig(registry: RegistryInfo, username: string, password: string): string {
+  // Write OUTSIDE any build context. The previous in-context `.docker/config.json`
+  // was baked into published images by a plugin Dockerfile's `COPY . .`, leaking
+  // an owner-scoped platform JWT. Every client reads it via the DOCKER_CONFIG
+  // env, so its location is independent of the build context.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-dockercfg-'));
+  const auth = Buffer.from(`${username}:${password}`).toString('base64');
 
   const auths: Record<string, { auth: string }> = {
     [`${registry.host}:${registry.port}`]: { auth },

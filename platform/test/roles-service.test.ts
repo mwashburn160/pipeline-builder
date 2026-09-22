@@ -13,25 +13,26 @@
  *     lockout guards (G2 self-removal, G3 last privileged member).
  */
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockGroupCreate = jest.fn();
-const mockGroupFind = jest.fn();
-const mockGroupFindOne = jest.fn();
-const mockGroupExists = jest.fn();
-const mockGroupCount = jest.fn();
-const mockGmCreate = jest.fn();
-const mockGmFind = jest.fn();
-const mockGmUpdateOne = jest.fn();
-const mockGmDeleteOne = jest.fn();
-const mockGmExists = jest.fn();
-const mockGmCount = jest.fn();
-const mockGmAggregate = jest.fn();
-const mockUoFindOne = jest.fn();
-const mockUserUpdateOne = jest.fn();
-const mockUserUpdateMany = jest.fn();
-const mockUserFindById = jest.fn();
-const mockUserFindOne = jest.fn();
+const mockGroupCreate = jest.fn<AnyFn>();
+const mockGroupFind = jest.fn<AnyFn>();
+const mockGroupFindOne = jest.fn<AnyFn>();
+const mockGroupExists = jest.fn<AnyFn>();
+const mockGroupCount = jest.fn<AnyFn>();
+const mockGmCreate = jest.fn<AnyFn>();
+const mockGmFind = jest.fn<AnyFn>();
+const mockGmUpdateOne = jest.fn<AnyFn>();
+const mockGmDeleteOne = jest.fn<AnyFn>();
+const mockGmExists = jest.fn<AnyFn>();
+const mockGmCount = jest.fn<AnyFn>();
+const mockGmAggregate = jest.fn<AnyFn>();
+const mockUoFindOne = jest.fn<AnyFn>();
+const mockUserUpdateOne = jest.fn<AnyFn>();
+const mockUserUpdateMany = jest.fn<AnyFn>();
+const mockUserFindById = jest.fn<AnyFn>();
+const mockUserFindOne = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
@@ -240,7 +241,7 @@ describe('Ecosystem Manager assignment (system-org-only permissions)', () => {
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'u1' }) });
     mockUoFindOne
       .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'm1' }) })
-      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
     mockGmUpdateOne.mockResolvedValue({});
     findReturns(mockGmFind, [{ roleId: 'gE' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
@@ -268,7 +269,7 @@ describe('Ecosystem Manager assignment (system-org-only permissions)', () => {
   it('a platform superadmin can unassign it', async () => {
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve(emRole) });
     findReturns(mockGmFind, []);
-    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
 
     await removeUserFromRole(SYSTEM, 'gE', 'u1', { actorUserId: 'sa', actorIsSuperAdmin: true, actorPermissions: [] });
     expect(mockGmDeleteOne).toHaveBeenCalledWith({ userId: 'u1', roleId: 'gE' }, { session: expect.anything() });
@@ -279,7 +280,7 @@ describe('recomputeUserOrgRole', () => {
   it('sets role=admin when the user holds an admin-granting Role, and bumps tokenVersion (G1)', async () => {
     findReturns(mockGmFind, [{ roleId: 'gA' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'admin' }]);
-    const uo = { role: 'member', save: jest.fn().mockResolvedValue(undefined) };
+    const uo = { role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
     await recomputeUserOrgRole('u1', 'org-1');
@@ -287,13 +288,13 @@ describe('recomputeUserOrgRole', () => {
     expect(uo.role).toBe('admin');
     expect(uo.save).toHaveBeenCalled();
     // G1: the role flip must invalidate existing tokens.
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
   });
 
   it('preserves owner regardless of Roles and does NOT bump tokenVersion', async () => {
     findReturns(mockGmFind, [{ roleId: 'gD' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
-    const uo = { role: 'owner', save: jest.fn() };
+    const uo = { role: 'owner', save: jest.fn<AnyFn>() };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
     await recomputeUserOrgRole('u1', 'org-1');
@@ -306,7 +307,7 @@ describe('recomputeUserOrgRole', () => {
   it('does NOT bump tokenVersion when nothing changes (member stays member)', async () => {
     findReturns(mockGmFind, [{ roleId: 'gD' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
-    const uo = { role: 'member', save: jest.fn() };
+    const uo = { role: 'member', save: jest.fn<AnyFn>() };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
     await recomputeUserOrgRole('u1', 'org-1');
@@ -320,14 +321,14 @@ describe('recomputeUserOrgRole', () => {
     findReturns(mockGroupFind, [{ grantsRole: 'superadmin' }]);
     orgHasSuperadminRole(true);
     currentIsSuperAdmin(false); // not a superadmin yet → flip to true
-    const uo = { role: 'member', save: jest.fn().mockResolvedValue(undefined) };
+    const uo = { role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
     await recomputeUserOrgRole('u1', '000000000000000000000001');
 
     expect(uo.role).toBe('admin');
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: true } }, expect.anything());
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
   });
 
   it('DEMOTES isSuperAdmin when no longer in a superadmin Role (system org) and bumps tokenVersion', async () => {
@@ -335,14 +336,14 @@ describe('recomputeUserOrgRole', () => {
     findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
     orgHasSuperadminRole(true);
     currentIsSuperAdmin(true); // was a superadmin → flip to false
-    const uo = { role: 'admin', save: jest.fn().mockResolvedValue(undefined) };
+    const uo = { role: 'admin', save: jest.fn<AnyFn>().mockResolvedValue(undefined) };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
     await recomputeUserOrgRole('u1', '000000000000000000000001');
 
     expect(uo.role).toBe('member');
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: false } }, expect.anything());
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
   });
 
   it('does not write isSuperAdmin when the flag is already correct (no spurious tokenVersion bump)', async () => {
@@ -350,7 +351,7 @@ describe('recomputeUserOrgRole', () => {
     findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
     orgHasSuperadminRole(true);
     currentIsSuperAdmin(false); // already false, target false → no change
-    const uo = { role: 'member', save: jest.fn() };
+    const uo = { role: 'member', save: jest.fn<AnyFn>() };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
     await recomputeUserOrgRole('u1', '000000000000000000000001');
@@ -362,7 +363,7 @@ describe('recomputeUserOrgRole', () => {
     findReturns(mockGmFind, [{ roleId: 'gA' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'admin' }]);
     orgHasSuperadminRole(false);
-    const uo = { role: 'member', save: jest.fn().mockResolvedValue(undefined) };
+    const uo = { role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) };
     mockUoFindOne.mockReturnValue({ session: () => uo });
 
     await recomputeUserOrgRole('u1', 'org-1');
@@ -386,7 +387,7 @@ describe('ensureBaselineRole', () => {
     // recompute: user now holds the Member Role → role stays member, no bump.
     findReturns(mockGmFind, [{ roleId: 'g-Member' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
-    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'member', save: jest.fn() }) });
+    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'member', save: jest.fn<AnyFn>() }) });
 
     await ensureBaselineRole('u1', 'org-1');
 
@@ -489,7 +490,7 @@ describe('addUserToRole error paths', () => {
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'u1' }) });
     mockUoFindOne
       .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'm1' }) }) // org-membership check
-      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) }); // recompute
+      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) }); // recompute
     mockGmUpdateOne.mockResolvedValue({});
     findReturns(mockGmFind, [{ roleId: 'gA' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'admin' }]);
@@ -527,7 +528,7 @@ describe('addUserToRole error paths', () => {
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'u1' }) });
     mockUoFindOne
       .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'm1' }) })
-      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
     mockGmUpdateOne.mockResolvedValue({});
     findReturns(mockGmFind, [{ roleId: 'gS' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'superadmin' }]);
@@ -551,7 +552,7 @@ describe('addUserToRole permission ceiling (within-tenant escalation guard)', ()
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'target' }) });
     mockUoFindOne
       .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'm1' }) })
-      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
     mockGmUpdateOne.mockResolvedValue({});
     findReturns(mockGmFind, [{ roleId: 'gAdmin' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'admin' }]);
@@ -578,7 +579,7 @@ describe('addUserToRole permission ceiling (within-tenant escalation guard)', ()
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve({ _id: 'target' }) });
     mockUoFindOne
       .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'm1' }) })
-      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn().mockResolvedValue(undefined) }) });
+      .mockReturnValue({ session: () => ({ role: 'member', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
     mockGmUpdateOne.mockResolvedValue({});
     findReturns(mockGmFind, [{ roleId: 'gCustom' }]);
     findReturns(mockGroupFind, [{ grantsRole: 'member' }]);
@@ -616,7 +617,7 @@ describe('removeUserFromRole', () => {
   it('deletes the assignment and recomputes for a member-only Role (no guards)', async () => {
     mockGroupFindOne.mockReturnValue({ select: () => Promise.resolve({ _id: 'gD', grantsRole: 'member', name: 'Member' }) });
     findReturns(mockGmFind, []);
-    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn().mockResolvedValue(undefined) }) });
+    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
 
     await removeUserFromRole('org-1', 'gD', 'u1');
 
@@ -647,7 +648,7 @@ describe('removeUserFromRole', () => {
     findReturns(mockGmFind, []);
     findReturns(mockGroupFind, []);
     guardSees('gA', 2); // another admin remains
-    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn().mockResolvedValue(undefined) }) });
+    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
 
     await removeUserFromRole('org-1', 'gA', 'victim', { actorUserId: 'other-admin' });
 
@@ -694,7 +695,7 @@ describe('removeUserFromRole', () => {
     findReturns(mockGmFind, []);
     findReturns(mockGroupFind, []);
     guardSees('gAdmin', 2); // not the last member
-    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn().mockResolvedValue(undefined) }) });
+    mockUoFindOne.mockReturnValue({ session: () => ({ role: 'admin', save: jest.fn<AnyFn>().mockResolvedValue(undefined) }) });
 
     await removeUserFromRole('org-1', 'gAdmin', 'victim', {
       actorUserId: 'other-admin', actorIsOrgAdmin: true, actorPermissions: [],
@@ -711,7 +712,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
     name: 'Deployers',
     system: false,
     permissions: ['pipelines:read'],
-    save: jest.fn().mockResolvedValue(undefined),
+    save: jest.fn<AnyFn>().mockResolvedValue(undefined),
   });
 
   it('wraps role.save + the members tokenVersion bump in ONE transaction (session threaded)', async () => {
@@ -729,7 +730,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
     // so the new grants can't diverge from the persisted permissions.
     expect(mockUserUpdateMany).toHaveBeenCalledWith(
       { _id: { $in: ['m1', 'm2'] } },
-      { $inc: { tokenVersion: 1 } },
+      { $inc: { claimsVersion: 1 } },
       { session: expect.anything() },
     );
   });
@@ -751,7 +752,7 @@ describe('updateRole (atomic permission edit + member tokenVersion bump)', () =>
       name: 'Billing Managers',
       system: false,
       permissions: ['billing:manage'],
-      save: jest.fn().mockResolvedValue(undefined),
+      save: jest.fn<AnyFn>().mockResolvedValue(undefined),
     });
     const delegate = (permissions: string[]) => ({ permissions, isSuperAdmin: false, isOrgAdmin: false });
 
@@ -840,7 +841,7 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
     );
     // recompute flips isSuperAdmin false→true and bumps tokenVersion
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: true } }, expect.anything());
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
     // a real change clears the refresh-session slots
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
     expect(result).toEqual({ changed: true });
@@ -861,7 +862,7 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
     expect(result).toEqual({ changed: false });
     // no flip (current already true) → no tokenVersion bump, no refresh drop
     expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
-    expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { tokenVersion: 1 } }, expect.anything());
+    expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
   });
 
   it('revoke: removes the Role, recompute clears the flag, drops refresh', async () => {

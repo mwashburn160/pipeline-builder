@@ -111,9 +111,13 @@ export const QUERIES: Record<string, QueryEntry> = {
     source: 'prometheus-range',
     // See plugin_builds_per_min for the `status!=""` rationale — used as the
     // denominator anchor here so total-builds includes failed + success.
+    // The denominator is filtered with `> 0` (no builds → no sample → gap),
+    // NOT clamp_min(…, 1): the rate is builds/SECOND, so clamping it to 1
+    // inflated the denominator for any real workload (e.g. 0.05 builds/s)
+    // and reported a near-zero success ratio.
     query:
       'sum(rate(plugin_builds_total{status="success"$ORG}[5m])) '
-      + '/ clamp_min(sum(rate(plugin_builds_total{status!=""$ORG}[5m])), 1)',
+      + '/ (sum(rate(plugin_builds_total{status!=""$ORG}[5m])) > 0)',
     orgScoped: true,
   },
   plugin_queue_depth: {

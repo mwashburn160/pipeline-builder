@@ -13,7 +13,9 @@
  * `purgeById` on a mocked service.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Loaded by file path, NOT through the mocked '@pipeline-builder/api-core' entry,
@@ -37,7 +39,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -54,8 +56,8 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-const mockFindDeletedById = jest.fn();
-const mockPurgeById = jest.fn();
+const mockFindDeletedById = jest.fn<AnyFn>();
+const mockPurgeById = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
@@ -64,15 +66,15 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   },
 }));
 
-const mockEmitPluginAudit = jest.fn();
+const mockEmitPluginAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitPluginAudit: mockEmitPluginAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 const { createPurgePluginRoutes } = await import('../src/routes/purge-plugin.js');
 
-const router = createPurgePluginRoutes();
+const router = createPurgePluginRoutes({ increment: jest.fn<AnyFn>(), check: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() } as never);
 
 function getHandler(method: string, path: string) {
   const layer = (router as any).stack.find(
@@ -92,7 +94,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     user: { sub: 'user-1', permissions: [] },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
       requestId: 'req-1',
     },
     ...overrides,
@@ -101,9 +103,9 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  res.setHeader = jest.fn();
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.setHeader = jest.fn<AnyFn>();
   return res;
 }
 
@@ -121,7 +123,7 @@ const existingPlugin = {
 describe('POST /plugins/:id/purge (purge)', () => {
   const handler = getHandler('post', '/:id/purge');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('hard-deletes the tombstone and returns 200', async () => {
     mockFindDeletedById.mockResolvedValue(existingPlugin);

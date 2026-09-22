@@ -9,10 +9,12 @@
  * a 400 with TEMPLATE_VALIDATION_FAILED on cycles / unknown paths.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockFindById = jest.fn();
+const mockFindById = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: { findById: mockFindById },
@@ -29,7 +31,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((res: any, statusCode: number, data?: any) => {
     res.status(statusCode).json({ success: true, statusCode, data });
   }),
-  sendPaginatedNested: jest.fn(),
+  sendPaginatedNested: jest.fn<AnyFn>(),
   sendEntityNotFound: jest.fn((res: any, entity: string) => {
     res.status(404).json({ success: false, message: `${entity} not found` });
   }),
@@ -37,19 +39,19 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateQuery: () => ({ ok: true, value: {} }),
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
   PipelineFilterSchema: {},
-  incrementQuota: jest.fn(),
+  incrementQuota: jest.fn<AnyFn>(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   withRoute: (h: Function) => async (req: any, res: any) => {
-    try { await h({ req, res, ctx: { log: jest.fn() }, orgId: 'org-1', userId: 'u-1' }); } catch (err: any) { res.status(500).json({ message: err.message }); }
+    try { await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: 'org-1', userId: 'u-1' }); } catch (err: any) { res.status(500).json({ message: err.message }); }
   },
-  incrementQuotaFromCtx: jest.fn(),
+  incrementQuotaFromCtx: jest.fn<AnyFn>(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30',
@@ -73,16 +75,16 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
     for (const k of Object.keys(metadata)) metadata[k] = subst(metadata[k]);
     return { errors: [] };
   }),
-  tokenize: jest.fn(),
+  tokenize: jest.fn<AnyFn>(),
 }));
 
 const pipelineCore = await import('@pipeline-builder/pipeline-core');
 const { createReadPipelineRoutes } = await import('../src/routes/read-pipelines.js');
 
 const mockQuotaService = {
-  increment: jest.fn().mockResolvedValue(undefined),
-  check: jest.fn(),
-  getUsage: jest.fn(),
+  increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
+  check: jest.fn<AnyFn>(),
+  getUsage: jest.fn<AnyFn>(),
 } as any;
 
 const router = createReadPipelineRoutes(mockQuotaService);
@@ -101,16 +103,16 @@ function mockReq(query: Record<string, string> = {}) {
 }
 function mockRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  res.setHeader = jest.fn();
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.setHeader = jest.fn<AnyFn>();
   return res;
 }
 
 describe('GET /pipelines/:id ?resolve=true', () => {
   const handler = getHandler('get', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns source (unresolved) when resolve is not set', async () => {
     mockFindById.mockResolvedValue({
@@ -123,7 +125,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
     const res = mockRes();
     await handler(mockReq(), res);
     expect(res.status).toHaveBeenCalledWith(200);
-    const payload = (res.json as jest.Mock).mock.calls[0][0];
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     // Source form preserves template token intact
     expect(payload.data.pipeline.global.clusterName).toBe('acme-{{ metadata.env }}');
   });
@@ -139,7 +141,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
     const res = mockRes();
     await handler(mockReq({ resolve: 'true' }), res);
     expect(res.status).toHaveBeenCalledWith(200);
-    const payload = (res.json as jest.Mock).mock.calls[0][0];
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     expect(payload.data.pipeline.global.clusterName).toBe('acme-prod');
   });
 
@@ -152,13 +154,13 @@ describe('GET /pipelines/:id ?resolve=true', () => {
     });
     const res = mockRes();
     await handler(mockReq({ resolve: 'false' }), res);
-    const payload = (res.json as jest.Mock).mock.calls[0][0];
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     expect(payload.data.pipeline.global.clusterName).toBe('acme-{{ metadata.env }}');
   });
 
   it('returns 400 TEMPLATE_VALIDATION_FAILED when resolution hits an error', async () => {
     // Swap the resolver mock to return an error once
-    (pipelineCore.resolveSelfReferencing as jest.Mock).mockImplementationOnce(() => ({
+    (pipelineCore.resolveSelfReferencing as jest.Mock<AnyFn>).mockImplementationOnce(() => ({
       errors: [{ field: 'metadata.env', message: 'cycle detected', code: 'TEMPLATE_CYCLE' }],
     }));
     mockFindById.mockResolvedValue({
@@ -170,7 +172,7 @@ describe('GET /pipelines/:id ?resolve=true', () => {
     const res = mockRes();
     await handler(mockReq({ resolve: 'true' }), res);
     expect(res.status).toHaveBeenCalledWith(400);
-    const payload = (res.json as jest.Mock).mock.calls[0][0];
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     expect(payload.code).toBe('TEMPLATE_VALIDATION_FAILED');
   });
 });

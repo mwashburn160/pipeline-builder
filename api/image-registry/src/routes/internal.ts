@@ -21,6 +21,7 @@ import { emitImageRegistryAudit } from '../services/audit.js';
 import {
   isPluginRepository, isPublicRepository, isQuarantineRepository, isSha256Digest, PluginSigningError, signPluginImage,
 } from '../services/plugin-signing.js';
+import { isQuarantineSubmissionId, mintQuarantineCredential } from '../services/quarantine-credential.js';
 import { headManifest } from '../services/registry-client.js';
 import { deleteQuarantineRepository, QUARANTINE_PREFIX } from '../services/registry-gc.js';
 
@@ -47,6 +48,8 @@ const SBOM_BODY_LIMIT = '32mb';
  *  - DELETE /internal/quarantine/:submissionId — plugin → drop an anonymous
  *    submission's quarantined build (`quarantine/<submissionId>`) once it is
  *    decided or expired.
+ *  - POST /internal/quarantine/:submissionId/credential — plugin → the
+ *    registry-only credential that submission's build pushes with (E21).
  */
 export function createInternalRoutes(): Router {
   const router: Router = Router();
@@ -148,6 +151,28 @@ export function createInternalRoutes(): Router {
         });
       }
       return sendSuccess(res, 200, result);
+    }),
+  );
+
+  // The credential an anonymous submission's build runs with (E21): push/pull on
+  // `quarantine/<submissionId>` only, accepted by no platform service. Minting
+  // one changes no durable state (it expires on its own; the token endpoint
+  // re-checks it on every use) — see the route-coverage waiver.
+  router.post(
+    `${QUARANTINE_PATH}/:submissionId/credential`,
+    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const submissionId = getParam(req.params, 'submissionId');
+      if (!submissionId || !isQuarantineSubmissionId(submissionId)) {
+        return sendBadRequest(res, 'submissionId must be one lowercase path component (the submission id)', ErrorCode.VALIDATION_ERROR);
+      }
+      if (req.user?.organizationId?.toLowerCase() !== SYSTEM_ORG_ID) {
+        return sendError(res, 403, 'Forbidden: quarantine repositories are managed under the system org.', ErrorCode.ORG_MISMATCH);
+      }
+      const ttlSeconds = Number((req.body as { ttlSeconds?: unknown } | undefined)?.ttlSeconds ?? 0);
+      const credential = await mintQuarantineCredential(submissionId, ttlSeconds);
+      ctx.log('COMPLETED', 'Minted quarantine build credential', { submissionId, expiresAt: credential.expiresAt });
+      return sendSuccess(res, 200, credential);
     }),
   );
 

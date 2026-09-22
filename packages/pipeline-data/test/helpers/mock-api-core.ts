@@ -6,11 +6,11 @@
  *
  * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
  * classes, pagination constants) live in
- * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Only
+ * `@pipeline-builder/api-core/testing`. Only
  * pipeline-data-specific defaults belong here.
  */
 import { jest } from '@jest/globals';
-import { baseApiCoreMock, loggerMock } from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
+import { baseApiCoreMock, loggerMock } from '@pipeline-builder/api-core/testing';
 
 export { loggerMock };
 

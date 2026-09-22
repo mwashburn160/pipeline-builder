@@ -98,7 +98,7 @@ spec:
                   if [ -n "${MINIO_ENDPOINT:-}" ]; then
                     mc alias set pbsrc "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
                     mc alias set pbdst "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY"
-                    for b in ${MINIO_BUCKETS:-message-attachments registry loki thanos}; do
+                    for b in ${MINIO_BUCKETS:-message-attachments registry loki thanos plugins plugin-quarantine audit-heads}; do
                       echo "mirror $b"
                       mc mirror --overwrite --quiet "pbsrc/$b" "pbdst/${MINIO_BACKUP_TARGET_BUCKET:-$BACKUP_BUCKET}/minio/$ENV_NAME/$b"
                     done

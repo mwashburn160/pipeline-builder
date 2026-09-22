@@ -33,15 +33,39 @@ const GATED = [
 ].sort();
 
 let table: RouteTableEntry[];
+let teamGuarded: string[];
+let refuseTeamBillingFn: unknown;
+
+/** Every `METHOD /path` whose route stack carries `fn` (walks mounted routers). */
+function routesCarrying(app: unknown, fn: unknown): string[] {
+  const out: string[] = [];
+  const walk = (stack: any[], prefix: string): void => {
+    for (const layer of stack) {
+      if (layer.route) {
+        const full = `${prefix}${layer.route.path}`.replace(/\/+/g, '/');
+        if (layer.route.stack.some((l: any) => l.handle === fn)) {
+          for (const m of Object.keys(layer.route.methods)) out.push(`${m.toUpperCase()} ${full}`);
+        }
+      } else if (layer.handle && Array.isArray(layer.handle.stack)) {
+        walk(layer.handle.stack, `${prefix}${layer[Symbol.for('pipeline-builder.layer-path')] ?? ''}`);
+      }
+    }
+  };
+  walk((app as any).router.stack, '');
+  return out.sort();
+}
 
 beforeAll(async () => {
-  const [{ createApp }, { mountRoutes }] = await Promise.all([
+  const [{ createApp }, { mountRoutes }, guard] = await Promise.all([
     import('@pipeline-builder/api-server'),
     import('../src/app-routes.js'),
+    import('../src/helpers/root-org-guard.js'),
   ]);
+  refuseTeamBillingFn = guard.refuseTeamBilling;
   const { app } = createApp({ enableOpenApi: false, jsonBodyExclude: ['/billing/stripe/webhook'] });
   mountRoutes(app);
   table = buildRouteTable(app);
+  teamGuarded = routesCarrying(app, refuseTeamBillingFn);
 });
 
 describe('billing admin-actions MFA gates', () => {
@@ -62,5 +86,9 @@ describe('billing admin-actions MFA gates', () => {
       .filter((e) => isWriteMethod(e.method) && e.permissions.some((p) => p.permissions.includes('billing:manage')))
       .map((e) => `${e.method} ${e.path}`);
     expect(manageWrites.filter((r) => !GATED.includes(r))).toEqual([]);
+  });
+
+  it('refuses team (child) orgs on exactly the same billing writes', () => {
+    expect(teamGuarded).toEqual(GATED);
   });
 });

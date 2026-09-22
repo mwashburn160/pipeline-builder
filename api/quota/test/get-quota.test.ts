@@ -8,13 +8,15 @@
  * those are tested separately in authorize-org.test.ts.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
-const mockSendSuccess = jest.fn();
-const mockSendError = jest.fn();
-const mockIsSystemAdmin = jest.fn();
+const mockSendSuccess = jest.fn<AnyFn>();
+const mockSendError = jest.fn<AnyFn>();
+const mockIsSystemAdmin = jest.fn<AnyFn>();
 const mockGetParam = jest.fn((params: Record<string, string>, key: string) => params[key]);
 
 class MockAppError extends Error {
@@ -68,7 +70,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const requireOrgId = opts?.requireOrgId !== false;
@@ -78,7 +80,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
     }
     const ctx = {
       identity: { orgId, userId: req.user?.sub },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
     };
     try {
       await handler({ req, res, ctx, orgId, userId: req.user?.sub || '' });
@@ -96,15 +98,15 @@ jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
 }));
 
-const mockFind = jest.fn();
-const mockFindById = jest.fn();
+const mockFind = jest.fn<AnyFn>();
+const mockFindById = jest.fn<AnyFn>();
 
 /**
  * `Organization.find(...).select(...).lean()` resolving to `rows` — the shape of
  * the single self-or-children hierarchy lookup every own-org read now issues.
  */
 function lookupRows(rows: unknown[]) {
-  return { select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(rows) }) };
+  return { select: jest.fn<AnyFn>().mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(rows) }) };
 }
 
 jest.unstable_mockModule('../src/models/organization.js', () => ({
@@ -135,8 +137,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -190,7 +192,7 @@ function makeOrg(overrides: Partial<any> = {}) {
 describe('GET /quotas (own org)', () => {
   const handler = getHandler('get', '/');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns own org quotas from JWT orgId', async () => {
     const org = makeOrg();
@@ -233,7 +235,7 @@ describe('GET /quotas (own org)', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockFind.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB down')) }) });
+    mockFind.mockReturnValue({ select: jest.fn<AnyFn>().mockReturnValue({ lean: jest.fn<AnyFn>().mockRejectedValue(new Error('DB down')) }) });
 
     const req = mockReq({ user: { organizationId: 'org-123' } });
     const res = mockRes();
@@ -246,7 +248,7 @@ describe('GET /quotas (own org)', () => {
 describe('GET /quotas/all (system admin)', () => {
   const handler = getHandler('get', '/all');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns all organizations for system admin', async () => {
     const orgs =[makeOrg({ _id: 'org-1', name: 'Org A' }), makeOrg({ _id: 'org-2', name: 'Org B' })];
@@ -258,7 +260,7 @@ describe('GET /quotas/all (system admin)', () => {
       sort: jest.fn(() => query),
       skip: jest.fn(() => query),
       limit: jest.fn(() => query),
-      lean: jest.fn().mockResolvedValue(orgs),
+      lean: jest.fn<AnyFn>().mockResolvedValue(orgs),
     };
     mockFind.mockReturnValue(query);
 
@@ -276,7 +278,7 @@ describe('GET /quotas/all (system admin)', () => {
     const gate = getSystemAdminGate('get', '/all');
     const req = mockReq({ user: { organizationId: 'some-org' } });
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     gate(req, res, next);
 
@@ -288,7 +290,7 @@ describe('GET /quotas/all (system admin)', () => {
     const gate = getSystemAdminGate('get', '/all');
     const req = mockReq({ user: { isSuperAdmin: true } });
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     gate(req, res, next);
 
@@ -301,7 +303,7 @@ describe('GET /quotas/all (system admin)', () => {
       sort: jest.fn(() => query),
       skip: jest.fn(() => query),
       limit: jest.fn(() => query),
-      lean: jest.fn().mockRejectedValue(new Error('DB error')),
+      lean: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')),
     };
     mockFind.mockReturnValue(query);
 
@@ -316,7 +318,7 @@ describe('GET /quotas/all (system admin)', () => {
 describe('GET /quotas/:orgId', () => {
   const handler = getHandler('get', '/:orgId');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns quotas for a specific org', async () => {
     const org = makeOrg();
@@ -349,7 +351,7 @@ describe('GET /quotas/:orgId', () => {
 describe('GET /quotas/:orgId/:quotaType', () => {
   const handler = getHandler('get', '/:orgId/:quotaType');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns status for a valid quota type', async () => {
     const org = makeOrg();
@@ -397,7 +399,7 @@ describe('GET /quotas/:orgId/:quotaType', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockFind.mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB error')) }) });
+    mockFind.mockReturnValue({ select: jest.fn<AnyFn>().mockReturnValue({ lean: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')) }) });
 
     const req = mockReq({ params: { orgId: 'org-123', quotaType: 'plugins' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
@@ -408,7 +410,7 @@ describe('GET /quotas/:orgId/:quotaType', () => {
 });
 
 describe('quotas:read permission gates', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   /** The permission-gate middleware layer for a route (tagged via the mock). */
   function getGate(method: string, path: string) {
@@ -424,7 +426,7 @@ describe('quotas:read permission gates', () => {
   function runGate(gate: any, user: unknown) {
     const req = mockReq({ user });
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     gate(req, res, next);
     return { res, next };
   }

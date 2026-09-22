@@ -26,9 +26,11 @@
  * boundaries; the route, its Basic parsing and its scope collection are real.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, describe, it, expect, beforeEach, beforeAll, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // --- auth-resolver ----------------------------------------------------------
@@ -65,9 +67,9 @@ const parseScope = (raw: string) => {
 jest.unstable_mockModule('../src/services/token-service.js', () => ({ authorizeAndIssue, parseScope }));
 
 // --- api-server: withRoute passthrough --------------------------------------
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
-    const ctx = { log: jest.fn(), requestId: 'test-req' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'test-req' };
     try {
       await handler({ req, res, ctx });
     } catch (err) {
@@ -75,7 +77,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
       if (!r.headersSent) r.status(500).json({ success: false, message: (err as Error)?.message });
     }
   },
-  incCounter: jest.fn(),
+  incCounter: jest.fn<AnyFn>(),
 }));
 
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
@@ -220,7 +222,7 @@ describe('GET /token — scope handling', () => {
   it('accepts repeated scope params (array form)', async () => {
     await getToken({ auth: basic('u', 'p'), query: '?scope=repository:a:pull&scope=repository:b:push' });
 
-    const [, scopes] = authorizeAndIssue.mock.calls[0] as [unknown, Array<{ name: string }>];
+    const [, scopes] = authorizeAndIssue.mock.calls[0] as unknown as [unknown, Array<{ name: string }>];
     expect(scopes.map((s) => s.name)).toEqual(['a', 'b']);
   });
 
@@ -229,7 +231,7 @@ describe('GET /token — scope handling', () => {
     // or null entry — it is discarded, never granted.
     await getToken({ auth: basic('u', 'p'), query: '?scope=garbage&scope=repository:ok:pull' });
 
-    const [, scopes] = authorizeAndIssue.mock.calls[0] as [unknown, Array<{ name: string }>];
+    const [, scopes] = authorizeAndIssue.mock.calls[0] as unknown as [unknown, Array<{ name: string }>];
     expect(scopes.map((s) => s.name)).toEqual(['ok']);
   });
 

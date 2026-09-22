@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
+import type { AnyFn } from '../src/testing/any-fn.js';
+import { jest, describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from '@jest/globals';
 
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
@@ -48,7 +49,7 @@ function serviceToken(serviceName: string, opts: Omit<Parameters<typeof signServ
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 /** Sign a USER access token with the installed test key. */
-function userToken(payload: Record<string, unknown> = {}, options: { expiresIn?: number } = {}): Promise<string> {
+function userToken(payload: Record<string, unknown> = {}, options: { expiresIn?: number } = {}): string {
   return signTestUserToken(
     { ...testUserIdentityClaims(), sub: 'user1', role: 'member', ...payload },
     { key: jwks.primary, ...options },
@@ -102,7 +103,7 @@ describe('requireAuth', () => {
   it('should reject request with no Authorization header', () => {
     const req = createMockReq();
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
 
@@ -113,7 +114,7 @@ describe('requireAuth', () => {
   it('should reject malformed Authorization header', () => {
     const req = createMockReq({ headers: { authorization: 'Basic abc123' } });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
 
@@ -125,7 +126,7 @@ describe('requireAuth', () => {
     const token = await userToken({}, { expiresIn: -1 });
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
     await settle();
@@ -137,7 +138,7 @@ describe('requireAuth', () => {
   it('should reject invalid token', async () => {
     const req = createMockReq({ headers: { authorization: 'Bearer invalid.token.here' } });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
     await settle();
@@ -153,7 +154,7 @@ describe('requireAuth', () => {
     const token = signToken({ type: 'access', sub: 'user1', role: 'owner', isSuperAdmin: true, ...USER_CLAIMS });
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
     await settle();
@@ -172,7 +173,7 @@ describe('requireAuth', () => {
     );
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
     await settle();
@@ -189,7 +190,7 @@ describe('requireAuth', () => {
     const token = await signTestUserToken({ ...testUserIdentityClaims(), sub: 'user1', role: 'member' }, { key: fresh.primary });
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
     await settle();
@@ -202,7 +203,7 @@ describe('requireAuth', () => {
     const token = await userToken({ type: 'refresh' });
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
     await settle();
@@ -215,7 +216,7 @@ describe('requireAuth', () => {
     const token = await userToken({ organizationId: 'org1' });
     const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
     await settle();
@@ -237,7 +238,7 @@ describe('requireAuth', () => {
       },
     });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     const middleware = requireAuth({ allowOrgHeaderOverride: true });
     middleware(req, res, next);
@@ -256,7 +257,7 @@ describe('requireAuth', () => {
       },
     });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     const middleware = requireAuth({ allowOrgHeaderOverride: true });
     middleware(req, res, next);
@@ -275,7 +276,7 @@ describe('requireAuth', () => {
       },
     });
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
 
     requireAuth(req, res, next);
     await settle();
@@ -528,7 +529,7 @@ describe('setAuthzDenialAuditor', () => {
     const seen: AuthzDenialInfo[] = [];
     setAuthzDenialAuditor((i) => seen.push(i));
     const res = createMockRes();
-    requirePermission('pipelines:write')(denialReq(), res, jest.fn());
+    requirePermission('pipelines:write')(denialReq(), res, jest.fn<AnyFn>());
     expect(res._status).toBe(403);
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({
@@ -541,19 +542,19 @@ describe('setAuthzDenialAuditor', () => {
   });
 
   it('does NOT fire for a denied GET (low-signal probing noise)', () => {
-    const fn = jest.fn();
+    const fn = jest.fn<AnyFn>();
     setAuthzDenialAuditor(fn);
     const res = createMockRes();
-    requirePermission('pipelines:write')(denialReq({ method: 'GET' }), res, jest.fn());
+    requirePermission('pipelines:write')(denialReq({ method: 'GET' }), res, jest.fn<AnyFn>());
     expect(res._status).toBe(403);
     expect(fn).not.toHaveBeenCalled();
   });
 
   it('does NOT fire when the permission is granted', () => {
-    const fn = jest.fn();
+    const fn = jest.fn<AnyFn>();
     setAuthzDenialAuditor(fn);
     const res = createMockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     const req = denialReq({ user: { sub: 'u1', permissions: ['pipelines:write'] } as unknown as JwtPayload });
     requirePermission('pipelines:write')(req, res, next);
     expect(next).toHaveBeenCalled();
@@ -564,7 +565,7 @@ describe('setAuthzDenialAuditor', () => {
     const seen: AuthzDenialInfo[] = [];
     setAuthzDenialAuditor((i) => seen.push(i));
     const res = createMockRes();
-    requireSystemAdmin(denialReq(), res, jest.fn());
+    requireSystemAdmin(denialReq(), res, jest.fn<AnyFn>());
     expect(res._status).toBe(403);
     expect(seen).toHaveLength(1);
     expect(seen[0].required).toBe('system-admin');
@@ -573,13 +574,13 @@ describe('setAuthzDenialAuditor', () => {
   it('is best-effort: a throwing auditor does not break the gate', () => {
     setAuthzDenialAuditor(() => { throw new Error('audit sink down'); });
     const res = createMockRes();
-    expect(() => requirePermission('pipelines:write')(denialReq(), res, jest.fn())).not.toThrow();
+    expect(() => requirePermission('pipelines:write')(denialReq(), res, jest.fn<AnyFn>())).not.toThrow();
     expect(res._status).toBe(403);
   });
 
   it('does nothing when no auditor is registered', () => {
     const res = createMockRes();
-    expect(() => requirePermission('pipelines:write')(denialReq(), res, jest.fn())).not.toThrow();
+    expect(() => requirePermission('pipelines:write')(denialReq(), res, jest.fn<AnyFn>())).not.toThrow();
     expect(res._status).toBe(403);
   });
 });
@@ -643,7 +644,7 @@ describe('requireAuth — impersonation session revocation (cross-service)', () 
 
   async function tokenReq(claims: Record<string, unknown>) {
     const token = await userToken({ sub: 'target', organizationId: 'org1', tokenVersion: 1, ...claims });
-    return createMockReq({ headers: { authorization: `Bearer ${token}` } });
+    return createMockReq({ method: 'GET', headers: { authorization: `Bearer ${token}` } } as Partial<Request>);
   }
   const impersonation = () => tokenReq({ impersonatorId: 'sysadmin', impersonationReadOnly: true, jti: 'sess-1' });
 
@@ -707,6 +708,95 @@ describe('requireAuth — impersonation session revocation (cross-service)', () 
   });
 });
 
+describe('requireAuth — read-only impersonation (S1)', () => {
+  afterEach(() => setTokenRevocationStore(undefined));
+
+  async function reqWith(method: string | undefined, claims: Record<string, unknown>) {
+    const token = await userToken({ sub: 'target', organizationId: 'org1', tokenVersion: 1, ...claims });
+    return createMockReq({ method, headers: { authorization: `Bearer ${token}` } } as Partial<Request>);
+  }
+  function runAuth(req: Request) {
+    return new Promise<{ status: number; passed: boolean; body?: any }>((resolve) => {
+      const res = createMockRes();
+      const origJson = res.json.bind(res);
+      (res as any).json = (b: unknown) => { const r = origJson(b); resolve({ status: res._status, passed: false, body: b }); return r; };
+      requireAuth(req, res, () => resolve({ status: 0, passed: true }));
+    });
+  }
+  const ro = { impersonatorId: 'sysadmin', impersonationReadOnly: true, jti: 'sess-ro' };
+
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('refuses %s with 403 IMPERSONATION_READ_ONLY', async (method) => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    const out = await runAuth(await reqWith(method, ro));
+    expect(out.status).toBe(403);
+    expect(JSON.stringify(out.body)).toContain('IMPERSONATION_READ_ONLY');
+  });
+
+  it.each(['GET', 'HEAD', 'OPTIONS', 'get'])('allows %s', async (method) => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    expect((await runAuth(await reqWith(method, ro))).passed).toBe(true);
+  });
+
+  it('fails closed when the method is unknown', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, getSessionRevocation: async () => 'live' });
+    expect((await runAuth(await reqWith(undefined, ro))).status).toBe(403);
+  });
+
+  it('does not affect a normal token writing', async () => {
+    expect((await runAuth(await reqWith('POST', {}))).passed).toBe(true);
+  });
+});
+
+describe('requireAuth — single-credential revocation (revoke:sid / revoke:key)', () => {
+  afterEach(() => setTokenRevocationStore(undefined));
+
+  async function reqWith(claims: Record<string, unknown>) {
+    const token = await userToken({ sub: 'u', organizationId: 'org1', ...claims });
+    return createMockReq({ method: 'GET', headers: { authorization: `Bearer ${token}` } } as Partial<Request>);
+  }
+  function runAuth(req: Request) {
+    return new Promise<{ status: number; passed: boolean }>((resolve) => {
+      const res = createMockRes();
+      const origJson = res.json.bind(res);
+      (res as any).json = (b: unknown) => { const r = origJson(b); resolve({ status: res._status, passed: false }); return r; };
+      requireAuth(req, res, () => resolve({ status: 0, passed: true }));
+    });
+  }
+
+  it('rejects a token whose session slot was revoked, even at the current tokenVersion', async () => {
+    const isCredentialRevoked = jest.fn(async (refs: { sid?: string; keyIds: string[] }) => refs.sid === 'slot-1');
+    setTokenRevocationStore({ getCurrentVersion: async () => 3, isCredentialRevoked });
+    expect(await runAuth(await reqWith({ tokenVersion: 3, sid: 'slot-1' }))).toEqual({ status: 401, passed: false });
+    expect((await runAuth(await reqWith({ tokenVersion: 3, sid: 'slot-2' }))).passed).toBe(true);
+  });
+
+  it('rejects an exchanged key token (jti) and a token derived from a revoked key (parentKeyId)', async () => {
+    const isCredentialRevoked = jest.fn(async (refs: { keyIds: string[] }) => refs.keyIds.includes('pat-9'));
+    setTokenRevocationStore({ getCurrentVersion: async () => null, isCredentialRevoked });
+    expect((await runAuth(await reqWith({ token_use: 'api_key', jti: 'pat-9' }))).passed).toBe(false);
+    expect((await runAuth(await reqWith({ tokenVersion: 1, parentKeyId: 'pat-9' }))).passed).toBe(false);
+    // A non-key token's jti is NOT a key id.
+    expect((await runAuth(await reqWith({ tokenVersion: 1, jti: 'pat-9' }))).passed).toBe(true);
+  });
+
+  it('checks a token without tokenVersion (service-account key) by its key id', async () => {
+    const isCredentialRevoked = jest.fn(async () => true);
+    setTokenRevocationStore({ getCurrentVersion: async () => null, isCredentialRevoked });
+    expect((await runAuth(await reqWith({ token_use: 'api_key', principalType: 'service_account', jti: 'sa-key' }))).passed).toBe(false);
+  });
+
+  it('fails open when the credential check throws', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => 1, isCredentialRevoked: async () => { throw new Error('down'); } });
+    expect((await runAuth(await reqWith({ tokenVersion: 1, sid: 's' }))).passed).toBe(true);
+  });
+
+  it('isAccessTokenRevoked applies the same credential check', async () => {
+    setTokenRevocationStore({ getCurrentVersion: async () => null, isCredentialRevoked: async (r) => r.sid === 'x' });
+    await expect(isAccessTokenRevoked({ sub: 'u', sid: 'x' })).resolves.toBe(true);
+    await expect(isAccessTokenRevoked({ sub: 'u', sid: 'y' })).resolves.toBe(false);
+  });
+});
+
 describe('isAccessTokenRevoked — impersonation sessions (out-of-band mint paths)', () => {
   afterEach(() => setTokenRevocationStore(undefined));
 
@@ -735,13 +825,13 @@ describe('requireAllPermissions', () => {
   }
 
   it('passes when the user holds every required permission', () => {
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireAllPermissions('pipelines:read', 'pipelines:write')(req(['pipelines:read', 'pipelines:write']), res, next);
     expect(next).toHaveBeenCalled();
   });
 
   it('403s when any one is missing (and lists only the missing one)', () => {
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireAllPermissions('pipelines:read', 'pipelines:write')(req(['pipelines:read']), res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res._status).toBe(403);
@@ -749,7 +839,7 @@ describe('requireAllPermissions', () => {
   });
 
   it('superadmin bypasses even with no explicit permissions', () => {
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireAllPermissions('pipelines:write', 'billing:manage')(req([], true), res, next);
     expect(next).toHaveBeenCalled();
   });
@@ -757,7 +847,7 @@ describe('requireAllPermissions', () => {
   it('fires the denial auditor on a missing-permission rejection', () => {
     const seen: unknown[] = [];
     setAuthzDenialAuditor((i) => seen.push(i));
-    requireAllPermissions('a:write' as any, 'b:write' as any)(req(['a:write']), createMockRes(), jest.fn());
+    requireAllPermissions('a:write' as any, 'b:write' as any)(req(['a:write']), createMockRes(), jest.fn<AnyFn>());
     expect(seen).toHaveLength(1);
   });
 });
@@ -772,13 +862,13 @@ describe('requireFeature', () => {
   }
 
   it('passes when the user holds the feature', () => {
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireFeature('advanced_reporting')(req(['advanced_reporting']), res, next);
     expect(next).toHaveBeenCalled();
   });
 
   it('403s when the feature is absent', () => {
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireFeature('advanced_reporting')(req(['custom_integrations']), res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res._status).toBe(403);
@@ -786,20 +876,20 @@ describe('requireFeature', () => {
   });
 
   it('403s when the token carries no features array', () => {
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireFeature('advanced_reporting')(req(undefined), res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res._status).toBe(403);
   });
 
   it('superadmin bypasses even without the feature', () => {
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireFeature('advanced_reporting')(req([], true), res, next);
     expect(next).toHaveBeenCalled();
   });
 
   it('401s when unauthenticated (no req.user)', () => {
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireFeature('advanced_reporting')(req(undefined, false, false), res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res._status).toBe(401);
@@ -808,7 +898,7 @@ describe('requireFeature', () => {
   it('routes a denial through the authz-denial auditor (state-changing method)', () => {
     const seen: AuthzDenialInfo[] = [];
     setAuthzDenialAuditor((i) => seen.push(i));
-    const res = createMockRes(); const next = jest.fn();
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
     const postReq = { method: 'POST', originalUrl: '/reports/x', user: { sub: 'u', features: [] } } as unknown as Request;
     requireFeature('advanced_reporting')(postReq, res, next);
     expect(res._status).toBe(403);

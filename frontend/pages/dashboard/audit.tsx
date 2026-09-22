@@ -29,7 +29,6 @@ import Link from 'next/link';
 import { Activity, ArrowLeft, Download, Ban, X, Store, ShieldCheck } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useListPage, type FilterField } from '@/hooks/useListPage';
-import { useQuery } from '@/hooks/useQuery';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -49,7 +48,8 @@ import { downloadCsv, downloadJsonl, datedFilename } from '@/lib/csv-export';
 import { redactDetails } from '@/lib/redact';
 import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
-import { queries } from '@/lib/api-cache';
+import { useOrgNames } from '@/components/ui/OrgPicker';
+import { localDayEndIso, localDayStartIso } from '@/lib/local-day';
 import { formatDateTime } from '@/lib/format';
 import {
   AUDIT_QUICK_FILTERS,
@@ -133,9 +133,15 @@ export default function AuditPage() {
     pageSize: DEFAULT_LIMIT,
     urlSync: true,
     fetcher: async (params, signal) => {
-      const { limit, offset, outcome, orgId, affectedOrgId, group, action: actionParam, ...rest } = params;
+      const { limit, offset, outcome, orgId, affectedOrgId, group, action: actionParam, from, to, ...rest } = params;
       const base = {
         ...rest,
+        // The date inputs give a bare local DAY. Sent as-is the server read
+        // "To 2026-09-21" as midnight UTC and excluded that whole day (and
+        // shifted "From" by the viewer's UTC offset); send the local day's
+        // real bounds instead.
+        ...(from ? { from: localDayStartIso(from) } : {}),
+        ...(to ? { to: localDayEndIso(to) } : {}),
         // Org admins are pinned to their own org by the backend; these two are
         // sysadmin-only and never sent for anyone else — even if a deep-link
         // put them in the filter state.
@@ -161,19 +167,18 @@ export default function AuditPage() {
   const affectedOrgId = isSuperAdmin ? (filters.affectedOrgId ?? '') : '';
   const orgIdFilter = isSuperAdmin ? (filters.orgId ?? '') : '';
 
-  // Org id → display name lookup, so org references render as `name (id)`
-  // instead of a bare ObjectId. Read through the shared query cache (the orgs
-  // page asks for the same list) and sysadmin only — the org-list endpoint is
-  // sysadmin-scoped; org-admins only ever see their own org's events and
-  // degrade to bare ids. Failure is non-fatal: an empty map falls back to ids.
-  const orgList = useQuery(isReady && isSuperAdmin ? queries.listOrganizations({ limit: 200 }) : null);
-  const orgNames = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const org of orgList.data?.data?.organizations ?? []) {
-      if (org.id && org.name) map.set(org.id, org.name);
-    }
-    return map;
-  }, [orgList.data]);
+  // Org id → display name, so org references render as `name (id)` instead of
+  // a bare ObjectId. Resolved for exactly the ids this page shows (the first
+  // 200 orgs of the fleet used to be fetched, so every org past that rendered
+  // as a bare id). Sysadmin only — the org-list endpoint is sysadmin-scoped;
+  // org-admins only ever see their own org's events and degrade to bare ids.
+  const shownOrgIds = useMemo(() => {
+    const ids = [affectedOrgId, orgIdFilter, user?.organizationId ?? ''];
+    for (const e of events) ids.push(e.orgId ?? '', e.affectedOrgId ?? '');
+    if (selected) ids.push(selected.orgId ?? '', selected.affectedOrgId ?? '');
+    return ids.filter(Boolean);
+  }, [events, affectedOrgId, orgIdFilter, user?.organizationId, selected]);
+  const orgNames = useOrgNames(shownOrgIds, isReady && isSuperAdmin);
 
   // Render an org reference as `name (id)`, keeping the id copyable via
   // CopyableId. Unknown/unresolved orgs fall back to the bare id (no

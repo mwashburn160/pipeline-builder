@@ -31,6 +31,7 @@ const mockApi = {
   })),
   getUserOrganizations: jest.fn<AnyFn>(async () => ({ data: { organizations: [] } })),
   setOrganizationId: jest.fn<AnyFn>(),
+  onAccessTokenChange: () => () => undefined,
   onSessionExpired: jest.fn<AnyFn>(() => () => { /* unsubscribe */ }),
   register: jest.fn<AnyFn>(async () => ({ success: true, data: { user: { id: 'u1' } } })),
   login: jest.fn<AnyFn>(async () => ({ success: true })),

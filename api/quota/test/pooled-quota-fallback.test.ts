@@ -13,10 +13,11 @@
  *
  * Companion to pooled-quota.test.ts, which runs with the fallback disabled.
  */
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const emitCounter = jest.fn();
+const emitCounter = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   emitCounter,
@@ -41,9 +42,9 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   getParentOrgId,
 }));
 
-const findOneAndUpdate = jest.fn();
-const findById = jest.fn();
-const find = jest.fn();
+const findOneAndUpdate = jest.fn<AnyFn>();
+const findById = jest.fn<AnyFn>();
+const find = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: { findOneAndUpdate, findById, find },
 }));

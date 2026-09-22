@@ -49,6 +49,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   auditService: { createEvent: jest.fn(async () => undefined) },
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
@@ -58,12 +59,14 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
   membershipForOrg: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: (...a: unknown[]) => mockRenewSessionTokens(...a),
+  hashRefreshToken: (t: string) => `h:${t}`,
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (_schema: unknown, body: unknown) => body, registerSchema: {}, loginSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
 }));
 
 const { switchOrg, refresh, logout } = await import('../src/controllers/auth.js');
+const { __resetRefreshGraceForTests } = await import('../src/helpers/refresh-grace.js');
 
 /** A plain membership in the destination org. */
 const MEMBER = { role: 'member', via: 'membership', permissionOrgIds: ['org-to'] };
@@ -79,6 +82,7 @@ function makeRes() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  __resetRefreshGraceForTests();
   mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' });
   mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a2', refreshToken: 'r2' });
 });
@@ -87,7 +91,7 @@ describe('switchOrg — org.switch audit', () => {
   it('emits org.switch with destination org as affectedOrgId and from/to in details', async () => {
     mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1', lastActiveOrgId: 'org-to' }, authority: MEMBER });
 
-    const req: any = { user: { sub: 'u1', organizationId: 'org-from' }, headers: {}, body: { organizationId: 'org-to' } };
+    const req: any = { user: { sub: 'u1', sid: 's1', organizationId: 'org-from' }, headers: {}, body: { organizationId: 'org-to' } };
     const res = makeRes();
     await (switchOrg as any)(req, res);
 
@@ -98,19 +102,19 @@ describe('switchOrg — org.switch audit', () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  it('a slot-less caller keeps its narrowing across the switch (scope AND permission subset)', async () => {
+  it.each([
+    ['an exchanged access key', { sub: 'u1', organizationId: 'org-from', token_use: 'api_key', jti: 'k1', permissionsRestricted: true, permissions: ['plugins:read'] }],
+    ['a service account', { sub: 'sa-1', organizationId: 'org-from', token_use: 'api_key', jti: 'k1', principalType: 'service_account' }],
+    ['an impersonation session', { sub: 'u1', organizationId: 'org-from', jti: 'imp-1', impersonatorId: 'op-1' }],
+    ['a token with no slot', { sub: 'u1', organizationId: 'org-from' }],
+  ])('REFUSES %s — there is no session slot to re-issue, and none is minted (403)', async (_label, user) => {
     mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1', lastActiveOrgId: 'org-to' }, authority: MEMBER });
-    // An exchanged permission-scoped access key: no `sid`, `permissionsRestricted`.
-    const req: any = {
-      user: { sub: 'u1', organizationId: 'org-from', permissionsRestricted: true, permissions: ['plugins:read', 'pipelines:read'] },
-      headers: {},
-      body: { organizationId: 'org-to' },
-    };
-    await (switchOrg as any)(req, makeRes());
-    expect(mockIssueTokens).toHaveBeenCalledWith(expect.anything(), 'org-to', expect.objectContaining({
-      kind: 'interactive',
-      permissions: ['pipelines:read', 'plugins:read'],
-    }));
+    const res = makeRes();
+    await (switchOrg as any)({ user, headers: {}, body: { organizationId: 'org-to' } }, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+    expect(mockRenewSessionTokens).not.toHaveBeenCalled();
+    expect(mockSwitchActiveOrg).not.toHaveBeenCalled();
   });
 
   it('records the ancestor whose admin membership let a parent admin into a team', async () => {
@@ -119,7 +123,7 @@ describe('switchOrg — org.switch audit', () => {
       authority: { role: 'admin', via: 'ancestor', inheritedFromOrgId: 'root-1', permissionOrgIds: ['root-1'] },
     });
 
-    const req: any = { user: { sub: 'u1', organizationId: 'root-1' }, headers: {}, body: { organizationId: 'team-1' } };
+    const req: any = { user: { sub: 'u1', sid: 's1', organizationId: 'root-1' }, headers: {}, body: { organizationId: 'team-1' } };
     const res = makeRes();
     await (switchOrg as any)(req, res);
 
@@ -170,10 +174,11 @@ describe('refresh — reuse revokes one slot', () => {
     const res = makeRes();
     res.locals.refreshSessionId = 's1';
     res.locals.presentedRefreshToken = 'rt';
+    res.locals.refreshSessionKind = 'interactive';
     await (refresh as any)({ user: { sub: 'u1', organizationId: 'org-1' }, headers: {}, body: {} }, res);
 
-    // Only INTERACTIVE slots refresh — a machine session is turned away by the
-    // middleware and renews through generate-token instead.
+    // The slot's own kind is required to match: a device's token rotates its
+    // interactive slot, a machine credential's its machine slot.
     expect(mockRenewSessionTokens).toHaveBeenCalledWith(
       user, 'org-1', { sessionId: 's1', presentedToken: 'rt', kind: 'interactive' },
       expect.objectContaining({ client: expect.anything() }),
@@ -192,6 +197,39 @@ describe('refresh — reuse revokes one slot', () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockRevokeRefreshSession).toHaveBeenCalledWith('u1', 's1');
     expect(mockInvalidateAllSessions).not.toHaveBeenCalled();
+  });
+});
+
+describe('refresh — the 30-second rotation grace', () => {
+  const refreshWith = async (presented: string, sessionId = 's1') => {
+    const res = makeRes();
+    res.locals.refreshSessionId = sessionId;
+    res.locals.presentedRefreshToken = presented;
+    res.locals.refreshSessionKind = 'interactive';
+    await (refresh as any)({ user: { sub: 'u1' }, headers: { 'x-pb-client': 'cli' }, body: {} }, res);
+    return res;
+  };
+
+  it('a concurrent loser presenting the IMMEDIATELY-PREVIOUS token gets the current pair — no revocation', async () => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    mockRenewSessionTokens.mockResolvedValueOnce({ accessToken: 'a2', refreshToken: 'r2', expiresIn: 900 });
+    await refreshWith('old'); // the winner rotates old → r2
+    mockRenewSessionTokens.mockResolvedValueOnce(null);
+    const res = await refreshWith('old'); // the racing loser
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { accessToken: 'a2', refreshToken: 'r2', expiresIn: 900 } }));
+    expect(mockRevokeRefreshSession).not.toHaveBeenCalled();
+  });
+
+  it('the grace is per slot: the same token against another slot is still reuse', async () => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    mockRenewSessionTokens.mockResolvedValueOnce({ accessToken: 'a2', refreshToken: 'r2', expiresIn: 900 });
+    await refreshWith('old', 's1');
+    mockRenewSessionTokens.mockResolvedValueOnce(null);
+    const res = await refreshWith('old', 's2');
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockRevokeRefreshSession).toHaveBeenCalledWith('u1', 's2');
   });
 });
 

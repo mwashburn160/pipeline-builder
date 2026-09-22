@@ -10,6 +10,7 @@
  * `public_*` views and nothing else (§6a G28).
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -19,7 +20,7 @@ import { pipelineEvent } from '../src/database/schema/pipeline.js';
 import { plugin } from '../src/database/schema/plugin.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const DDL = readFileSync(resolve(REPO_ROOT, 'deploy/local/docker/postgres-init.sql'), 'utf8');
+const DDL = readFileSync(resolve(REPO_ROOT, 'deploy/shared/postgres-init.sql'), 'utf8');
 
 /** The `CREATE TABLE <name> (...)` body, so a column can't be found in an unrelated table. */
 function tableBody(name: string): string {
@@ -120,7 +121,7 @@ describe('ecosystem RLS split', () => {
   const orgScopedLoop = arrayAfter('SELECT unnest(ARRAY[');
   const globalLoop = arrayAfter('Plugin ecosystem, GLOBAL half');
 
-  it('tables with org_id are exactly the org-scoped set, and get rls_org_scope + FORCE', () => {
+  it('tables with org_id are exactly the org-scoped set, and get the rls_org_* policies + FORCE', () => {
     const withOrgId = ECO_TABLES
       .filter((t) => getTableConfig(t).columns.some((c) => c.name === 'org_id'))
       .map((t) => getTableConfig(t).name);

@@ -16,6 +16,7 @@
  * because each half is silent when absent.
  */
 
+import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -157,8 +158,12 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     const kustomization = read(`${target}/k8s/kustomization.yaml`);
     expect(kustomization).toContain('grafana.yaml');
     expect(kustomization).toContain('kiali.yaml');
-    // Reached through nginx on a subpath, like pgAdmin.
-    const nginx = read(`${target}/nginx/nginx.conf`);
+    // Reached through nginx on a subpath, like pgAdmin. On the AWS targets the
+    // admin routes live in admin-uis.conf (gated, off by default — see the
+    // admin-console contract below); locally they are in nginx.conf itself.
+    const nginx = target.startsWith('deploy/aws/')
+      ? read(`${target}/nginx/admin-uis.conf`)
+      : read(`${target}/nginx/nginx.conf`);
     expect(nginx).toContain('location /grafana/');
     expect(nginx).toContain('location /kiali/');
   });
@@ -187,10 +192,9 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
   });
 
   it('uses a ports-only egress rule, never an ipBlock', () => {
-    // Under ambient, outbound is redirected to the node-local ztunnel over a
-    // link-local address. A `to:` ipBlock that excepts 169.254.0.0/16 severs
-    // the data path while still completing the TCP handshake — the scrape then
-    // hangs rather than failing. Ports-only is the shape proven to work here.
+    // The mesh components are pod IPs in istio-system — RFC1918 on a VPC CNI —
+    // so the shared public-egress ipBlock (RFC1918 excepted) would cut exactly
+    // them off. Ports-only is what bounds this rule.
     const policy = netpol
       .slice(netpol.indexOf('allow-prometheus-mesh-scrape'))
       .split('---')[0];
@@ -246,3 +250,52 @@ describe('plugin ecosystem operations', () => {
     expect(read('deploy/local/docker/docker-compose.yml')).toContain('./config/grafana/provisioning:/etc/grafana/provisioning:ro');
   });
 });
+
+/**
+ * D13: the admin consoles on the AWS gateway are OFF unless the operator opts
+ * in, and when on, every request passes platform's superadmin gate first. Each
+ * property fails silently: a missing auth_request would publish a datastore to
+ * the internet, and the only symptom would be that it works.
+ */
+describe.each(['deploy/aws/ec2', 'deploy/aws/eks'])('admin consoles on the AWS gateway — %s', (target) => {
+  const nginx = read(`${target}/nginx/nginx.conf`);
+  const enabled = read(`${target}/nginx/admin-uis.conf`);
+  const disabled = read(`${target}/nginx/admin-uis-disabled.conf`);
+  const CONSOLES = ['/pgadmin/', '/mongo-express/', '/grafana/', '/kiali/'];
+
+  it('keeps no console route in nginx.conf itself — only the deploy-time include', () => {
+    expect(nginx).toContain('include /etc/nginx/admin-uis.conf;');
+    for (const c of CONSOLES) expect(nginx).not.toContain(`location ${c} {`);
+  });
+
+  it('gates every console behind the platform superadmin check and strips the token', () => {
+    for (const c of CONSOLES) {
+      const block = enabled.slice(enabled.indexOf(`location ${c} {`)).split('\n        }\n')[0];
+      expect([c, block.includes('auth_request /_pb_admin_console_check;')]).toEqual([c, true]);
+      expect([c, block.includes('proxy_set_header Cookie $pb_cookie_without_console;')]).toEqual([c, true]);
+    }
+    expect(enabled).toContain('internal;');
+    expect(enabled).toContain(':3000/admin/console-check');
+  });
+
+  it('404s the consoles by default', () => {
+    expect(disabled).toMatch(/location ~ \^\/\(pgadmin\|mongo-express\|grafana\|kiali\)/);
+    expect(disabled).toContain('return 404;');
+    expect(read(`${target}/.env.example`)).toMatch(/^ADMIN_UIS_ENABLED=false$/m);
+    const res = read('deploy/bin/k8s-resources.sh');
+    expect(res).toContain('"${ADMIN_UIS_ENABLED:-false}" = true');
+    expect(res).toContain('admin-uis-disabled.conf');
+  });
+
+  // D14: the client IP comes from real_ip, trusting only the load balancer.
+  it('derives the client IP from X-Forwarded-For only behind the trusted proxy CIDRs, and overwrites it', () => {
+    expect(nginx).toContain('include /etc/nginx/real-ip.conf;');
+    expect(nginx).toContain('real_ip_header X-Forwarded-For;');
+    expect(nginx).toContain('real_ip_recursive on;');
+    expect(nginx).not.toContain('$proxy_add_x_forwarded_for');
+    expect(enabled).not.toContain('$proxy_add_x_forwarded_for');
+    expect(nginx).toContain('limit_req_zone $binary_remote_addr zone=public_submissions');
+    expect(read(`${target}/.env.example`)).toMatch(/^TRUST_PROXY=1$/m);
+  });
+});
+

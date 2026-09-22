@@ -34,10 +34,15 @@ const api = {
   updateInstallPolicy: jest.fn<AnyFn>(),
   getListingInstallState: jest.fn<AnyFn>(),
   getPluginCatalog: jest.fn<AnyFn>(),
+  requestInstallChange: jest.fn<AnyFn>(),
+  listInstallChangeRequests: jest.fn<AnyFn>(),
+  approveInstallChange: jest.fn<AnyFn>(),
+  rejectInstallChange: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, k: string) => (api as Record<string, unknown>)[k] }) }));
 
 import { InstallControls } from '../src/components/plugin-installs/InstallControls';
+import { ApiError } from '../src/lib/api/errors';
 import { PolicyTab } from '../src/components/plugin-installs/PolicyTab';
 import { ApprovalsTab } from '../src/components/plugin-installs/ApprovalsTab';
 import { CatalogTab } from '../src/components/plugin-installs/CatalogTab';
@@ -48,6 +53,7 @@ const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, 
 beforeEach(() => {
   jest.clearAllMocks();
   stepUpToken = 'tok';
+  api.listInstallChangeRequests.mockReturnValue(ok({ changeRequests: [] }));
   api.getListingInstallState.mockReturnValue(ok({ versions: [
     { version: '1.2.0', breaking: false, yanked: false, paused: false, deprecated: false, publishedAt: '', changelog: null, vulnCritical: 0, vulnHigh: 0 },
     { version: '1.1.0', breaking: false, yanked: true, paused: false, deprecated: false, publishedAt: '', changelog: null, vulnCritical: 0, vulnHigh: 0 },
@@ -113,6 +119,28 @@ describe('InstallControls', () => {
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Uninstall' }));
     await waitFor(() => expect(api.deletePluginInstall).toHaveBeenCalledWith('i1'));
     expect(await screen.findByRole('status')).toHaveTextContent('Uninstalled.');
+  });
+
+  it('a caller who needs an approver is told who can do a major upgrade, not offered a button the server refuses', async () => {
+    const install = installView({ upgrade: { version: '2.0.0', breaking: false, changelog: null, vulnDelta: { newCritical: 0, newHigh: 0 } } });
+    render(<InstallControls entry={catalogEntry({ install, needsApproval: true })} canInstall onChanged={() => undefined} />);
+    expect(screen.queryByRole('button', { name: /Upgrade to 2.0.0/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('upgrade-needs-approver')).toHaveTextContent(/Manage plugin installs/);
+  });
+
+  it('labels policy "latest" as a request for a caller who needs an approver', async () => {
+    render(<InstallControls entry={catalogEntry({ install: installView(), needsApproval: true })} canInstall onChanged={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Change policy' }));
+    const dialog = await screen.findByRole('dialog');
+    const latest = within(dialog).getByRole('option', { name: /sends a request to an approver/ }) as HTMLOptionElement;
+    expect(latest.value).toBe('latest');
+    expect(latest.disabled).toBe(false);
+  });
+
+  it('still offers a same-major, non-breaking upgrade to that caller', () => {
+    const install = installView({ upgrade: { version: '1.9.0', breaking: false, changelog: null, vulnDelta: { newCritical: 0, newHigh: 0 } } });
+    render(<InstallControls entry={catalogEntry({ install, needsApproval: true })} canInstall onChanged={() => undefined} />);
+    expect(screen.getByRole('button', { name: /Upgrade to 1.9.0/ })).toBeInTheDocument();
   });
 
   it('pending: withdraw; inherited installs are read-only', async () => {
@@ -217,6 +245,18 @@ describe('ApprovalsTab', () => {
 });
 
 describe('CatalogTab and InstallsTab', () => {
+  it('says when the catalog has more than one page, and loads the next', async () => {
+    api.getPluginCatalog
+      .mockReturnValueOnce(ok({ listings: [catalogEntry()], total: 2, limit: 200, offset: 0, hasMore: true }))
+      .mockReturnValueOnce(ok({ listings: [officialEntry('trivy')], total: 2, limit: 200, offset: 1, hasMore: false }));
+    render(<CatalogTab canInstall usage={{}} />);
+    expect(await screen.findByTestId('catalog-count')).toHaveTextContent('Showing 1 of 2');
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(api.getPluginCatalog).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 1, limit: 200 })));
+    await waitFor(() => expect(screen.getAllByTestId('catalog-card')).toHaveLength(2));
+    expect(screen.queryByTestId('catalog-count')).not.toBeInTheDocument();
+  });
+
   it('lists catalog entries with tier, reference and usage, and filters by category', async () => {
     api.getPluginCatalog.mockReturnValue(ok({ listings: [officialEntry('trivy'), catalogEntry()] }));
     render(<CatalogTab canInstall usage={{ trivy: 2, 'acme/terraform-plan': 1 }} initialQuery="t" />);
@@ -226,11 +266,11 @@ describe('CatalogTab and InstallsTab', () => {
     expect(cards[0]).toHaveTextContent('used by 2 pipelines');
     expect(cards[1]).toHaveTextContent('Reference: acme/terraform-plan');
     expect(cards[1].querySelector('[data-tier="verified"]')).not.toBeNull();
-    expect(api.getPluginCatalog).toHaveBeenCalledWith({ q: 't', category: undefined, installed: undefined }, expect.anything());
+    expect(api.getPluginCatalog).toHaveBeenCalledWith({ q: 't', category: undefined, installed: undefined, limit: 200 }, expect.anything());
 
     fireEvent.change(screen.getByLabelText('Catalog category'), { target: { value: 'security' } });
     fireEvent.change(screen.getByLabelText('Install state'), { target: { value: 'installed' } });
-    await waitFor(() => expect(api.getPluginCatalog).toHaveBeenLastCalledWith({ q: 't', category: 'security', installed: true }, expect.anything()));
+    await waitFor(() => expect(api.getPluginCatalog).toHaveBeenLastCalledWith({ q: 't', category: 'security', installed: true, limit: 200 }, expect.anything()));
   });
 
   it('shows the review score, vote count and install count on a catalog card', async () => {
@@ -256,5 +296,72 @@ describe('CatalogTab and InstallsTab', () => {
     expect(api.listPluginInstalls).toHaveBeenLastCalledWith({ status: 'all', implicit: false }, expect.anything());
     fireEvent.click(screen.getByLabelText('Show automatic Official installs'));
     await waitFor(() => expect(api.listPluginInstalls).toHaveBeenLastCalledWith({ status: 'all', implicit: true }, expect.anything()));
+  });
+});
+
+describe('install change requests', () => {
+  const major = { version: '2.0.0', breaking: false, changelog: null, vulnDelta: { newCritical: 0, newHigh: 0 } };
+
+  it('a caller who needs an approver requests the major upgrade, with a note', async () => {
+    api.requestInstallChange.mockReturnValue(ok({ changeRequest: {} }));
+    const onChanged = jest.fn<AnyFn>();
+    render(<InstallControls entry={catalogEntry({ install: installView({ upgrade: major }), needsApproval: true })} canInstall onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Request upgrade to 2.0.0' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/note for the approver/i), { target: { value: 'Need the new flags' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Send request' }));
+    await waitFor(() => expect(api.requestInstallChange).toHaveBeenCalledWith('i1', { version: '2.0.0', note: 'Need the new flags' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/change requested/i);
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('says so when a change is already waiting (409)', async () => {
+    api.requestInstallChange.mockReturnValue(Promise.reject(new ApiError('dup', 409, 'DUPLICATE_ENTRY')));
+    render(<InstallControls entry={catalogEntry({ install: installView({ upgrade: major }), needsApproval: true })} canInstall onChanged={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Request upgrade to 2.0.0' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Send request' }));
+    expect(await screen.findByText(/already waiting for approval/i)).toBeInTheDocument();
+  });
+
+  it('turns a policy change the server calls requestable into a request', async () => {
+    api.updatePluginInstall.mockReturnValue(Promise.reject(new ApiError('needs approver', 403, 'INSUFFICIENT_PERMISSIONS', { requestable: true })));
+    api.requestInstallChange.mockReturnValue(ok({ changeRequest: {} }));
+    render(<InstallControls entry={catalogEntry({ install: installView(), needsApproval: true })} canInstall onChanged={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Change policy' }));
+    const policy = await screen.findByRole('dialog');
+    fireEvent.change(within(policy).getByLabelText('Version policy'), { target: { value: 'latest' } });
+    fireEvent.click(within(policy).getByRole('button', { name: 'Save' }));
+    const req = await screen.findByRole('dialog', { name: /request a change/i });
+    fireEvent.click(within(req).getByRole('button', { name: 'Send request' }));
+    await waitFor(() => expect(api.requestInstallChange).toHaveBeenCalledWith('i1', expect.objectContaining({ versionPolicy: 'latest' })));
+  });
+
+  it('shows a pending change on the install and offers no second request', () => {
+    const install = installView({ upgrade: major, pendingChange: { version: '2.0.0', versionPolicy: 'minor', requestedBy: 'u2', requestedAt: '2026-09-20T00:00:00Z', note: null } });
+    render(<InstallControls entry={catalogEntry({ install, needsApproval: true })} canInstall onChanged={() => undefined} />);
+    expect(screen.getByTestId('pending-change')).toHaveTextContent(/v2\.0\.0.*waiting for an approver/);
+    expect(screen.queryByRole('button', { name: /request upgrade/i })).not.toBeInTheDocument();
+  });
+
+  it('approvers see requested changes oldest first beside install requests, and approve or reject them', async () => {
+    api.listPluginInstalls.mockReturnValue(ok({ installs: [], policy: POLICY }));
+    api.listInstallChangeRequests.mockReturnValue(ok({ changeRequests: [
+      { installId: 'i1', listing: 'acme/terraform-plan', from: { version: '1.2.0', versionPolicy: 'minor' }, to: { version: '2.0.0', versionPolicy: 'minor' }, requestedBy: 'u2', requestedAt: '2026-09-20T00:00:00Z', note: 'Need v2' },
+    ] }));
+    api.approveInstallChange.mockReturnValue(ok({ install: installView() }));
+    api.rejectInstallChange.mockReturnValue(ok({ install: installView() }));
+    render(<ApprovalsTab />);
+    const row = await screen.findByTestId('change-request-row');
+    expect(row).toHaveTextContent('v1.2.0');
+    expect(row).toHaveTextContent('v2.0.0');
+    expect(row).toHaveTextContent('Need v2');
+    fireEvent.click(within(row).getByRole('button', { name: /approve the change/i }));
+    await waitFor(() => expect(api.approveInstallChange).toHaveBeenCalledWith('i1'));
+
+    fireEvent.click(within(await screen.findByTestId('change-request-row')).getByRole('button', { name: /reject the change/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Reason'), { target: { value: 'Not yet' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reject' }));
+    await waitFor(() => expect(api.rejectInstallChange).toHaveBeenCalledWith('i1', 'Not yet'));
   });
 });

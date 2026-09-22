@@ -8,12 +8,13 @@
  * forgetting to lowercase the env values.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockOrgCount = jest.fn();
-const mockUserCount = jest.fn();
-const mockIdpCount = jest.fn();
+const mockOrgCount = jest.fn<AnyFn>();
+const mockUserCount = jest.fn<AnyFn>();
+const mockIdpCount = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -27,7 +28,7 @@ jest.unstable_mockModule('mongoose', () => {
     method() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useId } from 'react';
 import { useRouter } from 'next/router';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -55,6 +55,7 @@ const DashboardLayoutGrid = dynamic(() => import('@/components/observability/Das
 const EMPTY_CATALOG: CatalogEntry[] = [];
 
 export default function DashboardEditPage() {
+  const uid = useId();
   // View on `dashboards:read`; persisting edits is a `dashboards:write`
   // capability gated on `can()` (the backend rejects the PUT otherwise, and
   // `can()` reports false under read-only impersonation so Save disables).
@@ -191,24 +192,24 @@ export default function DashboardEditPage() {
         {/* Metadata */}
         <div className="rounded-lg border border-default bg-surface p-4 space-y-3">
           <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1">Name</label>
-            <Input
+            <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-name`}>Name</label>
+            <Input id={`${uid}-name`}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1">Description</label>
-            <Textarea
+            <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-description`}>Description</label>
+            <Textarea id={`${uid}-description`}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1">Visibility</label>
-            <Select
+            <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-visibility`}>Visibility</label>
+            <Select id={`${uid}-visibility`}
               value={visibility}
               onChange={(e) => setVisibility(e.target.value as typeof visibility)}
             >

@@ -779,11 +779,15 @@ const STATES: readonly AdvisoryState[] = ['draft', 'published', 'withdrawn'];
 
 /** GET /plugins/publisher/advisories — the caller's publisher's advisories, in every state (drafts are private to it and the system org). */
 export async function publisherAdvisories(caller: Caller) {
-  if (!can(caller, 'publishers:manage')) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Advisories need publishers:manage');
+  if (!can(caller, 'plugins:read')) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Advisories need plugins:read');
   const publisher = await publishers.byOrg(caller.orgId);
   if (!publisher) return [];
+  // Every member reads the advisories on their own listings; the embargoed
+  // DRAFTS (a fix not yet shipped) stay with the publisher's managers.
+  const manager = can(caller, 'publishers:manage');
+  const rows = await advisoryStore.list({ publisherId: publisher.id, ...(manager ? {} : { states: ['published', 'withdrawn'] as AdvisoryState[] }) });
   // Only the publisher's own drafts name their author; system-side drafts are the system's.
-  return (await advisoryViews(await advisoryStore.list({ publisherId: publisher.id })))
+  return (await advisoryViews(rows))
     .map((v) => (v.source === 'publisher' ? v : { ...v, createdBy: SYSTEM_ACTOR_ID }));
 }
 

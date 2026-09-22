@@ -25,6 +25,7 @@ jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: stri
 const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string }>>();
 const mockExpandOrgScope = jest.fn<(...a: unknown[]) => Promise<string[]>>();
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   resolveOrgLineage: mockResolveOrgLineage,
   expandOrgScope: mockExpandOrgScope,
 }));
@@ -54,12 +55,12 @@ const mockInvDistinct = jest.fn((_field: string, filter: Record<string, unknown>
 });
 
 // UserOrganization.distinct → array of member ids.
-const mockUoDistinct = jest.fn(() => queryResolving(seededMembers));
+const mockUoDistinct = jest.fn((..._args: unknown[]) => queryResolving(seededMembers));
 
 // Supports both chains used in seats.ts:
 //   findById().select().session().lean()  (seatCapacityAvailable)
 //   findById().select().lean()            (pooledSeatUsage)
-const mockOrgFindById = jest.fn(() => {
+const mockOrgFindById = jest.fn((..._args: unknown[]) => {
   // pooledSeatUsage reads `quotas.seats`; pooledFeatureEntitlements reads
   // `featureEntitlements` off the same (root) doc — both are served here.
   const leaf = { lean: () => Promise.resolve({ quotas: { seats: seatLimit }, featureEntitlements: seededFeatures }) };

@@ -15,10 +15,11 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const syncEntitledSetsMock = jest.fn<(...a: unknown[]) => Promise<{ activated: string[]; deactivated: string[] }>>(
-  async () => ({ activated: [], deactivated: [] }),
+const syncEntitledSetsMock = jest.fn<(...a: unknown[]) => Promise<{ skipped: boolean; activated: string[]; deactivated: string[] }>>(
+  async () => ({ skipped: false, activated: [], deactivated: [] }),
 );
 const emitComplianceAuditMock = jest.fn();
 
@@ -45,7 +46,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: '', userId: req.user?.sub });
@@ -108,12 +109,12 @@ describe('PUT /entitlements/:orgId — service-principal gated', () => {
 
   it('accepts a service principal, reconciles, and audits genuine changes', async () => {
     isSvc = true;
-    syncEntitledSetsMock.mockResolvedValueOnce({ activated: ['r1', 'r2'], deactivated: ['r3'] });
+    syncEntitledSetsMock.mockResolvedValueOnce({ skipped: false, activated: ['r1', 'r2'], deactivated: ['r3'] });
     const handler = putRoute();
     const { res, status, json } = makeRes();
     await handler({ params: { orgId: 'org-a' }, body: { sets: ['standard', 'advanced'] }, user: { sub: 'service:billing', principalType: 'service' } } as any, res);
 
-    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard', 'advanced'], 'service:billing');
+    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard', 'advanced'], 'service:billing', {});
     expect(status).toHaveBeenCalledWith(200);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ ok: true, activated: 2, deactivated: 1 }),
@@ -153,6 +154,6 @@ describe('PUT /entitlements/:orgId — service-principal gated', () => {
     const handler = putRoute();
     const { res } = makeRes();
     await handler({ params: { orgId: 'org-a' }, body: { sets: ['standard', 'bogus', 'advanced'] }, user: { sub: 'service:billing', principalType: 'service' } } as any, res);
-    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard', 'advanced'], 'service:billing');
+    expect(syncEntitledSetsMock).toHaveBeenCalledWith('org-a', ['standard', 'advanced'], 'service:billing', {});
   });
 });

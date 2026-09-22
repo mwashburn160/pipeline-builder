@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal, errorMessage, retryForever } from '@pipeline-builder/api-core';
+import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal, errorMessage, retryForever, type Scheduler } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -186,15 +186,16 @@ const scimLimiter = createLimiter({
 });
 
 /**
- * Interval sweeps started INLINE below (rather than in a service module with its
- * own `stopX()`), collected so the unified `shutdown()` can stop them alongside
- * the others.
+ * Sweeps started INLINE below (rather than in a service module with its own
+ * `stopX()`), collected so the unified `shutdown()` can stop them alongside the
+ * others. Each is a {@link Scheduler} from `createLockedSweep` (same-pod
+ * re-entrancy guard + cross-pod leader lock).
  *
- * They are `.unref()`'d, so they never keep the process alive — but `.unref()`
+ * Their intervals are unref'd, so they never keep the process alive — but that
  * does not stop them FIRING during a graceful teardown, and a pass that begins
  * after `mongoose.connection.close()` just throws against a closed connection.
  */
-const backgroundSweeps: NodeJS.Timeout[] = [];
+const backgroundSweeps: Scheduler[] = [];
 
 /** Request ID middleware  attaches a unique ID to each request for log correlation */
 function requestIdMiddleware(req: Request, _res: Response, next: NextFunction): void {
@@ -375,9 +376,10 @@ async function initDependencies(): Promise<void> {
   // fire-and-forget with its own catch). Registered after Mongo connects so the
   // AuditEvent write has a live connection; requests are 503'd until ready.
   const { setAuthzDenialAuditor } = await import('@pipeline-builder/api-core');
-  const { auditService } = await import('./services/index.js');
+  const { recordAuditEvent, drainLocalAuditSpool } = await import('./helpers/audit.js');
   setAuthzDenialAuditor((info) => {
-    void auditService.createEvent({
+    // Durable fire-and-forget: a failed write is spooled, never dropped.
+    recordAuditEvent({
       action: 'authz.denied',
       actorId: info.actorId ?? 'anonymous',
       actorEmail: info.actorEmail,
@@ -385,12 +387,44 @@ async function initDependencies(): Promise<void> {
       affectedOrgId: info.orgId,
       outcome: 'failure',
       details: { method: info.method, path: info.path, required: info.required },
-    }).catch((err) => {
-      logger.warn('Failed to persist authz.denied audit event', {
-        error: errorMessage(err),
-      });
     });
   });
+
+  // Re-append platform-local audit events whose write failed (spooled to Redis
+  // by `recordAuditEvent`). Every replica drains — the spool's atomic LMOVE
+  // hands each entry to exactly one drainer — so no leader lock; the scheduler's
+  // re-entrancy guard keeps one pod's drains from overlapping. Each tick also
+  // heartbeats this pod's spool ownership and reclaims stale owners' in-flight
+  // entries (runOnStart makes the first tick the boot-time recovery).
+  {
+    const { createScheduler } = await import('@pipeline-builder/api-core');
+    const drain = createScheduler({
+      name: 'audit-local-spool-drain',
+      intervalMs: config.audit.spoolDrainIntervalMs,
+      run: async () => { await drainLocalAuditSpool(); },
+    });
+    drain.start();
+    backgroundSweeps.push(drain);
+  }
+
+  // Publish each audit chain's signed head to write-once object storage (see
+  // services/audit-head-export.ts). Leader-locked: one exporter per window.
+  {
+    const { exportAuditChainHeads, headExportTarget } = await import('./services/audit-head-export.js');
+    if (headExportTarget()) {
+      const { createLockedSweep } = await import('./utils/leader-lock.js');
+      const exporter = createLockedSweep({
+        name: 'audit-head-export',
+        lockKey: 'platform:leader:audit-head-export',
+        intervalMs: config.audit.headExport.intervalMs,
+        run: async () => { await exportAuditChainHeads(); },
+      });
+      exporter.start();
+      backgroundSweeps.push(exporter);
+    } else {
+      logger.warn('Audit chain-head export DISABLED (AUDIT_HEAD_EXPORT_S3_* unset) — /audit/verify cannot detect tail truncation');
+    }
+  }
 
   // Bootstrap super-admins from BOOTSTRAP_SUPERADMIN_EMAILS (idempotent,
   // non-fatal — warns rather than fails on missing accounts).
@@ -425,7 +459,7 @@ async function initDependencies(): Promise<void> {
   // developer-tier with no bill. No-ops when billing is disabled. Idempotent.
   if (config.billing.enabled) {
     const { reconcilePendingBillingSubscriptions } = await import('./services/billing-provision.js');
-    const { runWithLeaderLock } = await import('./utils/leader-lock.js');
+    const { createLockedSweep } = await import('./utils/leader-lock.js');
     void reconcilePendingBillingSubscriptions().catch((err) => {
       logger.error('Billing reconcile (boot drain) failed (service will still come ready)', {
         error: errorMessage(err),
@@ -435,13 +469,17 @@ async function initDependencies(): Promise<void> {
     if (intervalMs > 0) {
       // Cross-pod leader lock so only ONE replica runs the reconcile pass per
       // window (otherwise every replica scans + provisions the same pending
-      // orgs in parallel). TTL floored to comfortably exceed one pass.
-      const lockTtlMs = Math.max(intervalMs, 60_000);
-      backgroundSweeps.push(setInterval(() => {
-        void runWithLeaderLock('platform:leader:billing-reconcile', lockTtlMs, async () => {
-          await reconcilePendingBillingSubscriptions();
-        });
-      }, intervalMs).unref());
+      // orgs in parallel); the scheduler keeps a slow pass from overlapping
+      // itself. The boot drain above already ran, so no run-on-start.
+      const reconcile = createLockedSweep({
+        name: 'billing-reconcile',
+        lockKey: 'platform:leader:billing-reconcile',
+        intervalMs,
+        runOnStart: false,
+        run: async () => { await reconcilePendingBillingSubscriptions(); },
+      });
+      reconcile.start();
+      backgroundSweeps.push(reconcile);
     }
   }
 
@@ -453,15 +491,20 @@ async function initDependencies(): Promise<void> {
   {
     const { domainReverifyIntervalMs: reverifyIntervalMs, domainReverifyStaleMs: reverifyStaleMs } = config.organization;
     if (reverifyIntervalMs > 0) {
-      const { runWithLeaderLock } = await import('./utils/leader-lock.js');
-      const lockTtlMs = Math.max(reverifyIntervalMs, 60_000);
-      backgroundSweeps.push(setInterval(() => {
-        void runWithLeaderLock('platform:leader:domain-reverify', lockTtlMs, async () => {
+      const { createLockedSweep } = await import('./utils/leader-lock.js');
+      const reverify = createLockedSweep({
+        name: 'domain-reverify',
+        lockKey: 'platform:leader:domain-reverify',
+        intervalMs: reverifyIntervalMs,
+        runOnStart: false,
+        run: async () => {
           const { orgDomainService } = await import('./services/org-domain-service.js');
           const res = await orgDomainService.reverifyStaleDomains(reverifyStaleMs);
           if (res.checked > 0) logger.info('Domain re-verification sweep', res);
-        });
-      }, reverifyIntervalMs).unref());
+        },
+      });
+      reverify.start();
+      backgroundSweeps.push(reverify);
     }
   }
 
@@ -559,6 +602,12 @@ async function startServer(): Promise<void> {
   const { initTokenSigning } = await import('./services/token-signing/index.js');
   await initTokenSigning();
 
+  // The audit chain HMAC key must be present before anything is audited: a
+  // missing key in production is a refusal to boot, not a silently unkeyed
+  // chain (see config/audit-chain-key.ts).
+  const { requireAuditChainHmacKey } = await import('./config/audit-chain-key.js');
+  requireAuditChainHmacKey();
+
   // Same rule for the INTERNAL chain (#14): platform signs its own peer calls
   // with its own key and verifies its peers against the public bundle. Without
   // them it would mint tokens on an EPHEMERAL in-process key that no peer
@@ -594,8 +643,9 @@ async function startServer(): Promise<void> {
       stopSoftDeletePurge();
       stopPlatformMetricsScraper();
       // The sweeps started inline in this file (billing reconcile, domain
-      // re-verify) — see `backgroundSweeps`. Stopped BEFORE Mongo closes.
-      for (const timer of backgroundSweeps) clearInterval(timer);
+      // re-verify, audit spool drain + head export) — see `backgroundSweeps`.
+      // Stopped BEFORE Mongo closes.
+      for (const sweep of backgroundSweeps) sweep.stop();
 
       try {
         await mongoose.connection.close(false);

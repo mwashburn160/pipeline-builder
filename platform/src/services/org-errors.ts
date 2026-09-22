@@ -40,6 +40,14 @@ export const ORG_AI_KEY_TOO_LONG = 'ORG_AI_KEY_TOO_LONG';
 /** A team id that is not a (direct) team of the org named in the route. → 404 */
 export const ORG_TEAM_NOT_FOUND = 'ORG_TEAM_NOT_FOUND';
 
+/**
+ * A seat limit / account entitlement write named a TEAM. Seats, bundles and
+ * the account tier are account-level (root-only): billing refuses team
+ * subscriptions, and silently redirecting a team id to its root would let a
+ * mis-targeted sync overwrite the whole account's entitlement. → 409
+ */
+export const ORG_SEAT_LIMIT_NOT_ROOT = 'ORG_SEAT_LIMIT_NOT_ROOT';
+
 /** Restoring/moving would put the account over its pooled seat cap. → 409 */
 export const ORG_SEAT_LIMIT = 'ORG_SEAT_LIMIT';
 

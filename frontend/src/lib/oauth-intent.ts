@@ -46,20 +46,13 @@ export function takeOAuthIntent(): OAuthIntent | null {
 /**
  * Persist the intent for the callback to pick up.
  *
- * @param required when true, a storage failure THROWS instead of being
- *   swallowed. Use it whenever the intent carries the only copy of something —
- *   an invite token — because continuing without it silently changes what the
- *   flow does (an invite-accept degrades into creating a brand-new org).
- *   Plain logins pass `false`: the backend still validates `state`, so a
- *   storage-blocked browser can still sign in.
+ * A storage failure THROWS: the callback refuses any arrival it has no intent
+ * for (login CSRF — a code + state planted in this browser by someone else's
+ * flow has none), so a flow that could not record one could never complete.
+ * Callers surface the error instead of navigating away.
  */
-export function storeOAuthIntent(intent: OAuthIntent, required: boolean): void {
-  try {
-    sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify(intent));
-  } catch (err) {
-    if (required) throw err;
-    /* storage unavailable — backend still validates state */
-  }
+export function storeOAuthIntent(intent: OAuthIntent): void {
+  sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify(intent));
 }
 
 /**
@@ -76,6 +69,6 @@ export async function startOAuthLogin(provider: string, returnUrl: string = DEFA
   const state = res.data?.state;
   if (!url || !state) throw new Error('Could not start sign-in with this provider');
   // Sanitized on the way in as well as out (the callback re-checks it).
-  storeOAuthIntent({ state, kind: 'login', returnUrl: sanitizeReturnPath(returnUrl) ?? DEFAULT_POST_SIGN_IN_PATH }, false);
+  storeOAuthIntent({ state, kind: 'login', returnUrl: sanitizeReturnPath(returnUrl) ?? DEFAULT_POST_SIGN_IN_PATH });
   window.location.href = url;
 }

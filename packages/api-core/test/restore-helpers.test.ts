@@ -13,7 +13,7 @@ import { loadAndRestore, type RestorableService } from '../src/helpers/restore-h
 
 beforeAll(() => { process.env.JWT_SECRET = 'test'; });
 
-interface Row { orgId: string; visibility?: string; name?: string }
+interface Row { orgId: string; visibility?: string; name?: string; createdBy?: string }
 
 function mockReq(params: Record<string, string>, user?: Record<string, unknown>): Request {
   return { params, user } as unknown as Request;

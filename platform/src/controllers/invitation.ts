@@ -142,7 +142,7 @@ export const acceptInvitationViaOAuth = withController('Accept invitation via OA
 
   // Exchange the code with the provider and use the VERIFIED identity — never
   // trust a client-supplied profile.
-  const verified = await verifyOAuthCode(oauthProvider, code, state);
+  const verified = await verifyOAuthCode(oauthProvider, code, state, req);
   const accepted = await invitationService.acceptViaOAuth(token, oauthProvider as InvitationOAuthProvider, verified);
 
   // Public route: there is no `req.user`, so `audit(req, ...)` would file the

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { VALID_TIERS } from '@pipeline-builder/api-core';
 import { loadBillingConfig, assertBundleRequiresValid, assertCombosValid } from '../src/config/billing-config.js';
 import type { BundleConfig, ComboDiscountConfig } from '../src/config/config-types.js';

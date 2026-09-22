@@ -10,6 +10,7 @@
  * are mocked so usage is driven directly.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -27,8 +28,8 @@ const limits = (seats: number, plugins: number, pipelines: number, dashboards = 
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  decryptSecret: jest.fn(),
-  encryptSecret: jest.fn(),
+  decryptSecret: jest.fn<AnyFn>(),
+  encryptSecret: jest.fn<AnyFn>(),
   isEncryptedBlob: jest.fn(() => false),
   QUOTA_TIERS: {
     developer: { label: 'Developer', limits: limits(1, 10, 5, 5) },
@@ -49,13 +50,13 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { default: { startSession: jest.fn() }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { default: { startSession: jest.fn<AnyFn>() }, Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 // Authoritative usage read. Default (unset) → resolves undefined, so checkTierOvercap
 // falls back to the org-doc sum (mockOrgFind) — the pre-existing behavior the bulk
 // of these tests assert. Set a resolved value to drive the authoritative path.
-const mockGetQuotaStatus = jest.fn<(...a: unknown[]) => Promise<{ used: number } | null | undefined>>();
+const mockGetQuotaStatus = jest.fn<(...a: any[]) => Promise<{ used: number } | null | undefined>>();
 jest.unstable_mockModule('../src/middleware/quota.js', () => ({
   getOrganizationQuotaStatus: mockGetQuotaStatus,
   QuotaType: {},
@@ -68,33 +69,33 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
 // org-hierarchy + seats mocked so the pooled inputs are fully controlled.
-const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string }>>();
-const mockExpandOrgScope = jest.fn<(...a: unknown[]) => Promise<string[]>>();
+const mockResolveOrgLineage = jest.fn<(...a: any[]) => Promise<{ rootOrgId: string }>>();
+const mockExpandOrgScope = jest.fn<(...a: any[]) => Promise<string[]>>();
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   resolveOrgLineage: mockResolveOrgLineage,
   expandOrgScope: mockExpandOrgScope,
-  hasAnyChildOrg: jest.fn(),
-  isAncestorOrg: jest.fn(),
-  getOrgName: jest.fn(),
+  hasAnyChildOrg: jest.fn<AnyFn>(),
+  isAncestorOrg: jest.fn<AnyFn>(),
+  getOrgName: jest.fn<AnyFn>(),
 }));
 
-const mockPooledSeatUsage = jest.fn<(...a: unknown[]) => Promise<{ limit: number; used: number }>>();
+const mockPooledSeatUsage = jest.fn<(...a: any[]) => Promise<{ limit: number; used: number }>>();
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   pooledSeatUsage: mockPooledSeatUsage,
 }));
 
-const mockOrgFind = jest.fn<(...a: unknown[]) => any>();
+const mockOrgFind = jest.fn<(...a: any[]) => any>();
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  Organization: { find: (...a: unknown[]) => mockOrgFind(...a), findById: jest.fn(), countDocuments: jest.fn() },
-  User: { updateOne: jest.fn() },
-  UserOrganization: { countDocuments: jest.fn(), create: jest.fn(), distinct: () => ({ session: () => Promise.resolve([]) }) },
+  Organization: { find: (...a: unknown[]) => mockOrgFind(...a), findById: jest.fn<AnyFn>(), countDocuments: jest.fn<AnyFn>() },
+  User: { updateOne: jest.fn<AnyFn>() },
+  UserOrganization: { countDocuments: jest.fn<AnyFn>(), create: jest.fn<AnyFn>(), distinct: () => ({ session: () => Promise.resolve([]) }) },
   Invitation: { distinct: () => ({ session: () => Promise.resolve([]) }) },
-  OrgIdpConfig: { find: jest.fn(), exists: jest.fn() },
-  Role: { create: jest.fn(), find: jest.fn(), findOne: jest.fn(), exists: jest.fn() },
-  RoleAssignment: { create: jest.fn(), find: jest.fn(), exists: jest.fn(), countDocuments: jest.fn() },
+  OrgIdpConfig: { find: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>() },
+  Role: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), findOne: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>() },
+  RoleAssignment: { create: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), exists: jest.fn<AnyFn>(), countDocuments: jest.fn<AnyFn>() },
 }));
 
 const { organizationService } = await import('../src/services/organization-service.js');
@@ -109,7 +110,7 @@ function wire(seatUsed: number, rows: Array<Record<string, number>>) {
   mockOrgFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(docs) }) });
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('organizationService.checkTierOvercap', () => {
   it('returns no overages when pooled usage fits the target tier', async () => {

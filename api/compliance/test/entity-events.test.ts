@@ -7,7 +7,9 @@
  * rule evaluation, and audit logging.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -49,7 +51,7 @@ jest.unstable_mockModule('../src/services/compliance-exemption-service.js', () =
   },
 }));
 
-const mockEvaluateRules = jest.fn().mockReturnValue({
+const mockEvaluateRules = jest.fn<AnyFn>().mockReturnValue({
   blocked: false,
   violations: [],
   warnings: [],
@@ -63,9 +65,9 @@ jest.unstable_mockModule('../src/helpers/compliance-check-log.js', () => ({
   logComplianceCheck: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {},
-  db: { select: jest.fn() },
+  db: { select: jest.fn<AnyFn>() },
   // Route now wraps its handler in `runWithTenantContext` (so internal
   // service-to-service calls establish a tenant scope from the payload's
   // orgId before any RLS-touching service call). Pass-through is fine for
@@ -118,7 +120,7 @@ describe('Entity Events Route', () => {
     return { headers: {}, body, user: { sub: 'service:pipeline', principalType: 'service' }, ...extra };
   }
 
-  const res = {};
+  const res = {} as never;
 
   it('rejects non-service-principal callers (e.g. user JWTs)', async () => {
     await runRoute(makeReq({}, { __notServicePrincipal: true }), res);

@@ -10,6 +10,7 @@
  * and the mem fallback is used).
  */
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
@@ -36,7 +37,7 @@ afterAll(() => uninstallTestJwks());
 
 let jtiSeq = 0;
 /** Sign a step-up token with a unique jti (so single-use tests don't collide). */
-function signStepUp(overrides: Record<string, unknown> = {}, key: TestSigningKey = signingKey): Promise<string> {
+function signStepUp(overrides: Record<string, unknown> = {}, key: TestSigningKey = signingKey): string {
   return signTestUserToken({ type: 'step-up', sub: 'user-1', jti: `jti-${jtiSeq++}`, ...overrides }, { key, expiresIn: 60 });
 }
 
@@ -104,7 +105,7 @@ describe('requireStepUp middleware', () => {
 
   it('401 UNAUTHORIZED when there is no authenticated user', async () => {
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     await requireStepUp(mockReq({ user: undefined }), res, next);
     expect(res._status).toBe(401);
     expect(res._json.code).toBe('UNAUTHORIZED');
@@ -113,7 +114,7 @@ describe('requireStepUp middleware', () => {
 
   it('401 STEP_UP_REQUIRED when the header is absent', async () => {
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     await requireStepUp(mockReq({ user: okUser as never }), res, next);
     expect(res._status).toBe(401);
     expect(res._json.code).toBe('STEP_UP_REQUIRED');
@@ -122,7 +123,7 @@ describe('requireStepUp middleware', () => {
 
   it('SKIPS a verified service principal (no header needed) so internal S2S calls pass', async () => {
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     // A service token carries `principalType: 'service'` (isServicePrincipal). It
     // structurally cannot produce a human step-up token, so the gate exempts it.
     await requireStepUp(mockReq({ user: { sub: 'service:platform', principalType: 'service' } as never }), res, next);
@@ -133,7 +134,7 @@ describe('requireStepUp middleware', () => {
 
   it('401 STEP_UP_INVALID when the token is malformed', async () => {
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': 'not-a-jwt' } }), res, next);
     expect(res._status).toBe(401);
     expect(res._json.code).toBe('STEP_UP_INVALID');
@@ -142,7 +143,7 @@ describe('requireStepUp middleware', () => {
 
   it('401 STEP_UP_MISMATCH when the token subject != caller', async () => {
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     const token = await signStepUp({ sub: 'someone-else' });
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': token } }), res, next);
     expect(res._status).toBe(401);
@@ -152,7 +153,7 @@ describe('requireStepUp middleware', () => {
 
   it('calls next() for a valid, caller-bound, fresh token', async () => {
     const res = mockRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     const token = await signStepUp({ sub: 'user-1' });
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': token } }), res, next);
     expect(next).toHaveBeenCalledTimes(1);
@@ -162,12 +163,12 @@ describe('requireStepUp middleware', () => {
   it('401 STEP_UP_REPLAY when the same token is used twice', async () => {
     const token = await signStepUp({ sub: 'user-1' });
     const first = mockRes();
-    const firstNext = jest.fn();
+    const firstNext = jest.fn<AnyFn>();
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': token } }), first, firstNext);
     expect(firstNext).toHaveBeenCalledTimes(1);
 
     const second = mockRes();
-    const secondNext = jest.fn();
+    const secondNext = jest.fn<AnyFn>();
     await requireStepUp(mockReq({ user: okUser as never, headers: { 'x-step-up-token': token } }), second, secondNext);
     expect(second._status).toBe(401);
     expect(second._json.code).toBe('STEP_UP_REPLAY');

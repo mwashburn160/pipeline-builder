@@ -54,10 +54,68 @@ export class ConflictError extends ApiError {
  * destructive call without going through their local flow).
  */
 export class StepUpRequiredError extends ApiError {
+  /**
+   * The replay of the refused request, when the global step-up dialog took the
+   * refusal over: resolves with the replay's result once the person confirms,
+   * rejects if they dismiss the dialog or the replay fails. Absent when no
+   * dialog is mounted, or for a call marked non-replayable.
+   */
+  resume?: Promise<unknown>;
+
   constructor(message: string, code: string, details?: Record<string, unknown>) {
     super(message, 401, code, details);
     this.name = 'StepUpRequiredError';
   }
+
+  /** @internal Set by the api client once a listener has claimed the refusal. */
+  attachResume(resume: Promise<unknown>): void {
+    this.resume = resume;
+  }
+}
+
+/**
+ * Follow a refusal the global step-up dialog took over through to its replay.
+ *
+ * Resolves with the replayed request's result; a second refusal (the replay was
+ * itself refused and re-prompted) is followed the same way. Rejects with the
+ * original error when nothing took it over.
+ */
+async function followResume<T>(err: unknown): Promise<T> {
+  if (!(err instanceof StepUpRequiredError) || !err.resume) throw err;
+  try {
+    return (await err.resume) as T;
+  } catch (next) {
+    // A dismissed dialog rejects with the refusal itself: that is the end.
+    if (next === err) throw err;
+    return followResume<T>(next);
+  }
+}
+
+/**
+ * Run an api call; if it is refused for step-up and the global dialog takes the
+ * refusal over, resolve with the REPLAY's result instead of failing. Use it for
+ * a call whose caller has nothing on screen that the dialog would stack on top
+ * of (a button, not an open modal) — it simply waits for the confirmation.
+ */
+export async function withStepUpResume<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    return followResume<T>(err);
+  }
+}
+
+/**
+ * For a `catch` block: `true` when `err` is a step-up refusal the global dialog
+ * has taken over — the caller should close its own UI and NOT report an error
+ * (the dialog reports the outcome); `onResumed` runs with the replay's result
+ * once the person confirms, so the caller can refresh what it shows. `false`
+ * for anything else, which the caller handles as it always did.
+ */
+export function continueAfterStepUp<T = unknown>(err: unknown, onResumed: (result: T) => void): boolean {
+  if (!(err instanceof StepUpRequiredError) || !err.resume) return false;
+  followResume<T>(err).then(onResumed, () => undefined);
+  return true;
 }
 
 /**

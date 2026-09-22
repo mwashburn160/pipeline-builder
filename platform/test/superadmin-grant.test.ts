@@ -12,14 +12,15 @@
  * on a real change), and that it calls the service (not a direct flag write).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockUserFindById = jest.fn();
-const mockAudit = jest.fn();
-const mockGrantPlatformAdmin = jest.fn<() => Promise<{ changed: boolean }>>();
-const mockRevokePlatformAdmin = jest.fn<() => Promise<{ changed: boolean }>>();
+const mockUserFindById = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
+const mockGrantPlatformAdmin = jest.fn<(_userId: string) => Promise<{ changed: boolean }>>();
+const mockRevokePlatformAdmin = jest.fn<(_userId: string) => Promise<{ changed: boolean }>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -35,8 +36,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
 }));
 jest.unstable_mockModule('../src/services/platform-admin-roles.js', () => ({
-  grantPlatformAdmin: (...a: unknown[]) => mockGrantPlatformAdmin(...(a as [])),
-  revokePlatformAdmin: (...a: unknown[]) => mockRevokePlatformAdmin(...(a as [])),
+  grantPlatformAdmin: (...a: unknown[]) => mockGrantPlatformAdmin(...(a as [string])),
+  revokePlatformAdmin: (...a: unknown[]) => mockRevokePlatformAdmin(...(a as [string])),
 }));
 
 const { addUserGrant, removeUserGrant } = await import('../src/controllers/superadmin.js');
@@ -50,7 +51,7 @@ function mockRes() {
 
 /** `User.findById(id).select('email')` → the user's email (or null for 404). */
 const findsUser = (email: string | null) =>
-  mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(email ? { email } : null) });
+  mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(email ? { email } : null) });
 
 // `requireSystemAdmin` runs FOR REAL (helpers/controller-helper-mock.ts): it reads
 // `req.user` (401) and api-core's `isSystemAdmin` — the JWT's `isSuperAdmin`

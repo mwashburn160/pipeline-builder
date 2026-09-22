@@ -8,7 +8,9 @@
  * services (SSEManager, QuotaService, db, buildAndPush).
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 // Type-only import (erased at compile), safe to sit with the other imports even
 // though it references a mocked module — it has no runtime effect.
@@ -20,30 +22,30 @@ import { intFromEnv } from '../src/queue/env-int.js';
 // Mock state  must be hoisted before imports
 
 const mockQueueAdd = jest.fn<(...args: any[]) => any>();
-const mockQueueClose = jest.fn().mockResolvedValue(undefined);
+const mockQueueClose = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const mockQueueGetJob = jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined);
-const mockQueueGetJobs = jest.fn().mockResolvedValue([]);
-const mockQueueGetJobCounts = jest.fn().mockResolvedValue({});
-const mockQueueObliterate = jest.fn().mockResolvedValue(undefined);
-const mockWorkerClose = jest.fn().mockResolvedValue(undefined);
-const mockWorkerOn = jest.fn();
+const mockQueueGetJobs = jest.fn<AnyFn>().mockResolvedValue([]);
+const mockQueueGetJobCounts = jest.fn<AnyFn>().mockResolvedValue({});
+const mockQueueObliterate = jest.fn<AnyFn>().mockResolvedValue(undefined);
+const mockWorkerClose = jest.fn<AnyFn>().mockResolvedValue(undefined);
+const mockWorkerOn = jest.fn<AnyFn>();
 // Records every `new Worker(name, processor, opts)` call. Used by the
 // idempotency test to verify a second startWorker() doesn't construct
 // new workers. The bullmq mock returns plain classes (not jest.fn()),
 // so `Worker.mock.calls` doesn't exist — this spy is the substitute.
-const mockWorkerCtor = jest.fn();
+const mockWorkerCtor = jest.fn<AnyFn>();
 
 // Track which worker processor is for which queue name
 const capturedProcessors: Record<string, (job: any) => Promise<any>> = {};
 
-const mockIncrementQuota = jest.fn();
+const mockIncrementQuota = jest.fn<AnyFn>();
 // DLQ replay / failed-retry re-reserve a plugin slot; default to capacity
 // available. Hoisted so individual tests can override (e.g. org-at-cap).
 const mockReserveQuota = jest.fn<(...args: any[]) => any>(() =>
   Promise.resolve({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99 } }));
 const mockExistsSync = jest.fn<(...args: any[]) => any>().mockReturnValue(false);
-const mockRmSync = jest.fn();
-const mockUtimesSync = jest.fn();
+const mockRmSync = jest.fn<AnyFn>();
+const mockUtimesSync = jest.fn<AnyFn>();
 
 const mockBuildAndPush = jest.fn<(...args: any[]) => any>();
 // S3 build-context download (cross-replica rehydrate). Default: succeeds.
@@ -144,8 +146,8 @@ function registerMocks() {
   jest.unstable_mockModule('ioredis', () => {
     class MockRedis {
       status = 'ready';
-      disconnect = jest.fn();
-      on = jest.fn();
+      disconnect = jest.fn<AnyFn>();
+      on = jest.fn<AnyFn>();
       eval = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
       incr = jest.fn<(...args: any[]) => any>().mockResolvedValue(1);
       decr = jest.fn<(...args: any[]) => any>().mockResolvedValue(0);
@@ -163,27 +165,27 @@ function registerMocks() {
     existsSync: mockExistsSync,
     rmSync: mockRmSync,
     utimesSync: mockUtimesSync,
-    readdirSync: jest.fn().mockReturnValue([]),
+    readdirSync: jest.fn<AnyFn>().mockReturnValue([]),
   }));
 
   // Stub the ZIP-extraction helper (real one imports createWriteStream/yauzl,
   // which the partial `fs` mock above doesn't provide) and the S3 artifact
   // client — neither is the unit under test here. Mirrors the docker-build mock.
   jest.unstable_mockModule('../src/helpers/zip-extract.js', () => ({
-    extractZipToDir: jest.fn(),
-    readAndExtractZip: jest.fn(),
+    extractZipToDir: jest.fn<AnyFn>(),
+    readAndExtractZip: jest.fn<AnyFn>(),
   }));
   jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
     getPluginArtifactToFile: mockGetPluginArtifactToFile,
-    deletePluginArtifact: jest.fn(),
-    putPluginArtifact: jest.fn(),
+    deletePluginArtifact: jest.fn<AnyFn>(),
+    putPluginArtifact: jest.fn<AnyFn>(),
     pluginArtifactKey: jest.fn(() => 'org/req.zip'),
     PLUGIN_ARTIFACT_BUCKET: 'plugins',
   }));
 
   jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({
     buildAndPush: mockBuildAndPush,
-    loadAndPush: jest.fn(),
+    loadAndPush: jest.fn<AnyFn>(),
     BUILD_TEMP_ROOT: '/tmp',
     getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
   }));
@@ -205,33 +207,18 @@ function registerMocks() {
     assertPostBuildCompliance: mockAssertPostBuildCompliance,
   }));
 
-  jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+  jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
     CoreConstants: {
       PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
       PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
       PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
     },
     Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
-    db: { execute: jest.fn(), insert: jest.fn(), select: jest.fn(), update: jest.fn() },
-    schema: { plugin: {} },
-    reportingService: { record: jest.fn(), invalidateOrg: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) },
-    runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
-    withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
-      insert: () => ({ values: () => Object.assign(Promise.resolve(), { onConflictDoNothing: () => Promise.resolve() }) }),
-      select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
-      update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
-    }),
   }));
-  jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-    CoreConstants: {
-      PLUGIN_BUILD_COMPLETED_RETENTION_SECS: 86400,
-      PLUGIN_BUILD_FAILED_RETENTION_SECS: 604800,
-      PLUGIN_BUILD_QUEUE_NAME: 'plugin-build',
-    },
-    Config: { get: (section: string) => mockPipelineCoreConfig[section] ?? {}, getAny: (section: string) => mockPipelineCoreConfig[section] ?? {} },
-    db: { execute: jest.fn(), insert: jest.fn(), select: jest.fn(), update: jest.fn() },
+  jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+    db: { execute: jest.fn<AnyFn>(), insert: jest.fn<AnyFn>(), select: jest.fn<AnyFn>(), update: jest.fn<AnyFn>() },
     schema: { plugin: {} },
-    reportingService: { record: jest.fn(), invalidateOrg: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) },
+    reportingService: { record: jest.fn<AnyFn>(), invalidateOrg: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) },
     runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
     withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
       insert: () => ({ values: () => Object.assign(Promise.resolve(), { onConflictDoNothing: () => Promise.resolve() }) }),
@@ -261,8 +248,8 @@ function registerMocks() {
     describeRedisConnection: () => ({ mode: 'url', host: 'localhost', port: '6379', tls: false }),
     createRedisClient: () => ({
       status: 'ready',
-      disconnect: jest.fn(),
-      on: jest.fn(),
+      disconnect: jest.fn<AnyFn>(),
+      on: jest.fn<AnyFn>(),
       eval: jest.fn<(...args: any[]) => any>().mockResolvedValue(1),
       incr: jest.fn<(...args: any[]) => any>().mockResolvedValue(1),
       decr: jest.fn<(...args: any[]) => any>().mockResolvedValue(0),
@@ -274,12 +261,12 @@ function registerMocks() {
     }),
   }));
 
-  jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
-    incCounter: jest.fn(),
-    observe: jest.fn(),
-    setGauge: jest.fn(),
+  jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+    incCounter: jest.fn<AnyFn>(),
+    observe: jest.fn<AnyFn>(),
+    setGauge: jest.fn<AnyFn>(),
     withSpan: (_name: string, fn: (span: unknown) => Promise<unknown>) =>
-      fn({ addEvent: jest.fn(), setAttributes: jest.fn(), recordException: jest.fn(), setStatus: jest.fn(), end: jest.fn() }),
+      fn({ addEvent: jest.fn<AnyFn>(), setAttributes: jest.fn<AnyFn>(), recordException: jest.fn<AnyFn>(), setStatus: jest.fn<AnyFn>(), end: jest.fn<AnyFn>() }),
   }));
 }
 
@@ -288,16 +275,16 @@ registerMocks();
 // Helpers
 
 function makeSseManager() {
-  return { send: jest.fn(), bindStreamOwner: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) } as any;
+  return { send: jest.fn<AnyFn>(), bindStreamOwner: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined) } as any;
 }
 
 function makeQuotaService() {
   return {
-    increment: jest.fn().mockResolvedValue(undefined),
+    increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
     // worker calls getOrgTier before buildAndPush to pick the
     // per-tier buildkitd address. Stub returns the default tier so the
     // build path falls back to the in-pod sidecar address.
-    getTier: jest.fn().mockResolvedValue('developer'),
+    getTier: jest.fn<AnyFn>().mockResolvedValue('developer'),
   } as any;
 }
 
@@ -343,7 +330,7 @@ function makeJobData(overrides: Partial<PluginBuildJobData> = {}): PluginBuildJo
       secrets: [],
       category: 'unknown',
       buildType: 'build_image',
-    },
+    } as unknown as PluginBuildJobData['pluginRecord'],
     ...overrides,
   };
 }
@@ -410,6 +397,9 @@ function makeDlqJob(dataOverrides: Partial<PluginBuildJobData> = {}, jobOverride
 }
 
 // Tests
+
+/** A system admin re-runs (the only retrier a slot-less re-run is allowed for). */
+const SYSADMIN = { userId: 'op-1', isSystemAdmin: true, canPublish: true, caller: { userId: 'op-1', orgId: 'system', principalType: 'user', isSuperAdmin: true, permissions: [], features: [] } };
 
 describe('plugin-build-queue', () => {
   let queueModule: typeof import('../src/queue/plugin-build-queue.js');
@@ -693,7 +683,7 @@ describe('plugin-build-queue', () => {
 
       failedHandler(job, error);
 
-      const errCall = (sse.send as jest.Mock).mock.calls.find((c: any[]) => c[1] === 'ERROR');
+      const errCall = (sse.send as jest.Mock<AnyFn>).mock.calls.find((c: any[]) => c[1] === 'ERROR');
       expect(errCall).toBeDefined();
       // Message carries the exit reason + the last N build lines.
       expect(errCall?.[2]).toContain('Build failed (exit code 1)');
@@ -739,7 +729,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'RESERVED-PERIOD' } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
 
-      await expect(requeueModule.retryFailedJob('failed-1', quota)).rejects.toThrow('redis add failed');
+      await expect(requeueModule.retryFailedJob('failed-1', quota, SYSADMIN)).rejects.toThrow('redis add failed');
 
       // decrementQuota (aliased to mockIncrementQuota) must release the reserved
       // slot — period-safely, with the resetAt snapshot of that reservation.
@@ -761,7 +751,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
 
-      await expect(requeueModule.retryFailedJob('failed-1', quota)).rejects.toThrow('redis add failed');
+      await expect(requeueModule.retryFailedJob('failed-1', quota, SYSADMIN)).rejects.toThrow('redis add failed');
 
       // Nothing was reserved, so nothing must be released (no over-decrement).
       expect(mockIncrementQuota).not.toHaveBeenCalled();
@@ -781,7 +771,7 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-1' });
 
-      const newId = await requeueModule.retryFailedJob('failed-1', quota);
+      const newId = await requeueModule.retryFailedJob('failed-1', quota, SYSADMIN);
 
       // Op succeeds (does NOT throw) — the build is already enqueued exactly once.
       expect(newId).toBe('new-job-1');
@@ -804,7 +794,7 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
 
-      const newId = await requeueModule.retryFailedJob('failed-1', quota);
+      const newId = await requeueModule.retryFailedJob('failed-1', quota, SYSADMIN);
 
       expect(newId).toBe('new-job-2');
       expect(mockQueueAdd).toHaveBeenCalledTimes(1);
@@ -819,7 +809,7 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-3' });
 
-      const newId = await requeueModule.retryFailedJob('failed-1', quota);
+      const newId = await requeueModule.retryFailedJob('failed-1', quota, SYSADMIN);
 
       expect(newId).toBe('new-job-3');
       expect(mockQueueAdd).toHaveBeenCalledTimes(1);
@@ -832,7 +822,7 @@ describe('plugin-build-queue', () => {
       const quota = makeQuotaService();
       mockQueueGetJob.mockResolvedValue(undefined);
 
-      const result = await requeueModule.retryFailedJob('missing', quota);
+      const result = await requeueModule.retryFailedJob('missing', quota, SYSADMIN);
 
       expect(result).toBeNull();
       expect(mockQueueAdd).not.toHaveBeenCalled();
@@ -852,7 +842,7 @@ describe('plugin-build-queue', () => {
       const quota = makeQuotaService();
       const job = makeJob(makeJobData({ reservedResetAt: '2026-02-01T00:00:00.000Z' }));
 
-      buildQuotaModule.releasePluginQuota(job, quota);
+      buildQuotaModule.releasePluginQuota(job as never, quota);
 
       // decrementQuota (aliased to mockIncrementQuota) is called with amount=1
       // and the reservedResetAt snapshot as the 7th arg.
@@ -865,7 +855,7 @@ describe('plugin-build-queue', () => {
       const quota = makeQuotaService();
       const job = makeJob(makeJobData({ reservedResetAt: '2026-02-01T00:00:00.000Z', quotaReleased: true }));
 
-      buildQuotaModule.releasePluginQuota(job, quota);
+      buildQuotaModule.releasePluginQuota(job as never, quota);
 
       expect(mockIncrementQuota).not.toHaveBeenCalled();
     });
@@ -885,7 +875,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'NEW-PERIOD' } });
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job' });
 
-      await requeueModule.retryFailedJob('failed-1', quota);
+      await requeueModule.retryFailedJob('failed-1', quota, SYSADMIN);
 
       const enqueuedData = mockQueueAdd.mock.calls[0][1] as PluginBuildJobData;
       expect(enqueuedData.reservedResetAt).toBe('NEW-PERIOD');
@@ -906,7 +896,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
 
-      await requeueModule.retryFailedJob('failed-2', quota);
+      await requeueModule.retryFailedJob('failed-2', quota, SYSADMIN);
 
       const enqueuedData = mockQueueAdd.mock.calls[0][1] as PluginBuildJobData;
       expect(enqueuedData.reservedResetAt).toBeUndefined();
@@ -1193,7 +1183,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'RESERVED-PERIOD' } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
 
-      await expect(requeueModule.replayDlqJob('dlq-job-1', quota)).rejects.toThrow('redis add failed');
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, SYSADMIN)).rejects.toThrow('redis add failed');
 
       expect(mockIncrementQuota).toHaveBeenCalledWith(
         quota, 'org-1', 'plugins', expect.any(String), expect.any(Function), 1, 'RESERVED-PERIOD',
@@ -1208,7 +1198,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'NEW' } });
       mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-1' });
 
-      await expect(requeueModule.replayDlqJob('dlq-job-1', quota)).resolves.toBe('replayed-1');
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, SYSADMIN)).resolves.toBe('replayed-1');
 
       const [name, data] = mockQueueAdd.mock.calls[0] as [string, PluginBuildJobData];
       expect(name).toBe('replay-dlq-my-plugin');
@@ -1224,14 +1214,64 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockResolvedValue(dlqJob);
       mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-2' });
 
-      await expect(requeueModule.replayDlqJob('dlq-job-1', quota)).resolves.toBe('replayed-2');
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, SYSADMIN)).resolves.toBe('replayed-2');
       expect(mockQueueAdd).toHaveBeenCalledTimes(1);
     });
 
     it('returns null when the DLQ job no longer exists', async () => {
       mockQueueGetJob.mockResolvedValue(undefined);
-      await expect(requeueModule.replayDlqJob('gone', makeQuotaService())).resolves.toBeNull();
+      await expect(requeueModule.replayDlqJob('gone', makeQuotaService(), SYSADMIN)).resolves.toBeNull();
       expect(mockReserveQuota).not.toHaveBeenCalled();
+    });
+
+    // E20: a re-run carries the RETRIER's authority, never the uploader's snapshot.
+    const MEMBER = { userId: 'retrier-1', isSystemAdmin: false, canPublish: false, caller: { userId: 'retrier-1', orgId: 'org-1', principalType: 'user', isSuperAdmin: false, permissions: ['plugins:write'], features: [] } };
+
+    it('runs the replay as the retrier: their userId + access, public clamped to org and the publish dropped without plugins:publish', async () => {
+      const quota = makeQuotaService();
+      const uploader = { userId: 'user-1', orgId: 'org-1', principalType: 'user', isSuperAdmin: false, permissions: ['plugins:publish'], features: [] };
+      const base = makeJobData();
+      const dlqJob = makeReplayableDlqJob({ data: { ...base, access: { isSystemAdmin: false, canPublish: true }, pluginRecord: { ...base.pluginRecord, visibility: 'public' }, publish: { caller: uploader } } });
+      mockQueueGetJob.mockResolvedValue(dlqJob);
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'NEW' } });
+      mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-3' });
+
+      await requeueModule.replayDlqJob('dlq-job-1', quota, MEMBER);
+
+      const [, data] = mockQueueAdd.mock.calls[0] as [string, PluginBuildJobData];
+      expect(data).toMatchObject({ userId: 'retrier-1', access: { isSystemAdmin: false, canPublish: false } });
+      expect(data.pluginRecord.visibility).toBe('org');
+      expect(data).not.toHaveProperty('publish');
+    });
+
+    it('submits the post-build publish request AS the retrier when they hold plugins:publish', async () => {
+      const quota = makeQuotaService();
+      const publisher = { ...MEMBER, canPublish: true, caller: { ...MEMBER.caller, permissions: ['plugins:publish'] } };
+      const base = makeJobData();
+      const dlqJob = makeReplayableDlqJob({ data: { ...base, pluginRecord: { ...base.pluginRecord, visibility: 'public' }, publish: { caller: { ...MEMBER.caller, userId: 'user-1' } } } });
+      mockQueueGetJob.mockResolvedValue(dlqJob);
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'NEW' } });
+      mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-4' });
+
+      await requeueModule.replayDlqJob('dlq-job-1', quota, publisher);
+
+      const [, data] = mockQueueAdd.mock.calls[0] as [string, PluginBuildJobData];
+      expect(data.pluginRecord.visibility).toBe('public');
+      expect(data.publish).toEqual({ caller: publisher.caller });
+    });
+
+    it('refuses a slot-less re-run for anyone but a system admin (at cap → 429, quota down → 503)', async () => {
+      const quota = makeQuotaService();
+      mockQueueGetJob.mockResolvedValue(makeReplayableDlqJob());
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, MEMBER)).rejects.toMatchObject({ statusCode: 429, code: 'QUOTA_EXCEEDED' });
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: true, unavailable: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, MEMBER)).rejects.toMatchObject({ statusCode: 503 });
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+      // A system admin's re-run still proceeds slot-less.
+      mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
+      mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-5' });
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, SYSADMIN)).resolves.toBe('replayed-5');
     });
   });
 

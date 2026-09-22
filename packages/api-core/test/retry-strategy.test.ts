@@ -161,7 +161,7 @@ describe('getRetryDecision', () => {
   });
 
   it('stops retrying 429 once its own budget is spent', () => {
-    expect(getRetryDecision(429, {}, config.maxRateLimitRetries, config).shouldRetry).toBe(false);
+    expect(getRetryDecision(429, {}, config.maxRateLimitRetries!, config).shouldRetry).toBe(false);
   });
 });
 

@@ -67,12 +67,17 @@ export function ecosystemApi(core: ApiCore) {
     listPublisherAdvisories: async (opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<{ advisories: AdvisoryView[] }>>('/api/plugins/publisher/advisories', { signal: opts?.signal }),
 
-    listIncomingTransfers: async (opts?: { signal?: AbortSignal }) =>
-      core.request<ApiResponse<{ requests: PublishRequestView[] }>>('/api/plugins/publisher/incoming-transfers', { signal: opts?.signal }),
+    /** One page of transfers offered to this publisher; `nextCursor` continues it. */
+    listIncomingTransfers: async (params?: { cursor?: string; limit?: number }, opts?: { signal?: AbortSignal }) =>
+      core.request<ApiResponse<{ requests: PublishRequestView[]; nextCursor: string | null }>>(
+        `/api/plugins/publisher/incoming-transfers${buildQuery(params)}`,
+        { signal: opts?.signal },
+      ),
 
     // ── Tenant: publish requests ──────────────────────────────────────────
-    listPublishRequests: async (params?: { status?: PublishRequestStatus }, opts?: { signal?: AbortSignal }) =>
-      core.request<ApiResponse<{ requests: PublishRequestView[] }>>(
+    /** One page of the org's own requests (newest first); `nextCursor` continues it. */
+    listPublishRequests: async (params?: { status?: PublishRequestStatus; cursor?: string; limit?: number }, opts?: { signal?: AbortSignal }) =>
+      core.request<ApiResponse<{ requests: PublishRequestView[]; nextCursor: string | null }>>(
         `/api/plugins/publish-requests${buildQuery(params)}`,
         { signal: opts?.signal },
       ),
@@ -96,10 +101,13 @@ export function ecosystemApi(core: ApiCore) {
     getEcosystemOverview: async (opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<EcosystemOverview>>('/api/plugins/ecosystem/overview', { signal: opts?.signal }),
 
+    /** One page of the queue. Open statuses come OLDEST first (the ones nearest
+     *  their SLA), the rest newest first; `nextCursor` continues it and `total`
+     *  counts every match. */
     listEcosystemRequests: async (
-      params?: { status?: QueueStatusFilter; kind?: PublishRequestKind; lane?: PublishRequestLane; limit?: number },
+      params?: { status?: QueueStatusFilter; kind?: PublishRequestKind; lane?: PublishRequestLane; limit?: number; cursor?: string },
       opts?: { signal?: AbortSignal },
-    ) => core.request<ApiResponse<{ requests: QueueItem[] }>>(
+    ) => core.request<ApiResponse<{ requests: QueueItem[]; total: number; nextCursor: string | null }>>(
       `/api/plugins/ecosystem/requests${buildQuery(params)}`,
       { signal: opts?.signal },
     ),

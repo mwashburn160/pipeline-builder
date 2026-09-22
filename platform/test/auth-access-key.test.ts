@@ -14,6 +14,7 @@
  *   - a JWT is untouched by the key branch.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -22,9 +23,9 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
 
-const mockVerifyAccessToken = jest.fn<(...a: unknown[]) => unknown>();
-const mockExchange = jest.fn<(...a: unknown[]) => unknown>();
-const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
+const mockVerifyAccessToken = jest.fn<AnyFn>();
+const mockExchange = jest.fn<AnyFn>();
+const mockUserFindById = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isServiceTokenDenied: () => false,
@@ -33,13 +34,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/services/api-key-service.js', () => ({
   apiKeyService: { exchange: (...a: unknown[]) => mockExchange(...a) },
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   ImpersonationRequest: {},
+  // A revoked key's exchanged token is refused (live by default here).
+  PersonalAccessToken: { exists: async () => ({ _id: 'key' }) },
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
   Organization: {},
   UserOrganization: {},
@@ -47,15 +50,15 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 jest.unstable_mockModule('../src/utils/index.js', () => ({
   verifyAccessToken: (...a: unknown[]) => mockVerifyAccessToken(...a),
-  verifyRefreshToken: jest.fn(),
+  verifyRefreshToken: jest.fn<AnyFn>(),
 }));
 
 const { requireAuth } = await import('../src/middleware/auth.js');
 
 function makeRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -90,7 +93,7 @@ describe('requireAuth — opaque access key', () => {
   it('resolves the key in place and attaches the minted claims', async () => {
     mockExchange.mockResolvedValue({ ok: true, accessToken: 'minted.jwt', keyId: 'key-1', userId: 'u1' });
     mockVerifyAccessToken.mockReturnValue(KEY_CLAIMS);
-    const r = req(KEY); const res = makeRes(); const next = jest.fn();
+    const r = req(KEY); const res = makeRes(); const next = jest.fn<AnyFn>();
 
     await (requireAuth as any)(r, res, next);
 
@@ -107,7 +110,7 @@ describe('requireAuth — opaque access key', () => {
     'answers a flat 401 for a %s key, leaking no reason',
     async (reason) => {
       mockExchange.mockResolvedValue({ ok: false, reason });
-      const res = makeRes(); const next = jest.fn();
+      const res = makeRes(); const next = jest.fn<AnyFn>();
 
       await (requireAuth as any)(req(KEY), res, next);
 
@@ -131,7 +134,7 @@ describe('requireAuth — opaque access key', () => {
       tokenVersion: 3,
     });
     mockUserFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ tokenVersion: 3 }) }) });
-    const res = makeRes(); const next = jest.fn();
+    const res = makeRes(); const next = jest.fn<AnyFn>();
 
     await (requireAuth as any)(req('header.payload.signature'), res, next);
 
@@ -141,7 +144,7 @@ describe('requireAuth — opaque access key', () => {
 
   it('does not route a malformed key-lookalike to the exchange', async () => {
     mockVerifyAccessToken.mockImplementation(() => { throw new Error('bad token'); });
-    const res = makeRes(); const next = jest.fn();
+    const res = makeRes(); const next = jest.fn<AnyFn>();
 
     await (requireAuth as any)(req('pb_pat_tooshort'), res, next);
 
@@ -155,7 +158,7 @@ describe('requireAuth — opaque access key', () => {
     // decoupled from it (a key is killed by revoking the KEY), and it only lives
     // five minutes anyway.
     mockUserFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ tokenVersion: 99 }) }) });
-    const res = makeRes(); const next = jest.fn();
+    const res = makeRes(); const next = jest.fn<AnyFn>();
 
     await (requireAuth as any)(req('header.payload.signature'), res, next);
 
@@ -166,7 +169,7 @@ describe('requireAuth — opaque access key', () => {
   it('refuses an api_key token with no key id', async () => {
     mockVerifyAccessToken.mockReturnValue({ ...KEY_CLAIMS, jti: undefined });
     mockUserFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ tokenVersion: 7 }) }) });
-    const res = makeRes(); const next = jest.fn();
+    const res = makeRes(); const next = jest.fn<AnyFn>();
 
     await (requireAuth as any)(req('header.payload.signature'), res, next);
 

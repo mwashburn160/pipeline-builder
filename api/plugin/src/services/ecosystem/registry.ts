@@ -156,3 +156,32 @@ export async function deleteQuarantineImage(submissionId: string): Promise<void>
     throw new RegistryPublicationError(`image-registry refused the quarantine delete (HTTP ${res.statusCode}): ${res.body?.message ?? 'no detail'}`, res.statusCode);
   }
 }
+
+/** A registry-only credential for ONE quarantine repository (`quarantine/<submissionId>`). */
+export interface QuarantineCredential {
+  username: string;
+  password: string;
+  expiresAt: string;
+}
+
+/**
+ * Mint the credential an anonymous build runs with (E21): image-registry signs
+ * it, and its token endpoint grants it push/pull on `quarantine/<submissionId>`
+ * (plus pull on the base-image namespaces) and NOTHING else. It is not a
+ * platform token — no service on the platform accepts it — so a build that
+ * exfiltrates it from the quarantine buildkitd can reach only its own image.
+ */
+export async function mintQuarantineCredential(submissionId: string, ttlSeconds: number): Promise<QuarantineCredential> {
+  let res;
+  try {
+    res = await client().post<{ data?: QuarantineCredential; message?: string }>(
+      `/internal/quarantine/${encodeURIComponent(submissionId)}/credential`, { ttlSeconds }, { headers: auth(), maxRetries: 0 });
+  } catch (err) {
+    throw new RegistryPublicationError(`image-registry unreachable: ${(err as Error).message}`, 0);
+  }
+  const data = res.body?.data;
+  if (res.statusCode < 200 || res.statusCode >= 300 || !data?.password) {
+    throw new RegistryPublicationError(`image-registry refused the quarantine credential (HTTP ${res.statusCode}): ${res.body?.message ?? 'no detail'}`, res.statusCode);
+  }
+  return data;
+}

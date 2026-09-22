@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: jest.fn(),
+  sendError: jest.fn<AnyFn>(),
 }));
 
 const { notFoundHandler, errorHandler } = await import('../src/middleware/error.js');
@@ -29,7 +30,7 @@ function mockRes() {
 // Tests
 
 describe('error middleware', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   describe('notFoundHandler', () => {
     it('should send 404 response', () => {
@@ -49,7 +50,7 @@ describe('error middleware', () => {
       const err = Object.assign(new Error('Forbidden'), { status: 403 }) as Error & { status: number };
       const res = mockRes();
 
-      errorHandler(err, mockReq(), res, jest.fn());
+      errorHandler(err, mockReq(), res, jest.fn<AnyFn>());
 
       // 4xx now picks a status-specific ErrorCode via pickClientErrorCode
       // (403 → INSUFFICIENT_PERMISSIONS) rather than always INTERNAL_ERROR.
@@ -60,7 +61,7 @@ describe('error middleware', () => {
       const err = new Error('Unexpected') as Error & { status?: number };
       const res = mockRes();
 
-      errorHandler(err, mockReq(), res, jest.fn());
+      errorHandler(err, mockReq(), res, jest.fn<AnyFn>());
 
       // 5xx now substitutes a generic message to avoid leaking err.message
       // (could contain stack/secret fragments); status + INTERNAL_ERROR stay.

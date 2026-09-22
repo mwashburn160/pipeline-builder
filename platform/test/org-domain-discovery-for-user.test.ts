@@ -41,7 +41,7 @@ jest.unstable_mockModule('../src/helpers/in-app-notify.js', () => ({ sendInAppNo
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn({}),
 }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ resolveOrgLineage: (...a: unknown[]) => mockResolveLineage(...a) }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, resolveOrgLineage: (...a: unknown[]) => mockResolveLineage(...a) }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ emailDomain: (e: string) => (e.includes('@') ? e.split('@')[1].toLowerCase() : null) }));
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityAvailable: jest.fn(), seatCapacityStillWithinCap: jest.fn(), userHasSeatInAccount: jest.fn(),

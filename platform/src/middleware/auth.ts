@@ -3,15 +3,15 @@
 
 import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, resolveUserPermissions, sendError, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
+import { accessTokenVersion } from '../helpers/access-version.js';
 import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
 import { resolveOrgAuthority } from '../helpers/org-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { CLIENT_TYPE_HEADER, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
 import type { RefreshSession } from '../models/index.js';
-import { User, Organization, UserOrganization, ImpersonationRequest } from '../models/index.js';
+import { User, Organization, UserOrganization, ImpersonationRequest, PersonalAccessToken } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import { incCounter } from '../observability/metrics.js';
-import { MACHINE_SESSION_NOT_REFRESHABLE } from '../services/auth-errors.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import { verifyAccessToken, verifyRefreshToken } from '../utils/index.js';
 
@@ -134,6 +134,21 @@ function rejectDeniedService(claims: AccessTokenPayload, res: Response): boolean
 }
 
 /**
+ * Whether the access key an exchanged token names (`jti`) is still live — not
+ * revoked. Expiry needs no check: the exchanged token never outlives the key
+ * lifetime by more than its own few minutes. A read error denies (the token is
+ * re-obtainable by exchanging the key again).
+ */
+async function isAccessKeyLive(keyId: string): Promise<boolean> {
+  try {
+    return !!(await PersonalAccessToken.exists({ _id: keyId, revoked: false }));
+  } catch (err) {
+    logger.warn('Access-key liveness check failed — denying', { error: String(err) });
+    return false;
+  }
+}
+
+/**
  * Middleware to authenticate requests using JWT access tokens.
  * Validates the Bearer token from the Authorization header and populates req.user.
  *
@@ -235,6 +250,7 @@ export async function requireAuth(
       if (decoded.token_use !== 'api_key' || !decoded.jti || !decoded.organizationId) {
         return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
       }
+      if (!(await isAccessKeyLive(decoded.jti))) return sendError(res, 401, 'Session invalid');
       req.user = decoded;
       return next();
     }
@@ -245,7 +261,14 @@ export async function requireAuth(
     // the request needs — role, org, permissions, isSuperAdmin — already rides in
     // the validated JWT and is kept fresh by that same bump, so re-deriving it
     // per request (previously up to 5 sequential queries) is redundant.
-    const user = await User.findById(decoded.sub).select('+tokenVersion +isSuperAdmin').lean();
+    //
+    // A token minted for a refresh-session slot (`sid`) also needs that slot to
+    // still exist: signing one device out, stopping one machine credential, or a
+    // slot killed by refresh-token reuse must end ITS access token now, not at
+    // expiry (other services read `revoke:sid:<sid>` for the same effect).
+    const user = await User.findById(decoded.sub)
+      .select(decoded.sid ? '+tokenVersion +isSuperAdmin +refreshSessions' : '+tokenVersion +isSuperAdmin')
+      .lean();
 
     if (!user) {
       return sendError(res, 401, 'Session invalid');
@@ -288,9 +311,17 @@ export async function requireAuth(
       // revoking the KEY, which stops the next exchange and therefore the
       // credential everywhere within one token lifetime). `jti` names the key.
       if (!decoded.jti) return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
-    } else if (decoded.tokenVersion !== user.tokenVersion) {
-      // Session token: reject if minted before the last "invalidate all sessions"
-      // / role / permission / membership change.
+      // …except that revoking the key must also end the token it already
+      // exchanged for: platform owns the record, so it checks it (every other
+      // service reads the `revoke:key:<id>` entry the revoke published).
+      if (!(await isAccessKeyLive(decoded.jti))) return sendError(res, 401, 'Session invalid');
+    } else if (decoded.tokenVersion !== accessTokenVersion(user)) {
+      // Session token: reject if minted before the last hard revocation
+      // (tokenVersion) or claims change (claimsVersion) — the latter is cured by
+      // a refresh, which re-mints current claims.
+      return sendError(res, 401, 'Session invalid');
+    } else if (decoded.sid && !(user.refreshSessions ?? []).some((s) => s.id === decoded.sid)) {
+      // Its slot was revoked (sign-out of that device / machine credential).
       return sendError(res, 401, 'Session invalid');
     }
 
@@ -404,7 +435,7 @@ export function requireClientType(req: Request, res: Response, next: NextFunctio
  * actually accepted is passed on as `res.locals.presentedRefreshToken`.
  *
  * Checks the signature, that the user's tokenVersion is unchanged, and that the
- * token's refresh-session slot (`sid`) still exists AND is interactive. It does NOT compare the
+ * token's refresh-session slot (`sid`) still exists. It does NOT compare the
  * slot's hash: a live slot holding a different hash means this token was already
  * rotated away, and the refresh handler's atomic rotation both detects that and
  * revokes the slot. The slot id is passed on as `res.locals.refreshSessionId`.
@@ -442,18 +473,13 @@ export async function isValidRefreshToken(
       return sendError(res, 401, 'Session invalid');
     }
 
-    // MACHINE sessions are not refreshable: a stored credential is renewed only
-    // through POST /user/generate-token. Turning it away HERE (before the
-    // rotation) is what keeps an operator's CLI — which shares the login that
-    // created the credential — from tripping reuse detection and killing it.
-    // Deliberately does NOT revoke the slot.
-    if (slot.kind === 'machine') {
-      logger.warn('Refused refresh for a machine session', { userId: String(user._id), sessionId: slot.id });
-      return sendError(res, 401, 'Machine sessions renew through /user/generate-token', MACHINE_SESSION_NOT_REFRESHABLE);
-    }
-
+    // Both kinds refresh here, each with its OWN slot's refresh token: a
+    // machine credential (generate-token) renews its short-lived access token
+    // exactly as a device does, until the slot's fixed end — which the handler
+    // enforces (`renewSessionTokens`).
     await populateRequestUser(req, user, slot);
     res.locals.refreshSessionId = decoded.sid;
+    res.locals.refreshSessionKind = slot.kind;
     res.locals.presentedRefreshToken = refreshToken;
     next();
   } catch {

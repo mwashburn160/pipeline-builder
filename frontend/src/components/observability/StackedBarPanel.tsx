@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useObservabilityLogs } from '@/hooks/useObservabilityLogs';
-import type { RangeKey } from '@/types/observability';
-import type { DataSeries } from '@/types/observability';
+import type { RangeKey , DataSeries } from '@/types/observability';
 import { Panel } from './Panel';
 import { SERIES_COLORS } from './_chartUtils';
 

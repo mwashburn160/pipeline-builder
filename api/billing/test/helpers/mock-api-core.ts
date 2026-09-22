@@ -6,7 +6,7 @@
  *
  * The shared parts (REAL api-core base, logger stub, `ErrorCode` proxy, error
  * classes, pagination constants, audit/boot wiring) live in
- * `@pipeline-builder/api-core/lib/testing/mock-api-core.js`. Only
+ * `@pipeline-builder/api-core/testing`. Only
  * billing-specific defaults belong here.
  *
  * ── WHY BILLING IS EXEMPT FROM THE spread-the-real-module RULE ──────────────
@@ -46,7 +46,7 @@ import {
   passThroughMiddleware,
   serviceAuditDefaults,
   withDelegatingSendBadRequest,
-} from '@pipeline-builder/api-core/lib/testing/mock-api-core.js';
+} from '@pipeline-builder/api-core/testing';
 // Real TIER_FEATURES (side-effect-free deep import) so the mock can't drift from
 // api-core — billing derives entitlement copy from it.
 import { TIER_FEATURES } from '@pipeline-builder/api-core/lib/types/feature-flags.js';

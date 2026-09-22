@@ -292,7 +292,10 @@ spec:
 
 ---
 # =============================================================================
-# Loki — ingress from promtail (push) + platform (Audit Activity dashboard reads)
+# Loki — ingress from promtail (push), platform (Logs / Audit Activity reads),
+# grafana (the Loki datasource) and prometheus (Loki's own /metrics). NEVER from
+# plugin / plugin-quarantine-builder: tenant log streams are readable by anyone
+# who can reach Loki with a guessed X-Scope-OrgID.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -309,18 +312,15 @@ spec:
         - podSelector:
             matchExpressions:
               - key: app
-                # `platform` reads Loki via /api/observability/logs for the
-                # native Audit Activity dashboard. Grafana is now a separate admin console (k8s/grafana.yaml), no longer embedded in the
-                # value list — the iframe is deleted in this PR.
                 operator: In
-                values: [promtail, platform]
+                values: [promtail, platform, grafana, prometheus]
       ports:
         - port: 3100
 
 ---
 # =============================================================================
-# Prometheus — ingress from platform (for native Observability dashboards)
-#                       and from KEDA (for the plugin ScaledObject trigger)
+# Prometheus — ingress from platform (native Observability dashboards), grafana
+# (datasource), prometheus itself (self-scrape) and KEDA (plugin ScaledObject)
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -335,8 +335,10 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels:
-              app: platform
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, grafana, prometheus]
         # KEDA's metrics-adapter scrapes Prometheus on every polling
         # cycle for the plugin ScaledObject's `type: prometheus` trigger.
         # `kubernetes.io/metadata.name` is the auto-injected label on
@@ -374,8 +376,10 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels:
-              app: platform
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [platform, grafana, prometheus]
       ports:
         - port: 9090
 
@@ -402,6 +406,12 @@ spec:
               app: thanos-query
       ports:
         - port: 10901
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 10902
 
 ---
 # =============================================================================
@@ -460,18 +470,21 @@ spec:
 
 ---
 # =============================================================================
-# Prometheus Scraping — allow from prometheus to all pods on metrics ports
+# Prometheus Scraping — prometheus may reach EVERY pod in the namespace on the
+# metrics ports the pods declare (prometheus.io/port). One policy for all of them:
+# the old per-app list missed every exporter (postgres 9187, pgbouncer 9127,
+# mongodb 9216, redis 9121, minio 9000, thanos 10902, jaeger 14269, promtail
+# 9080), so default-deny-ingress dropped those scrapes on any enforcing CNI and
+# ServiceDown fired for healthy datastores. platform/test/deploy-network-
+# contract.test.ts asserts every scrape-annotated pod is covered here AND by
+# its mesh AuthorizationPolicy.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-prometheus-scraping
 spec:
-  podSelector:
-    matchExpressions:
-      - key: app
-        operator: In
-        values: [platform, pipeline, plugin, message, quota, billing, frontend, nginx, loki]
+  podSelector: {}
   policyTypes:
     - Ingress
   ingress:
@@ -483,7 +496,16 @@ spec:
         - port: 3000
         - port: 3100
         - port: 8080
+        - port: 9000
+        - port: 9080
         - port: 9090
+        - port: 9093
+        - port: 9121
+        - port: 9127
+        - port: 9187
+        - port: 9216
+        - port: 10902
+        - port: 14269
 
 ---
 # =============================================================================
@@ -534,12 +556,11 @@ spec:
 # Hardening: this used to allow 443/80 to ANY destination. We still
 # allow public-internet 443/80 (builds legitimately fetch from pypi.org,
 # npmjs.org, ghcr.io, quay.io, public.ecr.aws, and arbitrary git hosts) but
-# explicitly block known exfil targets via `except` blocks:
-# - 169.254.0.0/16: link-local incl. cloud metadata (169.254.169.254 on
-#   AWS / GCP / Azure). A compromised build cannot exfil IAM credentials
-#   this way.
-# - 192.168.0.0/16: typical home / lab LAN ranges.
-# - 100.64.0.0/10: CGNAT range used by some cloud / VPN deployments.
+# explicitly block known exfil targets via `except` blocks (the shared shape —
+# see EGRESS SHAPE near the end of this file):
+# - 169.254.169.254/32 + 169.254.170.0/24: cloud metadata + container-credential
+#   agents. A compromised build cannot exfil IAM credentials this way.
+# - RFC1918 + 100.64.0.0/10: the VPC / node network, LANs, CGNAT.
 #
 # Cluster-internal traffic (registry, redis, postgres) is allowed by the
 # `allow-internal-egress` policy above (matches every pod in the namespace).
@@ -563,11 +584,12 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS)
               - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
               - 172.16.0.0/12 # RFC1918
               - 192.168.0.0/16 # RFC1918 — private LAN
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
       ports:
         - port: 443
           protocol: TCP
@@ -590,13 +612,7 @@ spec:
 # above and DNS by `allow-dns-egress`, and NetworkPolicies are additive — an
 # `except` in THIS rule cannot subtract from what another rule allows.
 #
-# Ambient note: constraining `to:` on an egress rule is the thing that breaks a
-# MESH-INTERNAL hop, because ambient redirects that traffic via a link-local
-# address — which is why the prometheus mesh-scrape rule further down is
-# deliberately ports-only. It is safe HERE for the same reason it is safe on the
-# platform rule below, which has carried the identical link-local carve-out since
-# the OAuth fix and demonstrably reaches the public internet: this rule governs a
-# PUBLIC-internet leg, not a mesh hop.
+# The ipBlock is the shared public-egress shape (see EGRESS SHAPE below).
 # FQDN-scoping (stripe-only) needs Cilium — see cilium-network-policies.yaml.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
@@ -614,11 +630,12 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS)
               - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
               - 172.16.0.0/12 # RFC1918
               - 192.168.0.0/16 # RFC1918 — private LAN
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
       ports:
         - port: 443
           protocol: TCP
@@ -642,7 +659,10 @@ spec:
 # legitimately calls lives: OAuth/OIDC IdPs (accounts.google.com,
 # login.microsoftonline.com, graph.facebook.com, api.linkedin.com, gitlab.com,
 # Cognito), SES, HIBP (api.pwnedpasswords.com) and the FIDO MDS blob
-# (mds.fidoalliance.org). In-namespace traffic is unaffected — it is allowed by
+# (mds.fidoalliance.org) on 443; SMTP submission (587/465/25) for
+# EMAIL_PROVIDER=smtp; and IMDS (169.254.169.254:80), where the AWS SDK picks up the instance role
+#   (this target has no per-pod identity) for SES / KMS token signing.
+# In-namespace traffic is unaffected — it is allowed by
 # `allow-internal-egress`, and NetworkPolicies are additive.
 # FQDN-scoping (per-IdP) needs Cilium — see cilium-network-policies.yaml.
 # =============================================================================
@@ -659,15 +679,28 @@ spec:
   egress:
     - to:
         - ipBlock:
+            cidr: 169.254.169.254/32 # EC2 instance metadata (instance-role creds)
+      ports:
+        - port: 80
+          protocol: TCP
+    - to:
+        - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS)
               - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
               - 172.16.0.0/12 # RFC1918
               - 192.168.0.0/16 # RFC1918 — private LAN
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
       ports:
         - port: 443
+          protocol: TCP
+        - port: 587
+          protocol: TCP
+        - port: 465
+          protocol: TCP
+        - port: 25
           protocol: TCP
 
 ---
@@ -717,7 +750,8 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 169.254.0.0/16 # link-local — IMDS only via the /32 rule above
+              - 169.254.169.254/32 # IMDS — reachable only via the /32 :80 rule above
+              - 169.254.170.0/24 # container-credential endpoints
       ports:
         - port: 443
           protocol: TCP
@@ -785,7 +819,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [message, registry, minio-init, loki, prometheus, minio, thanos-store-gateway, thanos-compact]
+                values: [message, platform, registry, minio-init, loki, prometheus, minio, thanos-store-gateway, thanos-compact]
       ports:
         - port: 9000
 ---
@@ -833,6 +867,29 @@ spec:
       ports:
         - port: 3000
 ---
+# =============================================================================
+# image-registry -> plugin (GET /internal/plugins/public-names): the parent
+# org's public plugin set a team's registry token may pull (E22). Without this,
+# default-deny drops the read and every team parent-pull fails closed.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-plugin-from-image-registry
+spec:
+  podSelector:
+    matchLabels:
+      app: plugin
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: image-registry
+      ports:
+        - port: 3000
+---
 # prometheus -> the Istio mesh components in istio-system (scrape only).
 #
 # REQUIRED for the `istio-mesh` scrape job in config/prometheus/prometheus.yml.
@@ -841,14 +898,9 @@ spec:
 # covers this: `allow-internal-egress` is `to: [{podSelector: {}}]`, which is
 # SAME-NAMESPACE only, and the mesh components live in istio-system.
 #
-# PORTS-ONLY, deliberately: no `to:` selector. Under Istio ambient a pod's
-# outbound traffic is redirected to the node-local ztunnel over a LINK-LOCAL
-# address (169.254.x), so a rule that constrains `to:` — an ipBlock excepting
-# 169.254.0.0/16, or arguably a namespaceSelector — severs the data path while
-# still completing the TCP handshake, producing scrapes that hang rather than
-# fail. The ports-only shape is the one verified to work here (see
-# allow-ask-model-external-egress in ask-model.yaml for the incident this
-# encodes). 15020 = ztunnel, 15014 = istiod + istio-cni-node.
+# PORTS-ONLY, deliberately: no `to:` selector. The destinations are pod IPs in
+# istio-system — RFC1918 on a VPC CNI — so the public-egress ipBlock (see EGRESS
+# SHAPE below) would exclude exactly them; the ports are what bound this rule. 15020 = ztunnel, 15014 = istiod + istio-cni-node.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -880,9 +932,8 @@ spec:
 # like an app problem rather than a mesh one.
 #
 # PORTS-ONLY, deliberately — same rationale as allow-prometheus-mesh-scrape
-# above: under ambient, outbound traffic is redirected to the node-local ztunnel
-# over a LINK-LOCAL address, so constraining `to:` severs the data path while
-# still completing the handshake (hangs rather than clean failures).
+# above: istiod's pod IPs are cluster-internal (RFC1918), so a public-egress
+# ipBlock would exclude them.
 # 15012 = istiod xDS/CA (the one that matters); 15014 = istiod metrics.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -950,11 +1001,12 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 169.254.0.0/16 # link-local incl. cloud metadata (IMDS) + Pod Identity agent
               - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
               - 172.16.0.0/12 # RFC1918
               - 192.168.0.0/16 # RFC1918 — private LAN
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
       ports:
         - port: 443
           protocol: TCP
@@ -983,4 +1035,223 @@ spec:
               app: plugin
       ports:
         - port: 1234
+          protocol: TCP
+
+---
+# =============================================================================
+# Thanos compactor — ingress from prometheus only (its /metrics on 10902). It
+# serves nothing else; its work is outbound to MinIO.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-thanos-compact-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: thanos-compact
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 10902
+
+---
+# =============================================================================
+# EGRESS SHAPE — one form for every public-internet egress rule in this file
+# =============================================================================
+# Every "to the public internet" rule below uses the SAME ipBlock:
+#
+#   cidr: 0.0.0.0/0
+#   except: RFC1918 (10/8, 172.16/12, 192.168/16), CGNAT (100.64/10),
+#           169.254.169.254/32 (IMDS), 169.254.170.0/24 (ECS/EKS credential agents)
+#
+# It excepts the METADATA / CREDENTIAL addresses exactly, NOT the whole
+# 169.254.0.0/16 link-local range. That distinction is the resolution of an old
+# contradiction in these manifests: ask-model.yaml recorded that excepting
+# 169.254.0.0/16 severed its TLS under Istio ambient (ztunnel/istio-cni use
+# link-local addresses such as 169.254.7.127 on the node side), while the
+# platform/billing rules carried that very carve-out and reached the internet.
+# The narrow carve-out is correct under either reading: nothing ambient uses
+# sits in 169.254.169.254/32 or 169.254.170.0/24, and those are the only
+# link-local addresses that hand out credentials. A workload that legitimately
+# needs its credential endpoint gets a separate /32 rule on :80 — additive, so
+# it re-opens exactly that address for exactly that pod.
+#
+# NetworkPolicies are purely ADDITIVE: an `except` narrows ITS OWN rule and can
+# never subtract from what another policy allows. In-namespace hops are allowed
+# by allow-internal-egress; mesh hops to istio-system are ports-only (their
+# destinations are cluster pod IPs, which ARE RFC1918 on a VPC CNI).
+# FQDN-scoping needs Cilium — see cilium-network-policies.yaml.
+# =============================================================================
+# Alertmanager External Egress — Slack incoming webhooks (hooks.slack.com:443).
+# WITHOUT THIS EVERY OPS ALERT IS DROPPED: allow-dns-egress/allow-internal-egress
+# make every pod here egress-restricted, so the Slack POST's SYN is silently
+# dropped by the CNI, Alertmanager logs one "context deadline exceeded" line per
+# notification, and the monitoring looks healthy precisely while it pages no one.
+# (The per-org relay to platform:3000 is in-namespace — allow-internal-egress.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alertmanager-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: alertmanager
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
+      ports:
+        - port: 443
+          protocol: TCP
+
+---
+# =============================================================================
+# Pipeline External Egress — CodePipeline API (Start/Stop/GetPipelineState) and
+# the git-provider APIs pipeline registration calls, over 443; plus
+# IMDS (169.254.169.254:80), where the AWS SDK picks up the instance role
+#   (this target has no per-pod identity) for the codepipeline:* grant.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pipeline-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: pipeline
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 169.254.169.254/32 # EC2 instance metadata (instance-role creds)
+      ports:
+        - port: 80
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
+      ports:
+        - port: 443
+          protocol: TCP
+
+---
+# =============================================================================
+# Ask External Egress — hosted AI providers (Anthropic, OpenAI, Google, xAI,
+# Bedrock) over 443. The self-hosted ask-model is in-namespace.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ask-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: ask
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
+      ports:
+        - port: 443
+          protocol: TCP
+
+---
+# =============================================================================
+# Compliance External Egress — org notification channels: HTTPS webhooks (Slack,
+# Teams, generic) on 443 and SMTP submission (587 STARTTLS, 465 TLS, 25).
+# Webhook URLs are org-supplied, so the private-range carve-out is also the
+# SSRF backstop here, exactly as on platform.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-compliance-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: compliance
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 587
+          protocol: TCP
+        - port: 465
+          protocol: TCP
+        - port: 25
+          protocol: TCP
+
+---
+# =============================================================================
+# AWS interface VPC endpoints (ec2 private mode) — platform + pipeline
+# =============================================================================
+# The ec2 stack's VPC (template.yaml, 10.0.0.0/16) carries interface endpoints
+# for STS, KMS, Secrets Manager, logs, CodeBuild and ECR with private DNS, so in
+# private mode those AWS APIs resolve to ENIs on 10.0.x — which the shared
+# public-egress shape excepts (RFC1918). This re-opens exactly the stack VPC on
+# 443 for the two workloads that call AWS with the instance role (platform: KMS
+# token signing / STS; pipeline: CodePipeline + CodeBuild). The minikube pod and
+# service networks (10.244/16, 10.96/12) are outside this range.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-aws-vpc-endpoints-egress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [platform, pipeline]
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/16 # the ec2 stack VPC (template.yaml)
+      ports:
+        - port: 443
           protocol: TCP

@@ -36,6 +36,20 @@ describe('isPrivateAddress', () => {
     '::1', '::', '::ffff:127.0.0.1', 'fc00::1', 'fd12::1', 'fe80::1',
     '::ffff:7f00:1', // hex-mapped 127.0.0.1
     '::ffff:c0a8:1', // hex-mapped 192.168.0.1
+    // Ranges the old denylist let through:
+    '198.18.0.1', '198.19.255.255', // benchmarking
+    '192.0.0.192', '192.0.2.1', '198.51.100.7', '203.0.113.9', // IETF / TEST-NETs
+    '224.0.0.1', '239.255.255.250', '240.0.0.1', '255.255.255.255', // multicast / reserved / broadcast
+    'fec0::1', 'feff::1', // site-local, rest of fe80::/10
+    'ff02::1', // multicast
+    '64:ff9b::a9fe:a9fe', '64:ff9b::127.0.0.1', // NAT64 → metadata / loopback
+    '2002:a9fe:a9fe::1', '2002:7f00:1::', // 6to4 → metadata / loopback
+    '::ffff:169.254.169.254', '::ffff:a9fe:a9fe',
+    '::127.0.0.1', // IPv4-compatible (deprecated) — outside 2000::/3
+    '2001:db8::1', '2001::1', '3fff::1', // documentation / Teredo
+    '100::1', // discard-only
+    'fe80::1%eth0', // zone id
+    'not-an-ip', '1.2.3.999', '1:2:3', // unparseable → refuse
   ])('flags private/loopback/metadata address %s', (ip) => {
     expect(isPrivateAddress(ip)).toBe(true);
   });
@@ -43,6 +57,10 @@ describe('isPrivateAddress', () => {
   it.each([
     '93.184.216.34', '8.8.8.8', '1.1.1.1', '172.32.0.1', '2606:4700:4700::1111',
     '::ffff:5db8:d822', // hex-mapped 93.184.216.34 (public) — must stay allowed
+    '64:ff9b::808:808', // NAT64 → 8.8.8.8
+    '2002:808:808::1', // 6to4 → 8.8.8.8
+    '2a00:1450:4001:82a::200e', '[2606:4700::6810:84e5]',
+    '198.17.255.255', '198.20.0.1', '223.255.255.255',
   ])(
     'allows public address %s', (ip) => {
       expect(isPrivateAddress(ip)).toBe(false);

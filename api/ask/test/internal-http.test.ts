@@ -46,3 +46,10 @@ describe('internal-http service discovery', () => {
     expect(init!.method).toBe('POST');
   });
 });
+
+describe('internal-http error surface', () => {
+  it('reports status only — never the downstream error body (it reaches the model/user)', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ message: 'SELECT * FROM secrets failed', stack: 'at internal.js:1' }), { status: 500 }));
+    await expect(pipelineClient('Bearer USER').get('/pipelines/x')).rejects.toThrow(/^GET \/pipelines\/x -> 500$/);
+  });
+});

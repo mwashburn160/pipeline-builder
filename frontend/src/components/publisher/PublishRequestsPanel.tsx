@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowRightLeft, Inbox } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -61,16 +61,43 @@ interface Props {
 export function PublishRequestsPanel({ canPublish, canManage }: Props) {
   const toast = useToast();
   const [filter, setFilter] = useState<StatusFilter>('all');
+  const statusParam = filter === 'all' ? {} : { status: filter };
   const requestsQ = useFetch(async (signal) => {
-    const res = await api.listPublishRequests(filter === 'all' ? undefined : { status: filter }, { signal });
+    const res = await api.listPublishRequests(statusParam, { signal });
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load requests');
-    return res.data.requests;
+    return { requests: res.data.requests, nextCursor: res.data.nextCursor ?? null };
   }, [filter]);
+  // Older pages, appended by "Load more" (the list is paged server-side).
+  const [more, setMore] = useState<{ requests: PublishRequestView[]; nextCursor: string | null } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  useEffect(() => { setMore(null); }, [requestsQ.data]);
+  const nextCursor = more ? more.nextCursor : requestsQ.data?.nextCursor ?? null;
+  const loadMore = async () => {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const res = await api.listPublishRequests({ ...statusParam, cursor: nextCursor });
+      const page = { requests: res.data?.requests ?? [], nextCursor: res.data?.nextCursor ?? null };
+      setMore((m) => ({ requests: [...(m?.requests ?? []), ...page.requests], nextCursor: page.nextCursor }));
+    } catch (err) {
+      toast.error(formatError(err, 'Could not load more requests'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+  // Incoming transfers are few; every page is read so none is missed.
   const incomingQ = useFetch(async (signal) => {
     if (!canManage) return [];
-    const res = await api.listIncomingTransfers({ signal });
-    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load incoming transfers');
-    return res.data.requests;
+    const all: PublishRequestView[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const res = await api.listIncomingTransfers(cursor ? { cursor } : undefined, { signal });
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load incoming transfers');
+      all.push(...res.data.requests);
+      if (!res.data.nextCursor) break;
+      cursor = res.data.nextCursor;
+    }
+    return all;
   }, [canManage]);
 
   const [withdrawing, setWithdrawing] = useState<PublishRequestView | null>(null);
@@ -94,7 +121,7 @@ export function PublishRequestsPanel({ canPublish, canManage }: Props) {
     }
   };
 
-  const requests = requestsQ.data ?? [];
+  const requests = [...(requestsQ.data?.requests ?? []), ...(more?.requests ?? [])];
   const incoming = (incomingQ.data ?? []).filter((r) => r.payload.transfer?.response === 'pending' && isOpenRequest(r.status));
 
   return (
@@ -157,6 +184,11 @@ export function PublishRequestsPanel({ canPublish, canManage }: Props) {
               </li>
             ))}
           </ul>
+        )}
+        {nextCursor && requests.length > 0 && (
+          <div className="pt-2">
+            <Button variant="secondary" size="xs" onClick={() => void loadMore()} loading={loadingMore}>Load more</Button>
+          </div>
         )}
       </SectionCard>
 

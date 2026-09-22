@@ -56,6 +56,7 @@ async function superviseDependencies(
 
   // No datastore to gate on → ready as soon as we are listening.
   if (testDatabase === false) {
+    if (aborted()) return; // shutdown began while we were initializing
     setReady(true);
     logger.info(`${name} ready (no datastore dependency)`);
     return;
@@ -71,6 +72,9 @@ async function superviseDependencies(
       ok = false;
     }
 
+    // A probe that was in flight when shutdown began must not flip the
+    // draining instance back to ready.
+    if (aborted()) break;
     if (ok && !isReady()) {
       setReady(true);
       waitDelay = READY_RETRY_BASE_MS;
@@ -226,9 +230,23 @@ export async function startServer(
     if (shuttingDown) return;
     shuttingDown = true;
 
+    // Drain FIRST: report NotReady before anything else, so the load balancer /
+    // readiness probe stops sending new work while the rest of shutdown runs.
+    // (Previously readiness stayed green through onShutdown, which could take
+    // seconds — new requests kept arriving at a process tearing itself down.)
+    setReady(false);
+
     if (signal) {
       logger.info(`${signal} received, shutting down gracefully...`);
     }
+
+    // Arm the force-exit BEFORE awaiting anything: a hung onShutdown (a stuck
+    // queue close, a Redis quit that never answers) used to block forever with
+    // the timer never started, so the pod ignored SIGTERM until SIGKILL.
+    setTimeout(() => {
+      logger.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, shutdownTimeoutMs).unref();
 
     // Custom shutdown callback
     if (onShutdown) {
@@ -268,12 +286,6 @@ export async function startServer(
 
       process.exit(0);
     });
-
-    // Force shutdown after timeout
-    setTimeout(() => {
-      logger.error('Forced shutdown after timeout');
-      process.exit(1);
-    }, shutdownTimeoutMs).unref();
   };
 
   // Register signal handlers

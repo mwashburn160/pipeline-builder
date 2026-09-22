@@ -38,7 +38,7 @@
 #   MINIO_BACKUP_TARGET_URL      destination S3/MinIO URL (e.g. https://s3.us-east-1.amazonaws.com)
 #   MINIO_BACKUP_TARGET_ACCESS_KEY / _SECRET_KEY   destination credentials
 #   MINIO_BACKUP_TARGET_BUCKET   destination bucket that receives the mirror (default: ${BACKUP_BUCKET})
-#   MINIO_BUCKETS                space-separated source buckets (default: "message-attachments registry loki thanos")
+#   MINIO_BUCKETS                space-separated source buckets (default: "message-attachments registry loki thanos plugins plugin-quarantine audit-heads")
 #
 # Usage:
 #   ./backup.sh                                 # port-forward + dump + upload + prune
@@ -217,7 +217,7 @@ if [ "$WANT_MINIO" = "1" ]; then
              MINIO_BACKUP_TARGET_URL MINIO_BACKUP_TARGET_ACCESS_KEY MINIO_BACKUP_TARGET_SECRET_KEY
   command -v mc >/dev/null 2>&1 || { echo "ERROR: MINIO_ENDPOINT set but 'mc' (MinIO client) not found" >&2; exit 2; }
 
-  MINIO_BUCKETS="${MINIO_BUCKETS:-message-attachments registry loki thanos}"
+  MINIO_BUCKETS="${MINIO_BUCKETS:-message-attachments registry loki thanos plugins plugin-quarantine audit-heads}"
   MINIO_BACKUP_TARGET_BUCKET="${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
   MC_CONFIG_DIR="${WORKDIR}/.mc"
 
@@ -273,5 +273,5 @@ echo "=== Backup complete ==="
 echo "  postgres: ${S3_PREFIX}/$(basename "${PG_FILE}")"
 echo "  mongo:    ${S3_PREFIX}/$(basename "${MONGO_FILE}")"
 if [ "$WANT_MINIO" = "1" ]; then
-  echo "  minio:    ${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}/minio/${ENV_NAME}/ (mirrored: ${MINIO_BUCKETS:-message-attachments registry loki thanos})"
+  echo "  minio:    ${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}/minio/${ENV_NAME}/ (mirrored: ${MINIO_BUCKETS:-message-attachments registry loki thanos plugins plugin-quarantine audit-heads})"
 fi

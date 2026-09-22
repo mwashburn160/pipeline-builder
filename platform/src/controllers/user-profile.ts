@@ -6,12 +6,19 @@ import type { TokenScope, FeatureFlag, QuotaTier } from '@pipeline-builder/api-c
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
 import { loadFactorUser, resolveAuthFactors } from '../helpers/auth-factors.js';
+import { PASSWORD_MAX_LENGTH, passwordPolicyForPerson } from '../helpers/password-policy.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
 import { reportableMfaNudge, type StoredMfaNudge } from '../helpers/mfa-nudge.js';
 import { MFA_POLICY_ERROR_MAP, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
-import { callerRestriction, resolveRequestedPermissions } from '../helpers/token-permissions.js';
+import {
+  SESSION_SLOT_REQUIRED,
+  assertScopeMintable,
+  callerHasSessionSlot,
+  callerRestriction,
+  resolveRequestedPermissions,
+} from '../helpers/token-permissions.js';
 import { SESSION_AUTH_MISSING, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
 import { apiKeyService, userProfileService, type PreferencesPatch } from '../services/index.js';
 import { RL_LAST_PRIVILEGED_MEMBER } from '../services/roles-errors.js';
@@ -39,6 +46,15 @@ function scopeForCaller(req: Parameters<Parameters<typeof withController>[1]>[0]
   if (!callerScope) return requested;
   if (requested !== undefined && requested !== callerScope) return false;
   return callerScope;
+}
+
+/** The parts of a slot's auth context the JWT does not carry, for a credential
+ *  derived from it: the passkey model and the org that asserted its `aal`. */
+function slotAuthContext(slot: { aaguid?: string; aalAssertedBy?: string }): { aaguid?: string; aalAssertedBy?: string } {
+  return {
+    ...(slot.aaguid ? { aaguid: slot.aaguid } : {}),
+    ...(slot.aalAssertedBy ? { aalAssertedBy: slot.aalAssertedBy } : {}),
+  };
 }
 
 const profileErrorMap = {
@@ -253,6 +269,21 @@ export const listUserOrganizations = withController('List user organizations', a
   sendSuccess(res, 200, { organizations });
 });
 
+/**
+ * GET /user/password-policy — the minimum a NEW password of this person's must
+ * meet: the strictest effective policy across every org they belong to (the
+ * same bar `changePassword` enforces). The org's own policy endpoint is gated on
+ * `org:settings`, so a member's change-password form could not know the org's
+ * minimum and advertised the platform floor instead.
+ */
+export const getOwnPasswordPolicy = withController('Get password policy', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+
+  const policy = await passwordPolicyForPerson(userId);
+  sendSuccess(res, 200, { minLength: policy.minLength, maxLength: PASSWORD_MAX_LENGTH });
+});
+
 /** PATCH /user/profile — update username and/or email. */
 export const updateUser = withController('Update user profile', async (req, res) => {
   const userId = requireAuthUserId(req, res);
@@ -314,8 +345,10 @@ const ALLOWED_TOKEN_SCOPES = new Set<string>(TOKEN_SCOPES);
 
 /**
  * POST /user/generate-token
- * Body: { expiresIn?: number, scope?: string, permissions?: string[] } — token
- * lifetime in seconds (max 365 days); optional narrow capability scope (e.g.
+ * Body: { expiresIn?: number, scope?: string, permissions?: string[] } — the
+ * CREDENTIAL's lifetime in seconds (max 365 days): the machine slot ends then,
+ * while its access tokens keep the normal short lifetime and are renewed with
+ * the returned refresh token (POST /auth/refresh). Optional narrow capability scope (e.g.
  * 'reporting:ingest' for the AWS event-ingestion machine credential); or an
  * optional permission SUBSET (catalog ids ⊆ the caller's current permissions,
  * see helpers/token-permissions.ts). Omitting both means full access.
@@ -327,12 +360,13 @@ const ALLOWED_TOKEN_SCOPES = new Set<string>(TOKEN_SCOPES);
  *   its own slot, so `store-token` can't be evicted by later sign-ins, can't be
  *   killed by the operator's own refresh, and two runs from one login yield two
  *   independent credentials (no scope leak between them).
- * - From a machine session (the renewal Lambda's path): renews in place under
- *   that slot's stored scope. A machine session can never open another session,
- *   so a leaked machine token can't multiply itself.
+ * - From a machine session: renews in place under that slot's stored scope
+ *   (rotating its refresh token) — never past the slot's fixed end, which a
+ *   renewal cannot move. A machine session can never open another session, so
+ *   a leaked machine token can't multiply itself.
  *
- * The result is NOT a browser session: machine sessions are refused by
- * POST /auth/refresh and are renewed only through this endpoint.
+ * The result is NOT a browser session: it has its own slot, listed under
+ * machine sessions, and revoking that slot kills its access token everywhere.
  */
 export const generateToken = withController('Generate token', async (req, res) => {
   const userId = requireAuthUserId(req, res);
@@ -365,6 +399,14 @@ export const generateToken = withController('Generate token', async (req, res) =
   }
   scope = effectiveScope;
 
+  // A machine credential is derived only from a person's own session slot —
+  // never from an exchanged key token, an impersonation token or a service
+  // account (see `callerHasSessionSlot`): revoking the key / ending the
+  // impersonation must not leave a long-lived credential behind.
+  if (!callerHasSessionSlot(req)) {
+    return sendError(res, 403, 'Sign in to mint a machine token — access keys and impersonated sessions cannot', SESSION_SLOT_REQUIRED);
+  }
+
   const user = await userProfileService.findForTokenIssue(userId);
   const sessionId = (req.user as AccessTokenPayload).sid;
   const activeOrgId = user.lastActiveOrgId?.toString();
@@ -390,23 +432,27 @@ export const generateToken = withController('Generate token', async (req, res) =
     const subset = await resolveRequestedPermissions(req, userId, req.body?.permissions, scope);
     if (!subset.ok) return sendError(res, subset.status, subset.message, subset.code, subset.missing ? { missing: subset.missing } : undefined);
     permissions = subset.permissions;
+    const mintable = await assertScopeMintable(req, userId, scope);
+    if (!mintable.ok) return sendError(res, mintable.status, mintable.message, mintable.code, mintable.missing ? { missing: mintable.missing } : undefined);
   }
   // The org's "administrative actions require MFA" policy governs OPENING a new
   // machine credential (a person with `aal: 2`, never another credential) —
   // not renewing one, which the unattended renewal must keep doing.
   if (callerSlot?.kind !== 'machine' && refuseForOrgAdminAssurance(req, res, { machines: 'refuse' })) return;
   const issued = callerSlot?.kind === 'machine'
-    ? await renewSessionTokens(user, activeOrgId, { sessionId: sessionId!, kind: 'machine' }, { expiresIn, scope, permissions, client })
+    ? await renewSessionTokens(user, activeOrgId, { sessionId: sessionId!, kind: 'machine' }, { scope, permissions, client })
     : await issueTokens(user, activeOrgId, {
       kind: 'machine',
-      auth: authFromClaims(req.user),
+      // Inherits the opening slot's assurance context, including the passkey
+      // model and any org-asserted `aal` (re-checked at every renewal).
+      auth: { ...authFromClaims(req.user), ...(callerSlot ? slotAuthContext(callerSlot) : {}) },
       client,
-      expiresIn,
+      ...(expiresIn !== undefined ? { lifetimeSeconds: expiresIn } : {}),
       scope,
       ...(permissions ? { permissions } : {}),
     });
   if (!issued) return sendError(res, 401, 'Session invalid');
-  const { accessToken, expiresIn: actual } = issued;
+  const { accessToken, refreshToken, expiresIn: actual } = issued;
   // Bearer-token issuance is sensitive: long-lived tokens (up to 365 days)
   // become a credential. Recording the requested lifetime + whether a machine
   // session was opened or renewed lets reviewers spot anomalous issuance.
@@ -415,6 +461,8 @@ export const generateToken = withController('Generate token', async (req, res) =
     targetId: userId,
     details: {
       expiresIn: actual,
+      // The credential's own lifetime (the slot's), when one was opened with it.
+      ...(callerSlot?.kind !== 'machine' && expiresIn !== undefined ? { lifetimeSeconds: expiresIn } : {}),
       session: callerSlot?.kind === 'machine' ? 'renewed' : 'opened',
       ...(scope ? { scope } : {}),
       // The subset the credential was OPENED with (a renewal keeps the slot's);
@@ -422,10 +470,10 @@ export const generateToken = withController('Generate token', async (req, res) =
       ...(callerSlot?.kind !== 'machine' && permissions ? { permissions } : {}),
     },
   });
-  // No refresh token: a machine session renews through THIS endpoint, never
-  // through POST /auth/refresh, so handing one out would only be a second
-  // long-lived secret to store.
-  sendSuccess(res, 200, { accessToken, expiresIn: actual });
+  // The refresh token IS the stored credential: the access token is
+  // short-lived (a person's lifetime), renewed through POST /auth/refresh with
+  // this refresh token until the slot's fixed end.
+  sendSuccess(res, 200, { accessToken, refreshToken, expiresIn: actual });
 }, profileErrorMap);
 
 /** GET /user/sessions — the caller's signed-in devices and stored machine credentials. */
@@ -520,19 +568,30 @@ export const createAccessKey = withController('Create access key', async (req, r
   }
   scope = effectiveScope;
 
+  // Like a machine token, a key is derived only from a person's own session:
+  // a key minted from another key would outlive that key's revocation.
+  if (!callerHasSessionSlot(req)) {
+    return sendError(res, 403, 'Sign in to create an access key — access keys and impersonated sessions cannot', SESSION_SLOT_REQUIRED);
+  }
   // "Selected permissions" (a catalog subset ⊆ what the creator holds now) or
   // "Full access" (omitted). Either way every exchange re-intersects with the
   // owner's live permissions, so the key can only ever shrink.
   const subset = await resolveRequestedPermissions(req, userId, req.body?.permissions, scope);
   if (!subset.ok) return sendError(res, subset.status, subset.message, subset.code, subset.missing ? { missing: subset.missing } : undefined);
   const permissions = subset.permissions;
+  const mintable = await assertScopeMintable(req, userId, scope);
+  if (!mintable.ok) return sendError(res, mintable.status, mintable.message, mintable.code, mintable.missing ? { missing: mintable.missing } : undefined);
 
-  // The key records the creating session's assurance (`amr`/`aal`/`auth_time`)
-  // so every token exchanged from it inherits — and never raises — it.
+  // The key records the creating session's assurance (`amr`/`aal`/`auth_time`,
+  // plus the slot's passkey model) so every token exchanged from it inherits —
+  // and never raises — it, and the org's authenticator allowlist can be
+  // re-applied at every exchange. The slot must still exist.
+  const creatingSlot = await findRefreshSession(userId, (req.user as AccessTokenPayload).sid!);
+  if (!creatingSlot) return sendError(res, 401, 'Session invalid');
   const { key, view } = await apiKeyService.create(
     userId,
     { name, expiresInSeconds: expiresIn, scope, ...(permissions ? { permissions } : {}), client: clientInfoOf(req) },
-    authFromClaims(req.user),
+    { ...authFromClaims(req.user), ...slotAuthContext(creatingSlot) },
   );
   audit(req, 'user.key.create', {
     targetType: 'user',
@@ -640,15 +699,27 @@ export const revokeAllTokens = withController('Revoke all tokens', async (req, r
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
+  // Read BEFORE the sign-out clears it: the surviving session inherits the
+  // calling slot's full auth context (passkey model, org-asserted `aal`).
+  const callerSlot = callerHasSessionSlot(req)
+    ? await findRefreshSession(userId, (req.user as AccessTokenPayload).sid!)
+    : undefined;
   const user = await userProfileService.revokeAllSessions(userId);
   audit(req, 'user.tokens.revoke-all', { targetType: 'user', targetId: userId });
+
+  // Only a person's own session survives the sign-out with a fresh slot; a key
+  // token (just revoked with every other key) or an impersonation token gets
+  // no replacement — deriving one would mint a session from a dead credential.
+  if (!callerHasSessionSlot(req)) {
+    return sendSuccess(res, 200, { revoked: true });
+  }
 
   // Issue a fresh token at the new tokenVersion so the active session survives —
   // a new interactive slot (every old slot was just cleared), carrying the
   // caller's own assurance, scope and permission restriction (never widened).
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
     kind: 'interactive',
-    auth: authFromClaims(req.user),
+    auth: { ...authFromClaims(req.user), ...(callerSlot ? slotAuthContext(callerSlot) : {}) },
     client: clientInfoOf(req),
     ...callerRestriction(req),
   });

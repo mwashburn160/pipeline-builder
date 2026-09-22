@@ -1,6 +1,11 @@
 {
   "dependencies": [
     {
+      "name": "@electric-sql/pglite",
+      "version": "0.5.8",
+      "type": "build"
+    },
+    {
       "name": "@jest/globals",
       "version": "30.4.1",
       "type": "build"
@@ -12,7 +17,7 @@
     },
     {
       "name": "@types/node",
-      "version": "26.1.2",
+      "version": "^24",
       "type": "build"
     },
     {

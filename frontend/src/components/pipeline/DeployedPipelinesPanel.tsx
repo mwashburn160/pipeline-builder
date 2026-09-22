@@ -8,6 +8,9 @@ import { formatRelativeTime } from '@/lib/relative-time';
 import { formatDateTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
 
+/** Registry rows fetched per page. */
+const REGISTRY_PAGE = 50;
+
 interface RegistryRow {
   id: string;
   pipelineId: string;
@@ -42,14 +45,20 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
   // the action removes only the platform's record (not the AWS stack), and
   // that distinction is the whole point of the confirm.
   const [confirmTarget, setConfirmTarget] = useState<RegistryRow | null>(null);
+  // The server's total: the list used to stop silently at its first 50 rows
+  // (and the badge counted only those), so an org with more deployments could
+  // neither see nor reconcile the rest.
+  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const fetchRegistry = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.listPipelineRegistry({ limit: 50 });
+      const res = await api.listPipelineRegistry({ limit: REGISTRY_PAGE, offset: 0 });
       if (res.success && res.data) {
         setRows(res.data.registry);
+        setTotal(res.data.pagination?.total ?? res.data.registry.length);
         setLoaded(true);
       } else {
         setError('Failed to load registry');
@@ -60,6 +69,26 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
       setLoading(false);
     }
   }, []);
+
+  /** Append the next page. */
+  const loadMore = async () => {
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const res = await api.listPipelineRegistry({ limit: REGISTRY_PAGE, offset: rows.length });
+      if (res.success && res.data) {
+        const seen = new Set(rows.map((r) => r.id));
+        setRows((prev) => [...prev, ...res.data!.registry.filter((r) => !seen.has(r.id))]);
+        setTotal(res.data.pagination?.total ?? total);
+      } else {
+        setError('Failed to load more of the registry');
+      }
+    } catch (err) {
+      setError(formatError(err, 'Failed to load more of the registry'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // Load once when the panel first opens — single code path via fetchRegistry
   // (was a duplicated inline fetch that could drift from the callback).
@@ -75,6 +104,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
       const res = await api.deletePipelineRegistry(row.id);
       if (res.success) {
         setRows((prev) => prev.filter((r) => r.id !== row.id));
+        setTotal((t) => Math.max(0, t - 1));
       } else {
         setError('Failed to remove registry entry');
       }
@@ -97,12 +127,12 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
           <>
             <Cloud className="w-4 h-4 text-brand" />
             <span>Deployed pipelines</span>
-            {loaded && <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-2xs font-semibold rounded-full bg-surface-muted text-fg-muted">{rows.length}</span>}
+            {loaded && <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-2xs font-semibold rounded-full bg-surface-muted text-fg-muted">{total}</span>}
             {/* Always-visible purpose hint so the collapsed panel isn't a mystery. */}
             <span className="ml-2 text-xs font-normal text-fg-subtle hidden sm:inline">pipelines registered to a live deploy target</span>
             {open && (
               <button
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); fetchRegistry(); }}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); void fetchRegistry(); }}
                 disabled={loading}
                 title="Refresh"
                 aria-label="Refresh deployed pipelines"
@@ -162,6 +192,19 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
                 </li>
               ))}
             </ul>
+          )}
+          {rows.length > 0 && rows.length < total && (
+            <div className="pt-2 flex items-center justify-between text-xs text-fg-muted">
+              <span>Showing {rows.length} of {total}</span>
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="action-link disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </button>
+            </div>
           )}
         </ResourceList>
       </Disclosure>

@@ -12,6 +12,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { LinkButton } from '@/components/ui/LinkButton';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import api from '@/lib/api';
 import { startOAuthLogin, takeOAuthIntent } from '@/lib/oauth-intent';
 import { isReauthState, publishReauthResult } from '@/lib/step-up-reauth';
@@ -47,12 +49,30 @@ import { formatError } from '@/lib/constants';
 
 export default function OAuthCallbackPage() {
   const router = useRouter();
-  const { refreshUser } = useAuth();
+  const { refreshUser, completeMfaLogin } = useAuth();
   const [error, setError] = useState<string | null>(null);
   // A step-up re-auth popup that has handed its result back to the app window.
   const [reauth, setReauth] = useState(false);
   // Single-use code/state — guard against React 18 strict-mode double-invoke.
   const started = useRef(false);
+  // The account owes its authenticator code before the session opens.
+  const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaBusy, setMfaBusy] = useState(false);
+
+  const submitMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaChallenge || !mfaCode.trim()) return;
+    setMfaBusy(true);
+    setError(null);
+    try {
+      await completeMfaLogin(mfaChallenge, mfaCode.trim());
+    } catch (err) {
+      setError(formatError(err, 'That code did not work. Try again.'));
+    } finally {
+      setMfaBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!router.isReady || started.current) return;
@@ -93,20 +113,20 @@ export default function OAuthCallbackPage() {
         setError('This sign-in link is missing its authorization code or state.');
         return;
       }
-      // If an intent was stored, its state must match the one the provider echoed
-      // back (continuity across the redirect).
+      // The stored intent's state must match the one the provider echoed back.
       //
-      // A MISMATCH is a genuine anomaly (stale or foreign intent), and silently
-      // downgrading it to a plain login is how an invite-accept turned into a
-      // brand-new self-serve org: the invitation was never accepted and nothing
-      // said so. Fail closed and let the user retry from the invitation link.
+      // A MISSING intent is refused too (login CSRF): a code + state planted in
+      // this browser by a sign-in someone ELSE started has none, and completing
+      // it would sign this person into the attacker's account. Starting a flow
+      // records the intent or refuses to start (`storeOAuthIntent` throws), so
+      // a legitimate arrival always has one. (The platform independently checks
+      // the browser-binding cookie set when the flow began.)
       //
-      // A MISSING intent still falls through to plain login — a browser with
-      // storage blocked must remain able to sign in, and the invite path now
-      // refuses to start at all in that case (see `storeOAuthIntent(..., true)`),
-      // so "was an invite, lost the intent" is no longer reachable from the app.
-      if (intent && intent.state !== state) {
-        setError('This sign-in link no longer matches your pending request. Please start again from the original link.');
+      // A MISMATCH is a stale or foreign intent — and silently downgrading it to
+      // a plain login is how an invite-accept once turned into a brand-new
+      // self-serve org. Fail closed and let the user retry from the original link.
+      if (!intent || intent.state !== state) {
+        setError('This sign-in link no longer matches a sign-in started in this browser. Please start again from the original link.');
         return;
       }
       const effective = intent;
@@ -137,8 +157,14 @@ export default function OAuthCallbackPage() {
         // Plain login — establish the session exactly like password login.
         const res = await api.completeOAuthCallback(provider, { code, state });
         if (!res.success) throw new Error(res.message || 'Sign-in failed');
+        // The account has an authenticator app: the provider was the FIRST
+        // factor, and the session opens only once its code verifies.
+        if (res.data?.mfaRequired && res.data.challengeId) {
+          setMfaChallenge(res.data.challengeId);
+          return;
+        }
         await refreshUser();
-        router.replace(takeReturnPath(effective?.kind === 'login' ? effective.returnUrl : undefined));
+        void router.replace(takeReturnPath(effective?.kind === 'login' ? effective.returnUrl : undefined));
       } catch (err) {
         setError(formatError(err, 'Sign-in failed. Please try again.'));
       }
@@ -164,6 +190,24 @@ export default function OAuthCallbackPage() {
                 <p className="font-bold">Confirmed</p>
                 <p className="text-sm text-fg-muted mt-1">You can close this window.</p>
               </>
+            ) : mfaChallenge ? (
+              <form onSubmit={(e) => { void submitMfa(e); }} className="space-y-3 text-left">
+                <p className="font-bold text-center">Two-factor authentication</p>
+                <p className="text-sm text-fg-muted text-center">Enter the code from your authenticator app, or a recovery code.</p>
+                {error && <p className="text-sm text-danger text-center" role="alert">{error}</p>}
+                <Input
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  autoComplete="one-time-code"
+                  inputMode="text"
+                  aria-label="Authentication code"
+                  autoFocus
+                  disabled={mfaBusy}
+                />
+                <Button type="submit" variant="primary" fullWidth loading={mfaBusy} disabled={!mfaCode.trim()}>
+                  Verify
+                </Button>
+              </form>
             ) : !error ? (
               <>
                 <LoadingSpinner size="md" className="mx-auto mb-3" />

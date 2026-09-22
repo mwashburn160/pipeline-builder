@@ -199,17 +199,20 @@ preflight() {
 }
 
 # ---------------------------------------------------------------------------
-# ensure_istioctl <version> — guarantee an ambient-capable istioctl (>= 1.24) is
+# ensure_istioctl <version> — guarantee istioctl EXACTLY <version> is
 # on PATH, auto-downloading <version> and installing it to /usr/local/bin when the
-# host has none (or too old). SHARED by every target's mesh install so istioctl is
+# host has none or a different version. SHARED by every target's mesh install so istioctl is
 # handled identically everywhere (minikube / ec2 / eks). Uses sudo only when
 # /usr/local/bin isn't already writable (root — e.g. ec2 first boot — needs none).
 # OS/arch aware (linux|osx, amd64|arm64). Usage: `ensure_istioctl "$ISTIO_VERSION"`.
 # ---------------------------------------------------------------------------
 ensure_istioctl() {
   local _want="${1:?ensure_istioctl needs an ISTIO_VERSION}"
-  # Already have an ambient-capable istioctl (>= 1.24) on PATH? Use it as-is.
-  local _maj _min _probe
+  # Already have EXACTLY the wanted istioctl on PATH? Use it as-is. Any other
+  # version is replaced: `istioctl install` deploys ITS OWN version of istiod /
+  # ztunnel / istio-cni, so a newer-or-older client silently installs a mesh
+  # that differs from ISTIO_VERSION (and from the pinned SHA below).
+  local _probe
   local _have=""
   # Probe the installed istioctl's version — but ONLY if it exists, and guard the
   # pipeline with `|| true`. The caller runs `set -euo pipefail`, so when istioctl
@@ -228,14 +231,12 @@ ensure_istioctl() {
   _probe="istioctl version --remote=false"
   command -v timeout >/dev/null 2>&1 && _probe="timeout 10 $_probe"
   if command -v istioctl >/dev/null 2>&1; then
-    _have="$(KUBECONFIG=/dev/null $_probe 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1 || true)"
+    _have="$(KUBECONFIG=/dev/null $_probe 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
   fi
-  if [ -n "$_have" ]; then
-    _maj="${_have%%.*}"; _min="${_have#*.}"
-    if [ "$_maj" -gt 1 ] || { [ "$_maj" -eq 1 ] && [ "$_min" -ge 24 ]; }; then
-      return 0
-    fi
-    echo "  istioctl $_have is too old for ambient (need >= 1.24) — installing $_want..."
+  if [ "$_have" = "$_want" ]; then
+    return 0
+  elif [ -n "$_have" ]; then
+    echo "  istioctl $_have != ISTIO_VERSION $_want — installing $_want..."
   else
     echo "  istioctl not found — installing $_want..."
   fi

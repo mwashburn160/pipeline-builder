@@ -56,7 +56,7 @@ describe('NetworkError', () => {
 });
 
 describe('handleError — standard exit codes', () => {
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => { jest.restoreAllMocks(); });
 
   // Run handleError and capture the code it exits with (process.exit is mocked to
   // throw a sentinel so the test process survives; console.error is silenced).

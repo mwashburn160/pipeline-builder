@@ -31,6 +31,7 @@
 
 import { createHash, createHmac, randomBytes, randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -83,7 +84,7 @@ import { deleteQuarantineImage } from './registry.js';
 import { listings, publishers, reservedNames, versions } from './store.js';
 import { submissions, topInstalledListings, trustedListingsNamed } from './submissions-store.js';
 import { readPackageFiles } from '../../helpers/package-files.js';
-import type { ParsedPlugin } from '../../helpers/plugin-spec.js';
+import type { ParsedPlugin, ParseZipOptions } from '../../helpers/plugin-spec.js';
 import { emitPluginAudit } from '../audit.js';
 import { deletePluginArtifact, pluginQuarantineBucket, putPluginArtifact, submissionArtifactKey } from '../plugin-artifact-storage.js';
 
@@ -95,6 +96,12 @@ const logger = createLogger('ecosystem-submissions');
 
 /** Submissions per rolling 24 h, per verified email and per client IP (§4.2). */
 export const SUBMISSIONS_PER_DAY = 3;
+/** Dry-run inspections per 24 h per client IP (no email on that path, so the IP is the only key). */
+export const INSPECTS_PER_DAY = 10;
+/** Entries an anonymous package may hold (a tenant upload may hold far more). */
+export const ANONYMOUS_MAX_ENTRIES = 2_000;
+/** Extracted bytes an anonymous package may expand to, as a multiple of `SUBMISSION_MAX_ZIP_BYTES`. */
+export const ANONYMOUS_EXPANSION_FACTOR = 10;
 /** The magic link's lifetime. */
 export const VERIFY_TOKEN_TTL_MS = 30 * 60_000;
 /** An undecided submission (and its quarantine artifacts) lives this long. */
@@ -103,6 +110,8 @@ export const SUBMISSION_TTL_DAYS = 30;
 export const EMAIL_RETENTION_DAYS = 90;
 
 const DAY_MS = 24 * 3_600_000;
+/** Rows per page of the expiry sweep and the email purge. */
+export const SWEEP_BATCH = 500;
 
 export interface SubmissionConfig {
   powSecret: string;
@@ -111,6 +120,10 @@ export interface SubmissionConfig {
   quarantineBuildkitAddr: string;
   buildTimeoutMs: number;
   maxZipBytes: number;
+  /** Where anonymous packages are extracted — never the tenant build temp root. */
+  extractDir: string;
+  /** Anonymous extractions in flight per replica (bounds `extractDir` to this × the byte cap). */
+  maxConcurrentExtracts: number;
 }
 
 /** The path's configuration, read at call time. */
@@ -122,7 +135,54 @@ export function submissionConfig(): SubmissionConfig {
     quarantineBuildkitAddr: envStr('PLUGIN_QUARANTINE_BUILDKIT_ADDR', ''),
     buildTimeoutMs: envInt('SUBMISSION_BUILD_TIMEOUT_SECONDS', 900, { min: 60 }) * 1000,
     maxZipBytes: envInt('SUBMISSION_MAX_ZIP_BYTES', 50 * 1024 * 1024, { min: 1024 }),
+    extractDir: envStr('SUBMISSION_EXTRACT_DIR', path.join(os.tmpdir(), 'pb-submission-extract')),
+    maxConcurrentExtracts: envInt('SUBMISSION_MAX_CONCURRENT_EXTRACTS', 2, { min: 1, max: 64 }),
   };
+}
+
+/**
+ * The extraction an ANONYMOUS package gets (E14): at most
+ * {@link ANONYMOUS_EXPANSION_FACTOR} × the zip cap and
+ * {@link ANONYMOUS_MAX_ENTRIES} entries, into its own directory. Every
+ * consumer of an anonymous zip — inspect, submit and the quarantine worker —
+ * parses with these, never the tenant-upload limits (GBs, 10 000 entries).
+ */
+export function anonymousExtractOptions(cfg: SubmissionConfig = submissionConfig()): Required<ParseZipOptions> {
+  return {
+    limits: { maxBytes: cfg.maxZipBytes * ANONYMOUS_EXPANSION_FACTOR, maxEntries: ANONYMOUS_MAX_ENTRIES },
+    extractRoot: cfg.extractDir,
+  };
+}
+
+/**
+ * {@link anonymousExtractOptions} with the directory created and RESOLVED (the
+ * Dockerfile containment check compares real paths — `/tmp` is a symlink on
+ * some hosts).
+ */
+export async function preparedAnonymousExtract(): Promise<Required<ParseZipOptions>> {
+  const opts = anonymousExtractOptions();
+  await fs.mkdir(opts.extractRoot, { recursive: true });
+  return { ...opts, extractRoot: await fs.realpath(opts.extractRoot) };
+}
+
+let extractsInFlight = 0;
+
+/**
+ * Run `fn` holding one of the replica's anonymous-extraction slots — the
+ * directory's quota: with at most `maxConcurrentExtracts` packages expanding at
+ * once, `extractDir` never holds more than that many byte caps. A full house
+ * answers 503 at once rather than queueing anonymous work.
+ */
+async function withExtractSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (extractsInFlight >= submissionConfig().maxConcurrentExtracts) {
+    throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Submissions are busy; try again shortly.');
+  }
+  extractsInFlight++;
+  try {
+    return await fn();
+  } finally {
+    extractsInFlight--;
+  }
 }
 
 /** What a flag-on instance is missing (empty = nothing). Every item fails the path closed. */
@@ -240,6 +300,55 @@ let replayStore: PowReplayStore = redisReplayStore;
 /** Test hook: replace the replay store (pass nothing to restore Redis). */
 export function setPowReplayStoreForTests(store?: PowReplayStore): void {
   replayStore = store ?? redisReplayStore;
+}
+
+// -----------------------------------------------------------------------------
+// Daily caps (E16): one atomic counter per key, checked BEFORE any parsing
+// -----------------------------------------------------------------------------
+
+/** Rolling-window counters for the per-email / per-IP caps. */
+export interface DailyCapStore {
+  /** Increment `key` and return the new count; the window (`ttlMs`) starts at the first hit. Throws when the store is down. */
+  incr(key: string, ttlMs: number): Promise<number>;
+}
+
+const INCR_WITH_WINDOW = `local n = redis.call('INCR', KEYS[1])
+if n == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
+return n`;
+
+const redisDailyCapStore: DailyCapStore = {
+  async incr(key, ttlMs) {
+    const { getHealthRedisConnection } = await import('../../queue/connections.js');
+    return Number(await getHealthRedisConnection().eval(INCR_WITH_WINDOW, 1, `plugin-submission:cap:${key}`, String(ttlMs)));
+  },
+};
+
+let dailyCaps: DailyCapStore = redisDailyCapStore;
+
+/** Test hook: replace the daily-cap store (pass nothing to restore Redis). */
+export function setDailyCapStoreForTests(store?: DailyCapStore): void {
+  dailyCaps = store ?? redisDailyCapStore;
+}
+
+/**
+ * Count one attempt against each key (in order) and refuse with 429
+ * `SUBMISSION_LIMIT` once any passes `max` in its 24 h window. Atomic per key
+ * (one INCR), so concurrent requests can't all read "2 of 3" and pass. A store
+ * outage FAILS CLOSED (503): without the counter there is no cap.
+ */
+async function consumeDailyCaps(keys: string[], max: number, what: string): Promise<void> {
+  for (const key of keys) {
+    let n: number;
+    try {
+      n = await dailyCaps.incr(key, DAY_MS);
+    } catch (err) {
+      logger.warn('Submission cap store unavailable; refusing', { error: errorMessage(err) });
+      throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Submissions are temporarily unavailable; try again shortly.');
+    }
+    if (!Number.isFinite(n) || n > max) {
+      throw new EcosystemError(ErrorCode.SUBMISSION_LIMIT, `At most ${max} ${what} a day; try again tomorrow.`);
+    }
+  }
 }
 
 /** GET /challenge — a fresh challenge at the configured difficulty. */
@@ -362,7 +471,7 @@ async function parseSubmittedZip(zipPath: string): Promise<ParsedPlugin> {
   const spec: typeof import('../../helpers/plugin-spec.js') = await import('../../helpers/plugin-spec.js');
   let plugin: ParsedPlugin;
   try {
-    plugin = await spec.parsePluginZip(zipPath);
+    plugin = await spec.parsePluginZip(zipPath, await preparedAnonymousExtract());
     spec.validateBuildArgs(plugin.pluginSpec.buildArgs);
   } catch (err) {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, errorMessage(err));
@@ -411,8 +520,13 @@ export interface InspectResult {
  * findings, a heuristics preview (no excerpts) and the name check. Consumes a
  * proof-of-work; stores nothing.
  */
-export async function inspectSubmission(zipPath: string, pow: unknown): Promise<InspectResult> {
+export async function inspectSubmission(zipPath: string, pow: unknown, clientIp: string): Promise<InspectResult> {
   await consumeProofOfWork(pow);
+  await consumeDailyCaps([`inspect:ip:${hashClientIp(clientIp || 'unknown')}`], INSPECTS_PER_DAY, 'inspections');
+  return withExtractSlot(() => inspectPackage(zipPath));
+}
+
+async function inspectPackage(zipPath: string): Promise<InspectResult> {
   const plugin = await parseSubmittedZip(zipPath);
   try {
     const report = scanPluginSourceHeuristics(await readPackageFiles(plugin.extractDir));
@@ -477,12 +591,16 @@ export async function createSubmission(input: CreateSubmissionInput): Promise<{ 
 
   const emailHash = hashEmail(email);
   const ipHash = hashClientIp(input.clientIp || 'unknown');
-  const since = new Date(Date.now() - DAY_MS);
-  if (await submissions.countByEmailSince(emailHash, since) >= SUBMISSIONS_PER_DAY
-    || await submissions.countByIpSince(ipHash, since) >= SUBMISSIONS_PER_DAY) {
-    throw new EcosystemError(ErrorCode.SUBMISSION_LIMIT, `At most ${SUBMISSIONS_PER_DAY} submissions a day; try again tomorrow.`);
-  }
+  // Counted before the package is even opened: a refused attempt (a zip bomb, a
+  // bad spec) still spends its slot, so the caps bound the parsing work too.
+  await consumeDailyCaps([`submit:email:${emailHash}`, `submit:ip:${ipHash}`], SUBMISSIONS_PER_DAY, 'submissions');
+  return withExtractSlot(() => stageSubmission(input, email, emailHash, ipHash, edits.value));
+}
 
+async function stageSubmission(
+  input: CreateSubmissionInput, email: string, emailHash: string, ipHash: string,
+  editValues: Parameters<typeof resolveCatalogMetadata>[1],
+): Promise<{ id: string; status: SubmissionStatus }> {
   const plugin = await parseSubmittedZip(input.zipPath);
   let id: string;
   let name: string;
@@ -496,7 +614,7 @@ export async function createSubmission(input: CreateSubmissionInput): Promise<{ 
     if (gate.listing && await versions.get(gate.listing.id, version)) {
       throw new EcosystemError(ErrorCode.CONFLICT, `community/${name} ${version} is already published; bump the version.`);
     }
-    const resolved = resolveCatalogMetadata(detectCatalogMetadata({ spec, readmeMd: plugin.readmeMd, dockerfileContent: plugin.dockerfileContent }), edits.value);
+    const resolved = resolveCatalogMetadata(detectCatalogMetadata({ spec, readmeMd: plugin.readmeMd, dockerfileContent: plugin.dockerfileContent }), editValues);
     const catalog: SubmissionCatalog = { values: resolved.values as Record<string, unknown>, sources: resolved.sources as Record<string, string> };
 
     id = randomUUID();
@@ -607,7 +725,8 @@ export async function submissionStatus(token: unknown): Promise<SubmissionStatus
     id: s.id,
     name: s.name,
     version: s.version,
-    status: s.status,
+    // `publishing` is a seconds-long internal claim (E10); to the submitter it is still under review.
+    status: s.status === 'publishing' ? 'pending_review' : s.status,
     submittedAt: new Date(s.createdAt).toISOString(),
     ...(s.reason && (s.status === 'rejected' || s.status === 'gate_failed') ? { reason: s.reason } : {}),
     ...(gates ? { gates } : {}),
@@ -634,32 +753,43 @@ export async function dropQuarantineArtifacts(s: Pick<PluginSubmission, 'id' | '
  * open request is closed so it can't be approved against deleted artifacts.
  */
 export async function expireSubmissions(now: Date = new Date()): Promise<number> {
-  const due = (await submissions.list({ statuses: ['pending_verification', 'pending_review'] }))
-    .filter((s) => new Date(s.expiresAt).getTime() <= now.getTime());
   let expired = 0;
-  for (const s of due) {
-    const done = await submissions.transition(s.id, s.status, {
-      status: 'expired',
-      decidedAt: now,
-      verifyTokenHash: null,
-      emailPurgeAfter: new Date(now.getTime() + EMAIL_RETENTION_DAYS * DAY_MS),
-      reason: 'Expired before a decision',
-    });
-    if (!done) continue;
-    expired++;
-    const { closeSubmissionRequest } = await import('./submission-moderation.js');
-    await closeSubmissionRequest(s.id, 'expired').catch((err) => logger.warn('Closing an expired submission\'s request failed', { submissionId: s.id, error: errorMessage(err) }));
-    await dropQuarantineArtifacts(s);
-    audit('plugin.submission.expire', s.id, { name: s.name, version: s.version, from: s.status }, SYSTEM_ACTOR_ID);
-    recordSubmission('expired');
+  for (;;) {
+    const due = await submissions.dueForExpiry(now, SWEEP_BATCH);
+    let moved = 0;
+    for (const s of due) {
+      const done = await submissions.transition(s.id, s.status, {
+        status: 'expired',
+        decidedAt: now,
+        verifyTokenHash: null,
+        emailPurgeAfter: new Date(now.getTime() + EMAIL_RETENTION_DAYS * DAY_MS),
+        reason: 'Expired before a decision',
+      });
+      if (!done) continue;
+      moved++;
+      expired++;
+      const { closeSubmissionRequest } = await import('./submission-moderation.js');
+      await closeSubmissionRequest(s.id, 'expired').catch((err) => logger.warn('Closing an expired submission\'s request failed', { submissionId: s.id, error: errorMessage(err) }));
+      await dropQuarantineArtifacts(s);
+      audit('plugin.submission.expire', s.id, { name: s.name, version: s.version, from: s.status }, SYSTEM_ACTOR_ID);
+      recordSubmission('expired');
+    }
+    // A short page is the last one; a page that moved nothing (every row raced
+    // to another state) would re-read the same rows forever.
+    if (due.length < SWEEP_BATCH || moved === 0) return expired;
   }
-  return expired;
 }
 
-/** Null both email columns of decided submissions past `email_purge_after` (90 days after the decision). */
+/**
+ * Null both email columns of decided submissions past `email_purge_after` (90
+ * days after the decision): batched SQL updates until none is left, so the
+ * purge is complete however many rows are due.
+ */
 export async function purgeSubmitterEmails(now: Date = new Date()): Promise<number> {
-  const rows = (await submissions.list({ statuses: ['gate_failed', 'approved', 'rejected', 'expired', 'claimed'] }))
-    .filter((s) => (s.emailHash !== null || s.emailEnc !== null) && s.emailPurgeAfter && new Date(s.emailPurgeAfter).getTime() <= now.getTime());
-  for (const s of rows) await submissions.update(s.id, { emailHash: null, emailEnc: null });
-  return rows.length;
+  let purged = 0;
+  for (;;) {
+    const n = await submissions.purgeEmails(now, SWEEP_BATCH);
+    purged += n;
+    if (n < SWEEP_BATCH) return purged;
+  }
 }

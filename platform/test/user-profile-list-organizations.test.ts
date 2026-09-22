@@ -42,6 +42,8 @@ jest.unstable_mockModule('../src/services/user-cascade.js', () => ({ deleteUserC
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({ loadActiveOrgInfo: jest.fn() }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
   publishUserRevocation: jest.fn(),
   publishUserDeletionRevocation: jest.fn(),
 }));

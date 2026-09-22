@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useId } from 'react';
 import Link from 'next/link';
 import { Plus, Trash2, Edit2, Activity, FileCode } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -287,6 +287,7 @@ function RuleModal(props: {
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const uid = useId();
   const { existing, onClose, onSaved } = props;
   const toast = useToast();
   const [name, setName] = useState(existing?.name ?? '');
@@ -336,8 +337,8 @@ function RuleModal(props: {
     <Modal title={existing ? 'Edit alert rule' : 'Add alert rule'} onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Name</label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-name`}>Name</label>
+          <Input id={`${uid}-name`}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -346,8 +347,8 @@ function RuleModal(props: {
           <div className="text-xs text-fg-subtle mt-1">Letters, digits, space, _ or - (max 100 chars).</div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">PromQL expression</label>
-          <Textarea
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-promql-expression`}>PromQL expression</label>
+          <Textarea id={`${uid}-promql-expression`}
             value={expr}
             onChange={(e) => setExpr(e.target.value)}
             rows={3}
@@ -360,8 +361,8 @@ function RuleModal(props: {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1">For (duration)</label>
-            <Input
+            <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-for-duration`}>For (duration)</label>
+            <Input id={`${uid}-for-duration`}
               type="text"
               value={forDuration}
               onChange={(e) => setForDuration(e.target.value)}
@@ -371,8 +372,8 @@ function RuleModal(props: {
             <div className="text-xs text-fg-subtle mt-1">Prometheus syntax (e.g. 30s, 5m, 1h).</div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-fg-muted mb-1">Severity</label>
-            <Select
+            <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-severity`}>Severity</label>
+            <Select id={`${uid}-severity`}
               value={severity}
               onChange={(e) => setSeverity(e.target.value as typeof severity)}
             >
@@ -382,8 +383,8 @@ function RuleModal(props: {
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Summary</label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-summary`}>Summary</label>
+          <Input id={`${uid}-summary`}
             type="text"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
@@ -392,8 +393,8 @@ function RuleModal(props: {
           <div className="text-xs text-fg-subtle mt-1">Alertmanager annotation; supports <code>{'{{ $value }}'}</code> (max 500 chars).</div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Description (optional)</label>
-          <Textarea
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-description-optional`}>Description (optional)</label>
+          <Textarea id={`${uid}-description-optional`}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}

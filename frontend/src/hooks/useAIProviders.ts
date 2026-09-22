@@ -90,7 +90,7 @@ export function useAIProviders(
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const [serverResponse, orgResponse, askResponse] = await Promise.allSettled([
           fetchServerProviders(),

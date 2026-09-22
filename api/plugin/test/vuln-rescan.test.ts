@@ -10,7 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- scanner ------------------------------------------------------------------
@@ -34,12 +34,12 @@ jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ ope
 // -- metrics / scheduler ------------------------------------------------------
 const mockSetGauge = jest.fn();
 const mockIncCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ setGauge: mockSetGauge, incCounter: mockIncCounter }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { setGauge: mockSetGauge, incCounter: mockIncCounter }));
 const mockCreateScheduler = jest.fn((opts: any) => ({ opts, start: jest.fn(), stop: jest.fn() }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ createScheduler: mockCreateScheduler }));
 const mockHealthRedis = { get: jest.fn(), set: jest.fn() };
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ getHealthRedisConnection: () => mockHealthRedis }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },
 }));
 
@@ -107,7 +107,7 @@ function listingIdsFor(where: any): Array<{ id: string }> {
   const pluginId = where?.parts?.[0]?.v as string;
   return (listingIds[pluginId] ?? []).map((id) => ({ id }));
 }
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: T,
   withTenantTx: async (fn: (t: typeof tx) => unknown) => fn(tx),
   runWithTenantContext: async (ctx: unknown, fn: () => unknown) => { tenantContexts.push(ctx); return fn(); },

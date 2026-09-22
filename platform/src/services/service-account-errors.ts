@@ -29,3 +29,8 @@ export const SA_ORG_NOT_FOUND = 'SA_ORG_NOT_FOUND';
 export const SA_KEY_NOT_FOUND = 'SA_KEY_NOT_FOUND';
 /** The requested key scope is not in api-core's `TOKEN_SCOPES` catalog. */
 export const SA_INVALID_SCOPE = 'SA_INVALID_SCOPE';
+
+/** The actor may not mint a key with this capability scope: `scim` needs org
+ *  admin (or `members:manage` + `roles:manage`) and the org's SSO entitlement;
+ *  `registry:push` needs `plugins:write`. */
+export const SA_SCOPE_NOT_PERMITTED = 'SA_SCOPE_NOT_PERMITTED';

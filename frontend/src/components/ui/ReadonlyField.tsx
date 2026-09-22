@@ -18,7 +18,7 @@ interface ReadonlyFieldProps {
 export function ReadonlyField({ label, value, className, valueClassName }: ReadonlyFieldProps) {
   return (
     <div className={className}>
-      <label className="block text-xs font-medium text-fg-muted mb-1">{label}</label>
+      <span className="block text-xs font-medium text-fg-muted mb-1">{label}</span>
       <p className={`text-sm text-fg-muted bg-surface-muted px-2 py-1 rounded-lg${valueClassName ? ` ${valueClassName}` : ''}`}>{value}</p>
     </div>
   );

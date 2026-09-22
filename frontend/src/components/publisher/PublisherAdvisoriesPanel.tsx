@@ -23,8 +23,9 @@ import type { AdvisoryView } from '@/types/ecosystem';
 import { describePublishError } from './PublishRequestForm';
 
 /**
- * The publisher's security advisories (plan W8, `publishers:manage`). A
- * publisher only ever REQUESTS an advisory: it lands as a private draft the
+ * The publisher's security advisories (plan W8). Readable with `plugins:read`
+ * (the server's gate on the list); REQUESTING or withdrawing one is
+ * `publishers:manage` — `canManage`. A publisher only ever REQUESTS an advisory: it lands as a private draft the
  * system org publishes (or discards). Drafts the nightly CVE rescan created for
  * the publisher's listings show up here too.
  */

@@ -12,13 +12,14 @@
  * the `org_admin_aal` claim can't lag the policy.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockAudit = jest.fn();
-const mockUpdateOne = jest.fn(async () => ({ modifiedCount: 1 }));
-const mockRefresh = jest.fn(async () => 3);
+const mockAudit = jest.fn<AnyFn>();
+const mockUpdateOne = jest.fn(async (..._args: unknown[]) => ({ modifiedCount: 1 }));
+const mockRefresh = jest.fn(async (..._args: unknown[]) => 3);
 let before: Record<string, unknown> = {};
 let effective: Record<string, unknown> = {};
 
@@ -38,9 +39,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ getOrgName: async () => undefined }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, getOrgName: async () => undefined }));
 jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({ isBootstrapExceptionOpen: async () => false }));
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { passwordMinLength: 8 } } }));
 jest.unstable_mockModule('../src/services/admin-mfa-claims.js', () => ({
   refreshAdminPolicyClaims: (...a: unknown[]) => (mockRefresh as any)(...a),
@@ -76,7 +77,7 @@ const ORG_ADMIN = (aal: 1 | 2) => ({ sub: 'actor', organizationId: 'org1', role:
 
 async function patch(body: Record<string, unknown>, aal: 1 | 2, user: unknown = ORG_ADMIN(aal)) {
   const res = makeRes();
-  await updateMfaPolicy({ user, params: { id: 'org1' }, body } as any, res, jest.fn() as any);
+  await updateMfaPolicy({ user, params: { id: 'org1' }, body } as any, res);
   return res;
 }
 

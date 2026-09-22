@@ -27,11 +27,14 @@ interface Props {
   can: (permission: string) => boolean;
 }
 
+// The form kinds carry what was typed (and why it came back) so a refused
+// confirmation returns to a FILLED form. It used to reopen empty: the form was
+// unmounted the moment "Continue" moved on to the step-up dialog.
 type Action =
-  | { kind: 'new-form' }
-  | { kind: 'edit-form'; advisory: AdvisoryView }
-  | { kind: 'create'; value: AdvisoryFormValue }
-  | { kind: 'save'; advisory: AdvisoryView; value: AdvisoryInput }
+  | { kind: 'new-form'; draft?: AdvisoryFormValue; error?: string | null }
+  | { kind: 'edit-form'; advisory: AdvisoryView; draft?: AdvisoryFormValue; error?: string | null }
+  | { kind: 'create'; value: AdvisoryFormValue; error?: string | null }
+  | { kind: 'save'; advisory: AdvisoryView; value: AdvisoryInput; error?: string | null }
   | { kind: 'publish' | 'discard' | 'withdraw'; advisory: AdvisoryView };
 
 const STATES: AdvisoryState[] = ['draft', 'published', 'withdrawn'];
@@ -63,14 +66,40 @@ export function AdvisoriesPanel({ can }: Props) {
     return res.data?.listings ?? [];
   }, [action?.kind === 'new-form']);
 
+  /** Back to the form with what was typed, and the reason it was refused. */
+  // Only moves on from `a` itself: the confirmation dialog's own close, which
+  // follows a refused submit, must not replace the form (and its error) that
+  // the refusal already went back to.
+  const backToForm = (a: Action, error: string | null) => {
+    setAction((cur) => {
+      if (cur !== a) return cur;
+      if (a.kind === 'create') return { kind: 'new-form', draft: a.value, error };
+      if (a.kind === 'save') return { kind: 'edit-form', advisory: a.advisory, draft: { listingId: a.advisory.listingId, advisory: a.value }, error };
+      return null;
+    });
+  };
+
   const run = async (text: string, token?: string) => {
     if (!action) return;
-    if (action.kind === 'create') {
-      await api.createEcosystemAdvisory({ listingId: action.value.listingId, ...action.value.advisory }, token);
-      toast.success('Draft advisory created');
-    } else if (action.kind === 'save') {
-      await api.updateEcosystemAdvisory(action.advisory.id, action.value, token);
-      toast.success('Draft advisory saved');
+    if (action.kind === 'create' || action.kind === 'save') {
+      const current = action;
+      try {
+        if (current.kind === 'create') {
+          await api.createEcosystemAdvisory({ listingId: current.value.listingId, ...current.value.advisory }, token);
+          toast.success('Draft advisory created');
+        } else {
+          await api.updateEcosystemAdvisory(current.advisory.id, current.value, token);
+          toast.success('Draft advisory saved');
+        }
+      } catch (err) {
+        // A server refusal (a range it rejects, a duplicate) sends the person
+        // back to their filled-in form, with the reason — not to an empty one.
+        backToForm(current, formatError(err, 'Could not save the advisory'));
+        return;
+      }
+      close(); // done — the dialog's own close that follows must not reopen the form
+      advisoriesQ.refetch();
+      return;
     } else if (action.kind === 'publish') {
       await api.approveEcosystemRequest(action.advisory.requestId as string, text || undefined, token);
       toast.success(`Published the advisory for ${action.advisory.listingName}; installers are being notified`);
@@ -170,6 +199,8 @@ export function AdvisoriesPanel({ can }: Props) {
           listings={(listingsQ.data ?? []).map((l) => ({ id: l.id, label: `${l.publisherHandle}/${l.name}` }))}
           listingsLoading={listingsQ.loading && !listingsQ.data}
           intro={<p>The draft stays private until you publish it from the drafts list.</p>}
+          draft={action.draft}
+          initialError={action.error}
           onSubmit={async (value) => setAction({ kind: 'create', value })}
           onClose={close}
         />
@@ -179,6 +210,8 @@ export function AdvisoriesPanel({ can }: Props) {
           title="Edit draft advisory"
           confirmLabel="Continue"
           initial={action.advisory}
+          draft={action.draft}
+          initialError={action.error}
           onSubmit={async ({ advisory }) => setAction({ kind: 'save', advisory: action.advisory, value: advisory })}
           onClose={close}
         />
@@ -189,7 +222,8 @@ export function AdvisoriesPanel({ can }: Props) {
           action={`Create a ${severityLabel(action.value.advisory.severity).toLowerCase()} draft advisory: ${action.value.advisory.summary}`}
           stepUp
           onSubmit={run}
-          onClose={close}
+          // Cancelling the confirmation goes back to the form, values intact.
+          onClose={() => backToForm(action, null)}
         />
       )}
       {action?.kind === 'save' && (
@@ -198,7 +232,7 @@ export function AdvisoriesPanel({ can }: Props) {
           action={`Save the draft for ${action.advisory.publisherHandle}/${action.advisory.listingName}`}
           stepUp
           onSubmit={run}
-          onClose={close}
+          onClose={() => backToForm(action, null)}
         />
       )}
       {action?.kind === 'publish' && (

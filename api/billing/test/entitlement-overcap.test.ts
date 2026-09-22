@@ -10,7 +10,9 @@
  * those base limits, so we drive overages purely via the mocked usage reads.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Per-test usage knobs, read by the routed HTTP-client mock below.
@@ -20,7 +22,7 @@ let pipelinesUsed: number | null = 0;
 let listingsUsed: number | null = 0;
 let transportFailure = false;
 
-const mockGet = jest.fn(async (path: string) => {
+const mockGet = jest.fn<AnyFn>(async (path: string) => {
   if (transportFailure) return null; // the real safe client resolves null on a transport failure
   if (path.includes('/seat-usage')) {
     // REAL shape: platform's `sendSuccess(res, 200, { limit, used })` → the
@@ -36,12 +38,12 @@ const mockGet = jest.fn(async (path: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ get: mockGet, put: jest.fn() }),
+  createSafeClient: () => ({ get: mockGet, put: jest.fn<AnyFn>() }),
   getServiceAuthHeader: jest.fn(() => 'Bearer svc'),
-  setCounterEmitter: jest.fn(),
+  setCounterEmitter: jest.fn<AnyFn>(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: jest.fn<AnyFn>() }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const get = (section: string) => {
@@ -53,11 +55,11 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const { effectiveEntitlements } = await import(
     '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
   );
-  return {
+  return stubModule('@pipeline-builder/pipeline-core', {
     Config: { get, getAny: get },
     effectiveEntitlements,
     CoreConstants: { IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000, IDEMPOTENCY_TTL_MS: 300_000, IDEMPOTENCY_MAX_STORE_SIZE: 10_000 },
-  };
+  });
 });
 
 jest.unstable_mockModule('../src/config.js', () => ({
@@ -67,15 +69,15 @@ jest.unstable_mockModule('../src/config.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('../src/models/billing-event.js', () => ({ BillingEvent: { create: jest.fn() } }));
+jest.unstable_mockModule('../src/models/billing-event.js', () => ({ BillingEvent: { create: jest.fn<AnyFn>() } }));
 
 // billing-helpers now imports the provider factory + service audit client; stub
 // both so no real Stripe/AWS SDK is loaded for this over-cap unit suite.
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
-  getPaymentProvider: () => ({ syncAddons: jest.fn() }),
+  getPaymentProvider: () => ({ syncAddons: jest.fn<AnyFn>() }),
 }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 const { checkEntitlementOvercap } = await import('../src/helpers/billing-helpers.js');

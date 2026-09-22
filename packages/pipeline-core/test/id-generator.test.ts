@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import { UniqueId } from '../src/core/id-generator.js';
 
 describe('UniqueId', () => {

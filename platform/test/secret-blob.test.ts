@@ -12,7 +12,7 @@
  * has its own tests in api-core/test/secret-encryption.test.ts).
  */
 
-import { jest, describe, it, expect, test } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   encryptSecret: jest.fn((plaintext: string, orgId: string) => ({

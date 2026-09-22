@@ -12,7 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 
 interface QRow {
   id: string;
@@ -68,7 +68,7 @@ const tx = {
     }),
   }),
 };
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
   withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
   schema: {
@@ -78,7 +78,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   },
 }));
 const mockInc = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: mockInc }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockInc }));
 
 const mod = await import('../src/services/ecosystem-notifications.js');
 const {
@@ -102,6 +102,11 @@ describe('enqueueEcosystemNotification', () => {
     await expect(enqueueEcosystemNotification('N8', mods, { subject: 'Suspended', text: 't' })).resolves.toBe('sent');
     expect(mockSend).toHaveBeenCalledWith({ event: 'N8', recipients: mods, subject: 'Suspended', text: 't' });
     expect(table).toHaveLength(0);
+  });
+
+  it('strips CR/LF and control characters from the subject (user text never injects a header) — E15', async () => {
+    await enqueueEcosystemNotification('N8', mods, { subject: 'Yanked: evil\r\nBcc: x@y\u0007 1.0', text: 'line1\nline2' });
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ subject: 'Yanked: evil Bcc: x@y  1.0', text: 'line1\nline2' }));
   });
 
   it('queues an immediate event for retry when the relay is down (never lost)', async () => {

@@ -1,4 +1,4 @@
-import { useState, useImperativeHandle, forwardRef, useCallback } from 'react';
+import { useState, useImperativeHandle, forwardRef, useCallback, useId } from 'react';
 import { GitBranch, ChevronDown, Plug, Loader } from 'lucide-react';
 import { BuilderProps, GeneratedPluginRef, asGeneratedSynth, asGeneratedStages } from '@/types';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -104,6 +104,7 @@ function PluginReviewSection({ props, onPluginChange, disabled }: PluginReviewSe
 
 const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
   ({ disabled, initialUrl, autoGenerate }, ref) => {
+    const uid = useId();
     const {
       gitUrl, setGitUrl,
       repoToken, setRepoToken,
@@ -176,8 +177,9 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       <div className="space-y-4">
         {/* Git URL Input */}
         <div>
-          <label className="label">Git repository URL</label>
+          <label className="label" htmlFor={`${uid}-git-repository-url`}>Git repository URL</label>
           <Input
+            id={`${uid}-git-repository-url`}
             type="text"
             value={gitUrl}
             onChange={(e) => setGitUrl(e.target.value)}
@@ -294,7 +296,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         {previewJson && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="label">Generated configuration</label>
+              <span className="label" id={`${uid}-generated-config`}>Generated configuration</span>
               {generating ? (
                 <span className="text-xs text-info font-medium flex items-center gap-1">
                   <LoadingSpinner size="sm" /> Streaming...
@@ -305,7 +307,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
                 </span>
               )}
             </div>
-            <pre className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
+            <pre aria-labelledby={`${uid}-generated-config`} className="input font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto whitespace-pre">
               {previewJson}
             </pre>
             <p className="mt-2 text-xs text-fg-muted">

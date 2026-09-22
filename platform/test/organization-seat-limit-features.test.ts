@@ -35,7 +35,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ expandOrgScope: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, expandOrgScope: jest.fn() }));
 
 jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: jest.fn(), pooledFeatureEntitlements: jest.fn() }));
 
@@ -203,5 +203,18 @@ describe('updateOrganizationTier — audit records lost features on a downgrade'
     const auditCall = mockAudit.mock.calls.find((c) => c[1] === 'admin.org.tier.update');
     const auditDetails = (auditCall![2] as any).details;
     expect(auditDetails.featuresRemoved).toBeUndefined();
+  });
+});
+
+describe('updateOrganizationSeatLimit — root-only', () => {
+  it('answers 409 (not a silent root redirect) when :id is a team', async () => {
+    const { ORG_SEAT_LIMIT_NOT_ROOT } = await import('../src/services/org-errors.js');
+    mockSetSeatLimit.mockRejectedValue(new Error(ORG_SEAT_LIMIT_NOT_ROOT));
+    const res = mockRes();
+
+    await call({ ...req({ seats: 5 }), params: { id: 'team-1' } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });

@@ -163,7 +163,7 @@ set +a
 # ALERT DELIVERY PRE-FLIGHT. Fails the provision while a Slack webhook URL is
 # still a placeholder — alerting that 404s into nothing is indistinguishable
 # from healthy alerting, so it has to be caught here and not at 3am.
-pb_check_alert_delivery "$ENV_FILE" "$DEPLOY_DIR/config/alertmanager/alertmanager.yml" || exit 1
+pb_check_alert_delivery "$ENV_FILE" "$(pb_shared_dir)/config/alertmanager/alertmanager.yml" || exit 1
 
 # Grant minikube user read access to deploy assets (manifests, configs, nginx)
 # Exclude .env and auth dirs which contain secrets
@@ -319,7 +319,7 @@ mk kubectl -n kube-system patch deploy metrics-server --type=json \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]' \
   2>/dev/null || echo "  metrics-server patch skipped (already patched or not yet rolled out)"
 
-mk kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.16.1/keda-2.16.1.yaml
+mk kubectl apply --server-side -f https://github.com/kedacore/keda/releases/download/v2.20.2/keda-2.20.2.yaml
 mk kubectl wait --for=condition=Available deployment/keda-operator -n keda --timeout=120s 2>/dev/null || echo "  KEDA not ready yet"
 echo "  Addons + KEDA installed"
 
@@ -442,6 +442,13 @@ echo "  per-service signing keys done"
 # -- ConfigMaps ---------------------------------------------------------------
 
 log "Creating ConfigMaps"
+# The peers nginx trusts X-Forwarded-For from (real_ip; nginx.conf CLIENT IP):
+# the stack VPC (template.yaml, 10.0.0.0/16 — the ALB), and the hops the ALB's
+# connection is re-sourced through on its way in: the minikube docker network
+# (the iptables 30080 bridge) and the pod network (kube-proxy's NodePort SNAT).
+# A client can reach nginx only through the ALB, so none of these carry a
+# client-chosen address.
+export PB_TRUSTED_PROXY_CIDRS="${PB_TRUSTED_PROXY_CIDRS:-10.0.0.0/16 192.168.49.0/24 10.244.0.0/16}"
 pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 
 # -- Deploy -------------------------------------------------------------------
@@ -553,13 +560,21 @@ if [ "$(id -u)" = "0" ]; then
   fi
 fi
 
+# -- Post-provision smoke checks (non-fatal) ----------------------------------
+# Test alert -> Slack, test email, CodePipeline credential dry-run (instance
+# role) and a denied-connection probe.
+_smoke_kubectl=kubectl
+[ "$(id -u)" = "0" ] && _smoke_kubectl="sudo -u minikube kubectl"
+PB_SMOKE_KUBECTL="$_smoke_kubectl" NAMESPACE="$NAMESPACE" \
+  bash "$SCRIPT_DIR/../../../bin/post-provision-smoke.sh" k8s --aws || true
+
 # -- Summary ------------------------------------------------------------------
 
 log "Access URLs (via the ALB — TLS terminated there with the ACM cert)"
 echo "  Application:   https://${DOMAIN}"
 # mongo-express / pgAdmin are omitted under LEAN=1 (no service behind these paths).
-if [ "$LEAN" != "1" ]; then
-  echo "  Mongo Express: https://${DOMAIN}/mongo-express/"
-  echo "  pgAdmin:       https://${DOMAIN}/pgadmin/"
+if [ "$LEAN" != "1" ] && [ "${ADMIN_UIS_ENABLED:-false}" = true ]; then
+  echo "  Mongo Express: https://${DOMAIN}/mongo-express/   (superadmin + AAL2 gated)"
+  echo "  pgAdmin:       https://${DOMAIN}/pgadmin/         (superadmin + AAL2 gated)"
 fi
 echo "  Credentials: see $ENV_FILE"

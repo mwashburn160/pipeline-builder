@@ -7,10 +7,12 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { Config, effectiveEntitlements, type BillingConfig, type BundleConfig } from '@pipeline-builder/pipeline-core';
 import { config } from '../config.js';
 import { fetchQuotaTypeUsage, fetchSeatUsage } from './quota-client.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES, isGraceDowngraded } from './subscription-status.js';
 import { BillingEvent } from '../models/billing-event.js';
 import type { BillingEventType } from '../models/billing-event.js';
+import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
-import type { BillingInterval } from '../models/subscription.js';
+import type { BillingInterval, SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('billing-helpers');
@@ -177,6 +179,8 @@ export async function syncTierToQuotaService(
   authHeader: string,
   subscriptionId?: string,
   quotas?: Record<string, number>,
+  /** ISO moment of the entitlement change (see EntitlementSyncEvent.occurredAt). */
+  occurredAt: string = new Date().toISOString(),
 ): Promise<boolean> {
   // Push EXPLICIT effective limits (tier + bundles) so a plain tier reseed can't
   // wipe purchased add-ons. The service token (minted per target org by the leg)
@@ -185,7 +189,7 @@ export async function syncTierToQuotaService(
     orgId,
     service: config.quotaService,
     path: `/quotas/${orgId}`,
-    body: quotas ? { tier, quotas } : { tier },
+    body: quotas ? { tier, quotas, occurredAt } : { tier, occurredAt },
     authHeader,
     failReason: 'quota_sync_failed',
     logLabel: 'tier to quota service',
@@ -206,8 +210,9 @@ async function pushSeatLimitToPlatform(
   seats: number,
   features: string[],
   authHeader: string,
-  subscriptionId?: string,
-  tier?: QuotaTier,
+  subscriptionId: string | undefined,
+  tier: QuotaTier,
+  occurredAt: string,
 ): Promise<boolean> {
   // Push the account `tier` alongside seats/features so a plan DOWNGRADE
   // invalidates stale JWTs platform-side (the token re-derives tier-included
@@ -218,7 +223,7 @@ async function pushSeatLimitToPlatform(
     orgId,
     service: config.platformService,
     path: `/organization/${orgId}/seat-limit`,
-    body: { seats, features, tier },
+    body: { seats, features, tier, occurredAt },
     authHeader,
     failReason: 'seat_sync_failed',
     logLabel: 'seat limit to platform',
@@ -233,8 +238,9 @@ const RETENTION_MAX_DAYS = 730;
 /** Clamp an effective retention to the 730-day ceiling; `-1` (unlimited) passes
  *  through untouched. Defensive: bundle `maxQuantity` already bounds purchases,
  *  but the sync leg clamps too so a mis-configured baseline can never push
- *  reporting past its own ceiling. */
-function clampRetentionDays(v: number): number {
+ *  reporting past its own ceiling. Exported so the drift reconciler compares the
+ *  SAME clamped value the leg pushes. */
+export function clampRetentionDays(v: number): number {
   return v === -1 ? -1 : Math.min(v, RETENTION_MAX_DAYS);
 }
 
@@ -254,15 +260,16 @@ async function pushRetentionToReporting(
   orgId: string,
   limits: { eventRetentionDays: number; doraRetentionDays: number },
   authHeader: string,
-  subscriptionId?: string,
+  subscriptionId: string | undefined,
+  occurredAt: string,
 ): Promise<boolean> {
   const eventRetentionDays = clampRetentionDays(limits.eventRetentionDays);
   const doraRetentionDays = clampRetentionDays(limits.doraRetentionDays);
   return pushEntitlementLeg({
     orgId,
     service: config.reportingService,
-    path: `/api/reports/retention-sync/${orgId}`,
-    body: { eventRetentionDays, doraRetentionDays },
+    path: `/reports/retention-sync/${orgId}`,
+    body: { eventRetentionDays, doraRetentionDays, occurredAt },
     authHeader,
     failReason: 'retention_sync_failed',
     logLabel: 'retention to reporting',
@@ -331,7 +338,7 @@ export async function pushComplianceSetsToCompliance(
   return pushEntitlementLeg({
     orgId,
     service: config.complianceService,
-    path: `/api/compliance/entitlements/${orgId}`,
+    path: `/compliance/entitlements/${orgId}`,
     body: { sets, occurredAt },
     authHeader,
     failReason: 'compliance_sync_failed',
@@ -602,12 +609,60 @@ export function startEntitlementSyncConsumer(bus: DurableEventBus): EventSubscri
     group: 'billing-entitlement-sync',
     consumer: `billing-${process.pid}`,
     handler: async (env) => {
-      const { orgId, tier, subscriptionId, addons, occurredAt } = env.payload;
+      const { orgId, subscriptionId } = env.payload;
+      let { tier, occurredAt } = env.payload;
+      let addons: ReadonlyArray<{ bundleId: string; quantity: number }> = env.payload.addons ?? [];
+      // A retry can sit on the bus for minutes; the subscription may have changed
+      // plan, bought/dropped an add-on, lapsed or been canceled since. Replaying the
+      // PAYLOAD would re-push that stale state over the newer one (a canceled org
+      // re-granted its paid tier). Re-read the row and push what it warrants NOW,
+      // stamped with the row's own change time.
+      if (subscriptionId) {
+        const current = await Subscription.findById(subscriptionId);
+        if (!current) {
+          logger.warn('Entitlement-sync retry dropped — subscription no longer exists', { orgId, subscriptionId });
+          incCounter('billing_entitlement_sync_retry_dropped_total', { reason: 'subscription_missing' });
+          return;
+        }
+        const entitlement = await currentSubscriptionEntitlement(current);
+        if (!entitlement) {
+          // Not retriable: the plan row is gone. Surface it, don't loop on it.
+          logger.error('Entitlement-sync retry dropped — subscription plan not found', { orgId, subscriptionId, planId: current.planId });
+          incCounter('billing_entitlement_sync_retry_dropped_total', { reason: 'plan_missing' });
+          return;
+        }
+        ({ tier, addons } = entitlement);
+        occurredAt = subscriptionOccurredAt(current);
+      }
       // Fresh service token (the producing request's bearer is long gone).
-      const ok = await applyEntitlements(orgId, tier, billingServiceAuth(orgId), subscriptionId, addons ?? [], occurredAt);
+      const ok = await applyEntitlements(orgId, tier, billingServiceAuth(orgId), subscriptionId, addons, occurredAt);
       if (!ok) throw new Error(`entitlement sync redelivery incomplete for org ${orgId}`);
     },
   });
+}
+
+/**
+ * The entitlement a subscription row CURRENTLY warrants: its plan tier + add-ons
+ * while it is manageable and not grace-downgraded, else the un-subscribed
+ * `developer` baseline with no add-ons (canceled / incomplete / lapsed past_due).
+ * `null` when an entitled row's plan can't be found (dangling planId). Shared by
+ * the retry consumer and the drift reconciler so both derive "expected" the same way.
+ */
+export async function currentSubscriptionEntitlement(
+  subscription: Pick<SubscriptionDocument, 'status' | 'planId' | 'addons' | 'metadata'>,
+): Promise<{ tier: QuotaTier; addons: Array<{ bundleId: string; quantity: number }> } | null> {
+  const entitled = (MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(subscription.status)
+    && !isGraceDowngraded(subscription);
+  if (!entitled) return { tier: 'developer', addons: [] };
+  const plan = await Plan.findById(subscription.planId);
+  if (!plan) return null;
+  return { tier: plan.tier, addons: [...(subscription.addons ?? [])] };
+}
+
+/** A subscription row's change moment (ISO) — the `occurredAt` every leg carries. */
+function subscriptionOccurredAt(subscription: { updatedAt?: Date | null }): string {
+  const at = subscription.updatedAt;
+  return at instanceof Date && !Number.isNaN(at.getTime()) ? at.toISOString() : new Date().toISOString();
 }
 
 /**
@@ -646,14 +701,17 @@ async function applyEntitlements(
   // drift reconciler via {@link effectiveFeatureSet} so the two can't diverge.
   const effectiveFeatures = effectiveFeatureSet(tier, addons);
 
+  // Every leg carries the same change moment so a receiver that keeps a
+  // watermark (compliance today) can refuse an out-of-order push.
   const [quotaOk, seatOk, retentionOk, complianceOk] = await Promise.all([
-    syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked),
-    pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId, tier),
+    syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked, occurredAt),
+    pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId, tier, occurredAt),
     pushRetentionToReporting(
       orgId,
       { eventRetentionDays: limits.eventRetentionDays, doraRetentionDays: limits.doraRetentionDays },
       authHeader,
       subscriptionId,
+      occurredAt,
     ),
     pushComplianceSetsToCompliance(orgId, effectiveFeatures, authHeader, subscriptionId, occurredAt),
   ]);
@@ -702,7 +760,18 @@ export async function syncEntitlements(
   subscriptionId?: string,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }> = [],
 ): Promise<boolean> {
-  const occurredAt = new Date().toISOString();
+  // The change moment is the subscription row's own `updatedAt` (every caller
+  // syncs right after saving it), so an inline push and any later retry carry the
+  // SAME timestamp as the state they describe. No row (or an unreadable one) ⇒ now.
+  let occurredAt = new Date().toISOString();
+  if (subscriptionId) {
+    try {
+      const row = await Subscription.findById(subscriptionId).select('updatedAt').lean();
+      if (row) occurredAt = subscriptionOccurredAt(row as { updatedAt?: Date });
+    } catch (err) {
+      logger.warn('Could not read subscription updatedAt for occurredAt; using now', { orgId, subscriptionId, error: errorMessage(err) });
+    }
+  }
   const ok = await applyEntitlements(orgId, tier, authHeader, subscriptionId, addons, occurredAt);
   if (!ok && entitlementSyncBus) {
     // Fire the durable retry. The real bus.publish is fail-safe (drops-with-metric,

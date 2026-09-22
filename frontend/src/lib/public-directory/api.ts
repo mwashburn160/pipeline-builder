@@ -29,16 +29,22 @@ export type PublicResult<T> =
 /** Headers for every public request. Exported so tests can pin "no credentials". */
 export const PUBLIC_REQUEST_HEADERS: Readonly<Record<string, string>> = Object.freeze({ Accept: 'application/json' });
 
-/** GET a public directory endpoint. Never throws: network errors come back as `status: 0`. */
-export async function publicGet<T>(path: string): Promise<PublicResult<T>> {
+/**
+ * GET a public directory endpoint. Never throws: network errors come back as
+ * `status: 0`. `fresh` skips every cache on the way (the browser's and, via
+ * `?fresh=1`, the CDN's) — for re-reading right after the viewer's own write.
+ */
+export async function publicGet<T>(path: string, opts: { fresh?: boolean } = {}): Promise<PublicResult<T>> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PUBLIC_API_TIMEOUT_MS);
   try {
-    const res = await fetch(`${API_URL}/api/public${path}`, {
+    const url = `${API_URL}/api/public${path}${opts.fresh ? `${path.includes('?') ? '&' : '?'}fresh=1` : ''}`;
+    const res = await fetch(url, {
       method: 'GET',
       headers: { ...PUBLIC_REQUEST_HEADERS },
       credentials: 'omit',
       signal: controller.signal,
+      ...(opts.fresh ? { cache: 'no-store' as const } : {}),
     });
     if (res.status === 404) return { ok: false, notFound: true };
     if (!res.ok) return { ok: false, notFound: false, status: res.status };
@@ -76,7 +82,7 @@ export function getSitemapListings(): Promise<PublicResult<{ entries: SitemapLis
 export function getListingReviews(
   publisher: string,
   name: string,
-  params: { sort?: ReviewSort; rating?: number; cursor?: string; limit?: number } = {},
+  params: { sort?: ReviewSort; rating?: number; cursor?: string; limit?: number; fresh?: boolean } = {},
 ): Promise<PublicResult<ReviewPage>> {
   const qs = new URLSearchParams();
   if (params.sort) qs.set('sort', params.sort);
@@ -86,5 +92,6 @@ export function getListingReviews(
   const tail = qs.toString();
   return publicGet<ReviewPage>(
     `/plugins/${encodeURIComponent(publisher)}/${encodeURIComponent(name)}/reviews${tail ? `?${tail}` : ''}`,
+    { fresh: params.fresh },
   );
 }

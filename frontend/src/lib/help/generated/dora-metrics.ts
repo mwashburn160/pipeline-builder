@@ -1,6 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 39947ac1f93d5c252e62615d314c8612af2f7dfd69fb92bc99144809c0808834
+// SOURCE-SHA256: 1f7c5e84e833234c3ea60c41259ba92c2c3f554dd33676559c8ffb279e86fa79
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -75,9 +75,13 @@ export const doraMetricsTopic: HelpTopic = {
             ],
             [
               "pb.deploys",
-              "<stage>:<env> pairs joined by +, e.g. Deploy-stg:staging+Deploy-prod:production"
+              "<stage>:<env> pairs joined by +, e.g. Deploy-stg-alias:staging+prod-wave:production"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "<stage> is the CodePipeline stage name — the stage's alias, or <stageName>-alias when it has none — because that is the name CodePipeline events report and the forwarder matches. A stage named Deploy-prod with no alias therefore appears as Deploy-prod-alias."
         },
         {
           "type": "list",

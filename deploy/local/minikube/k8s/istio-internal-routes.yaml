@@ -289,9 +289,9 @@ spec:
             paths: ["*/increment", "*/decrement"]
 ---
 # -- reporting ---------------------------------------------------------------
-# PUT /reports/retention-sync/:orgId — the billing→reporting retention sync.
-# A retention reduction destroys data on the next sweep, so only billing may
-# drive it.
+# PUT + GET /reports/retention-sync/:orgId — the billing→reporting retention
+# sync and its drift read. A retention reduction destroys data on the next
+# sweep, so only billing may drive it.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -310,7 +310,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/billing
       to:
         - operation:
-            methods: ["PUT"]
+            methods: ["PUT", "GET"]
             paths: ["/reports/retention-sync/*"]
 ---
 # -- image-registry ----------------------------------------------------------

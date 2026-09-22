@@ -10,11 +10,13 @@
 
 // Mocks — must be defined before imports
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockFindById = jest.fn();
-const mockDelete = jest.fn();
+const mockFindById = jest.fn<AnyFn>();
+const mockDelete = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
@@ -23,10 +25,10 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   },
 }));
 
-const mockEmitPipelineAudit = jest.fn();
+const mockEmitPipelineAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitPipelineAudit: mockEmitPipelineAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
@@ -72,7 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
@@ -94,7 +96,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
 }));
 
 const { sendBadRequest, requireVisibilityWriteAccess, sendEntityNotFound } = await import('@pipeline-builder/api-core');
@@ -131,7 +133,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     headers: { authorization: 'Bearer tok' },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
       requestId: 'req-1',
     },
     ...overrides,
@@ -140,8 +142,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -150,7 +152,7 @@ function mockRes(): any {
 describe('DELETE /pipelines/:id (delete)', () => {
   const handler = getHandler('delete', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns 200 on successful delete', async () => {
     mockFindById.mockResolvedValue(existingPipeline);
@@ -243,7 +245,7 @@ describe('DELETE /pipelines/:id (delete)', () => {
 
   it('returns 403 when requireVisibilityWriteAccess returns false', async () => {
     mockFindById.mockResolvedValue(existingPipeline);
-    (requireVisibilityWriteAccess as jest.Mock).mockReturnValueOnce(false);
+    (requireVisibilityWriteAccess as jest.Mock<AnyFn>).mockReturnValueOnce(false);
 
     const req = mockReq();
     const res = mockRes();

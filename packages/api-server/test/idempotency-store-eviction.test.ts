@@ -1,15 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Small cap so eviction is exercisable without driving thousands of entries.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: {
     IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60000,
     IDEMPOTENCY_TTL_MS: 60000,
+    IDEMPOTENCY_PENDING_TTL_MS: 30000,
     IDEMPOTENCY_MAX_STORE_SIZE: 2,
   },
 }));

@@ -17,6 +17,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { jest, describe, it, expect, beforeEach, afterAll, beforeAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 let seenSignal: AbortSignal | undefined;
@@ -68,7 +69,7 @@ const streamHowTo = jest.fn((opts: { abortSignal?: AbortSignal }) => {
     })(),
   };
 });
-jest.unstable_mockModule('@pipeline-builder/ai-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   streamText,
   streamHowTo,
   stepCountIs: (n: number) => n,
@@ -99,7 +100,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   handleAIError: jest.fn((res: http.ServerResponse) => res.end()),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: req.context, orgId: 'org-1', userId: 'u1' });
     req.context.done();
@@ -108,9 +109,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   observe: jest.fn(),
   withSpan: (_n: string, fn: (span: unknown) => Promise<unknown>) => fn({ addEvent: jest.fn() }),
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({ CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', { CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex: jest.fn(async () => ({ search: () => [], size: 1 })) }));
-jest.unstable_mockModule('../src/services/model.js', () => ({ resolveAskModel: jest.fn(() => ({ id: 'model' })) }));
+jest.unstable_mockModule('../src/services/model.js', () => ({ resolveAskModel: jest.fn(() => ({ id: 'model' })), ASK_MAX_OUTPUT_TOKENS: 2048 }));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools: jest.fn(() => ({})) }));
 jest.unstable_mockModule('../src/services/internal-http.js', () => ({ pipelineClient: jest.fn(), pluginClient: jest.fn() }));
 const auditRecord = jest.fn();

@@ -11,9 +11,9 @@
  *    last two minor versions ("recent versions"). Recomputed for a listing on
  *    every review write that changes what is published, so the page is never
  *    stale for its own author, and again by the sweep.
- *  - INSTALLS — distinct orgs with an active explicit install OR a pipeline
- *    that references the listing (a step manifest: implicit Official use
- *    counts, since nothing else records it).
+ *  - INSTALLS — distinct orgs with an active explicit install OR a live
+ *    pipeline that references the listing (a step manifest: implicit Official
+ *    use counts, since nothing else records it), joined on the publisher id.
  *  - ADOPTION — distinct orgs that ran it in the last 30 days, from the
  *    manifest-attributed runtime events, plus the 30-day success rate. The
  *    `public_listings` view hides the org count below 5 (k-anonymity, G15).
@@ -122,7 +122,11 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-/** Distinct orgs per listing with an active explicit install or a pipeline that references it. */
+/**
+ * Distinct orgs per listing with an active explicit install or a LIVE pipeline
+ * whose deployed step manifest references it (E8: a deleted pipeline's
+ * manifest never counts). Joined on the publisher ID (E12): a handle can change.
+ */
 async function installCounts(): Promise<Map<string, number>> {
   const res = await elevated((tx) => tx.execute(sql`
     SELECT o.listing_id AS "listingId", COUNT(DISTINCT o.org_id)::int AS "installCount"
@@ -133,8 +137,8 @@ async function installCounts(): Promise<Map<string, number>> {
         UNION
         SELECT l.id AS listing_id, lower(m.org_id) AS org_id
           FROM pipeline_step_manifests m
-          JOIN publishers p ON p.handle = m.plugin_publisher
-          JOIN plugin_listings l ON l.publisher_id = p.id AND l.name = m.plugin_name
+          JOIN pipelines pl ON pl.id = m.pipeline_id AND pl.deleted_at IS NULL
+          JOIN plugin_listings l ON l.publisher_id = m.plugin_publisher_id AND l.name = m.plugin_name
       ) o
      GROUP BY o.listing_id`));
   return new Map(rowsOf<{ listingId: string; installCount: unknown }>(res).map((r) => [r.listingId, num(r.installCount)]));
@@ -155,9 +159,8 @@ async function adoption(): Promise<Map<string, Adoption>> {
            (COUNT(*) FILTER (WHERE e.status = 'SUCCEEDED'))::float / NULLIF(COUNT(*), 0) AS "successRate30d",
            COUNT(*)::int AS "runs30d"
       FROM pipeline_events e
-      JOIN publishers p ON p.handle = e.plugin_publisher
-      JOIN plugin_listings l ON l.publisher_id = p.id AND l.name = e.plugin_name
-     WHERE e.event_type = 'ACTION' AND e.plugin_name IS NOT NULL
+      JOIN plugin_listings l ON l.publisher_id = e.plugin_publisher_id AND l.name = e.plugin_name
+     WHERE e.event_type = 'ACTION' AND e.plugin_publisher_id IS NOT NULL
        AND e.status IN ('SUCCEEDED', 'FAILED')
        AND e.completed_at >= now() - make_interval(days => ${ADOPTION_WINDOW_DAYS})
      GROUP BY l.id`));
@@ -227,7 +230,7 @@ async function writePublisherRollup(publisherId: string, successRate30d: number 
 }
 
 /** One sweep over every listing. Returns how many listings were written. */
-export async function refreshAllStats(): Promise<{ listings: number; failures: number }> {
+export async function refreshAllStats(signal?: AbortSignal): Promise<{ listings: number; failures: number }> {
   const all: PluginListing[] = await listings.list();
   const ids = all.map((l) => l.id);
   const [published, listingVersions, installs, runtime] = await Promise.all([
@@ -236,16 +239,26 @@ export async function refreshAllStats(): Promise<{ listings: number; failures: n
     installCounts(),
     adoption(),
   ]);
-  const reviewsBy = new Map<string, PluginReview[]>();
-  for (const r of published) reviewsBy.set(r.listingId, [...(reviewsBy.get(r.listingId) ?? []), r]);
-  const versionsBy = new Map<string, PluginListingVersion[]>();
-  for (const v of listingVersions) versionsBy.set(v.listingId, [...(versionsBy.get(v.listingId) ?? []), v]);
+  // Grouped by push, never by re-spreading the bucket (O(n), not O(n²), E13).
+  const groupBy = <T extends { listingId: string }>(rows: readonly T[]): Map<string, T[]> => {
+    const out = new Map<string, T[]>();
+    for (const row of rows) {
+      const bucket = out.get(row.listingId);
+      if (bucket) bucket.push(row);
+      else out.set(row.listingId, [row]);
+    }
+    return out;
+  };
+  const reviewsBy = groupBy<PluginReview>(published);
+  const versionsBy = groupBy<PluginListingVersion>(listingVersions);
 
   let failures = 0;
   const now = new Date();
   // Per publisher: its live listings' health, installs and runtime (the roll-ups).
   const rollups = new Map<string, Array<{ healthScore: number | null; installCount: number; successRate30d: number | null; runs30d: number }>>();
   for (const listing of all) {
+    // The leader lease was lost: another replica runs the sweep now.
+    if (signal?.aborted) break;
     const id = listing.id;
     const run = runtime.get(id);
     const listingVersionRows = versionsBy.get(id) ?? [];
@@ -253,9 +266,10 @@ export async function refreshAllStats(): Promise<{ listings: number; failures: n
     const health = listingHealth(listing, listingVersionRows, rating, run, now);
     const installCount = installs.get(id) ?? 0;
     if ((ACTIVE_LISTING_STATES as readonly string[]).includes(listing.state)) {
-      rollups.set(listing.publisherId, [...(rollups.get(listing.publisherId) ?? []), {
-        healthScore: health.score, installCount, successRate30d: run?.successRate30d ?? null, runs30d: run?.runs30d ?? 0,
-      }]);
+      const row = { healthScore: health.score, installCount, successRate30d: run?.successRate30d ?? null, runs30d: run?.runs30d ?? 0 };
+      const bucket = rollups.get(listing.publisherId);
+      if (bucket) bucket.push(row);
+      else rollups.set(listing.publisherId, [row]);
     }
     try {
       await listingStats.upsert(id, {
@@ -272,7 +286,8 @@ export async function refreshAllStats(): Promise<{ listings: number; failures: n
     }
   }
   // Every publisher that has listings gets its roll-up; one whose listings all
-  // left the directory resets to NULL.
+  // left the directory resets to NULL. A lost lease skips them: partial rows would skew them.
+  if (signal?.aborted) return { listings: ids.length, failures };
   for (const publisherId of new Set(all.map((l) => l.publisherId))) {
     const rows = rollups.get(publisherId) ?? [];
     try {
@@ -294,6 +309,6 @@ export function createEcosystemStatsScheduler(redis: () => LockRedis): Scheduler
     intervalMs: STATS_INTERVAL_MS,
     startupDelayMs: 90_000,
     lock: { redis, key: 'ecosystem-stats:leader', ttlMs: 30 * 60_000 },
-    run: async () => { await refreshAllStats(); },
+    run: async (lease?: { signal?: AbortSignal }) => { await refreshAllStats(lease?.signal); },
   });
 }

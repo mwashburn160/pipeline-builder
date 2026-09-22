@@ -87,6 +87,11 @@ export class CoreConstants {
 
   // Idempotency
   static readonly IDEMPOTENCY_TTL_MS = parseInt(process.env.IDEMPOTENCY_TTL_MS || '300000', 10); // 5 min
+  // Lifetime of an IN-FLIGHT reservation (no response yet). Bounds how long a
+  // key stays locked (409) when the process dies mid-handler; must exceed the
+  // longest legitimate handler run, since an expired reservation lets a
+  // duplicate through.
+  static readonly IDEMPOTENCY_PENDING_TTL_MS = parseInt(process.env.IDEMPOTENCY_PENDING_TTL_MS || '120000', 10); // 2 min
   static readonly IDEMPOTENCY_MAX_STORE_SIZE = parseInt(process.env.IDEMPOTENCY_MAX_STORE_SIZE || '10000', 10);
   static readonly IDEMPOTENCY_CLEANUP_INTERVAL_MS = parseInt(process.env.IDEMPOTENCY_CLEANUP_INTERVAL_MS || '60000', 10); // 1 min
 

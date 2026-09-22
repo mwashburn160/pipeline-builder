@@ -19,7 +19,8 @@
  *    send keeps delivery inside the 15-minute target (§10);
  *  - ANONYMOUS SUBMISSIONS (§4, E4): undecided submissions past their 30 days
  *    expire (artifacts deleted), and submitter emails are purged 90 days after
- *    the decision.
+ *    the decision;
+ *  - the SEARCH-MISS retention sweep (search-misses.ts).
  */
 
 import {
@@ -39,9 +40,10 @@ import { retryAdvisoryFanOut } from './advisories.js';
 import { ecosystemDeps } from './context.js';
 import { notifyPlanEffect } from './notify.js';
 import { listingsQuota } from './publishers.js';
-import { enqueueResign, runResignJobs } from './resign.js';
+import { enqueueResign, runResignJobs, signedAs } from './resign.js';
+import { sweepSearchMisses } from './search-misses.js';
 import { notifySlaBreaches } from './sla.js';
-import { publishers, settings } from './store.js';
+import { atomically, publishers, settings } from './store.js';
 import { expireSubmissions, purgeSubmitterEmails } from './submissions.js';
 import { emitPluginAudit } from '../audit.js';
 
@@ -56,9 +58,15 @@ export const GRACE_REMINDER_DAYS = [14, 3] as const;
 const reminderKey = (id: string) => `grace-reminders:${id}`;
 const overLimitKey = (id: string) => `over-listings-limit:${id}`;
 
-/** Whether the org's plan makes it eligible for Verified. */
+/**
+ * Whether the org's plan makes it eligible for Verified. Reads the tier FAIL
+ * CLOSED (E4): an unreadable tier throws, so the pass skips this publisher —
+ * it never starts (or ends) a grace period on the fallback DEFAULT_TIER an
+ * outage would otherwise report.
+ */
 async function verifiedEligibleOrg(orgId: string): Promise<boolean> {
-  const tier = await ecosystemDeps().quotaService.getTier(orgId, getQuotaServiceAuthHeader(orgId));
+  const tier = await ecosystemDeps().quotaService.getTierStrict(orgId, getQuotaServiceAuthHeader(orgId));
+  if (tier === null) throw new Error(`The plan tier of ${orgId} could not be read; skipping its Verified upkeep this pass`);
   return (TIER_FEATURES[tier] ?? []).includes('verified_publisher');
 }
 
@@ -84,9 +92,12 @@ export async function checkVerifiedGrace(p: Publisher, now: Date = new Date()): 
   }
   const left = new Date(p.verifiedGraceUntil).getTime() - now.getTime();
   if (left <= 0) {
-    await publishers.update(p.id, { tier: 'community', verifiedAt: null, verifiedGraceUntil: null });
-    await settings.remove(reminderKey(p.id));
-    await enqueueResign('publisher', p.id, 'plan_downgrade', SYSTEM_ACTOR_ID);
+    await atomically(async () => {
+      await publishers.update(p.id, { tier: 'community', verifiedAt: null, verifiedGraceUntil: null });
+      await settings.remove(reminderKey(p.id));
+      // Lookup keeps accepting the Verified signature until every image is re-signed (E1).
+      await enqueueResign('publisher', p.id, 'plan_downgrade', SYSTEM_ACTOR_ID, signedAs(p));
+    });
     emitPluginAudit({
       action: 'publisher.tier.change',
       actorId: SYSTEM_ACTOR_ID,
@@ -109,9 +120,12 @@ export async function checkVerifiedGrace(p: Publisher, now: Date = new Date()): 
 }
 
 /** Tell a publisher (once per episode) that it is over its `listings` limit. */
-export async function checkListingsLimit(p: Publisher): Promise<'ok' | 'over' | 'already_over' | 'back_under'> {
+export async function checkListingsLimit(p: Publisher): Promise<'ok' | 'over' | 'already_over' | 'back_under' | 'skipped'> {
   const orgId = p.ownerOrgId!;
   const quota = await listingsQuota(orgId, p.id);
+  // An unreadable quota (the service's fail-open sentinel) is not "unlimited":
+  // neither flag nor clear anything on it (E4).
+  if (quota.failOpen) return 'skipped';
   const over = quota.limit !== -1 && quota.used > quota.limit;
   const flagged = (await settings.get<boolean>(overLimitKey(p.id))) === true;
   if (over && !flagged) {
@@ -131,7 +145,7 @@ export async function checkListingsLimit(p: Publisher): Promise<'ok' | 'over' | 
 }
 
 /** One maintenance pass over every tenant publisher, then the re-sign queue, the SLA-breach notices, the advisory fan-out retry and submission upkeep. */
-export async function runEcosystemMaintenance(now: Date = new Date()): Promise<{
+export async function runEcosystemMaintenance(now: Date = new Date(), signal?: AbortSignal): Promise<{
   publishers: number;
   failures: number;
   resigned: number;
@@ -139,10 +153,14 @@ export async function runEcosystemMaintenance(now: Date = new Date()): Promise<{
   advisoryOrgsNotified: number;
   submissionsExpired: number;
   submitterEmailsPurged: number;
+  /** Search-miss rows pruned past retention or folded into their group (E17). */
+  searchMissesPruned: number;
 }> {
   let failures = 0;
   const tenants = (await publishers.list()).filter((p) => p.ownerOrgId && p.ownerOrgId !== SYSTEM_ORG_ID && !p.suspendedAt);
   for (const p of tenants) {
+    // The leader lock was lost (another replica took over): stop at once.
+    if (signal?.aborted) break;
     try {
       if (p.tier === 'verified') await checkVerifiedGrace(p, now);
       await checkListingsLimit(p);
@@ -151,7 +169,18 @@ export async function runEcosystemMaintenance(now: Date = new Date()): Promise<{
       logger.warn('Publisher upkeep failed', { publisher: p.handle, error: errorMessage(err) });
     }
   }
-  const resign = await runResignJobs();
+  // The re-sign queue is one step among the others: its failure (a database
+  // blip listing the jobs) must not skip the SLA notices or submission upkeep.
+  let resign = { resigned: 0, failed: 0, completed: 0 };
+  const empty = { publishers: tenants.length, failures, resigned: 0, slaBreachesNotified: 0, advisoryOrgsNotified: 0, submissionsExpired: 0, submitterEmailsPurged: 0, searchMissesPruned: 0 };
+  if (signal?.aborted) return empty;
+  try {
+    resign = await runResignJobs(undefined, signal);
+  } catch (err) {
+    failures++;
+    logger.warn('Re-sign pass failed', { error: errorMessage(err) });
+  }
+  if (signal?.aborted) return { ...empty, failures, resigned: resign.resigned };
   let slaBreachesNotified = 0;
   try {
     slaBreachesNotified = await notifySlaBreaches(now);
@@ -175,7 +204,17 @@ export async function runEcosystemMaintenance(now: Date = new Date()): Promise<{
     failures++;
     logger.warn('Submission upkeep failed', { error: errorMessage(err) });
   }
-  return { publishers: tenants.length, failures, resigned: resign.resigned, slaBreachesNotified, advisoryOrgsNotified, submissionsExpired, submitterEmailsPurged };
+  let searchMissesPruned = 0;
+  try {
+    const swept = await sweepSearchMisses(now);
+    searchMissesPruned = swept.pruned + swept.folded;
+  } catch (err) {
+    failures++;
+    logger.warn('Search-miss retention sweep failed', { error: errorMessage(err) });
+  }
+  return {
+    publishers: tenants.length, failures, resigned: resign.resigned, slaBreachesNotified, advisoryOrgsNotified, submissionsExpired, submitterEmailsPurged, searchMissesPruned,
+  };
 }
 
 /** Build (not start) the scheduler: every 15 minutes, leader-locked on the shared Redis. */
@@ -185,6 +224,8 @@ export function createEcosystemMaintenanceScheduler(redis: () => LockRedis): Sch
     intervalMs: 15 * 60_000,
     startupDelayMs: 60_000,
     lock: { redis, key: 'ecosystem-maintenance:leader', ttlMs: 30 * 60_000 },
-    run: async () => { await runEcosystemMaintenance(); },
+    // The lock hands the run an abort signal that fires when the lease is
+    // lost; every step stops at the next checkpoint instead of racing the new leader.
+    run: async (lease?: { signal?: AbortSignal }) => { await runEcosystemMaintenance(new Date(), lease?.signal); },
   });
 }

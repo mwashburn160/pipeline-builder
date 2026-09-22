@@ -68,7 +68,7 @@ const cfg = {
 const VERIFIER = 'RGiJ0Zf3s_test_code_verifier_43_chars_long_x';
 
 /** exchangeAndValidate with the PKCE verifier the flow would carry. */
-function exchange(c: typeof cfg, code: string, nonce: string) {
+function exchange(c: typeof cfg & { groupsClaim?: string }, code: string, nonce: string) {
   return exchangeAndValidate(c, code, nonce, { codeVerifier: VERIFIER });
 }
 
@@ -100,7 +100,7 @@ function signIdToken(pem: string, claims: Record<string, unknown> = {}, opts: jw
 
 /** Route fetch by URL so cache behavior (not call order) drives the stub. */
 function stubFetch(idToken?: string, over: { tokenOk?: boolean; jwksKeys?: unknown[] } = {}) {
-  const fn = jest.fn(async (url: unknown) => {
+  const fn = jest.fn(async (url: unknown, _init?: unknown) => {
     const u = String(url);
     if (u.endsWith('/.well-known/openid-configuration')) return okJson(DISCOVERY);
     if (u === DISCOVERY.jwks_uri) return okJson({ keys: over.jwksKeys ?? [goodJwk] });
@@ -163,10 +163,27 @@ describe('buildAuthorizeUrl', () => {
 
   it('uses the account picker for a Google IdP, which rejects prompt=login', async () => {
     stubFetch();
-    const q = new URL((await buildAuthorizeUrl({ ...cfg, provider: 'google' }, 's1', 'n1', { reauth: true })).url).searchParams;
+    const q = new URL((await buildAuthorizeUrl({ ...cfg, provider: 'google', discoveryUrl: '' }, 's1', 'n1', { reauth: true })).url).searchParams;
     expect(q.get('prompt')).toBe('select_account');
     expect(ssoReauthRequiresAuthTime('google')).toBe(false);
     expect(ssoReauthRequiresAuthTime('generic-oidc')).toBe(true);
+  });
+
+  it('resolves a Google IdP ONLY from the hard-coded Google discovery document', async () => {
+    const fn = stubFetch();
+    await buildAuthorizeUrl({ ...cfg, provider: 'google', discoveryUrl: '' }, 's1', 'n1');
+    expect(String(fn.mock.calls[0][0])).toBe('https://accounts.google.com/.well-known/openid-configuration');
+  });
+
+  it('REFUSES a custom discoveryUrl on the google provider', async () => {
+    stubFetch();
+    await expect(buildAuthorizeUrl({ ...cfg, provider: 'google' }, 's1', 'n1')).rejects.toThrow('OIDC_PROVIDER_UNSUPPORTED');
+  });
+
+  it('REFUSES a generic OIDC discovery URL on Google\'s host', async () => {
+    stubFetch();
+    await expect(buildAuthorizeUrl({ ...cfg, discoveryUrl: 'https://accounts.google.com/.well-known/openid-configuration' }, 's1', 'n1'))
+      .rejects.toThrow('OIDC_PROVIDER_UNSUPPORTED');
   });
 
   it('caches the discovery document (one fetch across two initiates)', async () => {
@@ -191,6 +208,11 @@ describe('exchangeAndValidate', () => {
     stubFetch(signIdToken(goodPem, { auth_time: 1_700_000_042 }));
     const identity = await exchange(cfg, 'auth-code', 'nonce-1');
     expect(identity.authTime).toBe(1_700_000_042);
+  });
+
+  it('REFUSES a generic OIDC discovery document that claims Google\'s issuer', async () => {
+    stubDiscovery({ issuer: 'https://accounts.google.com' }, signIdToken(goodPem, { iss: 'https://accounts.google.com' }));
+    await expect(exchange(cfg, 'auth-code', 'nonce-1')).rejects.toThrow('OIDC_PROVIDER_UNSUPPORTED');
   });
 
   it('lowercases the email claim', async () => {

@@ -17,9 +17,9 @@
  * what came of it.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
 import { ImpersonationRequest } from '../models/index.js';
-import { runWithLeaderLock } from '../utils/leader-lock.js';
+import { createLockedSweep } from '../utils/leader-lock.js';
 
 const logger = createLogger('impersonation-reaper');
 
@@ -30,7 +30,7 @@ const LOCK_KEY = 'platform:leader:impersonation-reaper';
 /** Requests live an hour, so a five-minute sweep keeps status at most minutes stale. */
 export const IMPERSONATION_REAPER_INTERVAL_MS = 5 * 60 * 1000;
 
-let timer: ReturnType<typeof setInterval> | null = null;
+let scheduler: Scheduler | null = null;
 
 /**
  * Flip every `pending` or `approved` request whose window has passed to
@@ -55,19 +55,21 @@ export async function sweepExpiredImpersonationRequests(now: Date = new Date()):
 
 /** Start the periodic reaper. Idempotent; returns the stop function for SIGTERM. */
 export function startImpersonationReaper(intervalMs: number = IMPERSONATION_REAPER_INTERVAL_MS): () => void {
-  if (timer) return stopImpersonationReaper;
-  const lockTtlMs = Math.max(intervalMs, 60_000);
-  const runLocked = () => void runWithLeaderLock(LOCK_KEY, lockTtlMs, async () => { await sweepExpiredImpersonationRequests(); });
-  timer = setInterval(runLocked, intervalMs).unref();
-  runLocked();
-  logger.info('Impersonation reaper started', { intervalMs });
+  if (scheduler) return stopImpersonationReaper;
+  scheduler = createLockedSweep({
+    name: 'impersonation-reaper',
+    lockKey: LOCK_KEY,
+    intervalMs,
+    run: async () => { await sweepExpiredImpersonationRequests(); },
+  });
+  scheduler.start();
   return stopImpersonationReaper;
 }
 
 /** Stop the periodic reaper. Idempotent. */
 export function stopImpersonationReaper(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
+  if (scheduler) {
+    scheduler.stop();
+    scheduler = null;
   }
 }

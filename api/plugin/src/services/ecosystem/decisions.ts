@@ -43,6 +43,7 @@ import {
   type Publisher,
   type PublishRequestStatus,
 } from '@pipeline-builder/pipeline-data';
+import { sql } from 'drizzle-orm';
 
 import { discardDraft, publishAdvisory } from './advisories.js';
 import { can, EcosystemError, isOfficialLoader, type Caller } from './context.js';
@@ -55,11 +56,11 @@ import {
   contractDiff, evaluateAutoRule, latestVersion, needsTwoPerson, requiredDecisionPermission, specSnapshot, versionBump, vulnDelta,
   type AutoApprovalContext, type AutoRuleConditions,
 } from './policy.js';
-import { handleRefusal, listingsQuota } from './publishers.js';
+import { handleRefusal, listingsQuotaOrThrow } from './publishers.js';
 import { invalidateVerifyCache, publishImage, retagImage, yankImage } from './registry.js';
-import { enqueueResign, trustFor } from './resign.js';
+import { enqueueResign, kickResignJobs, signedAs, trustFor } from './resign.js';
 import {
-  ACTIVE_LISTING_STATES, listings, OPEN_STATUSES, plugins, publishers, requests, rules, settings, versions, type PluginRow,
+  ACTIVE_LISTING_STATES, atomically, elevated, listings, OPEN_STATUSES, plugins, publishers, requests, rules, settings, versions, type PluginRow,
 } from './store.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { resolveBaseImageCreatedAt } from '../../helpers/base-image.js';
@@ -191,10 +192,14 @@ export async function bootstrapState(): Promise<BootstrapState> {
 
 /** Close the bootstrap exception for good (idempotent). */
 export async function closeBootstrap(reason: string, by: string): Promise<void> {
-  const state = await bootstrapState();
-  if (state.closedAt) return;
-  await settings.put(BOOTSTRAP_KEY, { ...state, closedAt: new Date().toISOString(), reason }, by);
-  logger.info('Ecosystem bootstrap exception closed', { reason });
+  if ((await bootstrapState()).closedAt) return;
+  const closed = await atomically(async () => {
+    const state = (await settings.getForUpdate<BootstrapState>(BOOTSTRAP_KEY)) ?? { openedAt: null, closedAt: null, reason: null, approved: 0 };
+    if (state.closedAt) return false;
+    await settings.put(BOOTSTRAP_KEY, { ...state, closedAt: new Date().toISOString(), reason }, by);
+    return true;
+  });
+  if (closed) logger.info('Ecosystem bootstrap exception closed', { reason });
 }
 
 /**
@@ -216,8 +221,13 @@ async function bootstrapEligible(r: Req, publisher: Publisher, submitter: Caller
       await closeBootstrap('listings_exist', SYSTEM_ACTOR_ID);
       return false;
     }
-    await settings.put(BOOTSTRAP_KEY, { ...state, openedAt: new Date().toISOString() }, SYSTEM_ACTOR_ID);
-    return true;
+    // Open it under the row lock: a concurrent opener must not reset a count.
+    return atomically(async () => {
+      const cur = (await settings.getForUpdate<BootstrapState>(BOOTSTRAP_KEY)) ?? state;
+      if (cur.closedAt) return false;
+      if (!cur.openedAt) await settings.put(BOOTSTRAP_KEY, { ...cur, openedAt: new Date().toISOString() }, SYSTEM_ACTOR_ID);
+      return true;
+    });
   }
   if (Date.now() - new Date(state.openedAt).getTime() > bootstrapWindowMs()) {
     await closeBootstrap('window_elapsed', SYSTEM_ACTOR_ID);
@@ -308,22 +318,46 @@ export async function matchingRule(r: Req, publisher: Publisher, listing: Plugin
  * request, or null when it waits for a person. Never throws for a refused
  * EXECUTION: the request then stays pending for a manager.
  */
+/**
+ * Claim `r` for `rule` under the rule's advisory lock (E9): the rate caps are
+ * re-counted and the claim written in ONE transaction that concurrent
+ * auto-decisions of the same rule serialize on, so two submissions can't both
+ * read "0 of 1 today" and both be approved. Null when the cap filled meanwhile
+ * (or the request was decided).
+ */
+async function claimForRule(r: Req, rule: EcosystemAutoApprovalRule, facts: Awaited<ReturnType<typeof autoApprovalFacts>>): Promise<Req | null> {
+  return atomically(async () => {
+    await elevated((tx) => tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`ecosystem-auto-rule:${rule.id}`}))`));
+    if (!(await evaluateRuleFor(rule, r, facts)).eligible) return null;
+    return requests.transition(r.id, 'pending', {
+      status: 'approved', decidedBy: SYSTEM_ACTOR_ID, decidedAt: new Date(), autoRuleId: rule.id, payload: payloadOf(r),
+    });
+  });
+}
+
+/** Count one bootstrap approval — a locked read-modify-write, so concurrent approvals never lose a count (E9). */
+async function countBootstrapApproval(): Promise<void> {
+  await atomically(async () => {
+    const state = (await settings.getForUpdate<BootstrapState>(BOOTSTRAP_KEY)) ?? { openedAt: null, closedAt: null, reason: null, approved: 0 };
+    await settings.put(BOOTSTRAP_KEY, { ...state, approved: state.approved + 1 }, SYSTEM_ACTOR_ID);
+  });
+}
+
 export async function autoDecide(r: Req, publisher: Publisher, submitter: Caller): Promise<Req | null> {
   const bootstrap = await bootstrapEligible(r, publisher, submitter);
   let rule: EcosystemAutoApprovalRule | null = null;
-  if (!bootstrap) {
+  let claimed: Req | null;
+  if (bootstrap) {
+    claimed = await requests.transition(r.id, 'pending', {
+      status: 'approved', decidedBy: SYSTEM_ACTOR_ID, decidedAt: new Date(), autoRuleId: null, payload: { ...payloadOf(r), bootstrap: true },
+    });
+  } else {
     const listing = r.listingId ? await listings.byId(r.listingId) : null;
     const plugin = r.pluginId ? await plugins.byId(r.pluginId) : null;
     rule = (await matchingRule(r, publisher, listing, plugin)).rule;
     if (!rule) return null;
+    claimed = await claimForRule(r, rule, await autoApprovalFacts(r, publisher, listing, plugin));
   }
-  const claimed = await requests.transition(r.id, 'pending', {
-    status: 'approved',
-    decidedBy: SYSTEM_ACTOR_ID,
-    decidedAt: new Date(),
-    autoRuleId: rule?.id ?? null,
-    payload: bootstrap ? { ...payloadOf(r), bootstrap: true } : payloadOf(r),
-  });
   if (!claimed) return null;
   try {
     await execute(claimed, publisher, SYSTEM_ACTOR_ID, { human: false });
@@ -333,10 +367,7 @@ export async function autoDecide(r: Req, publisher: Publisher, submitter: Caller
     emitCounter('ecosystem_auto_approval_failed_total', { kind: r.kind });
     return null;
   }
-  if (bootstrap) {
-    const state = await bootstrapState();
-    await settings.put(BOOTSTRAP_KEY, { ...state, approved: state.approved + 1 }, SYSTEM_ACTOR_ID);
-  }
+  if (bootstrap) await countBootstrapApproval();
   emitCounter('ecosystem_auto_approvals_total', { kind: r.kind, rule: bootstrap ? 'bootstrap' : rule!.name });
   emitPluginAudit({
     action: 'plugin.request.auto-approve',
@@ -392,10 +423,33 @@ async function pinnedPlugin(r: Req, publisher: Publisher): Promise<PluginRow> {
   if ((plugin.imageDigest ?? null) !== (r.digest ?? null) || plugin.version !== r.version) {
     throw new ConflictError('The plugin version no longer matches the digest the request pinned.', ErrorCode.PLUGIN_DIGEST_MISMATCH);
   }
+  // E19: only a PUBLIC version is ever published — the org may have narrowed it
+  // after asking (the freeze now refuses that, but approval re-checks anyway).
+  if (plugin.visibility !== 'public') {
+    throw new ConflictError(`The plugin version is ${plugin.visibility ?? 'not public'}; only a public version can be published.`);
+  }
   return plugin;
 }
 
-/** Publish a pinned version into `public/*` and record it on the listing (new_listing / new_version). */
+/**
+ * The listing a new_listing publishes into: none yet, or an EMPTY shell of this
+ * publisher (a listing row with no versions — what an earlier, interrupted
+ * publish could leave behind) which is reused rather than refused (E5).
+ */
+async function reusableListing(listing: PluginListing | null, publisher: Publisher, name: string): Promise<PluginListing | null> {
+  if (!listing) return null;
+  if (listing.publisherId === publisher.id && (await versions.countForListing(listing.id)) === 0) return listing;
+  throw new ConflictError(`${publisher.handle} already has a listing named ${name}.`);
+}
+
+/**
+ * Publish a pinned version into `public/*` and record it on the listing
+ * (new_listing / new_version). Order (E5): every check, then the image copy
+ * (idempotent server-side: a retry re-copies the same digest), then EVERY
+ * database write in one transaction — listing, version, latest pointer, the
+ * request's listing link — so a failure leaves nothing half-recorded; the
+ * audit and the installer notices only after it committed.
+ */
 async function publishVersion(r: Req, publisher: Publisher, actor: string): Promise<void> {
   const plugin = await pinnedPlugin(r, publisher);
   const payload = payloadOf(r);
@@ -403,9 +457,9 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
   let listing = r.listingId ? await listings.byId(r.listingId) : await listings.byName(publisher.id, plugin.name);
 
   if (r.kind === 'new_listing') {
-    if (listing) throw new ConflictError(`${publisher.handle} already has a listing named ${plugin.name}.`);
+    listing = await reusableListing(listing, publisher, plugin.name);
     if (publisher.ownerOrgId && publisher.ownerOrgId !== SYSTEM_ORG_ID) {
-      const quota = await listingsQuota(publisher.ownerOrgId, publisher.id);
+      const quota = await listingsQuotaOrThrow(publisher.ownerOrgId, publisher.id);
       if (quota.limit !== -1 && quota.used >= quota.limit) await rejectForQuota(r, publisher, actor, quota.used, quota.limit);
     }
   } else {
@@ -414,7 +468,7 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
     }
     if (await versions.get(listing.id, plugin.version)) throw new ConflictError(`${plugin.version} is already published to this listing.`);
     if (r.lane !== 'security' && publisher.ownerOrgId && publisher.ownerOrgId !== SYSTEM_ORG_ID) {
-      const quota = await listingsQuota(publisher.ownerOrgId, publisher.id);
+      const quota = await listingsQuotaOrThrow(publisher.ownerOrgId, publisher.id);
       if (quota.limit !== -1 && quota.used > quota.limit) await rejectForQuota(r, publisher, actor, quota.used, quota.limit);
     }
   }
@@ -434,37 +488,38 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
   }
   const baseImageCreatedAt = await baseImageProbe(plugin);
 
-  if (!listing) {
-    listing = await listings.insert({
+  const { target, version, updated } = await atomically(async () => {
+    const into = listing ?? await listings.insert({
       publisherId: publisher.id,
       name: plugin.name,
       ...listingColumns(metadata.values),
       latestVersion: plugin.version,
     });
-  }
-  const version = await versions.insert({
-    listingId: listing.id,
-    sourcePluginId: plugin.id,
-    version: plugin.version,
-    imageDigest: plugin.imageDigest,
-    imageRepository,
-    specSnapshot: specSnapshot(plugin),
-    breaking: payload.breaking === true || plugin.breaking === true,
-    changelog: plugin.changelog,
-    vulnCritical: plugin.vulnCritical,
-    vulnHigh: plugin.vulnHigh,
-    scannedAt: plugin.scannedAt,
-    baseImageCreatedAt,
-    publishedBy: actor,
+    const inserted = await versions.insert({
+      listingId: into.id,
+      sourcePluginId: plugin.id,
+      version: plugin.version,
+      imageDigest: plugin.imageDigest,
+      imageRepository,
+      specSnapshot: specSnapshot(plugin),
+      breaking: payload.breaking === true || plugin.breaking === true,
+      changelog: plugin.changelog,
+      vulnCritical: plugin.vulnCritical,
+      vulnHigh: plugin.vulnHigh,
+      scannedAt: plugin.scannedAt,
+      baseImageCreatedAt,
+      publishedBy: actor,
+    });
+    const live = (await versions.forListings([into.id])).filter((v) => !v.yankedAt).map((v) => v.version);
+    const latest = await listings.update(into.id, { latestVersion: latestVersion(live) });
+    if (!r.listingId) await requests.transition(r.id, 'approved', { listingId: into.id });
+    return { target: into, version: inserted, updated: latest };
   });
-  const live = (await versions.forListings([listing.id])).filter((v) => !v.yankedAt).map((v) => v.version);
-  const updated = await listings.update(listing.id, { latestVersion: latestVersion(live) });
-  if (!r.listingId) await requests.transition(r.id, 'approved', { listingId: listing.id });
   audit('plugin.listing.publish', actor, publisher, 'plugin-listing-version', version.id, {
     listing: `${publisher.handle}/${plugin.name}`, version: plugin.version, digest: plugin.imageDigest, tier: publisher.tier, kind: r.kind,
   });
   // N27 / N13 to the installing orgs (a brand-new listing has none yet).
-  if (r.kind === 'new_version') await announceNewVersion(publisher, updated ?? listing, version);
+  if (r.kind === 'new_version') await announceNewVersion(publisher, updated ?? target, version);
 }
 
 /** Yank a listed version (system org): stop it resolving, drop the public tag, tell the publisher (N8). */
@@ -473,8 +528,14 @@ export async function yankListedVersion(listing: PluginListing, publisher: Publi
   if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
   if (v.yankedAt) throw new ConflictError(`${version} is already yanked.`);
   // Resolution reads listing versions (plan §3.5), so the yank stops new
-  // synths resolving it for every installer at once.
-  const yanked = (await versions.update(v.id, { yankedAt: new Date(), yankReason: reason }))!;
+  // synths resolving it for every installer at once. The yank and the listing's
+  // latest pointer commit together (E5).
+  const yanked = await atomically(async () => {
+    const y = (await versions.update(v.id, { yankedAt: new Date(), yankReason: reason }))!;
+    const live = (await versions.forListings([listing.id])).filter((x) => !x.yankedAt && x.id !== v.id).map((x) => x.version);
+    await listings.update(listing.id, { latestVersion: latestVersion(live) });
+    return y;
+  });
   if (v.imageRepository && v.imageDigest) {
     await yankImage({ imageRepository: v.imageRepository, version, digest: v.imageDigest }).catch((err) => {
       emitCounter('ecosystem_registry_yank_failed_total', {});
@@ -482,8 +543,6 @@ export async function yankListedVersion(listing: PluginListing, publisher: Publi
     });
     await invalidateVerifyCache({ imageRepository: v.imageRepository, digest: v.imageDigest }).catch(() => undefined);
   }
-  const live = (await versions.forListings([listing.id])).filter((x) => !x.yankedAt && x.id !== v.id).map((x) => x.version);
-  await listings.update(listing.id, { latestVersion: latestVersion(live) });
   audit('plugin.version.yank', actor, publisher, 'plugin-listing-version', v.id, { listing: `${publisher.handle}/${listing.name}`, version, reason: reason.slice(0, 200) });
   await notifyModerationAction({
     publisherOrgId: publisher.ownerOrgId,
@@ -500,8 +559,10 @@ export async function yankListedVersion(listing: PluginListing, publisher: Publi
 async function makeVerified(publisher: Publisher, actor: string, via: string): Promise<void> {
   // Eligibility is re-checked at decision time (§3.7): plan, verified domain, owner MFA.
   assertVerifiedEligible(await checkVerifiedEligibility(publisher.ownerOrgId ?? ''), 'decision');
-  await publishers.update(publisher.id, { tier: 'verified', verifiedAt: new Date(), verifiedGraceUntil: null });
-  await enqueueResign('publisher', publisher.id, 'tier_change', actor);
+  await atomically(async () => {
+    await publishers.update(publisher.id, { tier: 'verified', verifiedAt: new Date(), verifiedGraceUntil: null });
+    await enqueueResign('publisher', publisher.id, 'tier_change', actor, signedAs(publisher));
+  });
   audit('publisher.tier.change', actor, publisher, 'publisher', publisher.id, { from: publisher.tier, to: 'verified', via });
 }
 
@@ -551,8 +612,12 @@ export async function execute(r: Req, publisher: Publisher, actor: string, opts:
       const target = await publishers.byId(t.targetPublisherId ?? '');
       if (!target || target.suspendedAt) throw new ConflictError('The receiving publisher no longer exists or is suspended.');
       if (await listings.byName(target.id, l.name)) throw new ConflictError(`${target.handle} already has a listing named ${l.name}.`);
-      await listings.update(l.id, { publisherId: target.id });
-      await enqueueResign('listing', l.id, 'transfer', actor);
+      // The move and its re-sign job commit together (E5); the old publisher's
+      // signature stays acceptable until the listing's images are re-signed (E1).
+      await atomically(async () => {
+        await listings.update(l.id, { publisherId: target.id });
+        await enqueueResign('listing', l.id, 'transfer', actor, signedAs(publisher));
+      });
       audit('publisher.transfer.approve', actor, publisher, 'plugin-listing', l.id, { listing: l.name, from: publisher.handle, to: target.handle });
       await notifyTransferUpdate({ orgIds: [publisher.ownerOrgId, target.ownerOrgId], title: `${publisher.handle}/${l.name}`, outcome: 'approved' });
       break;
@@ -562,15 +627,20 @@ export async function execute(r: Req, publisher: Publisher, actor: string, opts:
       if (target.handle) {
         const refusal = await handleRefusal(target.handle, publisher.id);
         if (refusal && refusal.code !== ErrorCode.PUBLISHER_HANDLE_RESERVED) throw new ConflictError(refusal.message);
-        await publishers.update(publisher.id, { handle: target.handle });
-        await enqueueResign('publisher', publisher.id, 'handle_change', actor);
+        await atomically(async () => {
+          await publishers.update(publisher.id, { handle: target.handle });
+          await enqueueResign('publisher', publisher.id, 'handle_change', actor, signedAs(publisher));
+        });
         audit('publisher.profile-change.approve', actor, publisher, 'publisher', publisher.id, { claim: true, from: publisher.handle, to: target.handle });
       } else {
         const claimed = await listings.byId(target.listingId ?? '');
         if (!claimed) throw new EcosystemError(ErrorCode.NOT_FOUND, 'The claimed listing no longer exists.');
         if (await listings.byName(publisher.id, claimed.name)) throw new ConflictError(`${publisher.handle} already has a listing named ${claimed.name}.`);
-        await listings.update(claimed.id, { publisherId: publisher.id });
-        await enqueueResign('listing', claimed.id, 'claim', actor);
+        const from = await publishers.byId(claimed.publisherId);
+        await atomically(async () => {
+          await listings.update(claimed.id, { publisherId: publisher.id });
+          await enqueueResign('listing', claimed.id, 'claim', actor, from ? signedAs(from) : null);
+        });
         audit('publisher.transfer.approve', actor, publisher, 'plugin-listing', claimed.id, { claim: true, listing: claimed.name, to: publisher.handle });
         // E10: the claimer's verified email submitted it → link those submissions (N5).
         await (await submissionModeration()).linkClaimedSubmissions({
@@ -593,8 +663,10 @@ export async function execute(r: Req, publisher: Publisher, actor: string, opts:
         patch.handle = target.handle;
       }
       if (target.displayName) patch.displayName = target.displayName;
-      if (Object.keys(patch).length) await publishers.update(publisher.id, patch);
-      if (patch.handle) await enqueueResign('publisher', publisher.id, 'handle_change', actor);
+      await atomically(async () => {
+        if (Object.keys(patch).length) await publishers.update(publisher.id, patch);
+        if (patch.handle) await enqueueResign('publisher', publisher.id, 'handle_change', actor, signedAs(publisher));
+      });
       audit('publisher.profile-change.approve', actor, publisher, 'publisher', publisher.id, { fields: Object.keys(patch), ...(patch.handle ? { from: publisher.handle, to: patch.handle } : {}) });
       break;
     }
@@ -618,14 +690,23 @@ export async function execute(r: Req, publisher: Publisher, actor: string, opts:
       throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `${r.kind} requests are not decided here.`);
   }
   if (opts.human) await closeBootstrap('first_reviewed_decision', actor);
+  // A decision that queued a re-sign (tier, handle, owner, suspension) starts it
+  // now — the job committed with the change above (E1).
+  if (RESIGNING_KINDS.has(r.kind)) kickResignJobs();
 }
+
+/** Request kinds whose execution may queue a re-sign job. */
+const RESIGNING_KINDS = new Set(['transfer', 'claim', 'profile_change', 'verify', 'moderation']);
 
 /** The system-org two-person actions (§3.0.1): unyank, lifting a suspension, a tier change to Verified. */
 async function executeModeration(r: Req, publisher: Publisher, listing: PluginListing | null, actor: string): Promise<void> {
   const action = payloadOf(r).action;
   if (action === 'unsuspend_publisher') {
-    await publishers.update(publisher.id, { suspendedAt: null, suspendReason: null });
-    await enqueueResign('publisher', publisher.id, 'unsuspend', actor);
+    // Its images are signed `unverified` (trustFor while suspended): accepted until re-signed.
+    await atomically(async () => {
+      await publishers.update(publisher.id, { suspendedAt: null, suspendReason: null });
+      await enqueueResign('publisher', publisher.id, 'unsuspend', actor, signedAs(publisher));
+    });
     audit('publisher.unsuspend', actor, publisher, 'publisher', publisher.id, {});
     return;
   }
@@ -654,9 +735,11 @@ async function executeModeration(r: Req, publisher: Publisher, listing: PluginLi
         });
       await invalidateVerifyCache({ imageRepository: v.imageRepository, digest: v.imageDigest }).catch(() => undefined);
     }
-    await versions.update(v.id, { yankedAt: null, yankReason: null });
-    const live = (await versions.forListings([listing.id])).filter((x) => !x.yankedAt || x.id === v.id).map((x) => x.version);
-    await listings.update(listing.id, { latestVersion: latestVersion(live) });
+    await atomically(async () => {
+      await versions.update(v.id, { yankedAt: null, yankReason: null });
+      const live = (await versions.forListings([listing.id])).filter((x) => !x.yankedAt || x.id === v.id).map((x) => x.version);
+      await listings.update(listing.id, { latestVersion: latestVersion(live) });
+    });
     audit('plugin.version.unyank', actor, publisher, 'plugin-listing-version', v.id, { listing: listing.name, version: v.version });
     return;
   }

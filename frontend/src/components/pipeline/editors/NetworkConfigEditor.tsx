@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useId } from 'react';
 import { FormNetworkConfig, TagEntry } from '@/types/form-types';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -32,6 +32,7 @@ interface NetworkConfigEditorProps {
 export default function NetworkConfigEditor({
   networkType, network, onTypeChange, onNetworkChange, disabled,
 }: NetworkConfigEditorProps) {
+  const uid = useId();
   const update = (fields: Partial<FormNetworkConfig>) => onNetworkChange({ ...network, ...fields });
 
   // Stable, client-only ids for the free-text tag rows, kept in lockstep with
@@ -58,8 +59,9 @@ export default function NetworkConfigEditor({
   return (
     <div className="space-y-3">
       <div>
-        <label className="label">Network type</label>
+        <label className="label" htmlFor={`${uid}-network-type`}>Network type</label>
         <Select
+          id={`${uid}-network-type`}
           value={networkType}
           onChange={(e) => onTypeChange(e.target.value as NetworkType)}
           disabled={disabled}
@@ -74,8 +76,9 @@ export default function NetworkConfigEditor({
       {networkType === 'subnetIds' && (
         <div className="space-y-3 pl-4 border-l-2 border-default">
           <div>
-            <label className="label">VPC ID *</label>
+            <label className="label" htmlFor={`${uid}-vpc-id`}>VPC ID *</label>
             <Input
+              id={`${uid}-vpc-id`}
               type="text"
               value={network.vpcId}
               onChange={(e) => update({ vpcId: e.target.value })}
@@ -105,8 +108,9 @@ export default function NetworkConfigEditor({
       {networkType === 'vpcId' && (
         <div className="space-y-3 pl-4 border-l-2 border-default">
           <div>
-            <label className="label">VPC ID *</label>
+            <label className="label" htmlFor={`${uid}-vpc-id-2`}>VPC ID *</label>
             <Input
+              id={`${uid}-vpc-id-2`}
               type="text"
               value={network.vpcId}
               onChange={(e) => update({ vpcId: e.target.value })}
@@ -115,8 +119,9 @@ export default function NetworkConfigEditor({
             />
           </div>
           <div>
-            <label className="label">Subnet type</label>
+            <label className="label" htmlFor={`${uid}-subnet-type`}>Subnet type</label>
             <Select
+              id={`${uid}-subnet-type`}
               value={network.subnetType}
               onChange={(e) => update({ subnetType: e.target.value })}
               disabled={disabled}
@@ -136,8 +141,9 @@ export default function NetworkConfigEditor({
             addLabel="+ Add AZ"
           />
           <div>
-            <label className="label">Subnet group name</label>
+            <label className="label" htmlFor={`${uid}-subnet-group-name`}>Subnet group name</label>
             <Input
+              id={`${uid}-subnet-group-name`}
               type="text"
               value={network.subnetGroupName}
               onChange={(e) => update({ subnetGroupName: e.target.value })}
@@ -158,8 +164,8 @@ export default function NetworkConfigEditor({
       {networkType === 'vpcLookup' && (
         <div className="space-y-3 pl-4 border-l-2 border-default">
           <div>
-            <label className="label">Tags *</label>
-            <div className="space-y-2">
+            <span className="label" id={`${uid}-tags`}>Tags *</span>
+            <div role="group" aria-labelledby={`${uid}-tags`} className="space-y-2">
               {network.tags.map((tag: TagEntry, idx: number) => (
                 <div key={tagIds[idx]} className="flex items-center space-x-2">
                   <Input
@@ -199,8 +205,9 @@ export default function NetworkConfigEditor({
             </Button>
           </div>
           <div>
-            <label className="label">VPC Name</label>
+            <label className="label" htmlFor={`${uid}-vpc-name`}>VPC Name</label>
             <Input
+              id={`${uid}-vpc-name`}
               type="text"
               value={network.vpcName}
               onChange={(e) => update({ vpcName: e.target.value })}
@@ -208,8 +215,9 @@ export default function NetworkConfigEditor({
             />
           </div>
           <div>
-            <label className="label">Region</label>
+            <label className="label" htmlFor={`${uid}-region`}>Region</label>
             <Input
+              id={`${uid}-region`}
               type="text"
               value={network.region}
               onChange={(e) => update({ region: e.target.value })}
@@ -218,8 +226,9 @@ export default function NetworkConfigEditor({
             />
           </div>
           <div>
-            <label className="label">Subnet type</label>
+            <label className="label" htmlFor={`${uid}-subnet-type-2`}>Subnet type</label>
             <Select
+              id={`${uid}-subnet-type-2`}
               value={network.subnetType}
               onChange={(e) => update({ subnetType: e.target.value })}
               disabled={disabled}
@@ -239,8 +248,9 @@ export default function NetworkConfigEditor({
             addLabel="+ Add AZ"
           />
           <div>
-            <label className="label">Subnet group name</label>
+            <label className="label" htmlFor={`${uid}-subnet-group-name-2`}>Subnet group name</label>
             <Input
+              id={`${uid}-subnet-group-name-2`}
               type="text"
               value={network.subnetGroupName}
               onChange={(e) => update({ subnetGroupName: e.target.value })}

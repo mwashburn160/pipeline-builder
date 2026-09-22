@@ -64,6 +64,20 @@ export function deriveMarketplaceInterval(entitlement: EntitlementResult | undef
   return exp.getTime() - now.getTime() > ANNUAL_TERM_THRESHOLD_MS ? 'annual' : 'monthly';
 }
 
+/**
+ * The period end a Marketplace subscription should carry: the entitlement's own
+ * `expirationDate` (AWS's authoritative term end) when it lies after `start`,
+ * else the cadence-derived fallback. A wall-clock period drifts from the real
+ * term and made still-entitled subs look expired to the stale-period scan.
+ */
+export function marketplacePeriodEnd(
+  exp: Date | undefined,
+  start: Date,
+  interval: BillingInterval,
+): Date {
+  return exp instanceof Date && exp > start ? exp : calculatePeriodEnd(start, interval);
+}
+
 // Helpers
 
 /**
@@ -252,6 +266,19 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
   // Nothing to do only when BOTH the plan AND the cadence are unchanged — an
   // interval-only move (same plan, monthly→annual) must still re-cadence.
   if (newPlanId === subscription.planId && !intervalChanged) {
+    // Same plan + cadence, but a renewal moves the entitlement's expiry forward:
+    // adopt it so the local period tracks AWS (otherwise the stale-period scan
+    // flags a paid, still-entitled sub every tick after the old end passes).
+    const exp = activeEntitlement?.expirationDate;
+    if (exp instanceof Date && exp > subscription.currentPeriodEnd) {
+      subscription.currentPeriodStart = subscription.currentPeriodEnd;
+      subscription.currentPeriodEnd = exp;
+      await subscription.save();
+      logger.info('Marketplace period advanced from entitlement expiry', {
+        customerIdentifier, orgId: subscription.orgId, currentPeriodEnd: exp.toISOString(),
+      });
+      return;
+    }
     logger.debug('Entitlement unchanged', { customerIdentifier, planId: newPlanId, interval: newInterval });
     return;
   }
@@ -262,7 +289,7 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
     const oldInterval = subscription.interval;
     subscription.interval = newInterval;
     subscription.currentPeriodStart = now;
-    subscription.currentPeriodEnd = calculatePeriodEnd(now, newInterval);
+    subscription.currentPeriodEnd = marketplacePeriodEnd(activeEntitlement?.expirationDate, now, newInterval);
     await subscription.save();
     await createBillingEvent(subscription.orgId, 'interval_changed', {
       provider: 'aws-marketplace', customerIdentifier, oldInterval, newInterval,
@@ -288,7 +315,7 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
   if (intervalChanged) {
     subscription.interval = newInterval;
     subscription.currentPeriodStart = now;
-    subscription.currentPeriodEnd = calculatePeriodEnd(now, newInterval);
+    subscription.currentPeriodEnd = marketplacePeriodEnd(activeEntitlement?.expirationDate, now, newInterval);
   }
 
   // Prune any PURE-FEATURE add-on the new tier now bundles in (double-billing

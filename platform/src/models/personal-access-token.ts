@@ -72,6 +72,12 @@ export interface PersonalAccessTokenDocument extends Document {
   amr: AuthMethod[];
   aal: AssuranceLevel;
   authTime: Date;
+  /** AAGUID of the passkey that opened the creating `webauthn` session, so every
+   *  exchange re-applies the org's authenticator allowlist (absent otherwise). */
+  aaguid?: string | null;
+  /** The org whose `idpEnforcesMfa` statement earned the creating session its
+   *  `aal: 2` — honoured only inside that org's lineage at every exchange. */
+  aalAssertedBy?: string | null;
   createdAt: Date;
   expiresAt: Date;
   lastUsedAt?: Date | null;
@@ -104,6 +110,8 @@ const personalAccessTokenSchema = new Schema<PersonalAccessTokenDocument>(
     amr: { type: [String], default: undefined },
     aal: { type: Number, required: true },
     authTime: { type: Date, required: true },
+    aaguid: { type: String, default: null },
+    aalAssertedBy: { type: String, default: null },
     expiresAt: { type: Date, required: true },
     lastUsedAt: { type: Date, default: null },
     revoked: { type: Boolean, default: false },

@@ -8,6 +8,7 @@
  * everything pooled at the account root.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -47,7 +48,7 @@ const mockOrgUpdateOne = jest.fn(async (filter: any, ..._a: unknown[]) => {
  *  opens — the interleaving the in-session re-validation exists to catch. */
 let concurrentWrite: (() => void) | null = null;
 const mockUserUpdateMany = jest.fn(async (..._a: unknown[]) => ({}));
-const mockOrgFind = jest.fn();
+const mockOrgFind = jest.fn<AnyFn>();
 const mockPublish = jest.fn(async (..._a: unknown[]) => undefined);
 /** Billing's `GET /billing/subscriptions/by-org/:orgId/billable` answer. */
 const mockBillingGet = jest.fn(async (..._a: unknown[]): Promise<unknown> => ({ statusCode: 200, body: { data: { billable: false } } }));
@@ -97,7 +98,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { billing: { enabled: true, serviceHost: 'billing', servicePort: 3000, serviceTimeout: 1000 } },
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
-jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishUsersRevocation: (...a: unknown[]) => mockPublish(...a) }));
+jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishSessionSlotRevocation: async () => true, publishAccessKeyRevocation: async () => true, publishUsersRevocation: (...a: unknown[]) => mockPublish(...a) }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => unknown) => {
     const race = concurrentWrite;
@@ -130,7 +131,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     exists: (q: any) => ({
       session: async () => ([...orgs.values()].some((o) => String(o.parentOrgId) === String(q.parentOrgId)) ? { _id: 'x' } : null),
     }),
-    updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a),
+    updateOne: (filter: unknown, ...a: unknown[]) => mockOrgUpdateOne(filter, ...a),
   },
   UserOrganization: {
     distinct: (_f: string, q: any) => ({ session: async () => [...new Set(idsIn(q).flatMap((id) => members.get(id) ?? []))] }),
@@ -259,7 +260,7 @@ describe('move — re-sync', () => {
     });
     const [uFilter, uUpdate] = mockUserUpdateMany.mock.calls[0] as [any, any];
     expect(new Set(uFilter._id.$in)).toEqual(new Set(['t1', 't2', 'parent-admin']));
-    expect(uUpdate).toEqual({ $inc: { tokenVersion: 1 } });
+    expect(uUpdate).toEqual({ $inc: { claimsVersion: 1 } });
     expect(mockPublish).toHaveBeenCalled();
     expect(result).toEqual({ orgId: TEAM, fromParentOrgId: ROOT_A, toParentOrgId: ROOT_B, tier: 'enterprise', membersInvalidated: 3 });
   });

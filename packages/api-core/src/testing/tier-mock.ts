@@ -7,11 +7,10 @@
  *
  * WHY A SEPARATE MODULE: every service mocks `@pipeline-builder/api-core` via
  * `jest.unstable_mockModule('@pipeline-builder/api-core', …)`. That intercepts the
- * *package* specifier only — this file is imported through the DEEP built path
- * `@pipeline-builder/api-core/lib/testing/tier-mock.js`, a different specifier the
+ * *package* specifier only — this file is imported through the separate
+ * `@pipeline-builder/api-core/testing` entry, a different specifier the
  * mock does NOT intercept, so a mock can pull real, complete tier data without
- * self-referencing its own mock. api-core's `exports` map keeps `./lib/*` open
- * for exactly this; both sides are ESM so there's no interop wrinkle.
+ * self-referencing its own mock. Both sides are ESM so there's no interop wrinkle.
  *
  * WHAT IT BUYS: the tier NAME LIST is sourced from the real `VALID_TIERS`, so
  * adding a tier in `quota-tiers.ts` flows into every mock automatically — no more

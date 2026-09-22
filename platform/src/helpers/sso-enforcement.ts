@@ -30,6 +30,7 @@ import type { Types } from 'mongoose';
 import { requireOrgScope } from './controller-helper.js';
 import { resolveOrgLineage } from './org-hierarchy.js';
 import { toOrgId } from './org-id.js';
+import { GOOGLE_ISSUER } from './reserved-issuers.js';
 import { OrgDomain, Organization, User, UserOrganization } from '../models/index.js';
 import type { IdpProtocol } from '../models/org-idp-config.js';
 import type { OidcLoginConfig } from '../services/oidc-service.js';
@@ -45,9 +46,9 @@ export function emailDomain(email: string): string | null {
 
 /** Google is the authority for every address it signs in — no org can mint a
  *  Google identity — so its `email_verified` is trusted as-is. Every other IdP
- *  (generic OIDC, Cognito) is run by the org's own admin, who can assert any
- *  email as verified. */
-export const GOOGLE_ISSUER = 'https://accounts.google.com';
+ *  (generic OIDC, Cognito, SAML) is run by the org's own admin, who can assert
+ *  any email as verified. Re-exported from the pure reserved-issuer module. */
+export { GOOGLE_ISSUER };
 
 /**
  * Whether `orgId` — or the account root it belongs to — has proven ownership of
@@ -66,17 +67,30 @@ export async function ownsVerifiedDomain(orgId: string, domain: string): Promise
   return !!(await OrgDomain.exists({ domain: domain.toLowerCase(), verified: true, orgId: { $in: owners } }));
 }
 
+/** Where a verified SSO identity came from. The Google carve-out is decided
+ *  from THIS — the platform-controlled route the identity arrived by — never
+ *  from the identity's `issuer` alone, which an admin-run IdP controls (a
+ *  generic OIDC discovery document or a SAML entity id can claim to be Google). */
+export type SsoIdentitySource =
+  | { protocol: 'oidc'; provider: string }
+  | { protocol: 'saml' };
+
 /**
  * Refuse an SSO identity the org has no authority over. An admin-run IdP can
- * sign any email as verified, so unless the IdP is Google the email's domain
- * must be one the org has verified — otherwise one org could sign in as (or link
- * onto) any other account on the platform by email.
+ * sign any email as verified, so unless the identity came from Google — the
+ * `google` OIDC provider, whose discovery document is hard-coded, AND Google's
+ * issuer — the email's domain must be one the org has verified. Otherwise one
+ * org could sign in as (or link onto) any other account on the platform by email.
  */
 export async function assertSsoIdentityTrusted(
   orgId: string,
   identity: { issuer: string; email: string },
+  source: SsoIdentitySource,
 ): Promise<void> {
-  if (identity.issuer === GOOGLE_ISSUER) return;
+  const fromGoogle = source.protocol === 'oidc'
+    && source.provider === 'google'
+    && identity.issuer === GOOGLE_ISSUER;
+  if (fromGoogle) return;
   const domain = emailDomain(identity.email);
   if (!domain || !(await ownsVerifiedDomain(orgId, domain))) {
     throw new Error('OIDC_EMAIL_DOMAIN_NOT_VERIFIED');

@@ -22,7 +22,7 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-cred-'));
 const realHomedir = os.homedir;
 jest.spyOn(os, 'homedir').mockImplementation(() => home);
 
-const { saveSession, loadSession, clearSession, isSessionUsable, credentialStorePath } =
+const { saveSession, loadSession, clearSession, isSessionUsable, credentialStorePath, withRefreshLock } =
   await import('../src/utils/credential-store.js');
 
 const URL_A = 'https://platform.example.com';
@@ -42,7 +42,7 @@ beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation(() => {});
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { jest.restoreAllMocks(); });
 
 afterAll(() => {
   os.homedir = realHomedir;
@@ -115,5 +115,39 @@ describe('credential store', () => {
     // Inside the refresh skew: technically alive, but not worth sending.
     expect(isSessionUsable({ accessToken: 'a', expiresAt: Date.now() + 30_000, savedAt: '' })).toBe(false);
     expect(isSessionUsable({ accessToken: 'a', expiresAt: Date.now() + 900_000, savedAt: '' })).toBe(true);
+  });
+});
+
+describe('withRefreshLock — one refresh per machine at a time', () => {
+  it('serializes concurrent refreshes: the second runs only after the first finishes', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const first = withRefreshLock(async () => {
+      order.push('first:start');
+      await new Promise<void>((r) => { release = r; });
+      order.push('first:end');
+    });
+    const second = withRefreshLock(async () => { order.push('second'); });
+    await new Promise((r) => setTimeout(r, 250));
+    expect(order).toEqual(['first:start']); // the second is waiting on the lock
+    release();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first:start', 'first:end', 'second']);
+    // The lock is gone afterwards.
+    expect(fs.existsSync(path.join(home, '.pipeline-manager', 'refresh.lock'))).toBe(false);
+  });
+
+  it('breaks a STALE lock left by a crashed process', async () => {
+    const lock = path.join(home, '.pipeline-manager', 'refresh.lock');
+    fs.mkdirSync(path.dirname(lock), { recursive: true });
+    fs.writeFileSync(lock, '');
+    const old = new Date(Date.now() - 60_000);
+    fs.utimesSync(lock, old, old);
+    await expect(withRefreshLock(async () => 'ran')).resolves.toBe('ran');
+  });
+
+  it('releases the lock when the refresh throws', async () => {
+    await expect(withRefreshLock(async () => { throw new Error('boom'); })).rejects.toThrow('boom');
+    await expect(withRefreshLock(async () => 'next')).resolves.toBe('next');
   });
 });

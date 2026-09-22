@@ -61,11 +61,20 @@ export async function handleRefusal(handle: string, forPublisherId: string | nul
 }
 
 /** The org's listings-quota standing: live listings vs the plan limit (-1 = unlimited). */
-export async function listingsQuota(orgId: string, publisherId: string | null): Promise<{ used: number; limit: number }> {
+export async function listingsQuota(orgId: string, publisherId: string | null): Promise<{ used: number; limit: number; failOpen: boolean }> {
   const used = publisherId ? await listings.countActive(publisherId) : 0;
-  if (orgId === SYSTEM_ORG_ID) return { used, limit: -1 };
+  if (orgId === SYSTEM_ORG_ID) return { used, limit: -1, failOpen: false };
   const result = await ecosystemDeps().quotaService.check(orgId, 'listings', getQuotaServiceAuthHeader(orgId));
-  return { used, limit: result.unlimited ? -1 : result.limit };
+  // `failOpen` = the quota service could not be read; the -1 it then reports is
+  // NOT a real "unlimited", and callers must not act on it (E4).
+  return { used, limit: result.unlimited ? -1 : result.limit, failOpen: result.failOpen === true };
+}
+
+/** The listings quota, refusing (503) when it can't be read — for a decision that must not over-list on an outage. */
+export async function listingsQuotaOrThrow(orgId: string, publisherId: string | null): Promise<{ used: number; limit: number }> {
+  const quota = await listingsQuota(orgId, publisherId);
+  if (quota.failOpen) throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'The listings quota could not be checked; try again shortly.');
+  return quota;
 }
 
 /** Whether the caller's org may apply for Verified (feature `verified_publisher`, Team+ — §3.7). */

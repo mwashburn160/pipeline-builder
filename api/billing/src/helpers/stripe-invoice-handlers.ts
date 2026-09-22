@@ -14,7 +14,8 @@ import { ingestStripeInvoice } from './billing-ledger.js';
 import { billingPeriodKey } from './billing-period.js';
 import { reconcileDiscountsOnInvoice } from './discount-helpers.js';
 import { grantRecurringPromotions, qualifyReferral } from './promotion-engine.js';
-import { findSubscriptionByStripeId, invoiceSubscriptionId } from './stripe-helpers.js';
+import { findSubscriptionByStripeId, invoiceSubscriptionId, type StripeEventMeta } from './stripe-helpers.js';
+import { acceptStripeEvent, grantOnBecomingEntitled } from './stripe-subscription-handlers.js';
 import { config } from '../config.js';
 import { Plan } from '../models/plan.js';
 
@@ -54,7 +55,7 @@ export async function handleInvoiceUpcoming(invoice: Stripe.Invoice): Promise<vo
  * Handle successful invoice payment from Stripe.
  * Confirms the subscription is active, resets grace period state, and updates the billing period.
  */
-export async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
+export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: StripeEventMeta): Promise<void> {
   const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   if (!stripeSubscriptionId) {
     logger.debug('Invoice payment_succeeded has no subscription', { invoiceId: invoice.id });
@@ -66,9 +67,16 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<v
     logger.warn('No subscription found for successful payment', { stripeSubscriptionId });
     return;
   }
+  if (!(await acceptStripeEvent(subscription, event, 'invoice.payment_succeeded'))) return;
 
   const previousStatus = subscription.status;
+  // A paid invoice settles the sub whether it was in dunning (`past_due`) or had
+  // never settled (`incomplete` — card decline / 3DS / in-app create with no
+  // card). Both must come back entitled here: Stripe's `.updated`→active can
+  // arrive later or (being unordered) be skipped as older, and an `incomplete`
+  // row that stayed so would leave a PAYING org on developer.
   const wasRecovery = previousStatus === 'past_due';
+  const wasSettle = previousStatus === 'incomplete';
 
   // Reset grace period state
   subscription.failedPaymentAttempts = 0;
@@ -116,6 +124,19 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<v
     }
   }
 
+  // First settle out of `incomplete`: go active, consume any stashed referral code,
+  // and (post-save, below) grant the tier + the signup promotions the create path
+  // withheld — the same grant the `.updated` crossing performs.
+  let settleReferralCode: string | undefined;
+  if (wasSettle) {
+    subscription.status = 'active';
+    settleReferralCode = subscription.metadata?.pendingReferralCode as string | undefined;
+    if (settleReferralCode) {
+      const { pendingReferralCode: _consumed, ...rest } = subscription.metadata ?? {};
+      subscription.metadata = rest;
+    }
+  }
+
   // Reconcile discounts against this settled invoice (Stripe = source of truth):
   // draw the usage-credit mirror down from the customer balance and re-grant a
   // recurring discount. Price-only; mutates the sub in place before the save below.
@@ -139,6 +160,10 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<v
   // concurrent credit-ledger write.
   await subscription.save();
 
+  if (wasSettle) {
+    await grantOnBecomingEntitled(subscription, null, { previousStatus, referralCode: settleReferralCode });
+  }
+
   // Mirror the settled invoice into the billing ledger (dashboard actuals).
   // Idempotent + best-effort — a ledger hiccup must not fail the webhook.
   await ingestStripeInvoice(subscription.orgId, invoice as unknown as Parameters<typeof ingestStripeInvoice>[1]).catch((err) => {
@@ -151,7 +176,7 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<v
     newStatus: subscription.status,
     invoiceId: invoice.id,
     stripeSubscriptionId,
-    recovered: wasRecovery,
+    recovered: wasRecovery || wasSettle,
   }, subscription._id.toString());
 
   // Referral (phase 2c): a paid invoice is the QUALIFYING event — if this org was
@@ -177,7 +202,7 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<v
  * after the first failure. Downgrade only happens when the grace period expires
  * (checked by the subscription lifecycle background job).
  */
-export async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
+export async function handlePaymentFailed(invoice: Stripe.Invoice, event: StripeEventMeta): Promise<void> {
   const stripeSubscriptionId = invoiceSubscriptionId(invoice);
   if (!stripeSubscriptionId) {
     logger.debug('Invoice payment_failed has no subscription', { invoiceId: invoice.id });
@@ -189,6 +214,7 @@ export async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void
     logger.warn('No subscription found for failed payment', { stripeSubscriptionId });
     return;
   }
+  if (!(await acceptStripeEvent(subscription, event, 'invoice.payment_failed'))) return;
 
   const previousStatus = subscription.status;
 

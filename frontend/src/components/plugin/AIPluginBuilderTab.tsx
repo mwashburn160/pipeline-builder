@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import { Sparkles, Rocket, XCircle } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
@@ -95,6 +95,7 @@ export function DockerfileViolationsNotice({ violations }: { violations: string[
 
 /** AI-powered plugin builder that generates config and Dockerfile from a natural language prompt. */
 export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, onClose }: AIPluginBuilderTabProps) {
+  const uid = useId();
   const [prompt, setPrompt] = useState('');
   const [deploying, setDeploying] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -217,8 +218,9 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
       {/* Prompt Input */}
       <div>
-        <label className="label">Describe your plugin</label>
+        <label className="label" htmlFor={`${uid}-describe-your-plugin`}>Describe your plugin</label>
         <Textarea
+          id={`${uid}-describe-your-plugin`}
           value={prompt}
           onChange={(e) => { setPrompt(e.target.value); setError(null); }}
           placeholder={'Example: "A Node.js 20 build plugin that runs npm ci and npm run build. Should support TypeScript and output to the dist directory."'}
@@ -291,7 +293,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
       {generating && streamPreview && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="label">Generating...</label>
+            <span className="label">Generating...</span>
             <span className="text-xs text-brand font-medium flex items-center gap-1">
               <LoadingSpinner size="sm" /> Streaming...
             </span>
@@ -317,7 +319,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
           {/* Plugin Config Preview */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="label">Generated plugin configuration</label>
+              <span className="label" id={`${uid}-generated-config`}>Generated plugin configuration</span>
               {dockerfileViolations.length === 0 ? (
                 <span className="text-xs text-green-600 dark:text-green-400 font-medium">
                   Ready to deploy
@@ -328,15 +330,15 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
                 </span>
               )}
             </div>
-            <pre className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
+            <pre aria-labelledby={`${uid}-generated-config`} className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
               {formatJSON(generatedConfig)}
             </pre>
           </div>
 
           {/* Dockerfile Preview */}
           <div>
-            <label className="label">Generated Dockerfile</label>
-            <pre className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
+            <span className="label" id={`${uid}-generated-dockerfile`}>Generated Dockerfile</span>
+            <pre aria-labelledby={`${uid}-generated-dockerfile`} className="input font-mono text-xs overflow-x-auto max-h-60 overflow-y-auto whitespace-pre">
               {generatedDockerfile}
             </pre>
           </div>

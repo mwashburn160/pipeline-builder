@@ -24,6 +24,7 @@
  */
 
 import { execSync } from 'node:child_process';
+import * as path from 'node:path';
 import { TypeScriptModuleResolution } from 'projen/lib/javascript';
 import { TypeScriptProject, TypeScriptProjectOptions } from 'projen/lib/typescript';
 import { BASE_STRICT_COMPILER_OPTIONS, ESM_COMPILER_OPTIONS, configureEsmJest } from './shared-config';
@@ -74,6 +75,14 @@ export class PackageProject extends TypeScriptProject {
             }
         })
         configureEsmJest(this);
+        // Emit lib/testing/exports.json — this package's runtime export names per
+        // entry point, read off the just-built declarations. api-core's
+        // `stubModule(specifier, overrides)` stubs every one of them, so a module
+        // mock of this package can never again fail to link with "does not
+        // provide an export named X" when the barrel grows. Regenerated on every
+        // compile, so it cannot drift from lib/.
+        const toRoot = path.relative(this.outdir, process.cwd()) || '.';
+        this.postCompileTask.exec(`node ${toRoot}/scripts/emit-export-manifest.mjs`);
     }
 
     /**

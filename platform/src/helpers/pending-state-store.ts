@@ -27,7 +27,8 @@
  *     state many times before the single `consume` that issues the session.
  *   - Fail-safe: a Redis error on `put` falls back to the local Map; a Redis
  *     error on `consume` rejects that one attempt (the user simply retries),
- *     which is the safe direction for a CSRF token.
+ *     which is the safe direction for a CSRF token; a Redis error on
+ *     `putIfAbsent` (a replay guard) answers "already claimed" — fail closed.
  *
  * Reuses `getRedisClient()` — the SAME env Redis client the platform already
  * uses to publish session-revocation entries — so no new connection/config.
@@ -58,6 +59,10 @@ export interface PendingStateStore<T> {
    * two concurrent replays of the same assertion both read "absent" — so the
    * Redis path uses `SET … NX` and the in-memory fallback does its check and
    * write in one synchronous block (no `await` in between).
+   *
+   * FAILS CLOSED: when Redis is configured and the write errors, this answers
+   * `false` ("already claimed") — never the pod-local map, which other replicas
+   * can't see. The map is the store only when Redis is not configured at all.
    */
   putIfAbsent(state: string, value: T, ttlMsOverride?: number): Promise<boolean>;
   consume(state: string): Promise<T | null>;
@@ -140,8 +145,11 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
           const res = await redis.set(key(state), JSON.stringify(value), 'PX', entryTtl, 'NX');
           return res !== null;
         } catch {
-          // Fall through to the local map — a Redis blip must not turn a replay
-          // guard into a hard outage; the in-process guard still holds.
+          // FAIL CLOSED. With Redis configured the fleet shares ONE replay
+          // record; a pod-local map would let the same assertion be replayed on
+          // every other replica during the blip. Refusing costs the person one
+          // retry; accepting could cost an account.
+          return false;
         }
       }
       const existing = mem.get(state);

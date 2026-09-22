@@ -117,14 +117,14 @@ export function useAuthGuard(options?: AuthGuardOptions) {
       // page, which immediately re-redirects (a "stuck" Back button).
       // Remember the guarded page so signing in lands back on it.
       rememberReturnPath(router.asPath);
-      router.replace('/');
+      void router.replace('/');
       return;
     }
     // Force first-run social-signup users through onboarding before any other
     // gated route (the onboarding page passes `allowOnboarding` to opt out and
     // avoid a redirect loop).
     if (needsOnboarding && !allowOnboarding && router.pathname !== '/dashboard/onboarding') {
-      router.replace('/dashboard/onboarding');
+      void router.replace('/dashboard/onboarding');
       return;
     }
     // Authorization failures deliberately do NOT redirect — see `accessDenied`.

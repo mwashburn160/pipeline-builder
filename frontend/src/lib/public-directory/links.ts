@@ -18,6 +18,11 @@ export function pluginPagePath(publisher: string, name: string): string {
 }
 
 /** `/plugins/category/<id>`. */
+/** The public, signed SBOM of one listed version (SPDX JSON). */
+export function versionSbomPath(publisher: string, name: string, version: string): string {
+  return `/api/public/plugins/${encodeURIComponent(publisher)}/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}/sbom`;
+}
+
 export function categoryPagePath(category: string): string {
   return `/plugins/category/${encodeURIComponent(category)}`;
 }

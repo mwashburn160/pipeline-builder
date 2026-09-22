@@ -22,7 +22,7 @@ import {
   findRouteCoverageViolations,
   type InternalRouteDeclaration,
   type RouteCoverageException,
-} from '@pipeline-builder/api-core/lib/testing/route-coverage.js';
+} from '@pipeline-builder/api-core/testing';
 
 process.env.JWT_SECRET ||= 'route-coverage-test-secret';
 
@@ -94,6 +94,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'PUT', path: '/reports/retention-sync/:orgId', callers: ['billing'] },
+  { method: 'GET', path: '/reports/retention-sync/:orgId', callers: ['billing'] },
 ];
 
 let table: RouteTableEntry[];
@@ -106,7 +107,7 @@ beforeAll(async () => {
   const { app, sseManager } = createApp({ enableOpenApi: false, checkDependencies: postgresHealthCheck, jsonLimit: '5mb' });
   // The ticket store's backing Redis is irrelevant to the route table (no request
   // is served) — only the routes registerSseTicketChannel adds matter.
-  const executionTicketStore = { issue: async () => ({ ok: true as const, ticket: 't' }), consume: async () => null };
+  const executionTicketStore = { issue: async () => ({ ok: true as const, ticket: 't' }), consume: async () => null, bindOwner: async () => undefined, getOwner: async () => null, stop: () => undefined };
   mountRoutes(app, { sseManager, executionTicketStore });
   table = buildRouteTable(app);
 });

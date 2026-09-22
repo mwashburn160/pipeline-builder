@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockGetIncidentSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -26,15 +27,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 // helpers/report-helpers.ts (imported transitively by retention-cap.ts for MAX_REPORT_RANGE_DAYS)
 // pulls `Config` from pipeline-core — stub it so the full config graph
 // (aws-cdk-lib, etc.) stays out of this suite.
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }) },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: { getIncidentSettings: mockGetIncidentSettings },
 }));
 
-const { orgRetentionWindowFromSettings, resolveOrgRetentionWindow, floorFrom, parseOrgReportRange } =
+const { orgRetentionWindowFromSettings, resolveOrgRetentionWindow, floorFrom, parseOrgReportRange, retentionOrgIdFor } =
   await import('../src/helpers/retention-cap.js');
 
 const DAY_MS = 86_400_000;
@@ -115,19 +116,19 @@ describe('floorFrom', () => {
 });
 
 describe('resolveOrgRetentionWindow (fetch + compute)', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('reads the org settings and returns the computed dora window', async () => {
     mockGetIncidentSettings.mockResolvedValue({ eventRetentionDays: null, doraRetentionDays: 545, ...DEFAULTS });
-    const win = await resolveOrgRetentionWindow('acme', 'dora', NOW);
-    expect(mockGetIncidentSettings).toHaveBeenCalledWith('acme');
+    const win = await resolveOrgRetentionWindow('acme', 'dora', 'acme', NOW);
+    expect(mockGetIncidentSettings).toHaveBeenCalledWith('acme', 'acme');
     expect(win.maxRangeMs).toBe(545 * DAY_MS);
     expect(win.minFromMs).toBe(NOW - 545 * DAY_MS);
   });
 });
 
 describe('parseOrgReportRange (cap + floor)', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('floors an over-retention `from` up to the horizon', async () => {
     mockGetIncidentSettings.mockResolvedValue({ eventRetentionDays: null, doraRetentionDays: null, ...DEFAULTS });
@@ -135,7 +136,7 @@ describe('parseOrgReportRange (cap + floor)', () => {
     // OLDER than the 180-day floor → `from` is raised up to the horizon.
     const from = new Date(Date.now() - 200 * DAY_MS).toISOString();
     const to = new Date(Date.now() - 190 * DAY_MS).toISOString();
-    const range = await parseOrgReportRange({ from, to }, 'acme', 'dora');
+    const range = await parseOrgReportRange({ from, to }, 'acme', 'dora', 'acme');
     if ('error' in range) throw new Error(range.error);
     expect(Date.parse(range.from)).toBeGreaterThan(Date.parse(from));
   });
@@ -143,7 +144,7 @@ describe('parseOrgReportRange (cap + floor)', () => {
   it('does NOT floor for an unlimited (-1) org', async () => {
     mockGetIncidentSettings.mockResolvedValue({ eventRetentionDays: -1, doraRetentionDays: -1, ...DEFAULTS });
     const from = '2020-01-01T00:00:00Z';
-    const range = await parseOrgReportRange({ from, to: '2020-06-01T00:00:00Z' }, 'acme', 'event');
+    const range = await parseOrgReportRange({ from, to: '2020-06-01T00:00:00Z' }, 'acme', 'event', 'acme');
     if ('error' in range) throw new Error(range.error);
     expect(range.from).toBe(from);
   });
@@ -154,7 +155,25 @@ describe('parseOrgReportRange (cap + floor)', () => {
       { from: '2026-01-01T00:00:00Z', to: '2026-08-01T00:00:00Z' }, // ~7 months > 30-day cap
       'acme',
       'event',
+      'acme',
     );
     expect('error' in range).toBe(true);
+  });
+});
+
+describe('retentionOrgIdFor (a team reads its ROOT\'s retention)', () => {
+  it('returns the JWT root for a team caller', () => {
+    expect(retentionOrgIdFor({ user: { organizationId: 'team-1', rootOrganizationId: 'root-1' } }, 'team-1')).toBe('root-1');
+  });
+  it('a flat org is its own root', () => {
+    expect(retentionOrgIdFor({ user: { organizationId: 'acme' } }, 'acme')).toBe('acme');
+  });
+  it('a sysadmin header override reads the TARGET org (claims describe the admin\'s own org)', () => {
+    expect(retentionOrgIdFor({ user: { isSuperAdmin: true, organizationId: 'team-1', rootOrganizationId: 'system' } }, 'team-1')).toBe('team-1');
+  });
+  it('reads the root row for a team through parseOrgReportRange', async () => {
+    mockGetIncidentSettings.mockResolvedValue({ eventRetentionDays: 400, doraRetentionDays: null, ...DEFAULTS });
+    await parseOrgReportRange({}, 'team-1', 'event', 'root-1');
+    expect(mockGetIncidentSettings).toHaveBeenCalledWith('team-1', 'root-1');
   });
 });

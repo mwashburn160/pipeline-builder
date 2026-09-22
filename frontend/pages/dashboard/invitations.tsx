@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useId } from 'react';
 import { formatError } from '@/lib/constants';
 import { Mail } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -47,6 +47,7 @@ const STATUS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray' | 'red'> = {
 };
 
 export default function InvitationsPage() {
+  const uid = useId();
   // The read gate (`invitations:manage`) comes from the nav entry via page-access.
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
@@ -474,8 +475,9 @@ export default function InvitationsPage() {
 
           <div className="space-y-4">
             <div>
-              <label className="label">Email(s)</label>
+              <label className="label" htmlFor={`${uid}-email-s`}>Email(s)</label>
               <Textarea
+                id={`${uid}-email-s`}
                 value={sendEmail}
                 onChange={(e) => setSendEmail(e.target.value)}
                 placeholder={'user@example.com\nteam@example.com, lead@example.com'}
@@ -489,8 +491,8 @@ export default function InvitationsPage() {
               )}
             </div>
             <div>
-              <label className="label">Role</label>
-              <Select value={sendRole} onChange={(e) => setSendRole(e.target.value as 'admin' | 'member')} disabled={sendLoading}>
+              <label className="label" htmlFor={`${uid}-role`}>Role</label>
+              <Select id={`${uid}-role`} value={sendRole} onChange={(e) => setSendRole(e.target.value as 'admin' | 'member')} disabled={sendLoading}>
                 <option value="member">Member — build pipelines, no administration</option>
                 <option value="admin">Admin — full administration of this organization</option>
               </Select>
@@ -502,8 +504,8 @@ export default function InvitationsPage() {
               </div>
             </div>
             <div>
-              <label className="label">Invitation type</label>
-              <Select value={sendInvitationType} onChange={(e) => setSendInvitationType(e.target.value)} disabled={sendLoading}>
+              <label className="label" htmlFor={`${uid}-invitation-type`}>Invitation type</label>
+              <Select id={`${uid}-invitation-type`} value={sendInvitationType} onChange={(e) => setSendInvitationType(e.target.value)} disabled={sendLoading}>
                 <option value="any">Any (Email or OAuth)</option>
                 <option value="email">Email only</option>
                 <option value="oauth">OAuth Only</option>

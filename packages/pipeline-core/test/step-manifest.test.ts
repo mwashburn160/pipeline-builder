@@ -87,7 +87,7 @@ describe('PipelineBuilder.stepManifest', () => {
       ],
     });
 
-    const manifest = builder.stepManifest as Array<Record<string, unknown>>;
+    const manifest = builder.stepManifest as unknown as Array<Record<string, unknown>>;
     expect(manifest.map((e) => e.pluginName).sort()).toEqual(['cdk-synth', 'eslint', 'jest', 'trivy']);
     for (const e of manifest) {
       expect(synthesized.has(`${e.stageName}/${e.actionName}`)).toBe(true);

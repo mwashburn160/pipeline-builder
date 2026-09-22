@@ -7,6 +7,7 @@
  * envelope — the alert-rules page used to fetch every rule in one unbounded read.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -56,7 +57,7 @@ describe('listAlertRules pagination', () => {
     mockListForOrg.mockResolvedValue({ rules: [{ id: 'r1' }], total: 30 });
     const res = mockRes();
     await call({ user: { organizationId: 'org-a' }, query: { offset: '0', limit: '25' } }, res);
-    const payload = (res.json as jest.Mock).mock.calls[0][0] as any;
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0] as any;
     expect(payload.data.rules).toEqual([{ id: 'r1' }]);
     expect(payload.data.pagination).toEqual({ total: 30, offset: 0, limit: 25, hasMore: true });
   });
@@ -65,6 +66,6 @@ describe('listAlertRules pagination', () => {
     mockListForOrg.mockResolvedValue({ rules: [{ id: 'r26' }], total: 26 });
     const res = mockRes();
     await call({ user: { organizationId: 'org-a' }, query: { offset: '25', limit: '25' } }, res);
-    expect(((res.json as jest.Mock).mock.calls[0][0] as any).data.pagination.hasMore).toBe(false);
+    expect(((res.json as jest.Mock<AnyFn>).mock.calls[0][0] as any).data.pagination.hasMore).toBe(false);
   });
 });

@@ -13,8 +13,8 @@
  *     `heuristics` (no `high` finding), `env_secrets` (no secret-looking
  *     `env` defaults), `smoke_test_declared`, `name` (E9, re-judged now);
  *  2. BUILD on the ISOLATED quarantine buildkitd (`PLUGIN_QUARANTINE_BUILDKIT_ADDR`,
- *     never the tenant one) into `quarantine/<id>`, pushed with the plugin
- *     service principal's credential, SBOM'd and signed under the system org;
+ *     never the tenant one) into `quarantine/<id>`, pushed with a registry-only
+ *     credential scoped to that one repository, SBOM'd and signed under the system org;
  *  3. IMAGE — `scanned`, `vuln` (grype over the signed SBOM, the ecosystem
  *     critical threshold), `non_root`;
  *  4. SMOKE — the spec's `smokeTest`, run as a second NO-PUSH build
@@ -47,15 +47,20 @@ import type { PluginSubmission } from '@pipeline-builder/pipeline-data';
 import { recordSubmission, recordSubmissionGateFailures } from './metrics.js';
 import { notifySubmissionGateFailed } from './notify.js';
 import { vulnGateMaxCritical, type Gate } from './policy.js';
-import { openSubmissionRequest, type SubmissionFacts, type SubmissionGateReport } from './submission-moderation.js';
+import { mintQuarantineCredential } from './registry.js';
+import { atomically } from './store.js';
+import {
+  announceSubmissionRequest, hasOpenSubmissionRequest, insertSubmissionRequest, type SubmissionFacts, type SubmissionGateReport,
+} from './submission-moderation.js';
 import { submissions } from './submissions-store.js';
 import {
-  communityPublisher, EMAIL_RETENTION_DAYS, lintPackage, statusTokenFor, statusUrl, submissionConfig, submissionNameGate, submitterEmail,
+  communityPublisher, EMAIL_RETENTION_DAYS, lintPackage, preparedAnonymousExtract, statusTokenFor, statusUrl, submissionConfig, submissionNameGate,
+  submitterEmail,
 } from './submissions.js';
 import { buildAndPushQuarantine, runQuarantineSmokeTest, type QuarantineBuildOptions } from '../../helpers/docker-build.js';
 import { readPackageFiles } from '../../helpers/package-files.js';
 import { parsePluginZip, validateBuildArgs, type ParsedPlugin } from '../../helpers/plugin-spec.js';
-import { writeAuthConfig, type RegistryInfo } from '../../helpers/registry-auth.js';
+import { writeDockerConfig, type RegistryInfo } from '../../helpers/registry-auth.js';
 import { inspectRunAsRoot, scanColumns, scanPluginImage } from '../../helpers/vuln-scan.js';
 import { emitPluginAudit } from '../audit.js';
 import { getPluginArtifactToFile, pluginQuarantineBucket } from '../plugin-artifact-storage.js';
@@ -87,12 +92,16 @@ function registry(): RegistryInfo {
   return Config.get('registry') as RegistryInfo;
 }
 
-/** A fresh `$DOCKER_CONFIG` with the plugin service principal's registry credential (quarantine push/pull). */
-function quarantineCredential(ttlMs: number): string {
-  // Minted for the SYSTEM org with NO permissions: image-registry grants
-  // `quarantine/*` to the plugin service principal by name, so this credential
-  // can push nothing else (not `system/*`, which needs plugins:write).
-  return writeAuthConfig(registry(), SYSTEM_ORG_ID, Math.ceil(ttlMs / 1000) + 600, 'pull');
+/**
+ * A fresh `$DOCKER_CONFIG` for ONE submission's build (E21): a registry-only
+ * credential image-registry mints for `quarantine/<submissionId>` — push/pull
+ * there, pull on the base-image namespaces, nothing else, and accepted by no
+ * platform service. Never a service-principal JWT: the quarantine buildkitd
+ * runs untrusted code and sees whatever credential the build carries.
+ */
+async function quarantineCredential(submissionId: string, ttlMs: number): Promise<string> {
+  const cred = await mintQuarantineCredential(submissionId, Math.ceil(ttlMs / 1000) + 600);
+  return writeDockerConfig(registry(), cred.username, cred.password);
 }
 
 function buildOptions(dockerConfigDir: string): QuarantineBuildOptions {
@@ -111,7 +120,7 @@ const liveDeps: SubmissionPipelineDeps = {
 
   async build(s, plugin) {
     const reg = registry();
-    const dockerConfigDir = quarantineCredential(submissionConfig().buildTimeoutMs * 2);
+    const dockerConfigDir = await quarantineCredential(s.id, submissionConfig().buildTimeoutMs * 2);
     try {
       const built = await buildAndPushQuarantine({
         contextDir: plugin.extractDir,
@@ -135,7 +144,7 @@ const liveDeps: SubmissionPipelineDeps = {
 
   async smokeTest(outcome, command) {
     const reg = registry();
-    const dockerConfigDir = quarantineCredential(submissionConfig().buildTimeoutMs);
+    const dockerConfigDir = await quarantineCredential(outcome.imageRepository.slice('quarantine/'.length), submissionConfig().buildTimeoutMs);
     try {
       await runQuarantineSmokeTest({ imageRef: `${reg.host}:${reg.port}/${outcome.imageRepository}@${outcome.digest}`, command }, buildOptions(dockerConfigDir));
     } finally {
@@ -221,20 +230,31 @@ async function failSubmission(s: PluginSubmission, gates: Gate[], heuristics: He
 export type GateRunOutcome = 'queued' | 'gate_failed' | 'skipped';
 
 /**
+ * Whether a gate run still has work to do: the submission waits in
+ * `pending_review` and has no OPEN moderation request yet (E6). The report and
+ * the request are written together, so "a report but no request" can't strand
+ * a submission any more — and if one ever exists, the gates simply run again.
+ */
+async function needsGates(s: PluginSubmission): Promise<boolean> {
+  return s.status === 'pending_review' && !(await hasOpenSubmissionRequest(s.id));
+}
+
+/**
  * Run every gate for one verified submission (the submission build worker).
- * Idempotent: only a `pending_review` submission with no gate report runs.
- * Throws on an INFRASTRUCTURE failure (storage, database) so the queue can
- * retry; a gate failure is an outcome, not an error.
+ * Idempotent (see needsGates). Throws on an INFRASTRUCTURE failure (storage,
+ * database) so the queue can retry; a gate failure is an outcome, not an error.
  */
 export async function runSubmissionGates(submissionId: string): Promise<GateRunOutcome> {
   const s = await submissions.byId(submissionId);
-  if (!s || s.status !== 'pending_review' || s.gateReport !== null) return 'skipped';
+  if (!s || !await needsGates(s)) return 'skipped';
 
   const zipPath = await deps.fetchPackage(s);
   let plugin: ParsedPlugin;
   try {
     try {
-      plugin = await parsePluginZip(zipPath);
+      // The worker parses the untrusted package under the SAME anonymous caps
+      // and directory as the submit route (E14), never the tenant-upload ones.
+      plugin = await parsePluginZip(zipPath, await preparedAnonymousExtract());
       validateBuildArgs(plugin.pluginSpec.buildArgs);
     } catch (err) {
       await failSubmission(s, [{ id: 'spec', ok: false, message: errorMessage(err).slice(0, 500) }], null);
@@ -300,21 +320,28 @@ export async function runSubmissionGates(submissionId: string): Promise<GateRunO
     const community = await communityPublisher();
     const name = await submissionNameGate(s.name, s.emailHash);
     const report: SubmissionGateReport = { gates, facts, completedAt: new Date().toISOString() };
-    const recorded = await submissions.transition(s.id, 'pending_review', {
-      gateReport: report as unknown as Record<string, unknown>,
-      heuristics: heuristics as unknown as Record<string, unknown>,
-      quarantineImageRef: `${facts.imageRepository}@${facts.digest}`,
-    });
-    if (!recorded) return 'skipped';
+    // The report and the moderation request commit TOGETHER (E6): a crash
+    // between them can no longer leave a reported submission with no request.
+    let queued: { recorded: PluginSubmission; request: Awaited<ReturnType<typeof insertSubmissionRequest>> } | null;
     try {
-      await openSubmissionRequest(recorded, community, name.listing, facts.digest);
+      queued = await atomically(async () => {
+        const recorded = await submissions.transition(s.id, 'pending_review', {
+          gateReport: report as unknown as Record<string, unknown>,
+          heuristics: heuristics as unknown as Record<string, unknown>,
+          quarantineImageRef: `${facts.imageRepository}@${facts.digest}`,
+        });
+        if (!recorded) return null;
+        return { recorded, request: await insertSubmissionRequest(recorded, community, name.listing, facts.digest) };
+      });
     } catch (err) {
       // The one-open-request index: an identical submission already waits.
       const duplicate = (err as { code?: string }).code === '23505';
       if (!duplicate) throw err;
-      await failSubmission(recorded, [...gates, { id: 'queue', ok: false, message: `community/${s.name} ${s.version} is already waiting for moderation` }], heuristics, facts);
+      await failSubmission(s, [...gates, { id: 'queue', ok: false, message: `community/${s.name} ${s.version} is already waiting for moderation` }], heuristics, facts);
       return 'gate_failed';
     }
+    if (!queued) return 'skipped';
+    await announceSubmissionRequest(queued.recorded, queued.request, name.listing, facts.digest);
     return 'queued';
   } finally {
     await fs.rm(plugin.extractDir, { recursive: true, force: true }).catch(() => undefined);
@@ -327,7 +354,7 @@ export async function runSubmissionGates(submissionId: string): Promise<GateRunO
  */
 export async function failSubmissionPipeline(submissionId: string, error: string): Promise<void> {
   const s = await submissions.byId(submissionId);
-  if (!s || s.status !== 'pending_review' || s.gateReport !== null) return;
+  if (!s || !await needsGates(s)) return;
   logger.error('Submission gates could not run; failing closed', { submissionId, error });
   await failSubmission(s, [{ id: 'pipeline', ok: false, message: 'The automated checks could not complete; please submit again later' }], null);
 }

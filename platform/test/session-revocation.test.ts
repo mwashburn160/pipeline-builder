@@ -15,17 +15,18 @@
  * redis (capturing `set` calls), and `getRedisClient` is mocked to return it.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /** Fake ioredis-shaped client capturing SETs. */
 const fakeRedis = {
   set: jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => 'OK'),
-  get: jest.fn(),
-  del: jest.fn(),
-  keys: jest.fn(),
+  get: jest.fn<AnyFn>(),
+  del: jest.fn<AnyFn>(),
+  keys: jest.fn<AnyFn>(),
 };
-const mockGetRedis = jest.fn<() => Promise<unknown>>(async () => fakeRedis);
+const mockGetRedis = jest.fn<(..._a: unknown[]) => Promise<unknown>>(async () => fakeRedis);
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFind = jest.fn<(...a: unknown[]) => unknown>();
 
@@ -33,6 +34,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Faithful to api-core: SET authrev:tv:<userId> <version> EX <ttl>.
   publishTokenRevocation: async (redis: { set: (...a: unknown[]) => Promise<unknown> }, userId: string, version: number, ttl: number) => {
     await redis.set(`authrev:tv:${userId}`, String(version), 'EX', ttl);
+  },
+  // Faithful to api-core: SET revoke:<kind>:<id> 1 EX <ttl>, reporting success.
+  publishCredentialRevocation: async (redis: { set: (...a: unknown[]) => Promise<unknown> }, kind: string, id: string, ttl: number) => {
+    try { await redis.set(`revoke:${kind}:${id}`, '1', 'EX', Math.max(1, Math.ceil(ttl))); return true; } catch { return false; }
   },
   // Faithful to api-core: SET authrev:jti:<jti> 1 PX <ttl>, reporting success.
   publishSessionRevocation: async (redis: { set: (...a: unknown[]) => Promise<unknown> }, jti: string, ttlMs: number) => {
@@ -65,6 +70,7 @@ jest.unstable_mockModule('../src/models/user.js', () => ({
 
 const {
   publishUserRevocation, publishUsersRevocation, publishImpersonationSessionRevocation,
+  publishSessionSlotRevocation, publishAccessKeyRevocation, revocationTtlSeconds,
 } = await import('../src/helpers/session-revocation.js');
 
 /** User.findById(id).select('+tokenVersion').lean() → doc */
@@ -139,7 +145,7 @@ describe('publishUsersRevocation', () => {
 
 describe('publishImpersonationSessionRevocation', () => {
   beforeEach(() => {
-    (fakeRedis.set as jest.Mock).mockReset();
+    (fakeRedis.set as jest.Mock<AnyFn>).mockReset();
     mockGetRedis.mockReset().mockResolvedValue(fakeRedis);
   });
 
@@ -147,7 +153,7 @@ describe('publishImpersonationSessionRevocation', () => {
     const consumedAt = new Date(Date.now() - 5 * 60_000); // 5 of 15 minutes used
     await expect(publishImpersonationSessionRevocation('sess-1', consumedAt)).resolves.toBe(true);
 
-    const [key, , mode, ttl] = (fakeRedis.set as jest.Mock).mock.calls[0] as [string, string, string, number];
+    const [key, , mode, ttl] = (fakeRedis.set as jest.Mock<AnyFn>).mock.calls[0] as [string, string, string, number];
     expect(key).toBe('authrev:jti:sess-1');
     expect(mode).toBe('PX');
     expect(ttl).toBeGreaterThan(9 * 60_000);
@@ -166,7 +172,53 @@ describe('publishImpersonationSessionRevocation', () => {
   });
 
   it('reports FAILURE when the write fails', async () => {
-    (fakeRedis.set as jest.Mock).mockImplementation(async () => { throw new Error('down'); });
+    (fakeRedis.set as jest.Mock<AnyFn>).mockImplementation(async () => { throw new Error('down'); });
     await expect(publishImpersonationSessionRevocation('sess-1', new Date())).resolves.toBe(false);
+  });
+});
+
+describe('revocationTtlSeconds', () => {
+  it('covers every issuable access-token lifetime (session, key exchange, impersonation)', async () => {
+    // ceiling 3600 > base 900, tier 1800, api-key 300, impersonation 900.
+    await expect(revocationTtlSeconds()).resolves.toBe(3600);
+  });
+});
+
+describe('single-credential revocation (revoke:sid / revoke:key)', () => {
+  beforeEach(() => { fakeRedis.set.mockReset().mockImplementation(async () => 'OK'); });
+
+  it('publishes revoke:sid:<sid> with the revocation TTL', async () => {
+    await expect(publishSessionSlotRevocation('slot-1')).resolves.toBe(true);
+    expect(fakeRedis.set).toHaveBeenCalledWith('revoke:sid:slot-1', '1', 'EX', 3600);
+  });
+
+  it('publishes revoke:key:<keyId> for every id given', async () => {
+    await expect(publishAccessKeyRevocation(['k1', 'k2'])).resolves.toBe(true);
+    expect(fakeRedis.set).toHaveBeenCalledWith('revoke:key:k1', '1', 'EX', 3600);
+    expect(fakeRedis.set).toHaveBeenCalledWith('revoke:key:k2', '1', 'EX', 3600);
+  });
+
+  it('reports false (never throws) when Redis is unavailable or the write fails', async () => {
+    mockGetRedis.mockResolvedValue(undefined);
+    await expect(publishSessionSlotRevocation('slot-1')).resolves.toBe(false);
+    mockGetRedis.mockResolvedValue(fakeRedis);
+    fakeRedis.set.mockRejectedValueOnce(new Error('down'));
+    await expect(publishAccessKeyRevocation('k1')).resolves.toBe(false);
+  });
+});
+
+describe('publishUserRevocation — a known (post-$inc) version', () => {
+  beforeEach(() => { fakeRedis.set.mockReset().mockImplementation(async () => 'OK'); });
+
+  it('publishes exactly the version the bump returned, without re-reading', async () => {
+    await publishUserRevocation('u1', 9);
+    expect(fakeRedis.set).toHaveBeenCalledWith('authrev:tv:u1', '9', 'EX', 3600);
+    expect(mockUserFindById).not.toHaveBeenCalled();
+  });
+
+  it('re-reads and publishes tokenVersion + claimsVersion when no version is given', async () => {
+    findByIdResolves({ _id: 'u1', tokenVersion: 3, claimsVersion: 4 });
+    await publishUserRevocation('u1');
+    expect(fakeRedis.set).toHaveBeenCalledWith('authrev:tv:u1', '7', 'EX', 3600);
   });
 });

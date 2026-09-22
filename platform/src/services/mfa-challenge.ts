@@ -44,6 +44,9 @@ interface PendingMfaChallenge {
    *  once the second factor verifies, the sign-in owes a forced password change
    *  (to at least this length) instead of a session. */
   passwordChangeMinLength?: number;
+  /** The FIRST factor the sign-in proved: a password (default) or a social
+   *  provider. Carried into the session's `amr` alongside `mfa`. */
+  firstFactor?: 'pwd' | 'oauth';
   /** Unix seconds; carried so the client can show a countdown. */
   expiresAt: number;
 }
@@ -71,7 +74,7 @@ export interface IssuedMfaChallenge {
 export async function createMfaChallenge(
   userId: string,
   orgId?: string,
-  opts: { recoveryOnly?: boolean; passwordChangeMinLength?: number } = {},
+  opts: { recoveryOnly?: boolean; passwordChangeMinLength?: number; firstFactor?: 'pwd' | 'oauth' } = {},
 ): Promise<IssuedMfaChallenge> {
   const challengeId = crypto.randomBytes(32).toString('base64url');
   const expiresAt = Math.floor((Date.now() + config.auth.totp.challengeTtlMs) / 1000);
@@ -80,19 +83,25 @@ export async function createMfaChallenge(
     ...(orgId ? { orgId } : {}),
     ...(opts.recoveryOnly ? { recoveryOnly: true } : {}),
     ...(opts.passwordChangeMinLength ? { passwordChangeMinLength: opts.passwordChangeMinLength } : {}),
+    ...(opts.firstFactor && opts.firstFactor !== 'pwd' ? { firstFactor: opts.firstFactor } : {}),
     expiresAt,
   });
   return { challengeId, expiresAt };
 }
 
-/** Read a challenge WITHOUT spending it — the code is verified first, and only a
- *  correct one gets to {@link consumeMfaChallenge}. */
-export async function peekMfaChallenge(challengeId: string): Promise<PendingMfaChallenge | null> {
-  return challenges.peek(challengeId);
+/**
+ * CLAIM a challenge — atomically (GETDEL): of two concurrent attempts on one
+ * handle exactly one holds it, so a single challenge can never yield two
+ * sessions. The claimant verifies the code and either keeps it spent (success)
+ * or hands it back with {@link restoreMfaChallenge} (a wrong code, so the
+ * person can try again without re-entering their password).
+ */
+export async function claimMfaChallenge(challengeId: string): Promise<PendingMfaChallenge | null> {
+  return challenges.consume(challengeId);
 }
 
-/** Spend the challenge. Called only once the code has verified and the session
- *  is about to be issued, so the handle can never yield a second one. */
-export async function consumeMfaChallenge(challengeId: string): Promise<void> {
-  await challenges.remove(challengeId);
+/** Give a claimed challenge back after a failed attempt, with only its REMAINING life. */
+export async function restoreMfaChallenge(challengeId: string, pending: PendingMfaChallenge): Promise<void> {
+  const remainingMs = pending.expiresAt * 1000 - Date.now();
+  if (remainingMs > 0) await challenges.put(challengeId, pending, remainingMs);
 }

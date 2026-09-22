@@ -26,7 +26,9 @@
  * the handler, exactly as express would.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const passThrough = (_req: any, _res: any, next: () => void) => next();
@@ -52,11 +54,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
-  incCounter: jest.fn(),
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  incCounter: jest.fn<AnyFn>(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     try {
-      await handler({ req, res, ctx: { log: jest.fn() }, orgId: req.orgId });
+      await handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.orgId });
     } catch {
       mockSendError(res, 500, 'Internal server error', 'INTERNAL_ERROR');
     }
@@ -125,9 +127,9 @@ jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/marketplace-helpers.js', () => ({
-  verifySNSSignature: jest.fn(),
-  confirmSNSSubscription: jest.fn(),
-  mapActionToStatus: jest.fn(),
+  verifySNSSignature: jest.fn<AnyFn>(),
+  confirmSNSSubscription: jest.fn<AnyFn>(),
+  mapActionToStatus: jest.fn<AnyFn>(),
 }));
 
 // -- models -------------------------------------------------------------------
@@ -143,13 +145,14 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/billing-event.js', () => ({
-  BillingEvent: { deleteMany: jest.fn() },
+  BillingEvent: { deleteMany: jest.fn<AnyFn>() },
 }));
 
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
-  claimWebhookEvent: jest.fn(),
-  markWebhookEventDone: jest.fn(),
-  releaseWebhookEvent: jest.fn(),
+  claimWebhookEvent: jest.fn<AnyFn>(),
+  markWebhookEventDone: jest.fn<AnyFn>(),
+  releaseWebhookEvent: jest.fn<AnyFn>(),
+  webhookEventStatus: jest.fn<AnyFn>(),
 }));
 
 // -- providers ----------------------------------------------------------------
@@ -212,8 +215,8 @@ function makeReq(overrides: Record<string, unknown> = {}): any {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, status, json };
 }
 
@@ -225,7 +228,7 @@ const CASES: Array<{ name: string; router: any; method: string; path: string; do
 ];
 
 describe.each(CASES)('$name — requires billing:read', ({ router, method, path, downstream }) => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('403s a caller WITHOUT billing:read (handler never runs)', async () => {
     const { res, status, json } = makeRes();

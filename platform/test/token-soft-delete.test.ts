@@ -8,6 +8,7 @@
  * soft-delete, this cuts off ALL access without per-read filtering.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import jwt from 'jsonwebtoken';
 
@@ -23,15 +24,15 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 
 const emptyFindChain = () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) });
 
-const mockUOFindOne = jest.fn();
-const mockUOFind = jest.fn();
-const mockOrgFindById = jest.fn();
+const mockUOFindOne = jest.fn<AnyFn>();
+const mockUOFind = jest.fn<AnyFn>();
+const mockOrgFindById = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  User: { updateOne: jest.fn().mockResolvedValue({}) },
+  User: { updateOne: jest.fn<AnyFn>().mockResolvedValue({}) },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
   UserOrganization: {
     findOne: (...a: unknown[]) => mockUOFindOne(...a),

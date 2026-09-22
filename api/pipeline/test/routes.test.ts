@@ -10,12 +10,14 @@
 
 // Mocks — must be defined before imports
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockFindPaginated = jest.fn();
-const mockFind = jest.fn();
-const mockFindById = jest.fn();
+const mockFindPaginated = jest.fn<AnyFn>();
+const mockFind = jest.fn<AnyFn>();
+const mockFindById = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
@@ -69,7 +71,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => {
       }
       return true;
     }),
-    incrementQuota: jest.fn(),
+    incrementQuota: jest.fn<AnyFn>(),
   });
 });
 
@@ -81,7 +83,7 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => mockGetContext(req),
@@ -100,10 +102,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  incrementQuotaFromCtx: jest.fn(),
+  incrementQuotaFromCtx: jest.fn<AnyFn>(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
@@ -124,9 +126,9 @@ const { createReadPipelineRoutes } = await import('../src/routes/read-pipelines.
 // Helpers
 
 const mockQuotaService = {
-  increment: jest.fn().mockResolvedValue(undefined),
-  check: jest.fn(),
-  getUsage: jest.fn(),
+  increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
+  check: jest.fn<AnyFn>(),
+  getUsage: jest.fn<AnyFn>(),
 } as any;
 
 const router = createReadPipelineRoutes(mockQuotaService);
@@ -148,7 +150,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     headers: { authorization: 'Bearer tok' },
     context: {
       identity: { orgId: 'ORG-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
     },
     ...overrides,
   };
@@ -156,9 +158,9 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  res.setHeader = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.setHeader = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -167,7 +169,7 @@ function mockRes(): any {
 describe('GET /pipelines (list)', () => {
   const handler = getHandler('get', '/');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns paginated pipelines', async () => {
     const pipelines = [
@@ -200,7 +202,7 @@ describe('GET /pipelines (list)', () => {
     // Access control is enforced by AccessControlQueryBuilder in pipelineService,
     // not by the route. The route forwards the caller's filter unchanged.
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
 
     await handler(mockReq(), mockRes());
 
@@ -216,7 +218,7 @@ describe('GET /pipelines (list)', () => {
 
   it('does not force visibility for system admins', async () => {
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
 
     await handler(mockReq(), mockRes());
 
@@ -246,7 +248,7 @@ describe('GET /pipelines (list)', () => {
   });
 
   it('returns 400 when orgId is missing', async () => {
-    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn() } });
+    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn<AnyFn>() } });
     const res = mockRes();
     await handler(req, res);
 
@@ -255,7 +257,7 @@ describe('GET /pipelines (list)', () => {
   });
 
   it('returns 400 on invalid filter', async () => {
-    (validateQuery as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Bad filter' });
+    (validateQuery as jest.Mock<AnyFn>).mockReturnValueOnce({ ok: false, error: 'Bad filter' });
 
     const req = mockReq();
     const res = mockRes();
@@ -286,7 +288,7 @@ describe('GET /pipelines (list)', () => {
 describe('GET /pipelines/find', () => {
   const handler = getHandler('get', '/find');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns the first matching pipeline', async () => {
     const pipeline = { id: '1', pipelineName: 'build' };
@@ -325,7 +327,7 @@ describe('GET /pipelines/find', () => {
   });
 
   it('returns 400 when orgId is missing', async () => {
-    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn() } });
+    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn<AnyFn>() } });
     const res = mockRes();
     await handler(req, res);
 
@@ -337,7 +339,7 @@ describe('GET /pipelines/find', () => {
 describe('GET /pipelines/:id', () => {
   const handler = getHandler('get', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns a pipeline by ID', async () => {
     const pipeline = { id: 'uuid-1', pipelineName: 'build', visibility: 'private' };
@@ -381,7 +383,7 @@ describe('GET /pipelines/:id', () => {
     // read clause already scopes visibility, so any returned row is viewable.
     const pipeline = { id: 'uuid-1', pipelineName: 'shared', visibility: 'public' };
     mockFindById.mockResolvedValue(pipeline);
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
 
     const req = mockReq({ params: { id: 'uuid-1' } });
     const res = mockRes();
@@ -393,7 +395,7 @@ describe('GET /pipelines/:id', () => {
   it('allows system admin to view public pipeline', async () => {
     const pipeline = { id: 'uuid-1', pipelineName: 'shared', visibility: 'public' };
     mockFindById.mockResolvedValue(pipeline);
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
 
     const req = mockReq({ params: { id: 'uuid-1' } });
     const res = mockRes();

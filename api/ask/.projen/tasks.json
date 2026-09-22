@@ -60,7 +60,6 @@
             "eslint",
             "--ext",
             ".ts,.tsx",
-            "--fix",
             "--no-error-on-unmatched-pattern",
             "$@",
             "src",
@@ -89,6 +88,30 @@
         }
       ]
     },
+    "lint:fix": {
+      "name": "lint:fix",
+      "description": "Run eslint with --fix (local only — CI runs `eslint` without it)",
+      "env": {
+        "ESLINT_USE_FLAT_CONFIG": "false",
+        "NODE_NO_WARNINGS": "1"
+      },
+      "steps": [
+        {
+          "execArgs": [
+            "eslint",
+            "--fix",
+            "--ext",
+            ".ts,.tsx",
+            "--no-error-on-unmatched-pattern",
+            "$@",
+            "src",
+            "test",
+            "build-tools"
+          ],
+          "receiveArgs": true
+        }
+      ]
+    },
     "package": {
       "name": "package",
       "description": "Creates the distribution package"
@@ -109,15 +132,36 @@
       },
       "steps": [
         {
+          "spawn": "typecheck:tests"
+        },
+        {
           "execArgs": [
             "jest",
             "--passWithNoTests",
-            "--updateSnapshot"
+            "--ci"
           ],
           "receiveArgs": true
         },
         {
           "spawn": "eslint"
+        }
+      ]
+    },
+    "test:update": {
+      "name": "test:update",
+      "description": "Update jest snapshots",
+      "env": {
+        "NODE_OPTIONS": "--experimental-vm-modules"
+      },
+      "steps": [
+        {
+          "execArgs": [
+            "jest",
+            "--updateSnapshot",
+            "--passWithNoTests",
+            "--ci"
+          ],
+          "receiveArgs": true
         }
       ]
     },
@@ -130,6 +174,15 @@
             "jest",
             "--watch"
           ]
+        }
+      ]
+    },
+    "typecheck:tests": {
+      "name": "typecheck:tests",
+      "description": "Type-check the test tree (test/tsconfig.json) with zero errors",
+      "steps": [
+        {
+          "exec": "tsc --noEmit -p test/tsconfig.json"
         }
       ]
     },

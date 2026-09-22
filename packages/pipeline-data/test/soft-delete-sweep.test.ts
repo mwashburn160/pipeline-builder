@@ -8,10 +8,11 @@
  * pass-through we can assert the sysadmin scope on.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const createSchedulerSpy = jest.fn(() => ({ start: jest.fn(), stop: jest.fn() }));
+const createSchedulerSpy = jest.fn((_opts: unknown) => ({ start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() }));
 const createEnvRedisLockSpy = jest.fn<() => unknown>(() => null);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -99,7 +100,7 @@ describe('createSoftDeletePurgeScheduler', () => {
 
   it('builds a scheduler when enabled, with a leader lock when Redis is configured', () => {
     process.env[ENV_KEY] = 'true';
-    const lock = { set: jest.fn() };
+    const lock = { set: jest.fn<AnyFn>() };
     createEnvRedisLockSpy.mockReturnValue(lock);
     const sched = createSoftDeletePurgeScheduler({ service: 'plugin', entities: [fakeEntity('plugin', [])] });
     expect(sched).not.toBeNull();

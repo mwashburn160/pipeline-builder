@@ -8,16 +8,18 @@
  * Mocks Mongoose models, billing helpers, and api-core utilities.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
 
-const mockSendSuccess = jest.fn();
-const mockSendError = jest.fn();
-const mockSendBadRequest = jest.fn();
-const mockValidateBody = jest.fn();
-const mockIsSystemAdmin = jest.fn();
+const mockSendSuccess = jest.fn<AnyFn>();
+const mockSendError = jest.fn<AnyFn>();
+const mockSendBadRequest = jest.fn<AnyFn>();
+const mockValidateBody = jest.fn<AnyFn>();
+const mockIsSystemAdmin = jest.fn<AnyFn>();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -156,18 +158,18 @@ jest.unstable_mockModule('../src/validation/schemas.js', () => ({
 
 // Central-trail audit client — the tier override emits billing.tier.override
 // here ALONGSIDE the local billing_events write. Mock it to assert emission.
-const mockAuditRecord = jest.fn();
+const mockAuditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
 
-const mockIncCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+const mockIncCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: (...a: unknown[]) => mockIncCounter(...a),
   withRoute: (handler: any, _opts?: any) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.user?.organizationId, userId: req.user?.sub },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
     };
     const orgId = req.user?.organizationId || '';
     const userId = req.user?.sub || '';
@@ -206,8 +208,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -223,7 +225,7 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
     cancelAtPeriodEnd: false,
     createdAt: new Date('2026-03-01'),
     updatedAt: new Date('2026-03-01'),
-    save: jest.fn().mockResolvedValue(undefined),
+    save: jest.fn<AnyFn>().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -241,10 +243,10 @@ describe('GET /admin/subscriptions', () => {
   it('lists all subscriptions', async () => {
     const subs = [makeSubscription()];
     mockSubscriptionFind.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            lean: jest.fn().mockResolvedValue(subs),
+      sort: jest.fn<AnyFn>().mockReturnValue({
+        skip: jest.fn<AnyFn>().mockReturnValue({
+          limit: jest.fn<AnyFn>().mockReturnValue({
+            lean: jest.fn<AnyFn>().mockResolvedValue(subs),
           }),
         }),
       }),
@@ -263,10 +265,10 @@ describe('GET /admin/subscriptions', () => {
 
   it('returns 500 on database error', async () => {
     mockSubscriptionFind.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            lean: jest.fn().mockRejectedValue(new Error('DB error')),
+      sort: jest.fn<AnyFn>().mockReturnValue({
+        skip: jest.fn<AnyFn>().mockReturnValue({
+          limit: jest.fn<AnyFn>().mockReturnValue({
+            lean: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')),
           }),
         }),
       }),
@@ -596,7 +598,7 @@ describe('PUT /admin/subscriptions/:id', () => {
 
     await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
 
-    expect(sub.addons).toEqual(reduced);
+    expect((sub as { addons?: unknown }).addons).toEqual(reduced);
     expect(sub.save).toHaveBeenCalled();
     // Deferred (post-save): the reduced set syncs + the provider removal fires
     // with the pruned bundle, reduced list, and the sub's external id / cadence.
@@ -797,7 +799,7 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
       externalCustomerId: 'cus_LEAKED',
       stripeCustomerId: 'cus_LEAKED',
     });
-    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([sub]) });
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([sub]) });
     mockCancelSubscription.mockResolvedValue(undefined);
 
     // The handler uses the :orgId param + req.user.sub (a sysadmin / service caller).
@@ -819,7 +821,7 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
   });
 
   it('looks up the manageable (non-terminal) set, not just active, for the provider-cancel sweep', async () => {
-    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([]) });
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([]) });
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
     await handler(req, mockRes());
 
@@ -839,7 +841,7 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
       status: 'trialing',
       externalId: 'ext-trial-1',
     });
-    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([trialing]) });
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([trialing]) });
     mockCancelSubscription.mockResolvedValue(undefined);
 
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
@@ -856,7 +858,7 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
       status: 'trialing',
       externalId: 'ext-trial-1',
     });
-    mockSubscriptionFind.mockReturnValue({ limit: jest.fn().mockResolvedValue([trialing]) });
+    mockSubscriptionFind.mockReturnValue({ limit: jest.fn<AnyFn>().mockResolvedValue([trialing]) });
     mockCancelSubscription.mockRejectedValue(new Error('provider down'));
 
     const req = mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } });
@@ -888,10 +890,10 @@ describe('GET /admin/events', () => {
       createdAt: new Date('2026-03-01'),
     }];
     mockBillingEventFind.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            lean: jest.fn().mockResolvedValue(events),
+      sort: jest.fn<AnyFn>().mockReturnValue({
+        skip: jest.fn<AnyFn>().mockReturnValue({
+          limit: jest.fn<AnyFn>().mockReturnValue({
+            lean: jest.fn<AnyFn>().mockResolvedValue(events),
           }),
         }),
       }),
@@ -910,10 +912,10 @@ describe('GET /admin/events', () => {
 
   it('returns 500 on database error', async () => {
     mockBillingEventFind.mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        skip: jest.fn().mockReturnValue({
-          limit: jest.fn().mockReturnValue({
-            lean: jest.fn().mockRejectedValue(new Error('DB error')),
+      sort: jest.fn<AnyFn>().mockReturnValue({
+        skip: jest.fn<AnyFn>().mockReturnValue({
+          limit: jest.fn<AnyFn>().mockReturnValue({
+            lean: jest.fn<AnyFn>().mockRejectedValue(new Error('DB error')),
           }),
         }),
       }),
@@ -932,7 +934,7 @@ describe('GET /events (customer-scoped, billing:read)', () => {
   const handler = getHandler('get', '/events');
 
   it('lists ONLY the caller\'s own org events (never a cross-org ?orgId)', async () => {
-    const leanFn = jest.fn().mockResolvedValue([{
+    const leanFn = jest.fn<AnyFn>().mockResolvedValue([{
       _id: { toString: () => 'evt-9' },
       orgId: 'org-1',
       subscriptionId: 'sub-1',

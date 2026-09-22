@@ -9,12 +9,14 @@ import type { Types } from 'mongoose';
 import { verifyPlatformJwt, verifyRefreshJwt } from './jwt-options.js';
 import { config } from '../config/index.js';
 import { IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
+import { accessTokenVersion } from '../helpers/access-version.js';
 import { applyAuthenticatorPolicy } from '../helpers/authenticator-policy.js';
 import type { ClientInfo } from '../helpers/client-info.js';
 import { type EffectiveMfaPolicy, resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { resolveOrgAuthority } from '../helpers/org-authority.js';
-import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
+import { isAncestorOrg, resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
+import { publishSessionSlotRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment } from '../models/index.js';
 import type { OrgMemberRole } from '../models/user-organization.js';
 import type { RefreshSession, RefreshSessionKind, UserDocument } from '../models/user.js';
@@ -70,6 +72,16 @@ export interface SessionAuth {
    * {@link applyAuthenticatorPolicy}). Absent for every other method.
    */
   aaguid?: string;
+  /**
+   * The org whose OWN statement ("our IdP enforces MFA", `idpEnforcesMfa`)
+   * earned this session its `aal: 2` — set only for such an SSO sign-in. That
+   * statement is the org's about the provider IT administers, so it vouches for
+   * nothing outside its lineage: every issuance scoped to an org that is
+   * neither it nor one of its teams carries `aal: 1` (see
+   * {@link enforceOrgAssurance}). Kept on the slot (and on a key minted from
+   * it) so refresh, switch-org and key exchange all re-apply it.
+   */
+  aalAssertedBy?: string;
 }
 
 /**
@@ -86,18 +98,27 @@ export interface SessionAuth {
  *     checked;
  *   - `mfa: true` — a password (or provider) sign-in plus an authenticator-app
  *     code or a recovery code;
- *   - `idpMfa: true` — SSO through an IdP the org has marked as enforcing MFA.
+ *   - `idpMfaOrgId` — SSO through an IdP that org has marked as enforcing MFA.
  *     Providers don't send `amr` reliably, so the org's statement about its own
- *     provider is the evidence; see `Organization.idpEnforcesMfa`.
+ *     provider is the evidence (see `Organization.idpEnforcesMfa`) — and it is
+ *     RECORDED as `aalAssertedBy`, because it holds only inside that org's
+ *     lineage.
  * Everything else — a password alone, a social sign-in, SSO through an unmarked
  * IdP — is `aal: 1`.
  */
 export function signInAuth(
   method: Exclude<AuthMethod, 'stepup' | 'mfa'>,
-  opts: { mfa?: boolean; idpMfa?: boolean } = {},
+  opts: { mfa?: boolean; idpMfaOrgId?: string } = {},
 ): SessionAuth {
-  const aal: AssuranceLevel = method === 'webauthn' || opts.mfa === true || opts.idpMfa === true ? 2 : 1;
-  return { amr: opts.mfa ? [method, 'mfa'] : [method], aal, authTime: new Date() };
+  const intrinsic = method === 'webauthn' || opts.mfa === true;
+  const orgAsserted = !intrinsic && !!opts.idpMfaOrgId;
+  const aal: AssuranceLevel = intrinsic || orgAsserted ? 2 : 1;
+  return {
+    amr: opts.mfa ? [method, 'mfa'] : [method],
+    aal,
+    authTime: new Date(),
+    ...(orgAsserted ? { aalAssertedBy: opts.idpMfaOrgId } : {}),
+  };
 }
 
 /**
@@ -207,7 +228,7 @@ function createAccessTokenPayload(
       ),
     ...(scope ? { scope } : {}),
     ...(restricted ? { permissionsRestricted: true } : {}),
-    tokenVersion: user.tokenVersion,
+    tokenVersion: accessTokenVersion(user),
     isEmailVerified: user.isEmailVerified,
     // Org policy "require MFA" (#8), decided at issuance and carried so that no
     // service looks it up. Only ever `true`: an absent claim is the common case.
@@ -245,7 +266,7 @@ export const MAX_MACHINE_SESSIONS = 10;
  * Signed with platform's ES256 key like every other user token — a refresh
  * token is a person's credential, so it gets no secret of its own.
  */
-async function generateRefreshToken(user: UserDocument, sessionId: string): Promise<string> {
+async function generateRefreshToken(user: UserDocument, sessionId: string, expiresInSeconds: number): Promise<string> {
   const payload: RefreshTokenPayload = {
     type: 'refresh',
     sub: user._id.toString(),
@@ -253,7 +274,25 @@ async function generateRefreshToken(user: UserDocument, sessionId: string): Prom
     sid: sessionId,
     jti: crypto.randomBytes(8).toString('hex'),
   };
-  return signUserJwt(payload as unknown as Record<string, unknown>, { expiresIn: config.auth.refreshToken.expiresIn });
+  return signUserJwt(payload as unknown as Record<string, unknown>, { expiresIn: expiresInSeconds });
+}
+
+/**
+ * The access-token lifetime for a session scoped to `tier`: the per-tier
+ * override, else the global default. This is the CEILING for every session
+ * access token — interactive and machine alike. A machine credential's long
+ * life is its SLOT's (`RefreshSession.expiresAt`), renewed through its refresh
+ * token; its access tokens are never longer-lived than a person's, so a
+ * revocation entry sized to this lifetime can never lapse under a live token.
+ */
+export function accessTokenTtlSeconds(tier: QuotaTier | undefined): number {
+  const tierExpiresIn = tier ? config.auth.jwt.tierExpiresIn[tier] : undefined;
+  return tierExpiresIn ?? config.auth.jwt.expiresIn;
+}
+
+/** Whole seconds until `at` (never below 0). */
+function secondsUntil(at: Date, now: Date = new Date()): number {
+  return Math.max(0, Math.floor((new Date(at).getTime() - now.getTime()) / 1000));
 }
 
 /**
@@ -314,8 +353,9 @@ async function resolveOrgMembership(userId: string, orgId: string): Promise<Memb
   if (!org || org.deletedAt) return undefined;
   // Org policy "require MFA" (#8). Resolved HERE — the one place a token's
   // active org is established — so every issuance path (sign-in, refresh,
-  // renewal, switch-org, key exchange) sees the same answer with no extra call
-  // site to keep in sync. A read failure degrades to "no requirement" rather
+  // renewal, switch-org, key exchange) sees the same answer; it is ENFORCED in
+  // one place too (`enforceOrgAssurance`), which both session issuance and the
+  // key exchange call. A read failure degrades to "no requirement" rather
   // than refusing every sign-in for the account; the policy is a hardening
   // measure, not a kill switch.
   let mfa: EffectiveMfaPolicy | undefined;
@@ -417,6 +457,69 @@ async function accountContext(
   };
 }
 
+/**
+ * The assurance a credential carries IN its active org — and the refusal when
+ * that org requires more. The ONE enforcement point for every user credential:
+ * session issuance (`mintTokens`: sign-in, refresh, renewal, switch-org) AND the
+ * access-key exchange (`api-key-service.exchange`), so a key minted before an
+ * org enabled "require MFA" can't outlive the policy it predates.
+ *
+ * ORG AUTHENTICATOR ALLOWLIST — applied first, so a passkey the active org does
+ * not trust is `aal: 1` in that org on every issuance path. It still identifies
+ * the person; it just can't satisfy the org's MFA requirement.
+ *
+ * ORG-ASSERTED ASSURANCE — an `aal: 2` earned only by an org's word about its
+ * own IdP (`aalAssertedBy`) is `aal: 1` in any org outside that org's lineage
+ * (it, or one of its teams): one org cannot vouch for a session elsewhere.
+ *
+ * ORG POLICY "REQUIRE MFA" (#8) — a credential scoped to an org past its grace
+ * period either carries `aal: 2` or is not minted at all (`MFA_REQUIRED_FOR_ORG`).
+ * Refusing here rather than per route is what makes the policy total: it covers
+ * routes that don't exist yet, and services that never learn the policy exists.
+ *
+ * Three carve-outs, all deliberate:
+ *   - a SCOPED machine credential (`reporting:ingest` and friends) is not a
+ *     person's session; refusing it would take an org's automation down the
+ *     moment an admin enabled the policy, and such a token is already
+ *     least-privilege and refused by every `minAssurance` gate;
+ *   - the BOOTSTRAP-ADMIN enrolment session, which exists precisely so the
+ *     person can go and earn `aal: 2` (and cannot reach anything else);
+ *   - a PER-USER RESET GRACE (`mfaResetGraceUntil`), set when an MFA reset
+ *     was approved: the person has no factor left and must be able to sign in
+ *     to enrol a new one. It exempts THIS person only, for a bounded window,
+ *     from the org's policy — own or inherited — instead of weakening the org.
+ */
+async function withinAssertingLineage(assertingOrgId: string, activeOrgId: string | undefined): Promise<boolean> {
+  if (!activeOrgId) return false;
+  if (activeOrgId === assertingOrgId) return true;
+  try {
+    return await isAncestorOrg(assertingOrgId, activeOrgId);
+  } catch (error) {
+    // Fail CLOSED on assurance: understating the level is always safe.
+    logger.warn('Lineage read failed; counting org-asserted assurance as aal 1', { assertingOrgId, activeOrgId, error });
+    return false;
+  }
+}
+
+export async function enforceOrgAssurance(
+  user: Pick<UserDocument, 'mfaResetGraceUntil'>,
+  membership: MembershipContext | undefined,
+  sessionAuth: SessionAuth,
+  opts: { scope?: TokenScope; mfaEnrollmentPending?: boolean } = {},
+): Promise<SessionAuth> {
+  let auth = membership
+    ? await applyAuthenticatorPolicy(sessionAuth, membership.organizationId)
+    : sessionAuth;
+  // ORG-ASSERTED ASSURANCE holds only inside the asserting org's lineage.
+  if (auth.aalAssertedBy && auth.aal === 2 && !(await withinAssertingLineage(auth.aalAssertedBy, membership?.organizationId))) {
+    auth = { ...auth, aal: 1 };
+  }
+  if (membership?.mfaEnforced && !opts.scope && !opts.mfaEnrollmentPending && auth.aal < 2 && !inResetGrace(user)) {
+    throw new Error(MFA_REQUIRED_FOR_ORG);
+  }
+  return auth;
+}
+
 /** A signed token pair plus what the caller persists for it. */
 interface MintedTokens {
   tokens: IssuedTokens;
@@ -442,7 +545,7 @@ async function mintTokens(
   sessionId: string,
   activeOrgId: string | undefined,
   sessionAuth: SessionAuth,
-  expiresIn?: number,
+  slotExpiresAt?: Date,
   scope?: TokenScope,
   mfaEnrollmentPending?: boolean,
   permissions?: readonly string[],
@@ -457,51 +560,27 @@ async function mintTokens(
     logger.warn('Failed to resolve membership for token', { error });
   }
 
-  // ORG AUTHENTICATOR ALLOWLIST — applied BEFORE the MFA check below, at the
-  // same chokepoint, so a passkey the active org does not trust is `aal: 1` in
-  // that org on every issuance path (sign-in, refresh, switch-org). It still
-  // identifies the person; it just can't satisfy the org's MFA requirement.
-  const auth = membership
-    ? await applyAuthenticatorPolicy(sessionAuth, membership.organizationId)
-    : sessionAuth;
+  const auth = await enforceOrgAssurance(user, membership, sessionAuth, { scope, mfaEnrollmentPending });
 
-  // ORG POLICY "REQUIRE MFA" (#8) — THE enforcement point. Every user token for
-  // a session goes through here (sign-in, refresh, renewal, switch-org), so a
-  // session scoped to an org past its grace period either carries `aal: 2` or is
-  // not minted at all. Refusing here rather than per route is what makes the
-  // policy total: it covers routes that don't exist yet, and services that never
-  // learn the policy exists.
-  //
-  // Three carve-outs, all deliberate:
-  //   - a SCOPED machine credential (`reporting:ingest` and friends) is not a
-  //     person's session; refusing it would take an org's automation down the
-  //     moment an admin enabled the policy, and such a token is already
-  //     least-privilege and refused by every `minAssurance` gate;
-  //   - the BOOTSTRAP-ADMIN enrolment session, which exists precisely so the
-  //     person can go and earn `aal: 2` (and cannot reach anything else).
-  //   - a PER-USER RESET GRACE (`mfaResetGraceUntil`), set when an MFA reset
-  //     was approved: the person has no factor left and must be able to sign in
-  //     to enrol a new one. It exempts THIS person only, for a bounded window,
-  //     from the org's policy — own or inherited — instead of weakening the org.
-  if (membership?.mfaEnforced && !scope && !mfaEnrollmentPending && auth.aal < 2 && !inResetGrace(user)) {
-    throw new Error(MFA_REQUIRED_FOR_ORG);
-  }
-
-  // Resolution order: caller override → per-tier override → global default.
-  // The per-tier path lets compliance-driven customers (enterprise tiers)
-  // narrow the stolen-token blast window without forcing every user to
-  // re-auth more often.
-  const tier = membership?.tier;
-  const tierExpiresIn = tier ? config.auth.jwt.tierExpiresIn[tier] : undefined;
-  const tokenExpiresIn = expiresIn ?? tierExpiresIn ?? config.auth.jwt.expiresIn;
+  // Per-tier override → global default. The per-tier path lets
+  // compliance-driven customers (enterprise tiers) narrow the stolen-token
+  // blast window without forcing every user to re-auth more often. A slot with
+  // a fixed end (a machine credential) never mints past it: neither its access
+  // token nor its refresh token outlives the slot.
+  const now = new Date();
+  // (`renewSessionTokens` refuses a slot already past its end; the floor of 1s
+  // only covers the instant between that check and this one.)
+  const slotRemaining = slotExpiresAt ? Math.max(1, secondsUntil(slotExpiresAt, now)) : undefined;
+  const baseTtl = accessTokenTtlSeconds(membership?.tier);
+  const tokenExpiresIn = slotRemaining !== undefined ? Math.min(baseTtl, slotRemaining) : baseTtl;
+  const refreshExpiresIn = slotRemaining ?? config.auth.refreshToken.expiresIn;
 
   const accessToken = await signUserJwt(
     createAccessTokenPayload(user, membership, { auth, tokenUse: 'access', scope, permissions, sessionId, mfaEnrollmentPending }) as unknown as Record<string, unknown>,
     { expiresIn: tokenExpiresIn },
   );
-  const refreshToken = await generateRefreshToken(user, sessionId);
+  const refreshToken = await generateRefreshToken(user, sessionId, refreshExpiresIn);
 
-  const now = new Date();
   return {
     tokens: { accessToken, refreshToken, expiresIn: tokenExpiresIn },
     refreshHash: hashRefreshToken(refreshToken),
@@ -527,8 +606,14 @@ export interface NewSession {
   auth: SessionAuth;
   /** Device details of the opening request. */
   client?: ClientInfo;
-  /** Access-token lifetime in seconds (default: per-tier, then config.auth.jwt.expiresIn). */
-  expiresIn?: number;
+  /**
+   * MACHINE slots only: the slot's lifetime in seconds (generate-token's
+   * `expiresIn`). The slot — and so every refresh token it rotates through —
+   * ends at `now + lifetimeSeconds`; its access tokens keep the normal
+   * per-tier lifetime (never longer than a person's) and are renewed through
+   * the slot's refresh token. Interactive slots end with their refresh token.
+   */
+  lifetimeSeconds?: number;
   /** Narrow capability scope (least-privilege machine token), fixed for the slot's life. */
   scope?: TokenScope;
   /**
@@ -584,8 +669,11 @@ function refreshSessionsWith(slot: RefreshSession): Record<string, unknown> {
  */
 export async function issueTokens(user: UserDocument, activeOrgId: string | undefined, session: NewSession): Promise<IssuedTokens> {
   const sessionId = crypto.randomBytes(12).toString('hex');
+  const slotExpiresAt = session.lifetimeSeconds !== undefined
+    ? new Date(Date.now() + session.lifetimeSeconds * 1000)
+    : undefined;
   const { tokens, refreshHash, historyEntry } = await mintTokens(
-    user, sessionId, activeOrgId, session.auth, session.expiresIn, session.scope, session.mfaEnrollmentPending,
+    user, sessionId, activeOrgId, session.auth, slotExpiresAt, session.scope, session.mfaEnrollmentPending,
     session.permissions,
   );
   const slot: RefreshSession = {
@@ -594,6 +682,7 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     hash: refreshHash,
     createdAt: historyEntry.createdAt,
     lastUsedAt: historyEntry.createdAt,
+    ...(slotExpiresAt ? { expiresAt: slotExpiresAt } : {}),
     ...(session.scope ? { scope: session.scope } : {}),
     ...(session.permissions ? { permissions: [...session.permissions] } : {}),
     ...(session.mfaEnrollmentPending ? { mfaEnrollmentPending: true } : {}),
@@ -601,9 +690,11 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     aal: session.auth.aal,
     authTime: session.auth.authTime,
     ...(session.auth.aaguid ? { aaguid: session.auth.aaguid } : {}),
+    ...(session.auth.aalAssertedBy ? { aalAssertedBy: session.auth.aalAssertedBy } : {}),
     ...(session.client?.userAgent ? { userAgent: session.client.userAgent } : {}),
     ...(session.client?.ip ? { lastIp: session.client.ip } : {}),
   };
+  const before = await slotIdsOf(user._id);
   await User.updateOne(
     { _id: user._id },
     [{
@@ -614,7 +705,34 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     }],
     { updatePipeline: true },
   );
+  // A slot pushed out by the per-kind cap is signed out like any other: its
+  // live access token must stop working on every service, not just here.
+  await publishEvictedSlots(user._id, before);
   return tokens;
+}
+
+/** The user's current slot ids, or null when they can't be read. */
+async function slotIdsOf(userId: Types.ObjectId | string): Promise<string[] | null> {
+  try {
+    const doc = await User.findById(userId).select('+refreshSessions').lean() as { refreshSessions?: Array<{ id: string }> } | null;
+    return doc ? (doc.refreshSessions ?? []).map((s) => s.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Publish `revoke:sid` for the slots in `before` that the write evicted.
+ * Best-effort, and conservative: if either read failed nothing is published —
+ * a missing "after" must never read as "every slot was evicted".
+ */
+async function publishEvictedSlots(userId: Types.ObjectId | string, before: readonly string[] | null): Promise<void> {
+  if (!before || before.length === 0) return;
+  const after = await slotIdsOf(userId);
+  if (!after) return;
+  const kept = new Set(after);
+  const evicted = before.filter((id) => !kept.has(id));
+  if (evicted.length > 0) await publishSessionSlotRevocation(evicted);
 }
 
 /** One slot of `user`, or `undefined` when it no longer exists. */
@@ -659,10 +777,12 @@ export async function renewSessionTokens(
   user: UserDocument,
   activeOrgId: string | undefined,
   slot: { sessionId: string; presentedToken?: string; kind?: RefreshSessionKind },
-  mint: { expiresIn?: number; scope?: TokenScope; permissions?: readonly string[]; client?: ClientInfo } = {},
+  mint: { scope?: TokenScope; permissions?: readonly string[]; client?: ClientInfo } = {},
 ): Promise<IssuedTokens | null> {
   const current = await findRefreshSession(user._id, slot.sessionId);
   if (!current || (slot.kind && current.kind !== slot.kind)) return null;
+  // A slot past its fixed end (a machine credential's lifetime) renews nothing.
+  if (current.expiresAt && new Date(current.expiresAt).getTime() <= Date.now()) return null;
   const slotScope = current.scope as TokenScope | undefined;
   if (mint.scope !== undefined && mint.scope !== slotScope) {
     throw new Error(TOKEN_SCOPE_ESCALATION);
@@ -679,10 +799,12 @@ export async function renewSessionTokens(
     aal: current.aal,
     authTime: new Date(current.authTime),
     ...(current.aaguid ? { aaguid: current.aaguid } : {}),
+    ...(current.aalAssertedBy ? { aalAssertedBy: current.aalAssertedBy } : {}),
   };
 
   const { tokens, refreshHash, historyEntry } = await mintTokens(
-    user, slot.sessionId, activeOrgId, auth, mint.expiresIn, slotScope, current.mfaEnrollmentPending, slotPermissions,
+    user, slot.sessionId, activeOrgId, auth, current.expiresAt ? new Date(current.expiresAt) : undefined, slotScope,
+    current.mfaEnrollmentPending, slotPermissions,
   );
   const slotMatch = {
     id: slot.sessionId,

@@ -23,6 +23,9 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockPublishUser = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
+const mockPublishSlot = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
+const mockUserFindOne = jest.fn<(...a: unknown[]) => unknown>();
+const mockUserFindOneAndUpdate = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
@@ -38,9 +41,11 @@ jest.unstable_mockModule('../src/helpers/active-org-info.js', () => ({
 
 // Shared by BOTH user-profile-service and auth-service — the publisher under test.
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishAccessKeyRevocation: async () => true,
   publishUserRevocation: (...a: unknown[]) => mockPublishUser(...a),
   publishUsersRevocation: jest.fn(async () => undefined),
   publishUserDeletionRevocation: jest.fn(async () => undefined),
+  publishSessionSlotRevocation: (...a: unknown[]) => mockPublishSlot(...a),
 }));
 
 // auth-service deps (the real auth-service is imported below and must load).
@@ -58,6 +63,8 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => unknown) => fn({ id: 'sess' }),
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
@@ -75,10 +82,15 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   MfaRecoveryCodes: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   MfaResetRequest: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
-  PersonalAccessToken: { updateMany: jest.fn(async () => ({ modifiedCount: 0 })) },
+  PersonalAccessToken: {
+    updateMany: jest.fn(async () => ({ modifiedCount: 0 })),
+    find: () => ({ select: () => ({ lean: async () => [] }) }),
+  },
   UserPreferences: {},
   User: {
     findById: (...a: unknown[]) => mockUserFindById(...a),
+    findOne: (...a: unknown[]) => mockUserFindOne(...a),
+    findOneAndUpdate: (...a: unknown[]) => mockUserFindOneAndUpdate(...a),
     updateOne: (...a: unknown[]) => mockUserUpdateOne(...a),
   },
   Organization: {},
@@ -96,6 +108,9 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   assertNewPasswordAcceptable: jest.fn(async () => undefined),
 }));
 
+// A user's SAML SLO sessions go with the user (user-cascade imports the model directly).
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({ default: { deleteMany: async () => ({ deletedCount: 0 }) } }));
+
 const { userProfileService } = await import('../src/services/user-profile-service.js');
 const { PROFILE_USER_NOT_FOUND } = await import('../src/services/user-errors.js');
 
@@ -110,19 +125,23 @@ describe('UserProfileService.revokeAllSessions — matches logout', () => {
   it('bumps tokenVersion, CLEARS every refresh-session slot, and publishes revocation', async () => {
     const userDoc = { _id: 'user-1', tokenVersion: 3, lastActiveOrgId: 'org-1', issuedTokens: [] };
     mockUserFindById.mockReturnValue(selectResolving(userDoc));
+    // The $inc's own result: tokenVersion 4, plus 2 claims bumps.
+    mockUserFindOneAndUpdate.mockReturnValue({ lean: async () => ({ tokenVersion: 4, claimsVersion: 2 }) });
 
     const returned = await userProfileService.revokeAllSessions('user-1');
 
     // The authoritative write clears the refresh-token hash (the previously-missing
     // half) AND bumps the version — exactly what auth logout does.
-    expect(mockUserUpdateOne).toHaveBeenCalledTimes(1);
-    expect(mockUserUpdateOne).toHaveBeenCalledWith(
+    expect(mockUserFindOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUserFindOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'user-1' },
       { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
+      expect.objectContaining({ returnDocument: 'after' }),
     );
-    // Revocation is published so stateless services reject outstanding tokens.
+    // Revocation is published with the version the $inc RETURNED (4 + 2), never
+    // a re-read that a stale replica could answer with an older value.
     expect(mockPublishUser).toHaveBeenCalledTimes(1);
-    expect(mockPublishUser).toHaveBeenCalledWith('user-1');
+    expect(mockPublishUser).toHaveBeenCalledWith('user-1', 6);
     // Returned doc carries the bumped version for minting the replacement token.
     expect(returned).toBe(userDoc);
     expect(returned.tokenVersion).toBe(4);
@@ -133,6 +152,24 @@ describe('UserProfileService.revokeAllSessions — matches logout', () => {
 
     await expect(userProfileService.revokeAllSessions('ghost')).rejects.toThrow(PROFILE_USER_NOT_FOUND);
     expect(mockUserUpdateOne).not.toHaveBeenCalled();
+    expect(mockUserFindOneAndUpdate).not.toHaveBeenCalled();
     expect(mockPublishUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('UserProfileService.revokeSession — one slot', () => {
+  it('drops the slot AND publishes revoke:sid so its live access token dies everywhere', async () => {
+    mockUserFindOne.mockReturnValue({ lean: async () => ({ refreshSessions: [{ id: 'm1', kind: 'machine' }] }) });
+
+    await expect(userProfileService.revokeSession('user-1', 'm1')).resolves.toEqual({ kind: 'machine' });
+
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'user-1' }, { $pull: { refreshSessions: { id: 'm1' } } });
+    expect(mockPublishSlot).toHaveBeenCalledWith('m1');
+  });
+
+  it('publishes nothing for a slot the user does not have', async () => {
+    mockUserFindOne.mockReturnValue({ lean: async () => null });
+    await expect(userProfileService.revokeSession('user-1', 'nope')).resolves.toBeNull();
+    expect(mockPublishSlot).not.toHaveBeenCalled();
   });
 });

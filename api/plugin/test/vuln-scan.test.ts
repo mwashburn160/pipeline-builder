@@ -13,6 +13,7 @@ import * as os from 'os';
 import path from 'path';
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockRun = jest.fn<(...a: any[]) => Promise<string>>();
@@ -31,8 +32,8 @@ jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
   DIGEST_RE: /^sha256:[0-9a-f]{64}$/,
   fetchImageSbom: mockFetchImageSbom,
 }));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: mockIncCounter, observe: mockObserve }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockIncCounter, observe: mockObserve }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ pushTimeoutMs: 30_000 }) },
 }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());

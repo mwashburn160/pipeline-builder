@@ -1,18 +1,34 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, audited, getParam, isSystemAdmin, parsePage, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess, actorId } from '@pipeline-builder/api-core';
+import {
+  ErrorCode, audited, getParam, isSystemAdmin, parsePage, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess, actorId, userHasPermission,
+} from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { findFailedJob, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
 import { intFromEnv } from '../queue/env-int.js';
 import { purgeDlq } from '../queue/plugin-build-dlq.js';
-import { replayDlqJob, retryFailedJob } from '../queue/requeue.js';
+import { replayDlqJob, retryFailedJob, type Retrier } from '../queue/requeue.js';
 import { emitPluginAudit } from '../services/audit.js';
+import { callerFromRequest } from '../services/ecosystem/context.js';
+
+/**
+ * The caller re-running a build (E20): the re-run gets THEIR authority, and
+ * `plugins:publish` is re-checked here, not inherited from the upload.
+ */
+function retrierFrom(req: Request, userId: string): Retrier {
+  return {
+    userId,
+    isSystemAdmin: isSystemAdmin(req),
+    canPublish: userHasPermission(req, 'plugins:publish'),
+    caller: callerFromRequest(req),
+  };
+}
 
 /** Shape returned by GET /triage — failed-build summary grouped by category. */
 interface TriageSample {
@@ -244,7 +260,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       return sendError(res, 403, 'Cannot retry a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    const newJobId = await retryFailedJob(jobId, quotaService);
+    const newJobId = await retryFailedJob(jobId, quotaService, retrierFrom(req, userId));
     if (!newJobId) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Retried failed build', { failedJobId: jobId, newJobId });
@@ -351,7 +367,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       return sendError(res, 403, 'Cannot replay a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    const newJobId = await replayDlqJob(jobId, quotaService);
+    const newJobId = await replayDlqJob(jobId, quotaService, retrierFrom(req, userId));
     if (!newJobId) return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Replayed DLQ job', { dlqJobId: jobId, newJobId });

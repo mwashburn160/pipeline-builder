@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { useFormState } from '@/hooks/useFormState';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -25,6 +25,7 @@ interface EditDiscountModalProps {
 
 /** Edit isActive / maxRedemptions / redeemBy / appliesToTiers of a minted discount. */
 export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountModalProps) {
+  const uid = useId();
   const [editMaxRedemptions, setEditMaxRedemptions] = useState(
     discount.maxRedemptions != null ? String(discount.maxRedemptions) : '',
   );
@@ -84,8 +85,8 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
         </label>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-fg-muted">Max redemptions</label>
-            <Input
+            <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-max-redemptions`}>Max redemptions</label>
+            <Input id={`${uid}-max-redemptions`}
               type="number"
               min={1}
               placeholder="Keep unchanged"
@@ -96,8 +97,8 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-fg-muted">Redeem by</label>
-            <Input
+            <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-redeem-by`}>Redeem by</label>
+            <Input id={`${uid}-redeem-by`}
               type="date"
               value={editRedeemBy}
               onChange={(e) => setEditRedeemBy(e.target.value)}
@@ -107,8 +108,8 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
           </div>
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted">Applies to tiers <span className="text-fg-subtle">(none = all tiers)</span></label>
-          <div className="flex flex-wrap gap-2">
+          <span className="block text-xs font-medium text-fg-muted" id={`${uid}-tiers`}>Applies to tiers <span className="text-fg-subtle">(none = all tiers)</span></span>
+          <div role="group" aria-labelledby={`${uid}-tiers`} className="flex flex-wrap gap-2">
             {TIER_OPTIONS.map((tier) => (
               <button
                 key={tier}

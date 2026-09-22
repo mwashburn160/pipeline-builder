@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSetReportingSettings = jest.fn<(...a: unknown[]) => Promise<void>>();
@@ -23,7 +24,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   // Pass `req` straight through so the handler reads its own params/body; orgId
   // in the context is irrelevant here (the route reads the :orgId path param).
   withRoute: (handler: any) => async (req: any, res: any) => {
@@ -32,8 +33,11 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  reportingService: { setReportingSettings: mockSetReportingSettings },
+const mockGetIncidentSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const tenantScopes: unknown[] = [];
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  reportingService: { setReportingSettings: mockSetReportingSettings, getIncidentSettings: mockGetIncidentSettings },
+  runWithTenantContext: (ctx: unknown, fn: () => unknown) => { tenantScopes.push(ctx); return fn(); },
 }));
 
 const { sendSuccess, sendError, sendBadRequest } = await import('@pipeline-builder/api-core');
@@ -129,5 +133,32 @@ describe('PUT /reports/retention-sync/:orgId', () => {
 
     expect(sendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), expect.anything());
     expect(mockSetReportingSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /reports/retention-sync/:orgId (billing drift read)', () => {
+  async function runGet(user: unknown, orgId = 'root-1') {
+    const router: any = createRetentionSyncRoutes();
+    const stack = router.stack.find((l: any) => l.route?.path === '/:orgId' && l.route?.methods?.get)?.route?.stack ?? [];
+    const req = { params: { orgId }, user, method: 'GET', originalUrl: `/reports/retention-sync/${orgId}` };
+    for (const layer of stack) {
+      let advanced = false;
+      await layer.handle(req, {}, () => { advanced = true; });
+      if (!advanced) return;
+    }
+  }
+  beforeEach(() => { jest.clearAllMocks(); tenantScopes.length = 0; });
+
+  it('returns the ENFORCED override for the target root org, read in that org\'s scope', async () => {
+    mockGetIncidentSettings.mockResolvedValue({ eventRetentionDays: 120, doraRetentionDays: null, incidentWindowHours: null });
+    await runGet(billingPrincipal);
+    expect(mockGetIncidentSettings).toHaveBeenCalledWith('root-1');
+    expect(tenantScopes).toEqual([{ orgId: 'root-1', isSuperAdmin: false }]);
+    expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { orgId: 'root-1', eventRetentionDays: 120, doraRetentionDays: null });
+  });
+
+  it('refuses any caller other than billing', async () => {
+    await runGet({ sub: 'user-1', isSuperAdmin: true });
+    expect(mockGetIncidentSettings).not.toHaveBeenCalled();
   });
 });

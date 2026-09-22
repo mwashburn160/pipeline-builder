@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as http from 'http';
-import { getCircuitBreaker, CircuitOpenError } from './circuit-breaker.js';
+import { getCircuitBreaker, circuitBreakerKey, CircuitOpenError } from './circuit-breaker.js';
 import {
   DEFAULT_MAX_RETRIES,
   DEFAULT_RETRY_DELAY_MS,
@@ -33,6 +33,23 @@ const DEFAULT_TIMEOUT = parseInt(process.env.HTTP_CLIENT_TIMEOUT || '5000', 10);
  */
 const DEFAULT_MAX_SOCKETS = parseInt(process.env.HTTP_CLIENT_MAX_SOCKETS || '64', 10);
 
+/**
+ * Default cap on a response body (bytes; env: `HTTP_CLIENT_MAX_RESPONSE_BYTES`,
+ * default 10 MiB). Every response is buffered and JSON-parsed in memory, so an
+ * unbounded body from a misbehaving (or compromised) peer is a memory DoS on the
+ * caller. Exceeding it aborts the request with {@link ResponseTooLargeError}.
+ */
+const DEFAULT_MAX_RESPONSE_BYTES = parseInt(process.env.HTTP_CLIENT_MAX_RESPONSE_BYTES || String(10 * 1024 * 1024), 10);
+
+/** A response body exceeded the client's `maxResponseBytes`. Not retried. */
+export class ResponseTooLargeError extends Error {
+  readonly code = 'RESPONSE_TOO_LARGE';
+  constructor(limit: number) {
+    super(`Response body exceeded ${limit} bytes`);
+    this.name = 'ResponseTooLargeError';
+  }
+}
+
 // HTTP methods that are idempotent by definition — safe to auto-retry on a
 // 5xx/connection/timeout without risking a duplicate side effect.
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -60,6 +77,14 @@ export interface RequestOptions {
    * non-idempotent methods are NOT retried on those failures, only on 429.
    */
   idempotent?: boolean;
+  /** Cap on this response's body in bytes (default: the client's, else 10 MiB). */
+  maxResponseBytes?: number;
+  /**
+   * Route class for the circuit breaker (default: the client's, else
+   * `'default'`). Requests in different classes to the same `host:port` trip
+   * independent breakers — see `circuitBreakerKey`.
+   */
+  breakerClass?: string;
 }
 
 /**
@@ -100,6 +125,10 @@ export interface HttpClientOptions {
   agent?: http.Agent;
   /** Cap on concurrent keep-alive sockets for the shared agent (default 64). */
   maxSockets?: number;
+  /** Default circuit-breaker route class for this client's requests. */
+  breakerClass?: string;
+  /** Default response-body cap (bytes) for this client's requests. */
+  maxResponseBytes?: number;
 }
 
 /**
@@ -135,6 +164,8 @@ export function destroySharedHttpAgents(): void {
 export class InternalHttpClient {
   private config: Required<ServiceConfig>;
   private agent: http.Agent;
+  private breakerClass?: string;
+  private maxResponseBytes: number;
 
   /**
    * Create a new HTTP client instance.
@@ -150,6 +181,8 @@ export class InternalHttpClient {
     };
     this.agent = options?.agent
       ?? getSharedAgent(this.config.host, this.config.port, options?.maxSockets ?? DEFAULT_MAX_SOCKETS);
+    this.breakerClass = options?.breakerClass;
+    this.maxResponseBytes = options?.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   }
 
   /**
@@ -233,7 +266,7 @@ export class InternalHttpClient {
     // breaker/metric key so one bad downstream trips once (not once-per-client)
     // and dashboards can see S2S health per callee.
     const target = `${this.config.host}:${this.config.port}`;
-    const breaker = getCircuitBreaker(target);
+    const breaker = getCircuitBreaker(circuitBreakerKey(target, options?.breakerClass ?? this.breakerClass));
     if (!breaker.allowRequest()) {
       // Fast-fail without touching the network — this is the load-shedding that
       // prevents a downstream brownout from cascading via retry storms.
@@ -272,6 +305,13 @@ export class InternalHttpClient {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
+        // An oversized body is the peer's content, not a transient fault: never
+        // re-download it, and never count it against the breaker.
+        if (lastError instanceof ResponseTooLargeError) {
+          breaker.recordSuccess();
+          emitCounter('s2s_requests_total', { target, method, outcome: 'too_large' });
+          throw lastError;
+        }
         const decision = getErrorRetryDecision(attempt, retryConfig);
         if (decision.shouldRetry && retrySafe) {
           logger.debug('Retrying after error', { method, path, error: lastError.message, attempt: attempt + 1 });
@@ -329,27 +369,69 @@ export class InternalHttpClient {
         throw new Error(`Invalid request path: ${path}`);
       }
 
+      const timeoutMs = options?.timeout ?? this.config.timeout;
+      const maxBytes = options?.maxResponseBytes ?? this.maxResponseBytes;
+
       const requestOptions: http.RequestOptions = {
         hostname: this.config.host,
         port: this.config.port,
         path: path.startsWith('/') ? path : `/${path}`,
         method,
         headers,
-        timeout: options?.timeout ?? this.config.timeout,
+        // Socket IDLE timeout. The total deadline below bounds the whole
+        // exchange — a peer trickling one byte per interval never goes idle.
+        timeout: timeoutMs,
         agent: this.agent,
       };
 
-      const req = http.request(requestOptions, (res) => {
-        let data = '';
+      // Settle exactly once, whichever of the many terminal events fires first
+      // (response end, request/response error, abort, premature close, deadline,
+      // size cap). Every exit path clears the deadline timer.
+      let settled = false;
+      let deadline: NodeJS.Timeout | undefined;
+      const fail = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        if (deadline) clearTimeout(deadline);
+        reject(error);
+      };
+      const succeed = (value: HttpClientResponse<T>): void => {
+        if (settled) return;
+        settled = true;
+        if (deadline) clearTimeout(deadline);
+        resolve(value);
+      };
 
-        res.on('data', (chunk) => {
-          data += chunk;
+      const req = http.request(requestOptions, (res) => {
+        const chunks: Buffer[] = [];
+        let received = 0;
+
+        res.on('data', (raw: Buffer | string) => {
+          const chunk = typeof raw === 'string' ? Buffer.from(raw) : raw;
+          received += chunk.length;
+          if (received > maxBytes) {
+            logger.warn('HTTP response exceeded size cap', { host: this.config.host, path, maxBytes });
+            fail(new ResponseTooLargeError(maxBytes));
+            req.destroy();
+            return;
+          }
+          chunks.push(chunk);
+        });
+
+        // The response stream failing or being cut mid-body must reject — before,
+        // these left the promise pending forever (a hung caller, and a breaker
+        // probe that never reported back).
+        res.on('error', (error) => fail(error));
+        res.on('aborted', () => fail(new Error('Response aborted by peer before completion')));
+        res.on('close', () => {
+          if (!res.complete) fail(new Error('Response closed before completion'));
         });
 
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
           try {
             const parsedBody = data ? JSON.parse(data) : {};
-            resolve({
+            succeed({
               statusCode: res.statusCode || HttpStatus.INTERNAL_SERVER_ERROR,
               body: parsedBody as T,
               headers: res.headers,
@@ -360,7 +442,7 @@ export class InternalHttpClient {
               path,
               error: errorMessage(parseError),
             });
-            resolve({
+            succeed({
               statusCode: res.statusCode || HttpStatus.INTERNAL_SERVER_ERROR,
               body: {} as T,
               headers: res.headers,
@@ -370,6 +452,7 @@ export class InternalHttpClient {
       });
 
       req.on('error', (error) => {
+        if (settled) return; // our own destroy() after a deadline/size-cap failure
         // Node dual-stack connect failures are an AggregateError with an empty
         // `.message`; the cause is in `.code` (ECONNREFUSED/ETIMEDOUT). Fall
         // back so the log isn't a blank `error:""`.
@@ -381,19 +464,28 @@ export class InternalHttpClient {
           method,
           error: detail,
         });
-        reject(error);
+        fail(error);
       });
 
+      const timeoutError = () => new Error(`Request timeout after ${timeoutMs}ms`);
+
       req.on('timeout', () => {
+        logger.warn('HTTP request timeout (socket idle)', { host: this.config.host, path, timeout: timeoutMs });
+        fail(timeoutError());
         req.destroy();
-        const error = new Error(`Request timeout after ${this.config.timeout}ms`);
-        logger.warn('HTTP request timeout', {
-          host: this.config.host,
-          path,
-          timeout: this.config.timeout,
-        });
-        reject(error);
       });
+
+      // The request closing before we settled (no response, or a response we
+      // never finished) is a failure, not silence.
+      req.on('close', () => fail(new Error('Request closed before a response completed')));
+
+      // TOTAL deadline for the exchange (connect + send + full body).
+      deadline = setTimeout(() => {
+        logger.warn('HTTP request timeout (total deadline)', { host: this.config.host, path, timeout: timeoutMs });
+        fail(timeoutError());
+        req.destroy();
+      }, timeoutMs);
+      deadline.unref?.();
 
       if (bodyStr) {
         req.write(bodyStr);

@@ -8,7 +8,7 @@
  * with a floored TTL and never throw.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 jest.unstable_mockModule('../src/utils/logger.js', () => ({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
@@ -23,6 +23,9 @@ const {
   sessionRevocationKey,
   SESSION_REVOCATION_KEY_PREFIX,
   publishSessionRevocation,
+  SET_IF_GREATER_LUA,
+  credentialRevocationKey,
+  publishCredentialRevocation,
 } = await import('../src/services/token-revocation.js');
 
 function fakeRedis(overrides: Record<string, unknown> = {}) {
@@ -73,21 +76,71 @@ describe('createRedisTokenRevocationStore.getCurrentVersion', () => {
 
 describe('publishTokenRevocation', () => {
   let redis: ReturnType<typeof fakeRedis>;
-  beforeEach(() => { redis = fakeRedis(); });
+  beforeEach(() => { redis = fakeRedis({ eval: jest.fn(async () => 1) }); });
 
-  it('writes the version at the namespaced key with SET EX <ttl>', async () => {
+  it('publishes through the atomic set-if-greater script (never a plain SET)', async () => {
     await publishTokenRevocation(redis, 'u1', 4, 900);
-    expect(redis.set).toHaveBeenCalledWith(`${TOKEN_REVOCATION_KEY_PREFIX}u1`, '4', 'EX', 900);
+    expect(redis.eval).toHaveBeenCalledWith(SET_IF_GREATER_LUA, 1, `${TOKEN_REVOCATION_KEY_PREFIX}u1`, '4', 900);
+    expect(redis.set).not.toHaveBeenCalled();
   });
 
   it('floors a fractional TTL and never uses EX 0', async () => {
     await publishTokenRevocation(redis, 'u1', 4, 0.4);
-    expect(redis.set).toHaveBeenCalledWith(`${TOKEN_REVOCATION_KEY_PREFIX}u1`, '4', 'EX', 1);
+    expect(redis.eval).toHaveBeenCalledWith(SET_IF_GREATER_LUA, 1, `${TOKEN_REVOCATION_KEY_PREFIX}u1`, '4', 1);
+  });
+
+  it('refuses (without throwing) a client that cannot run scripts', async () => {
+    const noEval = fakeRedis();
+    await expect(publishTokenRevocation(noEval, 'u1', 4, 900)).resolves.toBeUndefined();
+    expect(noEval.set).not.toHaveBeenCalled();
   });
 
   it('never throws when the Redis write fails (best-effort)', async () => {
-    const bad = fakeRedis({ set: jest.fn(async () => { throw new Error('redis down'); }) });
+    const bad = fakeRedis({ eval: jest.fn(async () => { throw new Error('redis down'); }) });
     await expect(publishTokenRevocation(bad, 'u1', 4, 900)).resolves.toBeUndefined();
+  });
+
+  it('the script only ever RAISES the stored version (out-of-order publishes)', async () => {
+    // Emulate the Lua semantics against an in-memory store to pin the contract.
+    const store = new Map<string, { v: string; ttl: number }>();
+    const evalFake = jest.fn(async (_script: string, _n: number, key: string, v: string, ttl: number) => {
+      const cur = store.get(key);
+      if (cur && Number(cur.v) >= Number(v)) { if (cur.ttl < ttl) cur.ttl = ttl; return 0; }
+      store.set(key, { v, ttl }); return 1;
+    });
+    const r = fakeRedis({ eval: evalFake });
+    await publishTokenRevocation(r, 'u1', 7, 900);
+    await publishTokenRevocation(r, 'u1', 5, 900); // stale, arrives late
+    expect(store.get(tokenRevocationKey('u1'))!.v).toBe('7');
+    expect(SET_IF_GREATER_LUA).toMatch(/cur >= v/);
+  });
+});
+
+describe('credential revocation (revoke:sid / revoke:key)', () => {
+  it('uses the agreed key shapes', () => {
+    expect(credentialRevocationKey('sid', 's1')).toBe('revoke:sid:s1');
+    expect(credentialRevocationKey('key', 'k1')).toBe('revoke:key:k1');
+  });
+
+  it('reader: any present entry among sid/key ids ⇒ revoked', async () => {
+    const get = jest.fn(async (k: string) => (k === 'revoke:key:k2' ? '1' : null));
+    const store = createRedisTokenRevocationStore(fakeRedis({ get }));
+    await expect(store.isCredentialRevoked!({ sid: 's1', keyIds: ['k1', 'k2'] })).resolves.toBe(true);
+    await expect(store.isCredentialRevoked!({ sid: 's1', keyIds: ['k1'] })).resolves.toBe(false);
+    expect(get).toHaveBeenCalledWith('revoke:sid:s1');
+  });
+
+  it('reader: fail-open on a Redis error', async () => {
+    const store = createRedisTokenRevocationStore(fakeRedis({ get: jest.fn(async () => { throw new Error('down'); }) }));
+    await expect(store.isCredentialRevoked!({ sid: 's1', keyIds: [] })).resolves.toBe(false);
+  });
+
+  it('publisher writes the key with a ceil TTL and reports the outcome', async () => {
+    const redis = fakeRedis();
+    await expect(publishCredentialRevocation(redis, 'sid', 's1', 3600.2)).resolves.toBe(true);
+    expect(redis.set).toHaveBeenCalledWith('revoke:sid:s1', '1', 'EX', 3601);
+    const bad = fakeRedis({ set: jest.fn(async () => { throw new Error('down'); }) });
+    await expect(publishCredentialRevocation(bad, 'key', 'k1', 60)).resolves.toBe(false);
   });
 });
 

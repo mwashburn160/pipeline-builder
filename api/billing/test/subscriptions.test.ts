@@ -8,16 +8,18 @@
  * the router. Mocks Mongoose models, payment provider, and helpers.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
 
-const mockSendSuccess = jest.fn();
-const mockSendError = jest.fn();
-const mockSendBadRequest = jest.fn();
-const mockValidateBody = jest.fn();
-const mockIsSystemAdmin = jest.fn();
+const mockSendSuccess = jest.fn<AnyFn>();
+const mockSendError = jest.fn<AnyFn>();
+const mockSendBadRequest = jest.fn<AnyFn>();
+const mockValidateBody = jest.fn<AnyFn>();
+const mockIsSystemAdmin = jest.fn<AnyFn>();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -31,14 +33,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   getServiceAuthHeader: jest.fn(() => 'Bearer service-token'),
   validateBody: mockValidateBody,
-  createCacheService: () => ({ get: jest.fn(), set: jest.fn(), del: jest.fn(), invalidate: jest.fn() }),
+  createCacheService: () => ({ get: jest.fn<AnyFn>(), set: jest.fn<AnyFn>(), del: jest.fn<AnyFn>(), invalidate: jest.fn<AnyFn>() }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const userId = req.user?.sub || '';
-    const ctx = { log: jest.fn(), identity: { orgId, userId }, requestId: 'req-1' };
+    const ctx = { log: jest.fn<AnyFn>(), identity: { orgId, userId }, requestId: 'req-1' };
     if (!orgId) {
       return mockSendError(res, 400, 'Organization ID is required', 'MISSING_REQUIRED_FIELD');
     }
@@ -69,7 +71,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 
 // Central-trail audit client — the route emits billing.subscription.* here
 // ALONGSIDE the local billing_events write. Mock it so we can assert emission.
-const mockAuditRecord = jest.fn();
+const mockAuditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
@@ -213,8 +215,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -232,7 +234,7 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
     externalCustomerId: 'ext-cust-1',
     createdAt: new Date('2026-03-01'),
     updatedAt: new Date('2026-03-01'),
-    save: jest.fn().mockResolvedValue(undefined),
+    save: jest.fn<AnyFn>().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -242,12 +244,12 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
 describe('GET /subscriptions', () => {
   const handler = getHandler('get', '/subscriptions');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns current org subscription', async () => {
     const sub = makeSubscription();
-    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(sub) });
-    mockPlanFindById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ name: 'Pro' }) });
+    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(sub) });
+    mockPlanFindById.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue({ name: 'Pro' }) });
 
     const req = mockReq();
     const res = mockRes();
@@ -259,7 +261,7 @@ describe('GET /subscriptions', () => {
   });
 
   it('returns null subscription when none exists', async () => {
-    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(null) });
 
     const req = mockReq();
     const res = mockRes();
@@ -269,7 +271,7 @@ describe('GET /subscriptions', () => {
   });
 
   it('looks up the full non-terminal status set (active + trialing + past_due), not just active', async () => {
-    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(null) });
 
     await handler(mockReq(), mockRes());
 
@@ -284,8 +286,8 @@ describe('GET /subscriptions', () => {
 
   it('surfaces a trialing subscription (invisible before the fix)', async () => {
     const sub = makeSubscription({ status: 'trialing' });
-    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(sub) });
-    mockPlanFindById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ name: 'Pro' }) });
+    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(sub) });
+    mockPlanFindById.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue({ name: 'Pro' }) });
 
     const res = mockRes();
     await handler(mockReq(), res);
@@ -304,7 +306,7 @@ describe('GET /subscriptions', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn().mockRejectedValue(new Error('DB down')) });
+    mockSubscriptionFindOne.mockReturnValue({ lean: jest.fn<AnyFn>().mockRejectedValue(new Error('DB down')) });
 
     const req = mockReq();
     const res = mockRes();
@@ -439,7 +441,7 @@ describe('POST /subscriptions', () => {
 
     await handler(mockReq(), mockRes());
 
-    expect(createdSub.metadata).toEqual({ provider: 'stripe', pendingReferralCode: 'org-referrer' });
+    expect((createdSub as { metadata?: unknown }).metadata).toEqual({ provider: 'stripe', pendingReferralCode: 'org-referrer' });
     expect(createdSub.save).toHaveBeenCalled();
   });
 
@@ -473,7 +475,7 @@ describe('POST /subscriptions', () => {
 
     await handler(mockReq(), mockRes());
 
-    expect(createdSub.metadata).toEqual({ provider: 'stripe', pendingReferralCode: 'org-referrer' });
+    expect((createdSub as { metadata?: unknown }).metadata).toEqual({ provider: 'stripe', pendingReferralCode: 'org-referrer' });
     expect(createdSub.save).toHaveBeenCalled();
   });
 
@@ -631,7 +633,7 @@ describe('PUT /subscriptions/:id', () => {
     await handler(mockReq({ params: { id: 'sub-1' } }), mockRes());
 
     // Persisted subscription no longer carries the now-bundled add-on...
-    expect(sub.addons).toEqual(reduced);
+    expect((sub as { addons?: unknown }).addons).toEqual(reduced);
     expect(sub.save).toHaveBeenCalled();
     // ...the REDUCED set (not the original) is what gets synced downstream...
     expect(mockSyncTierToQuotaService).toHaveBeenCalledWith(

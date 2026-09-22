@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -17,6 +17,7 @@ export function AddPanelModal(props: {
   onClose: () => void;
   onAdd: (entry: CatalogEntry, title: string, vizKind: string, span: number) => void;
 }) {
+  const uid = useId();
   const { catalog, onClose, onAdd } = props;
   const [filter, setFilter] = useState('');
   const [selected, setSelected] = useState<CatalogEntry | null>(null);
@@ -30,8 +31,8 @@ export function AddPanelModal(props: {
     <Modal title="Add panel" onClose={onClose} maxWidth="max-w-lg" tall>
       <div className="space-y-4">
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Filter</label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-filter`}>Filter</label>
+          <Input id={`${uid}-filter`}
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -39,8 +40,8 @@ export function AddPanelModal(props: {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Catalog query ({filtered.length})</label>
-          <div className="max-h-64 overflow-y-auto border border-default rounded">
+          <span className="block text-xs font-medium text-fg-muted mb-1" id={`${uid}-catalog`}>Catalog query ({filtered.length})</span>
+          <div role="group" aria-labelledby={`${uid}-catalog`} className="max-h-64 overflow-y-auto border border-default rounded">
             {filtered.map(entry => (
               <button
                 key={entry.key}
@@ -59,8 +60,8 @@ export function AddPanelModal(props: {
         {selected && (
           <>
             <div>
-              <label className="block text-xs font-medium text-fg-muted mb-1">Title</label>
-              <Input
+              <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-title`}>Title</label>
+              <Input id={`${uid}-title`}
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -68,8 +69,8 @@ export function AddPanelModal(props: {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Viz</label>
-                <Select
+                <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-viz`}>Viz</label>
+                <Select id={`${uid}-viz`}
                   value={vizKind}
                   onChange={(e) => setVizKind(e.target.value)}
                 >
@@ -80,8 +81,8 @@ export function AddPanelModal(props: {
                 </Select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Span</label>
-                <Select
+                <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-span`}>Span</label>
+                <Select id={`${uid}-span`}
                   value={span}
                   onChange={(e) => setSpan(parseInt(e.target.value, 10))}
                 >

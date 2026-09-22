@@ -10,8 +10,8 @@ import { FormBuilderState } from './form-types';
 export function validateFormState(state: FormBuilderState): Record<string, string> {
   const errors: Record<string, string> = {};
 
-  if (!state.project.trim()) errors['project'] = 'Project is required';
-  if (!state.organization.trim()) errors['organization'] = 'Organization is required';
+  if (!state.project.trim()) errors.project = 'Project is required';
+  if (!state.organization.trim()) errors.organization = 'Organization is required';
 
   // Synth source
   switch (state.synth.sourceType) {

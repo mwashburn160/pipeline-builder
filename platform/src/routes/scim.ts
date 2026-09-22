@@ -43,6 +43,7 @@ import {
 } from '../controllers/scim.js';
 import { requireAuth } from '../middleware/index.js';
 import { requireScimScope } from '../middleware/require-scim-scope.js';
+import { scimSanitize } from '../middleware/scim-sanitize.js';
 
 const router: Router = Router();
 
@@ -50,6 +51,9 @@ const router: Router = Router();
 // (the member cap in `constants/scim.ts` is the real ceiling); the app-wide
 // parser's 1mb limit does not apply to a body it never matched.
 router.use(express.json({ type: ['application/json', SCIM_CONTENT_TYPE], limit: '512kb' }));
+// The app-wide sanitizer ran before this body existed: strip operator /
+// prototype keys from it here (dotted keys stay — they are SCIM attribute paths).
+router.use(scimSanitize);
 router.use(requireAuth, requireScimScope);
 
 // -- Discovery ---------------------------------------------------------------

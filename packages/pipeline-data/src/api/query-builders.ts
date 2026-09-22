@@ -309,8 +309,9 @@ export function buildMessageConditions(
   // org-wide rows (recipient_user_id IS NULL) stay visible to everyone in the
   // org. Absent a viewer id, the recipient side sees org-wide rows only, so a
   // targeted message never leaks to other members (it stays visible to its
-  // target, the sender org, and the system org). The SENDER branch is
-  // unconditional — you always see what you sent, targeted or not.
+  // target, the sender org, and the system org). The SENDER branch shows what
+  // your org sent — except a reply your org's TARGETED user wrote inside their
+  // private thread, which stays private to them (see `senderVisible`).
   if (normalizedOrgId === SYSTEM_ORG_ID) {
     // System org can see all messages
   } else {
@@ -320,9 +321,28 @@ export function buildMessageConditions(
         eq(schema.message.recipientUserId, filter.viewerUserId),
       )!
       : isNull(schema.message.recipientUserId);
+    // Sender side of a PRIVATE thread: a reply authored by the org that holds a
+    // user-targeted root (the targeted user answering) carries `org_id` = that
+    // org, so the unconditional sender branch showed the private exchange to
+    // every one of its members. Such a reply is visible on its own org's side
+    // only to the root's target user; with no viewer it is hidden (fail-closed).
+    // Every other row (roots, replies in untargeted threads, replies in a thread
+    // targeted at SOMEONE ELSE's org) keeps the unconditional sender view.
+    const privateRootForOtherViewer = filter.viewerUserId
+      ? sql`root.recipient_user_id IS NOT NULL AND root.recipient_user_id <> ${filter.viewerUserId}`
+      : sql`root.recipient_user_id IS NOT NULL`;
+    const senderVisible = or(
+      isNull(schema.message.threadId),
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${schema.message} AS root
+        WHERE root.id = ${schema.message.threadId}
+          AND lower(root.recipient_org_id) = ${normalizedOrgId}
+          AND ${privateRootForOtherViewer}
+      )`,
+    )!;
     conditions.push(
       or(
-        eq(schema.message.orgId, normalizedOrgId),
+        and(eq(schema.message.orgId, normalizedOrgId), senderVisible)!,
         and(eq(schema.message.recipientOrgId, normalizedOrgId), recipientVisible)!,
         // Broadcast (announcements). Self-defending: only ever org-wide rows —
         // a mis-created '*' + per-user row can't leak to every org.

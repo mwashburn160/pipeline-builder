@@ -8,6 +8,7 @@
  * reported, and every change is audited with both sides.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -16,7 +17,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const YUBIKEY = 'cb69481e-8ff7-4039-93ec-0a2729a154a8';
 const ICLOUD = 'fbfc3007-154e-4ecc-8c0b-6e020557d7bd';
 
-const mockAudit = jest.fn();
+const mockAudit = jest.fn<AnyFn>();
 const mockRefuseWeak = jest.fn((_req: unknown, res: any, _o: unknown) => {
   res.status(403).json({ success: false, code: 'ASSURANCE_REQUIRED' });
   return true;
@@ -26,7 +27,7 @@ let lineage: Array<Record<string, unknown>> = [];
 let mfaEnforced = false;
 let creds: Array<{ _id: string; userId: string; name: string; aaguid?: string }> = [];
 let callerHasTotp = false;
-const mockUpdateOne = jest.fn(async () => ({}));
+const mockUpdateOne = jest.fn(async (..._args: unknown[]) => ({}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) => res.status(status).json({ success: false, message: msg, code }),
@@ -35,10 +36,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, string>, key: string) => params[key],
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ getOrgName: async (id: string) => `name-of-${id}` }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, getOrgName: async (id: string) => `name-of-${id}` }));
 jest.unstable_mockModule('../src/helpers/org-policy-lineage.js', () => ({ readOrgPolicyLineage: async () => lineage }));
 jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({ resolveEffectiveMfaPolicy: async () => ({ enforced: mfaEnforced }) }));
 jest.unstable_mockModule('../src/services/fido-mds.js', () => ({
@@ -79,8 +80,8 @@ const ctrl = await import('../src/controllers/org-security-policy.js');
 
 function makeRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 // `controller-helper` runs FOR REAL: `canAdministerOrg` reads `user.role` and

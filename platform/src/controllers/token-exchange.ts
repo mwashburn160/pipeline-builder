@@ -137,7 +137,7 @@ export const rotateKey = withController('Rotate access key', async (req, res) =>
     // so. Every other refusal answers the same 401 as the exchange, so the
     // endpoint can't be used to tell a revoked key from an unknown one.
     if (result.reason === 'expiry_invalid') {
-      return sendError(res, 400, 'expiresIn must be between 60 seconds and 365 days', 'INVALID_EXPIRES_IN');
+      return sendError(res, 400, 'expiresIn must be between 60 seconds and 365 days, and no longer than the presented key\'s own lifetime', 'INVALID_EXPIRES_IN');
     }
     return sendError(res, 401, 'Invalid or revoked access key', 'ACCESS_KEY_INVALID');
   }
@@ -201,6 +201,13 @@ export const revokeKey = withController('Revoke sibling access key', async (req,
         res, 400,
         'A key cannot revoke itself here — rotate first, then revoke the old key with the new one',
         'SELF_REVOKE_REFUSED',
+      );
+    }
+    if (result.reason === 'newer_sibling') {
+      return sendError(
+        res, 403,
+        'A key can only revoke the keys issued before it — the one it replaced, not a newer sibling',
+        'NEWER_SIBLING_REFUSED',
       );
     }
     return sendError(res, 401, 'Invalid or revoked access key', 'ACCESS_KEY_INVALID');

@@ -12,21 +12,23 @@
  *    and it reports "never ingested" as its own state rather than as staleness.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { routeChain } from './helpers/route-chain.js';
 
-const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error: msg, code }));
+const mockSendError = jest.fn((_res: any, code: number, msg: string, ..._rest: unknown[]) => ({ error: msg, code }));
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockRecordHealth = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockGetHealth = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   // requireOrgId:false — the org is taken from the token identity; the mock
   // mirrors withRoute by reading it from req.__orgId (default '' = absent).
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
-    const ctx = { log: jest.fn(), identity: { orgId: req.__orgId ?? '', userId: 'svc' }, requestId: 'req-1' };
+    const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: req.__orgId ?? '', userId: 'svc' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: opts?.requireOrgId === false ? (req.__orgId ?? '') : 'acme', userId: 'svc' });
   },
   // The GET's own guards (the mount is the bare machine requireAuth). Mirrors
@@ -45,7 +47,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   hasScope: (req: any, scope: string) => req?.user?.scope === scope,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     recordIngestHealth: (...a: unknown[]) => mockRecordHealth(...a),
     getIngestHealth: (...a: unknown[]) => mockGetHealth(...a),
@@ -56,7 +58,7 @@ const { createIngestHealthRoutes } = await import('../src/routes/ingest-health.j
 
 describe('POST /reports/ingest-health', () => {
   let router: any;
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
   const getHandler = () => routeChain(router, '/');
 
   beforeEach(() => {
@@ -140,7 +142,7 @@ describe('POST /reports/ingest-health', () => {
 
 describe('GET /reports/ingest-health', () => {
   let router: any;
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
   const getHandler = () => routeChain(router, '/', 'get');
   /** A `reports:read` holder — the ordinary dashboard reader. */
   const reader = { sub: 'u1', permissions: ['reports:read'] };

@@ -131,7 +131,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
       // invitee — the invitation was never accepted and nothing surfaced the
       // problem. Better to stop here with an actionable message.
       try {
-        storeOAuthIntent({ state, kind: 'invite', inviteToken: token, provider }, true);
+        storeOAuthIntent({ state, kind: 'invite', inviteToken: token, provider });
       } catch {
         throw new Error(
           'Your browser is blocking site storage, which is required to accept an invitation with '

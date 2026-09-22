@@ -13,13 +13,14 @@
  *   - Idempotent + cheap on a no-op (re-run inserts nothing, rewrites nothing).
  */
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockGroupFind = jest.fn();
-const mockGroupUpdateOne = jest.fn();
-const mockGmUpdateOne = jest.fn();
-const mockUoFind = jest.fn();
+const mockGroupFind = jest.fn<AnyFn>();
+const mockGroupUpdateOne = jest.fn<AnyFn>();
+const mockGmUpdateOne = jest.fn<AnyFn>();
+const mockUoFind = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('mongoose', () => ({

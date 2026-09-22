@@ -1,14 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockPost = jest.fn<(...args: unknown[]) => Promise<unknown>>();
-const mockEmailPost = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockPost = jest.fn<AnyFn>();
+const mockEmailPost = jest.fn<AnyFn>();
 const mockGetPreference = jest.fn<(orgId: string) => Promise<unknown>>();
-const mockRecordLog = jest.fn<(...args: unknown[]) => Promise<void>>();
-const mockRecordPendingDigest = jest.fn<(...args: unknown[]) => Promise<void>>();
+const mockRecordLog = jest.fn<AnyFn>();
+const mockRecordPendingDigest = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/helpers/message-client.js', () => ({
   messageClient: {

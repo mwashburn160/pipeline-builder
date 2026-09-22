@@ -51,9 +51,12 @@
  *   NEVER       — the org owner is never deactivated or removed (transfer
  *                 ownership first), and a platform administrator is never
  *                 provisioned, deactivated or touched at all.
- *   REVOCATION  — a deactivation bumps `tokenVersion`, clears the refresh-session
- *                 slots and publishes the revocation, so access ends on the next
- *                 request everywhere — not at token expiry.
+ *   REVOCATION  — a deactivation ends access to THIS org on the next request
+ *                 everywhere — not at token expiry — by bumping `claimsVersion`
+ *                 (every outstanding access token is stale) and publishing it.
+ *                 The person's sessions themselves survive: one org's directory
+ *                 has no say over their other orgs, and the next refresh simply
+ *                 re-mints into an org they are still active in.
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
@@ -367,29 +370,26 @@ async function resyncMemberRoles(orgId: string, userId: Types.ObjectId | string,
     const { added, removed } = await syncMappedRoles(oid, userId, roleIds, session);
     if (added.length === 0 && removed.length === 0) return false;
     await recomputeUserOrgRole(userId, oid, session);
-    await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } }, { session });
+    await User.updateOne({ _id: userId }, { $inc: { claimsVersion: 1 } }, { session });
     return true;
   });
   if (changed) await publishUserRevocation(String(userId));
 }
 
 /**
- * End every live session of a member whose access was just withdrawn.
+ * End a member's access to ONE org whose directory just withdrew it.
  *
- * `requireAuth` trusts an access token's claims and only re-reads `tokenVersion`,
- * so without the bump a deactivated member would keep full access until their
- * token expired. Clearing the refresh slots blocks a silent re-issue, and the
- * post-commit publish makes the same true on the stateless services. Exactly what
- * `orgMembersService.deactivateMember` does — reproduced here rather than called
- * because that method refuses an already-inactive membership (SCIM must be
- * idempotent) and emits its own member-lifecycle audit.
+ * `requireAuth` trusts an access token's claims and only re-reads the access
+ * version, so without a bump a deactivated member would keep acting in this org
+ * until their token expired. The bump is a CLAIMS bump: every outstanding access
+ * token goes stale (here, and — via the post-commit publish — on the stateless
+ * services), but the person's sessions are NOT ended. They are the person's,
+ * spanning every org they belong to; this org's directory only owns this org.
+ * The next refresh re-mints into an org they are still active in — never this
+ * one, whose membership is now inactive (and whose pin is dropped below).
  */
-async function revokeSessions(userId: Types.ObjectId | string, orgId: string, session: ClientSession): Promise<void> {
-  await User.updateOne(
-    { _id: userId },
-    { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
-    { session },
-  );
+async function endOrgAccess(userId: Types.ObjectId | string, orgId: string, session: ClientSession): Promise<void> {
+  await User.updateOne({ _id: userId }, { $inc: { claimsVersion: 1 } }, { session });
   await User.updateOne(
     { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },
     { $unset: { lastActiveOrgId: '' } },
@@ -682,14 +682,14 @@ async function setActive(ctx: ScimContext, membership: UserOrganizationDocument,
   assertIntentAllowed(ctx, 'deactivate');
   await withMongoTransaction(async (session) => {
     await UserOrganization.updateOne({ _id: membership._id }, { $set: { isActive: false } }, { session });
-    await revokeSessions(membership.userId, ctx.orgId, session);
+    await endOrgAccess(membership.userId, ctx.orgId, session);
   });
   membership.isActive = false;
   // Post-commit: make the revocation true on the stateless services too.
   await publishUserRevocation(String(membership.userId));
   // The directory says they are gone: the Roles it granted go with them.
   await resyncMemberRoles(ctx.orgId, membership.userId, []);
-  logger.info('[SCIM] deactivated member and revoked sessions', { orgId: ctx.orgId, userId: String(membership.userId) });
+  logger.info('[SCIM] deactivated member and ended their access to the org', { orgId: ctx.orgId, userId: String(membership.userId) });
   return ['active'];
 }
 
@@ -824,11 +824,11 @@ export async function deleteUser(ctx: ScimContext, id: string): Promise<ScimWrit
         { $set: { 'isActive': false, 'scim.groups': [], 'scim.lastSyncedAt': new Date() } },
         { session },
       );
-      await revokeSessions(membership.userId, ctx.orgId, session);
+      await endOrgAccess(membership.userId, ctx.orgId, session);
     });
     await publishUserRevocation(String(membership.userId));
     await resyncMemberRoles(ctx.orgId, membership.userId, []);
-    logger.info('[SCIM] removed member (deactivated + sessions revoked)', { orgId: ctx.orgId, userId: id });
+    logger.info('[SCIM] removed member (deactivated + org access ended)', { orgId: ctx.orgId, userId: id });
   }
   return { resource: { id }, action: 'delete', changed: ['active'] };
 }

@@ -9,31 +9,33 @@
  * - Non-admin users (role=member) get 403.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const queueGetJobs = jest.fn();
-const dlqGetJobs = jest.fn();
+const queueGetJobs = jest.fn<AnyFn>();
+const dlqGetJobs = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // route uses getAllTierQueues; one entry is enough for the existing assertions.
-  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', getJobs: queueGetJobs, getJobCounts: jest.fn() } }],
-  getDeadLetterQueue: () => ({ getJobs: dlqGetJobs, getJobCounts: jest.fn() }),
-  findFailedJob: jest.fn(),
+  getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', getJobs: queueGetJobs, getJobCounts: jest.fn<AnyFn>() } }],
+  getDeadLetterQueue: () => ({ getJobs: dlqGetJobs, getJobCounts: jest.fn<AnyFn>() }),
+  findFailedJob: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
-  purgeDlq: jest.fn(),
+  purgeDlq: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/requeue.js', () => ({
-  replayDlqJob: jest.fn(),
-  retryFailedJob: jest.fn(),
+  replayDlqJob: jest.fn<AnyFn>(),
+  retryFailedJob: jest.fn<AnyFn>(),
 }));
 
 // Quota service stub  required by createQueueStatusRoutes since.
-const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
+const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('developer') } as any;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  isSystemAdmin: jest.fn(),
+  isSystemAdmin: jest.fn<AnyFn>(),
   // Functional gate (default apiCoreMock stub is pass-through): grants a
   // superadmin implicitly, else requires one of the named permissions.
   requirePermission: (...perms: string[]) => (req: any, res: any, next: () => void) => {
@@ -54,9 +56,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any) => {
-    const ctx = { requestId: 'test-req', log: jest.fn() };
+    const ctx = { requestId: 'test-req', log: jest.fn<AnyFn>() };
     await handler({ req, res, ctx, orgId: req.__orgId, userId: 'user-1' });
   },
 }));
@@ -92,8 +94,8 @@ async function runTriage(req: any, res: any) {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, json, status };
 }
 
@@ -115,7 +117,7 @@ describe('GET /triage  auth and tenant isolation', () => {
   });
 
   it('denies a caller without plugins:write at the gate', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     const { res, json } = makeRes();
     await runTriage({
       __orgId: 'org-a',
@@ -128,7 +130,7 @@ describe('GET /triage  auth and tenant isolation', () => {
   });
 
   it('admits a member holding plugins:write through the gate', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([job('1', 'org-a')]);
     const { res, json } = makeRes();
     await runTriage({
@@ -145,7 +147,7 @@ describe('GET /triage  auth and tenant isolation', () => {
   });
 
   it('system admin sees failures from ALL orgs', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     queueGetJobs.mockResolvedValue([
       job('1', 'org-a'),
       job('2', 'org-b'),
@@ -165,7 +167,7 @@ describe('GET /triage  auth and tenant isolation', () => {
   });
 
   it('org admin sees ONLY their own org failures (regression: cross-org leak)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([
       job('1', 'org-a'),
       job('2', 'org-b'),
@@ -191,7 +193,7 @@ describe('GET /triage  auth and tenant isolation', () => {
   });
 
   it('owner role is treated like admin', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([job('1', 'org-a')]);
     const handler = getTriageHandler();
     const { res, json } = makeRes();
@@ -208,7 +210,7 @@ describe('GET /triage  auth and tenant isolation', () => {
   });
 
   it('case-insensitive orgId comparison', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([
       { id: '1', data: { pluginRecord: { name: 'p1', orgId: 'ORG-A' }, lastError: 'fail' }, failedReason: 'fail' },
     ]);
@@ -226,7 +228,7 @@ describe('GET /triage  auth and tenant isolation', () => {
   });
 
   it('jobs with missing orgId are excluded for non-system admins', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([
       job('1', 'org-a'),
       { id: '2', data: { pluginRecord: { name: 'orphan' } }, failedReason: 'fail' },

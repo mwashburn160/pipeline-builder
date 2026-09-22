@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4d2cf1dd40867eee609aec3b204e1519fbfebe865e44b64454426fb341880463
+// SOURCE-SHA256: 6803ca86de6744fdbd472dc796b58195167f4fa4c03b2e5b724c299949a8631b
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1411,7 +1411,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/refresh",
-              "Rotate an interactive session's token pair. The browser presents the pb_refresh cookie (empty body); a CLI caller posts { refreshToken }. Machine sessions are refused (they renew through /user/generate-token)",
+              "Rotate a session's token pair — a device's, or a machine credential's (until its fixed end). The browser presents the pb_refresh cookie (empty body); a CLI/machine caller posts { refreshToken }. A concurrent refresh with the immediately-previous token within 30 s gets the current pair instead of revoking the session",
               "refresh cookie or body token, + X-Pb-Client"
             ],
             [
@@ -1430,6 +1430,12 @@ export const apiReferenceTopic: HelpTopic = {
               "GET",
               "/user/organizations",
               "Orgs the caller can switch into: membership rows (organizationId, organizationName, slug, role, isActive, joinedAt, parentOrgId, parentOrgName, tier, childOrgCount), then one viaAncestor: true row (role: 'admin') per live team of an org they administer but aren't a member of",
+              "— (auth)"
+            ],
+            [
+              "GET",
+              "/user/password-policy",
+              "The minimum length a NEW password of the caller's must meet — the strictest effective policy across every org they belong to (the bar /user/change-password enforces): { minLength, maxLength }. The org's own policy endpoint needs org:settings; this one is for the person changing their password",
               "— (auth)"
             ],
             [

@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
@@ -25,7 +26,7 @@ const mockGetSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockRes
   defaultDoraRetentionDays: 180,
 });
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
@@ -37,7 +38,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: mockSendBadRequest,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     getIncidentSettings: (...a: unknown[]) => mockGetSettings(...a),
     setReportingSettings: (...a: unknown[]) => mockSetSettings(...a),
@@ -66,7 +67,7 @@ describe('reporting settings routes', () => {
 
   it('GET returns the settings incl. retention (for read-only display)', async () => {
     await getHandler()({ query: {} }, res());
-    expect(mockGetSettings).toHaveBeenCalledWith('acme');
+    expect(mockGetSettings).toHaveBeenCalledWith('acme', 'acme');
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.settings).toMatchObject({ incidentWindowHours: 48, doraRetentionDays: 545 });
   });

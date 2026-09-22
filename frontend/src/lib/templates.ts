@@ -55,7 +55,7 @@ export function tokenize(source: string): Token[] {
 
   const advance = (n: number) => {
     for (let k = 0; k < n; k++) {
-      if (source[i + k] === '\n') { line++; col = 1; } else col++;
+      if (source[i + k] === '\n') { line++; col = 1; } else {col++;}
     }
     i += n;
   };
@@ -138,7 +138,7 @@ function readExpr(src: string, start: number, startLine: number, startCol: numbe
   ws();
 
   let defaultValue: string | undefined;
-  let coerce: CoerceKind | undefined;
+  let coerceKind: CoerceKind | undefined;
   while (src[i] === '|') {
     i++; col++; ws();
     if (src.startsWith('default', i)) {
@@ -158,14 +158,14 @@ function readExpr(src: string, start: number, startLine: number, startCol: numbe
       }
     }
     if (!matched) throw new TokenizeError(`Unknown filter`, { line, col });
-    if (coerce) throw new TokenizeError(`Only one coercion allowed`, { line, col });
-    coerce = matched;
+    if (coerceKind) throw new TokenizeError(`Only one coercion allowed`, { line, col });
+    coerceKind = matched;
     ws();
   }
 
   if (!src.startsWith('}}', i)) throw new TokenizeError(`Expected '}}'`, { line, col });
   i += 2;
-  return { path, defaultValue, coerce, endIdx: i };
+  return { path, defaultValue, coerce: coerceKind, endIdx: i };
 }
 
 // -----------------------------------------------------------------------------

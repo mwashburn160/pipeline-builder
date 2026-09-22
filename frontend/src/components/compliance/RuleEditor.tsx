@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useId } from 'react';
 import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle, BarChart3, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -104,6 +104,7 @@ function parseValue(str: string): unknown {
 }
 
 export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) {
+  const uid = useId();
   const { isSuperAdmin } = useAuthGuard();
   const [form, setForm] = useState<FormState>(() => ruleToForm(rule));
   const [saving, setSaving] = useState(false);
@@ -356,8 +357,8 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
 
         {/* Rule mode toggle */}
         <div className="border-t border-default pt-4">
-          <div className="flex items-center gap-4 mb-3">
-            <label className="text-sm font-medium text-fg-muted">Rule Mode:</label>
+          <div role="radiogroup" aria-labelledby={`${uid}-rule-mode`} className="flex items-center gap-4 mb-3">
+            <span className="text-sm font-medium text-fg-muted" id={`${uid}-rule-mode`}>Rule Mode:</span>
             <label className="flex items-center gap-1.5 text-sm">
               <input type="radio" checked={!form.useConditions} onChange={() => set('useConditions', false)} className="text-brand" />
               Single Field
@@ -371,27 +372,27 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           {!form.useConditions ? (
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Field</label>
-                <Input value={form.field} onChange={e => set('field', e.target.value)} placeholder="e.g. name, computeType" />
+                <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-field`}>Field</label>
+                <Input id={`${uid}-field`} value={form.field} onChange={e => set('field', e.target.value)} placeholder="e.g. name, computeType" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-fg-muted mb-1">Operator</label>
-                <Select value={form.operator} onChange={e => set('operator', e.target.value as RuleOperator)}>
+                <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-operator`}>Operator</label>
+                <Select id={`${uid}-operator`} value={form.operator} onChange={e => set('operator', e.target.value as RuleOperator)}>
                   {OPERATORS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </Select>
               </div>
               {!NO_VALUE_OPS.has(form.operator) && (
                 <div>
-                  <label className="block text-xs font-medium text-fg-muted mb-1">Value (JSON)</label>
-                  <Input value={form.value} onChange={e => set('value', e.target.value)} placeholder='"required-prefix"' />
+                  <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-value-json`}>Value (JSON)</label>
+                  <Input id={`${uid}-value-json`} value={form.value} onChange={e => set('value', e.target.value)} placeholder='"required-prefix"' />
                 </div>
               )}
             </div>
           ) : (
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <label className="text-xs font-medium text-fg-muted">Match:</label>
-                <Select value={form.conditionMode} onChange={e => set('conditionMode', e.target.value as RuleConditionMode)} className="rounded-lg border border-default bg-surface px-2 py-1 text-sm">
+                <label className="text-xs font-medium text-fg-muted" htmlFor={`${uid}-match`}>Match:</label>
+                <Select id={`${uid}-match`} value={form.conditionMode} onChange={e => set('conditionMode', e.target.value as RuleConditionMode)} className="rounded-lg border border-default bg-surface px-2 py-1 text-sm">
                   <option value="all">ALL conditions (AND)</option>
                   <option value="any">ANY condition (OR)</option>
                 </Select>

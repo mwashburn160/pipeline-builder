@@ -157,3 +157,15 @@ export async function markWebhookEventDone(source: WebhookSource, eventId: strin
 export async function releaseWebhookEvent(source: WebhookSource, eventId: string, claimToken: string): Promise<void> {
   await WebhookDedupe.deleteOne({ source, eventId, status: 'in_progress', claimToken });
 }
+
+/**
+ * Why a claim was refused: the event is already `done` (a true duplicate — ack it
+ * with 200) or another delivery holds a LIVE `in_progress` lease (the first
+ * attempt may still fail and release it — answer non-2xx so the provider retries
+ * instead of us acking an event nobody has finished). `null` when no row exists
+ * any more (the lease just expired / was released) — also retry-worthy.
+ */
+export async function webhookEventStatus(source: WebhookSource, eventId: string): Promise<WebhookStatus | null> {
+  const doc = await WebhookDedupe.findOne({ source, eventId }).select('status').lean();
+  return (doc as { status?: WebhookStatus } | null)?.status ?? null;
+}

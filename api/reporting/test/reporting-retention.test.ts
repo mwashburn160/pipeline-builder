@@ -9,10 +9,12 @@
  * batch options.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const createSchedulerSpy = jest.fn(() => ({ start: jest.fn(), stop: jest.fn() }));
+const createSchedulerSpy = jest.fn((_opts: unknown) => ({ start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() }));
 const createEnvRedisLockSpy = jest.fn<() => unknown>(() => null);
 // D8: the scheduler is gated on billing being enabled — default ON, toggled per-test.
 const isBillingEnabledSpy = jest.fn<() => boolean>(() => true);
@@ -24,7 +26,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 const purgeExpiredReportingData = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({});
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: { purgeExpiredReportingData: (...a: unknown[]) => purgeExpiredReportingData(...a) },
 }));
 
@@ -63,7 +65,7 @@ describe('createReportingRetentionScheduler', () => {
 
   it('builds a scheduler with a leader lock when Redis is configured', () => {
     process.env[ENV_KEY] = 'true';
-    createEnvRedisLockSpy.mockReturnValue({ set: jest.fn() });
+    createEnvRedisLockSpy.mockReturnValue({ set: jest.fn<AnyFn>() });
     const sched = createReportingRetentionScheduler();
     expect(sched).not.toBeNull();
     const opts = createSchedulerSpy.mock.calls[0][0] as { name: string; lock?: { key: string } };
@@ -87,6 +89,8 @@ describe('createReportingRetentionScheduler', () => {
     expect(purgeExpiredReportingData).toHaveBeenCalledTimes(1);
     const arg = purgeExpiredReportingData.mock.calls[0][0] as { batchSize: number; maxBatchesPerTable: number };
     expect(arg).toMatchObject({ batchSize: expect.any(Number), maxBatchesPerTable: expect.any(Number) });
+    // Team rows are purged on their ROOT's window — the sweep always gets a resolver.
+    expect(typeof (arg as { resolveRetentionOrgId?: unknown }).resolveRetentionOrgId).toBe('function');
   });
 
   it('the run callback swallows sweep errors (never throws into the scheduler)', async () => {
@@ -95,5 +99,31 @@ describe('createReportingRetentionScheduler', () => {
     createReportingRetentionScheduler();
     const opts = createSchedulerSpy.mock.calls[0][0] as { run: () => Promise<void> };
     await expect(opts.run()).resolves.toBeUndefined();
+  });
+});
+
+describe('createRetentionRootResolver (team rows follow the ROOT\'s retention)', () => {
+  it('walks the parent chain to the root and memoizes per sweep', async () => {
+    const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
+    const parents: Record<string, string | undefined> = { 'team-b': 'team-a', 'team-a': 'root', 'root': undefined };
+    const fetchParent = jest.fn(async (id: string) => parents[id]);
+    const resolve = createRetentionRootResolver(fetchParent);
+    expect(await resolve('team-b')).toBe('root');
+    expect(await resolve('team-b')).toBe('root');
+    expect(await resolve('root')).toBe('root');
+    // team-b walk = 3 lookups; the repeat is memoized; `root` is its own lookup.
+    expect(fetchParent).toHaveBeenCalledTimes(4);
+  });
+
+  it('fails CLOSED: a lookup error resolves to null (the sweep skips the org)', async () => {
+    const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
+    const resolve = createRetentionRootResolver(async () => { throw new Error('platform down'); });
+    expect(await resolve('team-1')).toBeNull();
+  });
+
+  it('treats a cycle as unresolvable (null)', async () => {
+    const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
+    const resolve = createRetentionRootResolver(async (id) => (id === 'a' ? 'b' : 'a'));
+    expect(await resolve('a')).toBeNull();
   });
 });

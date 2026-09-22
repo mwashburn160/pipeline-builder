@@ -102,7 +102,7 @@ export interface PaginatedResult<T> {
  * class PipelineService extends CrudService<Pipeline, PipelineFilter, PipelineInsert, PipelineUpdate> {
  *   protected get schema() { return schema.pipeline; }
  *   protected buildConditions(filter, orgId) { return buildPipelineConditions(filter, orgId); }
- *   protected getSortColumn(sortBy) { return sortColumnMap[sortBy] ?? null; }
+ *   protected getSortColumn(sortBy) { return Object.hasOwn(sortColumnMap, sortBy) ? sortColumnMap[sortBy] : null; }
  *   protected getProjectColumn() { return schema.pipeline.project; }
  *   protected getOrgColumn() { return schema.pipeline.orgId; }
  * }

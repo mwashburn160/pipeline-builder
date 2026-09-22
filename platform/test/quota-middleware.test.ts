@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockCheck = jest.fn();
+const mockCheck = jest.fn<AnyFn>();
 const mockReserveQuota = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockDecrementQuota = jest.fn();
-const mockGetServiceAuthHeader = jest.fn((...a: unknown[]) => 'Bearer test');
+const mockDecrementQuota = jest.fn<AnyFn>();
+const mockGetServiceAuthHeader = jest.fn((..._a: unknown[]) => 'Bearer test');
 const mockResolveOrgLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string }>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -29,6 +30,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   resolveOrgLineage: (...a: unknown[]) => mockResolveOrgLineage(...a),
 }));
 
@@ -109,23 +111,42 @@ describe('releaseFeatureQuota — rolls back against the same resolved ROOT', ()
 
   it('decrements against the ROOT the reservation targeted', async () => {
     mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
-    const logWarn = jest.fn();
+    const logWarn = jest.fn<AnyFn>();
 
-    releaseFeatureQuota('team-9', 'dashboards', logWarn);
+    releaseFeatureQuota('team-9', 'dashboards', logWarn, null);
     // Fire-and-forget: let the resolveOrgLineage promise settle.
     await new Promise((r) => setImmediate(r));
 
     expect(mockResolveOrgLineage).toHaveBeenCalledWith('team-9');
     expect(mockDecrementQuota).toHaveBeenCalledWith(
-      expect.anything(), 'root-1', 'dashboards', 'Bearer test', logWarn,
+      expect.anything(), 'root-1', 'dashboards', 'Bearer test', logWarn, 1, undefined,
+    );
+  });
+
+  it('a ROLLBACK carries the reservation\'s resetAt as the conditional-decrement snapshot', async () => {
+    // If the quota period rolls over between reserve and rollback, the quota
+    // service skips a snapshot-mismatched decrement — so a failed create can't
+    // steal a slot from the new period.
+    mockResolveOrgLineage.mockResolvedValue({ rootOrgId: 'root-1' });
+    const logWarn = jest.fn<AnyFn>();
+    const reservation = {
+      exceeded: false,
+      quota: { type: 'dashboards' as const, limit: 10, used: 3, remaining: 7, resetAt: '2026-09-24T00:00:00.000Z' },
+    };
+
+    releaseFeatureQuota('team-9', 'dashboards', logWarn, reservation);
+    await new Promise((r) => setImmediate(r));
+
+    expect(mockDecrementQuota).toHaveBeenCalledWith(
+      expect.anything(), 'root-1', 'dashboards', 'Bearer test', logWarn, 1, '2026-09-24T00:00:00.000Z',
     );
   });
 
   it('logs (and does not decrement) when root resolution fails', async () => {
     mockResolveOrgLineage.mockRejectedValue(new Error('lineage down'));
-    const logWarn = jest.fn();
+    const logWarn = jest.fn<AnyFn>();
 
-    releaseFeatureQuota('team-9', 'dashboards', logWarn);
+    releaseFeatureQuota('team-9', 'dashboards', logWarn, null);
     await new Promise((r) => setImmediate(r));
 
     expect(mockDecrementQuota).not.toHaveBeenCalled();

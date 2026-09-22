@@ -13,7 +13,7 @@
  */
 
 import { jest } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 
 import { createFakeEcosystemDb, type FakeEcosystemDb, type NewRow, type Row } from './fake-ecosystem-db.js';
 
@@ -32,12 +32,16 @@ export interface Harness {
   quota: {
     check: ReturnType<typeof jest.fn>;
     getTier: ReturnType<typeof jest.fn>;
+    /** The fail-closed tier read (null = unreadable) the Verified upkeep uses. */
+    getTierStrict: ReturnType<typeof jest.fn>;
   };
   sbom: { current: ReturnType<typeof jest.fn>; public: ReturnType<typeof jest.fn> };
   /** Platform's `/internal/ecosystem/*` reads (Verified eligibility facts, approver counts). */
   platform: { eligibility: ReturnType<typeof jest.fn>; approvers: ReturnType<typeof jest.fn> };
   /** Set the tenant listings limit the fake quota service reports (-1 = unlimited). */
   setListingsLimit: (limit: number) => void;
+  /** The background re-sign kick (E1) — recorded, never run: suites drive `runResignJobs` themselves. */
+  resignKick: ReturnType<typeof jest.fn>;
 }
 
 /** Register every module double. Must run before the code under test is imported. */
@@ -45,7 +49,7 @@ export function setupEcosystemHarness(): Harness {
   const db = createFakeEcosystemDb();
   const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
   jest.unstable_mockModule('drizzle-orm', () => drizzleMock(db.ops));
-  jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ ...actualData, ...db.pipelineData }));
+  jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { ...actualData, ...db.pipelineData }));
 
   const audit = jest.fn();
   jest.unstable_mockModule('../../src/services/audit.js', () => ({ emitPluginAudit: audit, getAuditClient: () => ({ record: jest.fn() }) }));
@@ -95,6 +99,7 @@ export function setupEcosystemHarness(): Harness {
   const quota = {
     check: jest.fn(async () => ({ allowed: true, limit: listingsLimit, used: 0, remaining: -1, resetAt: '', unlimited: listingsLimit === -1 })),
     getTier: jest.fn(async () => 'team'),
+    getTierStrict: jest.fn(async (): Promise<string | null> => 'team'),
   };
 
   // An eligible org by default: a verified domain and an owner with MFA.
@@ -103,7 +108,8 @@ export function setupEcosystemHarness(): Harness {
     approvers: jest.fn(async () => ({ holders: 3, eligible: 3, superadmins: 1 })),
   };
 
-  return { db, audit, notify, registryPost, registryDelete, membership, quota, sbom, platform, setListingsLimit: (n) => { listingsLimit = n; } };
+  const resignKick = jest.fn();
+  return { db, audit, notify, registryPost, registryDelete, membership, quota, sbom, platform, setListingsLimit: (n) => { listingsLimit = n; }, resignKick };
 }
 
 /** Plug the fakes into the imported ecosystem modules. */
@@ -112,6 +118,8 @@ export async function wireEcosystemHarness(h: Harness): Promise<void> {
   const { setBaseImageProbeForTests, setMembershipProbeForTests } = await import('../../src/services/ecosystem/decisions.js');
   const { initEcosystem } = await import('../../src/services/ecosystem/context.js');
   const { setPlatformReadsForTests } = await import('../../src/services/ecosystem/platform-reads.js');
+  const { setResignKickForTests } = await import('../../src/services/ecosystem/resign.js');
+  setResignKickForTests(h.resignKick as () => void);
   setRegistryClientForTests({ post: h.registryPost as any, get: jest.fn() as any, delete: h.registryDelete as any });
   setPlatformReadsForTests(h.platform as any);
   setMembershipProbeForTests(h.membership as any);

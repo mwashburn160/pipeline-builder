@@ -10,16 +10,17 @@
  * introducing the record changed no user-visible behaviour.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
-const mockCreate = jest.fn();
-const mockFindOneAndUpdate = jest.fn();
-const mockUpdateMany = jest.fn();
-const mockUpdateOne = jest.fn();
-const mockFindById = jest.fn();
-const mockCountDocuments = jest.fn();
-const mockFind = jest.fn();
-const mockUserFind = jest.fn();
+const mockCreate = jest.fn<AnyFn>();
+const mockFindOneAndUpdate = jest.fn<AnyFn>();
+const mockUpdateMany = jest.fn<AnyFn>();
+const mockUpdateOne = jest.fn<AnyFn>();
+const mockFindById = jest.fn<AnyFn>();
+const mockCountDocuments = jest.fn<AnyFn>();
+const mockFind = jest.fn<AnyFn>();
+const mockUserFind = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   ImpersonationRequest: {

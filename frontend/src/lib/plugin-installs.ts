@@ -318,6 +318,7 @@ export function entryFromInstall(install: InstallView): CatalogEntry {
       license: null,
     },
     install,
+    needsApproval: install.needsApproval ?? false,
     installable: false,
     requiresApproval: false,
     blocked: install.blocked,

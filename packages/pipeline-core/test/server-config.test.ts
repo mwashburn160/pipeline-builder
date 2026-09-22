@@ -160,6 +160,10 @@ describe('validateServerConfig', () => {
     billingHost: 'billing',
     billingPort: 3000,
     billingTimeout: 5000,
+    platformHost: 'platform',
+    platformPort: 3000,
+    imageRegistryHost: 'image-registry',
+    imageRegistryPort: 3000,
   };
 
   it('does not throw for valid config', () => {

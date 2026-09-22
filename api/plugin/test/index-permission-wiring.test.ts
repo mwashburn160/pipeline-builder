@@ -18,6 +18,7 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Capture every app.use(...) call so we can inspect the middleware stacks.
@@ -72,7 +73,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireStepUp: STEP_UP,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: jest.fn(),
   createApp: () => ({ app, sseManager: {} }),
   runServer: jest.fn(),
@@ -123,7 +124,7 @@ jest.unstable_mockModule('../src/routes/public-submissions.js', () => ({ createP
 // barrel / pluginService aren't pulled into this wiring test.
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));
 const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ ...actualData, createSoftDeletePurgeScheduler: () => null }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { ...actualData, createSoftDeletePurgeScheduler: () => null }));
 jest.unstable_mockModule('../src/routes/publisher.js', () => ({ createPublisherRoutes: () => ROUTERS.publisher }));
 jest.unstable_mockModule('../src/routes/installs.js', () => ({ createInstallRoutes: () => ROUTERS.installs }));
 jest.unstable_mockModule('../src/routes/ecosystem-console.js', () => ({ createEcosystemConsoleRoutes: () => ROUTERS.ecosystemConsole }));

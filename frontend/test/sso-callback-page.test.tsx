@@ -54,6 +54,8 @@ beforeEach(() => {
   mockQuery = { orgId: 'org-1', code: 'c1', state: 's1' };
   mockApi.completeSsoCallback.mockResolvedValue({ success: true });
   window.close = jest.fn<AnyFn>();
+  // The sign-in this tab started (src/lib/sso-intent).
+  sessionStorage.setItem('pb_sso_intent', 's1');
 });
 
 it('completes the sign-in and lands on the dashboard', async () => {
@@ -104,6 +106,13 @@ it('reports a provider that cancelled or denied the sign-in', async () => {
   render(<SsoCallbackPage />);
 
   expect(await screen.findByText(/cancelled or denied by your identity provider \(access_denied\)/i)).toBeInTheDocument();
+  expect(mockApi.completeSsoCallback).not.toHaveBeenCalled();
+});
+
+it('LOGIN CSRF: refuses a code this tab did not start (no / a different intent)', async () => {
+  sessionStorage.removeItem('pb_sso_intent');
+  render(<SsoCallbackPage />);
+  expect(await screen.findByText(/no pending sign-in/i)).toBeInTheDocument();
   expect(mockApi.completeSsoCallback).not.toHaveBeenCalled();
 });
 

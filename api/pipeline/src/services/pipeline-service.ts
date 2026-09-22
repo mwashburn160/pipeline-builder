@@ -3,7 +3,7 @@
 
 import { ConflictError, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildPipelineConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type PipelineFilter } from '@pipeline-builder/pipeline-data';
+import { CrudService, buildPipelineConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type CrudTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -92,7 +92,9 @@ export class PipelineService extends CrudService<
       isDefault: schema.pipeline.isDefault,
     };
 
-    return sortableColumns[sortBy] || null;
+    // Own keys only: `sortBy` is client input, and a plain lookup walks the
+    // prototype (`?sortBy=constructor` returned a function, not a column).
+    return Object.hasOwn(sortableColumns, sortBy) ? sortableColumns[sortBy] : null;
   }
 
   protected getProjectColumn(): AnyColumn {
@@ -199,6 +201,18 @@ export class PipelineService extends CrudService<
 
   protected async onAfterDelete(id: string, entity: Pipeline, userId: string): Promise<void> {
     await this.invalidateAndEmit('deleted', id, entity, userId);
+  }
+
+  /**
+   * A purged pipeline takes its STEP MANIFEST with it, in the same transaction.
+   * The manifest has no FK to `pipelines` (it is keyed by the registration, not
+   * the row), so without this the rows outlived the pipeline forever: they kept
+   * counting as installs / verified use in cross-org plugin stats, and kept
+   * their image digests "referenced" for the `public/*` GC guard.
+   */
+  protected async onBeforePurge(ids: string[], tx: CrudTx): Promise<void> {
+    if (ids.length === 0) return;
+    await tx.delete(schema.pipelineStepManifest).where(inArray(schema.pipelineStepManifest.pipelineId, ids));
   }
 
   /** A restored pipeline re-enters the live catalog, so it must be re-evaluated

@@ -6,7 +6,7 @@ permalink: /docs/
 
 # Documentation
 
-Setup, usage, and reference for Pipeline Builder. New here? Start with [Getting Started](#getting-started) below, then jump into [Creating Pipelines](#creating-pipelines).
+Setup, usage, and reference for Pipeline Builder. New here? Start with [Start Here](#start-here) below, then jump into [Creating Pipelines](#creating-pipelines).
 
 ## Overview
 

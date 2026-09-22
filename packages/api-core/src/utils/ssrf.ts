@@ -31,41 +31,115 @@ import { request as httpRequest } from 'http';
 import { request as httpsRequest, type RequestOptions } from 'https';
 import { isIP } from 'net';
 
+/** IPv4 ranges that are NOT publicly routable unicast: [first octets as a 32-bit int, prefix length]. */
+const IPV4_NON_GLOBAL: ReadonlyArray<readonly [string, number]> = [
+  ['0.0.0.0', 8], // "this network"
+  ['10.0.0.0', 8], // private
+  ['100.64.0.0', 10], // carrier-grade NAT
+  ['127.0.0.0', 8], // loopback
+  ['169.254.0.0', 16], // link-local, incl. 169.254.169.254 cloud metadata
+  ['172.16.0.0', 12], // private
+  ['192.0.0.0', 24], // IETF protocol assignments (incl. 192.0.0.192 metadata on some clouds)
+  ['192.0.2.0', 24], // TEST-NET-1
+  ['192.88.99.0', 24], // 6to4 relay anycast (deprecated)
+  ['192.168.0.0', 16], // private
+  ['198.18.0.0', 15], // benchmarking
+  ['198.51.100.0', 24], // TEST-NET-2
+  ['203.0.113.0', 24], // TEST-NET-3
+  ['224.0.0.0', 4], // multicast
+  ['240.0.0.0', 4], // reserved, incl. 255.255.255.255 broadcast
+];
+
+function ipv4ToInt(ip: string): number | null {
+  const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return null;
+  const octets = m.slice(1).map(Number);
+  if (octets.some((o) => o > 255)) return null;
+  return ((octets[0] * 256 + octets[1]) * 256 + octets[2]) * 256 + octets[3];
+}
+
+const IPV4_NON_GLOBAL_INT = IPV4_NON_GLOBAL.map(([base, bits]) => [ipv4ToInt(base)!, bits] as const);
+
+function isNonGlobalV4(n: number): boolean {
+  return IPV4_NON_GLOBAL_INT.some(([base, bits]) => {
+    const size = 2 ** (32 - bits);
+    return n >= base && n < base + size;
+  });
+}
+
+/** Parse an IPv6 literal into its eight 16-bit groups (null when malformed). */
+function parseIpv6(ip: string): number[] | null {
+  let addr = ip.split('%')[0]; // drop a zone id (fe80::1%eth0)
+  // An embedded dotted IPv4 tail (::ffff:1.2.3.4, 64:ff9b::1.2.3.4) → two groups.
+  const tail = addr.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (tail) {
+    const n = ipv4ToInt(tail[1]);
+    if (n === null) return null;
+    addr = `${addr.slice(0, -tail[1].length)}${Math.floor(n / 65536).toString(16)}:${(n % 65536).toString(16)}`;
+  }
+  const halves = addr.split('::');
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (part === '') return [];
+    const groups = part.split(':');
+    const out: number[] = [];
+    for (const g of groups) {
+      if (!/^[0-9a-f]{1,4}$/i.test(g)) return null;
+      out.push(parseInt(g, 16));
+    }
+    return out;
+  };
+  const head = parse(halves[0]);
+  const rest = halves.length === 2 ? parse(halves[1]) : [];
+  if (!head || !rest) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  const zeros = 8 - head.length - rest.length;
+  if (zeros < 1) return null;
+  return [...head, ...new Array<number>(zeros).fill(0), ...rest];
+}
+
+const v4FromGroups = (hi: number, lo: number): number => hi * 65536 + lo;
+
 /**
- * True for loopback / private / link-local / CGNAT / cloud-metadata / ULA
- * addresses — the ranges an outbound tenant webhook must never reach.
+ * True for any address that is NOT publicly routable unicast — the ranges an
+ * outbound tenant webhook must never reach.
+ *
+ * An ALLOWLIST, not a denylist: an IPv6 address is acceptable only inside the
+ * global-unicast block `2000::/3` (so link-local `fe80::/10`, site-local
+ * `fec0::/10`, unique-local `fc00::/7`, multicast, loopback, unspecified and
+ * every future special range are refused by default). Formats that EMBED an
+ * IPv4 address are unwrapped and judged by that address — IPv4-mapped
+ * `::ffff:0:0/96` (dotted or hex), NAT64 `64:ff9b::/96` and 6to4 `2002::/16` —
+ * so `::ffff:7f00:1` or `2002:a9fe:a9fe::` can't smuggle loopback or the
+ * metadata endpoint past the check. Anything unparseable is refused.
  */
 export function isPrivateAddress(ip: string): boolean {
   const addr = ip.replace(/^\[|\]$/g, '').toLowerCase();
-  const v4 = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const a = Number(v4[1]), b = Number(v4[2]);
-    return a === 0 || a === 10 || a === 127
-      || (a === 169 && b === 254) // link-local incl. 169.254.169.254 metadata
-      || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && b === 168)
-      || (a === 100 && b >= 64 && b <= 127); // CGNAT
+  const v4 = ipv4ToInt(addr);
+  if (v4 !== null) return isNonGlobalV4(v4);
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(addr)) return true; // out-of-range octet
+
+  const g = parseIpv6(addr);
+  if (!g) return true; // not an address we can reason about → refuse
+
+  // IPv4-mapped ::ffff:a.b.c.d
+  if (g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0xffff) {
+    return isNonGlobalV4(v4FromGroups(g[6], g[7]));
   }
-  if (addr === '::1' || addr === '::') return true;
-  if (addr.startsWith('::ffff:')) {
-    const suffix = addr.slice(7);
-    // Dotted form (`::ffff:127.0.0.1`) — recurse straight into the v4 checks.
-    if (suffix.includes('.')) return isPrivateAddress(suffix);
-    // Hex form (`::ffff:7f00:1` = 127.0.0.1, `::ffff:c0a8:1` = 192.168.0.1):
-    // the low 32 bits are written as the last one/two hex groups. Fold them into
-    // a dotted quad and recurse so the v4 ranges below still catch it — without
-    // this the hex form slips past every check and reaches loopback/private space.
-    const groups = suffix.split(':');
-    const high = parseInt(groups[groups.length - 2] ?? '0', 16);
-    const low = parseInt(groups[groups.length - 1] ?? '0', 16);
-    if (Number.isNaN(high) || Number.isNaN(low)) return false;
-    // Fold each 16-bit half into two octets (arithmetic, not bitwise, to satisfy
-    // the no-bitwise lint): high → a.b, low → c.d.
-    const dotted = `${Math.floor(high / 256) % 256}.${high % 256}.${Math.floor(low / 256) % 256}.${low % 256}`;
-    return isPrivateAddress(dotted);
+  // NAT64 well-known prefix 64:ff9b::/96 — the target is the embedded IPv4.
+  if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 0 && g[3] === 0 && g[4] === 0 && g[5] === 0) {
+    return isNonGlobalV4(v4FromGroups(g[6], g[7]));
   }
-  return addr.startsWith('fc') || addr.startsWith('fd') // unique-local
-    || addr.startsWith('fe80'); // link-local
+  // 6to4 2002:V4HI:V4LO::/48 — the tunnel endpoint is the embedded IPv4.
+  if (g[0] === 0x2002) return isNonGlobalV4(v4FromGroups(g[1], g[2]));
+
+  // Only global unicast 2000::/3 from here on.
+  if (g[0] < 0x2000 || g[0] > 0x3fff) return true;
+  // …minus its special-purpose carve-outs:
+  if (g[0] === 0x2001 && g[1] < 0x0200) return true; // 2001::/23 IETF protocol assignments (Teredo, benchmarking, ORCHID…)
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return true; // 2001:db8::/32 documentation
+  if (g[0] === 0x3fff && g[1] < 0x1000) return true; // 3fff::/20 documentation
+  return false;
 }
 
 /** Options for {@link assertSafeUrl}. */

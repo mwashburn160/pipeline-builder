@@ -18,9 +18,10 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import type { AlertNotification, DeliveryResult } from '../src/services/notification-channels.js';
+import type { DeliveryResult } from '@pipeline-builder/api-core';
+import type { AlertNotification } from '../src/services/notification-channels.js';
 
 // findById(id, orgId) → select().from().where().limit(1) → resolves rows[]
 const mockLimit = jest.fn<() => Promise<unknown[]>>(async () => []);
@@ -37,7 +38,7 @@ const mockGetChannel = jest.fn<(channel: string) => { channel: string; deliver: 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { observability: { alertDeliveryTimeoutMs: 5000 } } }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   softDeleteRetentionMs: () => 0,
   schema: {
     orgAlertDestination: {

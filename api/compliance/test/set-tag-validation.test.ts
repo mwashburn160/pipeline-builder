@@ -48,6 +48,8 @@ function makeSelectChain(): Record<string, unknown> {
 const dbSelect = jest.fn(() => makeSelectChain());
 
 const pipelineDataMock = {
+  // Imported (via the entitlement watermark store) by subscription-service.
+  drizzleRows: <T>(rows: T[]) => rows,
   CrudService: StubCrudService,
   CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 },
   buildComplianceRuleConditions: jest.fn(() => []),

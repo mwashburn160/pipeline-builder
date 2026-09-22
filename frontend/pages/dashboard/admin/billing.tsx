@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useId } from 'react';
 import { formatError } from '@/lib/constants';
 import { CreditCard, Pencil, RefreshCw, ShieldAlert } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -71,6 +71,7 @@ function statusColor(status: string): 'green' | 'gray' | 'yellow' | 'red' | 'blu
  * fall back to a "not enabled" empty state rather than an error banner.
  */
 export default function BillingAdminPage() {
+  const uid = useId();
   // System-admin gate comes from the "Billing admin" nav entry (page-access.ts).
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
   const toast = useToast();
@@ -152,6 +153,9 @@ export default function BillingAdminPage() {
   const [editInterval, setEditInterval] = useState<BillingInterval>('monthly');
   const [editCancelAtPeriodEnd, setEditCancelAtPeriodEnd] = useState(false);
   const editForm = useFormState();
+  // The validated change, held while the step-up dialog is open. The edit modal
+  // is hidden meanwhile (one dialog at a time) and keeps its field values.
+  const [pendingEdit, setPendingEdit] = useState<AdminSubscriptionUpdate | null>(null);
 
   const openEdit = (sub: Subscription) => {
     setEditSub(sub);
@@ -180,7 +184,18 @@ export default function BillingAdminPage() {
       editForm.setError('No changes to save.');
       return;
     }
-    const result = await editForm.run(() => api.updateAdminSubscription(editSub.id, body));
+    // The override is step-up gated: confirm first, then send with the token.
+    // (Sent bare, the refusal went to the global dialog, whose replay saved the
+    // change while this modal stayed open showing a failure.)
+    setPendingEdit(body);
+  };
+
+  /** Runs once the step-up confirms; the edit modal comes back on a failure. */
+  const executeEdit = async (stepUpToken: string) => {
+    const body = pendingEdit;
+    if (!editSub || !body) return;
+    const result = await editForm.run(() => api.updateAdminSubscription(editSub.id, body, stepUpToken));
+    setPendingEdit(null);
     if (result !== null) {
       setEditSub(null);
       list.refresh();
@@ -301,12 +316,12 @@ export default function BillingAdminPage() {
               <h3 className="text-base font-semibold text-fg">Platform Finance</h3>
               <div className="flex flex-wrap items-end gap-2">
                 <div className="space-y-1">
-                  <label className="block text-2xs font-medium text-fg-muted">From</label>
-                  <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="text-sm" />
+                  <label className="block text-2xs font-medium text-fg-muted" htmlFor={`${uid}-from`}>From</label>
+                  <Input id={`${uid}-from`} type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="text-sm" />
                 </div>
                 <div className="space-y-1">
-                  <label className="block text-2xs font-medium text-fg-muted">To</label>
-                  <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="text-sm" />
+                  <label className="block text-2xs font-medium text-fg-muted" htmlFor={`${uid}-to`}>To</label>
+                  <Input id={`${uid}-to`} type="date" value={to} onChange={(e) => setTo(e.target.value)} className="text-sm" />
                 </div>
                 <Button variant="secondary" onClick={applyRange} loading={summaryLoading}>
                   <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Apply
@@ -386,7 +401,7 @@ export default function BillingAdminPage() {
       )}
 
       {/* Edit subscription */}
-      {editSub && (
+      {editSub && !pendingEdit && (
         <Modal
           title="Override subscription"
           onClose={() => setEditSub(null)}
@@ -406,8 +421,8 @@ export default function BillingAdminPage() {
           </p>
           <div className="space-y-3">
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-fg-muted">Plan</label>
-              <Select
+              <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-plan`}>Plan</label>
+              <Select id={`${uid}-plan`}
                 value={editPlanId}
                 onChange={(e) => setEditPlanId(e.target.value)}
                 className="text-sm"
@@ -422,8 +437,8 @@ export default function BillingAdminPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="block text-xs font-medium text-fg-muted">Status</label>
-                <Select
+                <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-status`}>Status</label>
+                <Select id={`${uid}-status`}
                   value={editStatus}
                   onChange={(e) => setEditStatus(e.target.value as SubscriptionStatus)}
                   className="text-sm capitalize"
@@ -436,8 +451,8 @@ export default function BillingAdminPage() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <label className="block text-xs font-medium text-fg-muted">Interval</label>
-                <Select
+                <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-interval`}>Interval</label>
+                <Select id={`${uid}-interval`}
                   value={editInterval}
                   onChange={(e) => setEditInterval(e.target.value as BillingInterval)}
                   className="text-sm capitalize"
@@ -458,6 +473,16 @@ export default function BillingAdminPage() {
           </div>
           {editForm.error && <p className="text-sm text-red-600 dark:text-red-400 mt-3">{editForm.error}</p>}
         </Modal>
+      )}
+
+      {editSub && pendingEdit && (
+        <StepUpModal
+          title="Override this subscription?"
+          action={`Override the subscription for ${editSub.orgId}`}
+          details={<p>A plan or status change resyncs the organization&apos;s tier and entitlements.</p>}
+          onConfirmed={executeEdit}
+          onClose={() => { if (!editForm.loading) setPendingEdit(null); }}
+        />
       )}
 
       {/* Purge confirm — step-up gated (fleet-level destructive). The purge runs

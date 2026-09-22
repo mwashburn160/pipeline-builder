@@ -20,6 +20,7 @@
  *
  * Uses the REAL `@pipeline-builder/api-core` (no jest mock in this suite).
  */
+import { describe, it, expect } from '@jest/globals';
 import { FEATURE_METADATA, TIER_FEATURES, type FeatureFlag } from '@pipeline-builder/api-core';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 

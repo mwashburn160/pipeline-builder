@@ -39,7 +39,7 @@ export default function EnforcedRulesView() {
   }, [targetFilter]);
 
   useEffect(() => {
-    fetchRules();
+    void fetchRules();
     return () => { genRef.current++; };
   }, [fetchRules]);
 

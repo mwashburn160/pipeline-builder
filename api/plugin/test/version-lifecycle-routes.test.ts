@@ -6,7 +6,9 @@
  * `POST /plugins/:id/yank` (plugin-ecosystem W0.4).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockRequireVisibilityWriteAccess = jest.fn((_req: any, _res: any, _resource: any, _u: any, _p: any) => true);
@@ -16,10 +18,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireVisibilityWriteAccess: mockRequireVisibilityWriteAccess,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (fn: Function) => async (rq: any, rs: any) => {
     try {
-      await fn({ req: rq, res: rs, ctx: { log: jest.fn(), requestId: 'r-1' }, orgId: 'org-1', userId: 'user-1' });
+      await fn({ req: rq, res: rs, ctx: { log: jest.fn<AnyFn>(), requestId: 'r-1' }, orgId: 'org-1', userId: 'user-1' });
     } catch (err: any) {
       rs.status(err.statusCode ?? 500).json({ success: false, message: err.message, code: err.code });
     }
@@ -33,14 +35,14 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: { findById: mockFindById, setDeprecated: mockSetDeprecated, yankVersion: mockYankVersion },
 }));
 
-const mockEmitPluginAudit = jest.fn();
+const mockEmitPluginAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({ emitPluginAudit: mockEmitPluginAudit }));
 
-const mockOnPluginDeprecated = jest.fn();
+const mockOnPluginDeprecated = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/deprecation-notice.js', () => ({ onPluginDeprecated: mockOnPluginDeprecated }));
 
 const { createVersionLifecycleRoutes } = await import('../src/routes/version-lifecycle.js');
-const { MockConflictError } = await import('@pipeline-builder/api-core/lib/testing/mock-api-core.js');
+const { MockConflictError } = await import('@pipeline-builder/api-core/testing');
 
 const router = createVersionLifecycleRoutes();
 function handler(path: string) {
@@ -50,14 +52,14 @@ function handler(path: string) {
 function req(body: unknown, id = 'p-1'): any { return { params: { id }, body, query: {}, headers: {} }; }
 function res(): any {
   const r: any = {};
-  r.status = jest.fn().mockReturnValue(r);
-  r.json = jest.fn().mockReturnValue(r);
+  r.status = jest.fn<AnyFn>().mockReturnValue(r);
+  r.json = jest.fn<AnyFn>().mockReturnValue(r);
   return r;
 }
 
 const row = { id: 'p-1', orgId: 'org-1', name: 'trivy', version: '1.2.0', visibility: 'org', deprecatedAt: null, keywords: [], installCommands: [], commands: [] };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('POST /plugins/:id/deprecate', () => {
   const deprecate = handler('/:id/deprecate');

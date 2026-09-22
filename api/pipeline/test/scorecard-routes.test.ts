@@ -7,21 +7,23 @@
  * compute so the scorecard's CFR/MTTR match what `/dora` shows for the same org.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
-const mockSendBadRequest = jest.fn();
-const mockSendEntityNotFound = jest.fn();
-const mockGetDoraMetrics = jest.fn<(...a: unknown[]) => Promise<any>>();
-const mockGetIncidentSettings = jest.fn<(...a: unknown[]) => Promise<any>>();
-const mockFindById = jest.fn<(...a: unknown[]) => Promise<any>>();
-const mockFindPaginated = jest.fn<(...a: unknown[]) => Promise<any>>();
-const mockIncrementQuota = jest.fn();
+const mockSendBadRequest = jest.fn<AnyFn>();
+const mockSendEntityNotFound = jest.fn<AnyFn>();
+const mockGetDoraMetrics = jest.fn<AnyFn>();
+const mockGetIncidentSettings = jest.fn<AnyFn>();
+const mockFindById = jest.fn<AnyFn>();
+const mockFindPaginated = jest.fn<AnyFn>();
+const mockIncrementQuota = jest.fn<AnyFn>();
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
-    const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
+    const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
   incrementQuotaFromCtx: (...a: unknown[]) => mockIncrementQuota(...a),
@@ -39,7 +41,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   runConcurrent: async <T, R>(items: T[], _max: number, fn: (i: T) => Promise<R>) => Promise.all(items.map(fn)),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     getDoraMetrics: (...a: unknown[]) => mockGetDoraMetrics(...a),
     getIncidentSettings: (...a: unknown[]) => mockGetIncidentSettings(...a),
@@ -72,7 +74,7 @@ const sampleDora = {
 
 describe('GET /:id/scorecard', () => {
   let router: any;
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
   const handler = () => {
     const stack = router.stack.find((l: any) => l.route?.path === '/:id/scorecard')?.route?.stack;
     return stack[stack.length - 1].handle;
@@ -113,7 +115,7 @@ describe('GET /:id/scorecard', () => {
 
 describe('GET /scorecard (org-wide roll-up)', () => {
   let router: any;
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
   const handler = () => {
     const stack = router.stack.find((l: any) => l.route?.path === '/scorecard')?.route?.stack;
     return stack[stack.length - 1].handle;

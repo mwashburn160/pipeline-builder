@@ -23,9 +23,11 @@
  * stand in for what `requireAuth` populates in production.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { jest, describe, it, expect, beforeEach, beforeAll, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // --- registry-client mock (only the calls the happy-path handlers reach) ----
@@ -44,17 +46,17 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   headManifest,
   mountBlob,
   putManifest,
-  deleteManifest: jest.fn(),
-  headBlob: jest.fn(),
-  getBlobStream: jest.fn(),
+  deleteManifest: jest.fn<AnyFn>(),
+  headBlob: jest.fn<AnyFn>(),
+  getBlobStream: jest.fn<AnyFn>(),
   isNotFound,
 }));
 
 // --- api-server mock: withRoute passthrough + metric counter ----------------
-const incCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+const incCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
-    const ctx = { log: jest.fn(), requestId: 'test-req' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'test-req' };
     try {
       await handler({ req, res, ctx, orgId: '000000000000000000000001', userId: 'admin' });
     } catch (err) {
@@ -68,7 +70,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 
 // --- api-core mock: real-enough send helpers + the capability-aware gates ----
 // (`requirePermission`/`requireAllPermissions` come from the shared helper.)
-const emitAudit = jest.fn();
+const emitAudit = jest.fn<AnyFn>();
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
@@ -113,7 +115,7 @@ beforeAll(async () => {
     next();
   });
   app.use('/api/images', createImageRoutes());
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   const { port } = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
 });

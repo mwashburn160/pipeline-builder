@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { formatError } from '@/lib/constants';
+import { formatError , QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
@@ -11,7 +11,6 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { overallHealthColor } from '@/lib/quota-helpers';
-import { QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType } from '@/types';
 import { QUOTA_KEYS, buildTierPresets } from '@/components/quotas/constants';
 import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/QuotasReadOnly';
@@ -238,9 +237,9 @@ export default function QuotasPage() {
   // mid-period (limits untouched). The confirm + busy state live in QuotasAdmin;
   // this owns the API call, in-place refresh, and at-risk re-fetch. Rejections
   // propagate so the modal can surface them and stay open.
-  async function handleResetUsage() {
+  async function handleResetUsage(stepUpToken: string) {
     if (!orgData) return;
-    const res = await api.resetOrgQuota(orgData.orgId);
+    const res = await api.resetOrgQuota(orgData.orgId, undefined, stepUpToken);
     const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
     applyOrgData(updated, { orgId: orgData.orgId, sidebarName: orgData.name, sidebarSlug: orgData.slug, keepPool: orgData.pool });
     toast.success('Usage counters reset');

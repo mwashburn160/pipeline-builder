@@ -77,16 +77,19 @@ export function createPublisherRoutes(): Router {
       sendSuccess(res, 200, { listing: await deprecateOwnListedVersion(caller, param(req, 'listingId'), bodyOf(req)) });
     }));
 
-  router.get('/publisher/advisories', requirePermission('publishers:manage') as RequestHandler, ecosystemRoute(async ({ res, caller }) => {
+  // plugins:read: every member may read the advisories on their OWN publisher's listings (the service scopes it).
+  router.get('/publisher/advisories', requirePermission('plugins:read') as RequestHandler, ecosystemRoute(async ({ res, caller }) => {
     sendSuccess(res, 200, { advisories: await publisherAdvisories(caller) });
   }));
 
-  router.get('/publisher/incoming-transfers', requirePermission('publishers:manage') as RequestHandler, ecosystemRoute(async ({ res, caller }) => {
-    sendSuccess(res, 200, { requests: await incomingTransfers(caller) });
+  router.get('/publisher/incoming-transfers', requirePermission('publishers:manage') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
+    const page = await incomingTransfers(caller, req.query as Record<string, unknown>);
+    sendSuccess(res, 200, { requests: page.requests, nextCursor: page.nextCursor });
   }));
 
   router.get('/publish-requests', requirePermission('plugins:read') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { requests: await ownRequests(caller, req.query.status) });
+    const page = await ownRequests(caller, req.query as Record<string, unknown>);
+    sendSuccess(res, 200, { requests: page.requests, nextCursor: page.nextCursor });
   }));
 
   router.get('/publish-requests/draft', requirePermission('plugins:publish') as RequestHandler, ecosystemRoute(async ({ req, res, caller }) => {

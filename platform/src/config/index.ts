@@ -47,6 +47,15 @@ function requireEncryptionKey(): string {
   );
 }
 
+/** Object-lock mode for exported chain heads. `none` = the target has no
+ *  object-lock support (the export still runs, just without WORM retention). */
+function auditHeadLockMode(): 'COMPLIANCE' | 'GOVERNANCE' | 'none' {
+  const raw = (process.env.AUDIT_HEAD_EXPORT_LOCK_MODE || 'COMPLIANCE').toUpperCase();
+  if (raw === 'COMPLIANCE' || raw === 'GOVERNANCE') return raw;
+  if (raw === 'NONE') return 'none';
+  throw new Error('AUDIT_HEAD_EXPORT_LOCK_MODE must be COMPLIANCE, GOVERNANCE or none');
+}
+
 /** Per-Alertmanager-instance binding for the relay webhook. */
 export interface AlertWebhookInstance {
   /** Stable identifier sent by Alertmanager as `X-Alertmanager-Instance`. */
@@ -607,6 +616,27 @@ export const config = {
     // How many days to retain audit events. Read by the AuditEvent TTL
     // index; was previously parsed inline in models/audit-event.ts.
     retentionDays: envInt('AUDIT_RETENTION_DAYS', 90),
+    // Platform-local audit() writes that fail are spooled (Redis) and
+    // re-appended on this interval instead of being dropped.
+    spoolDrainIntervalMs: envInt('AUDIT_SPOOL_DRAIN_INTERVAL_MS', 30_000),
+    // Periodic HMAC-signed chain-head export to WRITE-ONCE object storage
+    // (S3/MinIO bucket with Object Lock). `/audit/verify` checks each chain
+    // against its published head, which is what makes TAIL truncation (deleting
+    // the newest rows + rewinding the in-DB head) detectable. Disabled when the
+    // endpoint/bucket/credentials are unset.
+    headExport: {
+      endpoint: process.env.AUDIT_HEAD_EXPORT_S3_ENDPOINT || '',
+      bucket: process.env.AUDIT_HEAD_EXPORT_S3_BUCKET || 'audit-heads',
+      region: process.env.AUDIT_HEAD_EXPORT_S3_REGION || 'us-east-1',
+      accessKeyId: process.env.AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY || '',
+      prefix: process.env.AUDIT_HEAD_EXPORT_PREFIX || 'audit-heads',
+      lockMode: auditHeadLockMode(),
+      // Object-lock retain-until = export time + this many days. Defaults well
+      // past the event TTL so a head outlives the rows it vouches for.
+      retentionDays: envInt('AUDIT_HEAD_EXPORT_RETENTION_DAYS', 400, { min: 1 }),
+      intervalMs: envInt('AUDIT_HEAD_EXPORT_INTERVAL_MS', 300_000, { min: 10_000 }),
+    },
   },
 
   quota: {

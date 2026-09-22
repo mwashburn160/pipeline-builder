@@ -10,11 +10,13 @@
 
 // Mocks — must be defined before imports
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockFindById = jest.fn();
-const mockUpdate = jest.fn();
+const mockFindById = jest.fn<AnyFn>();
+const mockUpdate = jest.fn<AnyFn>();
 
 // Plugin-contract check (W0.2) — resolves plugins through the DB; stubbed here
 // and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
@@ -76,7 +78,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
@@ -98,7 +100,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   pipelineScopeMetadata: (p: Record<string, any>) => ({ ...(p.global ?? {}), ...(p.defaults?.metadata ?? {}), ...(p.synth?.metadata ?? {}) }),
   allowedScopeRoots: () => () => true,
   validateTemplates: () => ({ valid: true, errors: [] }),
@@ -144,7 +146,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     headers: { authorization: 'Bearer tok' },
     context: {
       identity: { orgId: 'ORG-1', userId: 'user-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
       requestId: 'req-1',
     },
     ...overrides,
@@ -153,8 +155,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -163,7 +165,7 @@ function mockRes(): any {
 describe('PUT /pipelines/:id (update)', () => {
   const handler = getHandler('put', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns 200 on successful update', async () => {
     const updatedPipeline = {
@@ -211,7 +213,7 @@ describe('PUT /pipelines/:id (update)', () => {
   });
 
   it('returns 400 when body validation fails', async () => {
-    (validateBody as jest.Mock).mockReturnValueOnce({
+    (validateBody as jest.Mock<AnyFn>).mockReturnValueOnce({
       ok: false,
       error: 'pipelineName must be a string',
     });
@@ -277,7 +279,7 @@ describe('PUT /pipelines/:id (update)', () => {
 
   it('returns 403 when requireVisibilityWriteAccess returns false', async () => {
     mockFindById.mockResolvedValue(existingPipeline);
-    (requireVisibilityWriteAccess as jest.Mock).mockReturnValueOnce(false);
+    (requireVisibilityWriteAccess as jest.Mock<AnyFn>).mockReturnValueOnce(false);
 
     const req = mockReq();
     const res = mockRes();

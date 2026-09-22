@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from '../src/services/entity-events.js';
@@ -43,13 +44,13 @@ describe('entityEvents', () => {
 
   it('subscribe increments subscriber count', () => {
     const before = entityEvents.subscriberCount;
-    const onEvent = jest.fn().mockResolvedValue(undefined);
+    const onEvent = jest.fn<AnyFn>().mockResolvedValue(undefined);
     addSubscriber(onEvent);
     expect(entityEvents.subscriberCount).toBe(before + 1);
   });
 
   it('unsubscribe decrements subscriber count', () => {
-    const onEvent = jest.fn().mockResolvedValue(undefined);
+    const onEvent = jest.fn<AnyFn>().mockResolvedValue(undefined);
     const sub = addSubscriber(onEvent);
     const after = entityEvents.subscriberCount;
     entityEvents.unsubscribe(sub);
@@ -58,7 +59,7 @@ describe('entityEvents', () => {
   });
 
   it('emit calls subscriber with event', async () => {
-    const onEvent = jest.fn().mockResolvedValue(undefined);
+    const onEvent = jest.fn<AnyFn>().mockResolvedValue(undefined);
     addSubscriber(onEvent);
 
     const event = makeEvent();
@@ -71,8 +72,8 @@ describe('entityEvents', () => {
   });
 
   it('emit calls multiple subscribers', async () => {
-    const onEvent1 = jest.fn().mockResolvedValue(undefined);
-    const onEvent2 = jest.fn().mockResolvedValue(undefined);
+    const onEvent1 = jest.fn<AnyFn>().mockResolvedValue(undefined);
+    const onEvent2 = jest.fn<AnyFn>().mockResolvedValue(undefined);
     addSubscriber(onEvent1);
     addSubscriber(onEvent2);
 
@@ -84,7 +85,7 @@ describe('entityEvents', () => {
   });
 
   it('emit does not throw when subscriber throws', async () => {
-    const failingSubscriber = jest.fn().mockRejectedValue(new Error('subscriber error'));
+    const failingSubscriber = jest.fn<AnyFn>().mockRejectedValue(new Error('subscriber error'));
     addSubscriber(failingSubscriber);
 
     expect(() => entityEvents.emit(makeEvent())).not.toThrow();
@@ -95,7 +96,7 @@ describe('entityEvents', () => {
     const counts: Array<{ name: string; labels?: Record<string, string> }> = [];
     setCounterEmitter((name, labels) => { counts.push({ name, labels }); });
     try {
-      addSubscriber(jest.fn().mockRejectedValue(new Error('boom')) as ReturnType<typeof jest.fn>);
+      addSubscriber(jest.fn<AnyFn>().mockRejectedValue(new Error('boom')) as ReturnType<typeof jest.fn>);
       entityEvents.emit(makeEvent({ target: 'pipeline', eventType: 'updated' }));
       await new Promise((r) => setTimeout(r, 10));
 
@@ -108,8 +109,8 @@ describe('entityEvents', () => {
   });
 
   it('healthy subscriber still called when another subscriber throws', async () => {
-    const failing = jest.fn().mockRejectedValue(new Error('fail'));
-    const healthy = jest.fn().mockResolvedValue(undefined);
+    const failing = jest.fn<AnyFn>().mockRejectedValue(new Error('fail'));
+    const healthy = jest.fn<AnyFn>().mockResolvedValue(undefined);
     addSubscriber(failing);
     addSubscriber(healthy);
 
@@ -120,7 +121,7 @@ describe('entityEvents', () => {
   });
 
   it('unsubscribed subscriber is not called', async () => {
-    const onEvent = jest.fn().mockResolvedValue(undefined);
+    const onEvent = jest.fn<AnyFn>().mockResolvedValue(undefined);
     const sub = addSubscriber(onEvent);
     entityEvents.unsubscribe(sub);
     subscribers.pop();
@@ -137,7 +138,7 @@ describe('entityEvents', () => {
   });
 
   it('passes correct event data through', async () => {
-    const onEvent = jest.fn().mockResolvedValue(undefined);
+    const onEvent = jest.fn<AnyFn>().mockResolvedValue(undefined);
     addSubscriber(onEvent);
 
     const event = makeEvent({

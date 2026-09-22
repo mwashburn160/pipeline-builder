@@ -35,7 +35,7 @@ const HANDLERS = [
   'listAllUsers', 'getUserById', 'createUserByAdmin', 'updateUserById', 'deleteUserById', 'bulkDeleteUsers', 'updateUserFeatures',
   'changePassword', 'createAccessKey', 'deleteUser', 'generateToken', 'getPreferences', 'getUser', 'listAccessKeys', 'listTokenHistory',
   'listUserOrganizations', 'revokeAllTokens', 'revokeAccessKey', 'updatePreferences', 'updateUser',
-  'listSessions', 'revokeSession',
+  'listSessions', 'revokeSession', 'getOwnPasswordPolicy',
   // The password-only prompt's own-account writes — none of them step-up gated,
   // which is the property the `/user` assertions below pin.
   'snoozeMfaPrompt', 'declineMfaPrompt', 'resetMfaPrompt',

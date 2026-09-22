@@ -132,7 +132,7 @@ export const createAlertRule = withController('Create alert rule', async (req, r
 
     sendSuccess(res, 201, { rule });
   } catch (err) {
-    releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger));
+    releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger), reservation);
     throw err;
   }
 });
@@ -187,7 +187,7 @@ export const deleteAlertRule = withController('Delete alert rule', async (req, r
   const ok = await alertRuleService.delete(orgId, id, userId);
   if (!ok) return sendError(res, 404, 'Alert rule not found');
 
-  releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger));
+  releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger), null);
 
   audit(req, 'alert.rule.delete', {
     targetType: 'alert-rule',
@@ -217,7 +217,7 @@ export const restoreAlertRule = withController('Restore alert rule', async (req,
   try {
     const ok = await alertRuleService.restore(orgId, id, userId);
     if (!ok) {
-      releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger));
+      releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger), reservation);
       return sendError(res, 404, 'Alert rule not found');
     }
     audit(req, 'alert.rule.restore', {
@@ -227,7 +227,7 @@ export const restoreAlertRule = withController('Restore alert rule', async (req,
     });
     sendSuccess(res, 200, {});
   } catch (err) {
-    releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger));
+    releaseFeatureQuota(orgId, 'alertRules', logger.warn.bind(logger), reservation);
     // (org_id, name) unique index is partial (WHERE deleted_at IS NULL) — a live
     // namesake can coexist with this tombstone, so restore can collide → 409.
     if ((err as { code?: string }).code === '23505') {

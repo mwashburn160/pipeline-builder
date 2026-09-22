@@ -21,6 +21,7 @@ export { default as scimRoutes } from './scim.js';
 export { default as orgKmsConfigRoutes } from './org-kms-config.js';
 export { default as orgNamespaceRoutes } from './org-namespace.js';
 export { default as userGrantsRoutes } from './superadmin.js';
+export { default as adminConsoleRoutes } from './admin-console.js';
 export { default as adminSummaryRoutes } from './admin-summary.js';
 export { default as impersonateRoutes } from './impersonate.js';
 export { default as mfaResetAdminRoutes } from './mfa-reset-admin.js';

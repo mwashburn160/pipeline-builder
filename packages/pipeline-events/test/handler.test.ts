@@ -5,7 +5,7 @@
  * Tests for pipeline-events Lambda handler.
  */
 
-import { jest, describe, it, expect, beforeEach, beforeAll } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, beforeAll, afterEach } from '@jest/globals';
 
 /**
  * The stored credential is an OPAQUE service-account key (#N2) — no claims, no
@@ -54,7 +54,7 @@ const mockCcSend = jest.fn<(cmd: Record<string, unknown>) => Promise<unknown>>()
 (globalThis as any).__ccSend = mockCcSend;
 
 // Mock fetch globally
-const mockFetch = jest.fn<(url: string, opts?: unknown) => Promise<unknown>>();
+const mockFetch = jest.fn<(url: string, opts?: any) => any>();
 global.fetch = mockFetch as unknown as typeof fetch;
 
 import type { SQSEvent } from 'aws-lambda';
@@ -416,7 +416,41 @@ describe('pipeline-events handler', () => {
       expect(body.events[0].commitTimestamp).toBe('2026-03-14T09:00:00.000Z');
       expect(body.events[0].commitCount).toBe(1);
       const ghCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('api.github.com'));
-      expect(ghCall[0]).toContain('/repos/acme/webapp/commits/abc123');
+      expect(ghCall![0]).toContain('/repos/acme/webapp/commits/abc123');
+    });
+
+    const mockBitbucket = (bitbucketStatus: number) => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/auth/token/exchange')) return exchangeResponse();
+        if (url.includes('api.bitbucket.org')) {
+          return Promise.resolve({ ok: bitbucketStatus === 200, status: bitbucketStatus, json: () => Promise.resolve({ date: '2026-03-15T10:00:00+00:00' }) });
+        }
+        if (url.includes('/api/reports/events')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        if (url.includes('/api/reports/ingest-health')) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+        return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('nf') });
+      });
+    };
+    const bitbucketEvent = (sha: string) => createSQSEvent([{
+      ...MOCK_CODEPIPELINE_EVENT,
+      detail: {
+        ...MOCK_CODEPIPELINE_EVENT.detail,
+        'source-revisions': [{ revisionId: sha, branchName: 'main', revisionUrl: `https://bitbucket.org/acme/webapp/commits/${sha}` }],
+      },
+    }]);
+
+    it('resolves a Bitbucket commit timestamp via the commit API', async () => {
+      mockBitbucket(200);
+      await handler(bitbucketEvent('bb111'));
+      expect(lastEventsBody().events[0]).toMatchObject({ commitTimestamp: '2026-03-15T10:00:00.000Z', commitCount: 1 });
+      const bbCall = mockFetch.mock.calls.find((c: any[]) => c[0].includes('api.bitbucket.org'));
+      expect(bbCall![0]).toBe('https://api.bitbucket.org/2.0/repositories/acme/webapp/commit/bb111');
+    });
+
+    it('omits the Bitbucket commit fields when rate-limited (never fails the batch)', async () => {
+      mockBitbucket(429);
+      await handler(bitbucketEvent('bb222'));
+      expect(lastEventsBody().events[0].commitSha).toBe('bb222');
+      expect(lastEventsBody().events[0].commitTimestamp).toBeUndefined();
     });
 
     it('omits commitTimestamp/commitCount when the source type is unknown (no revisionUrl)', async () => {
@@ -454,6 +488,45 @@ describe('pipeline-events handler', () => {
     });
   });
 
+  describe('S12 — cache freshness', () => {
+    beforeEach(() => { process.env.DORA_ENABLED = 'true'; });
+    afterEach(() => { jest.restoreAllMocks(); });
+
+    const ccEvent = {
+      ...MOCK_CODEPIPELINE_EVENT,
+      detail: {
+        ...MOCK_CODEPIPELINE_EVENT.detail,
+        'source-revisions': [{
+          revisionId: 'feedface',
+          revisionUrl: 'https://console.aws.amazon.com/codesuite/codecommit/repositories/my-repo/commits/feedface',
+        }],
+      },
+    };
+
+    it('does NOT cache an empty commit result — a later event for the same sha retries the SCM', async () => {
+      mockCcSend.mockImplementationOnce(() => Promise.reject(new Error('throttled')));
+      await handler(createSQSEvent([ccEvent]));
+      expect(lastEventsBody().events[0].commitTimestamp).toBeUndefined();
+
+      mockFetch.mock.calls.length = 0;
+      mockCcSend.mockImplementation(() => Promise.resolve({ commit: { committer: { date: '1710000000 +0000' }, parents: [] } }));
+      await handler(createSQSEvent([ccEvent]));
+      expect(lastEventsBody().events[0].commitTimestamp).toBe(new Date(1710000000 * 1000).toISOString());
+    });
+
+    it('re-reads the pipeline tags once the positive cache entry expires (pb.deploys changed by a re-synth)', async () => {
+      const now = Date.now();
+      const clock = jest.spyOn(Date, 'now').mockReturnValue(now);
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(mockTagsSend).toHaveBeenCalledTimes(1); // served from cache
+
+      clock.mockReturnValue(now + 16 * 60 * 1000);
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(mockTagsSend).toHaveBeenCalledTimes(2); // expired → re-resolved
+    });
+  });
+
   describe('Phase 3 — ingest-health + self-healing DLQ redrive', () => {
     it('POSTs ingest-health after a successful batch (forwarded + lastEventAt)', async () => {
       await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
@@ -472,8 +545,8 @@ describe('pipeline-events handler', () => {
 
       const move = mockSqsSend.mock.calls.find((c: any[]) => c[0].__type === 'StartMessageMoveTask');
       expect(move).toBeDefined();
-      expect(move[0].SourceArn).toBe('arn:aws:sqs:us-east-1:123:pipeline-builder-events-dlq');
-      expect(move[0].DestinationArn).toBe('arn:aws:sqs:us-east-1:123:pipeline-builder-events');
+      expect(move![0].SourceArn).toBe('arn:aws:sqs:us-east-1:123:pipeline-builder-events-dlq');
+      expect(move![0].DestinationArn).toBe('arn:aws:sqs:us-east-1:123:pipeline-builder-events');
       // Health still reports the current DLQ depth as `dropped`.
       expect(ingestHealthBody()).toMatchObject({ dropped: 5 });
     });
@@ -556,7 +629,7 @@ describe('pipeline-events handler', () => {
 
       const ghSecretCall = mockSend.mock.calls.find((c: any[]) => String(c[0]?.SecretId ?? '').includes('github-token'));
       expect(ghSecretCall).toBeDefined();
-      expect(ghSecretCall![0].SecretId).toBe('pipeline-builder/org-xyz/github-token');
+      expect((ghSecretCall![0] as { SecretId: string }).SecretId).toBe('pipeline-builder/org-xyz/github-token');
     });
   });
 

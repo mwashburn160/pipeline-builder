@@ -27,7 +27,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const express = (await import('express')).default;
 const { generateTestSigningKey, installTestJwks, signTestUserToken } =
-  await import('@pipeline-builder/api-core/lib/testing/user-tokens.js');
+  await import('@pipeline-builder/api-core/testing');
 
 // Access tokens are ES256, signed only by platform; install the published key
 // set (in-memory) so the real `requireAuth` can verify what we mint.

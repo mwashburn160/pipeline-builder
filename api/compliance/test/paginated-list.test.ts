@@ -9,6 +9,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 
 let selectResults: unknown[][] = [];
 let txCount = 0;
@@ -30,7 +31,7 @@ const tx = {
   select: jest.fn(() => makeChain(() => Promise.resolve(shift(selectResults)))),
 };
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   withTenantTx: (cb: (t: typeof tx) => Promise<unknown>) => { txCount += 1; return cb(tx); },
   drizzleCount: (r: unknown) => r,
 }));

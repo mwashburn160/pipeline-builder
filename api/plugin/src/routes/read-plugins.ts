@@ -11,6 +11,7 @@ import type { PluginFilter } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import { attachmentDisposition } from '../helpers/content-disposition.js';
 import { pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
 import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';
 import { resolveListedLookup, shadowedListing, verifyListedImage } from '../services/ecosystem/installs.js';
@@ -319,7 +320,7 @@ export function createReadPluginRoutes(
 
     ctx.log('COMPLETED', 'Retrieved plugin SBOM', { id: result.id, name: result.name });
     incrementQuotaFromCtx(quotaService, { ctx, orgId }, 'apiCalls');
-    res.setHeader('Content-Disposition', `attachment; filename="${result.name}-${result.version}.spdx.json"`);
+    res.setHeader('Content-Disposition', attachmentDisposition(`${result.name}-${result.version}.spdx.json`));
     res.status(200).type('application/spdx+json').send(JSON.stringify(sbom));
   }));
 

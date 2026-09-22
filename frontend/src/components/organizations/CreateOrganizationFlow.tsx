@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { useFormState } from '@/hooks/useFormState';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -67,6 +67,7 @@ function CreateOrganizationModal({ onClose, onCreated }: {
   onClose: () => void;
   onCreated: (result: { name: string; tier: QuotaTier; asTeam: boolean }) => void;
 }) {
+  const uid = useId();
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgTier, setNewOrgTier] = useState<QuotaTier>('developer');
   // Defaults to a top-level org (matching the "New Organization" label); check
@@ -119,10 +120,10 @@ function CreateOrganizationModal({ onClose, onCreated }: {
       </p>
       <div className="space-y-3">
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted">
+          <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-field`}>
             {createAsSubOrg ? 'Team name' : 'Organization name'}
           </label>
-          <Input
+          <Input id={`${uid}-field`}
             type="text"
             placeholder="e.g. acme-platform"
             value={newOrgName}
@@ -135,8 +136,8 @@ function CreateOrganizationModal({ onClose, onCreated }: {
         </div>
         {!createAsSubOrg && (
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-fg-muted">Tier</label>
-            <Select
+            <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-tier`}>Tier</label>
+            <Select id={`${uid}-tier`}
               value={newOrgTier}
               onChange={(e) => setNewOrgTier(e.target.value as QuotaTier)}
               className="text-sm"

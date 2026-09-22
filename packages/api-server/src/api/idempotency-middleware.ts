@@ -239,6 +239,11 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
   const explicitStore = options.store;
   const ttlMs = CoreConstants.IDEMPOTENCY_TTL_MS;
   const ttlSec = Math.floor(ttlMs / 1000);
+  // A reservation lives only as long as a handler plausibly runs: if the
+  // process dies mid-handler nothing ever settles it, and this — not the full
+  // replay TTL — is how long retries of that key are refused.
+  const pendingTtlMs = Math.min(CoreConstants.IDEMPOTENCY_PENDING_TTL_MS, ttlMs);
+  const pendingTtlSec = Math.max(1, Math.floor(pendingTtlMs / 1000));
 
   return (req: Request, res: Response, next: NextFunction) => {
     const store = explicitStore ?? defaultStore;
@@ -300,8 +305,8 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       // with the same key got there first and is in-flight → 409.
       const won = await store.reserve(
         fullKey,
-        { statusCode: 0, body: null, pending: true, expiresAt: Date.now() + ttlMs },
-        ttlSec,
+        { statusCode: 0, body: null, pending: true, expiresAt: Date.now() + pendingTtlMs },
+        pendingTtlSec,
       );
       if (!won) {
         logger.debug('Idempotent request rejected (lost reserve race)', { key: fullKey });
@@ -343,7 +348,11 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         });
       };
 
-      /** Resolve the reservation from the ACTUAL final status: cache 2xx, else release. */
+      /**
+       * Resolve the reservation from the ACTUAL final status: a 2xx is cached for
+       * replay; anything else (the handler refused or failed — the mutation did
+       * not take effect) releases the key so a retry genuinely re-runs.
+       */
       const settleFromStatus = (): void => {
         if (settled) return;
         if (res.statusCode >= 200 && res.statusCode < 300) cacheSuccess();
@@ -382,7 +391,12 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
         patched.end = (...args: unknown[]) => {
           const chunk = args[0];
           if (chunk !== undefined && typeof chunk !== 'function') captureBody(chunk);
-          return originalEnd(...args);
+          const out = originalEnd(...args);
+          // The handler has produced its final status. Settle HERE rather than
+          // waiting for 'finish': after a client disconnect 'finish' never fires,
+          // and the handler's outcome must still be recorded.
+          settleFromStatus();
+          return out;
         };
       }
 
@@ -394,16 +408,13 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       // EventEmitters; res.json's fast path already settled the common case.
       if (typeof patched.on === 'function') {
         patched.on('finish', settleFromStatus);
-        // A client that disconnects (or a process killed mid-handler) emits
-        // 'close' WITHOUT 'finish', which used to leave the reservation
-        // `pending` for the full IDEMPOTENCY_TTL_MS — so every retry got a 409
-        // and a retry storm became a multi-minute outage for that key.
-        // RELEASE rather than cache: the response never completed, so there is
-        // no result to replay, and the retry should genuinely re-run.
-        patched.on('close', () => {
-          if (settled) return;
-          if (!res.writableFinished) release();
-        });
+        // A client that disconnects emits 'close' WITHOUT 'finish' — but the
+        // HANDLER keeps running and may still commit the mutation. Releasing
+        // here let the client's retry run it a second time (a duplicate create /
+        // double charge — the very thing the key exists to prevent). So the
+        // reservation stays pending: the handler's own completion settles it
+        // (res.json / res.end above), and if the process dies instead, the
+        // short pending TTL frees the key.
       }
 
       next();

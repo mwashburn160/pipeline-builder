@@ -36,7 +36,7 @@ const INDEX = 'application/vnd.oci.image.index.v1+json';
 const MANIFEST = 'application/vnd.oci.image.manifest.v1+json';
 
 describe('computeStorageUsage — multi-arch recursion', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('counts each child manifest\'s config+layer blobs, not just the index JSON', async () => {
     listRepositoriesUnderPrefix.mockResolvedValue(['org/app']);
@@ -83,7 +83,7 @@ describe('computeStorageUsage — multi-arch recursion', () => {
 });
 
 describe('computeStorageUsage — blob HEAD 404 handling', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('re-resolves a blob against another referencing repo when the first repo 404s', async () => {
     // Two repos reference the SAME blobs; a HEAD 404 against the first must fall

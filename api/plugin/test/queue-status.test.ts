@@ -8,43 +8,45 @@
  * returns queue metrics for admin users and rejects non-admins.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockGetJobCounts = jest.fn();
-const mockDlqGetJobCounts = jest.fn();
+const mockGetJobCounts = jest.fn<AnyFn>();
+const mockDlqGetJobCounts = jest.fn<AnyFn>();
 
-const mockGetJobs = jest.fn();
-const mockDlqGetJobs = jest.fn();
+const mockGetJobs = jest.fn<AnyFn>();
+const mockDlqGetJobs = jest.fn<AnyFn>();
 // route reads per-tier queues via getAllTierQueues; we expose a
 // single-tier handle so the existing single-mock assertions still hold.
 const mockTierQueue = { name: 'plugin-build', getJobCounts: mockGetJobCounts, getJobs: mockGetJobs };
-const mockPurgeDlq = jest.fn();
+const mockPurgeDlq = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
   getAllTierQueues: () => [{ tier: 'developer', queue: mockTierQueue }],
   getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs }),
-  findFailedJob: jest.fn(),
+  findFailedJob: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: mockPurgeDlq,
 }));
 jest.unstable_mockModule('../src/queue/requeue.js', () => ({
-  replayDlqJob: jest.fn(),
-  retryFailedJob: jest.fn(),
+  replayDlqJob: jest.fn<AnyFn>(),
+  retryFailedJob: jest.fn<AnyFn>(),
 }));
 
-const mockEmitPluginAudit = jest.fn();
+const mockEmitPluginAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitPluginAudit: mockEmitPluginAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 // Quota service stub  required by createQueueStatusRoutes since
 // (replay path needs it to look up the org's tier).
-const mockQuotaService = { getTier: jest.fn().mockResolvedValue('developer') } as any;
+const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('developer') } as any;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  isSystemAdmin: jest.fn(),
+  isSystemAdmin: jest.fn<AnyFn>(),
   // Functional gate (the default apiCoreMock stub is a pass-through): grants a
   // superadmin implicitly, else requires one of the named permissions in
   // `req.user.permissions`. Lets us assert the standardized route gate.
@@ -66,10 +68,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, unknown>, key: string) => params[key],
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any, _next: any) => {
     const ctx = {
-      requestId: 'test-req', log: jest.fn(),
+      requestId: 'test-req', log: jest.fn<AnyFn>(),
     };
     (req as any).__ctx = ctx;
     // `userId` mirrors the real wrapper, which takes it from `getIdentity` —
@@ -90,8 +92,8 @@ function createMockReqRes(user?: Record<string, unknown>) {
     originalUrl: '/plugins/queue/status',
     ...(user ? { user } : {}),
   } as any;
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   const res = { status, json } as any;
   return { req, res, json, status };
 }
@@ -197,7 +199,7 @@ describe('queue-status route', () => {
 
   describe('GET /failed  tenant filter', () => {
     it('non-system admin sees only their own org\'s failed jobs', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(false);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([
         { id: 'j-mine', name: 'p-mine', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1 },
         { id: 'j-other', name: 'p-other', data: { orgId: 'org-OTHER', pluginRecord: { name: 'other' } }, opts: {}, attemptsMade: 1 },
@@ -206,16 +208,16 @@ describe('queue-status route', () => {
 
       const handler = getRouteHandler('/failed');
       const req = makeReq('admin', 'org-1');
-      const json = jest.fn();
-      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await handler(req, res, jest.fn());
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
+      await handler(req, res, jest.fn<AnyFn>());
 
       const payload = (json.mock.calls[0] || res.status.mock.calls[0])?.[0];
       expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['j-mine']);
     });
 
     it('system admin sees ALL orgs\' failed jobs', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
       mockGetJobCounts.mockResolvedValue({ failed: 2 });
       mockGetJobs.mockResolvedValue([
         { id: 'j-a', name: 'a', data: { orgId: 'org-1', pluginRecord: { name: 'a' } }, opts: {}, attemptsMade: 1 },
@@ -224,9 +226,9 @@ describe('queue-status route', () => {
 
       const handler = getRouteHandler('/failed');
       const req = makeReq('owner', '000000000000000000000001');
-      const json = jest.fn();
-      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await handler(req, res, jest.fn());
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
+      await handler(req, res, jest.fn<AnyFn>());
 
       const payload = (json.mock.calls[0])?.[0];
       expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['j-a', 'j-b']);
@@ -236,14 +238,14 @@ describe('queue-status route', () => {
     // (matching the sibling retry/replay writes), NOT the coarse admin/owner
     // role string. A member who holds plugins:write is admitted...
     it('admits a member holding plugins:write (own-org jobs)', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(false);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([
         { id: 'j-mine', name: 'p', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1 },
       ]);
 
       const req = makeReq('member', 'org-1', {}, ['plugins:read', 'plugins:write']);
-      const json = jest.fn();
-      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
       await runFullRoute('/failed', 'GET', req, res);
 
       expect(mockGetJobs).toHaveBeenCalled();
@@ -255,11 +257,11 @@ describe('queue-status route', () => {
     // ...and a non-sysadmin lacking plugins:write is denied at the gate,
     // never reaching the queue read.
     it('denies a caller without plugins:write with 403', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(false);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
 
       const req = makeReq('member', 'org-1', {}, ['plugins:read']); // no plugins:write
-      const json = jest.fn();
-      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
       await runFullRoute('/failed', 'GET', req, res);
 
       expect(mockGetJobs).not.toHaveBeenCalled();
@@ -275,14 +277,14 @@ describe('queue-status route', () => {
 
     async function call(path: string, req: any) {
       const handler = getRouteHandler(path);
-      const json = jest.fn();
-      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await handler(req, res, jest.fn());
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
+      await handler(req, res, jest.fn<AnyFn>());
       return (json.mock.calls[0] as any[])[0].data;
     }
 
     it('reads offset+limit+1 rows per tier and returns the requested newest-first slice with an exact sysadmin total', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
       mockGetJobCounts.mockResolvedValue({ failed: 5 });
       mockGetJobs.mockResolvedValue([job('a', 1), job('e', 5), job('c', 3), job('b', 2), job('d', 4)]);
 
@@ -295,7 +297,7 @@ describe('queue-status route', () => {
     });
 
     it('omits the total for a tenant-scoped caller and derives hasMore from the filtered window', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(false);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([job('m1', 3), job('x', 2, 'org-X'), job('m2', 1)]);
 
       const data = await call('/failed', makeReq('admin', 'org-1', { limit: '1', offset: '0' }));
@@ -306,7 +308,7 @@ describe('queue-status route', () => {
     });
 
     it('clamps limit to 200 and bounds the paging depth', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
       mockGetJobCounts.mockResolvedValue({ failed: 0 });
       mockGetJobs.mockResolvedValue([]);
 
@@ -318,7 +320,7 @@ describe('queue-status route', () => {
     });
 
     it('pages the DLQ across its state sets with a summed sysadmin total', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(true);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
       mockDlqGetJobCounts.mockResolvedValue({ waiting: 1, delayed: 0, active: 0, completed: 1, failed: 1 });
       mockDlqGetJobs.mockResolvedValue([job('d1', 1), job('d3', 3), job('d2', 2)]);
 
@@ -332,7 +334,7 @@ describe('queue-status route', () => {
 
   describe('GET /dlq  tenant filter', () => {
     it('non-system admin sees only their own org\'s DLQ jobs', async () => {
-      (isSystemAdmin as jest.Mock).mockReturnValue(false);
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
       mockDlqGetJobs.mockResolvedValue([
         { id: 'd-mine', name: 'mine', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1, timestamp: 0, finishedOn: 0 },
         { id: 'd-other', name: 'other', data: { orgId: 'org-X', pluginRecord: { name: 'other' } }, opts: {}, attemptsMade: 1, timestamp: 0, finishedOn: 0 },
@@ -340,9 +342,9 @@ describe('queue-status route', () => {
 
       const handler = getRouteHandler('/dlq');
       const req = makeReq('admin', 'org-1');
-      const json = jest.fn();
-      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
-      await handler(req, res, jest.fn());
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
+      await handler(req, res, jest.fn<AnyFn>());
 
       const payload = (json.mock.calls[0])?.[0];
       expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['d-mine']);
@@ -355,8 +357,8 @@ describe('queue-status route', () => {
 
       // `requireSystemAdmin` reads the `isSuperAdmin` token claim directly.
       const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'owner', sub: 'admin-1', isSuperAdmin: true } } as any;
-      const json = jest.fn();
-      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
       await runFullRoute('/dlq', 'DELETE', req, res);
 
       expect(mockPurgeDlq).toHaveBeenCalledWith(mockQuotaService);
@@ -372,8 +374,8 @@ describe('queue-status route', () => {
 
     it('non-sysadmin is rejected 403 and does NOT purge or emit', async () => {
       const req = { headers: { 'x-org-id': 'org-1' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'admin', sub: 'user-1' } } as any;
-      const json = jest.fn();
-      const res = { status: jest.fn().mockReturnValue({ json }), json } as any;
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
       await runFullRoute('/dlq', 'DELETE', req, res);
 
       expect(mockPurgeDlq).not.toHaveBeenCalled();

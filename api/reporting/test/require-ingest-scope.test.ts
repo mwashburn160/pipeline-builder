@@ -7,10 +7,11 @@
  * suites cover that each route mounts it (their 403 cases run the full chain).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockSendError = jest.fn();
+const mockSendError = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: mockSendError,
   hasScope: (req: any, scope: string) => req?.user?.scope === scope,
@@ -19,10 +20,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 const { requireIngestScope, INGEST_SCOPE } = await import('../src/middleware/require-ingest-scope.js');
 
 describe('requireIngestScope', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   const run = (user: unknown) => {
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     requireIngestScope({ user } as any, {} as any, next);
     return next;
   };

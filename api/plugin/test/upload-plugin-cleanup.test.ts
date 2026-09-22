@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-upload-'));
@@ -35,17 +36,16 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => {
   const pass = (_req: unknown, _res: unknown, next: () => void) => next();
-  return {
-    requireAuth: pass,
+  return stubModule('@pipeline-builder/api-server', {
     requireOrgId: () => pass,
     withTenantContext: () => pass,
     rateLimitByOrg: () => pass,
     withRoute: (handler: Function) => async (req: any, res: any) =>
       handler({ req, res, ctx: { log: jest.fn(), requestId: 'req-1' }, orgId: 'org-1', userId: 'user-1' }),
-  };
+  });
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({}) },
   CoreConstants: { PLUGIN_MAX_UPLOAD_MB: 1 },
 }));

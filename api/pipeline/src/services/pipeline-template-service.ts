@@ -48,7 +48,9 @@ export class PipelineTemplateService extends CrudService<
       updatedAt: schema.pipelineTemplate.updatedAt,
       isActive: schema.pipelineTemplate.isActive,
     };
-    return sortable[sortBy] || null;
+    // Own keys only: `sortBy` is client input, and a plain lookup walks the
+    // prototype (`?sortBy=constructor` returned a function, not a column).
+    return Object.hasOwn(sortable, sortBy) ? sortable[sortBy] : null;
   }
 
   /** Templates are not project-scoped. */

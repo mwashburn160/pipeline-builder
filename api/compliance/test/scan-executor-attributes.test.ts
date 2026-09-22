@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { createRecordingDb } from './helpers/recording-db.js';
 
@@ -23,8 +24,8 @@ const { toComplianceAttributes } = await import('@pipeline-builder/api-core/lib/
 const { schema } = await import('@pipeline-builder/pipeline-data/lib/database/drizzle-schema.js');
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ toComplianceAttributes }));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: () => undefined }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: () => undefined }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema,
   withTenantTx: async (fn: (tx: unknown) => unknown) => fn(rdb.tx),
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),

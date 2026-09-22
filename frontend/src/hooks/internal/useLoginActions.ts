@@ -30,7 +30,13 @@ export type LoginResult =
 interface UseLoginActionsDeps {
   /** Re-reads the profile once the backend has opened a session. */
   refreshUser: () => Promise<void>;
-  setIsLoading: (loading: boolean) => void;
+  /**
+   * Marks a sign-in submission in flight. Deliberately NOT the provider's
+   * `isLoading`: that flag means "the session state is unknown" and the landing
+   * page swaps itself for a loader while it is set — so a password submit used
+   * to unmount the very card that had to show the MFA prompt (or the error).
+   */
+  setIsSubmitting: (submitting: boolean) => void;
   router: NextRouter;
 }
 
@@ -42,15 +48,27 @@ interface UseLoginActionsDeps {
  * SAME post-sign-in half: refresh the profile and navigate to the return path
  * (unless the caller opted out with `redirect: false` because it has follow-up
  * work to do on the page first, like the invite-accept flow). Only that shared
- * tail plus `setIsLoading` connects them to the rest of `AuthProvider`, so they
+ * tail plus `setIsSubmitting` connects them to the rest of `AuthProvider`, so they
  * live here instead of inside a 400-line provider next to the session state.
+ *
+ * The navigation is AWAITED before the submission clears. The landing page also
+ * redirects an authenticated visitor, but it holds off while a submission is in
+ * flight — so the action's own destination (the return path, or passkey
+ * enrolment for a bootstrap administrator) is the one that wins, instead of
+ * being overridden by a second push the moment the profile refresh lands.
  */
-export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginActionsDeps) {
+export function useLoginActions({ refreshUser, setIsSubmitting, router }: UseLoginActionsDeps) {
+  /** Navigate unless the caller opted out; resolves once the route changed. */
+  const go = useCallback(async (href: string, redirect: boolean | undefined) => {
+    if (redirect === false) return;
+    await router.push(href);
+  }, [router]);
+
   /**
    * Login with email/username and password
    */
   const login = useCallback(async (email: string, password: string, opts?: { redirect?: boolean }): Promise<LoginResult> => {
-    setIsLoading(true);
+    setIsSubmitting(true);
 
     try {
       const response = await api.login(email, password);
@@ -85,7 +103,7 @@ export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginA
       // exception closes the moment they enrol, after which an ordinary sign-in
       // behaves normally.
       if (response.data?.mfaEnrollmentPending) {
-        if (opts?.redirect !== false) router.push(PASSKEY_ENROLMENT_HREF);
+        await go(PASSKEY_ENROLMENT_HREF, opts?.redirect);
         return { status: 'mfa_enrollment_pending' };
       }
 
@@ -93,12 +111,12 @@ export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginA
       // run follow-up work on the same page first (e.g. the invite-accept
       // flow, which must POST /invitation/accept before navigating away) pass
       // `redirect: false` and drive navigation themselves.
-      if (opts?.redirect !== false) router.push(takeReturnPath());
+      await go(takeReturnPath(), opts?.redirect);
       return { status: 'complete' };
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
-  }, [refreshUser, router, setIsLoading]);
+  }, [go, refreshUser, setIsSubmitting]);
 
   /**
    * Finish an MFA sign-in. Shares the post-sign-in half of `login` exactly — the
@@ -106,7 +124,7 @@ export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginA
    * two requests to prove who was asking.
    */
   const completeMfaLogin = useCallback(async (challengeId: string, code: string, opts?: { redirect?: boolean }): Promise<LoginResult> => {
-    setIsLoading(true);
+    setIsSubmitting(true);
     try {
       const response = await api.verifyMfaLogin({ challengeId, code });
       if (!response.success) throw new Error(response.message || 'Verification failed');
@@ -120,12 +138,12 @@ export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginA
         };
       }
       await refreshUser();
-      if (opts?.redirect !== false) router.push(takeReturnPath());
+      await go(takeReturnPath(), opts?.redirect);
       return { status: 'complete' };
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
-  }, [refreshUser, router, setIsLoading]);
+  }, [go, refreshUser, setIsSubmitting]);
 
   /**
    * Finish a sign-in whose password no longer met the org password policy: the
@@ -133,21 +151,21 @@ export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginA
    * and opens the session the sign-in earned.
    */
   const completeRequiredPasswordChange = useCallback(async (challengeId: string, newPassword: string, opts?: { redirect?: boolean }): Promise<LoginResult> => {
-    setIsLoading(true);
+    setIsSubmitting(true);
     try {
       const response = await api.completeRequiredPasswordChange({ challengeId, newPassword });
       if (!response.success) throw new Error(response.message || 'Could not change the password');
       await refreshUser();
       if (response.data?.mfaEnrollmentPending) {
-        if (opts?.redirect !== false) router.push(PASSKEY_ENROLMENT_HREF);
+        await go(PASSKEY_ENROLMENT_HREF, opts?.redirect);
         return { status: 'mfa_enrollment_pending' };
       }
-      if (opts?.redirect !== false) router.push(takeReturnPath());
+      await go(takeReturnPath(), opts?.redirect);
       return { status: 'complete' };
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
-  }, [refreshUser, router, setIsLoading]);
+  }, [go, refreshUser, setIsSubmitting]);
 
   /**
    * Sign in with a passkey.
@@ -156,21 +174,24 @@ export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginA
    * the SAME session (`issueTokens`, refresh cookie, session slot), so the only
    * difference is how the credential was presented.
    *
-   * `isLoading` is deliberately NOT set for the autofill ceremony: it sits
-   * waiting in the browser's dropdown for as long as the person takes to notice
-   * it, and a sign-in form disabled that whole time would be unusable.
+   * The submitting flag is deliberately NOT set while the autofill ceremony
+   * waits: it sits in the browser's dropdown for as long as the person takes to
+   * notice it, and a sign-in form disabled that whole time would be unusable.
+   * It IS set once the ceremony resolves, so the post-sign-in navigation is not
+   * overridden by the landing page's own redirect.
    */
   const loginWithPasskey = useCallback(async (opts?: { autofill?: boolean; redirect?: boolean }) => {
     const { signInWithPasskey } = await import('@/lib/passkeys');
-    if (!opts?.autofill) setIsLoading(true);
+    if (!opts?.autofill) setIsSubmitting(true);
     try {
       await signInWithPasskey({ autofill: opts?.autofill });
+      if (opts?.autofill) setIsSubmitting(true);
       await refreshUser();
-      if (opts?.redirect !== false) router.push(takeReturnPath());
+      await go(takeReturnPath(), opts?.redirect);
     } finally {
-      if (!opts?.autofill) setIsLoading(false);
+      setIsSubmitting(false);
     }
-  }, [refreshUser, router, setIsLoading]);
+  }, [go, refreshUser, setIsSubmitting]);
 
   /**
    * Register new user
@@ -183,7 +204,7 @@ export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginA
     planId?: string,
     opts?: { redirect?: boolean; invitationToken?: string }
   ) => {
-    setIsLoading(true);
+    setIsSubmitting(true);
 
     try {
       // Registering to accept an invitation names it, so the INVITING org's
@@ -203,9 +224,9 @@ export function useLoginActions({ refreshUser, setIsLoading, router }: UseLoginA
       // (unless the caller opted out via `redirect: false`).
       await login(email, password, { redirect: opts?.redirect });
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
-  }, [login, setIsLoading]);
+  }, [login, setIsSubmitting]);
 
   return { login, completeMfaLogin, completeRequiredPasswordChange, loginWithPasskey, register };
 }

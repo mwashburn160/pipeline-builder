@@ -5,7 +5,9 @@
  * Tests for subscription lifecycle background checker.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSyncEntitlements = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
@@ -38,6 +40,8 @@ const EXPECTED_LIMITS: Record<string, number> = {
   idpConfigs: 1,
   listings: 3,
   seats: 10,
+  eventRetentionDays: 30,
+  doraRetentionDays: 180,
 };
 const mockEffectiveEntitlements = jest.fn<(...args: unknown[]) => { limits: Record<string, number>; features: string[] }>()
   .mockReturnValue({ limits: { ...EXPECTED_LIMITS }, features: [] });
@@ -66,6 +70,9 @@ const mockReadFeatures = jest.fn<() => Promise<unknown>>().mockImplementation(()
 // Compliance-service active-sets read (handshake #2). Default: empty active set,
 // matching the default expected sets ([] from mockEffectiveFeatureSet) ⇒ no drift.
 const mockReadCompliance = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: [] } } }));
+// Reporting enforced-retention read. Default: matches the expected 30/180.
+const okRetentionResponse = () => ({ statusCode: 200, body: { data: { eventRetentionDays: 30, doraRetentionDays: 180 } } });
+const mockReadRetention = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve(okRetentionResponse()));
 
 // Message-service POST (renewal reminders). The REAL safe client resolves `null` on
 // a transport failure and a response object (possibly 4xx/5xx) otherwise.
@@ -84,7 +91,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     return {
       post: (...a: unknown[]) => mockMessagePost(...a),
       get: jest.fn((path: string) => {
-        if (path.includes('/api/compliance/entitlements/')) return mockReadCompliance();
+        if (path.includes('/compliance/entitlements/')) return mockReadCompliance();
+        if (path.includes('/reports/retention-sync/')) return mockReadRetention();
         if (path.includes('/feature-entitlements')) return mockReadFeatures();
         if (path.includes('/seat-usage')) return mockReadSeat();
         if (path.startsWith('/quotas/')) return mockReadQuota();
@@ -103,7 +111,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 // Pass-through tenant-context wrapper. Real runWithTenantContext lives in
 // pipeline-core; we stub it so the lifecycle code calls execute synchronously
 // without standing up an AsyncLocalStorage.
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
@@ -123,14 +131,30 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   effectiveFeatureSet: (...args: unknown[]) => mockEffectiveFeatureSet(...args),
   deriveComplianceSets: (features: readonly string[]) => realDeriveComplianceSets(features),
   pushComplianceSetsToCompliance: (...args: unknown[]) => mockPushComplianceSets(...args),
+  clampRetentionDays: (v: number) => (v === -1 ? -1 : Math.min(v, 730)),
+  // Faithful to the real derivation: plan tier + add-ons while manageable and not
+  // grace-downgraded, else the developer baseline; null on a dangling plan.
+  currentSubscriptionEntitlement: async (sub: { status: string; planId: string; addons?: unknown[]; metadata?: Record<string, unknown> }) => {
+    if (!['active', 'trialing', 'past_due'].includes(sub.status) || sub.metadata?.gracePeriodDowngradedAt) {
+      return { tier: 'developer', addons: [] };
+    }
+    const plan = await mockPlanFindById(sub.planId) as { tier: string } | null;
+    return plan ? { tier: plan.tier, addons: [...(sub.addons ?? [])] } : null;
+  },
 }));
 
 const mockFind = jest.fn<(...args: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]);
 const mockUpdateOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ modifiedCount: 1 });
+// Atomic claims (grace/stale downgrade markers, reminder period key, stale-event
+// dedupe). Default: the claim is won (a row matched).
+const mockFindOneAndUpdate = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ _id: 'claimed' });
+const mockExists = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
     find: (...args: unknown[]) => mockFind(...args),
     updateOne: (...args: unknown[]) => mockUpdateOne(...args),
+    findOneAndUpdate: (...args: unknown[]) => mockFindOneAndUpdate(...args),
+    exists: (...args: unknown[]) => mockExists(...args),
   },
 }));
 
@@ -142,8 +166,8 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
 }));
 
 // api-server: only incCounter is used (stale-reconcile outcome metric).
-const mockIncCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+const mockIncCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: (...args: unknown[]) => mockIncCounter(...args),
 }));
 
@@ -174,6 +198,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
     quotaService: { host: 'quota', port: 3000 },
     platformService: { host: 'platform', port: 3000 },
     complianceService: { host: 'compliance', port: 3000 },
+    reportingService: { host: 'reporting', port: 3000 },
   },
 }));
 
@@ -203,6 +228,9 @@ describe('Subscription Lifecycle Checker', () => {
     mockEffectiveFeatureSet.mockReturnValue([]);
     mockReadCompliance.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { sets: [] } } }));
     mockPushComplianceSets.mockResolvedValue(true);
+    mockReadRetention.mockImplementation(() => Promise.resolve(okRetentionResponse()));
+    mockFindOneAndUpdate.mockResolvedValue({ _id: 'claimed' });
+    mockExists.mockResolvedValue(null);
     mockMessagePost.mockResolvedValue({ statusCode: 201 });
     safeClientsCreated = 0;
   });
@@ -272,9 +300,34 @@ describe('Subscription Lifecycle Checker', () => {
         (c) => c[2] && (c[2] as { reason?: string }).reason === 'grace_period_expired',
       );
       expect(graceCall?.[4]).toBeUndefined();
-      // Durable dedupe marker is stamped + persisted so the row won't re-match.
+      // Durable dedupe marker is CLAIMED atomically (before the side effects) so
+      // exactly one pass downgrades and the row won't re-match.
+      expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+        { '_id': expiredSub._id, 'status': 'past_due', 'metadata.gracePeriodDowngradedAt': { $exists: false } },
+        { $set: { 'metadata.gracePeriodDowngradedAt': expect.any(String) } },
+      );
       expect(expiredSub.metadata.gracePeriodDowngradedAt).toBeDefined();
-      expect(expiredSub.save).toHaveBeenCalledTimes(1);
+      expect(expiredSub.save).not.toHaveBeenCalled();
+    });
+
+    it('skips the downgrade entirely when another pass already claimed the lapse', async () => {
+      const expiredSub = {
+        _id: { toString: () => 'sub-1' },
+        orgId: 'org-1',
+        status: 'past_due',
+        firstFailedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+        failedPaymentAttempts: 3,
+        metadata: {} as Record<string, unknown>,
+        save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      };
+      mockFind.mockResolvedValueOnce([expiredSub]).mockResolvedValue([]);
+      mockFindOneAndUpdate.mockResolvedValueOnce(null); // lost the claim
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(mockCreateBillingEvent).not.toHaveBeenCalled();
     });
 
     it('excludes already-downgraded rows from the grace-period query (durable dedupe)', async () => {
@@ -321,7 +374,6 @@ describe('Subscription Lifecycle Checker', () => {
 
       expect(mockSyncEntitlements).toHaveBeenCalledTimes(1);
       expect(mockCreateBillingEvent).toHaveBeenCalledTimes(1);
-      expect(expiredSub.save).toHaveBeenCalledTimes(1);
     });
 
     it('does not downgrade when no subscriptions have expired grace period', async () => {
@@ -395,10 +447,13 @@ describe('Subscription Lifecycle Checker', () => {
         expect.objectContaining({ reason: 'provider_verified_cancel_missed_webhook' }),
         'sub-cancel',
       );
-      // Local row flipped to canceled + durable marker stamped, then saved.
+      // Row flipped to canceled + durable marker CLAIMED atomically before the sync.
+      expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+        { '_id': staleSub._id, 'status': { $in: ['active', 'trialing'] }, 'metadata.staleDowngradedAt': { $exists: false } },
+        { $set: { 'status': 'canceled', 'metadata.staleDowngradedAt': expect.any(String) } },
+      );
       expect(staleSub.status).toBe('canceled');
       expect(staleSub.metadata.staleDowngradedAt).toBeDefined();
-      expect(staleSub.save).toHaveBeenCalledTimes(1);
       expect(mockIncCounter).toHaveBeenCalledWith(
         'billing_stale_subscription_reconciled_total', { outcome: 'downgraded' },
       );
@@ -497,6 +552,50 @@ describe('Subscription Lifecycle Checker', () => {
       expect(staleSub.status).toBe('active');
     });
 
+    it('ADVANCES a still-entitled marketplace sub to its entitlement expiry (leaves the stale scan)', async () => {
+      const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      mockGetEntitlements.mockResolvedValueOnce([{ planId: 'pro', dimension: 'pro', isEntitled: true, expirationDate: expiry }]);
+      const staleSub = {
+        _id: { toString: () => 'sub-mkt3' },
+        orgId: 'org-mkt3',
+        status: 'active',
+        currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        cancelAtPeriodEnd: false,
+        metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: 'cust-3' } as Record<string, unknown>,
+      };
+      mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([staleSub]).mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: staleSub._id }, { $set: { currentPeriodEnd: expiry } });
+      expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    });
+
+    it('records a stale-period investigation row ONCE per (sub, period, detail)', async () => {
+      const staleSub = {
+        _id: { toString: () => 'sub-2' },
+        orgId: 'org-2',
+        status: 'active',
+        currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        cancelAtPeriodEnd: false,
+      };
+      mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([staleSub]).mockResolvedValue([]);
+      // The dedupe claim loses: this exact row was already recorded.
+      mockFindOneAndUpdate.mockResolvedValueOnce(null);
+      mockProvider.getSubscription = undefined;
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+        { '_id': staleSub._id, 'metadata.lastStalePeriodEventKey': { $ne: expect.stringContaining('|provider_read_unsupported') } },
+        { $set: { 'metadata.lastStalePeriodEventKey': expect.stringContaining('|provider_read_unsupported') } },
+      );
+      expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+    });
+
     it('does NOT downgrade when the provider lookup throws (transient) — retries next tick', async () => {
       const staleSub = {
         _id: { toString: () => 'sub-err' },
@@ -535,7 +634,7 @@ describe('Subscription Lifecycle Checker', () => {
         cancelAtPeriodEnd: false,
         currentPeriodEnd: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
         metadata: {},
-        save: jest.fn().mockResolvedValue(undefined),
+        save: jest.fn<AnyFn>().mockResolvedValue(undefined),
       };
 
       mockFind
@@ -546,10 +645,34 @@ describe('Subscription Lifecycle Checker', () => {
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Should have saved the subscription with lastRenewalReminder metadata
+      // The period's reminder is CLAIMED atomically before sending (no double send
+      // across replicas), and the claim is kept once delivery succeeds.
+      expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+        { '_id': upcomingSub._id, 'metadata.lastRenewalReminder': { $ne: expect.any(String) } },
+        { $set: { 'metadata.lastRenewalReminder': expect.any(String) } },
+      );
       expect(mockMessagePost).toHaveBeenCalledWith('/messages', expect.objectContaining({ recipientOrgId: 'org-3' }), expect.anything());
-      expect(upcomingSub.save).toHaveBeenCalled();
-      expect(upcomingSub.metadata).toHaveProperty('lastRenewalReminder');
+      expect(mockUpdateOne).not.toHaveBeenCalledWith(expect.objectContaining({ 'metadata.lastRenewalReminder': expect.any(String) }), expect.anything());
+    });
+
+    it('does NOT send when another pass already claimed this period', async () => {
+      const upcomingSub = {
+        _id: { toString: () => 'sub-3' },
+        orgId: 'org-3',
+        planId: 'pro-plan',
+        status: 'active',
+        interval: 'monthly',
+        cancelAtPeriodEnd: false,
+        currentPeriodEnd: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+        metadata: {},
+      };
+      mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([upcomingSub]).mockResolvedValue([]);
+      mockFindOneAndUpdate.mockResolvedValueOnce(null);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockMessagePost).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -565,7 +688,7 @@ describe('Subscription Lifecycle Checker', () => {
         cancelAtPeriodEnd: false,
         currentPeriodEnd: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
         metadata: {} as Record<string, unknown>,
-        save: jest.fn().mockResolvedValue(undefined),
+        save: jest.fn<AnyFn>().mockResolvedValue(undefined),
       };
       mockMessagePost.mockResolvedValue(response);
       mockFind
@@ -577,8 +700,11 @@ describe('Subscription Lifecycle Checker', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(mockMessagePost).toHaveBeenCalled();
-      expect(upcomingSub.save).not.toHaveBeenCalled();
-      expect(upcomingSub.metadata.lastRenewalReminder).toBeUndefined();
+      // The claim is RELEASED (only if still ours) so the next tick retries.
+      expect(mockUpdateOne).toHaveBeenCalledWith(
+        { '_id': upcomingSub._id, 'metadata.lastRenewalReminder': expect.any(String) },
+        { $unset: { 'metadata.lastRenewalReminder': '' } },
+      );
     });
   });
 
@@ -635,7 +761,18 @@ describe('Subscription Lifecycle Checker', () => {
     // Only the drift query (the one carrying `$or` on lastReconciledAt) returns
     // the sub; every earlier leg's query returns [].
     const onlyDriftReturns = (sub: unknown) =>
-      mockFind.mockImplementation(async (q: any) => (Array.isArray(q?.$or) ? [sub] : []));
+      mockFind.mockImplementation(async (q: any) => (Array.isArray(q?.$and) ? [sub] : []));
+    /** The completed-check stamp (lastReconciledAt set, backoff cleared). */
+    const STAMPED = expect.objectContaining({
+      $set: expect.objectContaining({ 'metadata.lastReconciledAt': expect.any(String) }),
+      $unset: { 'metadata.driftRetryAfter': '', 'metadata.driftFailures': '' },
+    });
+    /** The read-failure backoff stamp (retry pushed out, failure counted). */
+    const BACKED_OFF = expect.objectContaining({
+      $set: { 'metadata.lastDriftAttemptAt': expect.any(String), 'metadata.driftRetryAfter': expect.any(String) },
+      $inc: { 'metadata.driftFailures': 1 },
+    });
+    const stampedCalls = () => mockUpdateOne.mock.calls.filter((c) => (c[1] as any)?.$set?.['metadata.lastReconciledAt']);
 
     it('bounds the scan and gates on lastReconciledAt (per-tick cap + ~daily gate)', async () => {
       mockFind.mockResolvedValue([]); // no candidates on any query
@@ -643,29 +780,94 @@ describe('Subscription Lifecycle Checker', () => {
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Drift query: MANAGEABLE (active/trialing/past_due) + (never reconciled OR
-      // reconciled before the cutoff), capped at the per-tick bound at the DB level.
+      // Drift query: manageable rows + not-yet-settled terminal rows, gated on
+      // (never reconciled OR reconciled before the cutoff) AND outside any read-
+      // failure backoff; OLDEST-reconciled first, capped at the DB level.
       expect(mockFind).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: { $in: ['active', 'trialing', 'past_due'] },
-          $or: [
-            { 'metadata.lastReconciledAt': { $exists: false } },
-            { 'metadata.lastReconciledAt': { $lte: expect.any(String) } },
+        {
+          $and: [
+            {
+              $or: [
+                { status: { $in: ['active', 'trialing', 'past_due'] } },
+                { 'metadata.terminalReconciledAt': { $exists: false } },
+              ],
+            },
+            {
+              $or: [
+                { 'metadata.lastReconciledAt': { $exists: false } },
+                { 'metadata.lastReconciledAt': { $lte: expect.any(String) } },
+              ],
+            },
+            {
+              $or: [
+                { 'metadata.driftRetryAfter': { $exists: false } },
+                { 'metadata.driftRetryAfter': { $lte: expect.any(String) } },
+              ],
+            },
           ],
-        }),
+        },
         null,
-        { limit: 100 },
+        { sort: { 'metadata.lastReconciledAt': 1 }, limit: 100 },
       );
     });
 
-    it('EXCLUDES grace-period-downgraded rows (still past_due) so drift never re-grants the paid tier', async () => {
-      mockFind.mockResolvedValue([]);
+    it('expects a GRACE-DOWNGRADED past_due row at the developer baseline (never re-grants the paid tier)', async () => {
+      onlyDriftReturns({ ...driftSub(), status: 'past_due', metadata: { gracePeriodDowngradedAt: '2026-01-01T00:00:00Z' } });
 
       startSubscriptionLifecycleChecker();
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      const driftQuery = mockFind.mock.calls.map((c) => c[0] as Record<string, unknown>).find((q) => Array.isArray(q?.$or));
-      expect(driftQuery).toMatchObject({ 'metadata.gracePeriodDowngradedAt': { $exists: false } });
+      expect(mockEffectiveEntitlements).toHaveBeenCalledWith('developer', [], []);
+      expect(mockPlanFindById).not.toHaveBeenCalled();
+    });
+
+    it('scans a CANCELED row for over-entitlement and re-syncs the org down to developer', async () => {
+      onlyDriftReturns({ ...driftSub(), status: 'canceled' });
+      // Enforced seats still at a paid value (a missed downgrade).
+      mockReadSeat.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { limit: 25 } } }));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).toHaveBeenCalledWith('org-d', 'developer', 'Bearer test-service-token', 'sub-d', []);
+      // Terminal rows are settled once confirmed.
+      const stamp = stampedCalls()[0]?.[1] as any;
+      expect(stamp.$set['metadata.terminalReconciledAt']).toEqual(expect.any(String));
+    });
+
+    it('settles a SUPERSEDED terminal row (org has a live sub) without any reads', async () => {
+      onlyDriftReturns({ ...driftSub(), status: 'canceled' });
+      mockExists.mockResolvedValueOnce({ _id: 'live' });
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockReadSeat).not.toHaveBeenCalled();
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(stampedCalls()).toHaveLength(1);
+    });
+
+    it('RETENTION drift: reporting enforces a different retention → re-sync + drift metric (dimension retention)', async () => {
+      onlyDriftReturns(driftSub());
+      mockReadRetention.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { eventRetentionDays: 30, doraRetentionDays: 545 } } }));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).toHaveBeenCalledWith('org-d', 'pro', 'Bearer test-service-token', 'sub-d', []);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'retention' });
+    });
+
+    it('RETENTION read failure → skip with BACKOFF (not stamped, no re-sync)', async () => {
+      onlyDriftReturns(driftSub());
+      mockReadRetention.mockImplementation(() => Promise.resolve({ statusCode: 503 }));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(stampedCalls()).toHaveLength(0);
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: expect.anything() }, BACKED_OFF);
     });
 
     it('releases every per-call safe client the drift reads create', async () => {
@@ -688,10 +890,7 @@ describe('Subscription Lifecycle Checker', () => {
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
       expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', expect.anything());
       // Stamped so the sub drops out of the query for the next interval.
-      expect(mockUpdateOne).toHaveBeenCalledWith(
-        { _id: 'sub-d' },
-        { $set: { 'metadata.lastReconciledAt': expect.any(String) } },
-      );
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'sub-d' }, STAMPED);
     });
 
     it('SEATS drift: enforced seats differ → re-sync + drift metric (dimension seats)', async () => {
@@ -704,10 +903,7 @@ describe('Subscription Lifecycle Checker', () => {
 
       expect(mockSyncEntitlements).toHaveBeenCalledWith('org-d', 'pro', 'Bearer test-service-token', 'sub-d', []);
       expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'seats' });
-      expect(mockUpdateOne).toHaveBeenCalledWith(
-        { _id: 'sub-d' },
-        { $set: { 'metadata.lastReconciledAt': expect.any(String) } },
-      );
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'sub-d' }, STAMPED);
     });
 
     it('QUOTA-LIMIT drift: an enforced quota limit differs → re-sync + drift metric (dimension quota)', async () => {
@@ -753,10 +949,7 @@ describe('Subscription Lifecycle Checker', () => {
 
       expect(mockSyncEntitlements).toHaveBeenCalledWith('org-d', 'pro', 'Bearer test-service-token', 'sub-d', []);
       expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'features' });
-      expect(mockUpdateOne).toHaveBeenCalledWith(
-        { _id: 'sub-d' },
-        { $set: { 'metadata.lastReconciledAt': expect.any(String) } },
-      );
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'sub-d' }, STAMPED);
     });
 
     it('FEATURE match is order-independent: same set, different order → no drift', async () => {
@@ -783,8 +976,9 @@ describe('Subscription Lifecycle Checker', () => {
 
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
       expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', expect.anything());
-      // Un-stamped so it's retried next tick (read failure, not drift).
-      expect(mockUpdateOne).not.toHaveBeenCalled();
+      // Un-stamped (read failure, not drift) — retried after a backoff.
+      expect(stampedCalls()).toHaveLength(0);
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: expect.anything() }, BACKED_OFF);
     });
 
     it('READ FAILURE: a store read fails → skip, NO false re-sync, NOT stamped', async () => {
@@ -797,8 +991,9 @@ describe('Subscription Lifecycle Checker', () => {
 
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
       expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', expect.anything());
-      // Un-stamped so it's retried next tick.
-      expect(mockUpdateOne).not.toHaveBeenCalled();
+      // Un-stamped — retried after a backoff.
+      expect(stampedCalls()).toHaveLength(0);
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: expect.anything() }, BACKED_OFF);
     });
 
     it('does nothing when no subscription is due for a drift check', async () => {
@@ -825,10 +1020,7 @@ describe('Subscription Lifecycle Checker', () => {
       expect(mockPushComplianceSets).toHaveBeenCalledWith('org-d', ['compliance_standard'], 'Bearer test-service-token', 'sub-d');
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
       expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'compliance' });
-      expect(mockUpdateOne).toHaveBeenCalledWith(
-        { _id: 'sub-d' },
-        { $set: { 'metadata.lastReconciledAt': expect.any(String) } },
-      );
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'sub-d' }, STAMPED);
     });
 
     it('CUTOVER: an entitled-but-inactive Enterprise org (no billing event) → the periodic pass activates BOTH sets', async () => {
@@ -856,10 +1048,7 @@ describe('Subscription Lifecycle Checker', () => {
 
       expect(mockPushComplianceSets).not.toHaveBeenCalled();
       expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'compliance' });
-      expect(mockUpdateOne).toHaveBeenCalledWith(
-        { _id: 'sub-d' },
-        { $set: { 'metadata.lastReconciledAt': expect.any(String) } },
-      );
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'sub-d' }, STAMPED);
     });
 
     it('COMPLIANCE read failure: the compliance service is unreachable → skip, NO false re-push, NOT stamped', async () => {
@@ -873,8 +1062,9 @@ describe('Subscription Lifecycle Checker', () => {
 
       expect(mockPushComplianceSets).not.toHaveBeenCalled();
       expect(mockIncCounter).not.toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'compliance' });
-      // Un-stamped so it's retried next tick (read failure, not drift).
-      expect(mockUpdateOne).not.toHaveBeenCalled();
+      // Un-stamped (read failure, not drift) — retried after a backoff.
+      expect(stampedCalls()).toHaveLength(0);
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: expect.anything() }, BACKED_OFF);
     });
   });
 });

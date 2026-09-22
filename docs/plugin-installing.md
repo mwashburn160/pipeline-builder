@@ -80,7 +80,9 @@ A pipeline step can narrow the install's range with `filter.version` (see [Refer
 
 ### Upgrading
 
-Upgrading means changing an install's version or its policy (the install's **Upgrade** action, or `PATCH /api/plugins/installs/:id`). It needs `plugins:install`. For a listing whose tier requires approval, moving across a major or `breaking` version, or switching the policy to `latest`, needs `plugin_installs:manage`. A team can't change or remove an install it inherits from its root organization.
+Upgrading means changing an install's version or its policy (the install's **Upgrade** action, or `PATCH /api/plugins/installs/:id`). It needs `plugins:install`. For a listing whose tier requires approval, moving across a major or `breaking` version, or switching the policy to `latest`, needs `plugin_installs:manage`. The install views say so ahead of time: `needsApproval: true` on a catalog entry or an install means such a change needs an approver for you. A team can't change or remove an install it inherits from its root organization.
+
+Without `plugin_installs:manage` you **request** the change instead (`POST /api/plugins/installs/:id/change-requests` with `{ version?, versionPolicy?, note? }`). The request is stored on the install as its one pending change (`pendingChange` on the install), your organization's approvers are notified (N11), and they approve it (the change is applied, re-checked against your policy at that moment) or reject it with a reason under **Plugins → Approvals**. You're told the outcome (N12). A change that needs no approval is refused as a request — apply it directly.
 
 Deployed pipelines keep running the image digest they were synthesized with. A new version reaches a pipeline on its next synth.
 
@@ -266,7 +268,7 @@ A signal without enough data is left out and the remaining weights are scaled up
 
 ## Audit
 
-Install and policy actions are recorded in your organization's audit log, with `affectedOrgId` = your organization: `plugin.install.create` (no approval needed), `plugin.install.request`, `plugin.install.approve`, `plugin.install.deny`, `plugin.install.upgrade` (`details.from` / `details.to`), `plugin.install.remove` (`details.withdrawn` for a withdrawn request) and `org.plugin-install-policy.update` (the changed fields, before and after). The audit page's **Ecosystem** quick filter shows them. See [Audit Events](audit-events.md).
+Install and policy actions are recorded in your organization's audit log, with `affectedOrgId` = your organization: `plugin.install.create` (no approval needed), `plugin.install.request`, `plugin.install.approve`, `plugin.install.deny`, `plugin.install.upgrade` (`details.from` / `details.to`), `plugin.install.change-request`, `plugin.install.change-approve` / `plugin.install.change-reject` (an approval-gated change a member asked for, and its decision), `plugin.install.remove` (`details.withdrawn` for a withdrawn request) and `org.plugin-install-policy.update` (the changed fields, before and after). The audit page's **Ecosystem** quick filter shows them. See [Audit Events](audit-events.md).
 
 ## API
 
@@ -282,6 +284,10 @@ All routes are under `/api` and need a signed-in caller.
 | `DELETE` | `/plugins/installs/:id` | `plugins:install` | Uninstall, or withdraw a pending request |
 | `POST` | `/plugins/installs/:id/approve` | `plugin_installs:manage` | Approve a pending request |
 | `POST` | `/plugins/installs/:id/deny` | `plugin_installs:manage` | Deny a pending request |
+| `POST` | `/plugins/installs/:id/change-requests` | `plugins:install` | `{ version?, versionPolicy?, note? }` → 201 `{ changeRequest }`: request a change that needs an approver |
+| `GET` | `/plugins/installs/change-requests` | `plugin_installs:manage` | `{ changeRequests: [{ installId, listing, from, to, requestedBy, requestedAt, note }] }`, oldest first |
+| `POST` | `/plugins/installs/:id/change-requests/approve` | `plugin_installs:manage` | Apply the pending change → `{ install }` |
+| `POST` | `/plugins/installs/:id/change-requests/reject` | `plugin_installs:manage` | `{ reason? }` → `{ install }`: drop the pending change |
 | `GET` | `/plugins/install-policy` | `plugins:read` | Your policy and the effective (merged) one |
 | `PUT` | `/plugins/install-policy` | `plugin_installs:manage` + step-up | Save your policy |
 | `GET` | `/plugins/shadowing` | `plugins:read` | Your plugins that shadow an Official listing |

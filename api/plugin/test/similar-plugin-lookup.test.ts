@@ -8,7 +8,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockWithTenantTx = jest.fn<(fn: (tx: any) => Promise<unknown>) => Promise<unknown>>();
@@ -17,7 +17,7 @@ const mockWithViewerContext = jest.fn((f: unknown) => f);
 const mockResolutionOrderBy = jest.fn<(...args: any[]) => any[]>(() => []);
 const mockWarn = jest.fn();
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   withTenantTx: mockWithTenantTx,
   buildPluginConditions: mockBuildPluginConditions,
   withViewerContext: mockWithViewerContext,

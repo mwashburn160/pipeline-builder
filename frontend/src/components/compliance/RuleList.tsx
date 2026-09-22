@@ -94,7 +94,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
   // useCrudResource no longer auto-fetches on mount; trigger the initial
   // load and refetch when the server-forwarded filters change.
   useEffect(() => {
-    fetchRules();
+    void fetchRules();
   }, [fetchRules]);
 
   const filtersActive = Boolean(nameSearch || tagSearch || targetFilter || severityFilter || scopeFilter);

@@ -26,14 +26,19 @@ deploy/aws/eks/
   bin/setup.sh           # orchestrates: cluster → EFS → ACM → secrets → apply → Route 53
   cluster/cluster.yaml   # eksctl ClusterConfig, Auto Mode + aws-efs-csi-driver
   .env.example           # platform config template (setup.sh fills secrets + domain)
-  config/ nginx/         # prometheus/loki/alertmanager/promtail + nginx conf (→ ConfigMaps)
-  postgres-init.sql  mongodb-init.js  mongodb-keyfile  # keyfile: see note below
+  config/ nginx/         # prometheus/promtail/grafana + nginx conf (→ ConfigMaps)
+  mongodb-keyfile        # generated, gitignored — see note below
   k8s/
     kustomization.yaml   # standalone manifests (NOT shared with ec2/minikube)
     storageclasses.yaml  # pb-ebs (RWO, DBs) + pb-efs (RWX, registry/loki)
     ingress.yaml         # ALB Ingress → nginx:8080 (ACM TLS at the ALB)
     *.yaml               # full workload set, tuned for multi-node (PVC, no hostPath)
 ```
+
+postgres-init.sql, mongodb-init.js, the njs `jwt.js`/`metrics.js` and the
+loki/alertmanager/thanos-objstore configs are shared by every target and live
+once in `deploy/shared/` (read by `pb_create_config_maps` in
+`deploy/bin/k8s-resources.sh`).
 
 > **MongoDB keyfile secret.** `mongodb-keyfile` is the shared secret for the replica set's
 > internal auth. It is gitignored and generated per-deploy: `setup.sh` calls

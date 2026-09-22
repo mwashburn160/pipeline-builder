@@ -72,7 +72,7 @@ beforeEach(() => {
   h.membership.mockResolvedValue(false);
   h.notify.mockClear();
   h.audit.mockClear();
-  h.quota.getTier.mockResolvedValue('team');
+  h.quota.getTierStrict.mockResolvedValue('team');
 });
 
 afterEach(() => {
@@ -129,8 +129,40 @@ describe('approving a tenant new listing', () => {
   it('refuses a listing name that got taken meanwhile', async () => {
     const { acme } = seedPublishers(db);
     const { request } = await submitNewListing();
-    db.seed('plugin_listings', { publisherId: acme.id, name: 'lint' });
+    listed(acme, 'lint', '0.9.0');
     await rejects(decisions.approve(MOD_A, request.id, null), 'CONFLICT');
+  });
+
+  it('refuses to publish a version that is no longer public (E19)', async () => {
+    seedPublishers(db);
+    const { request } = await submitNewListing();
+    db.tables.plugins![0]!.visibility = 'org';
+    await rejects(decisions.approve(MOD_A, request.id, null), 'CONFLICT');
+    expect(h.registryPost).not.toHaveBeenCalled();
+    expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'pending' });
+  });
+
+  it('reuses an EMPTY listing shell of the same publisher instead of refusing (E5)', async () => {
+    const { acme } = seedPublishers(db);
+    const { request } = await submitNewListing();
+    const shell = db.seed('plugin_listings', { publisherId: acme.id, name: 'lint' });
+    await decisions.approve(MOD_A, request.id, null);
+    expect(db.tables.plugin_listings).toHaveLength(1);
+    expect(db.tables.plugin_listing_versions!.map((v) => v.listingId)).toEqual([shell.id]);
+    expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'approved', listingId: shell.id });
+  });
+
+  it('a failed version write leaves NO listing behind — every write is one transaction (E5)', async () => {
+    seedPublishers(db);
+    const { request } = await submitNewListing();
+    const writes: string[] = [];
+    // Model the transaction: the fake's writes inside `atomically` are undone when it throws.
+    db.failNextInsert('plugin_listing_versions', new Error('db write failed'));
+    await expect(decisions.approve(MOD_A, request.id, null)).rejects.toThrow('db write failed');
+    writes.push(...(db.tables.plugin_listings ?? []).map((l) => l.name));
+    expect(writes).toEqual([]);
+    // The request went back to pending (the approval rolled back), so a retry can publish.
+    expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'pending', listingId: null });
   });
 });
 
@@ -313,11 +345,28 @@ describe('console queue + review diff (§3.0.2)', () => {
     await submitNewListing({ name: 'fmt' });
     db.tables.plugin_publish_requests![0]!.createdAt = new Date(Date.now() - 60_000);
     h.membership.mockResolvedValue(true);
-    const items = await consoleSvc.queue(MOD_A, {});
+    const { requests: items, total, nextCursor } = await consoleSvc.queue(MOD_A, {});
     expect(items.map((i) => i.listingName)).toEqual(['lint', 'fmt']);
+    expect({ total, nextCursor }).toEqual({ total: 2, nextCursor: null });
     expect(items[0]).toMatchObject({ slaHours: 48, slaBreached: false, requiresTwoPerson: false, requiredPermission: 'plugins:moderate', conflictOfInterest: true });
-    expect(await consoleSvc.queue(MOD_A, { status: 'decided', kind: 'new_listing', lane: 'standard', limit: '5' })).toEqual([]);
+    expect(await consoleSvc.queue(MOD_A, { status: 'decided', kind: 'new_listing', lane: 'standard', limit: '5' })).toEqual({ requests: [], total: 0, nextCursor: null });
     await rejects(consoleSvc.queue(MOD_A, { status: 'bogus' }), 'VALIDATION_ERROR');
+  });
+
+  it('pages the open queue OLDEST first in SQL — the oldest request is never cut off by the limit (E11)', async () => {
+    seedPublishers(db);
+    await submitNewListing();
+    await submitNewListing({ name: 'fmt' });
+    await submitNewListing({ name: 'vet' });
+    const rows = db.tables.plugin_publish_requests!;
+    rows.forEach((r, i) => { r.createdAt = new Date(Date.now() - (10 - i) * 60_000); });
+    const page1 = await consoleSvc.queue(MOD_A, { limit: '1' });
+    expect(page1.requests.map((i) => i.listingName)).toEqual(['lint']);
+    expect(page1.total).toBe(3);
+    const page2 = await consoleSvc.queue(MOD_A, { limit: '2', cursor: page1.nextCursor });
+    expect(page2.requests.map((i) => i.listingName)).toEqual(['fmt', 'vet']);
+    expect(page2.nextCursor).toBeNull();
+    await rejects(consoleSvc.queue(MOD_A, { cursor: 'x' }), 'VALIDATION_ERROR');
   });
 
   it('shows the review diff: metadata provenance with user-edited links highlighted, contract/vuln/Dockerfile/SBOM deltas', async () => {
@@ -510,6 +559,68 @@ describe('auto-approval rule governance (§3.0.1)', () => {
 // -----------------------------------------------------------------------------
 
 describe('re-sign job (§3.3, G34)', () => {
+  it('keeps the PREVIOUS signature acceptable at lookup until the re-sign finishes, and kicks the run at once (E1)', async () => {
+    const installs = await import('../src/services/ecosystem/installs.js');
+    const { acme } = seedPublishers(db, { tenantTier: 'verified' });
+    const { listing, version } = listed(acme, 'lint', '1.0.0');
+    let signed = { tier: 'verified', publisher: 'acme' };
+    registry.setRegistryClientForTests({
+      post: h.registryPost as any,
+      delete: h.registryDelete as any,
+      get: (async () => ({ statusCode: 200, body: { data: { signed: true, ...signed } } })) as any,
+    });
+    h.registryPost.mockImplementation(async (path: string, body: any) => {
+      if (path.endsWith('/resign')) signed = { tier: body.tier, publisher: body.publisherHandle };
+      return { statusCode: 200, body: { data: {} } };
+    });
+    try {
+      h.resignKick.mockClear();
+      await consoleSvc.setPublisherTier(MOD_A, acme.id, { tier: 'community', reason: 'policy breach' });
+      expect(h.resignKick).toHaveBeenCalled();
+      const res = () => ({ publisher: db.tables.publishers!.find((p) => p.id === acme.id) as any, listing: listing as any, version: version as any });
+      // Still signed `verified`, the publisher is community now: the grace accepts it.
+      await expect(installs.verifyListedImage(res())).resolves.toBeUndefined();
+      // A signature for someone else is still refused.
+      signed = { tier: 'verified', publisher: 'mallory' };
+      await expect(installs.verifyListedImage(res())).rejects.toThrow(/must be re-signed/);
+      signed = { tier: 'verified', publisher: 'acme' };
+      expect(await resign.runResignJobs()).toMatchObject({ completed: 1 });
+      expect(signed).toEqual({ tier: 'community', publisher: 'acme' });
+      await expect(installs.verifyListedImage(res())).resolves.toBeUndefined();
+      // The job is gone, and with it the grace: the old signature no longer passes.
+      signed = { tier: 'verified', publisher: 'acme' };
+      await expect(installs.verifyListedImage(res())).rejects.toThrow(/not community\/acme/);
+    } finally {
+      h.registryPost.mockReset().mockImplementation(async (path: string, body: any) => ({
+        statusCode: 200,
+        body: { data: path.endsWith('/plugin-publications') ? { imageRepository: `public/${body.publisherHandle}/${body.name}`, digest: body.digest } : {} },
+      }));
+      registry.setRegistryClientForTests({ post: h.registryPost as any, get: (async () => ({ statusCode: 200, body: {} })) as any, delete: h.registryDelete as any });
+    }
+  });
+
+  it('a change landing MID-RUN is never lost: the stale runner neither deletes nor overwrites the newer job (E2)', async () => {
+    const { acme } = seedPublishers(db, { tenantTier: 'verified' });
+    listed(acme, 'lint', '1.0.0');
+    await resign.enqueueResign('publisher', acme.id, 'tier_change', 'mod-a', { tier: 'community', handle: 'acme' });
+    const before = (await resign.pendingResignJobs())[0]!;
+    // While the runner is re-signing, a handle change re-queues the publisher.
+    h.registryPost.mockImplementationOnce(async () => {
+      await resign.enqueueResign('publisher', acme.id, 'handle_change', 'mod-b', { tier: 'verified', handle: 'acme-old' });
+      return { statusCode: 200, body: {} };
+    });
+    expect(await resign.runResignJobs()).toMatchObject({ resigned: 1, completed: 0 });
+    const [after] = await resign.pendingResignJobs();
+    expect(after).toBeDefined();
+    expect(after!.generation).not.toBe(before.generation);
+    expect(after!.reason).toBe('handle_change');
+    expect(after!.done).toEqual([]);
+    // Grace APPENDS: both superseded signatures stay acceptable until the newer job finishes.
+    expect(after!.previous).toEqual([{ tier: 'community', handle: 'acme' }, { tier: 'verified', handle: 'acme-old' }]);
+    expect(await resign.runResignJobs()).toMatchObject({ completed: 1 });
+    expect(await resign.pendingResignJobs()).toEqual([]);
+  });
+
   it('re-signs every published image with the CURRENT annotations, resumes after a failure, then invalidates the verify cache', async () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     const { listing } = listed(acme, 'lint', '1.0.0');
@@ -557,7 +668,7 @@ describe('re-sign job (§3.3, G34)', () => {
 describe('plan-change upkeep (§3.7, N29)', () => {
   it('starts a Verified grace period on a downgrade, reminds at 14 and 3 days, and ends it with a re-sign', async () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
-    h.quota.getTier.mockResolvedValue('pro');
+    h.quota.getTierStrict.mockResolvedValue('pro');
     const now = new Date('2026-10-01T00:00:00Z');
     expect(await maintenance.checkVerifiedGrace(acme as any, now)).toBe('grace_started');
     expect(acme.verifiedGraceUntil).toEqual(new Date('2026-10-31T00:00:00Z'));
@@ -592,12 +703,46 @@ describe('plan-change upkeep (§3.7, N29)', () => {
     expect(await maintenance.checkListingsLimit(acme as any)).toBe('ok');
   });
 
+  it('never flags or clears the listings limit on an unreadable quota (E4)', async () => {
+    const { acme } = seedPublishers(db);
+    listed(acme, 'a', '1.0.0');
+    listed(acme, 'b', '1.0.0');
+    h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
+    expect(await maintenance.checkListingsLimit(acme as any)).toBe('skipped');
+    h.setListingsLimit(1);
+    expect(await maintenance.checkListingsLimit(acme as any)).toBe('over');
+    h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
+    // Still flagged: an outage is not "back under".
+    expect(await maintenance.checkListingsLimit(acme as any)).toBe('skipped');
+    expect(await maintenance.checkListingsLimit(acme as any)).toBe('already_over');
+  });
+
+  it('stops at the next checkpoint when the leader lease is lost', async () => {
+    seedPublishers(db, { tenantTier: 'verified' });
+    const lease = new AbortController();
+    lease.abort();
+    const out = await maintenance.runEcosystemMaintenance(new Date(), lease.signal);
+    expect(out).toMatchObject({ resigned: 0, slaBreachesNotified: 0, submissionsExpired: 0 });
+    expect(h.quota.getTierStrict).not.toHaveBeenCalled();
+  });
+
+  it('a failing re-sign pass is counted, and the rest of the pass still runs (E3)', async () => {
+    // No tenant publishers: the first settings read is the re-sign job listing.
+    db.failNextSelect('ecosystem_settings', new Error('db blip'));
+    const out = await maintenance.runEcosystemMaintenance();
+    expect(out).toMatchObject({ failures: 1, resigned: 0, submissionsExpired: 0, submitterEmailsPurged: 0 });
+  });
+
   it('runs one maintenance pass over tenant publishers, counting failures', async () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     db.seed('publishers', { handle: 'gone', ownerOrgId: 'org-gone', displayName: 'Gone', suspendedAt: new Date() });
-    h.quota.getTier.mockRejectedValueOnce(new Error('quota down'));
+    // An unreadable tier (the fail-closed read's null) skips the publisher — no
+    // grace period is started on a fallback tier (E4).
+    h.quota.getTierStrict.mockResolvedValueOnce(null);
     const out = await maintenance.runEcosystemMaintenance();
     expect(out).toMatchObject({ publishers: 1, failures: 1 });
+    expect(acme.verifiedGraceUntil).toBeNull();
+    expect(h.notify).not.toHaveBeenCalledWith('N29', expect.anything(), expect.anything(), expect.anything());
     expect(acme.id).toBeDefined();
     expect(maintenance.createEcosystemMaintenanceScheduler(() => ({}) as any)).toHaveProperty('start');
   });

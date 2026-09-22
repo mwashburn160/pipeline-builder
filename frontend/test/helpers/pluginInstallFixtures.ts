@@ -52,6 +52,7 @@ export function catalogEntry(over: Partial<CatalogEntry> = {}): CatalogEntry {
       paused: false,
       license: 'MIT',
     },
+    needsApproval: false,
     install: null,
     installable: true,
     requiresApproval: false,

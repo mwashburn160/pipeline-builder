@@ -1,9 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { useId } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
+import { OrgPicker } from '@/components/ui/OrgPicker';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
@@ -18,7 +20,6 @@ interface CreateUserModalProps {
   form: FormState;
   newUser: NewUserState;
   setNewUser: Dispatch<SetStateAction<NewUserState>>;
-  orgOptions: Array<{ id: string; name: string }>;
   orgRoles: OrgRoleOption[];
   selectedRoleIds: Set<string>;
   onOrgChange: (orgId: string) => void;
@@ -37,7 +38,6 @@ export function CreateUserModal({
   form,
   newUser,
   setNewUser,
-  orgOptions,
   orgRoles,
   selectedRoleIds,
   onOrgChange,
@@ -45,6 +45,7 @@ export function CreateUserModal({
   onSubmit,
   onClose,
 }: CreateUserModalProps) {
+  const uid = useId();
   if (!open) return null;
   return (
     <Modal
@@ -65,8 +66,9 @@ export function CreateUserModal({
 
       <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
         <div>
-          <label className="label">Username</label>
+          <label className="label" htmlFor={`${uid}-username`}>Username</label>
           <Input
+            id={`${uid}-username`}
             type="text"
             value={newUser.username}
             onChange={(e) => setNewUser((s) => ({ ...s, username: e.target.value }))}
@@ -76,8 +78,9 @@ export function CreateUserModal({
           />
         </div>
         <div>
-          <label className="label">Email</label>
+          <label className="label" htmlFor={`${uid}-email`}>Email</label>
           <Input
+            id={`${uid}-email`}
             type="email"
             value={newUser.email}
             onChange={(e) => setNewUser((s) => ({ ...s, email: e.target.value }))}
@@ -87,8 +90,9 @@ export function CreateUserModal({
           />
         </div>
         <div>
-          <label className="label">Password</label>
+          <label className="label" htmlFor={`${uid}-password`}>Password</label>
           <Input
+            id={`${uid}-password`}
             type="password"
             value={newUser.password}
             onChange={(e) => setNewUser((s) => ({ ...s, password: e.target.value }))}
@@ -98,22 +102,20 @@ export function CreateUserModal({
           />
         </div>
         <div>
-          <label className="label">Organization</label>
-          <Select
+          <label className="label" htmlFor={`${uid}-organization`}>Organization</label>
+          <OrgPicker
+            id={`${uid}-organization`}
             value={newUser.organizationId}
-            onChange={(e) => onOrgChange(e.target.value)}
+            onChange={onOrgChange}
+            none={{ value: '', label: '— No organization —' }}
             disabled={form.loading}
-          >
-            <option value="">— No organization —</option>
-            {orgOptions.map((o) => (
-              <option key={o.id} value={o.id}>{o.name}</option>
-            ))}
-          </Select>
+          />
         </div>
         {newUser.organizationId && (
           <div>
-            <label className="label">Role</label>
+            <label className="label" htmlFor={`${uid}-role`}>Role</label>
             <Select
+              id={`${uid}-role`}
               value={newUser.role}
               onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value as 'owner' | 'admin' | 'member' }))}
               disabled={form.loading}
@@ -127,10 +129,10 @@ export function CreateUserModal({
         {/* Roles are org-scoped — only shown once an org is selected. */}
         {newUser.organizationId && orgRoles.length > 0 && (
           <div>
-            <label className="label">
+            <span className="label" id={`${uid}-roles`}>
               Roles <span className="text-fg-subtle font-normal">({selectedRoleIds.size} selected)</span>
-            </label>
-            <div className="max-h-48 overflow-y-auto border border-default rounded-lg divide-y divide-default">
+            </span>
+            <div role="group" aria-labelledby={`${uid}-roles`} className="max-h-48 overflow-y-auto border border-default rounded-lg divide-y divide-default">
               {orgRoles.map((g) => (
                 <label key={g.id} className="flex items-center gap-2 p-2.5 text-sm cursor-pointer">
                   <Checkbox

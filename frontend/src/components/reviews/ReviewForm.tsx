@@ -58,8 +58,10 @@ export function ReviewForm({
     setError(null);
     try {
       const payload: ReviewBody = editing
-        // An edit sends every field so clearing the title or body sticks.
-        ? { rating, title: title.trim(), body: body.trim(), ...(version ? { version } : {}) }
+        // An edit sends every field so clearing the title, body OR version
+        // sticks — "Not specified" is `null`, not an omitted field (which the
+        // server reads as "leave it").
+        ? { rating, title: title.trim(), body: body.trim(), version: version || null }
         : {
           rating,
           ...(title.trim() ? { title: title.trim() } : {}),

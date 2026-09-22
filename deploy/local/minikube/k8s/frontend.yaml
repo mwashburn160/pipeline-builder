@@ -82,8 +82,12 @@ spec:
                   optional: true
             - name: PLATFORM_BASE_URL
               value: "https://nginx:8443"
-            - name: NODE_TLS_REJECT_UNAUTHORIZED
-              value: "0"
+            # Verify the gateway's dev cert against the local dev CA (bin/setup.sh
+            # creates the dev-ca ConfigMap from deploy/bin/nginx-tls.sh's
+            # certs/dev-ca.crt; the cert carries the `nginx` SAN). The image
+            # itself trusts no dev CA, and TLS verification is never switched off.
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/pipeline-builder/dev-ca/dev-ca.crt
             # Public (browser-facing) origin for social-card / Open Graph absolute
             # URLs, resolved at RUNTIME (frontend/src/lib/site-url.ts). minikube is
             # reached on localhost via tunnel/port-forward.
@@ -94,6 +98,9 @@ spec:
               mountPath: /app/.next/cache
             - name: tmp
               mountPath: /tmp
+            - name: dev-ca
+              mountPath: /etc/pipeline-builder/dev-ca
+              readOnly: true
           resources:
             limits:
               cpu: "500m"
@@ -126,6 +133,9 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
       volumes:
+        - name: dev-ca
+          configMap:
+            name: dev-ca
         - name: next-cache
           emptyDir: {}
         - name: tmp

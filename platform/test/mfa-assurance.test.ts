@@ -64,8 +64,8 @@ describe('signInAuth — assurance for every factor combination', () => {
     expect(signInAuth('sso')).toMatchObject({ amr: ['sso'], aal: 1 });
   });
 
-  it('SSO through an IdP the org marked as enforcing MFA is aal 2', () => {
-    expect(signInAuth('sso', { idpMfa: true })).toMatchObject({ amr: ['sso'], aal: 2 });
+  it('SSO through an IdP the org marked as enforcing MFA is aal 2 — recorded as that org\'s assertion', () => {
+    expect(signInAuth('sso', { idpMfaOrgId: 'org-1' })).toMatchObject({ amr: ['sso'], aal: 2, aalAssertedBy: 'org-1' });
   });
 
   it('a passkey is aal 2 on its own — user verification proves credential AND person', () => {

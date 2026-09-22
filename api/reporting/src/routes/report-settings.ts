@@ -6,6 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
+import { retentionOrgIdFor } from '../helpers/retention-cap.js';
 import { emitReportingAudit } from '../services/audit.js';
 
 /**
@@ -38,8 +39,8 @@ const reportingSettingsSchema = z.object({
 export function createReportSettingsRoutes(): Router {
   const router = Router();
 
-  router.get('/incidents', withRoute(async ({ res, ctx, orgId }) => {
-    const settings = await reportingService.getIncidentSettings(orgId);
+  router.get('/incidents', withRoute(async ({ req, res, ctx, orgId }) => {
+    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
     ctx.log('COMPLETED', 'Read reporting settings', {
       hasWindowOverride: settings.incidentWindowHours != null,
       hasRetentionOverride: settings.eventRetentionDays != null || settings.doraRetentionDays != null,
@@ -54,7 +55,7 @@ export function createReportSettingsRoutes(): Router {
     const validation = validateBody(req, reportingSettingsSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     await reportingService.setReportingSettings(orgId, validation.value);
-    const settings = await reportingService.getIncidentSettings(orgId);
+    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
     ctx.log('COMPLETED', 'Updated reporting settings', { orgId, ...validation.value });
     // Best-effort attributed audit — the correlation window governs how incidents
     // attach to deploys (i.e. the org's reported CFR/MTTR), so a change to it must

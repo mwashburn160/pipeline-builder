@@ -302,7 +302,7 @@ describe('plugin publish (command)', () => {
   it('uploads with --yes and reports the request; exits non-zero on a refusal', async () => {
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => { throw new Error(`exit ${code}`); }) as never);
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const postForm = jest.fn<() => Promise<unknown>>().mockResolvedValue({ data: { pluginName: 'acme-lint', version: '0.1.0', publishRequest: { requestId: 'r1', status: 'pending' } } });
+    const postForm = jest.fn<(...args: any[]) => Promise<unknown>>().mockResolvedValue({ data: { pluginName: 'acme-lint', version: '0.1.0', publishRequest: { requestId: 'r1', status: 'pending' } } });
     mockCreateAuthenticatedClient.mockReturnValue({
       get: async () => ({ data: { publisher: { handle: 'acme' }, isRootOrg: true, terms: { accepted: true }, publishingEnabled: true } }),
       postForm,

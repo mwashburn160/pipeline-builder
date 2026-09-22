@@ -66,11 +66,11 @@ export function highestPressure(response: OrgQuotaResponse | undefined | null): 
   if (!response?.quotas) return { level: 'none' };
   let best: QuotaPressure = { level: 'none' };
   for (const [type, summary] of Object.entries(response.quotas) as Array<[QuotaType, QuotaSummary]>) {
-    const pct = quotaPercent(summary);
-    const lvl = pressureLevel(pct);
+    const usedPct = quotaPercent(summary);
+    const lvl = pressureLevel(usedPct);
     if (lvl === 'none') continue;
-    if (best.level === 'none' || pct > (best.percent ?? 0)) {
-      best = { level: lvl, type, percent: pct, label: QUOTA_TYPE_LABEL[type] };
+    if (best.level === 'none' || usedPct > (best.percent ?? 0)) {
+      best = { level: lvl, type, percent: usedPct, label: QUOTA_TYPE_LABEL[type] };
     }
   }
   return best;

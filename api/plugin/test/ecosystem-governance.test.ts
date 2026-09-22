@@ -119,6 +119,18 @@ describe('plugin ecosystem governance (§3.0)', () => {
     expect(approvers).toEqual(['POST /plugins/ecosystem/requests/:id/second-approve']);
   });
 
+  it('keeps install change requests ORG-LOCAL: members request, the org\'s own approvers decide', () => {
+    const route = (k: string) => table.find((e) => key(e) === k)!;
+    expect(perms(route('POST /plugins/installs/:id/change-requests'))).toEqual(['plugins:install']);
+    expect(route('POST /plugins/installs/:id/change-requests').audit).toEqual(['plugin.install.change-request']);
+    for (const k of ['GET /plugins/installs/change-requests', 'POST /plugins/installs/:id/change-requests/approve', 'POST /plugins/installs/:id/change-requests/reject']) {
+      expect(perms(route(k))).toEqual(['plugin_installs:manage']);
+      expect(route(k).systemOrg).not.toBe(true);
+    }
+    expect(route('POST /plugins/installs/:id/change-requests/approve').audit).toEqual(['plugin.install.change-approve', 'plugin.install.upgrade']);
+    expect(route('POST /plugins/installs/:id/change-requests/reject').audit).toEqual(['plugin.install.change-reject']);
+  });
+
   it('exposes exactly the enumerated tenant request/restrict routes', () => {
     const tenant = table.filter((e) => e.path.startsWith('/plugins/publisher') || e.path.startsWith('/plugins/publish-requests')).map(key);
     expect(new Set(tenant)).toEqual(TENANT_ECOSYSTEM_ROUTES);

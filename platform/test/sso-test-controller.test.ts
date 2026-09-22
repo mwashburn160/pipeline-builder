@@ -16,6 +16,7 @@
  *   - the outcome is audited and recorded as the config's last test.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import crypto from 'crypto';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
@@ -95,6 +96,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/index.js', () => ({ authService: { findOrCreateOAuthUser: mockFindOrCreate } }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   issueTokens: mockIssueTokens,
   signInAuth: () => ({ amr: ['sso'], aal: 1, authTime: new Date(0) }),
 }));
@@ -119,7 +122,7 @@ function makeRes() {
   res.redirect = jest.fn().mockReturnValue(res);
   return res;
 }
-const body = (res: any) => (res.json as jest.Mock).mock.calls[0][0] as any;
+const body = (res: any) => (res.json as jest.Mock<AnyFn>).mock.calls[0][0] as any;
 
 async function start(protocol: 'oidc' | 'saml', user = ADMIN): Promise<string> {
   mockFindByOrg.mockResolvedValue({ protocol, updatedAt: '2026-09-01T00:00:00.000Z' });
@@ -269,7 +272,7 @@ describe('SAML dry run (ACS leg + collection)', () => {
     await handleSamlTestAssertion(acsRes, ORG, 'b64-response', state);
 
     expect(mockValidateSaml).toHaveBeenCalledWith(expect.anything(), 'b64-response', state, state, { test: true });
-    const redirect = (acsRes.redirect as jest.Mock).mock.calls[0][1] as string;
+    const redirect = (acsRes.redirect as jest.Mock<AnyFn>).mock.calls[0][1] as string;
     expect(redirect).toContain(`?test=${encodeURIComponent(state)}`);
     expect(redirect).not.toContain('handoff');
 
@@ -292,7 +295,7 @@ describe('SAML dry run (ACS leg + collection)', () => {
   it('refuses a forged marker at the ACS without validating anything', async () => {
     const res = makeRes();
     await handleSamlTestAssertion(res, ORG, 'r', 'ssotest.abc.nope');
-    expect((res.redirect as jest.Mock).mock.calls[0][1]).toContain('error=SAML_INVALID_STATE');
+    expect((res.redirect as jest.Mock<AnyFn>).mock.calls[0][1]).toContain('error=SAML_INVALID_STATE');
     expect(mockValidateSaml).not.toHaveBeenCalled();
   });
 });

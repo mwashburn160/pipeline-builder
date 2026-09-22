@@ -66,7 +66,7 @@ jest.unstable_mockModule('../src/helpers/in-app-notify.js', () => ({
 const mockSend = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 jest.unstable_mockModule('../src/utils/email.js', () => ({ emailService: { send: (...a: unknown[]) => mockSend(...a) } }));
 const mockLineage = jest.fn<(...a: unknown[]) => Promise<{ rootOrgId: string }>>();
-jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ resolveOrgLineage: (...a: unknown[]) => mockLineage(...a) }));
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: async () => false, resolveOrgLineage: (...a: unknown[]) => mockLineage(...a) }));
 const mockInc = jest.fn();
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: mockInc }));
 

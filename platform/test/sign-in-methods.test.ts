@@ -14,6 +14,7 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
 process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
@@ -22,15 +23,23 @@ let user: { password?: string; oauth?: Record<string, { id?: string }> } | null 
 let passkeys = 0;
 let totpActive = false;
 
-const chainable = <T>(value: T) => ({ select: () => ({ lean: async () => value }) });
+const chainable = <T>(value: T) => {
+  const q: any = { select: () => q, session: () => q, lean: async () => value };
+  return q;
+};
 
+const mockUserUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({}));
+const txSession = { id: 'tx' };
+jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
+  withMongoTransaction: (fn: (s: unknown) => unknown) => fn(txSession),
+}));
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  User: { findById: () => chainable(user) },
-  WebAuthnCredential: { countDocuments: async () => passkeys },
-  UserTotp: { exists: async () => (totpActive ? { _id: 'x' } : null) },
+  User: { findById: () => chainable(user), updateOne: (...a: unknown[]) => mockUserUpdateOne(...a) },
+  WebAuthnCredential: { countDocuments: () => ({ session: () => Promise.resolve(passkeys), then: (r: any) => Promise.resolve(passkeys).then(r) }) },
+  UserTotp: { exists: () => ({ session: () => Promise.resolve(totpActive ? { _id: 'x' } : null), then: (r: any) => Promise.resolve(totpActive ? { _id: 'x' } : null).then(r) }) },
 }));
 
-const { loadSignInMethods, retainsSignInMethod } = await import('../src/helpers/sign-in-methods.js');
+const { loadSignInMethods, retainsSignInMethod, removeUnlessLastSignInMethod } = await import('../src/helpers/sign-in-methods.js');
 
 /** Set the account's credentials for one case. */
 function account(opts: { password?: boolean; provider?: boolean; passkeys?: number; totp?: boolean }) {
@@ -93,5 +102,24 @@ describe('retainsSignInMethod — disabling TOTP', () => {
   ])('%s', async (_name, opts, expected) => {
     account(opts);
     expect(retainsSignInMethod(await loadSignInMethods('u1'), 'totp')).toBe(expected);
+  });
+});
+
+describe('removeUnlessLastSignInMethod — the guard and the delete are ONE decision', () => {
+  it('MATERIALIZES the conflict on the User doc, inside the transaction, before counting', async () => {
+    account({ passkeys: 2 });
+    const remove = jest.fn(async (..._args: unknown[]) => true);
+    await expect(removeUnlessLastSignInMethod('u1', 'passkey', 'LAST', remove)).resolves.toBe(true);
+    // Two concurrent removals both write this field, so Mongo aborts one; its
+    // retry re-counts and is refused.
+    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { credentialsEpoch: 1 } }, { session: txSession });
+    expect(remove).toHaveBeenCalledWith(txSession);
+  });
+
+  it('refuses — and deletes nothing — when it is the last way in', async () => {
+    account({ passkeys: 1 });
+    const remove = jest.fn(async (..._args: unknown[]) => true);
+    await expect(removeUnlessLastSignInMethod('u1', 'passkey', 'LAST', remove)).rejects.toThrow('LAST');
+    expect(remove).not.toHaveBeenCalled();
   });
 });

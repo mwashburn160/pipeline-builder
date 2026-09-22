@@ -10,7 +10,10 @@ set -euo pipefail
 #
 # Signatures are produced by .github/workflows/release.yml (keyless: Sigstore
 # Fulcio cert bound to the workflow's GitHub OIDC identity), so verification pins:
-#   - the certificate identity to that workflow (any git ref), and
+#   - the certificate identity to that workflow AT refs/heads/main — exactly the
+#     ref release.yml runs on. Any other ref (a fork's branch, a PR branch, a tag
+#     someone pushed with a modified release.yml) is rejected, even though it
+#     would carry this repo's workflow path; and
 #   - the OIDC issuer to GitHub Actions.
 #
 # ENFORCED by default: exit non-zero on the first unverifiable image. Locally-built
@@ -20,6 +23,9 @@ set -euo pipefail
 #
 # Usage:
 #   deploy/bin/verify-image-signatures.sh [owner]     # default owner: mwashburn160
+#   PB_VERIFY_REFS="ghcr.io/o/svc@sha256:… …" deploy/bin/verify-image-signatures.sh
+#       verify exactly these refs instead of gathering them from deploy/ (used by
+#       sync-image-tags.sh BEFORE it pins a digest into the manifests)
 #
 # Exit codes: 0 = every referenced image is validly signed · 1 = one or more failed
 #             verification · 2 = no refs found · 3 = infra error (cosign unavailable).
@@ -27,15 +33,13 @@ set -euo pipefail
 OWNER="${1:-mwashburn160}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-# GitHub repo slug that OWNS the signing workflow. The certificate-identity is the
-# workflow file's URL; the regexp accepts any git ref (@refs/heads/main, a tag, …).
+# GitHub repo slug that OWNS the signing workflow. The certificate identity is the
+# workflow file's URL at the one ref releases are built from.
 REPO_SLUG="${IMAGE_SIGNING_REPO:-mwashburn160/pipeline-builder}"
 WORKFLOW_REF="${IMAGE_SIGNING_WORKFLOW:-.github/workflows/release.yml}"
-IDENTITY_REGEXP="^https://github.com/${REPO_SLUG}/${WORKFLOW_REF}@"
-# Escape regex metacharacter dots (github.com, .github, release.yml) so they match
-# literally — defense-in-depth against a near-name matcher. The '@' has no end-anchor
-# on purpose (any git ref after it is accepted).
-IDENTITY_REGEXP="${IDENTITY_REGEXP//./\\.}"
+SIGNING_GIT_REF="${IMAGE_SIGNING_GIT_REF:-refs/heads/main}"
+# An exact identity, not a regexp: nothing about it should be allowed to vary.
+IDENTITY="https://github.com/${REPO_SLUG}/${WORKFLOW_REF}@${SIGNING_GIT_REF}"
 OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
 if [ "${SKIP_IMAGE_SIGNATURE_VERIFY:-0}" = "1" ]; then
@@ -84,20 +88,27 @@ fi
 # Distinct semver-pinned ghcr refs under deploy/ (same gather as verify-image-tags.sh).
 # while-read (not mapfile) so this also runs on macOS bash 3.2.
 REFS=()
+if [ -n "${PB_VERIFY_REFS:-}" ]; then
+  # shellcheck disable=SC2206  # word-split on purpose: a space-separated list
+  REFS=(${PB_VERIFY_REFS})
+else
 while IFS= read -r _ref; do REFS+=("$_ref"); done < <(
-  grep -rhoE "ghcr\.io/${OWNER}/[a-z0-9-]+:[0-9]+\.[0-9]+\.[0-9]+" "$ROOT/deploy" 2>/dev/null | sort -u
+  # Digest-pinned refs (`:<ver>@sha256:…`, written by sync-image-tags.sh) are
+  # verified BY DIGEST — the exact bytes the manifests will run.
+  grep -rhoE "ghcr\.io/${OWNER}/[a-z0-9-]+:[0-9]+\.[0-9]+\.[0-9]+(@sha256:[0-9a-f]{64})?" "$ROOT/deploy" 2>/dev/null | sort -u
 )
+fi
 
 if [ "${#REFS[@]}" -eq 0 ]; then
   echo "No ghcr.io/${OWNER}/*:<version> references found under deploy/ — nothing to verify."
   exit 2
 fi
 
-echo "Verifying cosign signatures on ${#REFS[@]} deploy image(s) (identity ${IDENTITY_REGEXP}) …"
+echo "Verifying cosign signatures on ${#REFS[@]} deploy image(s) (identity ${IDENTITY}) …"
 FAILED=()
 for ref in "${REFS[@]}"; do
   if cosign verify \
-      --certificate-identity-regexp "$IDENTITY_REGEXP" \
+      --certificate-identity "$IDENTITY" \
       --certificate-oidc-issuer "$OIDC_ISSUER" \
       "$ref" >/dev/null 2>&1; then
     echo "  signed   ${ref}"

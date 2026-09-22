@@ -1,19 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock CDK and heavy dependencies before imports
-const mockNodejsFunction = jest.fn().mockImplementation(() => ({
-  addToRolePolicy: jest.fn(),
+const mockNodejsFunction = jest.fn<AnyFn>().mockImplementation(() => ({
+  addToRolePolicy: jest.fn<AnyFn>(),
 }));
-const mockLogGroup = jest.fn();
-const mockProvider = jest.fn().mockImplementation(() => ({
+const mockLogGroup = jest.fn<AnyFn>();
+const mockProvider = jest.fn<AnyFn>().mockImplementation(() => ({
   serviceToken: 'arn:aws:lambda:us-east-1:123456789:function:provider',
 }));
-const mockCustomResource = jest.fn().mockImplementation(() => ({
-  getAttString: jest.fn().mockReturnValue('unresolved-token'),
+const mockCustomResource = jest.fn<AnyFn>().mockImplementation(() => ({
+  getAttString: jest.fn<AnyFn>().mockReturnValue('unresolved-token'),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -22,22 +23,22 @@ jest.unstable_mockModule('aws-cdk-lib/aws-codebuild', () => ({
   BuildEnvironmentVariableType: { PLAINTEXT: 'PLAINTEXT', SECRETS_MANAGER: 'SECRETS_MANAGER', PARAMETER_STORE: 'PARAMETER_STORE' },
   ComputeType: { SMALL: 'BUILD_GENERAL1_SMALL', MEDIUM: 'BUILD_GENERAL1_MEDIUM', LARGE: 'BUILD_GENERAL1_LARGE', X2_LARGE: 'BUILD_GENERAL1_2XLARGE' },
   LinuxBuildImage: { STANDARD_8_0: 'aws/codebuild/standard:8.0' },
-  BuildSpec: { fromObject: (o) => ({ __buildSpec: o }) },
+  BuildSpec: { fromObject: (o: unknown) => ({ __buildSpec: o }) },
 }));
 
 jest.unstable_mockModule('aws-cdk-lib', () => ({
   CustomResource: mockCustomResource,
   Token: {
-    isUnresolved: jest.fn().mockReturnValue(true),
+    isUnresolved: jest.fn<AnyFn>().mockReturnValue(true),
   },
   Duration: {
     seconds: jest.fn((s: number) => ({ toSeconds: () => s })),
     minutes: jest.fn((m: number) => ({ toMinutes: () => m })),
   },
   RemovalPolicy: { DESTROY: 'DESTROY' },
-  Stack: jest.fn(),
+  Stack: jest.fn<AnyFn>(),
   SecretValue: { plainText: jest.fn((v: string) => v) },
-  Tags: { of: jest.fn(() => ({ add: jest.fn() })) },
+  Tags: { of: jest.fn(() => ({ add: jest.fn<AnyFn>() })) },
 }));
 
 jest.unstable_mockModule('aws-cdk-lib/aws-lambda', () => ({
@@ -52,7 +53,7 @@ jest.unstable_mockModule('aws-cdk-lib/aws-lambda-nodejs', () => ({
 // LogGroup needs both the constructor stub AND the static `fromLogGroupName`
 // adopt-or-pass-through method (used for collision-resilient log group
 // references — see plugin-lookup.ts header).
-const mockLogGroupFromName = jest.fn().mockImplementation((_scope: unknown, _id: unknown, name: string) => ({
+const mockLogGroupFromName = jest.fn<AnyFn>().mockImplementation((_scope: unknown, _id: unknown, name: string) => ({
   logGroupName: name,
   logGroupArn: `arn:aws:logs:us-east-1:123456789:log-group:${name}`,
 }));
@@ -68,7 +69,7 @@ jest.unstable_mockModule('aws-cdk-lib/custom-resources', () => ({
 }));
 
 jest.unstable_mockModule('constructs', () => ({
-  Construct: jest.fn(),
+  Construct: jest.fn<AnyFn>(),
 }));
 
 const { Token } = await import('aws-cdk-lib');
@@ -96,7 +97,7 @@ describe('PluginLookup', () => {
     }));
 
     // Default: Token.isUnresolved returns true (synth-time behavior)
-    (Token.isUnresolved as jest.Mock).mockReturnValue(true);
+    (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -168,7 +169,7 @@ describe('PluginLookup', () => {
 
   describe('plugin()', () => {
     it('should return fallback when token is unresolved during synth', () => {
-      (Token.isUnresolved as jest.Mock).mockReturnValue(true);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
@@ -189,7 +190,7 @@ describe('PluginLookup', () => {
     });
 
     it('should normalize string plugin to PluginOptions', () => {
-      (Token.isUnresolved as jest.Mock).mockReturnValue(true);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
@@ -214,7 +215,7 @@ describe('PluginLookup', () => {
     });
 
     it('should use provided filter from PluginOptions', () => {
-      (Token.isUnresolved as jest.Mock).mockReturnValue(true);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
@@ -239,7 +240,7 @@ describe('PluginLookup', () => {
     });
 
     it('should pass platformUrl as baseURL to custom resource', () => {
-      (Token.isUnresolved as jest.Mock).mockReturnValue(true);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
@@ -349,7 +350,7 @@ describe('PluginLookup', () => {
     });
 
     it('sends the publisher in the deploy-time lookup filter', () => {
-      (Token.isUnresolved as jest.Mock).mockReturnValue(true);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         orgId: 'test-org',
@@ -394,9 +395,9 @@ describe('PluginLookup', () => {
       };
       const encoded = Buffer.from(JSON.stringify(pluginData)).toString('base64');
 
-      (Token.isUnresolved as jest.Mock).mockReturnValue(false);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(false);
       mockCustomResource.mockImplementation(() => ({
-        getAttString: jest.fn().mockReturnValue(encoded),
+        getAttString: jest.fn<AnyFn>().mockReturnValue(encoded),
       }));
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
@@ -418,9 +419,9 @@ describe('PluginLookup', () => {
       const badData = { version: '1.0.0', commands: ['npm ci'] };
       const encoded = Buffer.from(JSON.stringify(badData)).toString('base64');
 
-      (Token.isUnresolved as jest.Mock).mockReturnValue(false);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(false);
       mockCustomResource.mockImplementation(() => ({
-        getAttString: jest.fn().mockReturnValue(encoded),
+        getAttString: jest.fn<AnyFn>().mockReturnValue(encoded),
       }));
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
@@ -438,9 +439,9 @@ describe('PluginLookup', () => {
       const badData = { name: 'nodejs-build', version: '1.0.0' };
       const encoded = Buffer.from(JSON.stringify(badData)).toString('base64');
 
-      (Token.isUnresolved as jest.Mock).mockReturnValue(false);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(false);
       mockCustomResource.mockImplementation(() => ({
-        getAttString: jest.fn().mockReturnValue(encoded),
+        getAttString: jest.fn<AnyFn>().mockReturnValue(encoded),
       }));
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
@@ -455,9 +456,9 @@ describe('PluginLookup', () => {
     });
 
     it('should throw on invalid base64 data', () => {
-      (Token.isUnresolved as jest.Mock).mockReturnValue(false);
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(false);
       mockCustomResource.mockImplementation(() => ({
-        getAttString: jest.fn().mockReturnValue('not-valid-base64!!!'),
+        getAttString: jest.fn<AnyFn>().mockReturnValue('not-valid-base64!!!'),
       }));
 
       const lookup = new PluginLookup(mockScope, 'TestLookup', {

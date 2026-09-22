@@ -1,16 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const mockCurrentTraceId = jest.fn<() => string | undefined>();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   currentTraceId: () => mockCurrentTraceId(),
 }));
 
-const mockCreate = jest.fn();
+process.env.AUDIT_CHAIN_HMAC_KEY = 'test-audit-chain-hmac-key-0123456789abcdef';
+
+const mockCreate = jest.fn<AnyFn>();
 // `audit()` funnels through the hash-chain append, which reads the chain tail
 // via `findOne(...).sort().select().lean()` before creating the row.
 const mockFindOneLean = jest.fn<() => Promise<unknown>>();
@@ -22,7 +26,31 @@ jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   },
 }));
 
-const { audit } = await import('../src/helpers/audit.js');
+jest.unstable_mockModule('../src/models/audit-chain-head.js', () => ({
+  __esModule: true,
+  default: {
+    findById: () => ({ select: () => ({ lean: async () => null }) }),
+    updateOne: async () => ({}),
+  },
+}));
+
+const { audit, drainLocalAuditSpool, setLocalAuditSpoolForTest, LOCAL_AUDIT_SPOOL_KEY } = await import('../src/helpers/audit.js');
+
+/** In-memory AuditSpool honoring the take/ack/requeue contract. */
+function memorySpool() {
+  const queue: Array<{ event: Record<string, unknown>; serviceName: string }> = [];
+  const inflight = new Set<unknown>();
+  return {
+    queue,
+    enqueue: jest.fn(async (e: { event: Record<string, unknown>; serviceName: string }) => { queue.push(JSON.parse(JSON.stringify(e))); }),
+    take: async (max: number) => { const out = queue.splice(0, max); out.forEach((e) => inflight.add(e)); return out; },
+    ack: async (entries: unknown[]) => { entries.forEach((e) => inflight.delete(e)); },
+    requeue: async (entries: Array<{ event: Record<string, unknown>; serviceName: string }>) => { entries.forEach((e) => inflight.delete(e)); queue.unshift(...entries); },
+    recover: jest.fn(async () => 0),
+    heartbeat: jest.fn(async () => undefined),
+    depth: async () => queue.length,
+  };
+}
 
 /** Flush the microtask/timer queue so the fire-and-forget async append (tail
  *  lookup + create) settles before we assert on it. */
@@ -180,6 +208,78 @@ describe('audit helper', () => {
     expect(() => audit(mockReq(), 'user.logout')).not.toThrow();
     // Allow microtask queue to flush so the .catch handler runs without leaking.
     await new Promise((r) => setImmediate(r));
+  });
+
+  it('stamps a per-emission idempotency key (so a spooled retry of a committed write dedups)', async () => {
+    audit(mockReq({ user: { sub: 'u1', organizationId: 'org-1' } }), 'user.login');
+    audit(mockReq({ user: { sub: 'u1', organizationId: 'org-1' } }), 'user.login');
+    await flush();
+    const keys = mockCreate.mock.calls.map((c) => (c[0] as { idempotencyKey: string }).idempotencyKey);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  describe('durable local delivery (spool on failure)', () => {
+    afterEach(() => setLocalAuditSpoolForTest(undefined));
+
+    it('spools an event whose write failed instead of dropping it', async () => {
+      const spool = memorySpool();
+      setLocalAuditSpoolForTest(spool as never);
+      mockCreate.mockRejectedValue(new Error('mongo failover'));
+
+      audit(mockReq({ user: { sub: 'u1', organizationId: 'org-1' } }), 'user.logout');
+      await flush();
+      await flush();
+
+      expect(spool.enqueue).toHaveBeenCalledTimes(1);
+      const entry = spool.queue[0];
+      expect(entry.serviceName).toBe('platform');
+      expect(entry.event).toMatchObject({ action: 'user.logout', actorId: 'u1', orgId: 'org-1', idempotencyKey: expect.any(String) });
+      // Stamped with when it happened, so the late re-append is still attributable.
+      expect(typeof entry.event.occurredAt).toBe('string');
+    });
+
+    it('drains the spool back into the chain once the store recovers (same idempotency key)', async () => {
+      const spool = memorySpool();
+      setLocalAuditSpoolForTest(spool as never);
+      mockCreate.mockRejectedValueOnce(new Error('mongo failover'));
+      audit(mockReq({ user: { sub: 'u1', organizationId: 'org-1' } }), 'user.logout');
+      await flush();
+      await flush();
+      const firstKey = (mockCreate.mock.calls[0][0] as { idempotencyKey: string }).idempotencyKey;
+
+      mockCreate.mockResolvedValue({});
+      const res = await drainLocalAuditSpool();
+
+      expect(res).toEqual({ delivered: 1, failed: 0 });
+      expect(spool.queue).toHaveLength(0);
+      const retried = mockCreate.mock.calls[1][0] as { idempotencyKey: string; occurredAt: Date };
+      expect(retried.idempotencyKey).toBe(firstKey);
+      expect(retried.occurredAt).toBeInstanceOf(Date);
+    });
+
+    it('heartbeats and reclaims stale owners on every drain tick (not only at boot)', async () => {
+      const spool = memorySpool();
+      setLocalAuditSpoolForTest(spool as never);
+      await drainLocalAuditSpool();
+      await drainLocalAuditSpool();
+      expect(spool.heartbeat).toHaveBeenCalledTimes(2);
+      expect(spool.recover).toHaveBeenCalledTimes(2);
+    });
+
+    it('requeues entries that still fail', async () => {
+      const spool = memorySpool();
+      setLocalAuditSpoolForTest(spool as never);
+      spool.queue.push({ event: { action: 'user.logout', actorId: 'u1', orgId: 'org-1', occurredAt: new Date().toISOString() }, serviceName: 'platform' });
+      mockCreate.mockRejectedValue(new Error('still down'));
+
+      expect(await drainLocalAuditSpool()).toEqual({ delivered: 0, failed: 1 });
+      expect(spool.queue).toHaveLength(1);
+    });
+
+    it('uses its own spool key, separate from every remote service spool', () => {
+      expect(LOCAL_AUDIT_SPOOL_KEY).toBe('audit:spool:platform-local');
+    });
   });
 
   it('should be synchronous and return undefined', () => {

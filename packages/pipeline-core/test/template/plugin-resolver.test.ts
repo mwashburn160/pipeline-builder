@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { resolvePluginTemplates, isPluginTemplatableField } from '../../src/template/plugin-resolver.js';
 

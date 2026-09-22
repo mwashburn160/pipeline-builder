@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
 jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
@@ -32,7 +33,7 @@ describe('applyAwsProfile', () => {
   const saved = { ...process.env };
   beforeEach(() => {
     delete process.env.AWS_PROFILE; delete process.env.AWS_ACCESS_KEY_ID;
-    (printWarning as jest.Mock).mockReset();
+    (printWarning as jest.Mock<AnyFn>).mockReset();
   });
   afterEach(() => { process.env = { ...saved }; });
 

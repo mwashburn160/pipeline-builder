@@ -10,6 +10,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const clientGet = jest.fn<(path: string, opts?: unknown) => unknown>();
@@ -20,7 +21,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   setCounterEmitter: jest.fn(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: jest.fn(),
 }));
 
@@ -30,7 +31,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const { effectiveEntitlements } = await import(
     '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
   );
-  return {
+  return stubModule('@pipeline-builder/pipeline-core', {
     Config: { get: () => ({ services: { billingTimeout: 5000 } }) },
     effectiveEntitlements,
     CoreConstants: {
@@ -38,7 +39,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
       IDEMPOTENCY_TTL_MS: 300_000,
       IDEMPOTENCY_MAX_STORE_SIZE: 10_000,
     },
-  };
+  });
 });
 
 jest.unstable_mockModule('../src/config.js', () => ({

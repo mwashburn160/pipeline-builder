@@ -56,25 +56,27 @@
  * PUBLIC SURFACE POLICY
  *
  * The root re-exports the ten sub-barrels, and each SUB-BARREL is the allow-list
- * for its own area — that is where a module is either `export *`'d or narrowed
- * to the names services may use. Internals are excluded there rather than here,
- * so the exclusion sits next to the code that defines them and cannot be missed
- * by someone adding a module.
+ * for its own area: every re-export NAMES what it exports (no `export *`), and
+ * a name is on the list only because some other package — a service, the
+ * frontend, a test, a deploy script — actually imports it. Internals are
+ * excluded there rather than here, so the exclusion sits next to the code that
+ * defines them. Adding an export to a module does NOT publish it; add it to
+ * the sub-barrel when a consumer needs it.
  *
- * Currently narrowed (the rest is the intended surface):
- * - `services/retry-strategy` — decision functions only; `parseRetryAfter` and
- *   `addJitter` are backoff internals.
- * - `services/circuit-breaker` — `CircuitOpenError` + `resetCircuitBreakers`;
- *   the `CircuitBreaker` class is wired by the shared HTTP client, not by
- *   services.
+ * Deliberately internal, for example:
+ * - `services/retry-strategy` — decision functions only; `parseRetryAfter`,
+ *   `addJitter` and the DEFAULT_* constants are backoff internals.
+ * - `services/circuit-breaker` — `resetCircuitBreakers` only; the
+ *   `CircuitBreaker` class is wired by the shared HTTP client, not by services.
  * - `services/service-keys` — verify/inspect only; signing, the key bundle and
  *   `_resetServiceKeysForTests` stay inside.
  * - `utils/jwk` — constants, shapes, decoders and the two signer-facing helpers
  *   platform needs; `jwkThumbprint` / `publicKeyFromJwk` stay inside.
  *
- * api-core's own modules and its `testing/` helpers reach the excluded symbols
- * by DEEP import (`@pipeline-builder/api-core/lib/services/service-keys.js`),
- * which is also how the unit tests reach them.
+ * api-core's own modules reach the excluded symbols by relative import; unit
+ * tests reach them by DEEP import
+ * (`@pipeline-builder/api-core/lib/services/service-keys.js`). Test helpers are
+ * the separate `@pipeline-builder/api-core/testing` entry, never this barrel.
  */
 
 // Types

@@ -6,10 +6,11 @@
  * stream client that implements the xadd/xgroup/xreadgroup/xack/xautoclaim subset.
  */
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 jest.unstable_mockModule('../src/utils/logger.js', () => ({
-  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+  createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() }),
 }));
 
 const { createRedisDurableEventBus } = await import('../src/services/durable-event-bus.js');
@@ -111,8 +112,8 @@ function makeFakeStream() {
 }
 
 describe('durable event bus', () => {
-  beforeEach(() => jest.useRealTimers());
-  afterEach(() => jest.useRealTimers());
+  beforeEach(() => { jest.useRealTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
 
   it('publish XADDs and returns the stream id', async () => {
     const fake = makeFakeStream();

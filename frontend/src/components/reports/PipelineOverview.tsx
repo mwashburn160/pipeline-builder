@@ -69,7 +69,8 @@ export function PipelineOverview({
               return (
                 <div key={entry.period} className="flex items-center gap-3">
                   <span className="text-xs text-fg-subtle w-16 shrink-0 tabular-nums">{fmtDate(entry.period)}</span>
-                  <div className="flex-1 h-4 bg-surface-muted rounded overflow-hidden"><div className={`h-full ${color} rounded`} style={{ width: `${pct}%` }} /></div>
+                  {/* Decorative: the percentage beside it carries the value in text. */}
+                  <div className="flex-1 h-4 bg-surface-muted rounded overflow-hidden" aria-hidden="true" title={`${pct}% succeeded`}><div className={`h-full ${color} rounded`} style={{ width: `${pct}%` }} /></div>
                   <span className={`text-xs tabular-nums w-10 text-right font-medium ${pct >= 90 ? 'text-success' : pct >= 70 ? 'text-warning' : 'text-danger'}`}>{pct}%</span>
                 </div>
               );

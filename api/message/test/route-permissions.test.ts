@@ -18,20 +18,22 @@
  * the handler, exactly as express would.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockFindById = jest.fn<(...args: unknown[]) => unknown>();
-const mockDelete = jest.fn<(...args: unknown[]) => unknown>();
-const mockDeleteThread = jest.fn<(...args: unknown[]) => unknown>();
-const mockMarkAsRead = jest.fn<(...args: unknown[]) => unknown>();
-const mockMarkThreadAsRead = jest.fn<(...args: unknown[]) => unknown>();
-const mockGetUnreadCount = jest.fn<(...args: unknown[]) => unknown>();
-const mockFindPaginated = jest.fn<(...args: unknown[]) => unknown>();
-const mockFindAnnouncements = jest.fn<(...args: unknown[]) => unknown>();
-const mockFindConversations = jest.fn<(...args: unknown[]) => unknown>();
-const mockFindThreadMessages = jest.fn<(...args: unknown[]) => unknown>();
-const mockCreate = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindById = jest.fn<AnyFn>();
+const mockDelete = jest.fn<AnyFn>();
+const mockDeleteThread = jest.fn<AnyFn>();
+const mockMarkAsRead = jest.fn<AnyFn>();
+const mockMarkThreadAsRead = jest.fn<AnyFn>();
+const mockGetUnreadCount = jest.fn<AnyFn>();
+const mockFindPaginated = jest.fn<AnyFn>();
+const mockFindAnnouncements = jest.fn<AnyFn>();
+const mockFindConversations = jest.fn<AnyFn>();
+const mockFindThreadMessages = jest.fn<AnyFn>();
+const mockCreate = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -53,7 +55,7 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 // create-message emits its (announcement-only) audit through this client; the
 // support route emits none. Stubbed so the real client never loads here.
 jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 // Stub attachmentService (imported by create-message/read-messages) so the real
@@ -64,7 +66,7 @@ jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
     findByMessageId: jest.fn(async () => []),
     findByMessageIds: jest.fn(async () => []),
     findById: jest.fn(async () => null),
-    createPending: jest.fn(),
+    createPending: jest.fn<AnyFn>(),
   },
 }));
 
@@ -93,13 +95,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   // The send limiter is a route-chain middleware; it is not what this suite
   // isolates, so it passes straight through.
   rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
   withRoute: (handler: Function) => async (req: any, res: any) => {
-    await handler({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: req.__userId });
+    await handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: req.__userId });
   },
   createAuthenticatedWithOrgRoute: jest.fn(() => []),
   // Read routes compose via `...createProtectedRoute(...)`; the auth/org/quota
@@ -107,14 +109,14 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   // gate, so the chain is empty and `requirePermission('messages:read')` is the
   // only guard preceding the handler.
   createProtectedRoute: jest.fn(() => []),
-  incrementQuotaFromCtx: jest.fn(),
+  incrementQuotaFromCtx: jest.fn<AnyFn>(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
 }));
 
-const mockListReachableOrgs = jest.fn<(...args: unknown[]) => unknown>();
+const mockListReachableOrgs = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
   listReachableOrgs: mockListReachableOrgs,
   isRecipientReachable: jest.fn(async () => true),
@@ -127,14 +129,14 @@ const { createUpdateMessageRoutes } = await import('../src/routes/update-message
 const { createReadMessageRoutes } = await import('../src/routes/read-messages.js');
 
 const sseManager = {
-  send: jest.fn().mockReturnValue(1),
-  broadcast: jest.fn().mockReturnValue(1),
+  send: jest.fn<AnyFn>().mockReturnValue(1),
+  broadcast: jest.fn<AnyFn>().mockReturnValue(1),
 } as any;
 
 const quotaService = {
-  increment: jest.fn<(...args: unknown[]) => unknown>().mockResolvedValue(undefined),
-  check: jest.fn(),
-  getUsage: jest.fn(),
+  increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
+  check: jest.fn<AnyFn>(),
+  getUsage: jest.fn<AnyFn>(),
 } as any;
 
 const createRouter = createCreateMessageRoutes(sseManager);
@@ -170,13 +172,13 @@ function makeReq(overrides: Record<string, unknown> = {}): any {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, status, json };
 }
 
 describe('DELETE /messages/:id — requires messages:write', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('403s a caller WITHOUT messages:write (ownership check never runs)', async () => {
     const { res, status, json } = makeRes();
@@ -227,7 +229,7 @@ describe.each([
   ['/:id/read'],
   ['/:id/thread/read'],
 ])('PUT /messages%s — requires messages:read', (path) => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('403s a caller WITHOUT messages:read (service never runs)', async () => {
     const { res, status, json } = makeRes();
@@ -314,7 +316,7 @@ describe.each([
 });
 
 describe('GET /messages/recipients/orgs — requires messages:write (the send authority)', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('403s a read-only caller (messages:read only) without listing', async () => {
     const { res, status } = makeRes();
@@ -390,7 +392,7 @@ describe('POST /messages/support — requires messages:read (not messages:write)
 
 /** POST /messages stays strict: a read-only member is refused there. */
 describe('POST /messages — still requires messages:write', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('403s a member holding only messages:read', async () => {
     const { res, status, json } = makeRes();

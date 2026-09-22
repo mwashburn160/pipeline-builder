@@ -48,7 +48,7 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
   }, [ruleId]);
 
   useEffect(() => {
-    fetchHistory();
+    void fetchHistory();
     return () => { genRef.current++; };
   }, [fetchHistory]);
 

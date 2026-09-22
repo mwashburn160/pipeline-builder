@@ -80,6 +80,11 @@ export interface InstallView {
   /** Published advisories covering the resolved version — or, when resolution is
    *  blocked by an advisory, the blocking ones (`blocking: true`). */
   advisories: InstallAdvisory[];
+  /** Present on the installs LIST (`GET /plugins/installs`): as
+   *  {@link CatalogEntry.needsApproval}. */
+  needsApproval?: boolean;
+  /** A requested version / policy change waiting for an approver. */
+  pendingChange?: InstallPendingChange | null;
 }
 
 export interface ConsumptionPolicy {
@@ -131,6 +136,10 @@ export interface CatalogEntry {
   installable: boolean;
   /** Installing it would create a pending request. */
   requiresApproval: boolean;
+  /** Moving this install across a major/breaking version, or its policy to
+   *  `latest`, needs an approver (`plugin_installs:manage`) for this caller —
+   *  the server refuses it otherwise. */
+  needsApproval: boolean;
   blocked: BlockedInfo | null;
   /** Null when not installed / nothing resolves. */
   resolved: ResolvedVersionInfo | null;
@@ -191,4 +200,29 @@ export interface CreateInstallBody {
 export interface UpdateInstallBody {
   versionPolicy?: VersionPolicy;
   version?: string;
+}
+
+/** An install change waiting for an approver (`plugin_installs:manage`). */
+export interface InstallPendingChange {
+  version: string;
+  versionPolicy: VersionPolicy;
+  requestedBy: string;
+  requestedAt: string;
+  note: string | null;
+}
+
+/** A pending install change as the change-request routes show it. */
+export interface InstallChangeRequestView {
+  installId: string;
+  /** `publisher/name`. */
+  listing: string;
+  from: { version: string | null; versionPolicy: VersionPolicy };
+  to: { version: string; versionPolicy: VersionPolicy };
+  requestedBy: string;
+  requestedAt: string;
+  note: string | null;
+}
+
+export interface InstallChangeRequestBody extends UpdateInstallBody {
+  note?: string;
 }

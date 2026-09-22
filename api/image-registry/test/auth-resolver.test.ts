@@ -3,11 +3,15 @@
 
 import { generateKeyPairSync } from 'crypto';
 import { jest, describe, it, expect, beforeEach, beforeAll, afterAll } from '@jest/globals';
-import { installTestServiceKeys, type TestServiceKeysHandle } from '@pipeline-builder/api-core/lib/testing/service-tokens.js';
 import {
-  generateTestSigningKey, installTestJwks, signTestUserToken, testUserIdentityClaims,
+  installTestServiceKeys,
+  type TestServiceKeysHandle,
+  generateTestSigningKey,
+  installTestJwks,
+  signTestUserToken,
+  testUserIdentityClaims,
   type TestSigningKey,
-} from '@pipeline-builder/api-core/lib/testing/user-tokens.js';
+} from '@pipeline-builder/api-core/testing';
 import jwt from 'jsonwebtoken';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -48,12 +52,12 @@ installTestJwks([signingKey]);
  * legitimate pusher, `evil` stands in for any other service that holds a valid
  * key of its own and tries to speak for plugin.
  */
-const serviceKeys: TestServiceKeysHandle = installTestServiceKeys(['plugin', 'evil']);
+const serviceKeys: TestServiceKeysHandle = installTestServiceKeys(['plugin', 'evil', 'deploy-bootstrap']);
 
 /** A platform-minted USER credential: ES256, with the identity claims every
  *  verifier requires. It always carries `type: 'access'`; the mint path refuses
  *  anything else (including a token with no `type` at all). */
-function signPlatformJwt(payload: Record<string, unknown>): Promise<string> {
+function signPlatformJwt(payload: Record<string, unknown>): string {
   return signTestUserToken(
     { ...testUserIdentityClaims(), role: 'member', ...payload },
     { key: signingKey, expiresIn: 600 },
@@ -67,7 +71,7 @@ function signPlatformJwt(payload: Record<string, unknown>): Promise<string> {
  * at all. That last part is why the resolver has to honour the scope: a scoped
  * push identity can never carry `plugins:write`.
  */
-function signServiceAccountJwt(payload: Record<string, unknown>): Promise<string> {
+function signServiceAccountJwt(payload: Record<string, unknown>): string {
   return signTestUserToken(
     {
       type: 'access',
@@ -221,6 +225,29 @@ describe('resolveIdentity', () => {
     const user = await resolveIdentity('whoever', await signPlatformJwt({ sub: 'service:plugin', organizationId: 'acme' }));
     expect(user).not.toBeNull();
     expect(user).not.toHaveProperty('serviceName');
+  });
+
+  // ── Who may push (E22) ───────────────────────────────────────────────────
+
+  it('grants push to NO internal service but plugin, whatever permissions its token claims', async () => {
+    const other = serviceKeys.sign('evil', { organizationId: 'acme', permissions: ['plugins:write'], role: 'admin', isAdmin: true });
+    await expect(resolveIdentity('_token', other)).resolves.toMatchObject({ serviceName: 'evil', canWritePlugins: false });
+    // plugin itself still needs the write permission on the token (its pull credentials carry none).
+    await expect(resolveIdentity('_token', serviceKeys.sign('plugin', { organizationId: 'acme' }))).resolves.toMatchObject({ canWritePlugins: false });
+  });
+
+  it('honours a service token\'s superadmin claim ONLY for the deploy bootstrap', async () => {
+    const bootstrap = serviceKeys.sign('deploy-bootstrap', { organizationId: 'system', isSuperAdmin: true, isAdmin: true, role: 'admin' });
+    await expect(resolveIdentity('_token', bootstrap)).resolves.toMatchObject({ serviceName: 'deploy-bootstrap', isSuperAdmin: true });
+    const other = serviceKeys.sign('evil', { organizationId: 'system', isSuperAdmin: true });
+    await expect(resolveIdentity('_token', other)).resolves.toMatchObject({ serviceName: 'evil', isSuperAdmin: false });
+  });
+
+  it('honours the registry:push scope only on a SERVICE ACCOUNT, never on a person\'s key', async () => {
+    const person = await signPlatformJwt({ sub: 'u-9', organizationId: 'acme', scope: 'registry:push', permissions: [] });
+    await expect(resolveIdentity('u9', person)).resolves.toMatchObject({ canWritePlugins: false });
+    const sa = await signServiceAccountJwt({ sub: 'sa-9', organizationId: 'acme', scope: 'registry:push' });
+    await expect(resolveIdentity('sa9', sa)).resolves.toMatchObject({ canWritePlugins: true });
   });
 
   it('REFUSES a service token signed by a DIFFERENT service than its subject names', async () => {

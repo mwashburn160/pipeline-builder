@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import { Loader2, Save } from 'lucide-react';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
@@ -25,6 +25,7 @@ interface NotificationPreferencesManagerProps {
 const labelClass = 'block text-xs font-medium text-fg-muted mb-1';
 
 export default function NotificationPreferencesManager({ readOnly = false }: NotificationPreferencesManagerProps) {
+  const uid = useId();
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -76,7 +77,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
   // Guard against a late load response applying after unmount.
   useEffect(() => {
     let cancelled = false;
-    fetchAll(() => cancelled);
+    void fetchAll(() => cancelled);
     return () => { cancelled = true; };
   }, [fetchAll]);
 
@@ -155,7 +156,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
         </label>
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className={labelClass + ' mb-0'}>Recipients</label>
+            <span className={labelClass + ' mb-0'} id={`${uid}-recipients`}>Recipients</span>
             <span className="text-xs text-fg-subtle">{selectedUserIds.size === 0 ? 'All org admins' : `${selectedUserIds.size} selected`}</span>
           </div>
           {members.length === 0 ? (
@@ -185,8 +186,9 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
       {/* Webhook */}
       <div className="space-y-2 border-t border-default pt-4">
         <div>
-          <label className={labelClass}>Webhook URL</label>
+          <label className={labelClass} htmlFor={`${uid}-webhook-url`}>Webhook URL</label>
           <Input
+            id={`${uid}-webhook-url`}
             type="url"
             value={webhookUrl}
             onChange={(e) => setWebhookUrl(e.target.value)}
@@ -196,8 +198,9 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
           />
         </div>
         <div>
-          <label className={labelClass}>Webhook signing secret</label>
+          <label className={labelClass} htmlFor={`${uid}-webhook-secret`}>Webhook signing secret</label>
           <Input
+            id={`${uid}-webhook-secret`}
             type="password"
             autoComplete="off"
             value={webhookSecret}
@@ -211,8 +214,9 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
 
       {/* Digest cadence */}
       <div className="border-t border-default pt-4">
-        <label className={labelClass}>Delivery cadence</label>
+        <label className={labelClass} htmlFor={`${uid}-cadence`}>Delivery cadence</label>
         <Select
+          id={`${uid}-cadence`}
           value={digestMode}
           onChange={(e) => setDigestMode(e.target.value as typeof digestMode)}
           disabled={readOnly}

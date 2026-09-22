@@ -364,3 +364,34 @@ describe('/sitemap.xml', () => {
     expect(await sitemapGssp(ctx().c)).toEqual({ notFound: true });
   });
 });
+
+describe('/plugins/[publisher]/[name] — Reviews tab SSR', () => {
+  it('server-renders the first page of reviews (default sort), credential-free', async () => {
+    fetchMock.mockImplementation(async (url: unknown) => (String(url).includes('/reviews')
+      ? jsonResponse(200, { reviews: [], total: 0, nextCursor: null })
+      : jsonResponse(200, { listing: detail() })));
+    const { c } = ctx({ params: { publisher: 'pipeline-builder', name: 'trivy' }, query: { tab: 'reviews' } });
+    expect(await pluginGssp(c)).toMatchObject({ props: { tab: 'reviews', initialReviews: { total: 0 } } });
+    expect(calls().map((x) => x.url)).toEqual(expect.arrayContaining([
+      expect.stringMatching(/\/api\/public\/plugins\/pipeline-builder\/trivy\/reviews\?sort=helpful&limit=10$/),
+    ]));
+    expectNoCredentials();
+  });
+
+  it('does not fetch reviews for another tab', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { listing: detail() }));
+    await pluginGssp(ctx({ params: { publisher: 'pipeline-builder', name: 'trivy' }, query: { tab: 'overview' } }).c);
+    expect(calls().some((x) => x.url.includes('/reviews'))).toBe(false);
+  });
+});
+
+describe('/plugins/[publisher]/[name] — Supply chain', () => {
+  it('offers each published version\'s own SBOM download', () => {
+    asPath = '/plugins/pipeline-builder/trivy?tab=supply-chain';
+    const props = { siteUrl: 'https://pb.example', listing: detail(), tab: 'supply-chain' } as PluginPageProps;
+    render(<PluginPage {...props} />);
+    const v = detail().versions.find((x) => !x.yanked)!;
+    expect(screen.getByRole('link', { name: `Download the SBOM for version ${v.version}` }))
+      .toHaveAttribute('href', `/api/public/plugins/pipeline-builder/trivy/versions/${v.version}/sbom`);
+  });
+});

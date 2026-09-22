@@ -5,17 +5,19 @@
  * Tests for plugin report routes.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockGetPluginSummary = jest.fn();
-const mockGetPluginDistribution = jest.fn();
-const mockGetPluginVersions = jest.fn();
-const mockGetBuildSuccessRate = jest.fn();
-const mockGetBuildDuration = jest.fn();
-const mockGetBuildFailures = jest.fn();
-const mockGetPluginRuntime = jest.fn();
-const mockResolveOrgRollup = jest.fn();
+const mockGetPluginSummary = jest.fn<AnyFn>();
+const mockGetPluginDistribution = jest.fn<AnyFn>();
+const mockGetPluginVersions = jest.fn<AnyFn>();
+const mockGetBuildSuccessRate = jest.fn<AnyFn>();
+const mockGetBuildDuration = jest.fn<AnyFn>();
+const mockGetBuildFailures = jest.fn<AnyFn>();
+const mockGetPluginRuntime = jest.fn<AnyFn>();
+const mockResolveOrgRollup = jest.fn<AnyFn>();
 
 // The single reports:rollup predicate — shared by the api-core `userHasPermission`
 // mock and the helpers `rollupIds` mock so the two can't diverge in-test.
@@ -23,9 +25,9 @@ const permCheck = (req: any, perm: string) =>
   req?.user?.isSuperAdmin === true || (req?.user?.permissions ?? []).includes(perm);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendSuccess: jest.fn(),
-  sendError: jest.fn(),
-  sendBadRequest: jest.fn(),
+  sendSuccess: jest.fn<AnyFn>(),
+  sendError: jest.fn<AnyFn>(),
+  sendBadRequest: jest.fn<AnyFn>(),
   getServiceAuthHeader: jest.fn(() => ({})),
   parseDateRange: jest.fn(() => ({ from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' })),
   REPORT_INTERVALS: ['day', 'week', 'month'] as const,
@@ -47,9 +49,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       : { error: 'invalid' }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
-    const ctx = { log: jest.fn(), identity: { orgId: 'acme' }, requestId: 'req-1' };
+    const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
 }));
@@ -58,7 +60,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 // resolve the platform host/port for the shared org-descendants client. Stub
 // pipeline-core so this api-core-mocking suite doesn't pull in its full config
 // graph (aws-cdk-lib, etc.).
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: {
     get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }),
   },
@@ -82,7 +84,7 @@ jest.unstable_mockModule('../src/helpers/report-helpers.js', () => {
   };
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     getPluginSummary: mockGetPluginSummary,
     getPluginDistribution: mockGetPluginDistribution,
@@ -272,14 +274,14 @@ describe('Plugin Report Routes', () => {
       expect(mockResolveOrgRollup).not.toHaveBeenCalled();
       expect(mockGetPluginRuntime).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), {}, undefined);
       const { p50Ms: _p50, p95Ms: _p95, ...rate } = row;
-      expect(sendSuccess).toHaveBeenCalledWith({}, 200, { plugins: [rate] });
+      expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { plugins: [rate] });
     });
 
     it('duration projects runs/p50Ms/p95Ms', async () => {
       mockGetPluginRuntime.mockResolvedValue([row]);
       await getHandler('/runtime-duration')({ query: {} }, {});
 
-      expect(sendSuccess).toHaveBeenCalledWith({}, 200, {
+      expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, {
         plugins: [{ pluginPublisher: 'pipeline-builder', pluginName: 'jest', pluginVersion: '1.2.0', runs: 10, p50Ms: 1000, p95Ms: 5000 }],
       });
     });
@@ -302,7 +304,7 @@ describe('Plugin Report Routes', () => {
       [{ version: '1.0.0; drop' }, 'version'],
     ])('rejects a malformed filter %j with 400', async (query, field) => {
       await getHandler('/runtime-success-rate')({ query }, {});
-      expect(sendBadRequest).toHaveBeenCalledWith({}, expect.stringContaining(field), 'VALIDATION_ERROR');
+      expect(sendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.stringContaining(field), 'VALIDATION_ERROR');
       expect(mockGetPluginRuntime).not.toHaveBeenCalled();
       expect(parsePluginRuntimeFilter(query as never)).toHaveProperty('error');
     });

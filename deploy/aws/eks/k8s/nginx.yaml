@@ -51,6 +51,22 @@ spec:
         prometheus.io/scheme: "http"
     spec:
       serviceAccountName: nginx
+      # Replicas on DIFFERENT nodes, and different AZs where possible: two pods on
+      # one node survive nothing a node failure or drain does. ScheduleAnyway so a
+      # small cluster still schedules both rather than leaving one Pending.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: nginx
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: nginx
       initContainers:
         # Wait for upstream Service DNS to resolve before starting nginx.
         #
@@ -184,6 +200,17 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+              readOnly: true
+            # Deploy-time pieces of the same ConfigMap (bin/k8s-resources.sh
+            # pb_nginx_config): the admin-console routes or their 404 stubs, and
+            # the load balancer CIDRs real_ip trusts.
+            - name: nginx-config
+              mountPath: /etc/nginx/admin-uis.conf
+              subPath: admin-uis.conf
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/real-ip.conf
+              subPath: real-ip.conf
               readOnly: true
             - name: nginx-njs
               mountPath: /etc/nginx/njs

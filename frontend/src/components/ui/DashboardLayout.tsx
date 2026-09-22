@@ -25,6 +25,7 @@ import { ErrorBoundary } from '../ErrorBoundary';
 import { FeatureLockedAction } from './FeatureLock';
 import { useToast } from './Toast';
 import { formatError } from '@/lib/constants';
+import { StepUpRequiredError } from '@/lib/api/errors';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
 import { usePolling } from '@/hooks/usePolling';
 import { pollUnreadCount, useUnreadCount } from '@/lib/unread-count-store';
@@ -99,20 +100,33 @@ export function DashboardLayout({
     message: string;
     code: string;
     retry?: (stepUpToken: string) => Promise<unknown>;
+    /** Tells the refused call's `resume` promise the dialog closed unconfirmed. */
+    cancel?: () => void;
   } | null>(null);
   const [resuming, setResuming] = useState(false);
+  const pendingStepUpRef = useRef<typeof stepUpFallback>(null);
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as {
         message?: string;
         code?: string;
         retry?: (stepUpToken: string) => Promise<unknown>;
+        cancel?: () => void;
       };
-      setStepUpFallback({
+      // Claim it: the api client attaches the replay to the refusal it throws
+      // only when a dialog is actually going to offer one.
+      e.preventDefault();
+      const next = {
         message: detail?.message || 'Step-up confirmation required',
         code: detail?.code || 'STEP_UP_REQUIRED',
         ...(detail?.retry ? { retry: detail.retry } : {}),
-      });
+        ...(detail?.cancel ? { cancel: detail.cancel } : {}),
+      };
+      // A newer refusal replaces a pending one; the one it replaces will not
+      // be resumed, so its caller hears that now rather than never.
+      pendingStepUpRef.current?.cancel?.();
+      pendingStepUpRef.current = next;
+      setStepUpFallback(next);
     };
     window.addEventListener('step-up-required', handler);
     return () => window.removeEventListener('step-up-required', handler);
@@ -127,12 +141,21 @@ export function DashboardLayout({
       await retry(stepUpToken);
       toast.success('Confirmed — the action completed.');
     } catch (err) {
-      // Including a SECOND step-up refusal, which re-opens this dialog through
-      // the same event; showing the server's wording beats inventing one.
-      toast.error(formatError(err, 'The action could not be completed. Try it again.'));
+      // A SECOND step-up refusal re-opens this dialog through the same event —
+      // that dialog is the message. Anything else: the server's wording.
+      if (!(err instanceof StepUpRequiredError)) {
+        toast.error(formatError(err, 'The action could not be completed. Try it again.'));
+      }
     } finally {
       setResuming(false);
     }
+  };
+
+  /** Close THIS request's dialog — never a newer one that replaced it meanwhile. */
+  const closeStepUpFallback = (request: NonNullable<typeof stepUpFallback>) => {
+    request.cancel?.();
+    if (pendingStepUpRef.current === request) pendingStepUpRef.current = null;
+    setStepUpFallback((cur) => (cur === request ? null : cur));
   };
 
   // Global catch-all for an MFA refusal (#8). A route answered 401 MFA_REQUIRED
@@ -393,7 +416,7 @@ export function DashboardLayout({
             )}
             requireStrongFactor={stepUpFallback.code === 'STEP_UP_METHOD_REQUIRED'}
             onConfirmed={resumeStepUpAction}
-            onClose={() => { if (!resuming) setStepUpFallback(null); }}
+            onClose={() => { if (!resuming) closeStepUpFallback(stepUpFallback); }}
           />
         )}
 

@@ -2,85 +2,35 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock external dependencies — must be set up before importing the service
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 
-const mockTransactionSet = jest.fn().mockReturnValue({ where: jest.fn() });
-const mockTransactionOnConflict = jest.fn().mockReturnValue({
-  returning: jest.fn().mockResolvedValue([{ id: 'new-pipeline', isDefault: true }]),
+const mockTransactionSet = jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>() });
+const mockTransactionOnConflict = jest.fn<AnyFn>().mockReturnValue({
+  returning: jest.fn<AnyFn>().mockResolvedValue([{ id: 'new-pipeline', isDefault: true }]),
 });
-const mockTransactionValues = jest.fn().mockReturnValue({
+const mockTransactionValues = jest.fn<AnyFn>().mockReturnValue({
   onConflictDoUpdate: mockTransactionOnConflict,
 });
 // The row occupying the (project, organization, orgId) slot, as the service's
 // locked conflict lookup sees it. Empty = no existing row.
 let mockExistingRows: Array<Record<string, unknown>> = [];
-const mockSelectFor = jest.fn(async () => mockExistingRows);
+const mockSelectFor = jest.fn(async (..._args: unknown[]) => mockExistingRows);
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => {
-  const mockFind = jest.fn();
-  const mockSetDefault = jest.fn();
-
-  class MockCrudService {
-    find = mockFind;
-    setDefault = mockSetDefault;
-  }
-
-  return {
-    __mockFind: mockFind,
-    __mockSetDefault: mockSetDefault,
-    CrudService: MockCrudService,
-    CoreConstants: { CACHE_TTL_ENTITY: 60 },
-
-    buildPipelineConditions: jest.fn(() => []),
-
-    withViewerContext: <T>(filter: T): T => filter,
-    // The viewer is part of the findById cache key (the read predicate carries a
-    // per-user `private` rung), so the mock must provide it or the module fails
-    // to load. Constant here: this suite exercises the key's SHAPE; the
-    // per-viewer behaviour is pinned in `pipeline-cache-viewer.test.ts`.
-    viewerCacheSegment: jest.fn(() => 'v1'),
-    getTenantContext: jest.fn(() => undefined),
-    schema: {
-      pipeline: {
-        id: 'id',
-        project: 'project',
-        organization: 'organization',
-        pipelineName: 'pipelineName',
-        createdAt: 'createdAt',
-        updatedAt: 'updatedAt',
-        isActive: 'isActive',
-        isDefault: 'isDefault',
-        orgId: 'orgId',
-        visibility: 'visibility',
-      },
-    },
-    // pipeline-service.createAsDefault was migrated from db.transaction to
-    // withTenantTx — same tx shape, just routed through the tenancy seam.
-    withTenantTx: jest.fn(async (cb: Function) => {
-      const tx = {
-        execute: jest.fn().mockResolvedValue([]),
-        update: jest.fn().mockReturnValue({ set: mockTransactionSet }),
-        insert: jest.fn().mockReturnValue({ values: mockTransactionValues }),
-      };
-      return cb(tx);
-    }),
-  };
-});
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
+  CoreConstants: { CACHE_TTL_ENTITY: 60 },
+}));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
-  const mockFind = jest.fn();
-  const mockSetDefault = jest.fn();
+  const mockFind = jest.fn<AnyFn>();
+  const mockSetDefault = jest.fn<AnyFn>();
 
   class MockCrudService {
     find = mockFind;
     setDefault = mockSetDefault;
   }
 
-  return {
-    __mockFind: mockFind,
-    __mockSetDefault: mockSetDefault,
+  return stubModule('@pipeline-builder/pipeline-data', {
     CrudService: MockCrudService,
-    CoreConstants: { CACHE_TTL_ENTITY: 60 },
 
     buildPipelineConditions: jest.fn(() => []),
 
@@ -104,19 +54,20 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         orgId: 'orgId',
         visibility: 'visibility',
       },
+      pipelineStepManifest: { pipelineId: 'manifest.pipelineId' },
     },
     // pipeline-service.createAsDefault was migrated from db.transaction to
     // withTenantTx — same tx shape, just routed through the tenancy seam.
     withTenantTx: jest.fn(async (cb: Function) => {
       const tx = {
-        execute: jest.fn().mockResolvedValue([]),
+        execute: jest.fn<AnyFn>().mockResolvedValue([]),
         select: jest.fn(() => ({ from: () => ({ where: () => ({ for: mockSelectFor }) }) })),
-        update: jest.fn().mockReturnValue({ set: mockTransactionSet }),
-        insert: jest.fn().mockReturnValue({ values: mockTransactionValues }),
+        update: jest.fn<AnyFn>().mockReturnValue({ set: mockTransactionSet }),
+        insert: jest.fn<AnyFn>().mockReturnValue({ values: mockTransactionValues }),
       };
       return cb(tx);
     }),
-  };
+  });
 });;
 
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
@@ -357,4 +308,21 @@ describe('PipelineService', () => {
     });
   });
 
+});
+
+describe('PipelineService purge teardown (S18)', () => {
+  it('deletes the purged pipelines\u2019 step manifests inside the purge transaction', async () => {
+    const where = jest.fn(async (..._args: unknown[]) => undefined);
+    const del = jest.fn((..._args: unknown[]) => ({ where }));
+    const svc = new PipelineService() as any;
+    await svc.onBeforePurge(['p1', 'p2'], { delete: del });
+    expect(del).toHaveBeenCalledWith({ pipelineId: 'manifest.pipelineId' });
+    expect(where).toHaveBeenCalledWith({ col: 'manifest.pipelineId', vals: ['p1', 'p2'], op: 'inArray' });
+  });
+
+  it('is a no-op for an empty batch', async () => {
+    const del = jest.fn<AnyFn>();
+    await (new PipelineService() as any).onBeforePurge([], { delete: del });
+    expect(del).not.toHaveBeenCalled();
+  });
 });

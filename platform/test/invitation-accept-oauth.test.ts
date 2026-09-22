@@ -91,7 +91,7 @@ describe('acceptInvitationViaOAuth (server-side verification)', () => {
       body: { token: 'tok', oauthProvider: 'google', code: 'auth-code', state: 'csrf-state', oauthData: { id: 'ATTACKER', email: 'invitee@x.com' } },
     } as any, res);
 
-    expect(mockVerifyOAuthCode).toHaveBeenCalledWith('google', 'auth-code', 'csrf-state');
+    expect(mockVerifyOAuthCode).toHaveBeenCalledWith('google', 'auth-code', 'csrf-state', expect.anything());
     expect(mockAcceptViaOAuth).toHaveBeenCalledWith('tok', 'google', { id: 'google-real-123', email: 'invitee@x.com', name: 'Real' });
     // Never the attacker-supplied id.
     expect(mockAcceptViaOAuth).not.toHaveBeenCalledWith('tok', 'google', expect.objectContaining({ id: 'ATTACKER' }));

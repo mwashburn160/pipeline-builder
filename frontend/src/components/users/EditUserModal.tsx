@@ -1,9 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { useId } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { OrgPicker } from '@/components/ui/OrgPicker';
 import { Select } from '@/components/ui/Select';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
@@ -28,7 +30,6 @@ interface EditUserModalProps {
   onEditRoleChange: (value: 'owner' | 'admin' | 'member') => void;
   newPassword: string;
   onNewPasswordChange: (value: string) => void;
-  orgOptions: Array<{ id: string; name: string }>;
   onImpersonate: () => void;
   /** Emergency access over the org's impersonation policy. */
   onBreakglass: () => void;
@@ -62,7 +63,6 @@ export function EditUserModal({
   onEditRoleChange,
   newPassword,
   onNewPasswordChange,
-  orgOptions,
   onImpersonate,
   onBreakglass,
   onSubmit,
@@ -71,6 +71,7 @@ export function EditUserModal({
   detailLoading = false,
   detailError = null,
 }: EditUserModalProps) {
+  const uid = useId();
   if (!editingUser) return null;
   const locked = form.loading || detailLoading;
   return (
@@ -123,8 +124,9 @@ export function EditUserModal({
 
       <div className="space-y-4">
         <div>
-          <label className="label">Username</label>
+          <label className="label" htmlFor={`${uid}-username`}>Username</label>
           <Input
+            id={`${uid}-username`}
             type="text"
             value={editUsername}
             onChange={(e) => onEditUsernameChange(e.target.value)}
@@ -137,8 +139,9 @@ export function EditUserModal({
           </p>
         </div>
         <div>
-          <label className="label">Email</label>
+          <label className="label" htmlFor={`${uid}-email`}>Email</label>
           <Input
+            id={`${uid}-email`}
             type="email"
             value={editEmail}
             onChange={(e) => onEditEmailChange(e.target.value)}
@@ -148,21 +151,21 @@ export function EditUserModal({
           />
         </div>
         <div>
-          <label className="label">Organization</label>
-          <Select
+          <label className="label" htmlFor={`${uid}-organization`}>Organization</label>
+          {/* The user's CURRENT org is always the selected option, even when it
+              is past any page cap — a blank select used to save them out of it. */}
+          <OrgPicker
+            id={`${uid}-organization`}
             value={editOrgId}
-            onChange={(e) => onEditOrgIdChange(e.target.value)}
+            onChange={onEditOrgIdChange}
+            none={{ value: '', label: '— No organization —' }}
+            valueName={editOrgId && editOrgId === editingUser.organizationId ? editingUser.organizationName : undefined}
             disabled={locked}
-          >
-            <option value="">— No organization —</option>
-            {orgOptions.map((o) => (
-              <option key={o.id} value={o.id}>{o.name}</option>
-            ))}
-          </Select>
+          />
         </div>
         <div>
-          <label className="label">Role</label>
-          <Select value={editRole} onChange={(e) => onEditRoleChange(e.target.value as 'owner' | 'admin' | 'member')} disabled={locked || editingUser.id === currentUserId}>
+          <label className="label" htmlFor={`${uid}-role`}>Role</label>
+          <Select id={`${uid}-role`} value={editRole} onChange={(e) => onEditRoleChange(e.target.value as 'owner' | 'admin' | 'member')} disabled={locked || editingUser.id === currentUserId}>
             <option value="member">Member</option>
             <option value="admin">Admin</option>
             <option value="owner">Owner</option>
@@ -178,8 +181,8 @@ export function EditUserModal({
             "Save Changes" button below; this just prevents an Enter keypress
             from reloading the page. */}
         <form onSubmit={(e) => e.preventDefault()}>
-          <label className="label">New password (leave blank to keep current)</label>
-          <input type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
+          <label className="label" htmlFor={`${uid}-new-password-leave-blank`}>New password (leave blank to keep current)</label>
+          <input id={`${uid}-new-password-leave-blank`} type="text" name="username" autoComplete="username" value={editingUser.email} readOnly hidden />
           <Input type="password" value={newPassword} onChange={(e) => onNewPasswordChange(e.target.value)} placeholder="Minimum 8 characters" autoComplete="new-password" disabled={locked} />
         </form>
 

@@ -20,6 +20,7 @@
 import http from 'node:http';
 
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import express, { Router } from 'express';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -54,7 +55,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   AIGenerateBodySchema: {},
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: jest.fn(),
   setGauge: jest.fn(),
   observe: jest.fn(),
@@ -94,7 +95,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   incrementQuotaFromCtx: jest.fn(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: { SSE_STREAM_TIMEOUT_MS: 1000, MAX_BULK_ITEMS: 100 },
 }));
 
@@ -155,7 +156,7 @@ jest.unstable_mockModule('../src/routes/public-submissions.js', () => ({ createP
 // barrel / pluginService aren't pulled into this route-mount test.
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));
 const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({ ...actualData, createSoftDeletePurgeScheduler: () => null }));
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { ...actualData, createSoftDeletePurgeScheduler: () => null }));
 jest.unstable_mockModule('../src/routes/publisher.js', () => ({ createPublisherRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/installs.js', () => ({ createInstallRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/ecosystem-console.js', () => ({ createEcosystemConsoleRoutes: () => Router() }));

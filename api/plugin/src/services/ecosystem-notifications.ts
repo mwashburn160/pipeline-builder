@@ -125,6 +125,16 @@ async function insertRow(
 }
 
 /**
+ * A subject safe to put in a mail header: every control character (CR/LF
+ * included — a plugin name or a reason is user text) collapsed to one space.
+ * The body is plain text and keeps its line breaks.
+ */
+export function headerSafeSubject(subject: string): string {
+  // eslint-disable-next-line no-control-regex
+  return subject.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+}
+
+/**
  * Send (or queue) one ecosystem notice to recipient RULES. Throws only for an
  * invalid notice (a programming error, never retried) or when the queue write
  * itself fails.
@@ -142,7 +152,7 @@ export async function enqueueEcosystemNotification(
 ): Promise<EnqueueOutcome> {
   const spec = ECOSYSTEM_NOTIFICATION_EVENTS[event];
   const request: EcosystemNotifyRequest = {
-    event, recipients, subject: content.subject, text: content.text, ...(opts.mandatory ? { mandatory: true } : {}),
+    event, recipients, subject: headerSafeSubject(content.subject), text: content.text, ...(opts.mandatory ? { mandatory: true } : {}),
   };
   const parsed = parseEcosystemNotifyRequest(request);
   if (typeof parsed === 'string') throw new Error(`Invalid ecosystem notification: ${parsed}`);

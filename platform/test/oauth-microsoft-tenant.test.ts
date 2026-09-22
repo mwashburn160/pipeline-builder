@@ -11,6 +11,7 @@
  * 'common'` and asserts the handler throws before any account link.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -57,41 +58,49 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/services/index.js', () => ({
-  authService: { findOrCreateOAuthUser: jest.fn() },
+  authService: { findOrCreateOAuthUser: jest.fn<AnyFn>() },
 }));
 // oauth.ts now imports rejectIfSsoEnforced (social-OAuth honors per-org SSO
 // enforcement); mock it so the real sso-enforcement→models→audit-event chain
 // (which reads config.audit at load) isn't pulled in. Mirrors the sibling oauth tests.
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ rejectIfSsoEnforced: async () => false }));
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   findRefreshSession: jest.fn(async () => undefined),
-  signApiKeyToken: jest.fn(),
-  signServiceAccountToken: jest.fn(),
+  signApiKeyToken: jest.fn<AnyFn>(),
+  signServiceAccountToken: jest.fn<AnyFn>(),
   membershipForOrg: jest.fn(async () => undefined),
-  issueTokens: jest.fn(),
-  renewSessionTokens: jest.fn(),
+  issueTokens: jest.fn<AnyFn>(),
+  renewSessionTokens: jest.fn<AnyFn>(),
 }));
-jest.unstable_mockModule('../src/utils/validation.js', () => ({ oauthCallbackSchema: {}, validateBody: jest.fn() }));
+jest.unstable_mockModule('../src/utils/validation.js', () => ({ oauthCallbackSchema: {}, validateBody: jest.fn<AnyFn>() }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
 const { verifyOAuthCode, getAuthUrl } = await import('../src/controllers/oauth.js');
 const { OAUTH_MICROSOFT_TENANT_NOT_PINNED } = await import('../src/services/auth-errors.js');
 
+/** The browser-binding cookie the last minted flow set (helpers/login-binding.ts). */
+let bindingCookie = '';
 function makeRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.cookie = jest.fn((name: string, value: string) => { if (name === 'pb_login_binding') bindingCookie = value; return res; });
+  res.clearCookie = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
+/** The request surface of the browser that started the flow (carries its binding cookie). */
+const browser = () => ({ headers: { cookie: `pb_login_binding=${bindingCookie}` } });
 async function mintState(p: string): Promise<string> {
   const res = makeRes();
   await (getAuthUrl as any)({ params: { provider: p } }, res);
-  return (res.json as jest.Mock).mock.calls[0][0].state as string;
+  return (res.json as jest.Mock<AnyFn>).mock.calls[0][0].state as string;
 }
 
 const realFetch = global.fetch;
@@ -102,11 +111,11 @@ describe('Microsoft OAuth nOAuth mitigation', () => {
     const state = await mintState('microsoft');
     // Token exchange succeeds and userinfo returns an email — the handler must
     // STILL reject purely on the shared-tenant policy, before linking anything.
-    global.fetch = jest.fn()
+    global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'tok' }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ sub: 'ms-1', email: 'victim@company.com' }) }) as any;
 
-    await expect(verifyOAuthCode('microsoft', 'code', state)).rejects.toThrow(OAUTH_MICROSOFT_TENANT_NOT_PINNED);
+    await expect(verifyOAuthCode('microsoft', 'code', state, browser())).rejects.toThrow(OAUTH_MICROSOFT_TENANT_NOT_PINNED);
     global.fetch = realFetch;
   });
 });

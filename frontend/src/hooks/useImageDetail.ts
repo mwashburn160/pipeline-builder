@@ -47,7 +47,7 @@ export function useImageDetail(name: string | null, reference: string | null) {
     setLoading(true);
     setError(null);
 
-    (async () => {
+    void (async () => {
       try {
         const manifestRes = await api.getImageManifest(name, reference);
         if (ctrl.signal.aborted) return;

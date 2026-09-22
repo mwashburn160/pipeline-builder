@@ -71,12 +71,19 @@ export async function createPasswordChangeChallenge(
   return { challengeId, expiresAt, minLength: input.minLength };
 }
 
-/** Read without spending — the new password is validated first. */
-export async function peekPasswordChangeChallenge(challengeId: string): Promise<PendingPasswordChange | null> {
-  return challenges.peek(challengeId);
+/**
+ * CLAIM the challenge — atomically (GETDEL): of two concurrent completions of
+ * one handle, exactly one holds it. The claimant validates the new password and
+ * either spends it (by doing nothing more) or hands it back with
+ * {@link restorePasswordChangeChallenge} on a refusal, so a rejected password
+ * still leaves the person their handle.
+ */
+export async function claimPasswordChangeChallenge(challengeId: string): Promise<PendingPasswordChange | null> {
+  return challenges.consume(challengeId);
 }
 
-/** Spend it — only once the new password is saved and the session is about to be issued. */
-export async function consumePasswordChangeChallenge(challengeId: string): Promise<void> {
-  await challenges.remove(challengeId);
+/** Give a claimed challenge back after a refusal, with only its REMAINING life. */
+export async function restorePasswordChangeChallenge(challengeId: string, pending: PendingPasswordChange): Promise<void> {
+  const remainingMs = pending.expiresAt * 1000 - Date.now();
+  if (remainingMs > 0) await challenges.put(challengeId, pending, remainingMs);
 }

@@ -18,6 +18,7 @@
  *      accepts it with it) — so a future Mongoose change, or a dropped option,
  *      fails loudly here instead of in production.
  */
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import mongoose from 'mongoose';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -37,8 +38,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // Capture the exact (filter, update, options) the service passes to Mongoose.
-const findOneAndUpdate = jest.fn();
-const findById = jest.fn();
+const findOneAndUpdate = jest.fn<AnyFn>();
+const findById = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: { findOneAndUpdate, findById },
 }));

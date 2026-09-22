@@ -42,10 +42,10 @@ import { notifyModerationAction, notifySecondApprovalNeeded } from './notify.js'
 import { platformReads, type ApproverCount, type DecisionPermission } from './platform-reads.js';
 import { requiredDecisionPermission, widensRule, type AutoRuleConditions } from './policy.js';
 import { invalidateVerifyCache } from './registry.js';
-import { enqueueResign, pendingResignJobs } from './resign.js';
+import { enqueueResign, kickResignJobs, pendingResignJobs, signedAs } from './resign.js';
 import { reviewDiff } from './review.js';
 import { listingStats } from './reviews-store.js';
-import { listings, OPEN_STATUSES, plugins, publishers, requests, reservedNames, rules, versions } from './store.js';
+import { atomically, decodeRequestCursor, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, requests, reservedNames, rules, versions } from './store.js';
 import { claimEmailMatch, submissionReview } from './submission-moderation.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { listingView, publisherView, queueItemView, ruleView } from './views.js';
@@ -184,19 +184,40 @@ export async function asQueueItem(moderator: Caller, row: PluginPublishRequest) 
   return (await queueItems(moderator, [row], false))[0]!;
 }
 
-/** GET /ecosystem/requests */
+/** Queue filters whose rows are still waiting: shown OLDEST first (SLA order). */
+const OLDEST_FIRST = new Set(['open', 'pending', 'pending_second_approval']);
+
+/**
+ * GET /ecosystem/requests — one page of the queue: `requests`, the `total`
+ * matching the filter, and `nextCursor` (null on the last page). The open
+ * queue is ordered oldest first IN SQL before the limit, so the requests
+ * closest to breaching their SLA are never the ones a page cuts off; history
+ * is newest first.
+ */
 export async function queue(moderator: Caller, query: Record<string, unknown>) {
   const statusKey = typeof query.status === 'string' ? query.status : 'open';
   const statuses = STATUS_FILTERS[statusKey];
   if (!statuses) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, `status must be one of: ${Object.keys(STATUS_FILTERS).join(', ')}`);
   const kinds = typeof query.kind === 'string' && query.kind ? [query.kind as PublishRequestKind] : undefined;
-  const lane = query.lane === 'security' || query.lane === 'standard' ? query.lane : undefined;
+  const lane: 'security' | 'standard' | undefined = query.lane === 'security' || query.lane === 'standard' ? query.lane : undefined;
   const limit = Math.min(500, Math.max(1, Number.parseInt(String(query.limit ?? '200'), 10) || 200));
-  const rows = await requests.list({ statuses, ...(kinds ? { kinds } : {}), ...(lane ? { lane } : {}), limit, autoOnly: statusKey === 'auto' });
-  // Oldest first for the open queue (SLA order); newest first for history.
-  if (statusKey === 'open' || statusKey === 'pending' || statusKey === 'pending_second_approval') rows.reverse();
+  const cursor = decodeRequestCursor(query.cursor);
+  if (cursor === 'invalid') throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'cursor is not a valid page cursor', { field: 'cursor' });
+  const filter = {
+    statuses,
+    ...(kinds ? { kinds } : {}),
+    ...(lane ? { lane } : {}),
+    autoOnly: statusKey === 'auto',
+    order: OLDEST_FIRST.has(statusKey) ? 'asc' as const : 'desc' as const,
+  };
+  const [rows, total] = await Promise.all([requests.list({ ...filter, cursor, limit: limit + 1 }), requests.count(filter)]);
+  const page = rows.slice(0, limit);
   // Only the requests THIS manager could act on need the membership probes.
-  return queueItems(moderator, rows, OPEN_STATUSES.some((s) => statuses.includes(s)));
+  return {
+    requests: await queueItems(moderator, page, OPEN_STATUSES.some((s) => statuses.includes(s))),
+    total,
+    nextCursor: rows.length > limit ? encodeRequestCursor(page[page.length - 1]!) : null,
+  };
 }
 
 /** GET /ecosystem/requests/:id */
@@ -293,8 +314,14 @@ export async function suspendPublisher(moderator: Caller, id: string, body: Reco
   const p = await publisherOr404(id);
   if (p.ownerOrgId === SYSTEM_ORG_ID) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'The Official publisher cannot be suspended; suspend or yank its listings instead.');
   if (p.suspendedAt) throw new EcosystemError(ErrorCode.CONFLICT, 'The publisher is already suspended.');
-  const updated = (await publishers.update(p.id, { suspendedAt: new Date(), suspendReason: reason }))!;
-  await enqueueResign('publisher', p.id, 'suspend', actor(moderator));
+  // One transaction: a suspension never lands without its re-sign job. No
+  // grace (previous = null): the old signature stops being trusted at once.
+  const updated = await atomically(async () => {
+    const u = (await publishers.update(p.id, { suspendedAt: new Date(), suspendReason: reason }))!;
+    await enqueueResign('publisher', p.id, 'suspend', actor(moderator), null);
+    return u;
+  });
+  kickResignJobs();
   await invalidateVerifyCache({}).catch(() => undefined);
   audit(moderator, 'publisher.suspend', p.ownerOrgId, 'publisher', p.id, { reason: reason.slice(0, 200) });
   await notifyModerationAction({
@@ -324,8 +351,13 @@ export async function setPublisherTier(moderator: Caller, id: string, body: Reco
   }
   if (body.tier !== 'community') throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'tier must be verified or community');
   if (p.tier === 'community') throw new EcosystemError(ErrorCode.CONFLICT, 'The publisher is already community.');
-  const updated = (await publishers.update(p.id, { tier: 'community', verifiedAt: null, verifiedGraceUntil: null }))!;
-  await enqueueResign('publisher', p.id, 'tier_change', actor(moderator));
+  const updated = await atomically(async () => {
+    const u = (await publishers.update(p.id, { tier: 'community', verifiedAt: null, verifiedGraceUntil: null }))!;
+    // Lookup keeps accepting the Verified signature until every image is re-signed (E1).
+    await enqueueResign('publisher', p.id, 'tier_change', actor(moderator), signedAs(p));
+    return u;
+  });
+  kickResignJobs();
   audit(moderator, 'publisher.tier.change', p.ownerOrgId, 'publisher', p.id, { from: p.tier, to: 'community', reason: reason.slice(0, 200) });
   await notifyModerationAction({
     publisherOrgId: p.ownerOrgId,

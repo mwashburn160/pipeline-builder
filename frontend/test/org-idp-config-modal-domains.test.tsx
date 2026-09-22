@@ -26,6 +26,14 @@ jest.mock('@/lib/api', () => ({
   ApiError: class ApiError extends Error { statusCode = 0; },
 }));
 
+// The strong-factor step-up confirms the write and hands over its token.
+jest.mock('@/components/admin/StepUpModal', () => ({
+  __esModule: true,
+  StepUpModal: ({ onConfirmed, requireStrongFactor }: { onConfirmed: (t: string) => void; requireStrongFactor?: boolean }) => (
+    <button data-strong={String(!!requireStrongFactor)} onClick={() => onConfirmed('step-up-token')}>confirm step-up</button>
+  ),
+}));
+
 const org = { id: 'org-1', name: 'Acme' } as never;
 
 beforeEach(() => {
@@ -66,7 +74,14 @@ describe('OrgIdpConfigModal — verified-domain picker', () => {
     fireEvent.click(dev);
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
+    // Step-up FIRST: nothing is sent until the strong factor confirms.
+    expect(patchOrgIdpConfig).not.toHaveBeenCalled();
+    const stepUp = await screen.findByRole('button', { name: 'confirm step-up' });
+    expect(stepUp.getAttribute('data-strong')).toBe('true');
+    fireEvent.click(stepUp);
+
     await waitFor(() => expect(patchOrgIdpConfig).toHaveBeenCalled());
     expect(patchOrgIdpConfig.mock.calls[0][1].allowedEmailDomains).toEqual(['acme.io', 'acme.dev']);
+    expect(patchOrgIdpConfig.mock.calls[0][2]).toBe('step-up-token');
   });
 });

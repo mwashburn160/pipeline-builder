@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 
 let selectResults: unknown[][] = [];
 let returningResults: unknown[][] = [];
@@ -27,13 +28,13 @@ const tx = {
 };
 
 const NEXT_RUN = new Date('2026-08-01T06:00:00.000Z');
-const calculateNextRun = jest.fn(() => NEXT_RUN);
+const calculateNextRun = jest.fn((..._args: unknown[]) => NEXT_RUN);
 
 jest.unstable_mockModule('../src/helpers/scan-scheduler.js', () => ({
   calculateNextRun: (expr: string) => calculateNextRun(expr),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {
     complianceScanSchedule: {
       id: 'col_id',

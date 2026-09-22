@@ -23,6 +23,8 @@ jest.unstable_mockModule('mongoose', () => {
 });
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
   publishUserRevocation: jest.fn(async () => undefined),
   publishUsersRevocation: jest.fn(async () => undefined),
 }));

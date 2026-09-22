@@ -146,7 +146,7 @@ export function AccessKeysSection({ readOnly }: { readOnly: boolean }) {
         ? await api.revokeServiceAccountKey(orgId, key.ownerAccountId, id)
         : await api.revokeAccessKey(id);
       if (res.success) { toast.success('Access key revoked'); void load(); }
-      else toast.error('Failed to revoke access key');
+      else {toast.error('Failed to revoke access key');}
     } catch (err) {
       toast.error(formatError(err, 'Failed to revoke access key'));
     } finally {

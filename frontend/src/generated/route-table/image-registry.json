@@ -398,6 +398,23 @@
     ]
   },
   {
+    "method": "POST",
+    "path": "/internal/quarantine/:submissionId/credential",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "internalCallers": [
+      "plugin"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "GET",
     "path": "/metrics",
     "auth": false,

@@ -7,7 +7,7 @@ import {
   actorId,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { reportingService } from '@pipeline-builder/pipeline-data';
+import { reportingService, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { emitReportingAudit } from '../services/audit.js';
 
@@ -79,6 +79,21 @@ export function createRetentionSyncRoutes(): Router {
       details: { eventRetentionDays, doraRetentionDays },
     });
     return sendSuccess(res, 200, { orgId, eventRetentionDays, doraRetentionDays, ok: true });
+  }, { requireOrgId: false }));
+
+  // GET /:orgId — drift-read for billing's reconciler: the retention override
+  // reporting is ENFORCING for the root org (`null` = none stored, the env
+  // default applies). Same internal billing-only guard as the PUT; the `:orgId`
+  // is the target root org, so the read runs scoped to that org explicitly.
+  router.get('/:orgId', requireInternalService({ callers: ['billing'] }), withRoute(async ({ req, res }) => {
+    const orgId = getParam(req.params, 'orgId');
+    if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
+    const settings = await runWithTenantContext({ orgId, isSuperAdmin: false }, () => reportingService.getIncidentSettings(orgId));
+    return sendSuccess(res, 200, {
+      orgId,
+      eventRetentionDays: settings.eventRetentionDays,
+      doraRetentionDays: settings.doraRetentionDays,
+    });
   }, { requireOrgId: false }));
 
   return router;

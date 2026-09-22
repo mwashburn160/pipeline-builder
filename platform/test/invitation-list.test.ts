@@ -58,8 +58,10 @@ const { invitationService } = await import('../src/services/invitation-service.j
 // `Invitation.find(...).populate().populate().sort().skip().limit().lean()`.
 let capturedSkip: number | undefined;
 let capturedLimit: number | undefined;
+let capturedSelect: unknown;
 const invQuery = (rows: unknown[]) => {
   const q: Record<string, (...a: unknown[]) => unknown> = {};
+  q.select = (p: unknown) => { capturedSelect = p; return q; };
   q.populate = () => q;
   q.sort = () => q;
   q.skip = (n: unknown) => { capturedSkip = n as number; return q; };
@@ -88,6 +90,11 @@ describe('InvitationService.listForOrg', () => {
     expect(capturedLimit).toBe(5);
     expect(total).toBe(7);
     expect(invitations).toHaveLength(1);
+  });
+
+  it('never returns the invitation TOKEN — it is the invitation\'s bearer credential', async () => {
+    await invitationService.listForOrg('org-1', { offset: 0, limit: 25 });
+    expect(capturedSelect).toBe('-token');
   });
 
   it('always scopes to the organization', async () => {

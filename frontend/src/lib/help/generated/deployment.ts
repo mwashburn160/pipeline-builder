@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9e1ff7ef5738e21298297db9f4760fc9242247a50318e77e4455af4ff3c46b2c
+// SOURCE-SHA256: 93d5537de3188b63b82489117c544f891edc6d41435331fd75e72f9ab9c11318
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2139,26 +2139,34 @@ export const deploymentTopic: HelpTopic = {
               "/dashboard/observability"
             ],
             [
-              "PgAdmin",
-              "/pgadmin/"
-            ],
-            [
-              "Mongo Express",
-              "/mongo-express/"
-            ],
-            [
               "Registry UI",
               "/dashboard/registry (system-admin only)"
             ],
             [
+              "PgAdmin",
+              "/pgadmin/ — only with ADMIN_UIS_ENABLED=true"
+            ],
+            [
+              "Mongo Express",
+              "/mongo-express/ — same"
+            ],
+            [
               "Grafana",
-              "/grafana/ (own login — GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD)"
+              "/grafana/ — same (then its own login, GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD)"
             ],
             [
               "Kiali (mesh graph)",
-              "/kiali/ (read-only)"
+              "/kiali/ — same (read-only)"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The four admin consoles are off by default on AWS: their routes 404. With ADMIN_UIS_ENABLED=true in .env (re-run setup), every request to them first passes an nginx auth_request to platform GET /admin/console-check — a live session of a platform administrator at AAL2 — with the token taken from the pb_admin_console cookie and stripped before the console sees the request. For occasional use prefer kubectl -n pipeline-builder port-forward svc/grafana 3000."
+        },
+        {
+          "type": "text",
+          "content": "After every provision the setup scripts run deploy/bin/post-provision-smoke.sh: a test alert through Alertmanager to Slack, a test email through platform, a CodePipeline credential dry-run from the pipeline pod, and a probe that a connection the NetworkPolicies deny is actually denied. Its warnings are non-fatal — read the summary line."
         }
       ]
     },
@@ -2172,7 +2180,11 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "deploy/aws/ec2/\n├── template.yaml          # CloudFormation stack\n├── .env.example           # Reference config\n├── bin/\n│   ├── setup.sh         # Deploy the stack (from your machine)\n│   ├── bootstrap.sh      # EC2 setup + hardening\n│   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge\n│   └── shutdown.sh       # Teardown\n├── k8s/                   # Kubernetes manifests\n│   └── kustomization.yaml # Kustomize entry point\n├── nginx/\n│   ├── nginx.conf     # Nginx config (TLS + JWT)\n│   ├── jwt.js             # NJS JWT parsing\n│   └── metrics.js         # NJS metrics\n└── config/                # Prometheus, Loki, Promtail configs"
+          "content": "deploy/aws/ec2/\n├── template.yaml          # CloudFormation stack\n├── .env.example           # Reference config\n├── bin/\n│   ├── setup.sh         # Deploy the stack (from your machine)\n│   ├── bootstrap.sh      # EC2 setup + hardening\n│   ├── startup.sh        # Minikube + K8s deploy + ALB-target iptables bridge\n│   └── shutdown.sh       # Teardown\n├── k8s/                   # Kubernetes manifests\n│   └── kustomization.yaml # Kustomize entry point\n├── nginx/\n│   ├── nginx.conf         # Nginx config (routes; drift-checked against the other targets)\n│   └── registry-auth.js   # NJS registry token-realm rewrite\n└── config/                # Prometheus, Promtail, Grafana configs"
+        },
+        {
+          "type": "text",
+          "content": "Shared by every target (one copy, deploy/shared/): postgres-init.sql, mongodb-init.js, nginx/jwt.js, nginx/metrics.js and config/{loki,alertmanager,thanos}."
         },
         {
           "type": "text",
@@ -2184,7 +2196,11 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "deploy/aws/eks/\n├── bin/\n│   ├── setup.sh           # Full deploy orchestrator (cluster → … → Route 53)\n│   └── shutdown.sh        # Teardown (Ingress/ALB → Route 53 → EFS → cluster → ACM)\n├── cluster/\n│   └── cluster.yaml       # eksctl ClusterConfig (Auto Mode + aws-efs-csi-driver)\n├── k8s/\n│   ├── kustomization.yaml # Standalone manifests (not shared with ec2/minikube)\n│   ├── storageclasses.yaml# pb-ebs (RWO) + pb-efs (RWX)\n│   ├── ingress.yaml       # ALB Ingress → nginx:8080 (ACM TLS at the ALB)\n│   └── *.yaml             # Full workload set, PVC-tuned for multi-node\n├── config/                # Prometheus, Loki, Alertmanager, Promtail\n├── nginx/                 # nginx.conf, jwt.js, metrics.js, registry-auth.js\n├── .env.example\n├── mongodb-init.js\n├── mongodb-keyfile\n└── postgres-init.sql"
+          "content": "deploy/aws/eks/\n├── bin/\n│   ├── setup.sh           # Full deploy orchestrator (cluster → … → Route 53)\n│   └── shutdown.sh        # Teardown (Ingress/ALB → Route 53 → EFS → cluster → ACM)\n├── cluster/\n│   └── cluster.yaml       # eksctl ClusterConfig (Auto Mode + aws-efs-csi-driver)\n├── k8s/\n│   ├── kustomization.yaml # Standalone manifests (not shared with ec2/minikube)\n│   ├── storageclasses.yaml# pb-ebs (RWO) + pb-efs (RWX)\n│   ├── ingress.yaml       # ALB Ingress → nginx:8080 (ACM TLS at the ALB)\n│   └── *.yaml             # Full workload set, PVC-tuned for multi-node\n├── config/                # Prometheus, Promtail, Grafana\n├── nginx/                 # nginx.conf, admin-uis*.conf, registry-auth.js\n├── .env.example\n└── mongodb-keyfile        # generated per deploy, gitignored"
+        },
+        {
+          "type": "text",
+          "content": "postgres-init.sql, mongodb-init.js, jwt.js/metrics.js and the Loki/Alertmanager/Thanos configs come from deploy/shared/."
         },
         {
           "type": "text",

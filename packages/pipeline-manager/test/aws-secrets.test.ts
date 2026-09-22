@@ -9,7 +9,7 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 
-const mockSend = jest.fn<() => Promise<{ SecretList?: Array<{ Name?: string; ARN?: string }>; NextToken?: string }>>();
+const mockSend = jest.fn<(...args: any[]) => Promise<{ SecretList?: Array<{ Name?: string; ARN?: string }>; NextToken?: string }>>();
 
 jest.unstable_mockModule('@aws-sdk/client-secrets-manager', () => ({
   __esModule: true,

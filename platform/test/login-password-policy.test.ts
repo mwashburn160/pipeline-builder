@@ -68,6 +68,8 @@ jest.unstable_mockModule('../src/services/totp-service.js', () => ({
   hasActiveTotp: (...a: unknown[]) => mockHasActiveTotp(...a),
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   issueStepUpToken: jest.fn(),
   signInAuth: (method: string, opts: { mfa?: boolean } = {}) =>
@@ -87,8 +89,22 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
 
 const { login } = await import('../src/controllers/auth.js');
 const { verifyMfaLogin } = await import('../src/controllers/totp.js');
-const { createMfaChallenge, peekMfaChallenge } = await import('../src/services/mfa-challenge.js');
-const { peekPasswordChangeChallenge, _resetPasswordChangeChallengesForTests } = await import('../src/services/password-change-challenge.js');
+const { createMfaChallenge, claimMfaChallenge, restoreMfaChallenge } = await import('../src/services/mfa-challenge.js');
+const { claimPasswordChangeChallenge, restorePasswordChangeChallenge, _resetPasswordChangeChallengesForTests } = await import('../src/services/password-change-challenge.js');
+
+/** Inspect a challenge without spending it (claim, then hand straight back). */
+async function peekMfaChallenge(id: string) {
+  const pending = await claimMfaChallenge(id);
+  if (pending) await restoreMfaChallenge(id, pending);
+  return pending;
+}
+
+/** Inspect a challenge without spending it (claim, then hand straight back). */
+async function peekPasswordChangeChallenge(id: string) {
+  const pending = await claimPasswordChangeChallenge(id);
+  if (pending) await restorePasswordChangeChallenge(id, pending);
+  return pending;
+}
 
 function makeRes() {
   const res: any = { locals: {} };

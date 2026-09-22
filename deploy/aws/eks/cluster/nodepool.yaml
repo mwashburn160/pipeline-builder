@@ -25,10 +25,11 @@
 #      out — and because of the taint, nothing of ours schedules there, so it
 #      cannot be used to evade the ceiling below.
 #   2. Enabling at least one built-in pool is what makes EKS provision the
-#      `default` NodeClass. That is why this file needs no NodeClass of its own,
-#      and therefore no node IAM role and no EKS access entry — all of which a
-#      fully-custom (`nodePools: []`) setup would have to create and keep in
-#      sync. Do not rename the referenced NodeClass; `default` is EKS-managed.
+#      `default` NodeClass. The `pipeline-builder` NodeClass these pools use
+#      (cluster/nodeclass.yaml) is COPIED from it at setup time — same node IAM
+#      role, subnets and security groups, so no new role or EKS access entry —
+#      plus `networkPolicy`, without which Auto Mode ignores every
+#      NetworkPolicy in k8s/networkpolicy.yaml.
 # =============================================================================
 apiVersion: karpenter.sh/v1
 kind: NodePool
@@ -37,12 +38,11 @@ metadata:
 spec:
   template:
     spec:
-      # The EKS-managed NodeClass that the built-in pools also use. It exists
-      # only because `system` is still enabled (see above).
+      # The default NodeClass + NetworkPolicy enforcement (cluster/nodeclass.yaml).
       nodeClassRef:
         group: eks.amazonaws.com
         kind: NodeClass
-        name: default
+        name: pipeline-builder
 
       requirements:
         # amd64 ONLY — NOT a preference. Every image this platform runs is built
@@ -128,7 +128,8 @@ spec:
 # (Cluster DaemonSets — ztunnel, istio-cni — tolerate every taint, which is what
 # keeps the pod inside the mesh's mTLS + AuthorizationPolicy boundary.)
 #
-# Same EKS-managed `default` NodeClass and instance terms as the pool above, so
+# Same `pipeline-builder` NodeClass (a copy of the EKS-managed `default`) and
+# instance terms as the pool above, so
 # nothing new (node role, access entry) has to exist for it.
 apiVersion: karpenter.sh/v1
 kind: NodePool
@@ -143,7 +144,7 @@ spec:
       nodeClassRef:
         group: eks.amazonaws.com
         kind: NodeClass
-        name: default
+        name: pipeline-builder
       # Recycle quarantine nodes weekly, so nothing an escaped build left on a
       # node outlives a week.
       expireAfter: 168h

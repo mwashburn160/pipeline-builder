@@ -15,14 +15,19 @@ import { REVIEW_BLOCKED_COPY, reviewErrorMessage, starsLabel } from '@/lib/plugi
 import { getListingReviews } from '@/lib/public-directory/api';
 import { loginHref, pluginPagePath } from '@/lib/public-directory/links';
 import {
-  REVIEW_SORTS, REVIEW_SORT_LABELS, type ListingDetail, type PublicReview, type ReviewSort,
+  REVIEW_SORTS, REVIEW_SORT_LABELS, type ListingDetail, type PublicReview, type ReviewPage, type ReviewSort,
 } from '@/lib/public-directory/types';
 import type { ReviewState } from '@/types/plugin-reviews';
 import { OwnReviewPanel } from './OwnReviewPanel';
 import { ReviewForm } from './ReviewForm';
 import { ReviewItem } from './ReviewItem';
 
-const PAGE_SIZE = 10;
+/** Also the page size the plugin page server-renders, so the SSR page and the
+ *  first client page are the same page. */
+export const REVIEWS_PAGE_SIZE = 10;
+const PAGE_SIZE = REVIEWS_PAGE_SIZE;
+/** The view the server renders: the defaults of the sort and rating controls. */
+export const DEFAULT_REVIEW_SORT: ReviewSort = 'helpful';
 
 interface ListState {
   reviews: PublicReview[];
@@ -37,28 +42,38 @@ const EMPTY: ListState = { reviews: [], total: 0, nextCursor: null, loading: tru
 /**
  * The Reviews tab's list and write surface (plan §5).
  *
- * The list comes from the anonymous public API after mount, so the SSR page
- * stays viewer-independent and cacheable. Everything viewer-specific — the
- * viewer's own review, their helpful votes and reports, whether they may
- * review or reply — is read from `review-state` only once signed in.
+ * The first page (default sort, all ratings) is server-rendered from the
+ * anonymous public API — so the reviews are in the HTML crawlers and no-JS
+ * visitors get, and the page stays viewer-independent and cacheable. Other
+ * sorts, filters and later pages load in the browser. Everything
+ * viewer-specific — the viewer's own review, their helpful votes and reports,
+ * whether they may review or reply — is read from `review-state` only once
+ * signed in.
  */
-export function ReviewsSection({ listing }: { listing: ListingDetail }) {
+export function ReviewsSection({ listing, initial }: { listing: ListingDetail; initial?: ReviewPage | null }) {
   const publisher = listing.publisher.handle;
   const name = listing.name;
   const signInHref = loginHref(`${pluginPagePath(publisher, name)}?tab=reviews`);
   const { signedIn } = useClientAuth();
 
-  const [sort, setSort] = useState<ReviewSort>('helpful');
+  const [sort, setSort] = useState<ReviewSort>(DEFAULT_REVIEW_SORT);
   const [ratingFilter, setRatingFilter] = useState(0);
-  const [list, setList] = useState<ListState>(EMPTY);
+  const [list, setList] = useState<ListState>(() => (initial
+    ? { reviews: initial.reviews, total: initial.total, nextCursor: initial.nextCursor, loading: false, error: null }
+    : EMPTY));
   const [reloadTick, setReloadTick] = useState(0);
   const requestSeq = useRef(0);
+  // The server-rendered page stands in for the first client read, once.
+  const usedInitial = useRef(false);
 
-  const load = useCallback(async (cursor: string | null) => {
+  const load = useCallback(async (cursor: string | null, opts: { fresh?: boolean } = {}) => {
     const seq = ++requestSeq.current;
     setList((l) => ({ ...(cursor ? l : EMPTY), loading: true, error: null }));
     const res = await getListingReviews(publisher, name, {
       sort, ...(ratingFilter ? { rating: ratingFilter } : {}), ...(cursor ? { cursor } : {}), limit: PAGE_SIZE,
+      // After the viewer's own write, the CDN-cached page would still show the
+      // list as it was before it — so that re-read goes around every cache.
+      ...(opts.fresh ? { fresh: true } : {}),
     });
     if (seq !== requestSeq.current) return;
     if (!res.ok) {
@@ -74,7 +89,15 @@ export function ReviewsSection({ listing }: { listing: ListingDetail }) {
     }));
   }, [publisher, name, sort, ratingFilter]);
 
-  useEffect(() => { void load(null); }, [load, reloadTick]);
+  useEffect(() => {
+    if (!usedInitial.current) {
+      usedInitial.current = true;
+      if (initial && sort === DEFAULT_REVIEW_SORT && ratingFilter === 0) return;
+    }
+    void load(null, { fresh: reloadTick > 0 });
+    // `initial` is the first render's server page; later changes don't re-seed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, reloadTick]);
 
   const state = useFetch<ReviewState | null>(async (signal) => {
     if (!signedIn) return null;

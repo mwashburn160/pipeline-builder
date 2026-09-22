@@ -13,6 +13,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // -- Mocks (before imports) ---------------------------------------------------
@@ -96,7 +97,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   PluginDeployGeneratedSchema: {},
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = req.context;
     await handler({ req, res, ctx, orgId: ctx.identity.orgId?.toLowerCase() || '', userId: ctx.identity.userId || '' });
@@ -104,7 +105,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   getIdempotencyStore: () => ({ reserve: mockIdemReserve, delete: mockIdemDelete, get: mockIdemGet, set: jest.fn() }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: (section: string) => (section === 'registry' ? { host: 'r', port: 5000, network: '', http: true } : {}) },
   CoreConstants: { IDEMPOTENCY_TTL_MS: 300000 },
 }));

@@ -1,15 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockInsert = jest.fn();
-const mockValues = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
+const mockInsert = jest.fn<AnyFn>();
+const mockValues = jest.fn<AnyFn>().mockResolvedValue(undefined);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {
     complianceAuditLog: { __table: 'complianceAuditLog' },
   },

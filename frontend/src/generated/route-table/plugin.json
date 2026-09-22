@@ -16,6 +16,23 @@
   },
   {
     "method": "GET",
+    "path": "/internal/plugins/public-names",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "internalCallers": [
+      "image-registry"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/logs/:requestId",
     "auth": false,
     "permissions": [],
@@ -1619,6 +1636,82 @@
   },
   {
     "method": "POST",
+    "path": "/plugins/installs/:id/change-requests",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:install"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.install.change-request"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/plugins/installs/:id/change-requests/approve",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugin_installs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.install.change-approve",
+      "plugin.install.upgrade"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/plugins/installs/:id/change-requests/reject",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugin_installs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.install.change-reject"
+    ]
+  },
+  {
+    "method": "POST",
     "path": "/plugins/installs/:id/deny",
     "auth": true,
     "permissions": [
@@ -1641,6 +1734,29 @@
     "audit": [
       "plugin.install.deny"
     ]
+  },
+  {
+    "method": "GET",
+    "path": "/plugins/installs/change-requests",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugin_installs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
   },
   {
     "method": "GET",
@@ -1993,7 +2109,7 @@
       {
         "mode": "any",
         "permissions": [
-          "publishers:manage"
+          "plugins:read"
         ],
         "allowService": false
       }

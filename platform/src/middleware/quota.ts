@@ -42,18 +42,29 @@ export async function reserveFeatureQuota(
   return reserveQuota(quotaService, rootOrgId, quotaType, auth);
 }
 
-/** Roll back a previously reserved feature-quota slot. Fire-and-forget.
- *  Rolls back against the SAME resolved root the reservation targeted
- *  (see {@link reserveFeatureQuota}) — never the team's `-1` counter. */
+/**
+ * Give back a feature-quota slot. Fire-and-forget. Targets the SAME resolved
+ * root the reservation did (see {@link reserveFeatureQuota}) — never the
+ * team's `-1` counter.
+ *
+ * `reservation` is REQUIRED so every caller states which case it is:
+ * - a ROLLBACK of a slot this request just reserved → pass that reservation.
+ *   Its `quota.resetAt` becomes the decrement's `resetAtSnapshot`, so if the
+ *   period rolled over between reserve and rollback the quota service skips
+ *   the decrement instead of stealing a slot from the NEW period.
+ * - a release with no reservation in hand (the delete path) → `null`.
+ */
 export function releaseFeatureQuota(
   orgId: string,
   quotaType: QuotaType,
   logWarn: (msg: string, data?: unknown) => void,
+  reservation: QuotaReserveResult | null,
 ): void {
+  const resetAtSnapshot = reservation?.quota.resetAt;
   void resolveOrgLineage(orgId)
     .then(({ rootOrgId }) => {
       const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: rootOrgId, role: 'member' });
-      decrementQuota(quotaService, rootOrgId, quotaType, auth, logWarn);
+      decrementQuota(quotaService, rootOrgId, quotaType, auth, logWarn, 1, resetAtSnapshot);
     })
     .catch((err: unknown) => logWarn('Feature-quota release skipped (root resolution failed)', {
       error: errorMessage(err),

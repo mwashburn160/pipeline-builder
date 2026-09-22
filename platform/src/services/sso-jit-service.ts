@@ -96,9 +96,9 @@ export async function assertJitSeatAvailable(orgId: string, email: string): Prom
  * Add `user` to `orgId` (if they aren't already a member) and reconcile the
  * Roles their IdP `groups` map to.
  *
- * NOTE ON `user`: a Role/membership change bumps `tokenVersion`, which would
+ * NOTE ON `user`: a Role/membership change bumps `claimsVersion`, which would
  * invalidate a token minted from the now-stale in-memory document. This refreshes
- * `user.tokenVersion` in place after committing, so the caller can hand the SAME
+ * `user.claimsVersion` (and `tokenVersion`) in place after committing, so the caller can hand the SAME
  * document to `issueTokens` and get a session that is valid from the first
  * request. Callers must not mint tokens from a copy taken before this call.
  *
@@ -168,7 +168,7 @@ export async function provisionJitMembership(input: {
     // sessions can't keep acting on the Roles the IdP just took away.
     if (membershipCreated || added.length > 0 || removed.length > 0) {
       await recomputeUserOrgRole(user._id, oid, session);
-      await User.updateOne({ _id: user._id }, { $inc: { tokenVersion: 1 } }, { session });
+      await User.updateOne({ _id: user._id }, { $inc: { claimsVersion: 1 } }, { session });
     }
 
     // Post-write re-check (the G5 pattern the invite/add paths run): a concurrent
@@ -189,6 +189,7 @@ export async function provisionJitMembership(input: {
     // `user` carries the CURRENT one (see the note on this function).
     const fresh = await User.findById(user._id).select('+tokenVersion').lean();
     if (fresh && typeof fresh.tokenVersion === 'number') user.tokenVersion = fresh.tokenVersion;
+    if (fresh && typeof fresh.claimsVersion === 'number') user.claimsVersion = fresh.claimsVersion;
     // Post-commit: publish it so the stateless services drop the user's older
     // access tokens immediately (best-effort).
     await publishUserRevocation(String(user._id));

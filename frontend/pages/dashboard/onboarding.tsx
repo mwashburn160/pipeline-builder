@@ -112,7 +112,7 @@ export default function OnboardingPage() {
       /* transient — proceed to the dashboard anyway */
     }
     markOnboardingComplete();
-    router.replace('/dashboard');
+    void router.replace('/dashboard');
   };
 
   const handleJoin = async (org: { orgId: string }) => {

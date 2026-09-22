@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { EventEmitter } from 'events';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
@@ -97,7 +98,7 @@ describe('CacheService (in-memory)', () => {
   describe('getOrSet', () => {
     it('returns cached value on hit', async () => {
       await cache.set('key1', 'cached');
-      const factory = jest.fn().mockResolvedValue('computed');
+      const factory = jest.fn<AnyFn>().mockResolvedValue('computed');
 
       const result = await cache.getOrSet('key1', factory);
       expect(result).toBe('cached');
@@ -105,7 +106,7 @@ describe('CacheService (in-memory)', () => {
     });
 
     it('calls factory and caches on miss', async () => {
-      const factory = jest.fn().mockResolvedValue('computed');
+      const factory = jest.fn<AnyFn>().mockResolvedValue('computed');
 
       const result = await cache.getOrSet('key1', factory);
       expect(result).toBe('computed');
@@ -345,7 +346,7 @@ describe('createRedisCacheInvalidationBus', () => {
       status: 'connecting',
       subscribe: jest.fn(async (..._c: string[]) => 1),
       publish: jest.fn(async () => 0),
-      duplicate: jest.fn(),
+      duplicate: jest.fn<AnyFn>(),
     });
     const pub = Object.assign(new EventEmitter(), {
       status: 'ready',
@@ -359,8 +360,8 @@ describe('createRedisCacheInvalidationBus', () => {
   it('does not SUBSCRIBE before the connection is ready, subscribes on every ready, and resyncs', async () => {
     const { pub, sub } = fakeClient();
     const bus = createRedisCacheInvalidationBus(pub);
-    const onResync = jest.fn();
-    bus.subscribe(jest.fn(), onResync);
+    const onResync = jest.fn<AnyFn>();
+    bus.subscribe(jest.fn<AnyFn>(), onResync);
 
     // Not ready yet: a subscribe now would be rejected (no offline queue) and lost.
     expect(sub.subscribe).not.toHaveBeenCalled();
@@ -381,8 +382,8 @@ describe('createRedisCacheInvalidationBus', () => {
   it('delivers channel messages to handlers and publishes JSON on the channel', async () => {
     const { pub, sub } = fakeClient();
     const bus = createRedisCacheInvalidationBus(pub);
-    const onMessage = jest.fn();
-    bus.subscribe(onMessage, jest.fn());
+    const onMessage = jest.fn<AnyFn>();
+    bus.subscribe(onMessage, jest.fn<AnyFn>());
 
     const msg: CacheInvalidationMessage = { origin: 'x', prefix: 'plugin:', op: 'del', key: 'k' };
     sub.emit('message', 'cache:invalidate', JSON.stringify(msg));
@@ -398,7 +399,7 @@ describe('createRedisCacheInvalidationBus', () => {
 
   it('never throws when PUBLISH fails', async () => {
     const { pub } = fakeClient();
-    (pub.publish as jest.Mock).mockImplementation(async () => { throw new Error('down'); });
+    (pub.publish as jest.Mock<AnyFn>).mockImplementation(async () => { throw new Error('down'); });
     const bus = createRedisCacheInvalidationBus(pub);
     expect(() => bus.publish({ origin: 'x', prefix: 'p:', op: 'clear' })).not.toThrow();
     await new Promise((r) => setImmediate(r));

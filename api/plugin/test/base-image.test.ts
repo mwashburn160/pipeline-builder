@@ -12,7 +12,7 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 const mockRun = jest.fn<(cmd: string, args: string[], ...rest: unknown[]) => Promise<string>>();
 jest.unstable_mockModule('../src/helpers/build-process.js', () => ({ run: mockRun }));
-const mockWriteAuth = jest.fn(() => '/tmp/pb-dockercfg-test');
+const mockWriteAuth = jest.fn((..._args: unknown[]) => '/tmp/pb-dockercfg-test');
 jest.unstable_mockModule('../src/helpers/registry-auth.js', () => ({
   writeAuthConfig: mockWriteAuth,
   imageRepository: (name: string, r: { host: string; port: number }, orgId?: string) => `${r.host}:${r.port}/${orgId ? `org-${orgId}` : 'system'}/${name}`,

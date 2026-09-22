@@ -1,6 +1,6 @@
 // GENERATED FROM docs/observability-logs.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9380e30d31d1954b896c39fae25b7310e57b955ecd0a1d65d2b7802d303d0eb4
+// SOURCE-SHA256: 12d0a42ca11c840aa9146c7b31a586e94c41c46604c64a578a864bf64f6e3bf0
 // SPDX-License-Identifier: Apache-2.0
 import { FileSearch } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -209,7 +209,7 @@ export const observabilityLogsTopic: HelpTopic = {
             ],
             [
               "auth_enabled: true",
-              "config/loki/loki-config.yml",
+              "deploy/shared/config/loki/loki-config.yml",
               "Per-organization tenancy. Every Loki client must then send X-Scope-OrgID, Grafana included"
             ],
             [

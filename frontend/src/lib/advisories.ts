@@ -67,3 +67,52 @@ export function parseCveIds(text: string): string[] {
   const ids = text.split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
   return [...new Set(ids)];
 }
+
+// ---------------------------------------------------------------------------
+// Client-side checks, mirroring the server's (`parseAdvisoryFields`,
+// `advisoryRangeProblem`, `parseVulnIds`) so a malformed draft is caught in the
+// form — before a step-up is spent on a request the server can only refuse.
+// ---------------------------------------------------------------------------
+
+const SEMVER = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const COMPARATOR = /^(>=|<=|>|<|=)?\s*v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+/** `^1.2.3`, `~1.2`, `1`, `1.x`, `1.2.*`, an exact version. */
+const SPEC = /^[\^~]?v?\d+(?:\.(?:\d+|x|\*))?(?:\.(?:\d+|x|\*))?(?:-[0-9A-Za-z.-]+)?$/;
+const VULN_ID = /^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9._:-]{1,60}$/;
+/** The server's cap on ids per advisory. */
+export const ADVISORY_MAX_IDS = 50;
+
+/** Whether `v` is a full semver version. */
+export function isSemverVersion(v: string): boolean {
+  return SEMVER.test(v.trim());
+}
+
+/** Why `range` isn't an advisory range the server accepts, or null when it is. */
+export function advisoryRangeProblem(range: string): string | null {
+  const trimmed = range.trim();
+  if (trimmed === '') return 'The affected range is empty.';
+  if (trimmed.length > 255) return 'The affected range is longer than 255 characters.';
+  for (const set of trimmed.split('||').map((x) => x.trim())) {
+    if (set === '*') continue;
+    if (set === '') return 'The affected range has an empty "||" alternative.';
+    const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(set);
+    if (hyphen) {
+      if (!isSemverVersion(hyphen[1]!) || !isSemverVersion(hyphen[2]!)) return `"${set}" is not a valid hyphen range.`;
+      continue;
+    }
+    const parts = set.split(/\s+/).filter(Boolean);
+    if (parts.length === 1 && parts[0] !== 'latest' && SPEC.test(parts[0]!)) continue;
+    const bad = parts.find((x) => !COMPARATOR.test(x));
+    if (bad !== undefined) return `"${bad}" is not a version, a ^/~ range or a comparator (>=, <=, >, <, =).`;
+  }
+  return null;
+}
+
+/** Why the CVE/GHSA id list would be refused, or null. */
+export function vulnIdsProblem(text: string): string | null {
+  const ids = text.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  const bad = ids.find((id) => !VULN_ID.test(id));
+  if (bad) return `"${bad.slice(0, 80)}" is not a vulnerability id (e.g. CVE-2026-1234 or GHSA-xxxx-xxxx-xxxx).`;
+  if (new Set(ids.map((i) => i.toUpperCase())).size > ADVISORY_MAX_IDS) return `At most ${ADVISORY_MAX_IDS} vulnerability ids per advisory.`;
+  return null;
+}

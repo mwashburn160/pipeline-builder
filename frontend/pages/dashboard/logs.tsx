@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Download, FileText, Loader2, RefreshCw, ScrollText } from 'lucide-react';
+import { Download, FileText, RefreshCw, ScrollText } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
@@ -27,12 +27,14 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { LogEntryRow } from '@/components/observability/LogEntryRow';
 import { LogVolumeChart } from '@/components/observability/LogVolumeChart';
+import { OrgMultiPicker } from '@/components/ui/OrgPicker';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useLogSearch, useLogVolume } from '@/hooks/useLogSearch';
 import { api } from '@/lib/api';
 import { triggerBlobDownload } from '@/lib/csv-export';
 import { formatError } from '@/lib/constants';
+import { withoutAnchor } from '@/lib/log-context';
 import type { LogEntry, LogQueryParams, LogRangePreset, LogWindow } from '@/types/logs';
 
 const PRESETS: Array<{ value: LogRangePreset; label: string }> = [
@@ -85,14 +87,18 @@ export default function LogsPage() {
   const [context, setContext] = useState<{ anchor: LogEntry; before: LogEntry[]; after: LogEntry[] } | null>(null);
 
   const isSysadmin = user?.isSuperAdmin === true;
+  // Sysadmin tenant selection. Empty = the server default (platform
+  // infrastructure only); the subtitle promised a selector that didn't exist,
+  // so a sysadmin could never read an org's lines from this page.
+  const [orgs, setOrgs] = useState<string[]>([]);
 
   const params: LogQueryParams = useMemo(
-    () => ({ window, q: applied || undefined, limit }),
-    [window, applied, limit],
+    () => ({ window, q: applied || undefined, limit, ...(isSysadmin && orgs.length ? { orgs } : {}) }),
+    [window, applied, limit, isSysadmin, orgs],
   );
 
   const { data, loading, error, refresh } = useLogSearch(params, isAuthenticated);
-  const { data: volume, loading: volumeLoading } = useLogVolume(params, isAuthenticated);
+  const { data: volume, loading: volumeLoading, error: volumeError } = useLogVolume(params, isAuthenticated);
 
   const entries = data?.entries ?? [];
   const served = data?.window;
@@ -142,7 +148,7 @@ export default function LogsPage() {
     setActionError(null);
     try {
       const res = await api.logContext({ ...params, at: anchor.time, spanMs: contextSpanMs });
-      setContext({ anchor, before: res.data?.before ?? [], after: res.data?.after ?? [] });
+      setContext(withoutAnchor(anchor, res.data?.before ?? [], res.data?.after ?? []));
     } catch (err) {
       setActionError(formatError(err));
     }
@@ -239,6 +245,15 @@ export default function LogsPage() {
           <Button type="submit" size="sm">Search</Button>
         </form>
 
+        {isSysadmin && (
+          <OrgMultiPicker
+            value={orgs}
+            onChange={setOrgs}
+            aria-label="Organizations to read"
+            className="mt-2"
+          />
+        )}
+
         {window.kind === 'absolute' && (
           <p className="mt-2 text-xs text-fg-muted">
             Custom range: {new Date(window.fromMs).toLocaleString([], { hour12: false })} → {new Date(window.toMs).toLocaleString([], { hour12: false })}
@@ -251,14 +266,14 @@ export default function LogsPage() {
       </Card>
 
       <Card className="mb-4">
-        <LogVolumeChart data={volume ?? undefined} loading={volumeLoading} onSelectBucket={zoomTo} />
+        <LogVolumeChart data={volume ?? undefined} loading={volumeLoading} error={!!volumeError} onSelectBucket={zoomTo} />
       </Card>
 
       <Card className="!p-0">
         <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 text-xs text-fg-muted dark:border-gray-800">
           <span>
-            {loading ? 'Loading…' : `${entries.length.toLocaleString()} entries`}
-            {entries.length >= limit && ' (limit reached — narrow the query or raise the limit)'}
+            {loading ? 'Loading…' : error ? 'Search failed' : `${entries.length.toLocaleString()} entries`}
+            {!error && entries.length >= limit && ' (limit reached — narrow the query or raise the limit)'}
           </span>
           <label className="flex items-center gap-1">
             <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
@@ -266,7 +281,8 @@ export default function LogsPage() {
           </label>
         </div>
 
-        {entries.length === 0 && !loading ? (
+        {/* A failed search is not "no matches" — the RetryError above says so. */}
+        {entries.length === 0 && !loading && error ? null : entries.length === 0 && !loading ? (
           <div className="p-6">
             <EmptyState
               icon={ScrollText}
@@ -315,7 +331,7 @@ export default function LogsPage() {
                   setActionError(null);
                   try {
                     const res = await api.logContext({ ...params, at: context.anchor.time, spanMs: span });
-                    setContext({ anchor: context.anchor, before: res.data?.before ?? [], after: res.data?.after ?? [] });
+                    setContext(withoutAnchor(context.anchor, res.data?.before ?? [], res.data?.after ?? []));
                   } catch (err) {
                     setActionError(formatError(err));
                   }
@@ -332,10 +348,7 @@ export default function LogsPage() {
             </div>
             {context.after.map((e, i) => <LogEntryRow key={`a-${i}`} entry={e} wrap showOrg={isSysadmin} />)}
             {context.before.length === 0 && context.after.length === 0 && (
-              <p className="p-4 text-center text-fg-muted">
-                <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" aria-hidden />
-                No surrounding entries in this stream.
-              </p>
+              <p className="p-4 text-center text-fg-muted">No surrounding entries in this stream.</p>
             )}
           </div>
         </Modal>

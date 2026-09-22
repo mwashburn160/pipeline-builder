@@ -184,6 +184,17 @@ spec:
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
               readOnly: true
+            # Deploy-time pieces of the same ConfigMap (bin/k8s-resources.sh
+            # pb_nginx_config): the admin-console routes or their 404 stubs, and
+            # the load balancer CIDRs real_ip trusts.
+            - name: nginx-config
+              mountPath: /etc/nginx/admin-uis.conf
+              subPath: admin-uis.conf
+              readOnly: true
+            - name: nginx-config
+              mountPath: /etc/nginx/real-ip.conf
+              subPath: real-ip.conf
+              readOnly: true
             - name: nginx-njs
               mountPath: /etc/nginx/njs
               readOnly: true

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
 import {
   canQueryCatalogKey,
   QUERIES,
@@ -87,6 +88,12 @@ describe('observability catalog', () => {
       const out = substituteOrg('a{x="1"$ORG} / b{y="2"$ORG}', { isSuperAdmin: true });
       expect(out).toBe('a{x="1",org_id=~".+"} / b{y="2",org_id=~".+"}');
       expect(out).not.toContain('$ORG');
+    });
+
+    it('divides the success-rate by the raw (>0-filtered) build rate, never a clamp to 1/s', () => {
+      const q = QUERIES.plugin_build_success_rate_5m.query;
+      expect(q).not.toContain('clamp_min');
+      expect(q).toMatch(/\/ \(sum\(rate\(plugin_builds_total\{status!=""\$ORG\}\[5m\]\)\) > 0\)$/);
     });
 
     it('renders the real success-rate panel query with no leftover placeholder', () => {

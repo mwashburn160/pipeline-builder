@@ -193,6 +193,38 @@ export interface TokenRevocationStore {
    * working in every other service is not withdrawn.
    */
   getSessionRevocation?(jti: string): Promise<SessionRevocationState>;
+  /**
+   * Whether ONE credential the token rides on has been revoked — its session
+   * slot (`sid`) or the access key it was exchanged from / derived from (see
+   * {@link credentialRevocationRefs}). Fail-open like `getCurrentVersion`: a
+   * store that can't answer returns `false`.
+   */
+  isCredentialRevoked?(refs: CredentialRevocationRefs): Promise<boolean>;
+}
+
+/** The single-credential ids a token can be revoked by (`revoke:sid:` / `revoke:key:`). */
+export interface CredentialRevocationRefs {
+  /** The refresh-session slot the token was minted with. */
+  sid?: string;
+  /** Access-key ids: the exchanged key's own `jti`, and any `parentKeyId`. */
+  keyIds: string[];
+}
+
+/**
+ * The credential ids a verified token can be revoked by. An exchanged key token
+ * (`token_use: 'api_key'`) is named by its `jti`; a token derived from one
+ * carries `parentKeyId`; a session-minted token carries `sid`. Returns `null`
+ * when the token names none of them.
+ */
+export function credentialRevocationRefs(
+  claims: Pick<JwtPayload, 'sid' | 'parentKeyId' | 'jti' | 'token_use'>,
+): CredentialRevocationRefs | null {
+  const keyIds = new Set<string>();
+  if (claims.token_use === 'api_key' && typeof claims.jti === 'string' && claims.jti) keyIds.add(claims.jti);
+  if (typeof claims.parentKeyId === 'string' && claims.parentKeyId) keyIds.add(claims.parentKeyId);
+  const sid = typeof claims.sid === 'string' && claims.sid ? claims.sid : undefined;
+  if (!sid && keyIds.size === 0) return null;
+  return { ...(sid ? { sid } : {}), keyIds: [...keyIds] };
 }
 
 /**
@@ -238,6 +270,16 @@ async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
     }
     return false;
   }
+  if (store.isCredentialRevoked) {
+    const refs = credentialRevocationRefs(decoded);
+    if (refs) {
+      try {
+        if (await store.isCredentialRevoked(refs)) return true;
+      } catch {
+        // Fail-open, as below.
+      }
+    }
+  }
   if (!decoded.sub || typeof decoded.tokenVersion !== 'number') return false;
   try {
     const current = await store.getCurrentVersion(decoded.sub);
@@ -246,6 +288,28 @@ async function isTokenRevoked(decoded: JwtPayload): Promise<boolean> {
     // Fail-open: a revocation-store outage must not lock every user out.
     return false;
   }
+}
+
+/** Whether the registered store has anything to say about this token. */
+function hasRevocationCheck(decoded: JwtPayload): boolean {
+  const store = tokenRevocationStore;
+  if (!store) return false;
+  if (decoded.sub && typeof decoded.tokenVersion === 'number') return true;
+  return !!store.isCredentialRevoked && credentialRevocationRefs(decoded) !== null;
+}
+
+/** Methods a read-only impersonation token may use. */
+const IMPERSONATION_READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Whether a request is a WRITE under a read-only impersonation token. Fail-closed
+ * on a missing method: only a request positively known to be a read passes.
+ */
+export function isImpersonationWriteBlocked(
+  method: string | undefined,
+  claims: Pick<JwtPayload, 'impersonationReadOnly'>,
+): boolean {
+  return claims.impersonationReadOnly === true && !IMPERSONATION_READ_METHODS.has((method ?? '').toUpperCase());
 }
 
 /**
@@ -277,13 +341,21 @@ function isImpersonationSession(decoded: { impersonatorId?: unknown; jti?: unkno
  * `requireAuth`. Pass the verified JWT claims (`sub`, `tokenVersion`).
  */
 export async function isAccessTokenRevoked(
-  claims: { sub?: string; tokenVersion?: number; jti?: string; impersonatorId?: string },
+  claims: {
+    sub?: string;
+    tokenVersion?: number;
+    jti?: string;
+    impersonatorId?: string;
+    sid?: string;
+    parentKeyId?: string;
+    token_use?: JwtPayload['token_use'];
+  },
 ): Promise<boolean> {
   // An impersonation session is revoked unless the store positively says live —
   // including on this out-of-band path, or a revoked session could still mint
   // registry tokens.
   if (isImpersonationSession(claims) && await sessionRevocationState(claims.jti) !== 'live') return true;
-  return isTokenRevoked(claims as JwtPayload);
+  return isTokenRevoked(claims as unknown as JwtPayload);
 }
 
 function _requireAuth(
@@ -389,6 +461,19 @@ async function verifyAndAttach(
 
     req.user = { ...decoded };
 
+    // READ-ONLY IMPERSONATION. The token names the operator AND says it may only
+    // look: every service refuses a state change under it, not only platform —
+    // a support session that could write to plugin/compliance/billing is not
+    // read-only. Checked before any other gate so no route can forget it.
+    if (isImpersonationWriteBlocked(req.method, decoded)) {
+      if (req.method) recordAuthzDenial(req, 'impersonation-read-only');
+      return sendError(
+        res, HttpStatus.FORBIDDEN,
+        'Write requests are disabled during read-only impersonation. Stop impersonating to make changes.',
+        ErrorCode.IMPERSONATION_READ_ONLY,
+      );
+    }
+
     // BOOTSTRAP-ADMIN ENROLMENT SESSION (#8, revision 4). Such a token exists so
     // the install's only admin can enrol a factor; it is `aal: 1` and must not
     // reach anything else. Platform — which owns the exception and knows which
@@ -450,7 +535,7 @@ async function verifyAndAttach(
     // that would silently mean "never revoked". Here no store ⇒ unavailable ⇒
     // rejected. See `TokenRevocationStore.getSessionRevocation`.
     const impersonation = isImpersonationSession(decoded);
-    if (impersonation || (tokenRevocationStore && decoded.sub && typeof decoded.tokenVersion === 'number')) {
+    if (impersonation || hasRevocationCheck(decoded)) {
       // `.catch(next)` forwards a DOWNSTREAM synchronous throw from `next()` to
       // Express's error middleware — without it, that throw would surface as an
       // unhandled rejection (this `next()` runs in a microtask, outside the
@@ -470,7 +555,7 @@ async function verifyAndAttach(
             );
           }
         }
-        if (tokenRevocationStore && decoded.sub && typeof decoded.tokenVersion === 'number' && await isTokenRevoked(decoded)) {
+        if (hasRevocationCheck(decoded) && await isTokenRevoked(decoded)) {
           return sendError(res, HttpStatus.UNAUTHORIZED, 'Session has been revoked; please sign in again', ErrorCode.TOKEN_REVOKED);
         }
         next();

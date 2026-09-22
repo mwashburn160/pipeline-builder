@@ -11,16 +11,17 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error: msg, code }));
+const mockSendError = jest.fn((_res: any, code: number, msg: string, ..._rest: unknown[]) => ({ error: msg, code }));
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockRecordOutcome = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockGetSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockGetEnvironments = jest.fn<(...a: unknown[]) => Promise<string[]>>();
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
@@ -35,7 +36,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   userHasPermission: jest.fn(() => false),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     recordDeploymentOutcome: (...a: unknown[]) => mockRecordOutcome(...a),
     getIncidentSettings: (...a: unknown[]) => mockGetSettings(...a),
@@ -45,7 +46,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 
 // deployment-outcomes.ts → retention-cap.ts → helpers/report-helpers.ts imports `Config` from
 // pipeline-core; stub it so the full config graph (aws-cdk-lib, etc.) stays out.
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }) },
 }));
 

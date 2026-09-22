@@ -4,8 +4,7 @@
 import { List } from 'lucide-react';
 import { useObservabilityLogs } from '@/hooks/useObservabilityLogs';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import type { RangeKey } from '@/types/observability';
-import type { DataSeries, ObservabilityLogEntry } from '@/types/observability';
+import type { RangeKey , DataSeries, ObservabilityLogEntry } from '@/types/observability';
 import { Panel } from './Panel';
 
 const LOGS_COLUMNS: Column<ObservabilityLogEntry>[] = [

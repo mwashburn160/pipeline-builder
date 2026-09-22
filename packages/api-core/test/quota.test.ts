@@ -303,6 +303,26 @@ describe('quota.getTier', () => {
   });
 });
 
+describe('quota.getTierStrict (fail-closed)', () => {
+  it('returns the confirmed tier', async () => {
+    const quotaService = await loadQuotaService();
+    mockGet.mockResolvedValue(httpResponse(200, { success: true, data: { quota: { tier: 'team' } } }));
+    expect(await quotaService.getTierStrict('org1', AUTH)).toBe('team');
+  });
+
+  it.each([
+    ['unreachable', null],
+    ['a 5xx', httpResponse(503, { success: false })],
+    ['a non-success body', httpResponse(200, { success: false })],
+    ['a missing tier', httpResponse(200, { success: true, data: { quota: {} } })],
+    ['an unrecognized tier', httpResponse(200, { success: true, data: { quota: { tier: 'megacorp' } } })],
+  ])('returns null — never DEFAULT_TIER — when %s', async (_label, response) => {
+    const quotaService = await loadQuotaService();
+    mockGet.mockResolvedValue(response);
+    expect(await quotaService.getTierStrict('org1', AUTH)).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // incrementQuota() — metering helper authenticates as the SERVICE
 // ---------------------------------------------------------------------------

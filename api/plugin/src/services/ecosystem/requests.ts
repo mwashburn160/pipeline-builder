@@ -58,7 +58,8 @@ import {
   assertRootOrg, displayNameOf, handleRefusal, listingsQuota, ownPublisher, termsAccepted, verifiedEligible,
 } from './publishers.js';
 import {
-  ACTIVE_LISTING_STATES, elevated, listings, OPEN_STATUSES, plugins, publishers, requests, reservedNames, versions, type PluginRow,
+  ACTIVE_LISTING_STATES, decodeRequestCursor, elevated, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, requests, reservedNames, versions,
+  type PluginRow, type RequestCursor, type RequestFilter,
 } from './store.js';
 import { claimantEmailHash as claimantEmailHashOf } from './submission-moderation.js';
 import { topInstalledListings } from './submissions-store.js';
@@ -478,17 +479,36 @@ export async function withdraw(caller: Caller, id: string) {
   return requestView(done, publisher, null);
 }
 
-/** Views for a list of requests (listing names resolved in one pass). */
+/** Views for a list of requests (listings and publishers each read in ONE batched query). */
 export async function requestViews(rows: Req[]) {
   const listingIds = [...new Set(rows.map((r) => r.listingId).filter((x): x is string => !!x))];
-  const names = new Map<string, string>();
-  for (const id of listingIds) {
-    const l = await listings.byId(id);
-    if (l) names.set(id, l.name);
-  }
-  const pubs = new Map<string, Publisher | null>();
-  for (const pid of new Set(rows.map((r) => r.publisherId))) pubs.set(pid, await publishers.byId(pid));
+  const [listingRows, publisherRows] = await Promise.all([
+    listings.byIds(listingIds),
+    publishers.byIds([...new Set(rows.map((r) => r.publisherId))]),
+  ]);
+  const names = new Map(listingRows.map((l) => [l.id, l.name]));
+  const pubs = new Map(publisherRows.map((p) => [p.id, p]));
   return rows.map((r) => requestView(r, pubs.get(r.publisherId) ?? null, r.listingId ? names.get(r.listingId) ?? null : null));
+}
+
+/** Page size bounds for the publisher-side request lists. */
+const PAGE_DEFAULT = 50;
+const PAGE_MAX = 200;
+
+/** `limit` + `cursor` from a query string (400 on a malformed cursor). */
+export function pageParams(query: { limit?: unknown; cursor?: unknown }): { limit: number; cursor: RequestCursor | null } {
+  const limit = Math.min(PAGE_MAX, Math.max(1, Number.parseInt(String(query.limit ?? PAGE_DEFAULT), 10) || PAGE_DEFAULT));
+  const cursor = decodeRequestCursor(query.cursor);
+  if (cursor === 'invalid') throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'cursor is not a valid page cursor', { field: 'cursor' });
+  return { limit, cursor };
+}
+
+/** One page of `filter` (limit + 1 read to tell whether another page exists). */
+async function pageOf(filter: RequestFilter, page: { limit: number; cursor: RequestCursor | null }) {
+  const rows = await requests.list({ ...filter, limit: page.limit + 1, cursor: page.cursor });
+  const items = rows.slice(0, page.limit);
+  const nextCursor = rows.length > page.limit ? encodeRequestCursor(items[items.length - 1]!) : null;
+  return { items, nextCursor };
 }
 
 const STATUS_FILTERS: Record<string, PublishRequestStatus[]> = {
@@ -500,20 +520,26 @@ const STATUS_FILTERS: Record<string, PublishRequestStatus[]> = {
   withdrawn: ['withdrawn'],
 };
 
-/** GET /plugins/publish-requests — the caller's publisher's requests. */
-export async function ownRequests(caller: Caller, status: unknown) {
+/** A page of request views plus the cursor for the next one (null = last page). */
+export interface RequestPage { requests: ReturnType<typeof requestView>[]; nextCursor: string | null }
+
+/** GET /plugins/publish-requests — the caller's publisher's requests, newest first, paged. */
+export async function ownRequests(caller: Caller, query: { status?: unknown; limit?: unknown; cursor?: unknown } = {}): Promise<RequestPage> {
+  const page = pageParams(query);
   const publisher = await publishers.byOrg(caller.orgId);
-  if (!publisher) return [];
-  const statuses = typeof status === 'string' ? STATUS_FILTERS[status] : undefined;
-  return requestViews(await requests.list({ publisherId: publisher.id, ...(statuses ? { statuses } : {}) }));
+  if (!publisher) return { requests: [], nextCursor: null };
+  const statuses = typeof query.status === 'string' ? STATUS_FILTERS[query.status] : undefined;
+  const { items, nextCursor } = await pageOf({ publisherId: publisher.id, ...(statuses ? { statuses } : {}) }, page);
+  return { requests: await requestViews(items), nextCursor };
 }
 
-/** GET /plugins/publisher/incoming-transfers — open transfers offered TO the caller's publisher. */
-export async function incomingTransfers(caller: Caller) {
+/** GET /plugins/publisher/incoming-transfers — open transfers offered TO the caller's publisher (filtered in SQL), paged. */
+export async function incomingTransfers(caller: Caller, query: { limit?: unknown; cursor?: unknown } = {}): Promise<RequestPage> {
+  const page = pageParams(query);
   const publisher = await publishers.byOrg(caller.orgId);
-  if (!publisher) return [];
-  const open = await requests.list({ statuses: OPEN_STATUSES, kinds: ['transfer'] });
-  return requestViews(open.filter((r) => (r.payload as { transfer?: { targetPublisherId?: string } }).transfer?.targetPublisherId === publisher.id));
+  if (!publisher) return { requests: [], nextCursor: null };
+  const { items, nextCursor } = await pageOf({ statuses: OPEN_STATUSES, kinds: ['transfer'], transferTargetPublisherId: publisher.id }, page);
+  return { requests: await requestViews(items), nextCursor };
 }
 
 /**

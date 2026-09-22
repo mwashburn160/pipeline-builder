@@ -8,7 +8,8 @@
  * privileged Role gets 409, a vanished user 404.
  */
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -19,7 +20,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => {
     res.status(status).json({ success: true, statusCode: status, data });
   },
-  resolveUserFeatures: jest.fn(),
+  resolveUserFeatures: jest.fn<AnyFn>(),
   resolveUserPermissions: jest.fn(() => []),
 }));
 
@@ -45,11 +46,11 @@ jest.unstable_mockModule('mongoose', () => {
     Types: { ObjectId },
     Schema,
     models: {} as Record<string, unknown>,
-    model: jest.fn(),
+    model: jest.fn<AnyFn>(),
   };
 });
 
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
@@ -73,20 +74,32 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   findRefreshSession: jest.fn(async () => undefined),
-  signApiKeyToken: jest.fn(),
-  signServiceAccountToken: jest.fn(),
+  signApiKeyToken: jest.fn<AnyFn>(),
+  signServiceAccountToken: jest.fn<AnyFn>(),
   membershipForOrg: jest.fn(async () => undefined),
-  issueTokens: jest.fn(),
-  renewSessionTokens: jest.fn(),
+  issueTokens: jest.fn<AnyFn>(),
+  renewSessionTokens: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
-  validateBody: jest.fn(),
+  validateBody: jest.fn<AnyFn>(),
   updateProfileSchema: {},
   changePasswordSchema: {},
+}));
+
+// A user's SAML SLO sessions go with the user (user-cascade imports the model directly).
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({ default: { deleteMany: async () => ({ deletedCount: 0 }) } }));
+// The password-policy helper reads platform config at import (user-profile imports it).
+jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
+  PASSWORD_MAX_LENGTH: 128,
+  passwordPolicyForPerson: async () => ({ minLength: 8 }),
+  assertNewPasswordAcceptable: async () => undefined,
+  passwordShortfall: async () => null,
 }));
 
 const { deleteUser } = await import('../src/controllers/user-profile.js');
@@ -97,10 +110,10 @@ function makeReq() {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   // Deleting an account drops the browser's HttpOnly refresh cookie.
-  const clearCookie = jest.fn();
+  const clearCookie = jest.fn<AnyFn>();
   return { res: { status, json, clearCookie }, status, json, clearCookie };
 }
 
@@ -109,12 +122,12 @@ const { RL_LAST_PRIVILEGED_MEMBER } = await import('../src/services/roles-errors
 
 const run = async () => {
   const { res, status } = makeRes();
-  await (deleteUser as unknown as (r: unknown, s: unknown, n: unknown) => Promise<void>)(makeReq(), res, jest.fn());
+  await (deleteUser as unknown as (r: unknown, s: unknown, n: unknown) => Promise<void>)(makeReq(), res, jest.fn<AnyFn>());
   return status;
 };
 
 describe('deleteUser — cascade guard mapping', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it.each([
     [USER_OWNER_HAS_ORGS, 400],

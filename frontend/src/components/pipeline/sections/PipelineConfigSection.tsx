@@ -52,7 +52,7 @@ export default function PipelineConfigSection({
       </h3>
 
       <div className="grid grid-cols-2 gap-4">
-        <FormField label="Project *" error={errors['project']}>
+        <FormField label="Project *" error={errors.project}>
           <Input
             type="text"
             value={project}
@@ -61,7 +61,7 @@ export default function PipelineConfigSection({
             disabled={disabled}
           />
         </FormField>
-        <FormField label="Organization *" error={errors['organization']}>
+        <FormField label="Organization *" error={errors.organization}>
           <Input
             type="text"
             value={organization}

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useId } from 'react';
 import { Building2, X } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { useCombobox } from '@/hooks/useCombobox';
@@ -62,6 +62,7 @@ export function EligibleParentPicker({
   disabled?: boolean;
   label?: string;
 }) {
+  const uid = useId();
   const [text, setText] = useState('');
   const box = useCombobox(setText);
   const query = useDebounce(text.trim(), 250);
@@ -111,8 +112,8 @@ export function EligibleParentPicker({
 
   return (
     <div ref={box.wrapperRef} className="relative space-y-1">
-      <label className="block text-xs font-medium text-fg-muted">{label}</label>
-      <Input
+      <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-field`}>{label}</label>
+      <Input id={`${uid}-field`}
         ref={box.inputRef}
         type="text"
         value={text}

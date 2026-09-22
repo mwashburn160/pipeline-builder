@@ -34,7 +34,24 @@ export interface AgentToolDeps {
    * another tenant's org. The model only ever supplies non-authority fields.
    */
   orgId: string;
+  /**
+   * Reserve one `aiCalls` slot for a generation this service runs IN-PROCESS on
+   * the model's behalf (propose_template → generateObject). The turn's own slot
+   * pays for the agent's reasoning; an extra model invocation must pay its own,
+   * exactly as the delegated pipeline/plugin generators do. Resolves false when
+   * the org is out of quota (the tool then declines instead of generating).
+   */
+  chargeAiCall: () => Promise<boolean>;
+  /** Output-token cap for in-process generations. */
+  maxOutputTokens: number;
 }
+
+/**
+ * A resource id the MODEL supplies (it lands in a URL path). Opaque-id charset
+ * only: no `/`, no `.` — so neither a slash nor a `..` segment can walk the
+ * forwarded request to a different route than the one the tool names.
+ */
+const ResourceId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, 'must be an opaque id (letters, digits, - or _)');
 
 /** Shape the model drafts for a reusable pipeline template. */
 const TemplateSchema = z.object({
@@ -54,7 +71,7 @@ const TemplateSchema = z.object({
 });
 
 /** Build the agent's tools. Every tool acts as the calling user (token-forwarded). */
-export function buildAgentTools({ index, pipeline, plugin, model, defaults, orgId }: AgentToolDeps): ToolSet {
+export function buildAgentTools({ index, pipeline, plugin, model, defaults, orgId, chargeAiCall, maxOutputTokens }: AgentToolDeps): ToolSet {
   return {
     answer_how_to: tool({
       description:
@@ -81,7 +98,7 @@ export function buildAgentTools({ index, pipeline, plugin, model, defaults, orgI
 
     inspect_pipeline: tool({
       description: 'Fetch one pipeline by id to inspect its configuration before answering or proposing changes.',
-      inputSchema: z.object({ id: z.string().describe('The pipeline id') }),
+      inputSchema: z.object({ id: ResourceId.describe('The pipeline id') }),
       execute: async ({ id }) => {
         const res = (await pipeline.get(`/pipelines/${encodeURIComponent(id)}`)) as { data?: unknown };
         return { pipeline: res?.data ?? res };
@@ -147,8 +164,12 @@ export function buildAgentTools({ index, pipeline, plugin, model, defaults, orgI
         'dedicated generator, so this drafts one directly. Use it when the user asks for a reusable template.',
       inputSchema: z.object({ prompt: z.string().describe('What the template should do') }),
       execute: async ({ prompt }) => {
+        if (!(await chargeAiCall())) {
+          return { kind: 'template', error: 'The organization has no AI generation quota left for this period.' };
+        }
         const { object } = await generateObject({
           model,
+          maxOutputTokens,
           schema: TemplateSchema,
           prompt:
             `Create a reusable Pipeline Builder template for: ${prompt}\n` +
@@ -175,7 +196,7 @@ export function buildAgentTools({ index, pipeline, plugin, model, defaults, orgI
         'supplied values). Use when the user wants a pipeline created FROM an existing template. Draft only — the ' +
         'user reviews and confirms. Find the template + its inputs first with list_templates.',
       inputSchema: z.object({
-        templateId: z.string().describe('The template id (from list_templates)'),
+        templateId: ResourceId.describe('The template id (from list_templates)'),
         project: z.string().describe('Project identifier for the new pipeline'),
         // NOTE: `organization` is deliberately NOT a model-supplied input — it is
         // injected from the authenticated caller's org below, so a prompt-injected

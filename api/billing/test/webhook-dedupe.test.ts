@@ -50,6 +50,10 @@ jest.unstable_mockModule('mongoose', () => {
       store.set(key, doc);
       return doc;
     },
+    findOne: (filter: any) => {
+      const doc = store.get(keyOf(filter)) ?? null;
+      return { select: () => ({ lean: async () => doc }) };
+    },
     updateOne: async (filter: any, update: any) => {
       const existing = store.get(keyOf(filter));
       if (existing) Object.assign(existing, update.$set);
@@ -69,7 +73,7 @@ jest.unstable_mockModule('mongoose', () => {
   return { Schema, models, model, default: { Schema, models, model } };
 });
 
-const { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } = await import('../src/models/webhook-dedupe.js');
+const { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent, webhookEventStatus } = await import('../src/models/webhook-dedupe.js');
 
 /** Force the in-progress lease into the past — the crash-recovery signal Mongo's
  *  TTL produces after a process dies before the done-marker is written. */
@@ -184,5 +188,23 @@ describe('releaseWebhookEvent (handled failure)', () => {
 
     await releaseWebhookEvent('sns', 'evt_done_race', tokenA!);
     expect(store.get('sns:evt_done_race')?.status).toBe('done');
+  });
+});
+
+describe('webhookEventStatus (why a claim was refused)', () => {
+  it('reports a LIVE in_progress claim (the route must answer non-2xx so the provider retries)', async () => {
+    await claimWebhookEvent('stripe', 'evt_live2');
+    expect(await claimWebhookEvent('stripe', 'evt_live2')).toBeNull();
+    expect(await webhookEventStatus('stripe', 'evt_live2')).toBe('in_progress');
+  });
+
+  it('reports done for a completed event (a true duplicate — ack with 200)', async () => {
+    await claimWebhookEvent('sns', 'evt_fin');
+    await markWebhookEventDone('sns', 'evt_fin');
+    expect(await webhookEventStatus('sns', 'evt_fin')).toBe('done');
+  });
+
+  it('reports null when no row exists', async () => {
+    expect(await webhookEventStatus('sns', 'nope')).toBeNull();
   });
 });

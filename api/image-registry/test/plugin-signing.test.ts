@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
-import { jest } from '@jest/globals';
+import { jest, beforeEach, afterAll, describe, it, expect } from '@jest/globals';
 import { registryClientMock } from './helpers/registry-client-mock.js';
 
 type ExecCb = (err: Error | null, stdout: string, stderr: string) => void;

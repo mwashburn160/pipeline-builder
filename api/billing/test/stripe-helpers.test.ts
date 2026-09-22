@@ -9,16 +9,37 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindOne = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockUpdateOne = jest.fn<(...args: unknown[]) => Promise<{ matchedCount: number }>>();
 
 // ESM module mocks must be registered with jest.unstable_mockModule BEFORE the
 // module under test is (dynamically) imported.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOne: (...args: unknown[]) => mockFindOne(...args) },
+  Subscription: {
+    findOne: (...args: unknown[]) => mockFindOne(...args),
+    updateOne: (...args: unknown[]) => mockUpdateOne(...args),
+  },
 }));
 
-const { mapStripeStatus, findSubscriptionByStripeId } = await import('../src/helpers/stripe-helpers.js');
+const { mapStripeStatus, findSubscriptionByStripeId, claimStripeEventOrder } = await import('../src/helpers/stripe-helpers.js');
+
+describe('claimStripeEventOrder', () => {
+  it('advances the watermark only when the event is not older (atomic conditional update)', async () => {
+    mockUpdateOne.mockResolvedValueOnce({ matchedCount: 1 });
+    await expect(claimStripeEventOrder('sub-1' as never, { id: 'evt', created: 100 })).resolves.toBe(true);
+    const at = new Date(100_000);
+    expect(mockUpdateOne).toHaveBeenCalledWith(
+      { _id: 'sub-1', $or: [{ lastStripeEventAt: null }, { lastStripeEventAt: { $lte: at } }] },
+      { $set: { lastStripeEventAt: at } },
+    );
+  });
+
+  it('reports a stale event (no row matched the watermark filter)', async () => {
+    mockUpdateOne.mockResolvedValueOnce({ matchedCount: 0 });
+    await expect(claimStripeEventOrder('sub-1' as never, { id: 'evt', created: 50 })).resolves.toBe(false);
+  });
+});
 
 // mapStripeStatus
 
@@ -54,7 +75,7 @@ describe('mapStripeStatus', () => {
 // findSubscriptionByStripeId
 
 describe('findSubscriptionByStripeId', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('queries by externalId and stripe provider', async () => {
     mockFindOne.mockResolvedValue({ _id: 'sub-1' });

@@ -51,6 +51,16 @@ export interface StageBuilderProps {
 }
 
 /**
+ * The name CodePipeline gives a configured stage: the wave id, i.e. the stage's
+ * `alias`, else `<stageName>-alias`. This — not `stageName` — is what appears as
+ * `detail.stage` in CodePipeline events, so anything that must MATCH those
+ * events (the `pb.deploys` DORA tag) has to be built from this one function.
+ */
+export function codePipelineStageName(stage: Pick<StageOptions, 'stageName' | 'alias'>): string {
+  return stage.alias ?? `${stage.stageName}-alias`;
+}
+
+/**
  * Builds and adds pipeline stages (waves) to a CodePipeline.
  *
  * Each stage is resolved from high-level configuration (plugin names)
@@ -102,7 +112,7 @@ export class StageBuilder {
    * and adds them as a wave to the pipeline.
    */
   addStage(pipeline: CodePipeline, stage: StageOptions): void {
-    const stageAlias = stage.alias ?? `${stage.stageName}-alias`;
+    const stageAlias = codePipelineStageName(stage);
 
     const preSteps = stage.steps
       .filter(s => (s.position ?? 'pre') === 'pre')

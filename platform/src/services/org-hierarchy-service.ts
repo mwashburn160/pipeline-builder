@@ -191,7 +191,7 @@ async function bumpSessionsScopedTo(orgId: string, session: ClientSession): Prom
   for (const u of pinned) byId.set(String(u._id), u._id as Types.ObjectId);
   const ids = [...byId.values()];
   if (ids.length > 0) {
-    await User.updateMany({ _id: { $in: ids } }, { $inc: { tokenVersion: 1 } }, { session });
+    await User.updateMany({ _id: { $in: ids } }, { $inc: { claimsVersion: 1 } }, { session });
   }
   return ids;
 }

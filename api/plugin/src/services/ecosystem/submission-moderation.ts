@@ -37,6 +37,7 @@ import {
   COMMUNITY_PUBLISHER_HANDLE,
   type ListingVersionSpecSnapshot,
   type PluginListing,
+  type PluginListingVersion,
   type PluginPublishRequest,
   type PluginSubmission,
   type Publisher,
@@ -51,7 +52,7 @@ import { notifySubmissionClaimed, notifySubmissionDecision, notifySubmissionQueu
 import { contractDiff, isLinkField, latestVersion, sameValue, type Gate } from './policy.js';
 import { publishImage } from './registry.js';
 import { trustFor } from './resign.js';
-import { listings, OPEN_STATUSES, requests, versions } from './store.js';
+import { atomically, listings, OPEN_STATUSES, requests, versions } from './store.js';
 import { submissions } from './submissions-store.js';
 import {
   EMAIL_RETENTION_DAYS, dropQuarantineArtifacts, hashEmail, listingUrl, statusTokenFor, statusUrl, submissionConfig, submitterEmail,
@@ -105,8 +106,8 @@ export async function submissionForRequest(r: PluginPublishRequest): Promise<Plu
  * (actor ANONYMOUS, no submitting org — nobody can have a conflict of
  * interest), audited as `plugin.request.submit`, N2 to the moderators.
  */
-export async function openSubmissionRequest(s: PluginSubmission, publisher: Publisher, listing: PluginListing | null, digest: string): Promise<PluginPublishRequest> {
-  const r = await requests.insert({
+export async function insertSubmissionRequest(s: PluginSubmission, publisher: Publisher, listing: PluginListing | null, digest: string): Promise<PluginPublishRequest> {
+  return requests.insert({
     publisherId: publisher.id,
     listingId: listing?.id ?? null,
     version: s.version,
@@ -116,15 +117,22 @@ export async function openSubmissionRequest(s: PluginSubmission, publisher: Publ
     submittedOrgId: null,
     payload: { submissionId: s.id, name: s.name, version: s.version, newListing: !listing },
   });
+}
+
+/** Announce a queued submission request (after the transaction that created it committed). */
+export async function announceSubmissionRequest(s: PluginSubmission, r: PluginPublishRequest, listing: PluginListing | null, digest: string): Promise<void> {
   audit('plugin.request.submit', ANONYMOUS_ACTOR_ID, 'plugin-publish-request', r.id, { kind: 'submission', submissionId: s.id, version: s.version, digest });
   await notifySubmissionQueued({ name: s.name, version: s.version, newListing: !listing });
-  return r;
+}
+
+/** Whether a submission already has its OPEN moderation request (the gate run's idempotency key, E6). */
+export async function hasOpenSubmissionRequest(submissionId: string): Promise<boolean> {
+  return (await requests.list({ kinds: ['submission'], statuses: OPEN_STATUSES, submissionId, limit: 1 })).length > 0;
 }
 
 /** Close a submission's open request (the submission expired). */
 export async function closeSubmissionRequest(submissionId: string, reason: string): Promise<void> {
-  const open = (await requests.list({ kinds: ['submission'], statuses: OPEN_STATUSES }))
-    .filter((r) => payloadOf(r).submissionId === submissionId);
+  const open = await requests.list({ kinds: ['submission'], statuses: OPEN_STATUSES, submissionId });
   for (const r of open) {
     await requests.transition(r.id, r.status, { status: 'rejected', reason, decidedBy: SYSTEM_ACTOR_ID, decidedAt: new Date() });
   }
@@ -184,6 +192,12 @@ async function ownerHash(listingId: string): Promise<string | null> {
  * Execute an approved `submission` request (decisions.execute): publish the
  * pinned quarantined digest into `public/community/<name>`, record the listing
  * version, mark the submission approved (N4). Fails closed on any mismatch.
+ *
+ * Order: every check (the name gate re-run NOW, E18), then CLAIM the
+ * submission `pending_review → publishing` (E10 — an expiry can no longer take
+ * it or delete its artifacts), then the image copy (idempotent), then every
+ * database write in ONE transaction (E5: listing, version, latest pointer,
+ * request link, `publishing → approved`). Any failure hands the claim back.
  */
 export async function publishSubmission(r: PluginPublishRequest, publisher: Publisher, actor: string): Promise<void> {
   if (publisher.handle !== COMMUNITY_PUBLISHER_HANDLE) throw new ConflictError('Submission requests belong to the community publisher.');
@@ -196,59 +210,82 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
     throw new ConflictError('The quarantined build no longer matches the digest the request pinned.', ErrorCode.PLUGIN_DIGEST_MISMATCH);
   }
 
+  // E18: the name is judged again at approval — a reservation, an Official or
+  // Verified listing, or a confusable top listing may have appeared since the
+  // gates ran.
+  const { submissionNameGate } = await import('./submissions.js');
+  const gate = await submissionNameGate(s.name, s.emailHash);
+  if (!gate.ok) throw new ConflictError(`The name no longer passes: ${gate.message}`, ErrorCode.NAME_TAKEN);
+
   let listing = r.listingId ? await listings.byId(r.listingId) : await listings.byName(publisher.id, s.name);
   if (listing) {
     if (!['listed', 'unmaintained'].includes(listing.state) || listing.publisherId !== publisher.id) {
       throw new ConflictError(`community/${s.name} is not live under the community publisher.`);
     }
+    // No recorded owner (purged, or never approved) is NOT "anyone may extend it".
     const owner = await ownerHash(listing.id);
-    if (owner && owner !== s.emailHash) throw new ConflictError(`community/${s.name} belongs to another submitter.`);
+    const empty = (await versions.countForListing(listing.id)) === 0;
+    if (!empty && (!owner || owner !== s.emailHash)) throw new ConflictError(`community/${s.name} belongs to another submitter.`);
     if (await versions.get(listing.id, s.version)) throw new ConflictError(`${s.version} is already published to community/${s.name}.`);
   }
 
-  const published = await publishImage({
-    sourceRepository: facts.imageRepository,
-    digest: facts.digest,
-    publisherHandle: publisher.handle,
-    name: s.name,
-    version: s.version,
-    tier: trustFor(publisher),
-    publisherOrgId: null,
-  });
+  const claimed = await submissions.transition(s.id, 'pending_review', { status: 'publishing' });
+  if (!claimed) throw new ConflictError('The submission changed state meanwhile (expired or decided); nothing was published.');
 
-  const values = (s.catalog?.values ?? {}) as Record<string, unknown>;
-  const existed = listing !== null;
-  if (!listing) {
-    listing = await listings.insert({ publisherId: publisher.id, name: s.name, ...listingColumns(values), latestVersion: s.version });
+  let version: PluginListingVersion;
+  let updated: PluginListing | null;
+  let target: PluginListing;
+  const existed = listing !== null && (await versions.countForListing(listing.id)) > 0;
+  try {
+    const published = await publishImage({
+      sourceRepository: facts.imageRepository,
+      digest: facts.digest,
+      publisherHandle: publisher.handle,
+      name: s.name,
+      version: s.version,
+      tier: trustFor(publisher),
+      publisherOrgId: null,
+    });
+    const values = (s.catalog?.values ?? {}) as Record<string, unknown>;
+    const snapshot = await submissionSnapshot(s, facts);
+    const prev = existed && listing ? await previousVersion(listing.id, s.version) : null;
+    const now = new Date();
+    ({ target, version, updated } = await atomically(async () => {
+      const into = listing ?? await listings.insert({ publisherId: publisher.id, name: s.name, ...listingColumns(values), latestVersion: s.version });
+      const inserted = await versions.insert({
+        listingId: into.id,
+        sourcePluginId: null,
+        version: s.version,
+        imageDigest: facts.digest,
+        imageRepository: published.imageRepository,
+        specSnapshot: snapshot,
+        breaking: prev !== null && prev.version.split('.')[0] !== s.version.split('.')[0],
+        changelog: typeof values.changelog === 'string' ? values.changelog : null,
+        vulnCritical: facts.vulnCritical,
+        vulnHigh: facts.vulnHigh,
+        scannedAt: facts.scannedAt ? new Date(facts.scannedAt) : null,
+        publishedBy: actor,
+      });
+      const live = (await versions.forListings([into.id])).filter((v) => !v.yankedAt).map((v) => v.version);
+      const latest = await listings.update(into.id, { latestVersion: latestVersion(live) });
+      if (!r.listingId) await requests.transition(r.id, 'approved', { listingId: into.id });
+      const approved = await submissions.transition(s.id, 'publishing', {
+        status: 'approved',
+        listingId: into.id,
+        decidedBy: actor,
+        decidedAt: now,
+        reason: null,
+        emailPurgeAfter: new Date(now.getTime() + EMAIL_RETENTION_DAYS * DAY_MS),
+      });
+      if (!approved) throw new ConflictError('The submission changed state meanwhile; nothing was published.');
+      return { target: into, version: inserted, updated: latest };
+    }));
+  } catch (err) {
+    await submissions.transition(s.id, 'publishing', { status: 'pending_review' }).catch((e) =>
+      logger.error('Handing back a submission claim failed', { submissionId: s.id, error: errorMessage(e) }));
+    throw err;
   }
-  const prev = existed ? await previousVersion(listing.id, s.version) : null;
-  const version = await versions.insert({
-    listingId: listing.id,
-    sourcePluginId: null,
-    version: s.version,
-    imageDigest: facts.digest,
-    imageRepository: published.imageRepository,
-    specSnapshot: await submissionSnapshot(s, facts),
-    breaking: prev !== null && prev.version.split('.')[0] !== s.version.split('.')[0],
-    changelog: typeof values.changelog === 'string' ? values.changelog : null,
-    vulnCritical: facts.vulnCritical,
-    vulnHigh: facts.vulnHigh,
-    scannedAt: facts.scannedAt ? new Date(facts.scannedAt) : null,
-    publishedBy: actor,
-  });
-  const live = (await versions.forListings([listing.id])).filter((v) => !v.yankedAt).map((v) => v.version);
-  const updated = await listings.update(listing.id, { latestVersion: latestVersion(live) });
-  if (!r.listingId) await requests.transition(r.id, 'approved', { listingId: listing.id });
 
-  const now = new Date();
-  await submissions.transition(s.id, 'pending_review', {
-    status: 'approved',
-    listingId: listing.id,
-    decidedBy: actor,
-    decidedAt: now,
-    reason: null,
-    emailPurgeAfter: new Date(now.getTime() + EMAIL_RETENTION_DAYS * DAY_MS),
-  });
   audit('plugin.listing.publish', actor, 'plugin-listing-version', version.id, {
     listing: `${publisher.handle}/${s.name}`, version: s.version, digest: facts.digest, tier: publisher.tier, kind: 'submission', submissionId: s.id,
   });
@@ -259,7 +296,7 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
   if (email) {
     await notifySubmissionDecision({ email, name: s.name, version: s.version, approved: true, listingUrl: listingUrl(s.name), statusUrl: statusUrl(statusTokenFor(s.id)) });
   }
-  if (existed) await announceNewVersion(publisher, updated ?? listing, version);
+  if (existed) await announceNewVersion(publisher, updated ?? target, version);
 }
 
 /** A moderator rejected a `submission` request: the submission is rejected, the submitter told why (N4). */

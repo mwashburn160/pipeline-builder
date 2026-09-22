@@ -58,6 +58,7 @@ const api = {
   withdrawPublishRequest: jest.fn<AnyFn>(),
   respondToTransfer: jest.fn<AnyFn>(),
   listPlugins: jest.fn<AnyFn>(),
+  listPublisherAdvisories: jest.fn<AnyFn>(),
   getPublishDraft: jest.fn<AnyFn>(),
   getPublisherInsights: jest.fn<AnyFn>(),
 };
@@ -289,6 +290,29 @@ describe('Publisher page — publish and requests', () => {
     expect(within(select).queryByRole('option', { name: /trivy/ })).not.toBeInTheDocument();
   });
 
+  it('asks the server for the org\'s public versions by name, and says when the page is truncated', async () => {
+    routerQuery = { tab: 'publish' };
+    api.listPlugins.mockResolvedValue({ success: true, data: {
+      plugins: [{ id: 'p1', orgId: 'org-1', name: 'eslint', version: '1.1.0', visibility: 'public' }],
+      pagination: { total: 120, limit: 50, offset: 0, hasMore: true },
+    } });
+    render(<PublisherPage />);
+    await waitFor(() => expect(api.listPlugins).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: 'org-1', visibility: 'public', includeTotal: 'true' }), expect.anything(),
+    ));
+    expect(await screen.findByText(/showing the first 1 of 120 matches/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/find a plugin/i), { target: { value: 'esl' } });
+    await waitFor(() => expect(api.listPlugins).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'esl' }), expect.anything()));
+  });
+
+  it('the Advisories tab asks for plugins:read rather than failing on it', async () => {
+    routerQuery = { tab: 'advisories' };
+    mockAuthGuard({ can: (p) => p === 'publishers:manage' });
+    render(<PublisherPage />);
+    expect(await screen.findByText(/needs the plugins:read permission/i)).toBeInTheDocument();
+    expect(api.listPublisherAdvisories).not.toHaveBeenCalled();
+  });
+
   it('a deep link opens the draft for that plugin', async () => {
     routerQuery = { tab: 'publish', pluginId: 'p1' };
     api.getPublishDraft.mockReturnValue(new Promise(() => {}));
@@ -301,6 +325,22 @@ describe('Publisher page — publish and requests', () => {
     api.getPublisher.mockResolvedValue({ success: true, data: ctx({ terms: { currentVersion: '2026-09', accepted: false } }) });
     render(<PublisherPage />);
     expect(await screen.findByText(/accept the current publisher terms on the profile tab/i)).toBeInTheDocument();
+  });
+
+  it('pages the request list with the server cursor, and reads every page of incoming transfers', async () => {
+    routerQuery = { tab: 'requests' };
+    api.listPublishRequests
+      .mockResolvedValueOnce({ success: true, data: { requests: [request()], nextCursor: 'c1' } })
+      .mockResolvedValueOnce({ success: true, data: { requests: [request({ id: 'r9', kind: 'yank', status: 'rejected' })], nextCursor: null } });
+    api.listIncomingTransfers
+      .mockResolvedValueOnce({ success: true, data: { requests: [], nextCursor: 't1' } })
+      .mockResolvedValueOnce({ success: true, data: { requests: [], nextCursor: null } });
+    render(<PublisherPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(api.listPublishRequests).toHaveBeenLastCalledWith({ cursor: 'c1' }));
+    expect(await screen.findByTestId('request-r9')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
+    await waitFor(() => expect(api.listIncomingTransfers).toHaveBeenLastCalledWith({ cursor: 't1' }, expect.anything()));
   });
 
   it('lists requests with their reason and withdraws an open one', async () => {

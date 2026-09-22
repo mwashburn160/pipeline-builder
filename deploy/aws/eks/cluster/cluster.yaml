@@ -35,8 +35,10 @@ iam:
 #
 # Keeping `system` on is load-bearing, not incidental: enabling at least one
 # built-in pool is what makes EKS provision the `default` NodeClass, which
-# nodepool.yaml references — so this setup needs no custom NodeClass, no node IAM
-# role and no EKS access entry. `system` also carries the CriticalAddonsOnly
+# setup.sh copies into the `pipeline-builder` NodeClass (cluster/nodeclass.yaml:
+# same role/subnets/SGs + NetworkPolicy enforcement) that nodepool.yaml
+# references — so no node IAM role or EKS access entry of our own is needed.
+# `system` also carries the CriticalAddonsOnly
 # taint, so it hosts CoreDNS et al. without becoming an unbounded escape hatch
 # for platform workloads.
 #

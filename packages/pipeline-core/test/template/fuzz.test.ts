@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { describe, it, expect } from '@jest/globals';
 import { resolve } from '../../src/template/evaluator.js';
 import { tokenize, TokenizerError } from '../../src/template/tokenizer.js';
 

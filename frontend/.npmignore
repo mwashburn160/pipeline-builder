@@ -4,5 +4,6 @@
 junit.xml
 /coverage/
 /.next/
+/.eslintrc.json
 /dist/js/
 /.gitattributes

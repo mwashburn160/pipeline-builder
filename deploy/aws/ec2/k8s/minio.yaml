@@ -66,6 +66,10 @@ spec:
               valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-access-key } }
             - name: PLUGIN_S3_SECRET_KEY
               valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-secret-key } }
+            - name: AUDIT_HEADS_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: audit-heads-access-key } }
+            - name: AUDIT_HEADS_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: minio-secret, key: audit-heads-secret-key } }
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -83,6 +87,10 @@ spec:
               }
               until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
               for b in message-attachments registry loki thanos plugins plugin-quarantine; do mc mb --ignore-existing "local/$b"; done
+              # Object Lock can only be switched on at bucket creation.
+              mc mb --ignore-existing --with-lock local/audit-heads
+              mc retention info local/audit-heads --default >/dev/null 2>&1 \
+                || die "audit-heads exists WITHOUT Object Lock — delete and let minio-init recreate it"
               # These were `|| true`. They are re-run every provision and fail
               # benignly when already configured, but the blanket mask also hid
               # real failures — and a silently-absent lifecycle rule is not
@@ -132,6 +140,16 @@ spec:
               echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
               run_ok "policy create plugin-quarantine-rw" mc admin policy create local plugin-quarantine-rw /tmp/q.json
               run_ok "policy attach plugin-quarantine-rw -> plugins user" mc admin policy attach local plugin-quarantine-rw --user "$PLUGIN_S3_ACCESS_KEY"
+              # audit-heads: the platform's signed audit chain-head export. Created
+              # WITH Object Lock (write-once; versioning implied), and its user may
+              # only Put (with its lock headers)/Get/List — no delete — so not even a
+              # stolen platform credential can erase the heads that expose a
+              # truncated audit log.
+              echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectRetention","s3:GetObject","s3:GetObjectVersion"],"Resource":["arn:aws:s3:::audit-heads/*"]},{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketObjectLockConfiguration"],"Resource":["arn:aws:s3:::audit-heads"]}]}' > /tmp/a.json
+              run_ok "policy create audit-heads-put" mc admin policy create local audit-heads-put /tmp/a.json
+              mc admin user add local "$AUDIT_HEADS_ACCESS_KEY" "$AUDIT_HEADS_SECRET_KEY" || die "user add audit-heads failed"
+              run_ok "policy attach audit-heads-put" mc admin policy attach local audit-heads-put --user "$AUDIT_HEADS_ACCESS_KEY"
+              mc admin user info local "$AUDIT_HEADS_ACCESS_KEY" >/dev/null || die "user audit-heads missing after add"
               echo 'minio-init done'
 ---
 apiVersion: v1
@@ -152,9 +170,14 @@ spec:
   selector:
     app: minio
 ---
-# Single-node MULTI-DRIVE (SNMD) MinIO — 4 hostPath drives on this one node ⇒
-# erasure set EC:2 (drive-fault tolerance). True node-HA needs multiple nodes
-# (see the EKS distributed StatefulSet). Single-node ⇒ Recreate + one replica.
+# Single-node MULTI-DRIVE (SNMD) MinIO — 4 hostPath directories ⇒ erasure set
+# EC:2. NOT drive-fault tolerance: all four directories live on the SAME EBS
+# data volume (template.yaml DataVolume), so losing that volume loses every
+# "drive" at once. What EC:2 buys here is bit-rot detection/healing per object.
+# Durability comes from the EBS volume itself plus its DLM daily snapshots and
+# the Snapshot deletion/replacement policy (template.yaml). True drive/node HA
+# needs separate volumes/nodes (see the EKS distributed StatefulSet).
+# Single-node ⇒ Recreate + one replica.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -208,6 +231,13 @@ spec:
               valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } }
             - name: MINIO_ROOT_PASSWORD
               valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } }
+            # /minio/v2/metrics/cluster is scraped by prometheus (pod annotation
+            # above). MinIO's default is JWT auth on that endpoint, so every scrape
+            # was a 403 and ServiceDown fired for a healthy MinIO. Public is safe
+            # here: only the minio-allow mesh policy's callers (prometheus among
+            # them) reach :9000, and the endpoint carries no object data.
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: "public"
             - name: HOME
               value: "/data-1"
           resources:

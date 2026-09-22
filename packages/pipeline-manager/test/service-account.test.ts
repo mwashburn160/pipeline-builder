@@ -11,6 +11,7 @@
  * and self-healing past the active-key cap.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { ApiError } from '../src/types/error.js';
 import type { ApiClient } from '../src/utils/api-client.js';
@@ -73,7 +74,7 @@ const BASE = {
 };
 
 describe('provisionServiceAccountKey', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('creates the account and issues the key, step-up gating BOTH writes', async () => {
     const { client, posts } = makeClient({});
@@ -138,7 +139,7 @@ describe('provisionServiceAccountKey', () => {
     });
     // The listing is re-read after the 409; the stub adds the account on create,
     // so simulate the concurrent winner by seeding it on the second read.
-    const spy = client.get as unknown as jest.Mock;
+    const spy = client.get as unknown as jest.Mock<AnyFn>;
     let listReads = 0;
     const original = spy.getMockImplementation()!;
     spy.mockImplementation(async (url: string) => {
@@ -176,7 +177,7 @@ describe('provisionServiceAccountKey', () => {
     expect(result.keyId).toBe('key-2');
     // The REVOKED key is never a candidate; the oldest ACTIVE one is.
     expect(deletes.map((d) => d.url)).toEqual(['/api/organization/acme/service-accounts/sa-1/keys/key-oldest']);
-    expect(deletes[0].headers?.['X-Step-Up-Token']).toMatch(/^step-/);
+    expect(deletes[0]!.headers?.['X-Step-Up-Token']).toMatch(/^step-/);
     expect(posts.filter((p) => p.url.endsWith('/keys'))).toHaveLength(2);
   });
 
@@ -191,7 +192,7 @@ describe('provisionServiceAccountKey', () => {
 
   it('explains a failed step-up rather than surfacing a bare 401', async () => {
     const { client } = makeClient({});
-    (client.post as unknown as jest.Mock).mockImplementation(async (url: string) => {
+    (client.post as unknown as jest.Mock<AnyFn>).mockImplementation(async (url: string) => {
       if (url === '/api/auth/step-up') throw new ApiError('Invalid password', 401, undefined);
       throw new Error('should not get here');
     });
@@ -214,8 +215,8 @@ describe('revokeServiceAccountKey', () => {
   it('step-up gates the revoke, like every other key write', async () => {
     const { client, deletes, posts } = makeClient({});
     await revokeServiceAccountKey(client, 'hunter2', 'acme', 'sa-1', 'key-old');
-    expect(deletes[0].url).toBe('/api/organization/acme/service-accounts/sa-1/keys/key-old');
-    expect(deletes[0].headers?.['X-Step-Up-Token']).toMatch(/^step-/);
+    expect(deletes[0]!.url).toBe('/api/organization/acme/service-accounts/sa-1/keys/key-old');
+    expect(deletes[0]!.headers?.['X-Step-Up-Token']).toMatch(/^step-/);
     expect(posts.filter((p) => p.url === '/api/auth/step-up')).toHaveLength(1);
   });
 });

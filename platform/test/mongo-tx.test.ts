@@ -12,11 +12,12 @@
  * throw paths).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
-const mockEndSession = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
-const mockWithTransaction = jest.fn<(...args: unknown[]) => Promise<unknown>>();
-const mockStartSession = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const mockEndSession = jest.fn<(...args: any[]) => Promise<unknown>>().mockResolvedValue(undefined);
+const mockWithTransaction = jest.fn<(...args: any[]) => Promise<unknown>>();
+const mockStartSession = jest.fn<(...args: any[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('mongoose', () => ({
   __esModule: true,
@@ -50,7 +51,7 @@ describe('withMongoTransaction', () => {
       await fn();
     });
 
-    const body = jest.fn().mockResolvedValue({ ok: true, id: 'abc' });
+    const body = jest.fn<AnyFn>().mockResolvedValue({ ok: true, id: 'abc' });
 
     const result = await withMongoTransaction(body);
 
@@ -69,7 +70,7 @@ describe('withMongoTransaction', () => {
     });
 
     const boom = new Error('body explosion');
-    const body = jest.fn().mockRejectedValue(boom);
+    const body = jest.fn<AnyFn>().mockRejectedValue(boom);
 
     await expect(withMongoTransaction(body)).rejects.toThrow('body explosion');
 
@@ -81,7 +82,7 @@ describe('withMongoTransaction', () => {
     mockStartSession.mockResolvedValue(session);
     mockWithTransaction.mockRejectedValue(new Error('tx aborted'));
 
-    const body = jest.fn();
+    const body = jest.fn<AnyFn>();
 
     await expect(
       withMongoTransaction(body),
@@ -96,7 +97,7 @@ describe('withMongoTransaction', () => {
     mockStartSession.mockRejectedValue(new Error('cannot start'));
 
     await expect(
-      withMongoTransaction(jest.fn()),
+      withMongoTransaction(jest.fn<AnyFn>()),
     ).rejects.toThrow('cannot start');
 
     expect(mockEndSession).not.toHaveBeenCalled();

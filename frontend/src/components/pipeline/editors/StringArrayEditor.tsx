@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useId } from 'react';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 
@@ -28,6 +28,7 @@ interface StringArrayEditorProps {
 export default function StringArrayEditor({
   value, onChange, placeholder = '', disabled, label, addLabel = '+ Add',
 }: StringArrayEditorProps) {
+  const uid = useId();
   // Stable, client-only row ids kept in lockstep with `value` so React keys by
   // row identity (not array index). Free-text values may be empty/duplicate, so
   // a value-derived key is unsafe. These ids are never serialized.
@@ -50,8 +51,8 @@ export default function StringArrayEditor({
 
   return (
     <div>
-      {label && <label className="label">{label}</label>}
-      <div className="space-y-2">
+      {label && <span className="label" id={`${uid}-items`}>{label}</span>}
+      <div role="group" aria-labelledby={label ? `${uid}-items` : undefined} className="space-y-2">
         {value.map((item, idx) => (
           <div key={ids[idx]} className="flex items-center space-x-2">
             <Input

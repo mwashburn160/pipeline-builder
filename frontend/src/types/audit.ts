@@ -38,12 +38,33 @@ export interface AuditLogEvent {
   createdAt: string;
 }
 
+/** Why a chain verification failed (mirrors platform's `AuditChainBreak`). */
+export type AuditChainBreak =
+  | 'hash-mismatch'
+  | 'broken-link'
+  | 'sequence-gap'
+  | 'head-mismatch'
+  | 'tail-truncated'
+  | 'published-head-invalid';
+
 /** Result of a hash-chain tamper-verify (`GET /api/audit/verify`). */
 export interface AuditChainVerification {
-  /** True iff the chain hashed cleanly end-to-end. */
+  /** True iff the chain hashed cleanly end-to-end and still reaches its heads. */
   ok: boolean;
-  /** Event id where the chain first broke (present only when `ok` is false). */
+  /** Event id where the chain first broke (row-level breaks only — a truncated
+   *  tail has no surviving row to point at). */
   brokenAt?: string;
+  /** Machine-readable failure reason (present only when `ok` is false). */
+  reason?: AuditChainBreak;
   /** Number of events walked while verifying. */
   count: number;
+  /** Highest chain sequence number walked. */
+  lastSeq?: number;
+  /** Comparison against the write-once published chain head, when configured. */
+  publishedHead?: {
+    status: 'matched' | 'absent' | 'expired' | 'pruned' | 'unavailable';
+    seq?: number;
+    exportedAt?: string;
+    stale?: boolean;
+  };
 }

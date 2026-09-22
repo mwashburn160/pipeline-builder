@@ -26,6 +26,13 @@ import { printDebug, printWarning } from './output-utils.js';
 
 const STORE_DIR = path.join(os.homedir(), '.pipeline-manager');
 const STORE_FILE = path.join(STORE_DIR, 'credentials.json');
+const REFRESH_LOCK_FILE = path.join(STORE_DIR, 'refresh.lock');
+
+/** A lock older than this belongs to a process that died mid-refresh. */
+const REFRESH_LOCK_STALE_MS = 30_000;
+/** How long a second process waits for the first one's refresh to finish. */
+const REFRESH_LOCK_WAIT_MS = 15_000;
+const REFRESH_LOCK_POLL_MS = 100;
 
 /** Re-authenticate rather than hand out a token this close to expiry. */
 const EXPIRY_SKEW_MS = 60_000;
@@ -115,4 +122,48 @@ export function clearSession(baseUrl: string): void {
 /** True when the stored access token is still usable (with a little slack). */
 export function isSessionUsable(session: StoredSession | undefined): session is StoredSession {
   return !!session?.accessToken && session.expiresAt - EXPIRY_SKEW_MS > Date.now();
+}
+
+/**
+ * Run `fn` holding the machine-wide REFRESH LOCK (`~/.pipeline-manager/refresh.lock`,
+ * created exclusively).
+ *
+ * A refresh token is single-use: two CLI processes renewing the same stored
+ * session at once (a script fanning out commands, two terminals) would present
+ * the same token twice, and outside the platform's short rotation grace the
+ * second use reads as REUSE — which revokes the session. Serializing the refresh
+ * means the second process waits, then (re-reading the store) finds the pair the
+ * first one already saved instead of spending the old token again.
+ *
+ * A lock left behind by a crashed process is broken after
+ * {@link REFRESH_LOCK_STALE_MS}; waiting gives up after {@link REFRESH_LOCK_WAIT_MS}
+ * and runs `fn` anyway (the platform grace still covers a near-simultaneous use).
+ */
+export async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  fs.mkdirSync(STORE_DIR, { recursive: true, mode: 0o700 });
+  const deadline = Date.now() + REFRESH_LOCK_WAIT_MS;
+  let held = false;
+  while (!held) {
+    try {
+      fs.closeSync(fs.openSync(REFRESH_LOCK_FILE, 'wx', 0o600));
+      held = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') break; // can't lock at all — proceed unlocked
+      try {
+        if (Date.now() - fs.statSync(REFRESH_LOCK_FILE).mtimeMs > REFRESH_LOCK_STALE_MS) {
+          fs.rmSync(REFRESH_LOCK_FILE, { force: true });
+          continue;
+        }
+      } catch {
+        continue; // vanished between open and stat — try again
+      }
+      if (Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, REFRESH_LOCK_POLL_MS));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    if (held) fs.rmSync(REFRESH_LOCK_FILE, { force: true });
+  }
 }

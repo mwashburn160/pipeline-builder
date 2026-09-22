@@ -91,21 +91,21 @@ describe('token-renew-handler (key rotator)', () => {
     await handler();
 
     const [rotate, revoke] = calls();
-    expect(rotate[0]).toBe('https://pipeline-builder.com/api/auth/key/rotate');
+    expect(rotate![0]).toBe('https://pipeline-builder.com/api/auth/key/rotate');
     // The ROTATE is authenticated with the key currently in the secret.
-    expect(rotate[1].key).toBe(OLD_KEY);
-    expect(rotate[1].expiresIn).toBe(30 * 24 * 60 * 60);
+    expect(rotate![1].key).toBe(OLD_KEY);
+    expect(rotate![1].expiresIn).toBe(30 * 24 * 60 * 60);
 
     // The REVOKE is authenticated with the NEW key and names the OLD key id —
     // never the other way round, which would retire the credential in use.
-    expect(revoke[0]).toBe('https://pipeline-builder.com/api/auth/key/revoke');
-    expect(revoke[1]).toEqual({ key: NEW_KEY, keyId: 'key-old' });
+    expect(revoke![0]).toBe('https://pipeline-builder.com/api/auth/key/revoke');
+    expect(revoke![1]).toEqual({ key: NEW_KEY, keyId: 'key-old' });
 
     // And the store happened BETWEEN them.
     const order = [
       ...mockFetch.mock.invocationCallOrder.map((n, i) => ({ n, what: i === 0 ? 'rotate' : 'revoke' })),
       ...mockSend.mock.calls.map((c, i) => ({ n: mockSend.mock.invocationCallOrder[i], what: c[0].__type })),
-    ].sort((a, b) => a.n - b.n).map((e) => e.what);
+    ].sort((a, b) => a.n! - b.n!).map((e) => e.what);
     expect(order).toEqual(['Get', 'rotate', 'Put', 'revoke']);
   });
 
@@ -199,7 +199,7 @@ describe('token-renew-handler (key rotator)', () => {
       ? Promise.resolve({ SecretString: JSON.stringify({ ...STORED, platformUrl: 'https://other.example.com' }) })
       : Promise.resolve({})));
     await handler();
-    expect(calls()[0][0]).toBe('https://other.example.com/api/auth/key/rotate');
+    expect(calls()[0]![0]).toBe('https://other.example.com/api/auth/key/rotate');
   });
 
   it('throws when the secret records no platformUrl', async () => {

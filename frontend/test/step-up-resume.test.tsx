@@ -104,10 +104,10 @@ const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jes
 jest.mock('@/components/ui/Toast', () => ({ __esModule: true, useToast: () => toast }));
 
 // Capture what the global fallback renders, and drive its confirmation.
-let stepUpProps: { action: string; details: ReactNode; onConfirmed: (t: string) => void | Promise<void> } | null = null;
+let stepUpProps: { action: string; details: ReactNode; onConfirmed: (t: string) => void | Promise<void>; onClose: () => void } | null = null;
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: (props: { action: string; details: ReactNode; onConfirmed: (t: string) => void | Promise<void> }) => {
+  StepUpModal: (props: { action: string; details: ReactNode; onConfirmed: (t: string) => void | Promise<void>; onClose: () => void }) => {
     stepUpProps = props;
     return (
       <div data-testid="global-stepup">
@@ -187,6 +187,23 @@ describe('the dashboard shell resumes the refused action', () => {
     await act(async () => { await stepUpProps!.onConfirmed('fresh-token'); });
     // No false "it completed" — there was nothing to complete.
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('tells the refused call when the dialog is dismissed, so its resume settles', async () => {
+    const cancel = jest.fn<AnyFn>();
+    render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
+    refuse({ code: 'STEP_UP_REQUIRED', message: 'Confirm it is you', retry: jest.fn<AnyFn>(), cancel });
+    await screen.findByTestId('global-stepup');
+    act(() => { stepUpProps!.onClose(); });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('global-stepup')).not.toBeInTheDocument();
+  });
+
+  it('claims the refusal, so the api client attaches the replay to it', async () => {
+    render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
+    const event = new CustomEvent('step-up-required', { cancelable: true, detail: { code: 'STEP_UP_REQUIRED' } });
+    act(() => { window.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it('asks for a strong factor when the route only accepts one', async () => {

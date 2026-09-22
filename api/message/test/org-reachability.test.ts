@@ -18,6 +18,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const SYSTEM_ORG = '000000000000000000000001';
@@ -45,7 +46,7 @@ jest.unstable_mockModule('../src/helpers/org-names.js', () => ({
   resolveOrgNames: (ids: Iterable<string>) => mockResolveOrgNames(ids),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ services: { platformHost: 'platform', platformPort: 3000 } }) },
 }));
 

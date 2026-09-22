@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useId, useState, type ReactNode } from 'react';
 import { Megaphone, Plus, ShieldAlert, Eye, Gift, BarChart3, Zap, Info } from 'lucide-react';
 import { formatError } from '@/lib/constants';
 import { formatCents } from '@/lib/format';
@@ -49,12 +49,15 @@ function eventLabel(event: Promotion['trigger']['event']): string {
   return EVENTS.find((e) => e.value === event)?.label ?? event;
 }
 
-/** Labeled form field (Input has no `label` prop). */
+/** Labeled form field (Input has no `label` prop). The single control child is
+ *  given the id the label points at. */
 function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
+  const id = useId();
+  const control = isValidElement<{ id?: string }>(children) ? cloneElement(children, { id }) : children;
   return (
     <div className="space-y-1">
-      <label className="block text-xs font-medium text-fg-muted">{label}</label>
-      {children}
+      <label className="block text-xs font-medium text-fg-muted" htmlFor={id}>{label}</label>
+      {control}
     </div>
   );
 }

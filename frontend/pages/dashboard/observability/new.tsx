@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
@@ -24,6 +24,7 @@ import { formatError } from '@/lib/constants';
  * "empty dashboard with no panels" intermediate state in the API.
  */
 export default function NewDashboardPage() {
+  const uid = useId();
   // View on `dashboards:read`; the actual create action is a `dashboards:write`
   // capability gated via `can()`, which reports false under read-only
   // impersonation so the Create button disables (superadmins bypass).
@@ -64,8 +65,8 @@ export default function NewDashboardPage() {
     <DashboardLayout title="New dashboard" subtitle="Create an empty dashboard, then add panels in the editor.">
       <div className="max-w-xl rounded-lg border border-default bg-surface p-5 space-y-4">
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Name <span className="text-danger">*</span></label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-name`}>Name <span className="text-danger">*</span></label>
+          <Input id={`${uid}-name`}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -74,8 +75,8 @@ export default function NewDashboardPage() {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Description</label>
-          <Textarea
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-description`}>Description</label>
+          <Textarea id={`${uid}-description`}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
@@ -83,8 +84,8 @@ export default function NewDashboardPage() {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-fg-muted mb-1">Visibility</label>
-          <Select
+          <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-visibility`}>Visibility</label>
+          <Select id={`${uid}-visibility`}
             value={visibility}
             onChange={(e) => setVisibility(e.target.value as typeof visibility)}
           >

@@ -46,6 +46,35 @@ export async function findSubscriptionByStripeId(stripeSubscriptionId: string) {
   });
 }
 
+/** The envelope fields of a verified Stripe event the lifecycle handlers need. */
+export interface StripeEventMeta {
+  id: string;
+  /** Event creation time, Unix SECONDS (Stripe's `event.created`). */
+  created: number;
+}
+
+/**
+ * Per-subscription ordering guard for Stripe lifecycle events. Stripe does NOT
+ * deliver events in order (and retries interleave), so an old
+ * `customer.subscription.updated`→past_due landing after the recovering
+ * `invoice.payment_succeeded` would re-open dunning on a paid subscription.
+ *
+ * Atomically advances `lastStripeEventAt` to the event's `created` when it is
+ * not OLDER than the stored watermark, and reports whether the event may be
+ * applied. Equal timestamps pass (Stripe stamps whole seconds, so a create and
+ * its first update often share one) and so does a retry of the event that set
+ * the watermark. Callers then save the document normally — Mongoose writes only
+ * modified paths, so the handler's save can't roll the watermark back.
+ */
+export async function claimStripeEventOrder(subscriptionId: SubscriptionDocument['_id'], event: StripeEventMeta): Promise<boolean> {
+  const at = new Date(event.created * 1000);
+  const res = await Subscription.updateOne(
+    { _id: subscriptionId, $or: [{ lastStripeEventAt: null }, { lastStripeEventAt: { $lte: at } }] },
+    { $set: { lastStripeEventAt: at } },
+  );
+  return res.matchedCount > 0;
+}
+
 /**
  * Resolve the subscription a charge-level reversal (charge.refunded /
  * charge.dispute.created) should CLAW BACK against. A Charge/Dispute carries the

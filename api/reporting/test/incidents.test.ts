@@ -8,11 +8,13 @@
  * scope; the org comes from the token identity, never the body.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { routeChain } from './helpers/route-chain.js';
 
-const mockSendError = jest.fn((_res: any, code: number, msg: string) => ({ error: msg, code }));
+const mockSendError = jest.fn((_res: any, code: number, msg: string, ..._rest: unknown[]) => ({ error: msg, code }));
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockSendPaginated = jest.fn((_res: any, key: string, data: any, opts: any) => ({ [key]: data, pagination: opts }));
@@ -20,9 +22,9 @@ const mockRecordIncident = jest.fn<(...a: unknown[]) => Promise<void>>().mockRes
 const mockListIncidents = jest.fn<(...a: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]);
 const mockTestCorrelation = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({ correlated: false });
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
-    const ctx = { log: jest.fn(), identity: { orgId: req.__orgId ?? '', userId: 'svc' }, requestId: 'req-1' };
+    const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: req.__orgId ?? '', userId: 'svc' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: opts?.requireOrgId === false ? (req.__orgId ?? '') : 'acme', userId: 'svc' });
   },
   // The org-admin routes build per-route guards at module load; passthrough stubs.
@@ -38,7 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   hasScope: (req: any, scope: string) => req?.user?.scope === scope,
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     recordIncident: (...a: unknown[]) => mockRecordIncident(...a),
     listIncidents: (...a: unknown[]) => mockListIncidents(...a),
@@ -50,7 +52,7 @@ const { createIncidentRoutes } = await import('../src/routes/incidents.js');
 
 describe('POST /reports/incidents', () => {
   let router: any;
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
   const getHandler = () => routeChain(router, '/');
 
   const validBody = {
@@ -114,7 +116,7 @@ describe('POST /reports/incidents', () => {
 
 describe('POST /reports/incidents/alertmanager (native adapter)', () => {
   let router: any;
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
   // Run the full chain so the per-route requireIngestScope guard is exercised.
   const getHandler = (path: string, method = 'post') => routeChain(router, path, method);
 
@@ -134,12 +136,12 @@ describe('POST /reports/incidents/alertmanager (native adapter)', () => {
     router = createIncidentRoutes();
   });
 
-  it('maps a FIRING alert → an open incident (fingerprint=id, env label, no resolvedAt)', async () => {
+  it('maps a FIRING alert → an open incident (fingerprint@startsAt id, env label, no resolvedAt)', async () => {
     await getHandler('/alertmanager')({ __orgId: 'acme', user: { scope: 'reporting:ingest' }, query: {}, body: firingPayload }, res());
 
     expect(mockRecordIncident).toHaveBeenCalledTimes(1);
     expect(mockRecordIncident).toHaveBeenCalledWith('acme', {
-      incidentId: 'abc123',
+      incidentId: 'abc123@2026-07-05T00:00:00.000Z',
       environment: 'production',
       openedAt: '2026-07-05T00:00:00Z',
       resolvedAt: undefined, // firing → the zero endsAt is NOT treated as a resolve
@@ -162,7 +164,7 @@ describe('POST /reports/incidents/alertmanager (native adapter)', () => {
     await getHandler('/alertmanager')({ __orgId: 'acme', user: { scope: 'reporting:ingest' }, query: {}, body: resolved }, res());
 
     expect(mockRecordIncident).toHaveBeenCalledWith('acme', {
-      incidentId: 'abc123',
+      incidentId: 'abc123@2026-07-05T00:00:00.000Z',
       environment: 'production',
       openedAt: '2026-07-05T00:00:00Z',
       resolvedAt: '2026-07-05T01:00:00Z',
@@ -209,9 +211,36 @@ describe('POST /reports/incidents/alertmanager (native adapter)', () => {
     // write + cache invalidation for the duplicate).
     expect(mockRecordIncident).toHaveBeenCalledTimes(1);
     expect(mockRecordIncident).toHaveBeenCalledWith('acme', expect.objectContaining({
-      incidentId: 'same', severity: 'critical', resolvedAt: '2026-07-05T01:00:00Z',
+      incidentId: 'same@2026-07-05T00:00:00.000Z', severity: 'critical', resolvedAt: '2026-07-05T01:00:00Z',
     }));
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { received: 2, ingested: 1, skipped: 0, ok: true });
+  });
+
+  it('a RECURRENCE (same fingerprint, new startsAt) is a DISTINCT incident — the earlier outage is kept', async () => {
+    const payload = {
+      status: 'firing',
+      alerts: [
+        { status: 'resolved', labels: { environment: 'production', severity: 'critical' }, startsAt: '2026-07-05T00:00:00Z', endsAt: '2026-07-05T01:00:00Z', fingerprint: 'fp' },
+        { status: 'firing', labels: { environment: 'production', severity: 'critical' }, startsAt: '2026-07-06T00:00:00Z', fingerprint: 'fp' },
+      ],
+    };
+    await getHandler('/alertmanager')({ __orgId: 'acme', user: { scope: 'reporting:ingest' }, query: {}, body: payload }, res());
+    expect(mockRecordIncident).toHaveBeenCalledTimes(2);
+    expect(mockRecordIncident).toHaveBeenCalledWith('acme', expect.objectContaining({ incidentId: 'fp@2026-07-05T00:00:00.000Z', resolvedAt: '2026-07-05T01:00:00Z' }));
+    expect(mockRecordIncident).toHaveBeenCalledWith('acme', expect.objectContaining({ incidentId: 'fp@2026-07-06T00:00:00.000Z', resolvedAt: undefined }));
+  });
+
+  it('a firing copy AFTER the resolve in one batch does not drop the resolve', async () => {
+    const payload = {
+      status: 'firing',
+      alerts: [
+        { status: 'resolved', labels: { environment: 'production', severity: 'critical' }, startsAt: '2026-07-05T00:00:00Z', endsAt: '2026-07-05T01:00:00Z', fingerprint: 'fp' },
+        { status: 'firing', labels: { environment: 'production', severity: 'critical' }, startsAt: '2026-07-05T00:00:00Z', fingerprint: 'fp' },
+      ],
+    };
+    await getHandler('/alertmanager')({ __orgId: 'acme', user: { scope: 'reporting:ingest' }, query: {}, body: payload }, res());
+    expect(mockRecordIncident).toHaveBeenCalledTimes(1);
+    expect(mockRecordIncident).toHaveBeenCalledWith('acme', expect.objectContaining({ resolvedAt: '2026-07-05T01:00:00Z' }));
   });
 
   it('400s (and writes nothing) when the alerts batch exceeds the cap', async () => {
@@ -229,7 +258,7 @@ describe('POST /reports/incidents/alertmanager (native adapter)', () => {
 
 describe('org-admin incident surfaces', () => {
   let router: any;
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn() });
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
   // Admin routes carry per-route guards; the withRoute handler is the LAST stack layer.
   const getHandler = (path: string, method: string) =>
     router.stack.find((l: any) => l.route?.path === path && l.route?.methods?.[method])?.route?.stack.slice(-1)[0]?.handle;

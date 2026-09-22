@@ -44,6 +44,13 @@ x-db-deploy: &db-deploy
 x-service-key-bundle: &service-key-bundle
   ./certs/service-keys/bundle.json:/etc/pipeline-builder/service-key-bundle/bundle.json:ro
 
+# -- Local dev CA (deploy/bin/nginx-tls.sh writes certs/dev-ca.crt: mkcert's
+# root, or the self-signed gateway cert). The RELEASE images trust no dev CA —
+# it is mounted here, into local containers only, and NODE_EXTRA_CA_CERTS
+# points Node at it, so server-side HTTPS to the gateway verifies.
+x-dev-ca: &dev-ca
+  ./certs/dev-ca.crt:/etc/pipeline-builder/dev-ca.crt:ro
+
 # -- Env shared by ALL API services --
 x-common-env: &common-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -65,6 +72,7 @@ x-common-env: &common-env
   # it after `docker compose exec platform node scripts/reencrypt-secrets.js`.
   SECRET_ENCRYPTION_KEY_PREVIOUS: ${SECRET_ENCRYPTION_KEY_PREVIOUS:-}
   PLATFORM_BASE_URL: ${PLATFORM_BASE_URL:-https://localhost:8443}
+  NODE_EXTRA_CA_CERTS: /etc/pipeline-builder/dev-ca.crt
   # OpenTelemetry. On by default — exports to the bundled `jaeger` all-in-one
   # collector (OTLP/HTTP on 4318; UI on http://localhost:16686). Set
   # OTEL_TRACING_ENABLED=false to opt out. Lives in common-env (not server-env)
@@ -155,6 +163,7 @@ services:
       SERVICE_NAME: ask
     volumes:
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/ask.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -250,8 +259,8 @@ services:
       - './certs/nginx-tls.crt:/etc/nginx/certs/nginx.crt:ro'
       - './certs/nginx-tls.key:/etc/nginx/certs/nginx.key:ro'
       - './nginx/nginx.conf:/etc/nginx/nginx.conf:ro'
-      - './nginx/jwt.js:/etc/nginx/njs/jwt.js:ro'
-      - './nginx/metrics.js:/etc/nginx/njs/metrics.js:ro'
+      - '../../shared/nginx/jwt.js:/etc/nginx/njs/jwt.js:ro'
+      - '../../shared/nginx/metrics.js:/etc/nginx/njs/metrics.js:ro'
     networks:
       - proxy-network
       - backend-network
@@ -298,7 +307,7 @@ services:
     volumes:
       - './data/db-data/mongodb/:/data/db/:rw'
       - './mongodb-keyfile:/etc/mongodb-keyfile:ro'
-      - './mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
+      - '../../shared/mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
     networks:
       - backend-network
     healthcheck:
@@ -346,7 +355,7 @@ services:
       ECOSYSTEM_PUBLIC_READER_PASSWORD: ${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}
     volumes:
       - './data/db-data/postgres/:/var/lib/postgresql:rw'
-      - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
+      - '../../shared/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
     healthcheck:
@@ -534,9 +543,11 @@ services:
       APP_SITE_URL: ${APP_SITE_URL:-https://localhost:8443}
       # Server-side relay target for client error reports; empty = reporting off.
       ERROR_REPORT_URL: ${ERROR_REPORT_URL:-}
+      NODE_EXTRA_CA_CERTS: /etc/pipeline-builder/dev-ca.crt
     volumes:
       - './data/cache:/app/.next/cache:rw'
       - './data/tmp:/tmp:rw'
+      - *dev-ca
     networks:
       - proxy-network
     healthcheck:
@@ -564,6 +575,19 @@ services:
       # login / step-up / leader state; without it revocations never propagate.
       <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env]
       SERVICE_NAME: platform
+      # Audit hash-chain HMAC key — outside the database by design (see .env.example).
+      AUDIT_CHAIN_HMAC_KEY: ${AUDIT_CHAIN_HMAC_KEY}
+      # Signed chain-head export to the Object-Lock `audit-heads` MinIO bucket.
+      AUDIT_HEAD_EXPORT_S3_ENDPOINT: ${AUDIT_HEAD_EXPORT_S3_ENDPOINT:-http://minio:9000}
+      AUDIT_HEAD_EXPORT_S3_BUCKET: ${AUDIT_HEAD_EXPORT_S3_BUCKET:-audit-heads}
+      AUDIT_HEAD_EXPORT_S3_REGION: ${AUDIT_HEAD_EXPORT_S3_REGION:-us-east-1}
+      AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID: ${AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID}
+      AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY: ${AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY}
+      AUDIT_HEAD_EXPORT_PREFIX: ${AUDIT_HEAD_EXPORT_PREFIX:-audit-heads}
+      AUDIT_HEAD_EXPORT_LOCK_MODE: ${AUDIT_HEAD_EXPORT_LOCK_MODE:-COMPLIANCE}
+      AUDIT_HEAD_EXPORT_RETENTION_DAYS: ${AUDIT_HEAD_EXPORT_RETENTION_DAYS:-400}
+      AUDIT_HEAD_EXPORT_INTERVAL_MS: ${AUDIT_HEAD_EXPORT_INTERVAL_MS:-300000}
+      AUDIT_SPOOL_DRAIN_INTERVAL_MS: ${AUDIT_SPOOL_DRAIN_INTERVAL_MS:-30000}
       # Deployment target surfaced via /config so the frontend can gate the AWS-only
       # onboarding CLI-setup section (this compose stack is the `docker` target).
       DEPLOY_TARGET: ${DEPLOY_TARGET:-docker}
@@ -697,6 +721,7 @@ services:
       # (rather than quietly signing with something else).
       - ./certs/token-signing:/etc/pipeline-builder/keys:ro
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/platform.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -800,6 +825,7 @@ services:
       # container talks to the buildkitd that runs tenant Dockerfile RUN steps.
       - ./certs/plugin-signing/plugin-signing.pub:/etc/pipeline-builder/plugin-signing/plugin-signing.pub:ro
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/plugin.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -968,6 +994,7 @@ services:
       HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
     volumes:
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/pipeline.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -998,6 +1025,7 @@ services:
       MESSAGE_ATTACHMENT_MAX_MB: ${MESSAGE_ATTACHMENT_MAX_MB:-10}
     volumes:
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/message.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -1027,6 +1055,7 @@ services:
       SERVICE_NAME: reporting
     volumes:
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/reporting.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -1060,6 +1089,7 @@ services:
       PIPELINE_SERVICE_PORT: '3000'
     volumes:
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/compliance.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -1144,6 +1174,7 @@ services:
       QUOTA_TIER_ENTERPRISE_LABEL: ${QUOTA_TIER_ENTERPRISE_LABEL:-}
     volumes:
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/quota.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -1216,6 +1247,7 @@ services:
       # Generated by deploy/bin/plugin-signing-keys.sh before `compose up`.
       - ./certs/plugin-signing/plugin-signing.key:/etc/pipeline-builder/plugin-signing/plugin-signing.key:ro
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/image-registry.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -1332,6 +1364,7 @@ services:
       MESSAGE_SERVICE_PORT: ${MESSAGE_SERVICE_PORT:-3000}
     volumes:
       - *service-key-bundle
+      - *dev-ca
       # This service's OWN internal-token signing key — mounted here and nowhere else.
       - ./certs/service-keys/billing.key:/etc/pipeline-builder/service-keys/service.key:ro
     networks:
@@ -1473,6 +1506,8 @@ services:
       THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
       PLUGIN_S3_ACCESS_KEY: ${PLUGIN_S3_ACCESS_KEY}
       PLUGIN_S3_SECRET_KEY: ${PLUGIN_S3_SECRET_KEY}
+      AUDIT_HEADS_ACCESS_KEY: ${AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID}
+      AUDIT_HEADS_SECRET_KEY: ${AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY}
     networks:
       - backend-network
     restart: "no"
@@ -1493,6 +1528,10 @@ services:
         until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
         # One bucket + one bucket-scoped user per consumer (no shared root creds).
         for b in message-attachments registry loki thanos plugins plugin-quarantine; do mc mb --ignore-existing "local/$$b"; done
+        # audit-heads: Object Lock (write-once) — only settable at creation.
+        mc mb --ignore-existing --with-lock local/audit-heads
+        mc retention info local/audit-heads --default >/dev/null 2>&1 \
+          || die "audit-heads exists WITHOUT Object Lock — delete and let minio-init recreate it"
         # Versioning on user data (attachments) for accidental-delete protection +
         # a lifecycle rule to expire non-current versions so it stays bounded.
         # NOT enabled on loki/registry/thanos/plugins — they churn objects and
@@ -1529,6 +1568,14 @@ services:
         echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
         run_ok "policy create plugin-quarantine-rw" mc admin policy create local plugin-quarantine-rw /tmp/q.json
         run_ok "policy attach plugin-quarantine-rw -> plugins user" mc admin policy attach local plugin-quarantine-rw --user "$$PLUGIN_S3_ACCESS_KEY"
+        # The platform's signed audit chain-head export: Put/Get/List only — no
+        # delete; PutObjectRetention only so each PUT can carry its lock headers
+        # (COMPLIANCE retention can be extended, never shortened).
+        echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectRetention","s3:GetObject","s3:GetObjectVersion"],"Resource":["arn:aws:s3:::audit-heads/*"]},{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketObjectLockConfiguration"],"Resource":["arn:aws:s3:::audit-heads"]}]}' > /tmp/a.json
+        run_ok "policy create audit-heads-put" mc admin policy create local audit-heads-put /tmp/a.json
+        mc admin user add local "$$AUDIT_HEADS_ACCESS_KEY" "$$AUDIT_HEADS_SECRET_KEY" || die "user add audit-heads failed"
+        run_ok "policy attach audit-heads-put" mc admin policy attach local audit-heads-put --user "$$AUDIT_HEADS_ACCESS_KEY"
+        mc admin user info local "$$AUDIT_HEADS_ACCESS_KEY" >/dev/null || die "user audit-heads missing after add"
         echo 'minio-init done'
 
   # ---------------------------------------------------------------------------
@@ -1716,7 +1763,7 @@ services:
     volumes:
       # :rw — the shipper writes thanos.shipper.json into the TSDB dir.
       - './data/db-data/prometheus/:/prometheus:rw'
-      - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+      - '../../shared/config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
     networks:
       - backend-network
     depends_on:
@@ -1751,7 +1798,7 @@ services:
       - '--http-address=0.0.0.0:10902'
       - '--grpc-address=0.0.0.0:10901'
     volumes:
-      - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+      - '../../shared/config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
     # The image runs as uid 1001 and /var is root:root 755, so the data-dir can't
     # be created in the image fs. Rebuildable cache — tmpfs mirrors the k8s
     # emptyDir. Size-capped: tmpfs is RAM.
@@ -1806,7 +1853,7 @@ services:
       - '--compact.concurrency=1'
       - '--downsample.concurrency=1'
     volumes:
-      - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+      - '../../shared/config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
     # Scratch space for downloaded/compacted blocks (uid 1001 can't mkdir under
     # root-owned /var). tmpfs mirrors the k8s emptyDir; size-capped because it's
     # RAM — raise it if compaction of larger blocks fails with ENOSPC.
@@ -1872,7 +1919,7 @@ services:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
     volumes:
-      - './config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro'
+      - '../../shared/config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro'
       - './data/db-data/alertmanager/:/alertmanager:rw'
     secrets:
       - source: alert_webhook_token
@@ -1913,7 +1960,7 @@ services:
       LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY}
     volumes:
       - './data/db-data/loki/:/loki:rw'
-      - './config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro'
+      - '../../shared/config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro'
     networks:
       - backend-network
     depends_on:

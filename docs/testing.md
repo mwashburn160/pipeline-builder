@@ -1,7 +1,7 @@
 # Testing Conventions
 
-How the test suite is wired, and the conventions that keep it honest. ~800 test
-files, ~9,700 tests, 18 jest projects. Everything here is enforced by a lint rule
+How the test suite is wired, and the conventions that keep it honest. ~970 test
+files, ~11,000 tests, 18 jest projects. Everything here is enforced by a lint rule
 or a test unless it says otherwise.
 
 - [Module mocks: always spread the real module](#module-mocks-always-spread-the-real-module)
@@ -39,7 +39,8 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 ```
 
 `no-restricted-syntax` in `.projenrc.ts` **fails the build** on an inline object
-literal for `drizzle-orm` or `@pipeline-builder/api-core`. It runs through the
+literal factory — `() => ({ … })` or `() => { …; return { … }; }` — for
+`drizzle-orm` or **any** `@pipeline-builder/*` package. It runs through the
 projen `eslint` task, which the `build` target spawns — so CI enforces it.
 
 > Running eslint by hand needs `ESLINT_USE_FLAT_CONFIG=false`, because ESLint 9
@@ -48,14 +49,47 @@ projen `eslint` task, which the `build` target spawns — so CI enforces it.
 > tooling:
 > `ESLINT_USE_FLAT_CONFIG=false npx eslint --ext .ts,.tsx src test`
 
-### Not covered by the rule (deliberately)
+> The `eslint` task only CHECKS — it never passes `--fix`, so CI fails on a lint
+> error instead of silently rewriting the file. Autofix locally with the
+> per-project `lint:fix` task (`pnpm --filter <project> lint:fix`, or
+> `npx projen lint:fix` inside the project). Likewise `test` runs `jest --ci`: a
+> stale snapshot fails; refresh one deliberately with `test:update`.
 
-`@pipeline-builder/api-server` and `@pipeline-builder/pipeline-data` carry the
-same hazard but are **not** lint-enforced. They are the framework/DB boundary a
-unit test legitimately replaces wholesale: spreading the real module drags in
-Express and Postgres wiring the suite exists to avoid. Enforcing it would mean
-~154 migrations, many of them wrong. Spread them where you reasonably can; know
-the hazard where you can't.
+### Replacing a workspace package wholesale: `stubModule`
+
+`@pipeline-builder/api-server`, `pipeline-data`, `pipeline-core` and `ai-core`
+are the framework/DB boundary a unit test legitimately replaces **wholesale** —
+spreading the real module drags in the Express and Postgres wiring the suite
+exists to avoid. Those suites use `stubModule` instead of a literal:
+
+```ts
+import { stubModule } from '@pipeline-builder/api-core/testing';
+
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  withRoute: (handler) => handler,   // only what this suite needs
+}));
+```
+
+Every workspace package's `post-compile` runs `scripts/emit-export-manifest.mjs`,
+which reads the built declarations and writes `lib/testing/exports.json` — the
+runtime export names of each entry point (`.`, `./cdk`, …) with a kind
+(`function` / `class` / `value`). `stubModule(specifier, overrides)` returns
+**every** export in that manifest: the overrides as given, everything else as a
+*loud* stub — a function/class that throws when called or constructed, an
+object that throws when a property is read — naming the export and the module.
+So:
+
+- a new export on the real barrel can never again fail a suite at link time
+  with `does not provide an export named X`;
+- code under test reaching for something the suite did not provide fails with
+  a message saying exactly what to override, instead of `undefined is not a
+  function` three frames later;
+- an override the real module does not export (a typo, or a name since
+  removed) throws when the mock is built — the suite cannot lie about the
+  module's shape.
+
+The manifest is regenerated on every compile, so it cannot drift from `lib/`.
+A suite that reads a stale manifest fails with "build '<pkg>' first".
 
 `api/billing` cannot spread `src/helpers/billing-helpers.js` at all — the full
 rationale is in `api/billing/test/helpers/mock-api-core.ts`. Short version: that
@@ -71,7 +105,7 @@ intercept — so a factory can read the real module without recursing into its o
 mock:
 
 ```ts
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock } from '@pipeline-builder/api-core/testing';
 ```
 
 | Factory | Use |
@@ -79,6 +113,8 @@ import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle
 | `mock-drizzle.ts` → `drizzleMock(overrides)` | Every `drizzle-orm` mock. |
 | `mock-api-core.ts` → `baseApiCoreMock` / `primitiveApiCoreMock`, plus shared defaults, error classes and gate helpers | Backs each project's `test/helpers/mock-api-core.ts`. |
 | `tier-mock.ts` | Complete `QUOTA_TIERS` / tier lists sourced from the real `VALID_TIERS`. |
+| `stub-module.ts` → `stubModule(specifier, overrides)` | Every other `@pipeline-builder/*` mock (see above). |
+| `any-fn.ts` → `type AnyFn` | `jest.fn<AnyFn>()` for a collaborator stub whose signature the suite does not care about. |
 
 A project's `test/helpers/mock-api-core.ts` is a thin wrapper holding only its own
 defaults:
@@ -352,6 +388,26 @@ registry console and the build-queue replay/retry gate on system admin where
 the route asks for `registry:write` / `plugins:write`) or DIFFERENT
 (`POST /pipeline-templates/:id/instantiate` is gated on `pipelines:write` while
 the route requires `templates:read`).
+
+## Tests are type-checked
+
+ts-jest runs transpile-only (`isolatedModules`) and `compile` covers `src/` only,
+so for a long time nothing type-checked `test/` — 3,800 errors accumulated,
+among them suites calling functions with signatures that no longer existed and
+fixtures missing fields the schema had since grown. Every project now has a
+`typecheck:tests` task (`tsc --noEmit -p test/tsconfig.json`) that `test` spawns
+first, so `build` fails on **any** test type error. It is zero, not a ratchet.
+
+What that asks of a suite:
+
+- Import the jest globals: `import { jest, describe, it, expect } from '@jest/globals'`.
+- Type mocks. A bare `jest.fn()` is `Mock<UnknownFunction>`, whose
+  `mockResolvedValue` takes `never`. Use the real signature
+  (`jest.fn<typeof realFn>()`) when it matters, `jest.fn<AnyFn>()` when it doesn't.
+- A mock asserted with arguments must accept them: `jest.fn(() => x)` then
+  `toHaveBeenCalledWith(a)` does not type-check — write `jest.fn((_a: unknown) => x)`.
+- Hooks return nothing: `beforeEach(() => { jest.clearAllMocks(); })`, not
+  `beforeEach(() => jest.clearAllMocks())` (which returns the `Jest` object).
 
 ## Mock hygiene
 

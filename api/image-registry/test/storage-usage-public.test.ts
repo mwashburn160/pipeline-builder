@@ -12,6 +12,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
 
@@ -27,7 +28,7 @@ const publicRepositoriesOwnedBy = jest.fn<(orgId: string) => Promise<{ repositor
 jest.unstable_mockModule('../src/services/public-publications.js', () => ({ publicRepositoriesOwnedBy }));
 
 const setGauge = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ setGauge }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { setGauge }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const {

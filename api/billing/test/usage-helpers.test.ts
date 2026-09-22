@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // A single controllable client.get so buildUsageRollupFor tests can drive
@@ -26,7 +27,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 // Stub api-server so its idempotency-middleware + app-factory don't try to
 // initialize a real Prometheus registry at module load.
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: jest.fn(),
 }));
 
@@ -36,7 +37,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const { effectiveEntitlements } = await import(
     '@pipeline-builder/pipeline-core/lib/config/entitlements.js'
   );
-  return {
+  return stubModule('@pipeline-builder/pipeline-core', {
     Config: {
       getAny: () => ({ services: { billingTimeout: 5000 } }),
       // getBillingTimeout() reads Config.get('server').
@@ -50,7 +51,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
       IDEMPOTENCY_TTL_MS: 300_000,
       IDEMPOTENCY_MAX_STORE_SIZE: 10_000,
     },
-  };
+  });
 });
 
 jest.unstable_mockModule('../src/config.js', () => ({

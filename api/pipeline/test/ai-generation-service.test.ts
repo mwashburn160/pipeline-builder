@@ -4,6 +4,7 @@
 // Mock external dependencies — must be set up before importing the service
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { doublePrecision, integer, PgDialect, pgTable, timestamp, varchar } from 'drizzle-orm/pg-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -127,7 +128,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   // Plugin reads now run through withTenantTx (RLS-safe); the tx exposes the
   // same chaining select/from/where as the legacy bare db.
   const tx = aiPluginTx;
-  return {
+  return stubModule('@pipeline-builder/pipeline-data', {
     db: tx,
     schema: { plugin: aiPluginTable, pluginStats: aiStatsTable },
     withTenantTx: (fn: (t: typeof tx) => unknown) => fn(tx),
@@ -140,7 +141,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     resolvableListings: (...a: unknown[]) => mockResolvableListings(...a),
     buildPluginConditions: () => [],
     withViewerContext: (f: unknown) => f,
-  };
+  });
 });
 
 // Import AFTER mocks

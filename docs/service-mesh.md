@@ -88,16 +88,58 @@ its SPIFFE identity is `cluster.local/ns/pipeline-builder/sa/<name>`. Sensitive
 workloads (datastores + app APIs) have an `AuthorizationPolicy` (`action: ALLOW`)
 listing exactly the caller identities real traffic needs.
 
-> **ALLOW = default-deny once selected.** Every scraped app service lists
-> `prometheus` (metrics share port 3000); every app API lists `nginx` (the single
-> ingress principal); `registry`/`minio` list `default` (bootstrap Jobs).
-> Observability infra (loki/alertmanager/thanos/jaeger) has **no** policy →
-> STRICT-mTLS-only (any mesh peer), to bound the enumeration surface.
+> **ALLOW = default-deny once selected.** Every scrape-annotated workload admits
+> `prometheus` on its metrics port — the app services on 3000, and every exporter
+> on its own port (postgres 9187, pgbouncer 9127, mongodb 9216, redis/sentinel
+> 9121, grafana 3000, thanos 10902, jaeger 14269); every app API lists `nginx`
+> (the single ingress principal); `registry`/`minio` list `default` (bootstrap
+> Jobs). `platform/test/deploy-network-contract.test.ts` asserts, for every
+> target, that each scrape-annotated pod is admitted on its port by BOTH its mesh
+> policy and a NetworkPolicy — an exporter a policy forgot is otherwise a healthy
+> datastore that ServiceDown pages for.
+>
+> **Observability backends have ALLOW policies too.** Without one, ambient means
+> "any mesh identity may connect" — a plugin build pod could read every tenant's
+> Loki stream with a guessed `X-Scope-OrgID`. Each admits exactly its callers:
+>
+> | Workload | Admitted |
+> |---|---|
+> | loki :3100 | promtail, platform, grafana, prometheus — **never** plugin / plugin-quarantine-builder |
+> | prometheus :9090 | platform, grafana, prometheus (self-scrape); KEDA (non-mesh, plaintext via the PERMISSIVE port — matched by `notPrincipals: ["*"]`, bounded to the `keda` namespace by NetworkPolicy); :10901 thanos-query |
+> | thanos-query :9090 | platform, grafana, prometheus |
+> | thanos-store-gateway | :10901 thanos-query; :10902 prometheus |
+> | thanos-compact :10902 | prometheus |
+> | alertmanager :9093 | prometheus, platform |
+> | jaeger | :4317/:4318 every OTLP exporter (the server services); :16686 grafana, kiali; :14269 prometheus |
+>
+> The NetworkPolicy files mirror the same lists (`allow-loki-ingress`,
+> `allow-thanos-*`, `allow-jaeger-from-services`, …), so the two layers agree.
 
 Allow-lists were **derived from real dependencies** rather than copied from the
 NetworkPolicy files — e.g. Redis is used by ~every service (not just `plugin`),
 and `reporting` connects to postgres. The NetworkPolicy files were then refreshed
 to agree with the mesh policies, so the two layers now describe the same graph.
+
+### Egress
+
+Every pod is egress-restricted (DNS + same-namespace only) and gets exactly the
+external legs it needs, all in ONE ipBlock shape: `0.0.0.0/0` except RFC1918,
+CGNAT, `169.254.169.254/32` (IMDS) and `169.254.170.0/24` (container-credential
+agents). It excepts those credential addresses exactly, **not** all of
+`169.254.0.0/16` — ambient's node-side plumbing uses link-local addresses, and
+excepting the whole range severed TLS for the model server. A workload holding an
+AWS grant (platform, pipeline, image-registry in kms mode, db-backup) gets a
+separate `/32` rule on :80 for its credential endpoint (Pod Identity on EKS,
+IMDS on ec2). Public legs: alertmanager 443 (Slack), platform 443 + SMTP,
+pipeline 443, ask 443, compliance 443 + SMTP, billing 443, plugin 443/80.
+Mesh hops to istio-system (prometheus, kiali, the waypoint) stay ports-only —
+their destinations are cluster pod IPs, which RFC1918 would exclude.
+
+On **EKS Auto Mode** none of this is enforced until the VPC CNI's network-policy
+controller is on (`kube-system/amazon-vpc-cni`) and the nodes' NodeClass sets
+`networkPolicy` — `bin/setup.sh` Phase 1b does both, and the post-provision smoke
+check (`deploy/bin/post-provision-smoke.sh`) proves a denied connection is
+actually denied.
 
 ### Per-route policies for INTERNAL routes (L7, via a waypoint)
 

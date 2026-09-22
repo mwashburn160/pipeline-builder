@@ -52,28 +52,32 @@ export function releasePluginQuota(job: Job<PluginBuildJobData>, quotaService: Q
  * - `quotaReleased:false` + `reservedResetAt` set when a slot was reserved (new
  *   job owns it, releases it on its own terminal, and carries the fresh
  *   period snapshot so that release is period-safe).
- * - `quotaReleased:true` (no `reservedResetAt`) when the org is at its plugin
- *   cap or the reservation call failed (the job carries no slot, keeping
- *   accounting balanced with no double-credit).
- * The re-enqueue always proceeds — it's an explicit admin action.
+ * - `quotaReleased:true` (no `reservedResetAt`) + `noSlot` when the org is at
+ *   its plugin cap or the reservation call failed (the job would carry no slot,
+ *   keeping accounting balanced with no double-credit). Only a SYSTEM ADMIN's
+ *   re-enqueue proceeds slot-less; the caller refuses anyone else's.
  */
-export async function reserveReplaySlot(quotaService: QuotaService, orgId: string, authHeader: string, jobId: string): Promise<{ quotaReleased: boolean; reservedResetAt?: string }> {
+export async function reserveReplaySlot(quotaService: QuotaService, orgId: string, authHeader: string, jobId: string): Promise<{
+  quotaReleased: boolean;
+  reservedResetAt?: string;
+  /** Why no slot was reserved: the org is at its cap, or the quota service couldn't confirm. */
+  noSlot?: 'cap' | 'unavailable';
+}> {
   try {
     const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
     if (reservation.exceeded) {
       // `unavailable` = the quota service couldn't CONFIRM (transient, not a cap);
       // log it as such so an outage isn't misread as the org being at its limit.
-      // Either way the admin re-enqueue proceeds slot-less (see above).
       if (reservation.unavailable) {
-        logger.warn('Re-enqueue proceeding without a plugin-quota slot (quota service unavailable)', { jobId, orgId });
-      } else {
-        logger.warn('Re-enqueue proceeding without a plugin-quota slot (org at cap)', { jobId, orgId });
+        logger.warn('Re-enqueue has no plugin-quota slot (quota service unavailable)', { jobId, orgId });
+        return { quotaReleased: true, noSlot: 'unavailable' };
       }
-      return { quotaReleased: true };
+      logger.warn('Re-enqueue has no plugin-quota slot (org at cap)', { jobId, orgId });
+      return { quotaReleased: true, noSlot: 'cap' };
     }
     return { quotaReleased: false, reservedResetAt: reservation.quota.resetAt };
   } catch (err) {
-    logger.warn('Re-enqueue quota reservation failed; proceeding without slot', { jobId, orgId, error: errorMessage(err) });
-    return { quotaReleased: true };
+    logger.warn('Re-enqueue quota reservation failed', { jobId, orgId, error: errorMessage(err) });
+    return { quotaReleased: true, noSlot: 'unavailable' };
   }
 }

@@ -18,6 +18,7 @@ import { audited, ErrorCode, requireEcosystemPermission, requireStepUp, sendSucc
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 
 import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
+import { attachmentDisposition } from '../helpers/content-disposition.js';
 import {
   consoleAdvisories, createModeratorDraft, editDraft, setListedVersionDeprecation, withdrawAdvisory,
 } from '../services/ecosystem/advisories.js';
@@ -62,7 +63,7 @@ export function createEcosystemConsoleRoutes(): Router {
   }));
 
   router.get('/requests', ...any, ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { requests: await queue(caller, req.query as Record<string, unknown>) });
+    sendSuccess(res, 200, await queue(caller, req.query as Record<string, unknown>));
   }));
 
   router.get('/requests/:id', ...any, ecosystemRoute(async ({ req, res, caller }) => {
@@ -76,7 +77,7 @@ export function createEcosystemConsoleRoutes(): Router {
     const id = param(req, 'id');
     const sbom = await submissionSbom(id);
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Content-Disposition', `attachment; filename="submission-${id}.spdx.json"`);
+    res.setHeader('Content-Disposition', attachmentDisposition(`submission-${id}.spdx.json`));
     res.status(200).type('application/spdx+json').send(JSON.stringify(sbom));
   }));
 
@@ -84,7 +85,7 @@ export function createEcosystemConsoleRoutes(): Router {
     const id = param(req, 'id');
     const scan = await submissionScan(id);
     res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Content-Disposition', `attachment; filename="submission-${id}-scan.json"`);
+    res.setHeader('Content-Disposition', attachmentDisposition(`submission-${id}-scan.json`));
     res.status(200).type('application/json').send(JSON.stringify(scan));
   }));
 

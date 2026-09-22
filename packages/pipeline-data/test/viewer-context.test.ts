@@ -9,9 +9,13 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
+import type { ViewerScopedFilter } from '../src/api/viewer-context.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+
+/** A filter carrying a non-viewer field, as a real caller would pass. */
+type ActiveFilter = ViewerScopedFilter & { isActive?: boolean };
 
 const { runWithTenantContext } = await import('../src/database/tenancy.js');
 const { withViewerContext, currentViewerUserId, viewerCacheSegment } = await import('../src/api/viewer-context.js');
@@ -20,7 +24,7 @@ describe('withViewerContext', () => {
   it('stamps the tenant context viewer onto a bare filter', () => {
     const stamped = runWithTenantContext(
       { orgId: 'org-1', userId: 'user-1', isSuperAdmin: false },
-      () => withViewerContext({ isActive: true }),
+      () => withViewerContext<ActiveFilter>({ isActive: true }),
     );
     expect(stamped).toEqual({ isActive: true, viewerUserId: 'user-1', viewerIsSuperAdmin: false });
   });
@@ -37,7 +41,7 @@ describe('withViewerContext', () => {
     // Background jobs, migrations and the retention sweep run scopeless. A
     // viewer-less filter must leave the per-user rung matching NOTHING — an
     // undefined viewer is never a wildcard.
-    const stamped = withViewerContext({ isActive: true });
+    const stamped = withViewerContext<ActiveFilter>({ isActive: true });
     expect(stamped.viewerUserId).toBeUndefined();
     expect(stamped.viewerIsSuperAdmin).toBe(false);
   });
@@ -63,7 +67,7 @@ describe('withViewerContext', () => {
 
   it('does not mutate the filter it was given', () => {
     const filter = { isActive: true };
-    runWithTenantContext({ orgId: 'org-1', userId: 'user-1', isSuperAdmin: false }, () => withViewerContext(filter));
+    runWithTenantContext({ orgId: 'org-1', userId: 'user-1', isSuperAdmin: false }, () => withViewerContext<ActiveFilter>(filter));
     expect(filter).toEqual({ isActive: true });
   });
 });

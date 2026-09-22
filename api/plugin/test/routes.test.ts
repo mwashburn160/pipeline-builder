@@ -8,15 +8,15 @@
  * with mock req/res objects — no HTTP server needed.
  */
 
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
 
-const mockFindPaginated = jest.fn();
-const mockFind = jest.fn();
-const mockFindById = jest.fn();
+const mockFindPaginated = jest.fn<AnyFn>();
+const mockFind = jest.fn<AnyFn>();
+const mockFindById = jest.fn<AnyFn>();
 
 // The listing half of lookup (plan §3.5) — unit-tested in installs-lookup.test.ts.
 jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
@@ -65,7 +65,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => {
       sortBy: 'createdAt',
       sortOrder: 'desc',
     })),
-    incrementQuota: jest.fn(),
+    incrementQuota: jest.fn<AnyFn>(),
     validateQuery: jest.fn(() => ({ ok: true, value: {} })),
     PluginFilterSchema: {},
     normalizeArrayFields: jest.fn((p: any) => p),
@@ -80,8 +80,8 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
   res.status(500).json({ success: false, statusCode: 500, message: msg });
 });
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
-  incCounter: jest.fn(),
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  incCounter: jest.fn<AnyFn>(),
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -98,43 +98,37 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  incrementQuotaFromCtx: jest.fn(),
+  incrementQuotaFromCtx: jest.fn<AnyFn>(),
 }));
 
 // Signature verification is covered by lookup-validation.test.ts; here it always passes.
 jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
   verifyImageSignature: jest.fn(async () => undefined),
-  fetchImageSbom: jest.fn(),
+  fetchImageSbom: jest.fn<AnyFn>(),
   ImageVerificationError: class extends Error {},
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
-  schema: { plugin: {} },
   Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },
   CoreConstants: {
     CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
     CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',
   },
-  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { plugin: {} },
   // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
   isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
-  CoreConstants: {
-    CACHE_CONTROL_LIST: 'private, max-age=30, stale-while-revalidate=60',
-    CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',
-  },
-  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn().mockResolvedValue({ rows: [] }) })),
+  withTenantTx: jest.fn((fn: any) => fn({ execute: jest.fn<AnyFn>().mockResolvedValue({ rows: [] }) })),
 }));;
 
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   SQL: class {},
   sql: Object.assign((..._a: any[]) => ({}), { raw: (..._a: any[]) => ({}) }),
-  or: jest.fn(),
-  ilike: jest.fn(),
-  eq: jest.fn(),
-  and: jest.fn(),
+  or: jest.fn<AnyFn>(),
+  ilike: jest.fn<AnyFn>(),
+  eq: jest.fn<AnyFn>(),
+  and: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
@@ -147,9 +141,9 @@ const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js')
 // Helpers
 
 const mockQuotaService = {
-  increment: jest.fn().mockResolvedValue(undefined),
-  check: jest.fn(),
-  getUsage: jest.fn(),
+  increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
+  check: jest.fn<AnyFn>(),
+  getUsage: jest.fn<AnyFn>(),
 } as any;
 
 const router = createReadPluginRoutes(mockQuotaService);
@@ -172,7 +166,7 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
     headers: { authorization: 'Bearer tok' },
     context: {
       identity: { orgId: 'ORG-1' },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
     },
     ...overrides,
   };
@@ -180,9 +174,9 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
-  res.setHeader = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.setHeader = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -191,7 +185,7 @@ function mockRes(): any {
 describe('GET /plugins (list)', () => {
   const handler = getHandler('get', '/');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns paginated plugins', async () => {
     const plugins = [
@@ -224,7 +218,7 @@ describe('GET /plugins (list)', () => {
     // Access control is enforced by AccessControlQueryBuilder in pluginService,
     // not by the route. The route forwards the caller's filter unchanged.
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
 
     await handler(mockReq(), mockRes());
 
@@ -240,7 +234,7 @@ describe('GET /plugins (list)', () => {
 
   it('does not force visibility for system admins', async () => {
     mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
 
     await handler(mockReq(), mockRes());
 
@@ -255,7 +249,7 @@ describe('GET /plugins (list)', () => {
   });
 
   it('returns 400 when orgId is missing', async () => {
-    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn() } });
+    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn<AnyFn>() } });
     const res = mockRes();
     await handler(req, res);
 
@@ -264,7 +258,7 @@ describe('GET /plugins (list)', () => {
   });
 
   it('returns 400 on invalid filter', async () => {
-    (validateQuery as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Invalid filter' });
+    (validateQuery as jest.Mock<AnyFn>).mockReturnValueOnce({ ok: false, error: 'Invalid filter' });
 
     const req = mockReq();
     const res = mockRes();
@@ -295,7 +289,7 @@ describe('GET /plugins (list)', () => {
 describe('GET /plugins/find', () => {
   const handler = getHandler('get', '/find');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns the first matching plugin', async () => {
     const plugin = { id: '1', name: 'lint' };
@@ -325,7 +319,7 @@ describe('GET /plugins/find', () => {
   });
 
   it('returns 400 when orgId is missing', async () => {
-    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn() } });
+    const req = mockReq({ context: { identity: { orgId: '' }, log: jest.fn<AnyFn>() } });
     const res = mockRes();
     await handler(req, res);
 
@@ -337,7 +331,7 @@ describe('GET /plugins/find', () => {
 describe('GET /plugins/:id', () => {
   const handler = getHandler('get', '/:id');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('returns a plugin by ID', async () => {
     const plugin = { id: 'uuid-1', name: 'lint', visibility: 'private' };
@@ -388,7 +382,7 @@ describe('GET /plugins/:id', () => {
   it('allows non-admin to view public plugin (access control handled by service layer)', async () => {
     const plugin = { id: 'uuid-1', name: 'shared', visibility: 'public' };
     mockFindById.mockResolvedValue(plugin);
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
 
     const req = mockReq({ params: { id: 'uuid-1' } });
     const res = mockRes();
@@ -400,7 +394,7 @@ describe('GET /plugins/:id', () => {
   it('allows system admin to view public plugin', async () => {
     const plugin = { id: 'uuid-1', name: 'shared', visibility: 'public' };
     mockFindById.mockResolvedValue(plugin);
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
 
     const req = mockReq({ params: { id: 'uuid-1' } });
     const res = mockRes();

@@ -1,14 +1,20 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { ArrowUpCircle, CheckCircle2, Clock, PauseCircle, ShieldOff, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import api from '@/lib/api';
+import { ApiError } from '@/lib/api/errors';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { FormField } from '@/components/ui/FormField';
+import { Modal } from '@/components/ui/Modal';
+import { ModalFooter } from '@/components/ui/ModalFooter';
+import { Textarea } from '@/components/ui/Textarea';
 import { formatError } from '@/lib/constants';
 import { installActionState, VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
-import type { CatalogEntry, InstallUpgrade, InstallView } from '@/types/plugin-installs';
+import type { CatalogEntry, InstallUpgrade, InstallView, UpdateInstallBody } from '@/types/plugin-installs';
 import { InstallPolicyDialog } from './InstallPolicyDialog';
 
 type Confirm =
@@ -42,6 +48,9 @@ export function InstallControls({
   const [notice, setNotice] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [policyDialog, setPolicyDialog] = useState<'pin' | 'change' | null>(null);
+  // A change the caller may not apply themselves, about to be REQUESTED from an
+  // approver (`POST /plugins/installs/:id/change-requests`).
+  const [requesting, setRequesting] = useState<{ install: InstallView; body: UpdateInstallBody; what: string } | null>(null);
 
   const run = async (fn: () => Promise<string | null>) => {
     setBusy(true);
@@ -77,13 +86,28 @@ export function InstallControls({
     return target.status === 'denied' ? 'Request removed.' : 'Install request withdrawn.';
   });
 
-  const upgrade = (target: InstallView, u: InstallUpgrade) => run(async () => {
-    await api.updatePluginInstall(target.id as string, { version: u.version });
-    return `Upgraded to ${u.version}.`;
-  });
+  const upgrade = async (target: InstallView, u: InstallUpgrade) => {
+    try {
+      await api.updatePluginInstall(target.id as string, { version: u.version });
+      setNotice(`Upgraded to ${u.version}.`);
+      onChanged();
+    } catch (e) {
+      // The server decides whether an approver is needed; when it says the
+      // change can be requested instead, offer exactly that.
+      if (isRequestable(e)) setRequesting({ install: target, body: { version: u.version }, what: `Upgrade to ${u.version}` });
+      else setError(formatError(e, 'The install action failed'));
+    } finally {
+      setConfirm(null);
+    }
+  };
 
   const wrap = align === 'end' ? 'items-start sm:items-end' : 'items-start';
   const install_ = 'install' in state ? state.install : null;
+  // The server refuses an upgrade across a major or breaking version for a
+  // caller who needs an approver; offering the button only produced that
+  // refusal. Such a caller is told who can do it instead.
+  const upgradeNeedsApprover = (current: InstallView, u: InstallUpgrade) =>
+    entry.needsApproval && (u.breaking || majorOf(u.version) !== majorOf(current.resolvedVersion ?? current.pinnedVersion));
 
   return (
     <div className={`flex flex-col gap-2 ${wrap}`} data-testid="install-controls" data-state={state.kind}>
@@ -119,9 +143,16 @@ export function InstallControls({
             Installed{state.install.resolvedVersion ? ` · v${state.install.resolvedVersion}` : ''} · {VERSION_POLICY_LABELS[state.install.versionPolicy]}
             {state.install.inherited ? ' · from your root organization' : ''}
           </StatusLine>
+          {state.install.pendingChange && (
+            <StatusLine icon={Clock} tone="warning">
+              <span data-testid="pending-change">
+                Change requested: v{state.install.pendingChange.version} · {VERSION_POLICY_LABELS[state.install.pendingChange.versionPolicy]} — waiting for an approver
+              </span>
+            </StatusLine>
+          )}
           {canInstall && !state.install.inherited && (
             <div className="flex flex-wrap gap-2">
-              {state.install.upgrade && (
+              {state.install.upgrade && !upgradeNeedsApprover(state.install, state.install.upgrade) && (
                 <Button size="sm" onClick={() => setConfirm({ kind: 'upgrade', install: state.install, upgrade: state.install.upgrade! })} disabled={busy}>
                   <ArrowUpCircle className="mr-1 h-4 w-4" aria-hidden="true" />
                   Upgrade to {state.install.upgrade.version}
@@ -129,6 +160,22 @@ export function InstallControls({
               )}
               <Button variant="secondary" size="sm" onClick={() => setPolicyDialog('change')} disabled={busy}>Change policy</Button>
               <Button variant="secondary" size="sm" onClick={() => setConfirm({ kind: 'uninstall', install: state.install })} disabled={busy}>Uninstall</Button>
+            </div>
+          )}
+          {canInstall && !state.install.inherited && state.install.upgrade && upgradeNeedsApprover(state.install, state.install.upgrade) && !state.install.pendingChange && (
+            <div className="flex flex-col gap-1">
+              <p className="text-xs text-fg-subtle" data-testid="upgrade-needs-approver">
+                Version {state.install.upgrade.version} is a major or breaking upgrade. Your organization requires an
+                approver for this publisher tier (someone with Manage plugin installs).
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => setRequesting({ install: state.install, body: { version: state.install.upgrade!.version }, what: `Upgrade to ${state.install.upgrade!.version}` })}
+              >
+                Request upgrade to {state.install.upgrade.version}
+              </Button>
             </div>
           )}
         </>
@@ -215,12 +262,20 @@ export function InstallControls({
           submitLabel={policyDialog === 'pin' ? 'Create install' : 'Save'}
           initialPolicy={install_?.versionPolicy ?? 'minor'}
           initialVersion={policyDialog === 'change' ? install_?.pinnedVersion : install_?.resolvedVersion}
+          latestNeedsApproval={entry.needsApproval}
           onSubmit={async (body) => {
             if (policyDialog === 'pin' || !install_?.id) {
               await api.createPluginInstall({ publisher: listing.publisherHandle, name: listing.name, ...body });
               setNotice('Install created: this plugin now follows the policy you chose.');
             } else {
-              await api.updatePluginInstall(install_.id, body);
+              try {
+                await api.updatePluginInstall(install_.id, body);
+              } catch (e) {
+                if (!isRequestable(e)) throw e;
+                // Needs an approver: turn it into a request (the policy dialog closes).
+                setRequesting({ install: install_, body, what: `Change the policy to ${VERSION_POLICY_LABELS[body.versionPolicy]}${body.version ? ` from v${body.version}` : ''}` });
+                return;
+              }
               setNotice('Install policy saved.');
             }
             onChanged();
@@ -228,8 +283,77 @@ export function InstallControls({
           onClose={() => setPolicyDialog(null)}
         />
       )}
+
+      {requesting && (
+        <RequestChangeDialog
+          listingName={listing.name}
+          what={requesting.what}
+          onClose={() => setRequesting(null)}
+          onSubmit={async (note) => {
+            await api.requestInstallChange(requesting.install.id as string, { ...requesting.body, ...(note ? { note } : {}) });
+            setNotice('Change requested. An approver in your organization has been notified.');
+            onChanged();
+          }}
+        />
+      )}
     </div>
   );
+}
+
+/** The server refused the change for want of an approver, and says it can be requested. */
+function isRequestable(e: unknown): boolean {
+  return e instanceof ApiError && e.statusCode === 403 && e.details?.requestable === true;
+}
+
+/** Ask an approver for an install change, with an optional note. */
+function RequestChangeDialog({ listingName, what, onSubmit, onClose }: {
+  listingName: string;
+  what: string;
+  onSubmit: (note: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const noteId = useId();
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(note.trim());
+      onClose();
+    } catch (e) {
+      setError(e instanceof ApiError && e.code === 'DUPLICATE_ENTRY'
+        ? 'A change to this install is already waiting for approval.'
+        : formatError(e, 'Could not request the change'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title={`Request a change to ${listingName}?`}
+      onClose={() => { if (!busy) onClose(); }}
+      footer={<ModalFooter onCancel={onClose} onConfirm={() => void submit()} confirmLabel="Send request" loading={busy} />}
+    >
+      <div className="space-y-3 text-sm">
+        <p className="text-fg-muted">
+          <strong className="text-fg">{what}</strong> needs an approver in your organization. They are notified, and the
+          change applies when one approves it.
+        </p>
+        {error && <ErrorAlert message={error} />}
+        <FormField label="Note for the approver (optional)" id={noteId}>
+          <Textarea id={noteId} rows={3} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} disabled={busy} />
+        </FormField>
+      </div>
+    </Modal>
+  );
+}
+
+/** The major component of a semver string (`null` when absent/unparseable). */
+function majorOf(version: string | null | undefined): string | null {
+  const m = /^v?(\d+)\./.exec(version ?? '');
+  return m ? m[1] : null;
 }
 
 const TONE: Record<'success' | 'warning' | 'danger', string> = {

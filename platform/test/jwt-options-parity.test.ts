@@ -33,7 +33,7 @@ const apiCoreAuth = await import('@pipeline-builder/api-core/lib/middleware/auth
 const { verifyPlatformJwt } = await import('../src/utils/jwt-options.js');
 const { signUserJwt, _setTokenSigningKeysForTests } = await import('../src/services/token-signing/index.js');
 const { generateSigningKey } = await import('./helpers/signing.js');
-const { installTestServiceKeys } = await import('@pipeline-builder/api-core/lib/testing/service-tokens.js');
+const { installTestServiceKeys } = await import('@pipeline-builder/api-core/testing');
 
 const ENV = ['JWT_ISSUER', 'JWT_AUDIENCE'] as const;
 const saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));

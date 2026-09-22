@@ -12,20 +12,21 @@
  * real tx would abort, leaving no partial user/org/membership).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockUserExists = jest.fn<(...a: unknown[]) => unknown>();
-const mockUserFindOne = jest.fn<(...a: unknown[]) => unknown>();
+const mockUserExists = jest.fn<AnyFn>();
+const mockUserFindOne = jest.fn<AnyFn>();
 const mockUserSave = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUserUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
+const mockUserFindById = jest.fn<AnyFn>();
 const mockOrgCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockOrgUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockOrgFind = jest.fn<(...a: unknown[]) => unknown>();
-const mockOrgFindById = jest.fn<(...a: unknown[]) => unknown>();
+const mockOrgFind = jest.fn<AnyFn>();
+const mockOrgFindById = jest.fn<AnyFn>();
 const mockUserOrgCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockUserOrgFindOne = jest.fn<(...a: unknown[]) => unknown>();
+const mockUserOrgFindOne = jest.fn<AnyFn>();
 const mockSeedDefaultGroups = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockResolveOrgAuthority = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
@@ -82,6 +83,10 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
 // real wrapper's contract closely enough for orchestration assertions: on
 // throw, the error propagates (the real driver aborts the tx).
 const fakeSession = { id: 'sess' };
+const mockSignInMethods = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({ hasPassword: true, hasProvider: false, passkeyCount: 0, hasTotp: false }));
+jest.unstable_mockModule('../src/helpers/sign-in-methods.js', () => ({
+  loadSignInMethods: (...a: unknown[]) => mockSignInMethods(...a),
+}));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn(fakeSession),
 }));
@@ -328,6 +333,27 @@ describe('AuthService.findOrCreateOAuthUser — SSO identities', () => {
     expect(mockUserUpdateOne).not.toHaveBeenCalled();
   });
 
+  it('NEVER auto-links a social provider onto an account a second factor protects', async () => {
+    mockUserFindOne
+      .mockReturnValueOnce({ select: () => Promise.resolve(null) })
+      .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'u1', isEmailVerified: true }) });
+    mockSignInMethods.mockResolvedValueOnce({ hasPassword: true, hasProvider: false, passkeyCount: 1, hasTotp: false });
+
+    await expect(authService.findOrCreateOAuthUser('google', { id: 'g-new', email: 'a@example.com' }))
+      .rejects.toThrow('OAUTH_LINK_REQUIRES_SIGN_IN');
+    expect(mockUserUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('links a social provider onto a verified account with NO second factor, as before', async () => {
+    mockUserFindOne
+      .mockReturnValueOnce({ select: () => Promise.resolve(null) })
+      .mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'u1', isEmailVerified: true }) });
+
+    await expect(authService.findOrCreateOAuthUser('google', { id: 'g-new', email: 'a@example.com' }))
+      .resolves.toMatchObject({ _id: 'u1' });
+    expect(mockUserUpdateOne).toHaveBeenCalled();
+  });
+
   it('a platform administrator can still use social login', async () => {
     mockUserFindOne.mockReturnValueOnce({ select: () => Promise.resolve({ _id: 'admin', isSuperAdmin: true }) });
 
@@ -363,8 +389,8 @@ describe('AuthService pending-billing marker (paid-signup fail-open)', () => {
   });
 
   it('listPendingBillingOrgs returns {orgId, planId} for every marked org (oldest-first, unbounded)', async () => {
-    const sortSpy = jest.fn();
-    const limitSpy = jest.fn();
+    const sortSpy = jest.fn<AnyFn>();
+    const limitSpy = jest.fn<AnyFn>();
     const query: any = {
       select: () => query,
       sort: (...a: unknown[]) => { sortSpy(...a); return query; },
@@ -393,7 +419,7 @@ describe('AuthService pending-billing marker (paid-signup fail-open)', () => {
   });
 
   it('listPendingBillingOrgs bounds the scan with `.limit(n)` when a batch size is given', async () => {
-    const limitSpy = jest.fn();
+    const limitSpy = jest.fn<AnyFn>();
     const query: any = {
       select: () => query,
       sort: () => query,
@@ -508,7 +534,7 @@ describe('AuthService.completeOnboarding', () => {
 
   it('is a no-op once already onboarded (never renames — not an alternate rename route)', async () => {
     const user = makeUser({ needsOnboarding: false });
-    const orgSave = jest.fn();
+    const orgSave = jest.fn<AnyFn>();
     mockUserFindById.mockReturnValue(user);
     mockOrgFindById.mockReturnValue({ name: 'existing', save: orgSave });
 
@@ -521,7 +547,7 @@ describe('AuthService.completeOnboarding', () => {
 
   it('refuses to rename to the reserved `system` name for a non-operator email', async () => {
     mockUserFindById.mockReturnValue(makeUser());
-    mockOrgFindById.mockReturnValue({ name: 'u', save: jest.fn() });
+    mockOrgFindById.mockReturnValue({ name: 'u', save: jest.fn<AnyFn>() });
 
     await expect(authService.completeOnboarding('user-1', { organizationName: 'System' }))
       .rejects.toThrow(RESERVED_ORG_NAME);
@@ -529,7 +555,7 @@ describe('AuthService.completeOnboarding', () => {
 
   it('skips the rename for a non-owner member but still clears the flag', async () => {
     const user = makeUser();
-    const orgSave = jest.fn();
+    const orgSave = jest.fn<AnyFn>();
     mockUserFindById.mockReturnValue(user);
     mockOrgFindById.mockReturnValue({ name: 'u', save: orgSave });
     mockUserOrgFindOne.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ role: 'member' }) }) });

@@ -8,6 +8,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { leaderLockMock } from './helpers/leader-lock-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -23,7 +24,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   Invitation: { updateMany: (...a: unknown[]) => mockUpdateMany(...a) },
 }));
 
-jest.unstable_mockModule('../src/utils/leader-lock.js', () => ({ runWithLeaderLock: (_key, _ttlMs, fn) => fn().then(() => true) }));
+jest.unstable_mockModule('../src/utils/leader-lock.js', () => leaderLockMock());
 
 const { sweepExpiredInvitations, startInvitationReaper, stopInvitationReaper } =
   await import('../src/services/invitation-reaper.js');
@@ -65,8 +66,8 @@ describe('sweepExpiredInvitations', () => {
 });
 
 describe('startInvitationReaper', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
 
   it('runs an immediate sweep and repeats on the interval', async () => {
     startInvitationReaper(1000);

@@ -7,31 +7,32 @@
  * and the `--pipeline` / `--plugin` modes against a mocked client.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { describe, it, test, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
-const mockCreateAuthenticatedClientAsync = jest.fn();
+const mockCreateAuthenticatedClientAsync = jest.fn<AnyFn>();
 
 // Silence command header / pretty output
 jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
   __esModule: true,
   printCommandHeader: () => 'EXEC-TEST',
-  printSslWarning: jest.fn(),
-  printSuccess: jest.fn(),
-  printWarning: jest.fn(),
-  printInfo: jest.fn(),
-  printError: jest.fn(),
-  printKeyValue: jest.fn(),
-  printSection: jest.fn(),
-  printDebug: jest.fn(),
+  printSslWarning: jest.fn<AnyFn>(),
+  printSuccess: jest.fn<AnyFn>(),
+  printWarning: jest.fn<AnyFn>(),
+  printInfo: jest.fn<AnyFn>(),
+  printError: jest.fn<AnyFn>(),
+  printKeyValue: jest.fn<AnyFn>(),
+  printSection: jest.fn<AnyFn>(),
+  printDebug: jest.fn<AnyFn>(),
 }));
 
 jest.unstable_mockModule('../src/utils/command-utils.js', () => ({
   __esModule: true,
   printCommandHeader: () => 'EXEC-TEST',
-  printSslWarning: jest.fn(),
+  printSslWarning: jest.fn<AnyFn>(),
   createAuthenticatedClientAsync: mockCreateAuthenticatedClientAsync,
   withSslOptions: (cmd: unknown) => cmd,
 }));
@@ -54,7 +55,7 @@ beforeEach(() => {
   }) as never);
 });
 
-afterEach(() => exitSpy.mockRestore());
+afterEach(() => { exitSpy.mockRestore(); });
 
 function runCli(args: string[]): Promise<void> {
   const program = new Command();
@@ -99,7 +100,7 @@ describe('validate-templates CLI', () => {
   });
 
   it('--plugin fetches and validates a remote plugin', async () => {
-    const getMock = jest.fn().mockResolvedValue({
+    const getMock = jest.fn<AnyFn>().mockResolvedValue({
       plugin: {
         name: 'remote',
         pluginType: 'CodeBuildStep',

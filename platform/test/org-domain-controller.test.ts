@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -99,7 +100,7 @@ describe('org-domain controller', () => {
     const res = makeRes();
     await (addOrgDomain as any)(req({ body: { domain: 'acme.com' } }), res);
     expect(res.status).toHaveBeenCalledWith(201);
-    const body = (res.json as jest.Mock).mock.calls[0][0] as any;
+    const body = (res.json as jest.Mock<AnyFn>).mock.calls[0][0] as any;
     expect(body.data.domain.domain).toBe('acme.com');
     expect(body.data.domain.verification.value).toBe('pb-verify=tok'); // token exposed while unverified
   });
@@ -109,7 +110,7 @@ describe('org-domain controller', () => {
     const res = makeRes();
     await (listOrgDomains as any)(req(), res);
     expect(res.status).toHaveBeenCalledWith(200);
-    const body = (res.json as jest.Mock).mock.calls[0][0] as any;
+    const body = (res.json as jest.Mock<AnyFn>).mock.calls[0][0] as any;
     expect(body.data.entitled).toBe(true);
     expect(body.data.domains[0].verification).toBeUndefined(); // hidden once verified
   });

@@ -6,7 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
-import { orgRetentionWindowFromSettings } from '../helpers/retention-cap.js';
+import { orgRetentionWindowFromSettings, retentionOrgIdFor } from '../helpers/retention-cap.js';
 import { emitReportingAudit } from '../services/audit.js';
 
 /**
@@ -55,7 +55,7 @@ export function createDeploymentOutcomeRoutes(): Router {
     // future or before the org's retention (where no report would ever surface it,
     // yet a mid-window purge could strand it). Unlimited retention ⇒ minFromMs=0.
     const now = Date.now();
-    const settings = await reportingService.getIncidentSettings(orgId);
+    const settings = await reportingService.getIncidentSettings(orgId, retentionOrgIdFor(req, orgId));
     const win = orgRetentionWindowFromSettings(settings, 'dora', now);
     const atMs = Date.parse(parsed.value.at);
     if (atMs > now + CLOCK_SKEW_MS) {

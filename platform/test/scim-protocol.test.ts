@@ -20,6 +20,7 @@
  * a manual step; these fixtures are what keeps the parsing honest in CI.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -51,7 +52,7 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   seatCapacityStillWithinCap: async () => true,
   userHasSeatInAccount: async () => false,
 }));
-jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishUserRevocation: async () => undefined }));
+jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishSessionSlotRevocation: async () => true, publishAccessKeyRevocation: async () => true, publishUserRevocation: async () => undefined }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
   emailDomain: (email: string) => { const at = email.lastIndexOf('@'); return at <= 0 ? null : email.slice(at + 1).toLowerCase(); },
   ownsVerifiedDomain: async () => true,
@@ -116,12 +117,12 @@ describe('SCIM filter parsing', () => {
     // Silently ignoring this would make the IdP conclude the user doesn't exist
     // and create a duplicate.
     expect(() => scim.parseScimFilter('userName sw "ali"', ['userName']))
-      .toThrow(expect.objectContaining({ status: 400, scimType: 'invalidFilter' }) as Error);
+      .toThrow(expect.objectContaining({ status: 400, scimType: 'invalidFilter' }) as unknown as Error);
   });
 
   it('refuses a filter on an attribute this API does not index', () => {
     expect(() => scim.parseScimFilter('title eq "CTO"', ['userName', 'externalId']))
-      .toThrow(expect.objectContaining({ scimType: 'invalidFilter' }) as Error);
+      .toThrow(expect.objectContaining({ scimType: 'invalidFilter' }) as unknown as Error);
   });
 });
 
@@ -186,7 +187,7 @@ describe('SCIM error envelope', () => {
 describe('the SCIM credential gate', () => {
   const run = (user: unknown) => {
     const { res, captured } = fakeRes();
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     requireScimScope({ user, method: 'GET', params: {} } as never, res as never, next as never);
     return { captured, next };
   };

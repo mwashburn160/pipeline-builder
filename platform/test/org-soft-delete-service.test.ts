@@ -13,19 +13,21 @@
  *     member's `tokenVersion` — it runs NO destructive cascade.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createSafeClient: () => ({ delete: jest.fn() }),
+  createSafeClient: () => ({ delete: jest.fn<AnyFn>() }),
   getServiceAuthHeader: () => 'Bearer test-service-token',
 }));
 
 // pipeline-data: exportOrg reads through these — return empty so the snapshot
 // resolves to an (empty) blob without a real DB.
-const mockSelectChain = { from: jest.fn(), where: jest.fn() };
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
-  withTenantTx: (fn: (tx: unknown) => unknown) => fn({ update: jest.fn(), delete: jest.fn(), select: jest.fn(() => mockSelectChain) }),
+const mockSelectChain = { from: jest.fn<AnyFn>(), where: jest.fn<AnyFn>() };
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  withTenantTx: (fn: (tx: unknown) => unknown) => fn({ update: jest.fn<AnyFn>(), delete: jest.fn<AnyFn>(), select: jest.fn(() => mockSelectChain) }),
   schema: new Proxy({}, { get: (_t, name) => ({ orgId: `${String(name)}.org_id` }) }),
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
   // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the
@@ -41,13 +43,13 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   },
 }));
 
-const mockOrgFindById = jest.fn();
-const mockOrgUpdateOne = jest.fn();
+const mockOrgFindById = jest.fn<AnyFn>();
+const mockOrgUpdateOne = jest.fn<AnyFn>();
 const mockSnapshotCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockUserOrgFind = jest.fn();
-const mockUserUpdateMany = jest.fn();
-const mockUserFind = jest.fn();
-const mockPatUpdateMany = jest.fn();
+const mockUserOrgFind = jest.fn<AnyFn>();
+const mockUserUpdateMany = jest.fn<AnyFn>();
+const mockUserFind = jest.fn<AnyFn>();
+const mockPatUpdateMany = jest.fn<AnyFn>();
 const mockServiceAccountFind = jest.fn<(...a: unknown[]) => unknown>();
 
 const auditExportQuery = { sort: () => auditExportQuery, limit: () => auditExportQuery, lean: async () => [] };
@@ -59,13 +61,15 @@ const queryChain = (rows: unknown[]) => {
   const c: any = { lean: async () => rows, select: () => c, session: () => c, sort: () => c, limit: () => c };
   return c;
 };
-jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => auditExportQuery), create: jest.fn() } }));
-jest.unstable_mockModule('../src/models/invitation.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: jest.fn(() => ({ lean: () => [] })) } }));
-jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
-jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
-jest.unstable_mockModule('../src/models/org-domain.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
-jest.unstable_mockModule('../src/models/join-request.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
-jest.unstable_mockModule('../src/models/saml-session.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: jest.fn(() => auditExportQuery), create: jest.fn<AnyFn>() } }));
+jest.unstable_mockModule('../src/models/invitation.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: jest.fn(() => ({ lean: () => [] })) } }));
+jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/idp-group-mapping.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/org-domain.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/join-request.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/saml-session.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/mfa-reset-request.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/impersonation-request.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
 jest.unstable_mockModule('../src/models/role.js', () => ({ __esModule: true, default: { find: emptyFind } }));
 jest.unstable_mockModule('../src/models/organization.js', () => ({
   __esModule: true,
@@ -92,7 +96,7 @@ jest.unstable_mockModule('../src/models/service-account.js', () => ({
   __esModule: true,
   default: { find: (...a: unknown[]) => mockServiceAccountFind(...a) },
 }));
-jest.unstable_mockModule('../src/models/role-assignment.js', () => ({ __esModule: true, default: { deleteMany: jest.fn(), find: emptyFind } }));
+jest.unstable_mockModule('../src/models/role-assignment.js', () => ({ __esModule: true, default: { deleteMany: jest.fn<AnyFn>(), find: emptyFind } }));
 
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn({ /* fake session */ }),

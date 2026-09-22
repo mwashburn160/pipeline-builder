@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import type { Request, Response } from 'express';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -53,7 +54,7 @@ jest.unstable_mockModule('../src/config/index.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   softDeleteRetentionMs: () => 0,
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));

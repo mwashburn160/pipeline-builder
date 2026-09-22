@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, BookOpen, Check, CheckCheck, Inbox, ShieldAlert, X } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -263,6 +263,11 @@ export function QueueItemDetail({ id, can, onBack, onDecided, backLabel = 'Back 
   );
 }
 
+/** Queue rows per page. */
+const QUEUE_PAGE = 100;
+/** The statuses the server lists oldest first (mirrors the console service). */
+const OLDEST_FIRST_STATUSES = new Set<QueueStatusFilter>(['open', 'pending', 'pending_second_approval']);
+
 /**
  * Ecosystem console → Publish queue (plan §3.0): every publish, version,
  * listing-update, yank, transfer, profile and moderation request awaiting a
@@ -281,14 +286,40 @@ export function PublishQueuePanel({ can }: Props) {
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load the overview');
     return res.data;
   }, []);
+  const filters = { status, ...(kind ? { kind } : {}), ...(lane ? { lane } : {}), limit: QUEUE_PAGE };
   const queueQ = useFetch(async (signal) => {
-    const res = await api.listEcosystemRequests({ status, ...(kind ? { kind } : {}), ...(lane ? { lane } : {}), limit: 100 }, { signal });
+    const res = await api.listEcosystemRequests(filters, { signal });
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load the queue');
-    return res.data.requests;
+    return res.data;
   }, [status, kind, lane]);
+  // Pages after the first, appended by "Load more". The queue used to stop at
+  // its first 100 NEWEST requests, so the oldest — the ones nearest their SLA —
+  // were exactly the ones a busy queue hid.
+  const [more, setMore] = useState<{ items: QueueItem[]; nextCursor: string | null } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  useEffect(() => { setMore(null); setMoreError(null); }, [queueQ.data]);
 
   const refreshAll = () => { overviewQ.refetch(); queueQ.refetch(); };
-  const items = queueQ.data ?? [];
+  const items = [...(queueQ.data?.requests ?? []), ...(more?.items ?? [])];
+  const total = queueQ.data?.total ?? items.length;
+  const nextCursor = more ? more.nextCursor : queueQ.data?.nextCursor ?? null;
+
+  const loadMore = async () => {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const res = await api.listEcosystemRequests({ ...filters, cursor: nextCursor });
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load more of the queue');
+      const page = res.data;
+      setMore((m) => ({ items: [...(m?.items ?? []), ...page.requests], nextCursor: page.nextCursor }));
+    } catch (err) {
+      setMoreError(formatError(err, 'Failed to load more of the queue'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   return (
     <SectionCard icon={Inbox} title="Publish queue" description="Requests from publishers awaiting a system-org decision.">
@@ -362,6 +393,18 @@ export function PublishQueuePanel({ can }: Props) {
                 ))}
               </ul>
             )}
+            {items.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-fg-muted">
+                <span data-testid="queue-count">
+                  Showing {items.length} of {total}
+                  {OLDEST_FIRST_STATUSES.has(status) ? ' — oldest first' : ' — newest first'}
+                </span>
+                {nextCursor && (
+                  <Button variant="secondary" size="xs" onClick={() => void loadMore()} loading={loadingMore}>Load more</Button>
+                )}
+              </div>
+            )}
+            {moreError && <RetryError message={moreError} onRetry={() => void loadMore()} />}
           </>
         )}
       </div>

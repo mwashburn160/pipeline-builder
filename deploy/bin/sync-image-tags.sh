@@ -16,6 +16,15 @@
 #
 # Plugin image is a single target (no `-docker`/`-kaniko`/`-podman` suffix).
 # Builds run on a rootless buildkitd sidecar across every deploy target.
+#
+# DIGEST PINNING. Every reference is written as `<svc>:<version>@sha256:<digest>`,
+# and only AFTER that digest passed verify-image-signatures.sh (cosign keyless,
+# identity = this repo's release.yml at refs/heads/main). A tag is mutable — a
+# re-pushed or look-alike `:<version>` would otherwise be what the cluster pulls
+# — while the digest is the exact artifact CI built, signed and scanned. The
+# version stays in the ref for readers and for verify-image-tags.sh. Needs
+# `docker buildx` (digest lookup) and network access to ghcr.io; the images must
+# already be PUBLISHED — run this after the release workflow's publish job.
 
 set -euo pipefail
 
@@ -53,6 +62,8 @@ sed_i() {
   fi
 }
 
+OWNER="${OWNER:-mwashburn160}"
+
 for entry in "${SERVICES[@]}"; do
   svc="${entry%%:*}"
   pkg="$ROOT/${entry##*:}/package.json"
@@ -65,13 +76,23 @@ for entry in "${SERVICES[@]}"; do
     echo "WARN: could not read version from $pkg — skipping $svc"
     continue
   fi
-  echo "→ $svc: $ver"
 
-  # Match `ghcr.io/mwashburn160/<svc>:<old-version>` and replace the version.
-  # `latest` is also rewritten so all environments converge.
+  # Resolve the published manifest-list digest, then verify ITS signature before
+  # any file is touched. Either failing aborts the whole sync (set -e): a
+  # half-pinned deploy tree is worse than an unchanged one.
+  ref="ghcr.io/${OWNER}/${svc}:${ver}"
+  digest=$(docker buildx imagetools inspect "$ref" --format '{{ .Manifest.Digest }}') \
+    || { echo "ERROR: cannot resolve the digest of $ref — is it published?" >&2; exit 1; }
+  case "$digest" in sha256:*) ;; *) echo "ERROR: unexpected digest for $ref: $digest" >&2; exit 1 ;; esac
+  PB_VERIFY_REFS="ghcr.io/${OWNER}/${svc}@${digest}" bash "$ROOT/deploy/bin/verify-image-signatures.sh" "$OWNER" >/dev/null \
+    || { echo "ERROR: ${ref}@${digest} failed signature verification — not pinning it" >&2; exit 1; }
+  echo "→ $svc: $ver@$digest (signature verified)"
+
+  # Replace `ghcr.io/<owner>/<svc>:<anything>[@sha256:<old>]` with the verified
+  # pin. `latest` and an old digest are rewritten too, so all targets converge.
   for f in "${FILES[@]}"; do
     [ -f "$f" ] || continue
-    sed_i "s|(ghcr\\.io/mwashburn160/${svc}:)[A-Za-z0-9._]+|\\1${ver}|g" "$f"
+    sed_i "s|(ghcr\\.io/${OWNER}/${svc}:)[A-Za-z0-9._]+(@sha256:[0-9a-f]{64})?|\\1${ver}@${digest}|g" "$f"
   done
 done
 

@@ -11,6 +11,7 @@
  * rejected when `impersonationReadOnly` is set.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -40,14 +41,14 @@ function mockRes() {
 
 describe('requireWriteAccess', () => {
   it('passes GET through under impersonation', () => {
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     requireWriteAccess(mockReq('GET', true), mockRes(), next);
     expect(next).toHaveBeenCalled();
   });
 
   it('passes HEAD and OPTIONS through under impersonation', () => {
-    const head = jest.fn();
-    const opt = jest.fn();
+    const head = jest.fn<AnyFn>();
+    const opt = jest.fn<AnyFn>();
     requireWriteAccess(mockReq('HEAD', true), mockRes(), head);
     requireWriteAccess(mockReq('OPTIONS', true), mockRes(), opt);
     expect(head).toHaveBeenCalled();
@@ -57,16 +58,16 @@ describe('requireWriteAccess', () => {
   it('rejects POST/PUT/PATCH/DELETE under impersonation', () => {
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
       const res = mockRes();
-      const next = jest.fn();
+      const next = jest.fn<AnyFn>();
       requireWriteAccess(mockReq(method, true), res, next);
       expect(res.status).toHaveBeenCalledWith(403);
-      expect((res.json as jest.Mock).mock.calls[0][0].code).toBe('IMPERSONATION_READ_ONLY');
+      expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0].code).toBe('IMPERSONATION_READ_ONLY');
       expect(next).not.toHaveBeenCalled();
     }
   });
 
   it('passes writes through when NOT impersonating (impersonationReadOnly false)', () => {
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     requireWriteAccess(mockReq('POST', false), mockRes(), next);
     expect(next).toHaveBeenCalled();
   });
@@ -75,7 +76,7 @@ describe('requireWriteAccess', () => {
     // requireWriteAccess relies on requireAuth running first; if it didn't,
     // we let the request through and requireAuth (or its absence) will
     // reject it elsewhere.
-    const next = jest.fn();
+    const next = jest.fn<AnyFn>();
     requireWriteAccess(mockReq('POST'), mockRes(), next);
     expect(next).toHaveBeenCalled();
   });

@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createEnvRedisClient } from './env-redis.js';
+import { randomUUID } from 'crypto';
+import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from './env-redis.js';
 import type { RemoteAuditEvent } from './remote-audit-client.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
@@ -49,10 +50,17 @@ export interface AuditSpool {
   /** Return entries whose re-delivery failed to the HEAD of the buffer (retried
    *  first) and clear them from the in-progress list. Best-effort. */
   requeue(entries: AuditSpoolEntry[]): Promise<void>;
-  /** Reclaim any entries stranded on the in-progress list by a prior crash,
-   *  moving them back to the head of the main buffer. Call once at startup.
-   *  Returns the number reclaimed. */
+  /**
+   * Reclaim entries stranded on ABANDONED in-progress lists — those of owners
+   * (spool instances, i.e. pods) whose heartbeat is older than the stale
+   * threshold — moving them back to the head of the main buffer. A LIVE owner's
+   * in-flight batch is never touched, so a peer's recover can't duplicate work
+   * that owner is still delivering. Safe to call periodically; returns the
+   * number reclaimed.
+   */
   recover(): Promise<number>;
+  /** Mark this owner alive (so no peer reclaims its in-flight batch). */
+  heartbeat(): Promise<void>;
   /** Approximate current depth (for metrics / drain decisions). */
   depth(): Promise<number>;
 }
@@ -68,10 +76,26 @@ interface RedisListClient {
   lmove(source: string, destination: string, from: 'LEFT' | 'RIGHT', to: 'LEFT' | 'RIGHT'): Promise<string | null>;
   /** Remove `count` occurrences of `value` from a list. */
   lrem(key: string, count: number, value: string): Promise<number>;
+  /** Owner heartbeats: a sorted set of owner id → last-seen epoch ms. */
+  zadd(key: string, score: number, member: string): Promise<unknown>;
+  zrangebyscore(key: string, min: number | string, max: number | string): Promise<string[]>;
+  zrem(key: string, member: string): Promise<number>;
 }
 
-const DEFAULT_SPOOL_KEY = 'audit:spool';
+/**
+ * The spool key for one service's buffered audit events. Per SERVICE on
+ * purpose: re-delivery mints a service token as `entry.serviceName`, which only
+ * that service's pods can sign (per-service keys). A shared key let a pod of
+ * one service take another's entries, fail to sign for them, and requeue them
+ * forever — while that service's own pods never saw them.
+ */
+export function auditSpoolKey(serviceName: string): string {
+  return `audit:spool:${serviceName}`;
+}
+
 const DEFAULT_MAX_DEPTH = 10_000;
+/** An owner whose heartbeat is older than this is presumed dead (its pod crashed). */
+const DEFAULT_STALE_OWNER_MS = 10 * 60_000;
 /** Guard so a pathological in-progress list can't spin `recover`/`take` forever. */
 const MAX_MOVE_ITERATIONS = 100_000;
 
@@ -93,17 +117,37 @@ function safeParse(raw: string): AuditSpoolEntry | null {
  * or per-pod-disk buffer), shared by all replicas of a service, and bounded via
  * a trim-to-tail on overflow (drops the OLDEST, emitting `audit_spool_dropped_total`).
  */
-export function createRedisAuditSpool(
-  redis: RedisListClient,
-  opts: { maxDepth?: number; key?: string } = {},
-): AuditSpool {
-  const key = opts.key ?? DEFAULT_SPOOL_KEY;
-  // The in-progress "processing" list — a taken batch lives here until it is
-  // acked (delivered) or requeued (still failing). It is a security log's
-  // durability net: a crash between take and ack/requeue leaves the batch here,
-  // and `recover` reclaims it on restart instead of silently losing it.
-  const inProgressKey = `${key}:inflight`;
+export interface RedisAuditSpoolOptions {
+  /** The buffer's Redis key — one per service ({@link auditSpoolKey}). */
+  key: string;
+  maxDepth?: number;
+  /** This instance's owner id (default: random per instance). */
+  ownerId?: string;
+  /** Heartbeat age after which an owner's in-flight batch is reclaimable. */
+  staleOwnerMs?: number;
+  /** Awaited before each command — e.g. a readiness gate for a lazily connecting client. */
+  ready?: () => Promise<void>;
+}
+
+export function createRedisAuditSpool(redis: RedisListClient, opts: RedisAuditSpoolOptions): AuditSpool {
+  const key = opts.key;
+  const ownerId = opts.ownerId ?? randomUUID();
+  const staleOwnerMs = Math.max(1, opts.staleOwnerMs ?? DEFAULT_STALE_OWNER_MS);
+  const ready = opts.ready ?? (() => Promise.resolve());
+  // PER-OWNER in-progress list — a taken batch lives here until it is acked
+  // (delivered) or requeued (still failing). It is a security log's durability
+  // net: a crash between take and ack/requeue leaves the batch here, and a peer's
+  // (or this pod's successor's) `recover` reclaims it once the owner's heartbeat
+  // goes stale. One shared in-flight list let any replica's startup recover
+  // steal batches its live siblings were mid-way through delivering.
+  const inflightKeyOf = (owner: string) => `${key}:inflight:${owner}`;
+  const inProgressKey = inflightKeyOf(ownerId);
+  const ownersKey = `${key}:owners`;
   const maxDepth = Math.max(1, opts.maxDepth ?? DEFAULT_MAX_DEPTH);
+
+  const beat = async (): Promise<void> => {
+    await redis.zadd(ownersKey, Date.now(), ownerId);
+  };
 
   // The EXACT serialized string each returned entry was parsed from, so `ack` /
   // `requeue` can LREM the precise value off the in-progress list. Keyed by the
@@ -115,6 +159,7 @@ export function createRedisAuditSpool(
   return {
     async enqueue(entry) {
       try {
+        await ready();
         const len = await redis.rpush(key, JSON.stringify(entry));
         emitCounter('audit_spool_enqueued_total', { service: entry.serviceName });
         if (len > maxDepth) {
@@ -131,6 +176,8 @@ export function createRedisAuditSpool(
 
     async take(max) {
       try {
+        await ready();
+        await beat();
         const out: AuditSpoolEntry[] = [];
         const limit = Math.max(1, max);
         for (let i = 0; i < limit; i++) {
@@ -159,6 +206,7 @@ export function createRedisAuditSpool(
     async ack(entries) {
       if (entries.length === 0) return;
       try {
+        await ready();
         for (const entry of entries) {
           await redis.lrem(inProgressKey, 1, rawOf(entry));
           rawByEntry.delete(entry);
@@ -181,6 +229,7 @@ export function createRedisAuditSpool(
         // lists → harmless double-delivery (deduped downstream by idempotency
         // reuse), never a LOSS. The reverse order (lrem then lpush) would drop the
         // event outright on a crash in the gap, which a security log must not do.
+        await ready();
         for (let i = entries.length - 1; i >= 0; i--) {
           const raw = rawOf(entries[i]);
           await redis.lpush(key, raw);
@@ -194,22 +243,40 @@ export function createRedisAuditSpool(
 
     async recover() {
       try {
+        await ready();
+        await beat();
         let reclaimed = 0;
-        for (let i = 0; i < MAX_MOVE_ITERATIONS; i++) {
-          // Move in-progress-tail → main-head: an older stranded entry (nearer the
-          // in-progress head) ends up ahead of a newer one, preserving order.
-          const raw = await redis.lmove(inProgressKey, key, 'RIGHT', 'LEFT');
-          if (raw === null || raw === undefined) break;
-          reclaimed++;
+        const stale = await redis.zrangebyscore(ownersKey, '-inf', Date.now() - staleOwnerMs);
+        for (const owner of stale) {
+          if (owner === ownerId) continue;
+          const source = inflightKeyOf(owner);
+          for (let i = 0; i < MAX_MOVE_ITERATIONS; i++) {
+            // Move in-progress-tail → main-head: an older stranded entry (nearer
+            // the in-progress head) ends up ahead of a newer one, preserving order.
+            const raw = await redis.lmove(source, key, 'RIGHT', 'LEFT');
+            if (raw === null || raw === undefined) break;
+            reclaimed++;
+          }
+          // Only forget the owner once its list is empty.
+          await redis.zrem(ownersKey, owner);
         }
         if (reclaimed > 0) {
           emitCounter('audit_spool_recovered_total', {}, reclaimed);
-          logger.warn('Audit spool recovered stranded in-progress events', { reclaimed });
+          logger.warn('Audit spool recovered events stranded by a dead owner', { reclaimed });
         }
         return reclaimed;
       } catch (err) {
         logger.warn('Audit spool recover failed', { error: errMsg(err) });
         return 0;
+      }
+    },
+
+    async heartbeat() {
+      try {
+        await ready();
+        await beat();
+      } catch (err) {
+        logger.debug('Audit spool heartbeat failed', { error: errMsg(err) });
       }
     },
 
@@ -229,9 +296,12 @@ export function createRedisAuditSpool(
  * configured — the caller then runs without a spool (best-effort behavior). The shared helper loads
  * ioredis via `createRequire`, so this stays importable where Redis isn't present.
  */
-export function createEnvRedisAuditSpool(opts: { maxDepth?: number; key?: string } = {}): AuditSpool | null {
-  const inst = createEnvRedisClient<RedisListClient>('audit-spool');
+export function createEnvRedisAuditSpool(opts: Omit<RedisAuditSpoolOptions, 'ready'>): AuditSpool | null {
+  const inst = createEnvRedisClient<RedisListClient & ReadyAwareRedis>('audit-spool');
   if (!inst) return null;
-  logger.info('Redis audit spool initialized');
-  return createRedisAuditSpool(inst, opts);
+  logger.info('Redis audit spool initialized', { key: opts.key });
+  // The env client has no offline queue: the boot-time recover() used to run
+  // before the connection was up, fail, and leave stranded batches until the
+  // next restart. Every command now waits (bounded) for readiness.
+  return createRedisAuditSpool(inst, { ...opts, ready: createRedisReadyGate(inst, 10_000) });
 }

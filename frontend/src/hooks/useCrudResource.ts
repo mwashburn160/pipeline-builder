@@ -17,6 +17,7 @@
  */
 import { useState, useCallback, useRef } from 'react';
 import { formatError } from '@/lib/constants';
+import { continueAfterStepUp } from '@/lib/api/errors';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -69,7 +70,9 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
   // picking "critical" then "warning" quickly could leave the critical rules —
   // with their total and pagination — on screen under the "warning" filter.
   const fetchGenRef = useRef(0);
+  const lastParamsRef = useRef<TParams | undefined>(undefined);
   const fetch = useCallback(async (params?: TParams) => {
+    lastParamsRef.current = params;
     const gen = ++fetchGenRef.current;
     setLoading(true);
     setLoadError(null);
@@ -90,6 +93,14 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
     }
   }, [api, entityName]);
 
+  /** A mutation refused for step-up that the global dialog took over is not an
+   *  error here; once its replay lands the list is re-read, since the replayed
+   *  write never passed through the optimistic update below. */
+  const handedToStepUp = useCallback(
+    (err: unknown) => continueAfterStepUp(err, () => { void fetch(lastParamsRef.current); }),
+    [fetch],
+  );
+
   const create = useCallback(async (data: TCreate): Promise<T | null> => {
     setMutationError(null);
     try {
@@ -103,10 +114,11 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
       setMutationError(new Error((res as { message?: string }).message || `Failed to create ${entityName}`));
       return null;
     } catch (err) {
+      if (handedToStepUp(err)) return null;
       setMutationError(toError(err, `Failed to create ${entityName}`));
       return null;
     }
-  }, [api, entityName]);
+  }, [api, entityName, handedToStepUp]);
 
   const update = useCallback(async (id: string, data: TUpdate): Promise<T | null> => {
     setMutationError(null);
@@ -120,10 +132,11 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
       setMutationError(new Error((res as { message?: string }).message || `Failed to update ${entityName}`));
       return null;
     } catch (err) {
+      if (handedToStepUp(err)) return null;
       setMutationError(toError(err, `Failed to update ${entityName}`));
       return null;
     }
-  }, [api, entityName]);
+  }, [api, entityName, handedToStepUp]);
 
   const remove = useCallback(async (id: string): Promise<boolean> => {
     setMutationError(null);
@@ -139,10 +152,11 @@ export function useCrudResource<T extends { id: string }, TCreate, TUpdate, TPar
       setItems((prev) => prev.filter((i) => i.id !== id));
       return true;
     } catch (err) {
+      if (handedToStepUp(err)) return false;
       setMutationError(toError(err, `Failed to delete ${entityName}`));
       return false;
     }
-  }, [api, entityName]);
+  }, [api, entityName, handedToStepUp]);
 
   return { items, loading, loadError, mutationError, clearError, total, fetch, create, update, remove };
 }

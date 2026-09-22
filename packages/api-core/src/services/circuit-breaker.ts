@@ -18,9 +18,10 @@
  * fails closed — just immediately, instead of after the full retry budget; a
  * fail-open caller (createSafeClient) gets its `null` immediately.
  *
- * State is keyed by `host:port` in a process-level registry so it is shared even
- * when callers mint a fresh client per request — one bad target trips once, not
- * once-per-client. Disable entirely with `S2S_BREAKER_ENABLED=false`.
+ * State is keyed by `host:port` plus a route class ({@link circuitBreakerKey})
+ * in a process-level registry so it is shared even when callers mint a fresh
+ * client per request — one bad target trips once, not once-per-client — while
+ * one failing surface of a service can't shed traffic to its other surfaces. Disable entirely with `S2S_BREAKER_ENABLED=false`.
  */
 
 import { envInt, envBool } from '../utils/env.js';
@@ -56,6 +57,8 @@ export class CircuitBreaker {
   private consecutiveFailures = 0;
   private openedAt = 0;
   private probeInFlight = false;
+  /** When the current half-open probe was admitted (for expiring a stuck probe). */
+  private probeStartedAt = 0;
 
   constructor(
     private readonly key: string,
@@ -74,18 +77,29 @@ export class CircuitBreaker {
   allowRequest(): boolean {
     if (!this.config.enabled) return true;
     if (this.state === 'closed') return true;
+    const now = Date.now();
     if (this.state === 'open') {
-      if (Date.now() - this.openedAt >= this.config.cooldownMs) {
+      if (now - this.openedAt >= this.config.cooldownMs) {
         this.state = 'half-open';
-        this.probeInFlight = true;
+        this.admitProbe(now);
         return true;
       }
       return false;
     }
-    // half-open: allow only a single probe at a time.
-    if (this.probeInFlight) return false;
-    this.probeInFlight = true;
+    // half-open: allow only a single probe at a time — but a probe that has been
+    // in flight longer than the cooldown is presumed lost (its caller never
+    // reported back: hung socket, swallowed promise). Without this expiry the
+    // breaker would stay half-open with the gate shut FOREVER, fast-failing
+    // every request to a downstream that may long since have recovered.
+    if (this.probeInFlight && now - this.probeStartedAt < this.config.cooldownMs) return false;
+    if (this.probeInFlight) emitCounter('s2s_circuit_probe_expired_total', { target: this.key });
+    this.admitProbe(now);
     return true;
+  }
+
+  private admitProbe(now: number): void {
+    this.probeInFlight = true;
+    this.probeStartedAt = now;
   }
 
   /** A logical request succeeded (2xx/3xx/4xx that isn't a downstream fault). */
@@ -131,7 +145,21 @@ export class CircuitBreaker {
 
 const registry = new Map<string, CircuitBreaker>();
 
-/** Get (or lazily create) the shared breaker for a `host:port` target. */
+/**
+ * The breaker key for a target and a ROUTE CLASS. Breakers are per
+ * `host:port` + class, so one failing surface of a service (say platform's
+ * audit ingest returning 5xx) can't open the breaker for an unrelated one
+ * (platform's JWKS / key exchange). The class is a small, caller-chosen label —
+ * never derived from the path, which carries ids and would explode the registry.
+ */
+export function circuitBreakerKey(target: string, routeClass?: string): string {
+  return routeClass && routeClass !== DEFAULT_ROUTE_CLASS ? `${target}#${routeClass}` : target;
+}
+
+/** The route class of a request that names none. */
+export const DEFAULT_ROUTE_CLASS = 'default';
+
+/** Get (or lazily create) the shared breaker for a {@link circuitBreakerKey}. */
 export function getCircuitBreaker(key: string): CircuitBreaker {
   let breaker = registry.get(key);
   if (!breaker) {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { ShieldCheck, ShieldAlert, Users, UserPlus, UserMinus, Crown, AlertTriangle, Plus, Pencil, Trash2, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
@@ -64,6 +64,7 @@ function summarizePermissions(perms: string[]): { category: string; count: numbe
 }
 
 export default function RolesPage() {
+  const uid = useId();
   // The read gate (`roles:manage`) comes from the nav entry via page-access.
   const { accessDenied, user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   // Capability to manage Roles — role admins/owners (via their bundle) and
@@ -519,10 +520,10 @@ export default function RolesPage() {
               />
             </FormField>
             <div className="space-y-1">
-              <label className="block text-xs font-medium text-fg">
+              <span className="block text-xs font-medium text-fg" id={`${uid}-permissions`}>
                 Permissions <span className="text-fg-muted font-normal">({rolePerms.size} selected)</span>
-              </label>
-              <div className="max-h-72 overflow-y-auto border border-default rounded-lg divide-y divide-default">
+              </span>
+              <div role="group" aria-labelledby={`${uid}-permissions`} className="max-h-72 overflow-y-auto border border-default rounded-lg divide-y divide-default">
                 {ORG_ASSIGNABLE_CATEGORIES.map(({ category, permissions }) => (
                   <div key={category} className="p-2.5">
                     <p className="text-2xs font-semibold uppercase tracking-wide text-fg-muted">{category}</p>

@@ -135,8 +135,8 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   }, [catalogPagination.offset, catalogPagination.limit, catalogTarget, catalogSeverity]);
 
   useEffect(() => {
-    if (tab === 'subscriptions') fetchSubscriptions();
-    else fetchCatalog();
+    if (tab === 'subscriptions') void fetchSubscriptions();
+    else void fetchCatalog();
     // Invalidate any in-flight fetch on unmount / tab switch so a late response
     // can't clobber the newly-selected tab's state.
     return () => { reqRef.current++; };
@@ -147,10 +147,10 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
     setCatalogPagination(prev => ({ ...prev, offset: 0 }));
   }, [catalogTarget, catalogSeverity]);
 
-  const handleSubsPageChange = (offset: number) => { fetchSubscriptions(offset, subsPagination.limit); };
-  const handleSubsPageSizeChange = (limit: number) => { fetchSubscriptions(0, limit); };
-  const handleCatalogPageChange = (offset: number) => { fetchCatalog(offset, catalogPagination.limit); };
-  const handleCatalogPageSizeChange = (limit: number) => { fetchCatalog(0, limit); };
+  const handleSubsPageChange = (offset: number) => { void fetchSubscriptions(offset, subsPagination.limit); };
+  const handleSubsPageSizeChange = (limit: number) => { void fetchSubscriptions(0, limit); };
+  const handleCatalogPageChange = (offset: number) => { void fetchCatalog(offset, catalogPagination.limit); };
+  const handleCatalogPageSizeChange = (limit: number) => { void fetchCatalog(0, limit); };
 
   // Route mutation failures to a toast — without this a rejected promise is
   // unhandled and the user sees nothing happen.
@@ -160,39 +160,39 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
 
   const handleToggle = (ruleId: string, isActive: boolean) => runMutation(async () => {
     await api.setSubscriptionActive(ruleId, isActive);
-    fetchSubscriptions();
+    void fetchSubscriptions();
   }, 'Failed to update subscription');
 
   const handleBulkToggle = (isActive: boolean) => runMutation(async () => {
     if (selectedIds.size === 0) return;
     await api.bulkSetSubscriptionActive([...selectedIds], isActive);
     setSelectedIds(new Set());
-    fetchSubscriptions();
+    void fetchSubscriptions();
   }, 'Failed to update subscriptions');
 
   const handleSubscribe = (ruleId: string) => runMutation(async () => {
     await api.subscribeToRule(ruleId);
-    fetchCatalog();
+    void fetchCatalog();
   }, 'Failed to subscribe to rule');
 
   const handleClone = (ruleId: string) => runMutation(async () => {
     await api.cloneRule(ruleId);
-    fetchSubscriptions();
+    void fetchSubscriptions();
   }, 'Failed to clone rule');
 
   const handlePin = (ruleId: string) => runMutation(async () => {
     await api.pinSubscription(ruleId);
-    fetchSubscriptions();
+    void fetchSubscriptions();
   }, 'Failed to pin subscription');
 
   const handleUnpin = (ruleId: string) => runMutation(async () => {
     await api.unpinSubscription(ruleId);
-    fetchSubscriptions();
+    void fetchSubscriptions();
   }, 'Failed to unpin subscription');
 
   const handleUnsubscribe = (ruleId: string) => runMutation(async () => {
     await api.unsubscribeFromRule(ruleId);
-    fetchSubscriptions();
+    void fetchSubscriptions();
   }, 'Failed to unsubscribe');
 
   const handlePreview = async (ruleId: string) => {

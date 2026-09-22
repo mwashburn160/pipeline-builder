@@ -19,7 +19,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useLoadable } from '@/hooks/useLoadable';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
-import { browserSupportsWebAuthn, registerPasskey } from '@/lib/passkeys';
+import { beginPasskeyRegistration, browserSupportsWebAuthn, finishPasskeyRegistration, type PendingPasskeyRegistration } from '@/lib/passkeys';
 import { formatError } from '@/lib/constants';
 import { webauthnErrorMessage } from '@/lib/webauthn';
 import type { Passkey } from '@/types';
@@ -82,6 +82,9 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
   const [name, setName] = useState('');
   const [adding, setAdding] = useState(false);
   const [pendingAdd, setPendingAdd] = useState<string | null>(null);
+  /** Step-up done and the challenge fetched: waiting for the person to press
+   *  "Create passkey", whose click is the gesture the browser ceremony needs. */
+  const [readyAdd, setReadyAdd] = useState<{ name: string; pending: PendingPasskeyRegistration } | null>(null);
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -97,22 +100,46 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     setPendingAdd(trimmed);
   };
 
+  /** After the step-up: fetch the challenge (spending the token), then wait for
+   *  an explicit click to run the ceremony — see `beginPasskeyRegistration`. */
   const executeAdd = async (stepUpToken: string) => {
     if (!pendingAdd) return;
+    const addName = pendingAdd;
     setAdding(true);
     try {
-      const { recoveryCodes } = await registerPasskey(pendingAdd, stepUpToken);
+      setReadyAdd({ name: addName, pending: await beginPasskeyRegistration(stepUpToken) });
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to start adding the passkey'));
+    } finally {
+      setAdding(false);
+      setPendingAdd(null);
+    }
+  };
+
+  /** The browser ceremony, run from the "Create passkey" click itself. */
+  const createPasskey = async () => {
+    if (!readyAdd) return;
+    setAdding(true);
+    try {
+      const { recoveryCodes } = await finishPasskeyRegistration(readyAdd.pending, readyAdd.name);
       setName('');
+      setReadyAdd(null);
       if (recoveryCodes?.length) setFreshCodes(recoveryCodes);
       toast.success('Passkey added');
       void reloadAll();
     } catch (err) {
-      // A dismissed browser prompt is a cancel; only a real failure is shown.
-      const message = webauthnErrorMessage(err, 'Failed to add the passkey');
+      // Here a NotAllowedError is not a silent cancel: it is also what a browser
+      // answers when it would not start the ceremony at all, so say so and
+      // leave the button to try again.
+      const errName = (err as { name?: string } | null)?.name;
+      const message = errName === 'NotAllowedError' || errName === 'AbortError'
+        ? 'The browser didn’t create the passkey — the prompt was dismissed, timed out, or was blocked. Press “Create passkey” to try again.'
+        : webauthnErrorMessage(err, 'Failed to add the passkey');
       if (message) toast.error(message);
+      // A duplicate authenticator will not succeed on retry.
+      if (errName === 'InvalidStateError') setReadyAdd(null);
     } finally {
       setAdding(false);
-      setPendingAdd(null);
     }
   };
 
@@ -123,7 +150,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     try {
       const res = await api.renamePasskey(passkey.id, trimmed);
       if (res.success) { toast.success('Passkey renamed'); void reloadAll(); }
-      else toast.error(res.message || 'Failed to rename the passkey');
+      else {toast.error(res.message || 'Failed to rename the passkey');}
     } catch (err) {
       toast.error(formatError(err, 'Failed to rename the passkey'));
     }
@@ -134,7 +161,7 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
     try {
       const res = await api.deletePasskey(passkey.id, stepUpToken);
       if (res.success) { toast.success('Passkey removed'); void reloadAll(); }
-      else toast.error(res.message || 'Failed to remove the passkey');
+      else {toast.error(res.message || 'Failed to remove the passkey');}
     } catch (err) {
       // Includes the server's LAST_SIGN_IN_METHOD explanation, shown verbatim.
       toast.error(formatError(err, 'Failed to remove the passkey'));
@@ -245,8 +272,19 @@ export function PasskeySection({ readOnly }: { readOnly: boolean }) {
             disabled={adding || readOnly}
           />
         </FormField>
-        <Button onClick={handleAdd} loading={adding || !!pendingAdd} readOnly={readOnly}>Add passkey</Button>
+        <Button onClick={handleAdd} loading={(adding && !readyAdd) || !!pendingAdd} disabled={!!readyAdd} readOnly={readOnly}>Add passkey</Button>
       </div>
+
+      {readyAdd && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-default bg-surface-muted px-3 py-2 text-sm" role="status">
+          <span className="flex-1 min-w-[12rem]">
+            Confirmed. Press <strong>Create passkey</strong> and your browser will ask for the device —
+            a fingerprint, face or screen lock — for “{readyAdd.name}”.
+          </span>
+          <Button onClick={() => void createPasskey()} loading={adding}>Create passkey</Button>
+          <Button variant="ghost" onClick={() => setReadyAdd(null)} disabled={adding}>Cancel</Button>
+        </div>
+      )}
 
       {pendingAdd && (
         <StepUpModal

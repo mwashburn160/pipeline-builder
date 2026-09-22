@@ -61,6 +61,9 @@ interface ListParams {
   search?: string;
   /** Filter by pricing tier. Cheap (single-doc field). */
   tier?: QuotaTier;
+  /** Only these orgs — lets a page resolve names for exactly the ids it shows
+   *  instead of paging the whole fleet and missing the ones past the cap. */
+  ids?: string[];
   offset: number;
   limit: number;
 }
@@ -101,8 +104,9 @@ interface UpdateOrgInput {
 
 class OrganizationService {
   /** List organizations with optional name/slug search + pagination. System-admin only at the route layer. */
-  async list({ search, tier, offset, limit }: ListParams): Promise<{ organizations: OrgSummary[]; total: number }> {
+  async list({ search, tier, ids, offset, limit }: ListParams): Promise<{ organizations: OrgSummary[]; total: number }> {
     const filter: Record<string, unknown> = {};
+    if (ids) filter._id = { $in: ids };
     if (search) {
       // Treat the search term as a literal substring (escape metachars).
       // See utils/regex.ts for rationale.
@@ -277,8 +281,8 @@ class OrganizationService {
   /**
    * Set the account seat limit on the org's ROOT. Platform owns `seats` (it is
    * not a quota-service type), so billing syncs the effective seat entitlement
-   * (tier base + bundles) here. Resolves to the root so a team id still targets
-   * the account. Returns the resolved root id, or null if the org is missing.
+   * (tier base + bundles) here. Root-only: a team id throws
+   * `ORG_SEAT_LIMIT_NOT_ROOT`. Returns the root id, or null if the org is missing.
    */
   async setSeatLimit(
     orgId: string,
@@ -471,7 +475,7 @@ class OrganizationService {
   /**
    * RESTORE a soft-deleted org within its retention window: clear the
    * `deletedAt`/`purgeAfter` tombstone and bump every active member's
-   * `tokenVersion` so a re-issued token resolves the org as live again (the
+   * `claimsVersion` so a re-issued token resolves the org as live again (the
    * token chokepoint keyed on `deletedAt`, so it needs the org un-tombstoned AND
    * fresh tokens). Idempotent-safe: returns null when there is no soft-deleted
    * org with this id (already purged, never deleted, or unknown) so the
@@ -497,20 +501,20 @@ class OrganizationService {
 
       const memberships = await UserOrganization.find({ organizationId: toOrgId(id), isActive: true })
         .select('userId').session(session).lean();
-      // Bump tokenVersion so members re-auth and pick up the restored membership —
-      // but NEVER the actor performing the restore: invalidating their own token
-      // would 401 their next request and bounce them to the login screen. Their
-      // session stays valid and resolves the now-live org on the next request.
+      // Bump claimsVersion so members' next refresh picks up the restored org
+      // (their sessions stay valid) — but not the actor performing the restore,
+      // whose in-flight request would otherwise 401 mid-action; their session
+      // resolves the now-live org on its next refresh.
       bumpedMemberIds = memberships
         .map((m) => m.userId)
         .filter((uid) => !excludeUserId || uid.toString() !== excludeUserId);
       if (bumpedMemberIds.length > 0) {
-        await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { tokenVersion: 1 } }).session(session);
+        await User.updateMany({ _id: { $in: bumpedMemberIds } }, { $inc: { claimsVersion: 1 } }).session(session);
       }
 
       return { id: org._id.toString(), name: org.name, membersInvalidated: bumpedMemberIds.length };
     });
-    // Post-commit: publish the restored members' now-current tokenVersion so a
+    // Post-commit: publish the restored members' now-current access version so a
     // re-issued token resolves the org as live again on the stateless services.
     await publishUsersRevocation(bumpedMemberIds);
     return result;

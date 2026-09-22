@@ -11,6 +11,7 @@
 
 import type { AddressInfo } from 'node:net';
 import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import express from 'express';
 
 const mockSearch = jest.fn<(p: Record<string, unknown>) => Promise<unknown>>();
@@ -22,7 +23,7 @@ const mockReviews = jest.fn<(h: string, n: string, q: Record<string, unknown>) =
 const mockInsertValues = jest.fn<(v: unknown) => Promise<void>>(async () => undefined);
 let readerConfigured = true;
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   db: { insert: jest.fn(() => ({ values: mockInsertValues })) },
   schema: { ecosystemSearchMiss: { _: 'ecosystem_search_misses' } },
   isPublicReaderConfigured: () => readerConfigured,
@@ -39,7 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
 }));
 
 const rateLimitOptions: Array<Record<string, unknown>> = [];
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   rateLimitByOrg: (opts: Record<string, unknown>) => {
     rateLimitOptions.push(opts);
     return (_req: unknown, _res: unknown, next: () => void) => next();
@@ -53,13 +54,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ host: 'registry', port: 5000, http: true }) },
 }));
 
 class ImageVerificationError extends Error {}
 class SbomBusyError extends Error {}
-const mockFetchSbom = jest.fn<(repo: string, digest: string) => Promise<Record<string, unknown>>>();
+const mockFetchSbom = jest.fn<(repo: string, digest: string, ..._rest: unknown[]) => Promise<Record<string, unknown>>>();
 jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
   fetchPublicImageSbom: mockFetchSbom,
   ImageVerificationError,
@@ -124,7 +125,7 @@ describe('GET /public/plugins', () => {
     expect(mockSearch).toHaveBeenCalledWith(expect.objectContaining({
       q: 'trivy', category: 'security', tier: 'official', needsSecrets: false, minRating: 4, sort: 'rating', limit: 100,
     }));
-    expect((await res.json()).data).toEqual(EMPTY);
+    expect(((await res.json()) as any).data).toEqual(EMPTY);
   });
 
   it('takes the first value of a repeated parameter', async () => {
@@ -159,14 +160,14 @@ describe('categories + sitemap', () => {
   it('serves categories in the envelope the pages read', async () => {
     mockCategories.mockResolvedValue([{ id: 'security', count: 3, top: [] }]);
     const res = await fetch(`${base}/plugins/categories`);
-    expect((await res.json()).data).toEqual({ categories: [{ id: 'security', count: 3, top: [] }] });
+    expect(((await res.json()) as any).data).toEqual({ categories: [{ id: 'security', count: 3, top: [] }] });
     expect(res.headers.get('cache-control')).toMatch(/^public/);
   });
 
   it('serves every listing for the sitemap in one call', async () => {
     mockSitemap.mockResolvedValue([{ publisher: 'acme', name: 'trivy', updatedAt: '2026-09-21T00:00:00.000Z' }]);
     const res = await fetch(`${base}/plugins/sitemap`);
-    expect((await res.json()).data).toEqual({ entries: [{ publisher: 'acme', name: 'trivy', updatedAt: '2026-09-21T00:00:00.000Z' }] });
+    expect(((await res.json()) as any).data).toEqual({ entries: [{ publisher: 'acme', name: 'trivy', updatedAt: '2026-09-21T00:00:00.000Z' }] });
   });
 });
 
@@ -175,7 +176,7 @@ describe('GET /public/plugins/:publisher/:name', () => {
     mockListing.mockResolvedValue({ name: 'trivy' });
     const res = await fetch(`${base}/plugins/pipeline-builder/trivy`);
     expect(res.status).toBe(200);
-    expect((await res.json()).data).toEqual({ listing: { name: 'trivy' } });
+    expect(((await res.json()) as any).data).toEqual({ listing: { name: 'trivy' } });
     expect(mockListing).toHaveBeenCalledWith('pipeline-builder', 'trivy');
   });
 
@@ -205,7 +206,7 @@ describe('GET /public/plugins/:publisher/:name/versions/:version/sbom', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/application\/spdx\+json/);
     expect(res.headers.get('content-disposition')).toBe('attachment; filename="acme-trivy-1.2.3.spdx.json"');
-    expect(await res.json()).toEqual({ spdxVersion: 'SPDX-2.3' });
+    expect((await res.json()) as any).toEqual({ spdxVersion: 'SPDX-2.3' });
     expect(mockFetchSbom).toHaveBeenCalledWith('public/acme/trivy', DIGEST, expect.anything());
   });
 
@@ -220,7 +221,7 @@ describe('GET /public/plugins/:publisher/:name/versions/:version/sbom', () => {
     mockFetchSbom.mockRejectedValue(new ImageVerificationError('no attestation'));
     const res = await fetch(sbomUrl());
     expect(res.status).toBe(409);
-    expect((await res.json()).code).toBe('IMAGE_VERIFICATION_FAILED');
+    expect(((await res.json()) as any).code).toBe('IMAGE_VERIFICATION_FAILED');
   });
 
   it('answers 503 with Retry-After when verification is saturated', async () => {
@@ -239,8 +240,16 @@ describe('GET /public/plugins/:publisher/:name/reviews', () => {
     const res = await fetch(`${base}/plugins/acme/trivy/reviews?sort=recent&rating=4&limit=5&cursor=eyJvIjoxMH0`);
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toMatch(/^public, max-age=60/);
-    expect((await res.json()).data).toEqual(PAGE);
+    expect(((await res.json()) as any).data).toEqual(PAGE);
     expect(mockReviews).toHaveBeenCalledWith('acme', 'trivy', { sort: 'recent', rating: 4, limit: 5, cursor: 'eyJvIjoxMH0' });
+  });
+
+  it('a fresh re-read (?fresh=1, or a credentialed request) is never cacheable (E24)', async () => {
+    mockReviews.mockResolvedValue(PAGE);
+    const fresh = await fetch(`${base}/plugins/acme/trivy/reviews?fresh=1`);
+    expect(fresh.headers.get('cache-control')).toBe('private, no-store');
+    const authed = await fetch(`${base}/plugins/acme/trivy/reviews`, { headers: { Authorization: 'Bearer x' } });
+    expect(authed.headers.get('cache-control')).toBe('private, no-store');
   });
 
   it('answers 404 when the listing is not public, and for a malformed path', async () => {

@@ -7,6 +7,7 @@
  * `aal: 1`, and the FIDO Metadata Service snapshot the registration check uses.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 const YUBIKEY = 'cb69481e-8ff7-4039-93ec-0a2729a154a8';
@@ -20,16 +21,16 @@ jest.unstable_mockModule('../src/helpers/org-policy-lineage.js', () => ({
     return lineages[orgId] ?? [];
   },
 }));
-const mockIncCounter = jest.fn();
+const mockIncCounter = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: mockIncCounter }));
 
 const mds = { blobPath: '/tmp/mds.jwt' as string | undefined, url: undefined as string | undefined, fetchTimeoutMs: 100, refreshMs: 60_000 };
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { webauthn: { mds } } } }));
-const mockReadFile = jest.fn(async () => 'blob.jwt');
+const mockReadFile = jest.fn(async (..._args: unknown[]) => 'blob.jwt');
 jest.unstable_mockModule('fs/promises', () => ({ readFile: mockReadFile }));
 const mockVerifyMDSBlob = jest.fn<(blob: string) => Promise<unknown>>();
 jest.unstable_mockModule('@simplewebauthn/server/helpers', () => ({ verifyMDSBlob: mockVerifyMDSBlob }));
-const mockInitialize = jest.fn(async () => undefined);
+const mockInitialize = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('@simplewebauthn/server', () => ({ MetadataService: { initialize: mockInitialize } }));
 
 const policy = await import('../src/helpers/authenticator-policy.js');

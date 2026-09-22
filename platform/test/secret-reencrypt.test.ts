@@ -14,17 +14,18 @@
  *     decrypted, so a rotation never proceeds over unreadable data.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockOrgFindById = jest.fn<(...a: unknown[]) => unknown>();
-const mockOrgFind = jest.fn<(...a: unknown[]) => unknown>();
-const mockIdpFindOne = jest.fn<(...a: unknown[]) => unknown>();
-const mockIdpFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockOrgFindById = jest.fn<AnyFn>();
+const mockOrgFind = jest.fn<AnyFn>();
+const mockIdpFindOne = jest.fn<AnyFn>();
+const mockIdpFind = jest.fn<AnyFn>();
 const mockIdpUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockTotpFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockTotpFind = jest.fn<AnyFn>();
 const mockTotpUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockSamlFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockSamlFind = jest.fn<AnyFn>();
 const mockSamlUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockWrap = jest.fn<(...a: unknown[]) => string>();
 const mockUnwrap = jest.fn<(...a: unknown[]) => string>();
@@ -91,7 +92,7 @@ beforeEach(() => {
 
 describe('reencryptOrgSecrets', () => {
   it('re-wraps every captured AI key + the IdP secret and persists them', async () => {
-    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn(), save: jest.fn(async () => undefined) };
+    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
     mockOrgFindById.mockResolvedValue(orgDoc);
 
     const counts = await reencryptOrgSecrets('org-1', {
@@ -113,7 +114,7 @@ describe('reencryptOrgSecrets', () => {
   });
 
   it('leaves the IdP row alone when no IdP secret was captured', async () => {
-    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn(), save: jest.fn(async () => undefined) };
+    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
     mockOrgFindById.mockResolvedValue(orgDoc);
 
     const counts = await reencryptOrgSecrets('org-1', { aiKeys: { openai: 'k' } });
@@ -123,7 +124,7 @@ describe('reencryptOrgSecrets', () => {
   });
 
   it('THROWS (does not silently drop) when re-encrypting a secret fails', async () => {
-    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn(), save: jest.fn(async () => undefined) };
+    const orgDoc: any = { aiProviderKeys: {}, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
     mockOrgFindById.mockResolvedValue(orgDoc);
     mockWrap.mockImplementation((pt: unknown) => {
       if (pt === 'k-openai') throw new Error('KMS Encrypt denied');
@@ -168,8 +169,8 @@ describe('captureOrgSecrets', () => {
 
 describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
   it('re-wraps every org AI key and every IdP secret, reporting counts', async () => {
-    const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'old-a', openai: 'old-o' }, markModified: jest.fn(), save: jest.fn(async () => undefined) };
-    const orgB: any = { _id: 'org-b', aiProviderKeys: undefined, markModified: jest.fn(), save: jest.fn(async () => undefined) };
+    const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'old-a', openai: 'old-o' }, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
+    const orgB: any = { _id: 'org-b', aiProviderKeys: undefined, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
     mockOrgFind.mockReturnValue(cursorOver([orgA, orgB]));
     mockIdpFind.mockReturnValue(cursorOver([{ _id: 'idp-1', orgId: 'org-a', clientSecretEncrypted: 'old-idp' }]));
     mockTotpFind.mockReturnValue(cursorOver([{ _id: 'totp-1', userId: 'u-1', secret: 'old-totp' }]));
@@ -207,7 +208,7 @@ describe('reencryptAllStoredSecrets (SECRET_ENCRYPTION_KEY rotation)', () => {
   });
 
   it('records an unreadable row as a failure and keeps going (caller exits non-zero)', async () => {
-    const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'broken', openai: 'old-o' }, markModified: jest.fn(), save: jest.fn(async () => undefined) };
+    const orgA: any = { _id: 'org-a', aiProviderKeys: { anthropic: 'broken', openai: 'old-o' }, markModified: jest.fn<AnyFn>(), save: jest.fn(async () => undefined) };
     mockOrgFind.mockReturnValue(cursorOver([orgA]));
     mockIdpFind.mockReturnValue(cursorOver([]));
     mockTotpFind.mockReturnValue(cursorOver([]));

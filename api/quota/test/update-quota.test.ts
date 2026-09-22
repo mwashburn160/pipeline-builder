@@ -8,15 +8,17 @@
  * those are tested separately in authorize-org.test.ts.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks  must be defined before imports
-const mockSendSuccess = jest.fn();
-const mockSendError = jest.fn();
-const mockSendQuotaExceeded = jest.fn();
+const mockSendSuccess = jest.fn<AnyFn>();
+const mockSendError = jest.fn<AnyFn>();
+const mockSendQuotaExceeded = jest.fn<AnyFn>();
 const mockGetParam = jest.fn((params: Record<string, string>, key: string) => params[key]);
-const mockIsSystemAdmin = jest.fn().mockReturnValue(false);
+const mockIsSystemAdmin = jest.fn<AnyFn>().mockReturnValue(false);
 
 class MockAppError extends Error {
   statusCode: number;
@@ -85,7 +87,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const requireOrgId = opts?.requireOrgId !== false;
@@ -95,7 +97,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
     }
     const ctx = {
       identity: { orgId, userId: req.user?.sub },
-      log: jest.fn(),
+      log: jest.fn<AnyFn>(),
     };
     try {
       await handler({ req, res, ctx, orgId, userId: req.user?.sub || '' });
@@ -117,10 +119,10 @@ jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
   requireInternalCaller: (_req: any, _res: any, next: any) => next(),
 }));
 
-const mockFindById = jest.fn();
-const mockFindOneAndUpdate = jest.fn();
-const mockUpdateOne = jest.fn();
-const mockDeleteOne = jest.fn();
+const mockFindById = jest.fn<AnyFn>();
+const mockFindOneAndUpdate = jest.fn<AnyFn>();
+const mockUpdateOne = jest.fn<AnyFn>();
+const mockDeleteOne = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: {
@@ -131,10 +133,10 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
   },
 }));
 
-const mockEmitQuotaAudit = jest.fn();
+const mockEmitQuotaAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitQuotaAudit: mockEmitQuotaAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 // Org → team hierarchy: stub as flat so the shared-root-cap pre-check in
@@ -169,8 +171,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -197,7 +199,7 @@ function makeSaveableOrg(overrides: Partial<any> = {}) {
       pipelines: { used: 2, resetAt: futureDate },
       apiCalls: { used: 50, resetAt: futureDate },
     },
-    save: jest.fn().mockResolvedValue(undefined),
+    save: jest.fn<AnyFn>().mockResolvedValue(undefined),
     ...overrides,
   };
   return org;
@@ -208,7 +210,7 @@ function makeSaveableOrg(overrides: Partial<any> = {}) {
 describe('PUT /quotas/:orgId (update org)', () => {
   const handler = getHandler('put', '/:orgId');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('updates org name and slug', async () => {
     const org = makeSaveableOrg();
@@ -328,7 +330,7 @@ describe('PUT /quotas/:orgId (update org)', () => {
 describe('POST /quotas/:orgId/reset', () => {
   const handler = getHandler('post', '/:orgId/reset');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('resets all quota usage when no quotaType specified', async () => {
     const org = makeSaveableOrg();
@@ -398,7 +400,7 @@ describe('POST /quotas/:orgId/reset', () => {
 describe('DELETE /quotas/:orgId', () => {
   const handler = getHandler('delete', '/:orgId');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('deletes the quota doc and emits an attributed cross-tenant quota.delete audit', async () => {
     mockDeleteOne.mockResolvedValue({ deletedCount: 1 });
@@ -466,7 +468,7 @@ describe('DELETE /quotas/:orgId', () => {
 describe('POST /quotas/:orgId/increment', () => {
   const handler = getHandler('post', '/:orgId/increment');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('increments quota usage successfully', async () => {
     mockUpdateOne.mockResolvedValue({ modifiedCount: 0 });
@@ -626,7 +628,7 @@ describe('POST /quotas/:orgId/increment', () => {
 describe('POST /quotas/:orgId/decrement (reserve rollback)', () => {
   const handler = getHandler('post', '/:orgId/decrement');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('decrements quota usage successfully', async () => {
     const org = makeSaveableOrg({

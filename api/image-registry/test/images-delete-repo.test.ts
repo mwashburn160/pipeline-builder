@@ -14,13 +14,15 @@
  * exercised exactly as in production.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import { jest } from '@jest/globals';
+import { jest, beforeAll, afterAll, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // --- registry-client mock (the backing registry HTTP calls) ---------------
-const listRepositories = jest.fn();
+const listRepositories = jest.fn<AnyFn>();
 const listTags = jest.fn<(name: string) => Promise<{ tags: string[] }>>();
 const getManifest = jest.fn<(name: string, ref: string) => Promise<{ digest: string }>>();
 const deleteManifest = jest.fn<(name: string, digest: string) => Promise<void>>();
@@ -31,29 +33,29 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   listTags,
   getManifest,
   deleteManifest,
-  putManifest: jest.fn(),
-  headManifest: jest.fn(),
-  headBlob: jest.fn(),
-  getBlobStream: jest.fn(),
-  mountBlob: jest.fn(),
+  putManifest: jest.fn<AnyFn>(),
+  headManifest: jest.fn<AnyFn>(),
+  headBlob: jest.fn<AnyFn>(),
+  getBlobStream: jest.fn<AnyFn>(),
+  mountBlob: jest.fn<AnyFn>(),
   isNotFound,
 }));
 
 // --- durable-audit mock (assert the registry.image.delete event shape) ------
-const emitImageRegistryAudit = jest.fn();
+const emitImageRegistryAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitImageRegistryAudit,
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 // --- api-server mock: withRoute passthrough + metric counter ---------------
-const incCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+const incCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   // Passthrough that hands the handler a minimal ctx and mirrors withRoute's
   // "unhandled throw → 500" contract so thrown (non-NotFound) errors surface
   // as 500 exactly like production.
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
-    const ctx = { log: jest.fn(), requestId: 'test-req' };
+    const ctx = { log: jest.fn<AnyFn>(), requestId: 'test-req' };
     try {
       await handler({ req, res, ctx, orgId: '000000000000000000000001', userId: 'admin' });
     } catch (err) {
@@ -66,7 +68,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 }));
 
 // --- api-core mock: real-enough send helpers + utilities -------------------
-const emitAudit = jest.fn();
+const emitAudit = jest.fn<AnyFn>();
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: Res, status: number, data: unknown) => res.status(status).json({ success: true, data }),
@@ -79,7 +81,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Sequential stand-in for the concurrency helper — deterministic, and the
   // handler only relies on side effects, not on parallelism.
   runConcurrent: async <T>(items: T[], _n: number, fn: (t: T) => Promise<void>) => {
-    for (const it of items) await fn(it);
+    for (const item of items) await fn(item);
   },
   emitAudit,
 }));
@@ -102,7 +104,7 @@ beforeAll(async () => {
     next();
   });
   app.use('/api/images', createImageRoutes());
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   const { port } = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
 });

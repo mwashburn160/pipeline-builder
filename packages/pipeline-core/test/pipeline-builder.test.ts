@@ -155,7 +155,7 @@ describe('PipelineBuilder', () => {
       const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
       const tags = (Object.values(pipelines)[0] as any).Properties.Tags;
       expect(tags).toEqual(
-        expect.arrayContaining([{ Key: 'pb.deploys', Value: 'Deploy-prod:production' }]),
+        expect.arrayContaining([{ Key: 'pb.deploys', Value: 'Deploy-prod-alias:production' }]),
       );
       // The old pipeline-level Environment tag is gone (no back-compat).
       expect(tags.some((t: { Key: string }) => t.Key === 'Environment')).toBe(false);
@@ -182,7 +182,7 @@ describe('PipelineBuilder', () => {
       const tags = (Object.values(pipelines)[0] as any).Properties.Tags;
       expect(tags).toEqual(
         expect.arrayContaining([
-          { Key: 'pb.deploys', Value: 'Deploy-stg:staging+Deploy-prod:production' },
+          { Key: 'pb.deploys', Value: 'Deploy-stg-alias:staging+Deploy-prod-alias:production' },
         ]),
       );
     });
@@ -201,7 +201,7 @@ describe('PipelineBuilder', () => {
       const tags = (Object.values(pipelines)[0] as any).Properties.Tags;
       // Last stage ("Ship") is the deploy — not the never-matching literal "Deploy".
       expect(tags).toEqual(
-        expect.arrayContaining([{ Key: 'pb.deploys', Value: 'Ship:production' }]),
+        expect.arrayContaining([{ Key: 'pb.deploys', Value: 'Ship-alias:production' }]),
       );
       // Synth warning recommends explicit per-stage environment.
       expect(warnSpy).toHaveBeenCalledWith(
@@ -233,12 +233,30 @@ describe('PipelineBuilder', () => {
       // Never exceeds AWS's 256-char tag-value limit.
       expect(value.length).toBeLessThanOrEqual(256);
       // Headline/production pair is kept, and placed first.
-      expect(value.startsWith('ProdDeploy:production')).toBe(true);
+      expect(value.startsWith('ProdDeploy-alias:production')).toBe(true);
       // At least one overflow pair was dropped (fewer than all 9 pairs remain).
       expect(value.split('+').length).toBeLessThan(9);
       // A synth warning names the 256-char cap and the dropped pairs.
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('256'));
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('dropped'));
+    });
+
+    it('every pb.deploys stage key is the name of a synthesized CodePipeline stage', () => {
+      // CodePipeline events carry `detail.stage` = the synthesized stage name;
+      // the events Lambda looks that up in pb.deploys. A key that names no real
+      // stage (the display name, when the wave id differs) never matches.
+      const { template } = build(baseProps({
+        stages: [
+          { stageName: 'Staging', environment: 'staging', steps: [{ plugin: { name: 'cdk-synth' } }] },
+          { stageName: 'Prod', alias: 'prod-wave', environment: 'production', steps: [{ plugin: { name: 'cdk-synth' } }] },
+        ],
+      }));
+      const pipeline = Object.values(template.findResources('AWS::CodePipeline::Pipeline'))[0] as any;
+      const stageNames = new Set((pipeline.Properties.Stages as Array<{ Name: string }>).map((st) => st.Name));
+      const value = (pipeline.Properties.Tags as Array<{ Key: string; Value: string }>).find((t) => t.Key === 'pb.deploys')!.Value;
+      const keys = value.split('+').map((pair) => pair.slice(0, pair.lastIndexOf(':')));
+      expect(keys).toEqual(['Staging-alias', 'prod-wave']);
+      for (const key of keys) expect(stageNames.has(key)).toBe(true);
     });
 
     it('does not emit pb.deploys or Environment when no environment is declared', () => {

@@ -62,6 +62,9 @@ const EDIT_BODY = {
   enabled: true,
 };
 
+/** The stored config those edits target: the SAME IdP. */
+const EXISTING = { id: 'cfg-1', protocol: 'oidc', provider: EDIT_BODY.provider, discoveryUrl: EDIT_BODY.discoveryUrl };
+
 function mockReq(body: Record<string, unknown>) {
   return { body, params: {}, user: { sub: 'user-1' } } as never;
 }
@@ -88,7 +91,7 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
     // The IdP form is WRITE-ONLY for the secret (never sent back on read), so an
     // edit that changes any other field arrives without it. Both surfaces must
     // re-inject the stored value; only one of them used to.
-    findByOrg.mockResolvedValue({ id: 'cfg-1' });
+    findByOrg.mockResolvedValue(EXISTING);
     getLoginConfig.mockResolvedValue({ clientSecret: 'stored-secret' });
 
     await upsertOrgIdp(mockReq({ ...EDIT_BODY }), mockRes(), 'org-1', surface);
@@ -98,8 +101,26 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
     expect(submitted.clientSecret).toBe('stored-secret');
   });
 
+  it.each([
+    ['discoveryUrl', { discoveryUrl: 'https://attacker.test/.well-known/openid-configuration' }],
+    ['provider', { provider: 'cognito', region: 'us-east-1', userPoolId: 'us-east-1_Ab12Cd34', discoveryUrl: undefined }],
+  ])('REFUSES to carry the stored secret to a different IdP (%s changed) — it must be re-entered', async (_f, change) => {
+    findByOrg.mockResolvedValue(EXISTING);
+    getLoginConfig.mockResolvedValue({ clientSecret: 'stored-secret' });
+
+    await expect(upsertOrgIdp(mockReq({ ...EDIT_BODY, ...change }), mockRes(), 'org-1', surface)).rejects.toThrow('IDP_SECRET_REQUIRED');
+    expect(getLoginConfig).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('retargeting WITH a freshly entered secret is fine', async () => {
+    findByOrg.mockResolvedValue(EXISTING);
+    await upsertOrgIdp(mockReq({ ...EDIT_BODY, discoveryUrl: 'https://new-idp.test/.well-known/openid-configuration', clientSecret: 'new' }), mockRes(), 'org-1', surface);
+    expect((upsert.mock.calls[0][1] as { clientSecret?: string }).clientSecret).toBe('new');
+  });
+
   it('uses a caller-supplied secret in preference to the stored one', async () => {
-    findByOrg.mockResolvedValue({ id: 'cfg-1' });
+    findByOrg.mockResolvedValue(EXISTING);
     getLoginConfig.mockResolvedValue({ clientSecret: 'stored-secret' });
 
     await upsertOrgIdp(mockReq({ ...EDIT_BODY, clientSecret: 'rotated' }), mockRes(), 'org-1', surface);
@@ -117,7 +138,7 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
   });
 
   it('pins the write to the URL org, ignoring a body orgId', async () => {
-    findByOrg.mockResolvedValue({ id: 'cfg-1' });
+    findByOrg.mockResolvedValue(EXISTING);
     getLoginConfig.mockResolvedValue({ clientSecret: 's' });
 
     await upsertOrgIdp(mockReq({ ...EDIT_BODY, orgId: 'other-org' }), mockRes(), 'org-1', surface);
@@ -126,7 +147,7 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
   });
 
   it('reserves a quota slot only on a fresh insert', async () => {
-    findByOrg.mockResolvedValue({ id: 'cfg-1' });
+    findByOrg.mockResolvedValue(EXISTING);
     getLoginConfig.mockResolvedValue({ clientSecret: 's' });
     await upsertOrgIdp(mockReq({ ...EDIT_BODY }), mockRes(), 'org-1', surface);
     expect(reserveFeatureQuota).not.toHaveBeenCalled();
@@ -152,11 +173,14 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
     ).rejects.toThrow('db down');
 
     expect(reserveFeatureQuota).toHaveBeenCalledTimes(1);
-    expect(releaseFeatureQuota).toHaveBeenCalledWith('org-1', 'idpConfigs', expect.anything());
+    // A rollback hands back the reservation so the decrement is conditional on
+    // the same quota period (resetAtSnapshot).
+    const reservation = await reserveFeatureQuota.mock.results[0].value;
+    expect(releaseFeatureQuota).toHaveBeenCalledWith('org-1', 'idpConfigs', expect.anything(), reservation);
   });
 
   it('records the surface on the audit event', async () => {
-    findByOrg.mockResolvedValue({ id: 'cfg-1' });
+    findByOrg.mockResolvedValue(EXISTING);
     getLoginConfig.mockResolvedValue({ clientSecret: 's' });
 
     await upsertOrgIdp(mockReq({ ...EDIT_BODY }), mockRes(), 'org-1', surface);
@@ -168,6 +192,16 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
 });
 
 describe.each(['admin', 'self-service'] as const)('patch/delete — %s surface', (surface) => {
+  it('REFUSES a patch that retargets the IdP without re-entering the secret', async () => {
+    findByOrg.mockResolvedValue(EXISTING);
+    await expect(patchOrgIdp(mockReq({ discoveryUrl: 'https://attacker.test/.well-known/openid-configuration' }), mockRes(), 'org-1', surface))
+      .rejects.toThrow('IDP_SECRET_REQUIRED');
+    expect(patch).not.toHaveBeenCalled();
+    // The same edit with the secret re-entered goes through.
+    await patchOrgIdp(mockReq({ discoveryUrl: 'https://new.test/.well-known/openid-configuration', clientSecret: 'fresh' }), mockRes(), 'org-1', surface);
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
   it('404s a patch when the org has no config', async () => {
     patch.mockResolvedValue(null);
     const res = mockRes();
@@ -186,7 +220,7 @@ describe.each(['admin', 'self-service'] as const)('patch/delete — %s surface',
 
   it('gives the quota slot back on a successful delete', async () => {
     await deleteOrgIdp(mockReq({}), mockRes(), 'org-1', surface);
-    expect(releaseFeatureQuota).toHaveBeenCalledWith('org-1', 'idpConfigs', expect.anything());
+    expect(releaseFeatureQuota).toHaveBeenCalledWith('org-1', 'idpConfigs', expect.anything(), null);
     expect(audit.mock.calls[0][2]).toMatchObject({ details: { surface } });
   });
 });

@@ -45,7 +45,7 @@ beforeEach(() => {
 describe('resolveImpersonationPolicy', () => {
   it('resolves an org document with NEITHER field to the documented defaults', () => {
     // Exactly what `.lean()` returns for an org created before the field existed.
-    const legacyLeanDoc = { _id: 'org-a', name: 'Org A' };
+    const legacyLeanDoc: { _id: string; name: string; impersonationPolicy?: unknown } = { _id: 'org-a', name: 'Org A' };
 
     expect(resolveImpersonationPolicy(legacyLeanDoc)).toEqual({
       policy: 'consent',

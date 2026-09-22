@@ -21,7 +21,7 @@
  * access-keys.integration.test.ts.
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
@@ -112,8 +112,8 @@ suite('service accounts (real Mongo)', () => {
   it('lists every account with its roles and keys (in bulk, not per account)', async () => {
     const first = await createAccount({ name: 'ci-deploy' });
     const second = await createAccount({ name: 'reporting-bot', roleIds: [] });
-    await sa.createServiceAccountKey(orgId, first.id, { name: 'k1', expiresInSeconds: 86400 });
-    await sa.createServiceAccountKey(orgId, first.id, { name: 'k2', expiresInSeconds: 86400 });
+    await sa.createServiceAccountKey(orgId, first.id, { name: 'k1', expiresInSeconds: 86400 }, SUPER);
+    await sa.createServiceAccountKey(orgId, first.id, { name: 'k2', expiresInSeconds: 86400 }, SUPER);
 
     const listed = await sa.listServiceAccounts(orgId);
     expect(listed.map((a: { name: string }) => a.name)).toEqual(['reporting-bot', 'ci-deploy']);
@@ -137,7 +137,7 @@ suite('service accounts (real Mongo)', () => {
 
   it('issues a pb_sa_ key whose secret is stored only as a hash, and caps active keys at five', async () => {
     const account = await createAccount();
-    const { key, view } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k1', expiresInSeconds: 86400 });
+    const { key, view } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k1', expiresInSeconds: 86400 }, SUPER);
 
     expect(key).toMatch(/^pb_sa_[A-Za-z0-9_-]{43}$/);
     expect(view.kind).toBe('service_account');
@@ -146,21 +146,21 @@ suite('service accounts (real Mongo)', () => {
     expect(JSON.stringify(doc)).not.toContain(key);
 
     for (let i = 2; i <= 5; i++) {
-      await sa.createServiceAccountKey(orgId, account.id, { name: `k${i}`, expiresInSeconds: 86400 });
+      await sa.createServiceAccountKey(orgId, account.id, { name: `k${i}`, expiresInSeconds: 86400 }, SUPER);
     }
-    await expect(sa.createServiceAccountKey(orgId, account.id, { name: 'k6', expiresInSeconds: 86400 }))
+    await expect(sa.createServiceAccountKey(orgId, account.id, { name: 'k6', expiresInSeconds: 86400 }, SUPER))
       .rejects.toThrow('SA_KEY_LIMIT');
   });
 
   it('refuses a key lifetime beyond 365 days', async () => {
     const account = await createAccount();
-    await expect(sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 366 * 86400 }))
+    await expect(sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 366 * 86400 }, SUPER))
       .rejects.toThrow('SA_KEY_EXPIRY_INVALID');
   });
 
   it('exchanges a key for a service_account token carrying the account, its org and its permissions', async () => {
     const account = await createAccount();
-    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
     const result = await apiKeyService.exchange(key);
     expect(result.ok).toBe(true);
@@ -186,7 +186,7 @@ suite('service accounts (real Mongo)', () => {
 
   it('re-derives permissions on every exchange, so a role change lands within one token lifetime', async () => {
     const account = await createAccount();
-    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
     expect(token.verifyAccessToken((await apiKeyService.exchange(key)).accessToken).role).toBe('admin');
 
     await sa.updateServiceAccount(orgId, account.id, { roleIds: [] }, SUPER);
@@ -197,7 +197,7 @@ suite('service accounts (real Mongo)', () => {
 
   it('fails closed on a revoked key, a disabled account and a tombstoned org', async () => {
     const account = await createAccount();
-    const { key, view } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    const { key, view } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
     await sa.updateServiceAccount(orgId, account.id, { disabled: true }, SUPER);
     expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'account_disabled' });
@@ -215,7 +215,7 @@ suite('service accounts (real Mongo)', () => {
     const account = await createAccount();
     const { key } = await sa.createServiceAccountKey(orgId, account.id, {
       name: 'k', expiresInSeconds: 86400, ipAllowlist: ['203.0.113.0/24'],
-    });
+    }, SUPER);
 
     expect((await apiKeyService.exchange(key, '203.0.113.7')).ok).toBe(true);
     expect(await apiKeyService.exchange(key, '198.51.100.9')).toEqual({ ok: false, reason: 'ip_not_allowed' });
@@ -225,7 +225,7 @@ suite('service accounts (real Mongo)', () => {
 
   it('meters the account OWN token budget and refuses once it is spent', async () => {
     const account = await createAccount({ tokenBudget: 2 });
-    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
     expect((await apiKeyService.exchange(key)).ok).toBe(true);
     expect((await apiKeyService.exchange(key)).ok).toBe(true);
@@ -241,7 +241,7 @@ suite('service accounts (real Mongo)', () => {
 
   it('is not orphaned when its creator is deleted', async () => {
     const account = await createAccount();
-    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
     // Delete the creator the way the account-deletion cascade does.
     const { deleteUserCascade } = await import('../src/services/user-cascade.js');
@@ -259,7 +259,7 @@ suite('service accounts (real Mongo)', () => {
 
   it('deletes accounts, their keys and their role assignments with the org', async () => {
     const account = await createAccount();
-    await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
     const removed = await sa.deleteServiceAccountsForOrg(orgId);
     expect(removed).toEqual({ accounts: 1, keys: 1 });
@@ -270,7 +270,7 @@ suite('service accounts (real Mongo)', () => {
 
   it('revokes (but keeps) every key when the org is soft-deleted', async () => {
     const account = await createAccount();
-    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
     expect(await sa.revokeServiceAccountKeysForOrg(orgId)).toBe(1);
     expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'revoked' });
@@ -296,7 +296,7 @@ suite('service accounts (real Mongo)', () => {
     const account = await createAccount(); // admin role → pipelines:write etc.
     const { key } = await sa.createServiceAccountKey(orgId, account.id, {
       name: 'ingest', expiresInSeconds: 86400, scope: 'reporting:ingest',
-    });
+    }, SUPER);
 
     const result = await apiKeyService.exchange(key);
     expect(result.ok).toBe(true);
@@ -316,7 +316,7 @@ suite('service accounts (real Mongo)', () => {
     const account = await createAccount();
     await expect(sa.createServiceAccountKey(orgId, account.id, {
       name: 'bogus', expiresInSeconds: 86400, scope: 'registry:destroy',
-    })).rejects.toThrow('SA_INVALID_SCOPE');
+    }, SUPER)).rejects.toThrow('SA_INVALID_SCOPE');
   });
 
   // ── Self-rotation (#N2) ──────────────────────────────────────────────────
@@ -330,7 +330,7 @@ suite('service accounts (real Mongo)', () => {
     const account = await createAccount();
     const { key, view } = await sa.createServiceAccountKey(orgId, account.id, {
       name: 'ingest', expiresInSeconds: 86400, scope: 'reporting:ingest', ipAllowlist: ['10.0.0.0/8'],
-    });
+    }, SUPER);
 
     const rotated = await apiKeyService.rotateServiceAccountKey(key, {}, '10.1.2.3');
     expect(rotated.ok).toBe(true);
@@ -352,7 +352,7 @@ suite('service accounts (real Mongo)', () => {
 
   it('retires the predecessor with the NEW key, and refuses to let a key revoke itself', async () => {
     const account = await createAccount();
-    const { key, view } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    const { key, view } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
     const rotated = await apiKeyService.rotateServiceAccountKey(key);
 
     // A key may never revoke ITSELF here: the rotator would destroy the very
@@ -375,7 +375,7 @@ suite('service accounts (real Mongo)', () => {
     const account = await createAccount();
     const issued = [];
     for (let i = 0; i < sa.MAX_ACTIVE_KEYS_PER_ACCOUNT; i++) {
-      issued.push(await sa.createServiceAccountKey(orgId, account.id, { name: `k${i}`, expiresInSeconds: 86400 }));
+      issued.push(await sa.createServiceAccountKey(orgId, account.id, { name: `k${i}`, expiresInSeconds: 86400 }, SUPER));
       // Distinct createdAt so "oldest" is unambiguous.
       await new Promise((r) => setTimeout(r, 5));
     }
@@ -399,8 +399,8 @@ suite('service accounts (real Mongo)', () => {
 
   it('refuses to rotate a revoked, expired or disabled-account key', async () => {
     const account = await createAccount();
-    const live = await sa.createServiceAccountKey(orgId, account.id, { name: 'live', expiresInSeconds: 86400 });
-    const dead = await sa.createServiceAccountKey(orgId, account.id, { name: 'dead', expiresInSeconds: 86400 });
+    const live = await sa.createServiceAccountKey(orgId, account.id, { name: 'live', expiresInSeconds: 86400 }, SUPER);
+    const dead = await sa.createServiceAccountKey(orgId, account.id, { name: 'dead', expiresInSeconds: 86400 }, SUPER);
     await sa.revokeServiceAccountKey(orgId, account.id, dead.view.id);
 
     expect(await apiKeyService.rotateServiceAccountKey(dead.key)).toEqual({ ok: false, reason: 'revoked' });
@@ -414,14 +414,14 @@ suite('service accounts (real Mongo)', () => {
     const account = await createAccount();
     const { key } = await sa.createServiceAccountKey(orgId, account.id, {
       name: 'pinned', expiresInSeconds: 86400, ipAllowlist: ['10.0.0.0/8'],
-    });
+    }, SUPER);
     expect(await apiKeyService.rotateServiceAccountKey(key, {}, '203.0.113.9'))
       .toEqual({ ok: false, reason: 'ip_not_allowed' });
   });
 
   it('refuses a rotation lifetime beyond the 365-day ceiling', async () => {
     const account = await createAccount();
-    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 });
+    const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
     expect(await apiKeyService.rotateServiceAccountKey(key, { expiresInSeconds: 400 * 24 * 60 * 60 }))
       .toEqual({ ok: false, reason: 'expiry_invalid' });
     expect(await apiKeyService.rotateServiceAccountKey(key, { expiresInSeconds: 1 }))

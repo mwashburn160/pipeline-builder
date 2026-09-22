@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: jest.fn(),
+  sendError: jest.fn<AnyFn>(),
   // The helpers gate on api-core's `isSystemAdmin`; mock it to match the
   // production semantics (sysadmin iff JWT claim).
   isSystemAdmin: jest.fn((req: any) => req?.user?.isSuperAdmin === true),
@@ -35,7 +36,7 @@ jest.unstable_mockModule('mongoose', () => {
 
   return {
     __esModule: true,
-    default: { Types, startSession: jest.fn() },
+    default: { Types, startSession: jest.fn<AnyFn>() },
     Types,
   };
 });
@@ -72,7 +73,7 @@ function mockRes() {
 
 // Tests
 describe('controller-helper', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   // isSystemAdmin is now re-exported from api-core; covered in api-core/test/auth.test.ts.
   // Local tests verify only the wrapper functions (isOrgAdmin, requireSystemAdmin, etc.).

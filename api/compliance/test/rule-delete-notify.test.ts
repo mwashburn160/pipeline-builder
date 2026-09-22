@@ -18,6 +18,7 @@
  * that both subscribers are still notified with an accurate message.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -61,11 +62,13 @@ function makeSelectChain(): Record<string, unknown> {
     Promise.resolve(currentSelectResult()).then(resolve);
   return chain;
 }
-const dbInsertValues = jest.fn().mockResolvedValue(undefined);
+const dbInsertValues = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const dbInsert = jest.fn(() => ({ values: dbInsertValues }));
 const dbSelect = jest.fn(() => makeSelectChain());
 
 const pipelineDataMock = {
+  // Imported (via the entitlement watermark store) by subscription-service.
+  drizzleRows: <T>(rows: T[]) => rows,
   CrudService: StubCrudService,
   CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 },
   buildComplianceRuleConditions: jest.fn(() => []),

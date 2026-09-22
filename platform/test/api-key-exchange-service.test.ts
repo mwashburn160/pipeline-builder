@@ -43,7 +43,10 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 const mockMembershipForOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockSignApiKeyToken = jest.fn<(...a: unknown[]) => Promise<string>>(async () => 'minted.user.jwt');
 const mockSignServiceAccountToken = jest.fn<(...a: unknown[]) => Promise<string>>(async () => 'minted.sa.jwt');
+const mockEnforceOrgAssurance = jest.fn<(...a: any[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: (...a: unknown[]) => mockEnforceOrgAssurance(...a),
   membershipForOrg: (...a: unknown[]) => mockMembershipForOrg(...a),
   signApiKeyToken: (...a: unknown[]) => mockSignApiKeyToken(...a),
   signServiceAccountToken: (...a: unknown[]) => mockSignServiceAccountToken(...a),
@@ -89,6 +92,12 @@ beforeEach(() => {
   mockMembershipForOrg.mockResolvedValue(membership);
   mockSignApiKeyToken.mockResolvedValue('minted.user.jwt');
   mockPatUpdateOne.mockImplementation(() => ({ catch: () => undefined }));
+  // Faithful to utils/token.ts: an org past its MFA grace refuses a
+  // single-factor, unscoped credential; everything else passes through.
+  mockEnforceOrgAssurance.mockImplementation(async (_user: unknown, m: any, auth: any, opts: any) => {
+    if (m?.mfaEnforced && !opts?.scope && auth.aal < 2) throw new Error('MFA_REQUIRED_FOR_ORG');
+    return auth;
+  });
 });
 
 describe('a personal access key', () => {
@@ -129,6 +138,30 @@ describe('a personal access key', () => {
       undefined,
       ['pipelines:read', 'billing:manage'],
     );
+  });
+
+  it('REFUSES a single-factor key once its org requires MFA — the same rule a session gets', async () => {
+    storeKey(PAT);
+    mockMembershipForOrg.mockResolvedValue({ ...membership, mfaEnforced: true });
+
+    expect(await apiKeyService.exchange(PAT)).toEqual({ ok: false, reason: 'mfa_required' });
+    expect(mockSignApiKeyToken).not.toHaveBeenCalled();
+    // The org's authenticator allowlist is applied through the same call, with
+    // the key's recorded passkey model.
+    storeKey(PAT, { amr: ['webauthn'], aal: 2, aaguid: 'aaguid-1' });
+    await apiKeyService.exchange(PAT);
+    expect(mockEnforceOrgAssurance).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _id: USER_ID }),
+      expect.objectContaining({ mfaEnforced: true }),
+      expect.objectContaining({ amr: ['webauthn'], aal: 2, aaguid: 'aaguid-1' }),
+      { scope: undefined },
+    );
+  });
+
+  it('lets a capability-SCOPED key through an MFA-requiring org (the machine carve-out)', async () => {
+    storeKey(PAT, { scope: 'reporting:ingest' });
+    mockMembershipForOrg.mockResolvedValue({ ...membership, mfaEnforced: true });
+    expect((await apiKeyService.exchange(PAT)).ok).toBe(true);
   });
 
   it('passes a capability SCOPE through (and reports it), carrying no subset', async () => {

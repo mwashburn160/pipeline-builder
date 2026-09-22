@@ -97,7 +97,7 @@ export function useTagsWithMetadata(repo: string | null, tags: string[] | null) 
       }
     };
 
-    (async () => {
+    void (async () => {
       // Bounded concurrency. Walk the tag list in waves of MAX_CONCURRENT.
       for (let i = 0; i < tags.length; i += MAX_CONCURRENT) {
         if (cancelled) return;

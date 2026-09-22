@@ -28,13 +28,18 @@
  *      its own in-flight reservation.
  */
 
+import {
+  type AnyFn,
+  installTestServiceKeys,
+  generateTestSigningKey,
+  installTestJwks,
+  signTestUserToken,
+  type TestSigningKey,
+  stubModule,
+} from '@pipeline-builder/api-core/testing';
 import { createHmac } from 'node:crypto';
 import http from 'node:http';
 import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
-import { installTestServiceKeys } from '@pipeline-builder/api-core/lib/testing/service-tokens.js';
-import {
-  generateTestSigningKey, installTestJwks, signTestUserToken, type TestSigningKey,
-} from '@pipeline-builder/api-core/lib/testing/user-tokens.js';
 import express from 'express';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -76,13 +81,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', async () => {
     getQuotaServiceAuthHeader: () => '',
     sendQuotaExceeded: () => undefined,
     // Boot-module + router link-time stubs.
-    createQuotaService: () => ({ increment: jest.fn(), check: jest.fn(), getUsage: jest.fn() }),
-    createEnvSseTicketStore: () => ({ stop: jest.fn() }),
+    createQuotaService: () => ({ increment: jest.fn<AnyFn>(), check: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() }),
+    createEnvSseTicketStore: () => ({ stop: jest.fn<AnyFn>() }),
     SSE_TICKET_TTL_MS: 30_000,
     validateBody: (req: { body?: Record<string, unknown> }) => ({ ok: true, value: req.body ?? {} }),
     validateQuery: () => ({ ok: true, value: {} }),
     parsePaginationParams: () => ({ limit: 25, offset: 0 }),
-    sendPaginatedNested: jest.fn(),
+    sendPaginatedNested: jest.fn<AnyFn>(),
     resolveRecipientAlias: (v: string) => ({ resolvedOrgId: v, wasAlias: false, originalValue: v }),
     MessageCreateSchema: {},
     MessageReplySchema: {},
@@ -91,14 +96,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', async () => {
   });
 });
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: { IDEMPOTENCY_TTL_MS: 300_000, IDEMPOTENCY_MAX_STORE_SIZE: 10_000, IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000 },
 }));
 
 // Infra: the DB tenant scope + retention scheduler.
 // (`requireActual` can't widen this list — the api-core mock above is an ASYNC
 // factory, and pipeline-data loads api-core, so a sync requireActual throws.)
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
   // api-server's tenant-context module reads this to stamp the request's org on
   // every log line. `runWithTenantContext` above is a pass-through that opens no
@@ -115,17 +120,17 @@ app.use(express.json());
 jest.unstable_mockModule('@pipeline-builder/api-server', async () => {
   const factory = await import(pkg('api-server/lib/api/middleware-factory.js'));
   const { getIdentity } = await import(pkg('api-core/lib/utils/identity.js'));
-  return {
+  return stubModule('@pipeline-builder/api-server', {
     createAuthenticatedWithOrgRoute: factory.createAuthenticatedWithOrgRoute,
     createProtectedRoute: factory.createProtectedRoute,
-    createApp: () => ({ app, sseManager: { send: jest.fn(), broadcast: jest.fn() } }),
-    runServer: jest.fn(),
+    createApp: () => ({ app, sseManager: { send: jest.fn<AnyFn>(), broadcast: jest.fn<AnyFn>() } }),
+    runServer: jest.fn<AnyFn>(),
     postgresHealthCheck: async () => ({}),
-    registerSseTicketChannel: jest.fn(),
+    registerSseTicketChannel: jest.fn<AnyFn>(),
     // Pre-auth identity (header-derived), exactly like the real one; requireAuth
     // re-derives it from the verified JWT.
     attachRequestContext: () => (req: any, _res: unknown, next: () => void) => {
-      req.context = { identity: getIdentity(req), log: jest.fn(), requestId: 'req-1' };
+      req.context = { identity: getIdentity(req), log: jest.fn<AnyFn>(), requestId: 'req-1' };
       next();
     },
     withRoute: (handler: any) => async (req: any, res: any) => {
@@ -137,9 +142,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', async () => {
       }
     },
     incCounter: () => undefined,
-    incrementQuotaFromCtx: jest.fn(),
+    incrementQuotaFromCtx: jest.fn<AnyFn>(),
     rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
-  };
+  });
 });
 
 // -- Service / helper stand-ins -----------------------------------------------
@@ -160,16 +165,16 @@ jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
   },
 }));
 jest.unstable_mockModule('../src/services/attachment-storage.js', () => ({
-  deleteAttachment: jest.fn(),
-  getAttachmentStream: jest.fn(),
-  getAttachmentStreamOrNull: jest.fn(),
-  putAttachment: jest.fn(),
-  generateThumbnail: jest.fn(),
-  thumbnailSiblingOf: jest.fn(),
-  thumbnailContentType: jest.fn(),
+  deleteAttachment: jest.fn<AnyFn>(),
+  getAttachmentStream: jest.fn<AnyFn>(),
+  getAttachmentStreamOrNull: jest.fn<AnyFn>(),
+  putAttachment: jest.fn<AnyFn>(),
+  generateThumbnail: jest.fn<AnyFn>(),
+  thumbnailSiblingOf: jest.fn<AnyFn>(),
+  thumbnailContentType: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/services/audit.js', () => ({
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 jest.unstable_mockModule('../src/helpers/org-names.js', () => ({
   enrichOneWithOrgNames: async <T>(m: T) => m,
@@ -237,7 +242,7 @@ const serviceKeys = installTestServiceKeys(['platform', 'compliance', 'message']
 serviceKeys.becomeService('message');
 
 /** A platform-signed USER token (access or step-up). */
-function signUserJwt(claims: Record<string, unknown>, ttlSeconds: number): Promise<string> {
+function signUserJwt(claims: Record<string, unknown>, ttlSeconds: number): string {
   return signTestUserToken(claims, { key: signingKey, expiresIn: ttlSeconds });
 }
 
@@ -257,7 +262,7 @@ const USER_CLAIMS = {
   auth_time: 1_700_000_000,
 } as const;
 
-function accessToken(permissions: string[] = ['messages:read', 'messages:write']): Promise<string> {
+function accessToken(permissions: string[] = ['messages:read', 'messages:write']): string {
   return signUserJwt({
     ...USER_CLAIMS,
     sub: 'user-1',
@@ -269,7 +274,7 @@ function accessToken(permissions: string[] = ['messages:read', 'messages:write']
   }, 300);
 }
 
-function stepUpToken(sub = 'user-1'): Promise<string> {
+function stepUpToken(sub = 'user-1'): string {
   return signUserJwt({ type: 'step-up', sub, jti: `su-${uniq()}` }, 60);
 }
 

@@ -19,18 +19,23 @@ import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/li
  */
 export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl>) {
   const router = useRouter();
-  const { isAuthenticated, isLoading, isInitialized } = useAuth();
+  const { isAuthenticated, isLoading, isSubmitting, isInitialized } = useAuth();
   const ogImage = `${siteUrl}/og-image.png`;
 
+  // A sign-in submitted from this page navigates by itself (to the return path,
+  // or to passkey enrolment for a bootstrap administrator) — so while one is in
+  // flight this redirect stands down rather than override that destination.
   useEffect(() => {
-    if (isInitialized && !isLoading && isAuthenticated) {
-      router.push(takeReturnPath());
+    if (isInitialized && !isLoading && !isSubmitting && isAuthenticated) {
+      void router.push(takeReturnPath());
     }
-  }, [isAuthenticated, isLoading, isInitialized, router]);
+  }, [isAuthenticated, isLoading, isSubmitting, isInitialized, router]);
 
   // Guests see the landing page; while auth initializes, or for an authenticated
-  // user about to be redirected, show the loader.
-  const showLanding = isInitialized && !isLoading && !isAuthenticated;
+  // user about to be redirected, show the loader. A sign-in SUBMISSION does not
+  // count as loading: the card must stay mounted to show an MFA prompt, a
+  // forced password change, or the error — it used to unmount on every submit.
+  const showLanding = isInitialized && !isLoading && (isSubmitting || !isAuthenticated);
 
   return (
     <>

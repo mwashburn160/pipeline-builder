@@ -15,9 +15,9 @@
 
 import {
   OFFICIAL_PUBLISHER_HANDLE,
-  satisfiesVersionSpec,
   schema,
   type ListingDataSource,
+  type InstallChangeRequest,
   type PluginInstall,
   type PluginInstallInsert,
   type PluginInstallPolicy,
@@ -27,7 +27,7 @@ import {
   type PluginListingVersion,
   type Publisher,
 } from '@pipeline-builder/pipeline-data';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import { elevated } from './store.js';
 
@@ -87,6 +87,17 @@ export const installRows = {
       .where(and(eq(I().id, id), eq(I().status, status))).returning() as PluginInstall[])),
   remove: (id: string): Promise<boolean> =>
     elevated(async (tx) => (await tx.delete(I()).where(eq(I().id, id)).returning()).length > 0),
+  /** Store a pending change — only on an ACTIVE install with none pending (the race guard). */
+  setPendingChange: (id: string, change: InstallChangeRequest): Promise<PluginInstall | null> =>
+    elevated(async (tx) => first(await tx.update(I()).set({ pendingChange: change, updatedAt: new Date() })
+      .where(and(eq(I().id, id), eq(I().status, 'active'), isNull(I().pendingChange))).returning() as PluginInstall[])),
+  /** Drop a pending change (rejected). False when there was none any more. */
+  clearPendingChange: (id: string): Promise<boolean> =>
+    elevated(async (tx) => (await tx.update(I()).set({ pendingChange: null, updatedAt: new Date() })
+      .where(and(eq(I().id, id), isNotNull(I().pendingChange))).returning()).length > 0),
+  /** The org's installs with a pending change. */
+  withPendingChange: (orgId: string): Promise<PluginInstall[]> =>
+    elevated(async (tx) => tx.select().from(I()).where(and(eq(I().orgId, orgId), isNotNull(I().pendingChange))) as Promise<PluginInstall[]>),
 };
 
 export const policyRows = {
@@ -106,49 +117,24 @@ type Rows<T> = { rows?: T[] } | T[];
 const rowsOf = <T>(res: Rows<T>): T[] => (Array.isArray(res) ? res : res.rows ?? []);
 
 /**
- * Orgs that use an Official listing through the IMPLICIT install (D16): their
- * pipeline definitions reference it (unqualified — unless the org's own plugin
- * of that name shadows it — or with `publisher: pipeline-builder`), or a
- * deployed pipeline's step manifest records it. With `version`, only uses that
- * reach that version (a definition's own version spec, or the manifest's exact
- * version). Runs ACROSS orgs: the result must only ever address those orgs
- * themselves, never be shown to the publisher.
+ * Orgs that use an Official listing through the IMPLICIT install (D16): a LIVE
+ * pipeline's deployed step manifest records it (E8 — manifests only, no scan
+ * of every pipeline definition's jsonb; a deleted pipeline never counts),
+ * matched on the Official publisher's ID (E12). With `version`, only uses of
+ * that exact version. Runs ACROSS orgs: the result must only ever address
+ * those orgs themselves, never be shown to the publisher.
  */
 export async function implicitOfficialUsers(name: string, version?: string): Promise<string[]> {
   return elevated(async (tx) => {
-    const defs = rowsOf(await tx.execute<{ org_id: string; spec: string | null }>(sql`
-      SELECT DISTINCT p.org_id, ref->'filter'->>'version' AS spec
-        FROM pipelines p,
-             LATERAL (
-               SELECT step->'plugin' AS ref
-                 FROM jsonb_array_elements(COALESCE(p.props->'stages', '[]'::jsonb)) AS stage,
-                      jsonb_array_elements(COALESCE(stage->'steps', '[]'::jsonb)) AS step
-               UNION ALL
-               SELECT p.props->'synth'->'plugin'
-             ) AS refs
-       WHERE p.is_active = true
-         AND p.deleted_at IS NULL
-         AND ref->>'name' = ${name}
-         AND (ref->>'publisher' = ${OFFICIAL_PUBLISHER_HANDLE}
-              OR (COALESCE(ref->>'publisher', '') = '' AND NOT EXISTS (
-                    SELECT 1 FROM plugins o
-                     WHERE o.org_id = p.org_id AND o.name = ${name} AND o.deleted_at IS NULL)))
-    `) as Rows<{ org_id: string; spec: string | null }>);
     const deployed = rowsOf(await tx.execute<{ org_id: string }>(sql`
-      SELECT DISTINCT m.org_id
+      SELECT DISTINCT lower(m.org_id) AS org_id
         FROM pipeline_step_manifests m
-       WHERE m.plugin_publisher = ${OFFICIAL_PUBLISHER_HANDLE}
-         AND m.plugin_name = ${name}
+        JOIN pipelines pl ON pl.id = m.pipeline_id AND pl.deleted_at IS NULL
+        JOIN publishers pub ON pub.id = m.plugin_publisher_id AND pub.handle = ${OFFICIAL_PUBLISHER_HANDLE}
+       WHERE m.plugin_name = ${name}
          ${version ? sql`AND m.plugin_version = ${version}` : sql``}
     `) as Rows<{ org_id: string }>);
-    const orgs = new Set<string>();
-    for (const row of defs) {
-      if (!row.org_id) continue;
-      if (version && row.spec && !satisfiesVersionSpec(version, row.spec)) continue;
-      orgs.add(row.org_id.toLowerCase());
-    }
-    for (const row of deployed) if (row.org_id) orgs.add(row.org_id.toLowerCase());
-    return [...orgs].sort();
+    return [...new Set(deployed.map((r) => r.org_id).filter((o): o is string => !!o).map((o) => o.toLowerCase()))].sort();
   });
 }
 

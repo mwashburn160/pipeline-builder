@@ -8,34 +8,35 @@
  * return a token issued by `issueImpersonationToken`.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockUserFindById = jest.fn();
-const mockIssueImpersonation = jest.fn();
-const mockAudit = jest.fn();
-const mockCreateRequest = jest.fn();
-const mockResolveAuthority = jest.fn();
-const mockNotifyTeam = jest.fn();
-const mockRequestFindById = jest.fn();
-const mockCanAdministerOrg = jest.fn();
-const mockDecide = jest.fn();
-const mockRevoke = jest.fn();
-const mockConsume = jest.fn();
-const mockIsSystemAdmin = jest.fn();
-const mockIsTenantAdminOf = jest.fn();
-const mockNotifyBreakglass = jest.fn();
-const mockResolvePolicy = jest.fn();
-const mockCreateBreakglass = jest.fn();
-const mockExpandOrgScope = jest.fn();
-const mockListForCaller = jest.fn();
-const mockPublishSessionRevocation = jest.fn();
-const mockDecideInitialApproval = jest.fn();
-const mockResolveChallengeRoute = jest.fn();
-const mockSendChallenge = jest.fn();
-const mockMarkUndeliverable = jest.fn();
-const mockUOFindOne = jest.fn();
-const mockNotifyRequester = jest.fn();
+const mockUserFindById = jest.fn<AnyFn>();
+const mockIssueImpersonation = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
+const mockCreateRequest = jest.fn<AnyFn>();
+const mockResolveAuthority = jest.fn<AnyFn>();
+const mockNotifyTeam = jest.fn<AnyFn>();
+const mockRequestFindById = jest.fn<AnyFn>();
+const mockCanAdministerOrg = jest.fn<AnyFn>();
+const mockDecide = jest.fn<AnyFn>();
+const mockRevoke = jest.fn<AnyFn>();
+const mockConsume = jest.fn<AnyFn>();
+const mockIsSystemAdmin = jest.fn<AnyFn>();
+const mockIsTenantAdminOf = jest.fn<AnyFn>();
+const mockNotifyBreakglass = jest.fn<AnyFn>();
+const mockResolvePolicy = jest.fn<AnyFn>();
+const mockCreateBreakglass = jest.fn<AnyFn>();
+const mockExpandOrgScope = jest.fn<AnyFn>();
+const mockListForCaller = jest.fn<AnyFn>();
+const mockPublishSessionRevocation = jest.fn<AnyFn>();
+const mockDecideInitialApproval = jest.fn<AnyFn>();
+const mockResolveChallengeRoute = jest.fn<AnyFn>();
+const mockSendChallenge = jest.fn<AnyFn>();
+const mockMarkUndeliverable = jest.fn<AnyFn>();
+const mockUOFindOne = jest.fn<AnyFn>();
+const mockNotifyRequester = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: (...a: unknown[]) => mockIsSystemAdmin(...a),
@@ -54,7 +55,7 @@ jest.unstable_mockModule('mongoose', () => {
     set() { /* no-op */ }
     static Types = { Mixed: class {}, ObjectId: class {} };
   }
-  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn() };
+  return { Types: { ObjectId: class {} }, Schema, models: {}, model: jest.fn<AnyFn>() };
 });
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
@@ -69,6 +70,8 @@ jest.unstable_mockModule('../src/helpers/impersonation-authority.js', () => ({
 }));
 // The controller publishes an ended session so OTHER services reject it too.
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
   publishImpersonationSessionRevocation: (...a: unknown[]) => mockPublishSessionRevocation(...a),
 }));
 jest.unstable_mockModule('../src/helpers/impersonation-challenge.js', () => ({
@@ -76,6 +79,7 @@ jest.unstable_mockModule('../src/helpers/impersonation-challenge.js', () => ({
   sendImpersonationChallenge: (...a: unknown[]) => mockSendChallenge(...a),
 }));
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: async () => false,
   expandOrgScope: (...a: unknown[]) => mockExpandOrgScope(...a),
 }));
 jest.unstable_mockModule('../src/helpers/impersonation-policy.js', () => ({
@@ -97,12 +101,14 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   findRefreshSession: jest.fn(async () => undefined),
-  signApiKeyToken: jest.fn(),
-  signServiceAccountToken: jest.fn(),
+  signApiKeyToken: jest.fn<AnyFn>(),
+  signServiceAccountToken: jest.fn<AnyFn>(),
   membershipForOrg: jest.fn(async () => undefined),
   issueImpersonationToken: (...a: unknown[]) => mockIssueImpersonation(...a),
 }));
@@ -172,7 +178,7 @@ describe('impersonateUser', () => {
   it('returns 403 when the caller has no authority over the target', async () => {
     mockResolveAuthority.mockResolvedValue({ kind: 'none' });
     mockUserFindById.mockReturnValue({
-      select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-target' }),
+      select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-target' }),
     });
     const res = mockRes();
     await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
@@ -188,7 +194,7 @@ describe('impersonateUser', () => {
   it('passes ancestor authority through and informs the team', async () => {
     mockResolveAuthority.mockResolvedValue({ kind: 'ancestor', viaOrgId: 'org-parent' });
     mockUserFindById.mockReturnValue({
-      select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-team' }),
+      select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-team' }),
     });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
 
@@ -208,7 +214,7 @@ describe('impersonateUser', () => {
 
   it('does NOT send the team notice on the sysadmin path', async () => {
     mockUserFindById.mockReturnValue({
-      select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-team' }),
+      select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-team' }),
     });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
 
@@ -242,7 +248,7 @@ describe('impersonateUser', () => {
   it('returns 404 when target does not exist', async () => {
     // Controller now does `User.findById(...).select('+isSuperAdmin')` to opt
     // into a `select: false` field — mock must return a thenable-on-.select().
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(null) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(null) });
     const res = mockRes();
     await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
       { user: { sub: 'sysadmin' }, params: { userId: 'missing' } }, res,
@@ -252,7 +258,7 @@ describe('impersonateUser', () => {
 
   it('refuses to impersonate another sysadmin', async () => {
     mockUserFindById.mockReturnValue({
-      select: jest.fn().mockResolvedValue({ _id: 'other-sysadmin', isSuperAdmin: true }),
+      select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'other-sysadmin', isSuperAdmin: true }),
     });
     const res = mockRes();
     await (impersonateUser as unknown as (req: any, res: any) => Promise<void>)(
@@ -264,7 +270,7 @@ describe('impersonateUser', () => {
 
   it('issues a token and audits the start event on the happy path', async () => {
     mockUserFindById.mockReturnValue({
-      select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-target' }),
+      select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false, lastActiveOrgId: 'org-target' }),
     });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
 
@@ -316,7 +322,7 @@ describe('redeemImpersonationRequest', () => {
     mockRequestFindById.mockReturnValue(leanOf({
       requesterId: 'sysadmin', targetUserId: 'target', orgId: 'org-a', approvalReason: 'consent',
     }));
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
 
     const res = await call({ sub: 'sysadmin' });
@@ -343,7 +349,7 @@ describe('redeemImpersonationRequest', () => {
   it('re-checks the target is not a sysadmin at redemption time', async () => {
     // The target may have been promoted during the up-to-an-hour approval window.
     mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 'target' }));
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: true }) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: true }) });
 
     const res = await call({ sub: 'sysadmin' });
 
@@ -353,7 +359,7 @@ describe('redeemImpersonationRequest', () => {
 
   it('re-resolves the requester\'s authority at redemption — lost authority gets no token', async () => {
     mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'parent-admin', targetUserId: 'target', orgId: 'team-a' }));
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     // Approved while they administered the parent org; demoted since.
     mockResolveAuthority.mockResolvedValue({ kind: 'none' });
 
@@ -367,7 +373,7 @@ describe('redeemImpersonationRequest', () => {
 
   it('break-glass: refuses a requester who is no longer a sysadmin', async () => {
     mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'ex-sysadmin', targetUserId: 'target', orgId: 'org-a', breakglass: true }));
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     mockIsSystemAdmin.mockReturnValue(false);
     // Even if an ancestor-org path would admit them, break-glass is sysadmin-only.
     mockResolveAuthority.mockResolvedValue({ kind: 'ancestor', viaOrgId: 'root' });
@@ -380,7 +386,7 @@ describe('redeemImpersonationRequest', () => {
 
   it('break-glass: a sysadmin requester still redeems', async () => {
     mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 'target', orgId: 'org-a', breakglass: true }));
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     mockIsSystemAdmin.mockReturnValue(true);
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
 
@@ -397,7 +403,7 @@ describe('redeemImpersonationRequest', () => {
 
   it('reports a request that is no longer redeemable', async () => {
     mockRequestFindById.mockReturnValue(leanOf({ requesterId: 'sysadmin', targetUserId: 'target' }));
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ _id: 'target', isSuperAdmin: false }) });
     mockConsume.mockResolvedValue({ ok: false, code: 'IMP_EXPIRED' });
 
     const res = await call({ sub: 'sysadmin' });
@@ -519,7 +525,7 @@ describe('breakglassImpersonation', () => {
 
   beforeEach(() => {
     mockIsSystemAdmin.mockReturnValue(true);
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(target) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(target) });
   });
 
   it('is sysadmin only', async () => {
@@ -536,7 +542,7 @@ describe('breakglassImpersonation', () => {
   });
 
   it('refuses a user with no organization — there is nobody to notify', async () => {
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ ...target, lastActiveOrgId: undefined }) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ ...target, lastActiveOrgId: undefined }) });
     const res = await call({ sub: 'sysadmin' }, { justification });
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockCreateBreakglass).not.toHaveBeenCalled();
@@ -683,7 +689,7 @@ describe('impersonateUser — consent enforcement', () => {
   };
 
   beforeEach(() => {
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(target) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(target) });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
   });
 
@@ -752,7 +758,7 @@ describe('impersonateUser — consent enforcement', () => {
   });
 
   it('refuses a target with no organization', async () => {
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue({ ...target, lastActiveOrgId: undefined }) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue({ ...target, lastActiveOrgId: undefined }) });
 
     const res = await start();
 
@@ -789,7 +795,7 @@ describe('impersonateUser — explicit organization', () => {
   };
 
   beforeEach(() => {
-    mockUserFindById.mockReturnValue({ select: jest.fn().mockResolvedValue(target) });
+    mockUserFindById.mockReturnValue({ select: jest.fn<AnyFn>().mockResolvedValue(target) });
     mockIssueImpersonation.mockResolvedValue({ accessToken: 'imp.jwt', expiresIn: 900 });
   });
 

@@ -40,6 +40,7 @@ jest.mock('@/lib/api', () => {
     logVolume: (...a: unknown[]) => logVolume(...a),
     logContext: (...a: unknown[]) => logContext(...a),
     logExport: (...a: unknown[]) => logExport(...a),
+    listOrganizations: async () => ({ data: { organizations: [{ id: 'a'.repeat(24), name: 'Acme' }] } }),
   };
   return { __esModule: true, default: api, api };
 });
@@ -105,5 +106,46 @@ describe('log export name', () => {
     render(<LogsPage />);
     await screen.findByText('connection refused');
     expect(screen.queryByLabelText('Download file name')).not.toBeInTheDocument();
+  });
+});
+
+describe('context drill-down shows the anchor once', () => {
+  it('drops the copy of the anchor the inclusive `after` window returns', async () => {
+    const next = { ...ENTRY, time: ENTRY.time + 5, line: 'retrying' };
+    logContext.mockResolvedValue({ data: { before: [], after: [ENTRY, next] } });
+    const dialog = await openContext();
+    await within(dialog).findByText('retrying');
+    expect(within(dialog).getAllByText('connection refused')).toHaveLength(1);
+    // And no spinner claiming it is still loading.
+    expect(dialog.querySelector('.animate-spin')).toBeNull();
+  });
+});
+
+describe('a failed search is not "no matches"', () => {
+  it('shows the retry, not the empty state', async () => {
+    logSearch.mockRejectedValue(new Error('Loki timed out'));
+    render(<LogsPage />);
+    expect(await screen.findByText(/loki timed out/i)).toBeInTheDocument();
+    expect(screen.queryByText('No matching log entries')).not.toBeInTheDocument();
+  });
+});
+
+describe('sysadmin tenant selection', () => {
+  it('sends the selected orgs as `orgs`, and nothing until one is chosen', async () => {
+    mockAuthGuard({ isAuthenticated: true, user: { id: 'u1', organizationId: 'org-1', isSuperAdmin: true }, can: () => true });
+    render(<LogsPage />);
+    await waitFor(() => expect(logSearch).toHaveBeenCalled());
+    expect(logSearch.mock.calls[0][0]).not.toHaveProperty('orgs');
+
+    const picker = screen.getByLabelText('Organizations to read');
+    fireEvent.focus(picker);
+    fireEvent.click(await screen.findByRole('option', { name: /all organizations/i }));
+    await waitFor(() => expect(logSearch.mock.calls.at(-1)![0]).toMatchObject({ orgs: ['all'] }));
+  });
+
+  it('is not offered to an org member', async () => {
+    render(<LogsPage />);
+    await screen.findByText('connection refused');
+    expect(screen.queryByLabelText('Organizations to read')).not.toBeInTheDocument();
   });
 });

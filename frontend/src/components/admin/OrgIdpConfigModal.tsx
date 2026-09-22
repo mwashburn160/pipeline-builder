@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useId } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import api from '@/lib/api';
 import { Input } from '@/components/ui/Input';
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
-import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { StepUpModal } from '@/components/admin/StepUpModal';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 import { formatDateTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
@@ -39,6 +39,7 @@ type Provider = 'generic-oidc' | 'cognito' | 'google' | 'github';
  * picking none means every verified domain of the org.
  */
 export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
+  const uid = useId();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [existing, setExisting] = useState<OrgIdpConfigDto | null>(null);
@@ -51,8 +52,14 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   const [allowedEmailDomains, setAllowedEmailDomains] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  // Remove-config confirmation (in-app modal, replacing the native confirm()).
+  // Remove-config confirmation — the strong-factor step-up dialog IS it.
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // Every write is strong-factor step-up gated on the server. The validated
+  // write waits here while the step-up dialog is open (this modal hides
+  // meanwhile and keeps its field values), then runs with the token. Sent bare,
+  // the refusal went to the global dialog, whose replay saved the config while
+  // this modal stayed open showing a failure.
+  const [pendingWrite, setPendingWrite] = useState<((stepUpToken: string) => Promise<void>) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,40 +111,43 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
     // so only send those; other providers send discoveryUrl and never region/pool.
     const providerFields = provider === 'cognito'
       ? { region: region.trim(), userPoolId: userPoolId.trim(), discoveryUrl: undefined }
-      : { discoveryUrl: discoveryUrl || undefined, region: undefined, userPoolId: undefined };
+      : { discoveryUrl: provider === 'generic-oidc' ? (discoveryUrl || undefined) : undefined, region: undefined, userPoolId: undefined };
 
-    setSubmitting(true);
-    try {
-      if (existing) {
-        // PATCH — only send the fields that changed; clientSecret only when supplied.
-        const patch: Partial<{ provider: Provider; clientId: string; clientSecret: string; discoveryUrl: string; region: string; userPoolId: string; allowedEmailDomains: string[]; enabled: boolean }> = {
-          provider, clientId, ...providerFields,
-          allowedEmailDomains: domains, enabled,
-        };
-        if (clientSecret.trim()) patch.clientSecret = clientSecret;
-        const res = await api.patchOrgIdpConfig(org.id, patch);
-        if (!res.success) throw new Error(res.message || 'Patch failed');
-      } else {
-        const res = await api.putOrgIdpConfig(org.id, {
-          provider, clientId, clientSecret,
-          ...providerFields,
-          allowedEmailDomains: domains, enabled,
-        });
-        if (!res.success) throw new Error(res.message || 'Create failed');
+    setPendingWrite(() => async (stepUpToken: string) => {
+      setSubmitting(true);
+      try {
+        if (existing) {
+          // PATCH — only send the fields that changed; clientSecret only when supplied.
+          const patch: Partial<{ provider: Provider; clientId: string; clientSecret: string; discoveryUrl: string; region: string; userPoolId: string; allowedEmailDomains: string[]; enabled: boolean }> = {
+            provider, clientId, ...providerFields,
+            allowedEmailDomains: domains, enabled,
+          };
+          if (clientSecret.trim()) patch.clientSecret = clientSecret;
+          const res = await api.patchOrgIdpConfig(org.id, patch, stepUpToken);
+          if (!res.success) throw new Error(res.message || 'Patch failed');
+        } else {
+          const res = await api.putOrgIdpConfig(org.id, {
+            provider, clientId, clientSecret,
+            ...providerFields,
+            allowedEmailDomains: domains, enabled,
+          }, stepUpToken);
+          if (!res.success) throw new Error(res.message || 'Create failed');
+        }
+        onSaved?.();
+        onClose();
+      } catch (e) {
+        setError(formatError(e));
+      } finally {
+        setSubmitting(false);
+        setPendingWrite(null);
       }
-      onSaved?.();
-      onClose();
-    } catch (e) {
-      setError(formatError(e));
-    } finally {
-      setSubmitting(false);
-    }
+    });
   }, [org.id, provider, clientId, clientSecret, discoveryUrl, region, userPoolId, allowedEmailDomains, enabled, existing, onSaved, onClose]);
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(async (stepUpToken: string) => {
     setSubmitting(true);
     try {
-      const res = await api.deleteOrgIdpConfig(org.id);
+      const res = await api.deleteOrgIdpConfig(org.id, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Delete failed');
       onSaved?.();
       onClose();
@@ -148,8 +158,11 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
     }
   }, [org.id, onSaved, onClose]);
 
+  const stepUpOpen = pendingWrite !== null || confirmRemove;
+
   return (
     <>
+    {!stepUpOpen && (
     <Modal
       title={`IdP Config — ${org.name}`}
       titleIcon={<ShieldCheck className="w-5 h-5 shrink-0" />}
@@ -190,8 +203,9 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           )}
 
           <div>
-            <label className="label">Provider</label>
+            <label className="label" htmlFor={`${uid}-provider`}>Provider</label>
             <Select
+              id={`${uid}-provider`}
               value={provider}
               onChange={(e) => setProvider(e.target.value as Provider)}
               disabled={submitting}
@@ -204,8 +218,9 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           </div>
 
           <div>
-            <label className="label">Client ID</label>
+            <label className="label" htmlFor={`${uid}-client-id`}>Client ID</label>
             <Input
+              id={`${uid}-client-id`}
               type="text"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
@@ -216,11 +231,12 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           </div>
 
           <div>
-            <label className="label">
+            <label className="label" htmlFor={`${uid}-client-secret`}>
               Client Secret
               {existing && <span className="text-xs text-fg-muted ml-2">(leave empty to keep existing)</span>}
             </label>
             <Input
+              id={`${uid}-client-secret`}
               type="password"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
@@ -236,8 +252,9 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
 
           {provider === 'generic-oidc' && (
             <div>
-              <label className="label">Discovery URL</label>
+              <label className="label" htmlFor={`${uid}-discovery-url`}>Discovery URL</label>
               <Input
+                id={`${uid}-discovery-url`}
                 type="url"
                 value={discoveryUrl}
                 onChange={(e) => setDiscoveryUrl(e.target.value)}
@@ -251,8 +268,9 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           {provider === 'cognito' && (
             <>
               <div>
-                <label className="label">Region</label>
+                <label className="label" htmlFor={`${uid}-region`}>Region</label>
                 <Input
+                  id={`${uid}-region`}
                   type="text"
                   value={region}
                   onChange={(e) => setRegion(e.target.value)}
@@ -262,8 +280,9 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
                 />
               </div>
               <div>
-                <label className="label">User Pool ID</label>
+                <label className="label" htmlFor={`${uid}-user-pool-id`}>User Pool ID</label>
                 <Input
+                  id={`${uid}-user-pool-id`}
                   type="text"
                   value={userPoolId}
                   onChange={(e) => setUserPoolId(e.target.value)}
@@ -298,14 +317,27 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
 
         </div>
       </Modal>
+    )}
+
+      {pendingWrite && (
+        <StepUpModal
+          title={existing ? 'Save the IdP configuration?' : 'Create the IdP configuration?'}
+          action={`${existing ? 'Update' : 'Create'} the SSO / IdP config for ${org.name}`}
+          details={<p>This changes how members of {org.name} sign in.</p>}
+          requireStrongFactor
+          onConfirmed={pendingWrite}
+          onClose={() => { if (!submitting) setPendingWrite(null); }}
+        />
+      )}
 
       {confirmRemove && (
-        <DeleteConfirmModal
-          title="Remove SSO / IdP config"
-          itemName={`the IdP config for "${org.name}"`}
-          loading={submitting}
-          onConfirm={() => void handleDelete()}
-          onCancel={() => setConfirmRemove(false)}
+        <StepUpModal
+          title="Remove the SSO / IdP config?"
+          action={`Remove the IdP config for "${org.name}"`}
+          details={<p>Members who sign in through it can no longer do so until it is configured again.</p>}
+          requireStrongFactor
+          onConfirmed={handleDelete}
+          onClose={() => { if (!submitting) setConfirmRemove(false); }}
         />
       )}
     </>

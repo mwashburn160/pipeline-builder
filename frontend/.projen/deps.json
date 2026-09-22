@@ -6,6 +6,11 @@
       "type": "build"
     },
     {
+      "name": "@stylistic/eslint-plugin",
+      "version": "^2",
+      "type": "build"
+    },
+    {
       "name": "@tailwindcss/postcss",
       "version": "4.3.3",
       "type": "build"
@@ -27,7 +32,7 @@
     },
     {
       "name": "@types/node",
-      "version": "26.1.2",
+      "version": "^24",
       "type": "build"
     },
     {
@@ -41,6 +46,16 @@
       "type": "build"
     },
     {
+      "name": "@typescript-eslint/eslint-plugin",
+      "version": "^8",
+      "type": "build"
+    },
+    {
+      "name": "@typescript-eslint/parser",
+      "version": "^8",
+      "type": "build"
+    },
+    {
       "name": "@typescript/native",
       "version": "npm:typescript@^7.0.2",
       "type": "build"
@@ -48,6 +63,34 @@
     {
       "name": "autoprefixer",
       "version": "10.5.4",
+      "type": "build"
+    },
+    {
+      "name": "eslint-import-resolver-typescript",
+      "type": "build"
+    },
+    {
+      "name": "eslint-plugin-import",
+      "type": "build"
+    },
+    {
+      "name": "eslint-plugin-jsx-a11y",
+      "version": "6.10.2",
+      "type": "build"
+    },
+    {
+      "name": "eslint-plugin-react-hooks",
+      "version": "7.1.1",
+      "type": "build"
+    },
+    {
+      "name": "eslint-plugin-react",
+      "version": "7.37.5",
+      "type": "build"
+    },
+    {
+      "name": "eslint",
+      "version": "^9",
       "type": "build"
     },
     {

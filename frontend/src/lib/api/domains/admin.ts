@@ -62,9 +62,10 @@ export function adminApi(core: ApiCore) {
      * Returns `{ ok: true }` when the chain hashes cleanly end-to-end, or
      * `{ ok: false, brokenAt }` pointing at the first tampered/broken link.
      */
-    verifyAuditChain: async (orgId: string) => {
+    verifyAuditChain: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<AuditChainVerification>>(
         `/api/audit/verify${buildQuery({ orgId })}`,
+        { signal: opts?.signal },
       );
     },
 
@@ -89,23 +90,28 @@ export function adminApi(core: ApiCore) {
       return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/admin/org-idp/${orgId}`, { signal: opts?.signal });
     },
 
-    putOrgIdpConfig: async (orgId: string, data: OrgIdpConfigCreate) => {
+    /** Writes are strong-factor step-up gated: confirm in a `StepUpModal`
+     *  (`requireStrongFactor`) first and forward its token. */
+    putOrgIdpConfig: async (orgId: string, data: OrgIdpConfigCreate, stepUpToken?: string) => {
       return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`, {
         method: 'PUT',
+        headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),
       });
     },
 
-    patchOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>) => {
+    patchOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
       return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`, {
         method: 'PATCH',
+        headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),
       });
     },
 
-    deleteOrgIdpConfig: async (orgId: string) => {
+    deleteOrgIdpConfig: async (orgId: string, stepUpToken?: string) => {
       return core.request<ApiResponse<Record<string, never>>>(`/api/admin/org-idp/${orgId}`, {
         method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
       });
     },
 
@@ -385,9 +391,11 @@ export function adminApi(core: ApiCore) {
      * period reset. Omit `quotaType` to reset every counter; pass one to reset
      * a single dimension. Returns the org's quotas with the reset applied.
      */
-    resetOrgQuota: async (orgId: string, quotaType?: QuotaType) => {
+    resetOrgQuota: async (orgId: string, quotaType?: QuotaType, stepUpToken?: string) => {
+      // Step-up gated: confirm in a `StepUpModal` first and forward its token.
       return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}/reset`, {
         method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(quotaType ? { quotaType } : {}),
       });
     },

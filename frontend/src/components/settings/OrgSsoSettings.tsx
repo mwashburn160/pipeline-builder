@@ -117,11 +117,11 @@ export function OrgSsoSettings({
     }
 
     // For cognito the server derives the discovery URL from region + userPoolId,
-    // so only those are sent; other providers send discoveryUrl and never
-    // region/pool.
+    // so only those are sent; Google always uses its own discovery document
+    // (the server refuses a custom one), so only generic OIDC sends discoveryUrl.
     const providerFields = provider === 'cognito'
       ? { region: region.trim(), userPoolId: userPoolId.trim() }
-      : { discoveryUrl: discoveryUrl.trim() || undefined };
+      : { discoveryUrl: provider === 'generic-oidc' ? (discoveryUrl.trim() || undefined) : undefined };
 
     const desired: Partial<OrgIdpConfigCreate> = {
       provider, clientId: clientId.trim(), ...providerFields,

@@ -1,4 +1,7 @@
-ARG NODE_VERSION=24.14.0
+# Base image pinned BY DIGEST (tag kept for readers): a re-pushed or
+# compromised tag cannot change what a release image is built from. Bump both
+# together (docker buildx imagetools inspect node:<ver>-slim).
+ARG NODE_IMAGE=node:24.14.0-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8
 # buildctl matches the buildkitd sidecar (moby/buildkit:v0.32.1-rootless in
 # deploy/*/k8s/plugin.yaml) — attestation + --metadata-file support lives in
 # both halves, so the client must not lag the daemon.
@@ -31,7 +34,7 @@ ARG GRYPE_SHA256_ARM64=29f0ec7c549ddb0e2b6a0ca714851f7399438afc399b80c12808e065e
 # every deploy target uses the same code path now.
 # =============================================================================
 
-FROM node:${NODE_VERSION}-slim AS tools
+FROM ${NODE_IMAGE} AS tools
 ARG TARGETARCH
 ARG BUILDKIT_VERSION
 ARG BUILDKIT_SHA256_AMD64
@@ -88,7 +91,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && tar -xzf grype.tgz -C /usr/local/bin grype \
     && rm -f buildkit.tgz crane.tgz syft.tgz grype.tgz
 
-FROM node:${NODE_VERSION}-slim
+FROM ${NODE_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildctl

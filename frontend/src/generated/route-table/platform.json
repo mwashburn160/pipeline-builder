@@ -1,5 +1,20 @@
 [
   {
+    "method": "GET",
+    "path": "/admin/console-check",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "POST",
     "path": "/admin/impersonate/:userId",
     "auth": true,
@@ -4662,6 +4677,21 @@
   {
     "method": "GET",
     "path": "/user/organizations",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/user/password-policy",
     "auth": true,
     "permissions": [],
     "systemAdmin": false,

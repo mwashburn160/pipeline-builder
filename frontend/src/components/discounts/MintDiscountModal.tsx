@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { useFormState } from '@/hooks/useFormState';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
@@ -16,6 +16,7 @@ interface MintDiscountModalProps {
 
 /** Create (mint) a discount. Mounted only while open, so every open starts blank. */
 export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps) {
+  const uid = useId();
   const [code, setCode] = useState('');
   const [alias, setAlias] = useState('');
   const [targetOrgId, setTargetOrgId] = useState('');
@@ -62,8 +63,8 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
     >
       <div className="space-y-3">
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted">Code</label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-code`}>Code</label>
+          <Input id={`${uid}-code`}
             type="text"
             placeholder="50:percent:onetime"
             value={code}
@@ -81,8 +82,8 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
           </p>
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted">Alias <span className="text-fg-subtle">(optional)</span></label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-alias-optional`}>Alias <span className="text-fg-subtle">(optional)</span></label>
+          <Input id={`${uid}-alias-optional`}
             type="text"
             placeholder="e.g. LAUNCH50"
             value={alias}
@@ -92,8 +93,8 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
           />
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted">Target org id <span className="text-fg-subtle">(optional)</span></label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-target-org-id-optional`}>Target org id <span className="text-fg-subtle">(optional)</span></label>
+          <Input id={`${uid}-target-org-id-optional`}
             type="text"
             placeholder="Leave blank for any org"
             value={targetOrgId}
@@ -103,8 +104,8 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
           />
         </div>
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted">Campaign <span className="text-fg-subtle">(optional)</span></label>
-          <Input
+          <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-campaign-optional`}>Campaign <span className="text-fg-subtle">(optional)</span></label>
+          <Input id={`${uid}-campaign-optional`}
             type="text"
             placeholder="e.g. summer-2026"
             value={campaign}
@@ -115,8 +116,8 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-fg-muted">Max redemptions <span className="text-fg-subtle">(optional)</span></label>
-            <Input
+            <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-max-redemptions-optional`}>Max redemptions <span className="text-fg-subtle">(optional)</span></label>
+            <Input id={`${uid}-max-redemptions-optional`}
               type="number"
               min={1}
               placeholder="Unlimited"
@@ -127,8 +128,8 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-fg-muted">Redeem by <span className="text-fg-subtle">(optional)</span></label>
-            <Input
+            <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-redeem-by-optional`}>Redeem by <span className="text-fg-subtle">(optional)</span></label>
+            <Input id={`${uid}-redeem-by-optional`}
               type="date"
               value={redeemBy}
               onChange={(e) => setRedeemBy(e.target.value)}

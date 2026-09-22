@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /* eslint-disable @stylistic/max-len */
-import { NodePackageManager, NpmAccess } from 'projen/lib/javascript';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as ts from 'typescript';
+import { Eslint, NodePackageManager, NpmAccess, UpdateSnapshot } from 'projen/lib/javascript';
 import { TypeScriptProject } from 'projen/lib/typescript';
 import { pnpmWorkspaceYamlOptions, setWorkspacePackages } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
@@ -39,6 +42,12 @@ const expressVersion = '5.2.1';
 // `@jest/globals`, which is self-typed, so nothing depends on `@types/jest` and
 // projen never has to pin it. See `configureEsmJest` in projenrc/shared-config.ts.
 const jestVersion = '30.4.2';
+
+// @types/node for EVERY project — ONE constant, tracking the runtime's major
+// (minNodeVersion 24.14.0 below; the images run node 24). It used to be pinned
+// separately at 26.x in nine places, so the type-checker accepted Node 26 APIs
+// that crash on the Node 24 the services actually run on.
+const typesNode = '@types/node@^24';
 
 // Internal package versions  `workspace:*` so pnpm always resolves from
 // the local workspace. Using a pinned npm version causes pnpm to install
@@ -129,7 +138,12 @@ const baseDefaults = {
   // Inherited by every subproject; see the `jestVersion` declaration above
   // for the trap this closes. Per-project `jestOptions` overrides must spread
   // this in or they lose the pin.
-  jestOptions: { jestVersion },
+  //
+  // `UpdateSnapshot.NEVER`: `test` runs `jest --ci` — a snapshot that no longer
+  // matches FAILS instead of being silently rewritten (projen's default passes
+  // `--updateSnapshot`, which made every snapshot assertion in CI a no-op).
+  // Refresh snapshots deliberately with the generated `test:update` task.
+  jestOptions: { jestVersion, updateSnapshot: UpdateSnapshot.NEVER },
 };
 
 const pkgDefaults = {
@@ -140,58 +154,76 @@ const pkgDefaults = {
 };
 
 /**
- * Selector for `jest.unstable_mockModule('<pkg>', () => ({ … }))` — an INLINE
- * object literal as the module factory. That form is what let the hand-written
- * `drizzle-orm` / `@pipeline-builder/api-core` mocks drift: `unstable_mockModule`
- * replaces the WHOLE namespace, so any export the literal forgot linked as
- * `undefined` (or failed outright with "does not provide an export named X")
- * the moment production code reached for it. The shared factories in
- * `@pipeline-builder/api-core/lib/testing/` spread the REAL module first, so
- * they can't go stale — this selector fails the build if a suite goes back.
+ * Selectors for a hand-written object-literal module factory:
+ * `jest.unstable_mockModule('<pkg>', () => ({ … }))` and the block form
+ * `() => { …; return { … }; }`. `unstable_mockModule` replaces the WHOLE
+ * namespace, so any export the literal forgot linked as `undefined` (or failed
+ * outright with "does not provide an export named X") the moment production code
+ * reached for it — the api-core, api-server, pipeline-data and pipeline-core
+ * literals all broke the build this way. `specifierMatch` is an esquery
+ * attribute test on the specifier (`='drizzle-orm'` or a `=/regex/`).
  *
- * Deliberately narrow: it matches ONLY the literal-object factory, so
- * `() => drizzleMock({ … })` / `() => apiCoreMock({ … })` (and any other
+ * Deliberately narrow: only the LITERAL factory is matched, so
+ * `() => drizzleMock({ … })`, `() => apiCoreMock({ … })` and
+ * `() => stubModule('@pipeline-builder/x', { … })` (and any other
  * factory-call form) pass.
  */
-const inlineModuleMockSelector = (specifier: string) =>
-  `CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value='${specifier}'] > ArrowFunctionExpression[body.type='ObjectExpression']`;
+const inlineModuleMockSelectors = (specifierMatch: string) => {
+  const call = `CallExpression[callee.property.name='unstable_mockModule'][arguments.0.value${specifierMatch}]`;
+  return [
+    `${call} > ArrowFunctionExpression[body.type='ObjectExpression']`,
+    `${call} > ArrowFunctionExpression > BlockStatement > ReturnStatement[argument.type='ObjectExpression']`,
+  ];
+};
 
-/** `<specifier>` → the restricted-syntax entry banning an inline literal mock of it. */
-const noInlineModuleMock = (specifier: string, useInstead: string) => ({
-  selector: inlineModuleMockSelector(specifier),
-  message: `Don't hand-roll the '${specifier}' module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. ${useInstead} (see docs/testing.md).`,
-});
+/** The restricted-syntax entries banning an inline literal mock of the matched specifier(s). */
+const noInlineModuleMock = (specifierMatch: string, what: string, useInstead: string) =>
+  inlineModuleMockSelectors(specifierMatch).map((selector) => ({
+    selector,
+    message: `Don't hand-roll the ${what} module mock: it replaces the whole namespace, so any export it omits links as undefined and breaks the moment production code reaches for it. ${useInstead} (see docs/testing.md).`,
+  }));
 
 /**
- * The four package specifiers whose inline literal mocks have actually broken the
- * build. `drizzle-orm` and `@pipeline-builder/api-core` are the originals;
- * `api-server` and `pipeline-data` were found the same way — billing suites mock
- * api-server with a literal containing only `withRoute`, so the day
- * `billing-helpers.ts` started importing `incCounter` from it, four suites failed
- * to load with "does not provide an export named 'incCounter'".
+ * BANNED: inline literal mocks of `drizzle-orm` and of EVERY
+ * `@pipeline-builder/*` module. api-core has its per-project `apiCoreMock`
+ * (the real module spread, plus defaults); every other workspace package —
+ * including the framework/DB boundaries (api-server, pipeline-data) a unit test
+ * legitimately replaces wholesale — goes through `stubModule(specifier, { … })`,
+ * which returns EVERY export in the package's build-time manifest
+ * (lib/testing/exports.json) as a loud stub unless overridden. That keeps the
+ * wholesale replacement those suites need without dragging in the real
+ * Express/Postgres wiring, and without the literal's drift. (`\x2f` is `/`:
+ * esquery's regex literal cannot contain a bare slash.)
  */
 const restrictedModuleMocks = [
-  noInlineModuleMock('drizzle-orm', "Use drizzleMock({ … }) from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js'"),
-  noInlineModuleMock('@pipeline-builder/api-core', "Use your project's apiCoreMock({ … }) from test/helpers/mock-api-core.ts"),
+  ...noInlineModuleMock("='drizzle-orm'", "'drizzle-orm'", "Use drizzleMock({ … }) from '@pipeline-builder/api-core/testing'"),
+  ...noInlineModuleMock("='@pipeline-builder/api-core'", "'@pipeline-builder/api-core'", "Use your project's apiCoreMock({ … }) from test/helpers/mock-api-core.ts"),
+  ...noInlineModuleMock(
+    '=/^@pipeline-builder\\x2f(?!api-core$)/',
+    "'@pipeline-builder/*'",
+    "Use stubModule('<specifier>', { … }) from '@pipeline-builder/api-core/testing' — it stubs every export in the package's lib/testing/exports.json",
+  ),
 ];
 
-/*
- * NOT restricted: `@pipeline-builder/api-server` and `@pipeline-builder/pipeline-data`.
- * They carry the SAME hazard — billing's suites mock api-server with a literal
- * holding only `withRoute`, so the day `billing-helpers.ts` started importing
- * `incCounter` from it, four suites failed to load. But they are the DB/framework
- * boundary that a unit test legitimately replaces WHOLESALE: spreading the real
- * module drags in Postgres/Express wiring the suite exists to avoid, and making
- * this an error would demand ~154 migrations, many of them wrong. The hazard is
- * documented in docs/testing.md instead, with the billing incident as the worked
- * example. Revisit if a cheap way to spread those modules ever appears.
+/**
+ * api-core's test helpers are their own package entry,
+ * `@pipeline-builder/api-core/testing`. The built files still sit under
+ * `lib/testing/` (the `./lib/*` export stays open for deep imports of internals),
+ * so ban reaching them that way — one import path, not two.
  */
+const restrictedImports = {
+  patterns: [{
+    group: ['@pipeline-builder/api-core/lib/testing', '@pipeline-builder/api-core/lib/testing/*'],
+    message: "Import test helpers from '@pipeline-builder/api-core/testing' (its own package entry), not the built lib/testing path.",
+  }],
+};
 
 const rules: Record<string, unknown> = {
   '@stylistic/max-len': 'off',
   'import/no-extraneous-dependencies': 'off',
   '@typescript-eslint/member-ordering': 'off',
   'no-restricted-syntax': ['error', ...restrictedModuleMocks],
+  'no-restricted-imports': ['error', restrictedImports],
 };
 
 // Shared npm keywords applied to every @pipeline-builder/* package. Ordered by
@@ -365,7 +397,7 @@ const commonServiceDeps = [
 ];
 const commonServiceDevDeps = [
   '@types/express@5.0.6',
-  '@types/node@26.1.2',
+  typesNode,
 ];
 
 // =============================================================================
@@ -399,22 +431,25 @@ const apiCore = new PackageProject({
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/jsonwebtoken@9.0.10',
-    '@types/node@26.1.2', `typescript@${typescriptVersion}`,
+    typesNode, `typescript@${typescriptVersion}`,
   ],
 });
 apiCore.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 apiCore.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
-// Three entry points. The root pulls in the server graph (express, jwt, ioredis);
+// Four entry points. The root pulls in the server graph (express, jwt, ioredis);
 // `./permissions` (permission catalog + labels + picker grouping) and
 // `./metadata-keys` (the pipeline metadata-key catalog that also backs
 // pipeline-core's `MetadataKeys`) are dependency-free and imported by the
 // BROWSER — the frontend consumes them directly instead of keeping
-// hand-maintained mirrors. `./lib/*` stays open because tests deep-import
-// concrete modules (e.g. `lib/testing/tier-mock.js`).
+// hand-maintained mirrors. `./testing` is the test-helper entry (src/testing):
+// never part of the root barrel, and dropped from the packed package below so
+// no service image ships it. `./lib/*` stays open because tests deep-import
+// internals the root barrel narrows away (e.g. `lib/services/service-keys.js`).
 apiCore.package.addField('exports', {
   '.': { types: './lib/index.d.ts', default: './lib/index.js' },
   './permissions': { types: './lib/types/permissions.d.ts', default: './lib/types/permissions.js' },
   './metadata-keys': { types: './lib/types/metadata-keys.d.ts', default: './lib/types/metadata-keys.js' },
+  './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
   './lib/*': './lib/*',
   './package.json': './package.json',
 });
@@ -426,6 +461,9 @@ apiCore.package.addField('typesVersions', {
     'metadata-keys': ['lib/types/metadata-keys.d.ts'],
   },
 });
+// Test helpers are workspace-only: `pnpm deploy --prod` (every service image)
+// packs by the npmignore, so this keeps lib/testing out of production.
+apiCore.addPackageIgnore('/lib/testing/');
 addPackageMetadata(apiCore, 'Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.');
 
 // -- Pipeline Data --
@@ -434,7 +472,9 @@ const pipelineData = new PackageProject({
   name: '@pipeline-builder/pipeline-data',
   outdir: './packages/pipeline-data',
   deps: [`@pipeline-builder/api-core@${pkg.apiCore}`, 'pg@8.22.0', 'drizzle-orm@0.45.2'],
-  devDeps: ['@types/node@26.1.2', '@types/pg@8.20.3', 'drizzle-kit@0.31.10', `typescript@${typescriptVersion}`],
+  // PGlite: in-process Postgres (WASM) for the RLS integration suite, which
+  // applies the real postgres-init.sql — no Docker needed in CI.
+  devDeps: [typesNode, '@types/pg@8.20.3', 'drizzle-kit@0.31.10', `typescript@${typescriptVersion}`, '@electric-sql/pglite@0.5.8'],
 });
 pipelineData.eslint?.addRules(rules);
 pipelineData.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
@@ -467,7 +507,7 @@ const pipelineCore = new PackageProject({
   peerDependencyOptions: { pinnedDevDependency: false },
   devDeps: [
     `constructs@${constructsVersion}`, `aws-cdk-lib@${cdkVersion}`,
-    '@types/node@26.1.2', '@types/aws-lambda@8.10.162', '@types/jsonwebtoken@9.0.10',
+    typesNode, '@types/aws-lambda@8.10.162', '@types/jsonwebtoken@9.0.10',
     '@aws-sdk/client-secrets-manager@3.1101.0', 'copyfiles@2.4.1',
   ],
 });
@@ -517,7 +557,7 @@ const apiServer = new PackageProject({
     '@types/hast@3.0.4',
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.3',
     '@types/compression@1.8.1', '@types/cors@2.8.19', 'jsonwebtoken@9.0.3', '@types/jsonwebtoken@9.0.10',
-    '@types/swagger-ui-express@4.1.8', '@types/node@26.1.2', `typescript@${typescriptVersion}`,
+    '@types/swagger-ui-express@4.1.8', typesNode, `typescript@${typescriptVersion}`,
   ],
 });
 apiServer.eslint?.addRules({...rules, 'import/no-unresolved': 'off' });
@@ -541,7 +581,7 @@ const aiCore = new PackageProject({
     // so the AWS default chain has to be passed in explicitly.
     '@aws-sdk/credential-providers@3.1101.0',
   ],
-  devDeps: ['@types/node@26.1.2', `typescript@${typescriptVersion}`],
+  devDeps: [typesNode, `typescript@${typescriptVersion}`],
 });
 aiCore.eslint?.addRules(rules);
 // Published to npm: the released pipeline-manager CLI hard-depends on ai-core
@@ -558,7 +598,7 @@ const pipelineEvents = new PackageProject({
   outdir: './packages/pipeline-events',
   deps: [],
   devDeps: [
-    '@types/node@26.1.2', '@types/aws-lambda@8.10.162',
+    typesNode, '@types/aws-lambda@8.10.162',
     '@aws-sdk/client-secrets-manager@3.1101.0',
     // devDep only: the handler dynamic-imports the CodePipeline client at runtime
     // (AWS Lambda provides @aws-sdk v3); pinned to the same version as the other
@@ -681,7 +721,7 @@ const platform = new FunctionProject({
   devDeps: [
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.3',
     '@types/nodemailer@8.0.1', '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
-    '@types/node@26.1.2', '@types/pg@8.20.3', '@types/adm-zip@0.5.8',
+    typesNode, '@types/pg@8.20.3', '@types/adm-zip@0.5.8',
     '@types/multer@2.2.0', 'copyfiles@2.4.1',
     // Real-Mongo integration test (organization-id-storage.integration.test.ts).
     // The test self-skips unless RUN_MONGO_INTEGRATION=1, so the default suite
@@ -755,7 +795,7 @@ const frontend = new FrontEndProject({
     'react-grid-layout@2.2.4', 'react-resizable@4.0.2',
   ],
   devDeps: [
-    '@types/node@26.1.2', '@types/react@19.2.18', '@types/react-dom@19.2.4',
+    typesNode, '@types/react@19.2.18', '@types/react-dom@19.2.4',
     '@tailwindcss/postcss@4.3.3', 'autoprefixer@10.5.4',
     'postcss@8.5.25', 'ts-jest@^29.4.12', `typescript@${typescriptVersion}`, tsNativeDep,
     // No @types/react-grid-layout: v2 ships its own types (Layout = readonly LayoutItem[]).
@@ -796,6 +836,68 @@ const typecheckTests = frontend.addTask('typecheck:tests', {
   exec: 'tsc -p tsconfig.test.json --noEmit',
 });
 frontend.testTask.prependSpawn(typecheckTests);
+
+// ESLint for the frontend — it had none at all (NextJsProject brings no linter),
+// so nothing enforced hooks rules or accessibility. Same projen Eslint component
+// and shared `rules` as every other package, plus the React layer:
+//   - react (recommended + the new JSX runtime),
+//   - react-hooks: the two classic rules only (v7's `recommended` also turns on
+//     the React-Compiler rule family, which is a separate migration),
+//   - jsx-a11y (recommended), with `label-has-associated-control` as an ERROR:
+//     an unassociated <label> is invisible to screen readers and breaks
+//     click-to-focus (static twin: test/label-association.test.ts).
+// Spawned by `test` (and so `build`), without --fix like everywhere else.
+const frontendEslint = new Eslint(frontend, {
+  dirs: ['src', 'pages'],
+  devdirs: ['test'],
+  fileExtensions: ['.ts', '.tsx'],
+  // tsconfig.json covers src/, pages/ AND test/ (tsconfig.test.json omits pages/).
+  tsconfigPath: './tsconfig.json',
+  commandOptions: { fix: false },
+});
+frontend.addDevDeps('eslint-plugin-react@7.37.5', 'eslint-plugin-react-hooks@7.1.1', 'eslint-plugin-jsx-a11y@6.10.2');
+frontendEslint.addPlugins('react', 'react-hooks', 'jsx-a11y');
+frontendEslint.addExtends('plugin:react/recommended', 'plugin:react/jsx-runtime', 'plugin:jsx-a11y/recommended');
+frontendEslint.config.settings = { ...(frontendEslint.config.settings ?? {}), react: { version: 'detect' } };
+frontendEslint.addRules({
+  ...rules,
+  // The frontend was never under the shared FORMATTING rules and follows its own
+  // (Next/React) layout; enforcing them here would rewrite ~680 files for no
+  // behavioural gain. This lint is for correctness: hooks, a11y, TS hazards.
+  ...Object.fromEntries([
+    'array-bracket-newline', 'array-bracket-spacing', 'brace-style', 'comma-dangle', 'comma-spacing',
+    'indent', 'key-spacing', 'keyword-spacing', 'max-len', 'member-delimiter-style', 'no-multi-spaces',
+    'no-multiple-empty-lines', 'no-trailing-spaces', 'object-curly-newline', 'object-curly-spacing',
+    'object-property-newline', 'quote-props', 'quotes', 'semi', 'space-before-blocks',
+  ].map((r) => [`@stylistic/${r}`, 'off'])),
+  'import/order': 'off',
+  'react-hooks/rules-of-hooks': 'error',
+  'react-hooks/exhaustive-deps': 'warn',
+  // Props are typed by TypeScript, not PropTypes.
+  'react/prop-types': 'off',
+  // Focusing the first field of a just-opened dialog/step IS the accessible
+  // behaviour (WAI-ARIA dialog pattern); the rule cannot tell that from a page
+  // that steals focus on load.
+  'jsx-a11y/no-autofocus': 'off',
+  // `controlComponents`: our UI-kit wrappers that render a native <input>
+  // (src/components/ui/Checkbox.tsx, FilterInput.tsx) — a <label> wrapping one
+  // IS associated, the rule just cannot see through the component.
+  'jsx-a11y/label-has-associated-control': ['error', { assert: 'either', depth: 3, controlComponents: ['Checkbox', 'FilterInput'] }],
+  // `role` is also an ordinary PROP on our components (<InviteFollowUpNotice
+  // role="member">); only a DOM element's role must be a valid ARIA role.
+  'jsx-a11y/aria-role': ['error', { ignoreNonDOM: true }],
+});
+// Test files mock with jest.requireActual / require() inside factories, and
+// mount anonymous component factories.
+frontendEslint.addOverride({ files: ['test/**'], rules: { '@typescript-eslint/no-require-imports': 'off', 'react/display-name': 'off' } });
+{
+  const fixTask = frontend.addTask('lint:fix', {
+    description: 'Run eslint with --fix (local only — CI runs `eslint` without it)',
+    env: { ESLINT_USE_FLAT_CONFIG: 'false', NODE_NO_WARNINGS: '1' },
+  });
+  const args = (frontendEslint.eslintTask.steps[0] as { execArgs?: string[] }).execArgs!;
+  fixTask.execArgs([args[0], '--fix', ...args.slice(1)], { receiveArgs: true });
+}
 if (frontend.jest) {
   frontend.jest.config.transform = { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.test.json', diagnostics: { ignoreCodes: [151002] } }] };
   frontend.jest.config.moduleNameMapper = {
@@ -970,89 +1072,112 @@ for (const svc of services) {
  *
  * Raise a number when you raise coverage. NEVER lower one to make a red build
  * green — a drop means something stopped being covered, and that is the thing to
- * look at. (`coverageThreshold` was `null` in all 18 projects before this: every
- * run computed coverage and threw it away.)
+ * look at.
  *
- * `paths` holds the per-file floors for the security-critical modules. Several
- * are far below the ~90% these files deserve — see docs/testing.md and the
- * per-entry notes. They are pinned at today's value so they can only go UP.
+ * The pool is EVERY source file (`collectCoverageFrom`, set below), not just the
+ * files some suite happened to import — a module nobody tests counts as 0%
+ * instead of silently vanishing from the report. Barrels and type-only modules
+ * are excluded (noRuntimeCodeFiles), as is `src/testing/`. Re-pinned on that
+ * basis 2026-09-21, with new suites for the files it exposed (pipeline-manager's
+ * CLI + commands, api-server's boot helpers, billing's promotion backfill /
+ * provider-config check, platform's soft-delete purge, …).
+ *
+ * `paths` holds the per-file floors for the security-critical and money-path
+ * modules, pinned at today's value so they can only go UP.
  *
  * IMPORTANT, and not obvious: when `coverageThreshold` carries PATH-specific
  * keys, jest REMOVES those files from the `global` pool and checks them
  * separately. So a project's `global` figures below are measured over its
- * source MINUS its `paths` entries — which is why image-registry's branch floor
- * (77) is LOWER than its whole-project number (78.72): pulling the
- * well-covered `routes/token.ts` out of the pool drags the remainder down. Do
- * not copy a number out of a plain `jest --coverage` summary into `global`
- * here; re-measure with the path files excluded, or the build fails with two
- * figures that look irreconcilable.
+ * source MINUS its `paths` entries — pulling well-covered path files out of the
+ * pool drags the remainder down. Do not copy a number out of a plain
+ * `jest --coverage` summary into `global` here; re-measure with the path files
+ * excluded, or the build fails with two figures that look irreconcilable.
  *
  * Every number is additionally CAPPED AT 95. A measured 100 becomes a floor that
  * one new uncovered branch fails, which is the "unrelated work trips it" failure
- * this ratchet is supposed to avoid — and on a file like scim-service.ts, whose
- * 100% BRANCH figure sits next to 42% statements, the 100 is an artifact of how
- * few branches the covered region happens to contain, not a real guarantee.
+ * this ratchet is supposed to avoid.
  */
 const COVERAGE_THRESHOLDS: Record<string, {
   global: Record<string, number>;
   paths?: Record<string, Record<string, number>>;
 }> = {
   '@pipeline-builder/api-core': {
-    global: { statements: 95, branches: 88, functions: 88, lines: 95 },
+    global: { statements: 95, branches: 91, functions: 91, lines: 95 },
     paths: {
       // emitAudit — fully covered by test/emit-audit.test.ts.
       'src/utils/audit.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
     },
   },
   '@pipeline-builder/api-server': {
-    global: { statements: 94, branches: 87, functions: 89, lines: 94 },
+    global: { statements: 95, branches: 88, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-core': {
-    global: { statements: 94, branches: 84, functions: 90, lines: 94 },
+    global: { statements: 95, branches: 86, functions: 92, lines: 95 },
   },
   '@pipeline-builder/pipeline-data': {
-    global: { statements: 89, branches: 89, functions: 79, lines: 89 },
+    global: { statements: 94, branches: 93, functions: 87, lines: 94 },
   },
   'billing': {
-    global: { statements: 92, branches: 79, functions: 88, lines: 92 },
+    global: { statements: 93, branches: 84, functions: 90, lines: 93 },
     paths: {
-      // Stripe invoice money path — covered by test/stripe-invoice-handlers.test.ts.
+      // Money paths. Stripe invoice handling — test/stripe-invoice-handlers.test.ts.
       'src/helpers/stripe-invoice-handlers.ts': { statements: 95, branches: 90, functions: 95, lines: 95 },
-      // GAP: branches at 56%. The ledger reversal//ingest branches are thin.
-      'src/helpers/billing-ledger.ts': { statements: 92, branches: 56, functions: 90, lines: 92 },
+      // The billing ledger (ingest, reversal, summaries) — billing-ledger.test.ts
+      // + billing-ledger-branches.test.ts; 100/100/100/100.
+      'src/helpers/billing-ledger.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
       // Webhook front door — test/stripe-webhook-route.test.ts drives the route
       // itself (signature refusals, the two-phase idempotency claim, the whole
       // dispatch table); measures 100/100/100/100.
       'src/routes/stripe-webhook.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // Refund / dispute / void reversals + clawback — stripe-reversals(-branches).test.ts.
+      'src/helpers/stripe-reversals.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // Promotion grants: budget reservation, idempotency, recurring re-grant,
+      // referral — promotion-engine(-branches).test.ts; 100 / 94.4 / 100.
+      'src/helpers/promotion-engine.ts': { statements: 95, branches: 94, functions: 95, lines: 95 },
+      'src/helpers/signup-promotions.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // Discount mint / issue / grant / redeem — discounts(-routes-branches).test.ts.
+      'src/routes/discounts.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      'src/routes/billing-summary.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
     },
   },
   'compliance': {
-    global: { statements: 87, branches: 83, functions: 77, lines: 87 },
+    global: { statements: 87, branches: 87, functions: 80, lines: 87 },
   },
   'image-registry': {
-    global: { statements: 84, branches: 77, functions: 82, lines: 84 },
+    global: { statements: 91, branches: 89, functions: 91, lines: 91 },
     paths: {
       // Docker registry token issuer — covered by test/token-route.test.ts.
       'src/routes/token.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
     },
   },
   'message': {
-    global: { statements: 91, branches: 80, functions: 68, lines: 91 },
+    global: { statements: 93, branches: 83, functions: 75, lines: 93 },
   },
   'pipeline': {
-    global: { statements: 83, branches: 77, functions: 71, lines: 83 },
+    global: { statements: 87, branches: 82, functions: 81, lines: 87 },
   },
   'plugin': {
-    global: { statements: 91, branches: 78, functions: 79, lines: 91 },
+    global: { statements: 95, branches: 87, functions: 94, lines: 95 },
+    paths: {
+      // Anonymous-submission moderation — every fail-closed publish guard
+      // (community publisher, digest pin, live listing, owner, duplicate
+      // version, lost claim) in test/submission-moderation-guards.test.ts.
+      'src/services/ecosystem/submission-moderation.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // Platform reads answer null (never a guess) — test/platform-reads.test.ts.
+      'src/services/ecosystem/platform-reads.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
+      // Terminal gate-run failure fails the submission closed —
+      // test/submission-build-queue.test.ts.
+      'src/queue/submission-build-queue.ts': { statements: 95, branches: 94, functions: 95, lines: 95 },
+    },
   },
   'quota': {
     global: { statements: 95, branches: 91, functions: 95, lines: 95 },
   },
   'reporting': {
-    global: { statements: 95, branches: 81, functions: 77, lines: 95 },
+    global: { statements: 95, branches: 89, functions: 78, lines: 95 },
   },
   'platform': {
-    global: { statements: 86, branches: 82, functions: 73, lines: 86 },
+    global: { statements: 86, branches: 83, functions: 78, lines: 86 },
     paths: {
       // SCIM provisioning — test/scim-provisioning.test.ts covers the policy
       // (verified domains, owner/platform-admin protection, seats, the
@@ -1063,31 +1188,61 @@ const COVERAGE_THRESHOLDS: Record<string, {
       // Two-person MFA reset — test/mfa-recovery-service.test.ts; 100/100/100/100.
       'src/services/mfa-recovery.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
       // Opaque key → JWT exchange, plus self-rotation and sibling revoke —
-      // test/token-exchange-controller.test.ts; 100/100/100/100.
+      // test/token-exchange-controller.test.ts.
       'src/controllers/token-exchange.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
       // The key model behind all three: mint/list/revoke in
       // test/api-key-lifecycle.test.ts, resolution in
-      // test/api-key-exchange-service.test.ts. Both used to run only under
-      // RUN_MONGO_INTEGRATION; they now measure 100/100/100/100 on the default run.
+      // test/api-key-exchange-service.test.ts.
       'src/services/api-key-service.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
     },
   },
   'ask': {
-    global: { statements: 92, branches: 74, functions: 78, lines: 92 },
+    global: { statements: 94, branches: 79, functions: 93, lines: 94 },
   },
   '@pipeline-builder/ai-core': {
     global: { statements: 95, branches: 92, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-events': {
-    global: { statements: 94, branches: 77, functions: 95, lines: 94 },
+    global: { statements: 95, branches: 78, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-manager': {
-    global: { statements: 78, branches: 82, functions: 68, lines: 78 },
+    global: { statements: 79, branches: 84, functions: 83, lines: 79 },
   },
   'frontend': {
-    global: { statements: 84, branches: 74, functions: 50, lines: 84 },
+    global: { statements: 84, branches: 78, functions: 63, lines: 84 },
   },
 };
+
+/**
+ * Source files (relative to `projectDir`) with NO runtime code of their own:
+ * pure barrels (every statement an `export … from`) and type-only modules
+ * (interfaces, type aliases, `import type`). There is nothing in them to cover,
+ * and a type-only module that no test happens to load would otherwise count
+ * every line as uncovered. Decided from the AST, not by file name —
+ * pipeline-events' Lambda handler, the service entrypoints and platform's config
+ * are `index.ts` files with real logic.
+ */
+function noRuntimeCodeFiles(projectDir: string): string[] {
+  const typeOnly = (st: ts.Statement): boolean =>
+    ts.isInterfaceDeclaration(st) || ts.isTypeAliasDeclaration(st)
+    || (ts.isImportDeclaration(st) && !!st.importClause?.isTypeOnly)
+    || (ts.isExportDeclaration(st) && st.isTypeOnly)
+    || ts.isEmptyStatement(st);
+  const reExport = (st: ts.Statement): boolean => ts.isExportDeclaration(st) && !!st.moduleSpecifier;
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    if (!fs.existsSync(dir)) return;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!/\.tsx?$/.test(e.name) || e.name.endsWith('.d.ts')) continue;
+      const sf = ts.createSourceFile(p, fs.readFileSync(p, 'utf8'), ts.ScriptTarget.Latest, false);
+      if (sf.statements.every((st) => typeOnly(st) || reExport(st))) out.push(path.relative(projectDir, p).split(path.sep).join('/'));
+    }
+  };
+  walk(path.join(projectDir, 'src'));
+  return out.sort();
+}
 
 /**
  * Apply the floors. jest keys a per-path threshold by a glob relative to the
@@ -1097,10 +1252,71 @@ for (const project of root.subprojects) {
   const t = COVERAGE_THRESHOLDS[project.name];
   const jest = (project as { jest?: { config: Record<string, unknown> } }).jest;
   if (!t || !jest) continue;
+  // Measure EVERY source file, not just the ones some test happened to import:
+  // without this a module no suite loads is simply absent from the report and
+  // the floors below say nothing about it. Barrels (pure re-exports) and the
+  // test-helper tree are not production logic; nor are type-only modules
+  // (see noRuntimeCodeFiles).
+  jest.config.collectCoverageFrom = [
+    project.name === 'frontend' ? 'src/**/*.{ts,tsx}' : 'src/**/*.ts',
+    '!src/**/*.d.ts',
+    '!src/testing/**',
+    ...noRuntimeCodeFiles(project.outdir).map((f) => `!${f}`),
+  ];
   jest.config.coverageThreshold = {
     global: t.global,
     ...Object.fromEntries(Object.entries(t.paths ?? {}).map(([p, v]) => [`**/${p}`, v])),
   };
+}
+
+// =============================================================================
+// Lint: no `--fix` in CI
+// =============================================================================
+
+/**
+ * projen's `eslint` task runs `eslint --fix`, and `test` spawns it — so CI
+ * REWROTE files instead of failing on them, and a lint error that autofix could
+ * "resolve" never reached a reviewer. `eslint` (and therefore `test`/`build`)
+ * now only checks; `lint:fix` is the explicit local fixer.
+ */
+for (const project of root.subprojects) {
+  const eslint = (project as TypeScriptProject).eslint;
+  if (!eslint) continue;
+  const step = eslint.eslintTask.steps[0] as { execArgs?: string[] } | undefined;
+  const args = step?.execArgs;
+  if (!args) throw new Error(`${project.name}: unexpected eslint task shape`);
+  const check = args.filter((a) => a !== '--fix');
+  eslint.eslintTask.reset();
+  eslint.eslintTask.execArgs(check, { receiveArgs: true });
+  const fixTask = project.addTask('lint:fix', {
+    description: 'Run eslint with --fix (local only — CI runs `eslint` without it)',
+    env: { ESLINT_USE_FLAT_CONFIG: 'false', NODE_NO_WARNINGS: '1' },
+  });
+  fixTask.execArgs([check[0], '--fix', ...check.slice(1)], { receiveArgs: true });
+}
+
+/**
+ * Projects whose TESTS read files outside their own root — the deploy/ tree
+ * (contract tests over manifests, postgres-init.sql, plugin specs) and docs/
+ * (env-var documentation). Nx only hashes a project's own files by default, so
+ * a deploy/-only change left these builds cached/unaffected and their drift
+ * guards unrun. Declared per project as extra build/test inputs (package.json
+ * `nx` field, which nx merges over nx.json's targetDefaults).
+ */
+const REPO_FIXTURE_INPUTS: Record<string, string[]> = {
+  'platform': ['{workspaceRoot}/deploy/**/*', '{workspaceRoot}/docs/**/*'],
+  'pipeline': ['{workspaceRoot}/deploy/**/*'],
+  'plugin': ['{workspaceRoot}/deploy/**/*'],
+  '@pipeline-builder/pipeline-core': ['{workspaceRoot}/deploy/**/*'],
+  '@pipeline-builder/pipeline-data': ['{workspaceRoot}/deploy/**/*'],
+  '@pipeline-builder/pipeline-manager': ['{workspaceRoot}/deploy/**/*'],
+  '@pipeline-builder/api-core': ['{workspaceRoot}/docs/**/*', '{workspaceRoot}/deploy/**/*'],
+};
+for (const project of root.subprojects) {
+  const extra = REPO_FIXTURE_INPUTS[project.name];
+  if (!extra) continue;
+  const inputs = ['default', '^default', 'sharedGlobals', ...extra, '!{projectRoot}/lib/**/*', '!{projectRoot}/dist/**/*'];
+  (project as TypeScriptProject).package.addField('nx', { targets: { build: { inputs }, test: { inputs } } });
 }
 
 new Nx(root);

@@ -220,19 +220,41 @@ describe('PublisherAdvisoriesPanel', () => {
   });
 
   it('omits empty optional fields and shows a validation error from the server', async () => {
-    api.submitPublishRequest.mockRejectedValue(new Error('affectedRange is not a valid semver range'));
+    api.submitPublishRequest.mockRejectedValue(new Error('Listing is paused'));
     render(<PublisherAdvisoriesPanel canManage />);
     await screen.findByTestId('advisory-a1');
     fireEvent.click(screen.getByRole('button', { name: /submit advisory/i }));
     await waitFor(() => expect(screen.getByRole('option', { name: 'eslint' })).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(/^listing/i), { target: { value: 'l1' } });
-    fireEvent.change(screen.getByLabelText(/^affected versions/i), { target: { value: 'nope' } });
+    fireEvent.change(screen.getByLabelText(/^affected versions/i), { target: { value: '<2.0.0' } });
     fireEvent.change(screen.getByLabelText(/^summary/i), { target: { value: 'Bad' } });
     fireEvent.click(screen.getByRole('button', { name: 'Submit request' }));
-    expect(await screen.findByText('affectedRange is not a valid semver range')).toBeInTheDocument();
+    expect(await screen.findByText('Listing is paused')).toBeInTheDocument();
     expect(api.submitPublishRequest).toHaveBeenCalledWith({
-      kind: 'advisory', listingId: 'l1', advisory: { affectedRange: 'nope', severity: 'high', summary: 'Bad' },
+      kind: 'advisory', listingId: 'l1', advisory: { affectedRange: '<2.0.0', severity: 'high', summary: 'Bad' },
     });
+    // The form kept every value for the retry.
+    expect(screen.getByLabelText(/^summary/i)).toHaveValue('Bad');
+  });
+
+  it('refuses a malformed range, fixed version or CVE id in the form, before anything is sent', async () => {
+    render(<PublisherAdvisoriesPanel canManage />);
+    await screen.findByTestId('advisory-a1');
+    fireEvent.click(screen.getByRole('button', { name: /submit advisory/i }));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'eslint' })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/^listing/i), { target: { value: 'l1' } });
+    fireEvent.change(screen.getByLabelText(/^summary/i), { target: { value: 'Bad' } });
+    fireEvent.change(screen.getByLabelText(/^affected versions/i), { target: { value: 'nope' } });
+    expect(await screen.findByText(/"nope" is not a version/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submit request' })).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/^affected versions/i), { target: { value: '>=1.0.0 <1.4.2' } });
+    fireEvent.change(screen.getByLabelText(/^fixed version/i), { target: { value: 'soon' } });
+    expect(screen.getByText(/must be a semver version/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^fixed version/i), { target: { value: '1.4.2' } });
+    fireEvent.change(screen.getByLabelText(/^cve ids/i), { target: { value: 'CVE-2026-1234, !!' } });
+    expect(screen.getByText(/is not a vulnerability id/)).toBeInTheDocument();
+    expect(api.submitPublishRequest).not.toHaveBeenCalled();
   });
 
   it('refuses an over-long summary', async () => {
@@ -373,6 +395,24 @@ describe('AdvisoriesPanel (console)', () => {
     await waitFor(() => expect(api.createEcosystemAdvisory).toHaveBeenCalledWith(
       { listingId: 'l1', affectedRange: '<1.1.0', severity: 'high', summary: 'Leak' }, 'step-tok',
     ));
+  });
+
+  it('a refused create returns to the FILLED draft form with the server\'s reason', async () => {
+    api.createEcosystemAdvisory.mockRejectedValueOnce(new Error('fixedVersion 1.0.5 is inside the affected range <1.1.0'));
+    render(<AdvisoriesPanel can={can} />);
+    fireEvent.click(await screen.findByRole('button', { name: /new draft/i }));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'acme/eslint' })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/^listing/i), { target: { value: 'l1' } });
+    fireEvent.change(screen.getByLabelText(/^affected versions/i), { target: { value: '<1.1.0' } });
+    fireEvent.change(screen.getByLabelText(/^summary/i), { target: { value: 'Leak' } });
+    fireEvent.change(screen.getByLabelText(/^fixed version/i), { target: { value: '1.0.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify step-up' }));
+
+    expect(await screen.findByText(/is inside the affected range/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^summary/i)).toHaveValue('Leak');
+    expect(screen.getByLabelText(/^affected versions/i)).toHaveValue('<1.1.0');
+    expect(screen.getByLabelText(/^fixed version/i)).toHaveValue('1.0.5');
   });
 
   it('shows no write controls without plugins:moderate', async () => {

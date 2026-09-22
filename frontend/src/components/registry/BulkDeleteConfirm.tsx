@@ -74,7 +74,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
       if (!cancelled) setDigestScanDone(done);
     };
 
-    (async () => {
+    void (async () => {
       for (let i = 0; i < refs.length; i += PARALLEL_DIGEST_SCAN) {
         if (cancelled) return;
         await Promise.all(refs.slice(i, i + PARALLEL_DIGEST_SCAN).map(scanOne));
@@ -146,7 +146,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
         </div>
 
         <div className="text-xs text-fg-muted">
-          Distribution deletes manifests by digest — other tags pointing to the same digest will also stop working. Blob layers stay on disk as orphans until the registry's garbage collector runs (a separate maintenance pass). Each deletion is audit-logged.
+          Distribution deletes manifests by digest — other tags pointing to the same digest will also stop working. Blob layers stay on disk as orphans until the registry&apos;s garbage collector runs (a separate maintenance pass). Each deletion is audit-logged.
         </div>
 
         {needsTypeConfirm && !submitting && (

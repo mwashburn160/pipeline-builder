@@ -25,7 +25,9 @@ export function DirectoryHead({ title, description, canonical, siteUrl, noindex 
       <title>{fullTitle}</title>
       <meta name="description" content={description} />
       <link rel="canonical" href={canonical} />
-      {noindex && <meta name="robots" content="noindex" />}
+      {/* `follow`: the page is a view of an indexed one, and the plugin pages it
+          links to must still be discovered through it. */}
+      {noindex && <meta name="robots" content="noindex,follow" />}
       <meta property="og:title" content={fullTitle} />
       <meta property="og:description" content={description} />
       <meta property="og:type" content="website" />

@@ -4,12 +4,13 @@
 import crypto from 'crypto';
 import { createLogger, isBillingEnabled, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
 import type { ClientSession } from 'mongoose';
-import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
+import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, OAUTH_LINK_REQUIRES_SIGN_IN, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
+import { accessTokenVersion } from '../helpers/access-version.js';
 import { type OrgAuthority, resolveOrgAuthority } from '../helpers/org-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { publishUserRevocation } from '../helpers/session-revocation.js';
+import { publishSessionSlotRevocation, publishUserRevocation } from '../helpers/session-revocation.js';
 import { User, Organization, UserOrganization, type UserDocument } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
@@ -252,6 +253,9 @@ class AuthService {
    */
   async revokeRefreshSession(userId: string, sessionId: string): Promise<void> {
     await User.updateOne({ _id: userId }, { $pull: { refreshSessions: { id: sessionId } } });
+    // The slot's live access token dies with it: platform's requireAuth checks
+    // the slot; every other service reads `revoke:sid:<sid>`.
+    await publishSessionSlotRevocation(sessionId);
   }
 
   /**
@@ -259,13 +263,14 @@ class AuthService {
    * token is rejected) and clear every refresh-session slot.
    */
   async invalidateAllSessions(userId: string): Promise<void> {
-    await User.updateOne(
+    const updated = await User.findOneAndUpdate(
       { _id: userId },
       { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
-    );
-    // Post-commit: publish the user's now-current tokenVersion so the stateless
+      { returnDocument: 'after', projection: { tokenVersion: 1, claimsVersion: 1 } },
+    ).lean();
+    // Post-commit: publish the version THIS bump produced so the stateless
     // services reject outstanding tokens immediately (best-effort).
-    await publishUserRevocation(userId);
+    if (updated) await publishUserRevocation(userId, accessTokenVersion(updated));
   }
 
   /**
@@ -363,6 +368,16 @@ class AuthService {
       // login. Reject instead; the victim verifies (or resets) their existing
       // account first, then links. Verified accounts link seamlessly as before.
       if (!byEmail.isEmailVerified) throw new Error(ACCOUNT_EMAIL_UNVERIFIED);
+      // Never auto-link a SOCIAL provider onto an account protected by a second
+      // factor (authenticator app or passkey): the provider identity would then
+      // sign in on its own, standing in for the factor the person set up. They
+      // sign in the way they already can. (SSO links are the org's decision —
+      // the caller has checked its DNS-verified authority over the address.)
+      if (!sso) {
+        const { loadSignInMethods } = await import('../helpers/sign-in-methods.js');
+        const methods = await loadSignInMethods(String(byEmail._id));
+        if (methods.hasTotp || methods.passkeyCount > 0) throw new Error(OAUTH_LINK_REQUIRES_SIGN_IN);
+      }
       await User.updateOne({ _id: byEmail._id }, {
         $set: { [`oauth.${providerName}`]: { id: userInfo.id, email: userInfo.email, name: userInfo.name, picture: userInfo.picture, issuer: sso?.issuer, linkedAt: new Date() } },
       });

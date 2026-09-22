@@ -14,6 +14,7 @@
  * fallback, which is the same code path Redis-less deployments use.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -24,11 +25,12 @@ process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
 process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
 process.env.PLATFORM_FRONTEND_URL ||= 'https://platform.example.com';
 
-const mockAudit = jest.fn();
-const mockIncCounter = jest.fn();
-const mockIssueTokens = jest.fn<(...a: unknown[]) => unknown>();
-const mockIssueStepUp = jest.fn<(...a: unknown[]) => unknown>();
-const mockFindForTokenIssue = jest.fn<(...a: unknown[]) => unknown>();
+const mockAudit = jest.fn<AnyFn>();
+const mockIncCounter = jest.fn<AnyFn>();
+const mockIssueTokens = jest.fn<AnyFn>();
+const mockIssueStepUp = jest.fn<AnyFn>();
+const mockFindForTokenIssue = jest.fn<AnyFn>();
+const mockFindRefreshSession = jest.fn<AnyFn>();
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -41,8 +43,11 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findForTokenIssue: (...a: unknown[]) => mockFindForTokenIssue(...a) },
 }));
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   issueStepUpToken: (...a: unknown[]) => mockIssueStepUp(...a),
+  findRefreshSession: (...a: unknown[]) => mockFindRefreshSession(...a),
   // Faithful stand-in for the real helper (whose own semantics — inherit, never
   // raise, fail closed — are covered in the token suites). Importing the real
   // module here would drag in mongoose models for no added coverage.
@@ -61,8 +66,8 @@ const { _resetDeviceStoresForTests } = await import('../src/services/device-auth
 
 function mockRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -78,13 +83,14 @@ function statusOf(res: any) {
 async function call(handler: unknown, req: Record<string, unknown>) {
   const full: any = { body: {}, query: {}, headers: { 'user-agent': 'pipeline-manager/3.4.0 (darwin)' }, ip: '203.0.113.7', ...req };
   const res = mockRes();
-  await (handler as any)(full, res, jest.fn());
+  await (handler as any)(full, res, jest.fn<AnyFn>());
   return res;
 }
 
 /** A signed-in browser session approving a code. */
 const APPROVER = {
   sub: 'user-1',
+  sid: 'browser-slot',
   organizationId: 'org-1',
   email: 'dev@example.com',
   amr: ['sso'],
@@ -107,11 +113,12 @@ beforeEach(() => {
   _resetDeviceStoresForTests();
   mockIssueTokens.mockResolvedValue({ accessToken: 'access.jwt', refreshToken: 'refresh.jwt', expiresIn: 900 });
   mockIssueStepUp.mockReturnValue({ token: 'stepup.jwt', expiresAt: 1_700_000_060 });
-  mockFindForTokenIssue.mockResolvedValue({ _id: 'user-1' });
+  mockFindForTokenIssue.mockResolvedValue({ _id: 'user-1', tokenVersion: 1 });
+  mockFindRefreshSession.mockResolvedValue({ id: 'browser-slot' });
   jest.spyOn(Date, 'now').mockImplementation(() => realNow() + clockOffset);
 });
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { jest.restoreAllMocks(); });
 
 describe('POST /auth/device/code', () => {
   it('returns the RFC 8628 fields with an unambiguous user code', async () => {
@@ -287,14 +294,60 @@ describe('POST /auth/device/token — issuing the session', () => {
   });
 
   it('refuses when the approving account no longer exists', async () => {
-    mockFindForTokenIssue.mockResolvedValue(null);
     const started = await start();
     await call(approveDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } });
+    mockFindForTokenIssue.mockResolvedValue(null);
     clockOffset += 5_000;
 
     const res = await call(deviceToken, { body: { device_code: started.device_code } });
     expect(body(res).error).toBe('access_denied');
     expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /auth/device/token — the approval must still speak for a live session', () => {
+  it('refuses when the approver\'s sessions were revoked in between (tokenVersion moved)', async () => {
+    const started = await start();
+    await call(approveDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } });
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'user-1', tokenVersion: 2 }); // sign-out-everywhere
+    clockOffset += 5_000;
+
+    const res = await call(deviceToken, { body: { device_code: started.device_code } });
+    expect(body(res).error).toBe('access_denied');
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the approving browser session was signed out', async () => {
+    const started = await start();
+    await call(approveDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } });
+    mockFindRefreshSession.mockResolvedValue(undefined);
+    clockOffset += 5_000;
+
+    expect(body(await call(deviceToken, { body: { device_code: started.device_code } })).error).toBe('access_denied');
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe('decisions are compare-and-set', () => {
+  it('of an approve and a deny racing on one code, exactly one lands', async () => {
+    const started = await start();
+    const [a, d] = await Promise.all([
+      call(approveDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } }),
+      call(denyDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } }),
+    ]);
+    expect([statusOf(a), statusOf(d)].sort()).toEqual([200, 409]);
+  });
+
+  it('a poll that read the flow before the decision cannot erase it', async () => {
+    const started = await start();
+    // Poll (pending) and approve race: the poll's counter rewrite must not put
+    // the flow back to pending.
+    await Promise.all([
+      call(deviceToken, { body: { device_code: started.device_code } }),
+      call(approveDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } }),
+    ]);
+    clockOffset += 10_000;
+    expect(body(await call(deviceToken, { body: { device_code: started.device_code } })).access_token).toBe('access.jwt');
   });
 });
 

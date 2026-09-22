@@ -1,12 +1,14 @@
 import type { AppProps } from 'next/app';
 import type { NextPage } from 'next';
 import { useEffect, type ReactElement, type ReactNode } from 'react';
+import { useRouter } from 'next/router';
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { FeaturesProvider } from '@/hooks/useFeatures';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ToastProvider } from '@/components/ui/Toast';
 import { initClientErrorReporting } from '@/lib/error-reporter';
+import { isPublicDirectoryRoute } from '@/lib/public-directory/routes';
 import '@/styles/globals.css';
 
 /** Next.js page type extended with an optional per-page layout function. */
@@ -72,6 +74,16 @@ function AnimatedPageShell({ children }: { children: ReactNode }) {
 /** Next.js app wrapper. Provides auth, config, error boundary, and animated page transitions. */
 export default function App({ Component, pageProps }: AppPropsWithLayout) {
   const getLayout = Component.getLayout ?? ((page) => page);
+  // Public directory pages get the light shell: no `/api/config` round trip
+  // (FeaturesProvider — nothing on them reads a feature flag; `useFeatures`
+  // falls back to its default context) and no page-level motion wrapper, and
+  // the session restore waits until the browser is idle rather than competing
+  // with hydration. AuthProvider and ToastProvider stay at the SAME position in
+  // both trees, so navigating between public and app pages never remounts the
+  // session.
+  const { pathname } = useRouter();
+  const publicPage = isPublicDirectoryRoute(pathname);
+  const page = getLayout(<Component {...pageProps} />);
 
   // Install global handlers for async/unhandled-rejection faults the React
   // error boundary can't catch. Once, client-side only.
@@ -85,14 +97,14 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
     // the matching media block in globals.css.
     <MotionConfig reducedMotion="user">
     <ErrorBoundary>
-      <AuthProvider>
-        <FeaturesProvider>
-          <ToastProvider>
-            <AnimatedPageShell>
-              {getLayout(<Component {...pageProps} />)}
-            </AnimatedPageShell>
-          </ToastProvider>
-        </FeaturesProvider>
+      <AuthProvider deferInit={publicPage}>
+        <ToastProvider>
+          {publicPage ? page : (
+            <FeaturesProvider>
+              <AnimatedPageShell>{page}</AnimatedPageShell>
+            </FeaturesProvider>
+          )}
+        </ToastProvider>
       </AuthProvider>
     </ErrorBoundary>
     </MotionConfig>

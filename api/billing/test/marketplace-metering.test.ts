@@ -8,14 +8,16 @@
  * branches of the report helper, not the AWS call itself (see providers.test.ts).
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // createScheduler is constructed at module load; start() invokes run() so the
 // cadence tests can assert the cycle's effects (the interval itself is api-core's
 // concern). Capture the scheduler so tests can drive start/stop.
-const schedulerStart = jest.fn();
-const schedulerStop = jest.fn();
+const schedulerStart = jest.fn<AnyFn>();
+const schedulerStop = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createScheduler: (opts: { run: () => Promise<void> }) => ({
     start: () => { schedulerStart(); void opts.run(); },
@@ -24,11 +26,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // incCounter (metrics) comes from api-server — stub so no real registry loads.
-const mockIncCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
+const mockIncCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
 // Pass-through tenant-context wrapper (real one is AsyncLocalStorage-backed).
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T): T => fn(),
 }));
 
@@ -42,7 +44,7 @@ const mockGrantRecurringPromotions = jest.fn<(...a: unknown[]) => Promise<void>>
 jest.unstable_mockModule('../src/helpers/promotion-engine.js', () => ({ grantRecurringPromotions: (...a: unknown[]) => mockGrantRecurringPromotions(...a) }));
 const mockRecordMarketplaceConsumption = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ recordMarketplaceConsumption: (...a: unknown[]) => mockRecordMarketplaceConsumption(...a) }));
-const mockAuditRecord = jest.fn();
+const mockAuditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({ getAuditClient: () => ({ record: mockAuditRecord }) }));
 
 const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -256,7 +258,7 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
 
     await reportMarketplaceAddonUsage('org-1', new Date('2026-07-29T14:00:00Z'));
     expect(mockGrantPeriodicCredits).toHaveBeenCalledWith(granted, '2026-07'); // monthly period key
-    expect(granted.save).toHaveBeenCalled();
+    expect((granted as unknown as { save: unknown }).save).toHaveBeenCalled();
   });
 
   it('warns + counts an unrealizable balance (credit but no priced meterable dimension)', async () => {

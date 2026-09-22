@@ -9,13 +9,14 @@
 
 import type { AddressInfo } from 'net';
 import { jest, describe, it, expect, afterAll, beforeAll } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import express from 'express';
 
 jest.unstable_mockModule('../src/config/index.js', () => ({
   config: { auth: { loginThrottle: { perAccountMax: 3, perAccountWindowMs: 60_000 } } },
 }));
 // No Redis in the suite: express-rate-limit falls back to its in-memory store.
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ createSharedRateLimitStore: () => undefined }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { createSharedRateLimitStore: () => undefined }));
 
 const { loginAccountKey, loginAccountLimiter } = await import('../src/middleware/login-limiter.js');
 
@@ -32,7 +33,7 @@ beforeAll(async () => {
     if (req.body.password === 'right') res.status(200).json({ ok: true });
     else res.status(401).json({ ok: false });
   });
-  await new Promise<void>((resolve) => { server = app.listen(0, resolve); });
+  await new Promise<void>((resolve) => { server = app.listen(0, () => resolve()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));

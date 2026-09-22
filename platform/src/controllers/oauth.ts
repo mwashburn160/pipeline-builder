@@ -3,11 +3,13 @@
 
 import crypto from 'crypto';
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import type { Request } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { withController } from '../helpers/controller-helper.js';
+import { bindLoginToBrowser, clearLoginBinding, isBoundToThisBrowser } from '../helpers/login-binding.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { createCodeVerifier, pkceAuthorizeParams } from '../helpers/pkce.js';
@@ -16,6 +18,8 @@ import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { incCounter } from '../observability/metrics.js';
 import {
   ACCOUNT_EMAIL_UNVERIFIED,
+  OAUTH_LINK_REQUIRES_SIGN_IN,
+  OAUTH_PASSKEY_REQUIRED,
   OAUTH_EMAIL_UNVERIFIED,
   OAUTH_INVALID_ID_TOKEN,
   OAUTH_INVALID_STATE,
@@ -47,7 +51,7 @@ const MAX_PENDING_STATES = config.oauth.maxPendingStates;
 // The PKCE `code_verifier` rides in the SAME entry (providers that support it —
 // see `supportsPkce`), so it is single-use, cross-pod, and destroyed the moment
 // the state is consumed. It never reaches the browser.
-const pendingOAuthStates = createPendingStateStore<{ provider: string; codeVerifier?: string }>({
+const pendingOAuthStates = createPendingStateStore<{ provider: string; codeVerifier?: string; binding: string }>({
   prefix: 'oauth:state:',
   ttlMs: config.oauth.stateTtlMs,
   cleanupIntervalMs: config.oauth.cleanupIntervalMs,
@@ -92,6 +96,20 @@ interface OAuthProvider {
 
 const callbackUrlFor = (provider: OAuthProviderName) => `${config.oauth.callbackBaseUrl}/auth/callback/${provider}`;
 
+/** How long any one call to an OAuth provider (token exchange, user info) may
+ *  take — headers AND body — before it is abandoned as a provider failure. */
+const PROVIDER_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * `fetch` against an OAuth provider, bounded by {@link PROVIDER_FETCH_TIMEOUT_MS}.
+ * Without a deadline a hung provider pins the sign-in request (and its socket)
+ * indefinitely; an abort surfaces through {@link providerJson} as the typed
+ * provider failure, exactly like any other transport error.
+ */
+function providerFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(PROVIDER_FETCH_TIMEOUT_MS) });
+}
+
 /**
  * Parse a provider response as JSON, mapping a transport failure, a non-2xx or
  * an unparseable body to the typed `failureCode` — a provider outage is a 502,
@@ -130,7 +148,7 @@ function verifierField(codeVerifier?: string): Record<string, string> {
 
 /** RFC 6749 authorization-code exchange: form-encoded POST, JSON response. */
 async function formTokenExchange(tokenUrl: string, fields: Record<string, string>): Promise<ProviderTokens> {
-  const data = await providerJson<Record<string, unknown>>(() => fetch(tokenUrl, {
+  const data = await providerJson<Record<string, unknown>>(() => providerFetch(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
     body: new URLSearchParams({ ...fields, grant_type: 'authorization_code' }).toString(),
@@ -141,7 +159,7 @@ async function formTokenExchange(tokenUrl: string, fields: Record<string, string
 /** Bearer GET against a user-info endpoint. */
 function fetchBearerJson<T>(url: string, accessToken: string): Promise<T> {
   return providerJson<T>(
-    () => fetch(url, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }),
+    () => providerFetch(url, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' } }),
     OAUTH_USERINFO_FAILED,
   );
 }
@@ -280,7 +298,7 @@ function createGitHubProvider(): OAuthProvider {
       return `${authorizeUrl}?${params}`;
     },
     async exchangeCode(code: string, codeVerifier?: string) {
-      const data = await providerJson<Record<string, unknown>>(() => fetch(tokenUrl, {
+      const data = await providerJson<Record<string, unknown>>(() => providerFetch(tokenUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
@@ -350,7 +368,7 @@ function createFacebookProvider(): OAuthProvider {
     async exchangeCode(code: string) {
       const params = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, code, redirect_uri: callbackUrl });
       const data = await providerJson<Record<string, unknown>>(
-        () => fetch(`${tokenUrl}?${params}`, { method: 'GET', headers: { Accept: 'application/json' } }),
+        () => providerFetch(`${tokenUrl}?${params}`, { method: 'GET', headers: { Accept: 'application/json' } }),
         OAUTH_TOKEN_EXCHANGE_FAILED,
       );
       return tokensFrom(data);
@@ -361,7 +379,7 @@ function createFacebookProvider(): OAuthProvider {
       // `email` scope or the account has no confirmed email.
       const params = new URLSearchParams({ fields: 'id,name,email', access_token: accessToken });
       const data = await providerJson<Record<string, unknown>>(
-        () => fetch(`${userinfoUrl}?${params}`, { headers: { Accept: 'application/json' } }),
+        () => providerFetch(`${userinfoUrl}?${params}`, { headers: { Accept: 'application/json' } }),
         OAUTH_USERINFO_FAILED,
       );
       const picture = (data.picture as { data?: { url?: string } } | undefined)?.data?.url;
@@ -509,6 +527,8 @@ export const OAUTH_ERROR_MAP = {
   [OAUTH_MICROSOFT_TENANT_NOT_PINNED]: { status: 400, message: 'Microsoft sign-in is not available: the platform must be configured with a specific Microsoft tenant.' },
   [OAUTH_INVALID_ID_TOKEN]: { status: 401, message: 'The sign-in provider returned a token for a different client or account' },
   [ACCOUNT_EMAIL_UNVERIFIED]: { status: 409, message: 'An account already exists for this email but is not verified. Verify (or reset the password on) that account first, then link this provider.' },
+  [OAUTH_LINK_REQUIRES_SIGN_IN]: { status: 409, message: 'An account already exists for this email and is protected by two-factor authentication. Sign in with your password or passkey instead.' },
+  [OAUTH_PASSKEY_REQUIRED]: { status: 403, message: 'This account is protected by a passkey. Sign in with your passkey instead.' },
   // A social sign-in is single-factor (#8), so it cannot open a session in an
   // org that requires MFA once the grace period has passed.
   ...MFA_POLICY_ERROR_MAP,
@@ -524,7 +544,12 @@ export const OAUTH_ERROR_MAP = {
  * any lookup (valid or mismatched) to prevent probing/replay. Throws typed
  * errors from {@link OAUTH_ERROR_MAP}; callers wire that map into withController.
  */
-export async function verifyOAuthCode(providerName: string, code: string, state: string): Promise<OAuthUserInfo> {
+export async function verifyOAuthCode(
+  providerName: string,
+  code: string,
+  state: string,
+  browser: Pick<Request, 'headers'>,
+): Promise<OAuthUserInfo> {
   const provider = getProvider(providerName);
   if (!provider) throw new Error(OAUTH_UNSUPPORTED_PROVIDER);
   if (!provider.enabled) throw new Error(OAUTH_PROVIDER_DISABLED);
@@ -533,6 +558,10 @@ export async function verifyOAuthCode(providerName: string, code: string, state:
   // to prevent probing/replay.
   const pending = await pendingOAuthStates.consume(state);
   if (!pending || pending.provider !== providerName) throw new Error(OAUTH_INVALID_STATE);
+  // LOGIN CSRF: the state must also come back in the browser that started the
+  // flow (helpers/login-binding.ts) — a code + state planted in someone else's
+  // browser is refused.
+  if (!isBoundToThisBrowser(browser, pending.binding)) throw new Error(OAUTH_INVALID_STATE);
   // No silent downgrade: a PKCE-capable provider's flow ALWAYS starts with a
   // challenge, so an entry without a verifier is one this build never minted
   // (a state in flight across the deploy). Refuse it rather than exchange
@@ -641,10 +670,20 @@ export const getAuthUrl = withController('Get OAuth URL', async (req, res) => {
 
   const state = crypto.randomBytes(32).toString('hex');
   const { url, codeVerifier } = beginAuthorize(provider, state, 'sign-in');
-  await pendingOAuthStates.put(state, { provider: providerName, ...(codeVerifier && { codeVerifier }) });
+  // Bound to THIS browser (a Lax nonce cookie) — see helpers/login-binding.ts.
+  const binding = bindLoginToBrowser(res);
+  await pendingOAuthStates.put(state, { provider: providerName, binding, ...(codeVerifier && { codeVerifier }) });
 
   sendSuccess(res, 200, { url, state });
 });
+
+/** Which second factor (if any) an account's sign-in owes. */
+async function secondFactorFor(userId: string): Promise<'totp' | 'passkey' | null> {
+  const { loadSignInMethods } = await import('../helpers/sign-in-methods.js');
+  const methods = await loadSignInMethods(userId);
+  if (methods.hasTotp) return 'totp';
+  return methods.passkeyCount > 0 ? 'passkey' : null;
+}
 
 export const handleCallback = withController('OAuth callback', async (req, res) => {
   const providerName = getParam(req.params, 'provider')!;
@@ -659,7 +698,7 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
   // status. Fire-and-forget audit: it never changes the request outcome.
   let userInfo;
   try {
-    userInfo = await verifyOAuthCode(providerName, body.code, body.state);
+    userInfo = await verifyOAuthCode(providerName, body.code, body.state, req);
   } catch (err) {
     audit(req, 'user.login.failed', { targetType: 'user', outcome: 'failure', details: { provider: providerName, method: 'oauth' } });
     incCounter('platform_logins_failed_total');
@@ -674,6 +713,28 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
   if (await rejectIfSsoEnforced(res, userInfo.email)) return;
 
   const user = await authService.findOrCreateOAuthUser(providerName, userInfo);
+
+  // SECOND FACTOR: a social sign-in is a FIRST factor exactly like a password,
+  // so an account with a factor enrolled owes it here too — otherwise the
+  // provider would be a way around the factor the person set up. An
+  // authenticator app → the same MFA challenge password login answers (the
+  // session opens at `aal: 2` once the code verifies); a passkey alone has no
+  // code to ask for on this leg, so the person signs in with the passkey.
+  const second = await secondFactorFor(user._id.toString());
+  if (second === 'totp') {
+    const { createMfaChallenge } = await import('../services/mfa-challenge.js');
+    const challenge = await createMfaChallenge(user._id.toString(), user.lastActiveOrgId?.toString(), { firstFactor: 'oauth' });
+    incCounter('platform_mfa_challenges_total');
+    clearLoginBinding(res);
+    return sendSuccess(res, 200, {
+      mfaRequired: true,
+      challengeId: challenge.challengeId,
+      expiresAt: challenge.expiresAt,
+      methods: ['totp', 'recovery'],
+    });
+  }
+  if (second === 'passkey') throw new Error(OAUTH_PASSKEY_REQUIRED);
+
   // Social sign-in opens an INTERACTIVE session (`amr: ['oauth']`).
   const tokens = await issueTokens(user, user.lastActiveOrgId?.toString(), {
     kind: 'interactive',
@@ -688,6 +749,7 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
   incCounter('platform_logins_total');
 
   logger.info(`[OAUTH] ${providerName} login successful`, { userId: user._id, email: userInfo.email });
+  clearLoginBinding(res);
   // Identical session establishment to password login, cookie transport included.
   sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
 }, OAUTH_ERROR_MAP);

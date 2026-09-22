@@ -33,6 +33,8 @@ export interface AnswerHowToOptions {
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Aborts the provider call when the client disconnects (avoids wasted spend). */
   abortSignal?: AbortSignal;
+  /** Caps the answer's length (and so its token cost). Unset ⇒ the provider default. */
+  maxOutputTokens?: number;
 }
 
 const SYSTEM_PROMPT = [
@@ -84,7 +86,7 @@ function buildMessages(opts: AnswerHowToOptions, context: string) {
  */
 export async function answerHowTo(opts: AnswerHowToOptions): Promise<{ text: string; sources: AskSource[] }> {
   const { messages, sources } = prepare(opts);
-  const result = await generateText({ model: opts.model, messages, abortSignal: opts.abortSignal });
+  const result = await generateText({ model: opts.model, messages, abortSignal: opts.abortSignal, maxOutputTokens: opts.maxOutputTokens });
   return { text: result.text, sources };
 }
 
@@ -110,7 +112,7 @@ export type AskStreamEvent =
  */
 export function streamHowTo(opts: AnswerHowToOptions): { sources: AskSource[]; events: AsyncIterable<AskStreamEvent> } {
   const { messages, sources } = prepare(opts);
-  const result = streamText({ model: opts.model, messages, abortSignal: opts.abortSignal });
+  const result = streamText({ model: opts.model, messages, abortSignal: opts.abortSignal, maxOutputTokens: opts.maxOutputTokens });
   return { sources, events: toAskEvents(result.fullStream) };
 }
 

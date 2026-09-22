@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 34c20b68b0caefe3413d71020518ef660ae81a79b5d346063bdab2ff76b4ef35
+// SOURCE-SHA256: 417b3bff021172226bd724752735ae62af6cab15a46e8ca28b27b3d2d7e81d23
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -199,8 +199,8 @@ export const deployOperationsTopic: HelpTopic = {
             ],
             [
               "MinIO",
-              "4-drive EC:2 (eks/ec2), single drive (local)",
-              "drive-fault tolerance, not site",
+              "4-pod EC:2 (eks), 4-directory EC:2 on one EBS volume (ec2), single drive (local)",
+              "drive/pod-fault tolerance on eks only; ec2 relies on the EBS volume + DLM snapshots",
               "Mirrored by backup.sh when MINIO_ENDPOINT is set."
             ]
           ]
@@ -334,7 +334,7 @@ export const deployOperationsTopic: HelpTopic = {
           "type": "list",
           "items": [
             "EKS (production): distributed MinIO — a StatefulSet of 4 pods, one pb-ebs PVC each, erasure set EC:2 (tolerates 2 pod/drive losses), spread across nodes via anti-affinity. Clients hit the minio Service (round-robin); peers resolve via the minio-headless Service.",
-            "ec2 (single-node prod-style): single-node multi-drive (SNMD) — 4 hostPath drives ⇒ EC:2 (drive-fault tolerance on the one node; true node-HA needs multiple nodes).",
+            "ec2 (single-node prod-style): single-node multi-drive (SNMD) — 4 hostPath directories ⇒ EC:2. All four sit on the same EBS data volume, so this is bit-rot detection/healing, not drive-fault tolerance; durability is the EBS volume itself plus its daily DLM snapshots and DeletionPolicy/UpdateReplacePolicy: Snapshot (template.yaml). True drive/node HA needs separate volumes/nodes (EKS).",
             "docker / minikube (local dev): single-node, single-drive — no HA (dev convenience). For cross-site async replication (any target) add mc admin replicate."
           ]
         },
@@ -424,7 +424,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Each carries its own login — nginx applies no auth to these routes — and both read data with no org scoping, unlike the tenant-facing /dashboard/observability pages which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them. Kiali additionally runs view_only_mode with read-only RBAC (no create/update/delete verbs anywhere) and auth.strategy: token, so signing in needs a ServiceAccount token: kubectl -n pipeline-builder create token kiali."
+          "content": "On AWS (ec2, eks) the consoles — and /pgadmin/, /mongo-express/ — are off by default (their routes 404) and, when turned on with ADMIN_UIS_ENABLED=true, sit behind an nginx auth_request to platform's superadmin + AAL2 check (GET /admin/console-check; see AWS: Access Points). Locally (docker, minikube) nginx still applies no auth of its own. Each carries its own login as well, and both read data with no org scoping, unlike the tenant-facing /dashboard/observability pages which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them. Kiali additionally runs view_only_mode with read-only RBAC (no create/update/delete verbs anywhere) and auth.strategy: token, so signing in needs a ServiceAccount token: kubectl -n pipeline-builder create token kiali."
         },
         {
           "type": "text",

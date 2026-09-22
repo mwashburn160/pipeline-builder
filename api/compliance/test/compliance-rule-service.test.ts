@@ -1,21 +1,23 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const cacheGetOrSet = jest.fn((_key: string, factory: () => Promise<unknown>) => factory());
 const cacheInvalidatePattern = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(0);
 
 class StubCrudService {
-  find = jest.fn();
-  findById = jest.fn();
-  create = jest.fn();
-  update = jest.fn();
-  delete = jest.fn();
+  find = jest.fn<AnyFn>();
+  findById = jest.fn<AnyFn>();
+  create = jest.fn<AnyFn>();
+  update = jest.fn<AnyFn>();
+  delete = jest.fn<AnyFn>();
 }
 
-const dbInsertValues = jest.fn().mockResolvedValue(undefined);
+const dbInsertValues = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const dbInsert = jest.fn(() => ({ values: dbInsertValues }));
 
 // Helper builder for chainable db.select(...).from(...).innerJoin(...).where(...) etc.
@@ -40,45 +42,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
-  CrudService: StubCrudService,
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 },
-  buildComplianceRuleConditions: jest.fn(() => []),
-  buildPublishedRuleCatalogConditions: jest.fn(() => []),
-  drizzleCount: (r: unknown) => r,
-  schema: {
-    complianceRule: {
-      id: 'col_id',
-      orgId: 'col_orgId',
-      name: 'col_name',
-      target: 'col_target',
-      isActive: 'col_isActive',
-      scope: 'col_scope',
-      priority: 'col_priority',
-      severity: 'col_severity',
-      createdAt: 'col_createdAt',
-      updatedAt: 'col_updatedAt',
-    },
-    complianceRuleSubscription: {
-      id: 'col_sid', orgId: 'col_sorg', ruleId: 'col_sruleId', isActive: 'col_sactive',
-    },
-    complianceRuleHistory: {
-      ruleId: 'col_hr', orgId: 'col_horg', changedAt: 'col_hat',
-    },
-    complianceScan: {},
-  },
-  // After the migration the service uses withTenantTx / runWithTenantContext
-  // for every DB op. Pass through to the same dbInsert / dbSelect spies the
-  // tests already track so assertions remain unchanged.
-  runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
-  withTenantTx: (fn: (tx: unknown) => unknown) => fn({
-    insert: dbInsert,
-    select: dbSelect,
-  }),
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  // Imported (via the entitlement watermark store) by subscription-service.
+  drizzleRows: <T>(rows: T[]) => rows,
   CrudService: StubCrudService,
-  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 },
   buildComplianceRuleConditions: jest.fn(() => []),
   buildPublishedRuleCatalogConditions: jest.fn(() => []),
   drizzleCount: (r: unknown) => r,

@@ -14,7 +14,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const dbDelete = jest.fn<(...args: unknown[]) => Promise<unknown>>();
@@ -22,7 +22,7 @@ const ltMock = jest.fn((col: unknown, val: unknown) => ({ __op: 'lt', col, val }
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: {
     complianceAuditLog: { id: 'col_id', createdAt: 'col_created_at' },
   },

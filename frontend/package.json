@@ -5,13 +5,16 @@
     "compile": "pnpm dlx projen compile",
     "default": "pnpm dlx projen default",
     "dev": "pnpm dlx projen dev",
+    "eslint": "pnpm dlx projen eslint",
     "export": "pnpm dlx projen export",
+    "lint:fix": "pnpm dlx projen lint:fix",
     "package": "pnpm dlx projen package",
     "post-compile": "pnpm dlx projen post-compile",
     "pre-compile": "pnpm dlx projen pre-compile",
     "server": "pnpm dlx projen server",
     "telemetry": "pnpm dlx projen telemetry",
     "test": "pnpm dlx projen test",
+    "test:update": "pnpm dlx projen test:update",
     "test:watch": "pnpm dlx projen test:watch",
     "typecheck:tests": "pnpm dlx projen typecheck:tests",
     "projen": "pnpm dlx projen",
@@ -26,15 +29,24 @@
   },
   "devDependencies": {
     "@jest/globals": "30.4.1",
+    "@stylistic/eslint-plugin": "^2",
     "@tailwindcss/postcss": "4.3.3",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
-    "@types/node": "26.1.2",
+    "@types/node": "^24",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
     "autoprefixer": "10.5.4",
+    "eslint": "^9",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "7.1.1",
     "jest": "30.4.2",
     "jest-environment-jsdom": "30.4.1",
     "jest-junit": "^17",
@@ -70,7 +82,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.19",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -135,11 +147,28 @@
       "<rootDir>/.next/"
     ],
     "restoreMocks": true,
+    "collectCoverageFrom": [
+      "src/**/*.{ts,tsx}",
+      "!src/**/*.d.ts",
+      "!src/testing/**",
+      "!src/components/build-queue/types.ts",
+      "!src/components/reports/types.ts",
+      "!src/components/users/types.ts",
+      "!src/lib/help/types.ts",
+      "!src/types/audit.ts",
+      "!src/types/compliance-notifications.ts",
+      "!src/types/compliance.ts",
+      "!src/types/ecosystem.ts",
+      "!src/types/observability.ts",
+      "!src/types/plugin-installs.ts",
+      "!src/types/plugin-reviews.ts",
+      "!src/types/plugin-submissions.ts"
+    ],
     "coverageThreshold": {
       "global": {
         "statements": 84,
-        "branches": 74,
-        "functions": 50,
+        "branches": 78,
+        "functions": 63,
         "lines": 84
       }
     }

@@ -7,18 +7,19 @@
  * is a per-period flow, so a refund must never land in a later period.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockDecrementQuota = jest.fn();
+const mockDecrementQuota = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ decrementQuota: mockDecrementQuota }));
 
 const { refundPluginSlot } = await import('../src/helpers/quota-refund.js');
 
-const quotaService = { decrement: jest.fn() } as any;
-const logWarn = jest.fn();
+const quotaService = { decrement: jest.fn<AnyFn>() } as any;
+const logWarn = jest.fn<AnyFn>();
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('refundPluginSlot', () => {
   it('refunds with the charge-time resetAt as the conditional snapshot', () => {

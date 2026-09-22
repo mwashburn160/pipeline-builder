@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  answerHowTo,
   getAvailableProviders,
   streamHowTo,
 } from '@pipeline-builder/ai-core';
@@ -31,7 +30,7 @@ import { clientAbortSignal } from '../client-abort.js';
 import { AskBodySchema } from '../request-schema.js';
 import { getAuditClient } from '../services/audit.js';
 import { getDocsIndex } from '../services/docs-index.js';
-import { resolveAskModel } from '../services/model.js';
+import { ASK_MAX_OUTPUT_TOKENS, resolveAskModel } from '../services/model.js';
 
 const logger = createLogger('ask');
 
@@ -102,8 +101,11 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       return sendQuotaReserveDenied(res, 'aiCalls', reservation);
     }
 
-    // True once the provider returned an answer. A failure after that (metrics,
-    // audit, response write) keeps the slot; only a pre-answer failure refunds.
+    // True once the provider STARTED responding (a paid call) — the same
+    // `provider-responded` signal the stream path uses. The answer is collected
+    // from the stream rather than a one-shot generate, because a one-shot call
+    // gives no such signal: a provider that responded and THEN failed (mid-body
+    // error, client abort) looked "never contacted" and was refunded for free.
     let providerContacted = false;
 
     const startedAt = Date.now();
@@ -111,8 +113,13 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       ctx.log('INFO', 'Ask how-to requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
       const aiModel = resolveAskModel(provider, model, apiKey);
-      const result = await answerHowTo({ model: aiModel, query, index, history, abortSignal: clientAbortSignal(res) });
-      providerContacted = true;
+      const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal: clientAbortSignal(res), maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
+      let text = '';
+      for await (const event of events) {
+        if (event.type === 'provider-responded') providerContacted = true;
+        else text += event.text;
+      }
+      const result = { text, sources };
       ctx.log('COMPLETED', 'Ask how-to answered', { sources: result.sources.length });
       recordAi('howto', provider, 'success', startedAt);
       auditAskQuery(userId, orgId, { queryLength: query.length, sources: result.sources.length, streamed: false, outcome: 'success' });
@@ -155,7 +162,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
 
       initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
       const abortSignal = clientAbortSignal(res);
-      const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal });
+      const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
 
       // Emit the grounded sources up-front so the UI can show them while tokens arrive.
       if (!abortSignal.aborted) res.write(`data: ${JSON.stringify({ type: 'sources', data: sources })}\n\n`);

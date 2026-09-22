@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, it, test, expect, jest } from '@jest/globals';
+import { describe, it, expect } from '@jest/globals';
 
 /**
  * Integration tests for pipeline-manager.

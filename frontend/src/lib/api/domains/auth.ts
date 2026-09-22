@@ -325,6 +325,12 @@ export function authApi(core: ApiCore) {
       });
     },
 
+    /** GET /user/password-policy — the minimum a new password must meet: the
+     *  strictest policy across every org the caller belongs to. */
+    getOwnPasswordPolicy: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ minLength: number; maxLength: number }>>('/api/user/password-policy', { signal: opts?.signal });
+    },
+
     deleteAccount: async (stepUpToken?: string) => {
       const response = await core.request<ApiResponse<{ message: string }>>('/api/user/account', {
         method: 'DELETE',
@@ -337,12 +343,12 @@ export function authApi(core: ApiCore) {
     /**
      * POST /user/generate-token — mint a stored MACHINE credential (CLI / CI /
      * automation). It opens its own machine session, so it never replaces or
-     * disturbs the caller's browser session; the token is returned once and is
-     * renewed by calling this endpoint with the token itself (there is no
-     * refresh token — machine sessions are not refreshable).
+     * disturbs the caller's browser session. `expiresIn` is the CREDENTIAL's
+     * lifetime: the returned refresh token (the thing to store) renews the
+     * short-lived access token through POST /auth/refresh until then.
      */
     generateNewToken: async (body?: { expiresIn?: number; scope?: string; permissions?: string[] }) => {
-      return core.request<ApiResponse<{ accessToken: string; expiresIn: number }>>(
+      return core.request<ApiResponse<{ accessToken: string; refreshToken: string; expiresIn: number }>>(
         '/api/user/generate-token',
         { method: 'POST', body: JSON.stringify(body ?? {}) },
       );
@@ -374,6 +380,9 @@ export function authApi(core: ApiCore) {
     createAccessKey: async (body: { name: string; expiresIn?: number; scope?: string; permissions?: string[] }, stepUpToken?: string) => {
       return core.request<ApiResponse<{ key: string; accessKey: AccessKeyMeta }>>('/api/user/keys', {
         method: 'POST',
+        // The key is shown once: a replay from the global dialog would mint one
+        // nobody sees.
+        replayOnStepUp: false,
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(body),
       });
@@ -518,7 +527,16 @@ export function authApi(core: ApiCore) {
      *  for a session. Returns the SAME token shape as password login; tokens are
      *  applied via `core.applyTokens` exactly like `login` (refresh token: cookie). */
     completeOAuthCallback: async (provider: string, params: { code: string; state: string }) => {
-      const response = await core.request<ApiResponse<{ accessToken: string; expiresIn?: number }>>(
+      // An account with an authenticator app answers with an MFA challenge
+      // instead of a session (the provider was only the first factor).
+      const response = await core.request<ApiResponse<{
+        accessToken: string;
+        expiresIn?: number;
+        mfaRequired?: boolean;
+        challengeId?: string;
+        expiresAt?: number;
+        methods?: string[];
+      }>>(
         `/api/auth/oauth/${encodeURIComponent(provider)}/callback`,
         { method: 'POST', body: JSON.stringify({ code: params.code, state: params.state }) },
       );
@@ -651,7 +669,8 @@ export function authApi(core: ApiCore) {
     getPasskeyRegistrationOptions: async (stepUpToken?: string) => {
       return core.request<ApiResponse<{ ceremonyId: string; options: PublicKeyCredentialCreationOptionsJSON }>>(
         '/api/auth/webauthn/register/options',
-        { method: 'POST', headers: core.stepUpHeader(stepUpToken), body: JSON.stringify({}) },
+        // Starts a browser ceremony that needs the click that began it.
+        { method: 'POST', replayOnStepUp: false, headers: core.stepUpHeader(stepUpToken), body: JSON.stringify({}) },
       );
     },
 
@@ -747,6 +766,9 @@ export function authApi(core: ApiCore) {
     enrolTotp: async (stepUpToken?: string) => {
       return core.request<ApiResponse<TotpEnrolment>>('/api/auth/totp/enrol', {
         method: 'POST',
+        // Returns the secret the enrolment screen must show — never replayed
+        // into a dialog that would drop it.
+        replayOnStepUp: false,
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify({}),
       });
@@ -783,6 +805,9 @@ export function authApi(core: ApiCore) {
     regenerateRecoveryCodes: async (stepUpToken?: string) => {
       return core.request<ApiResponse<{ recoveryCodes: string[] }>>('/api/auth/recovery-codes', {
         method: 'POST',
+        // The new codes are shown once; a replay elsewhere would burn the old
+        // set and show nobody the new one.
+        replayOnStepUp: false,
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify({}),
       });

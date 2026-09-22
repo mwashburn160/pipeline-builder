@@ -23,8 +23,8 @@
  * export ADDED to api-core is inherited automatically and can never again break a
  * suite with "does not provide an export named X".
  *
- * WHY IT LIVES IN api-core: the deep path
- * `@pipeline-builder/api-core/lib/testing/mock-api-core.js` is a different
+ * WHY IT LIVES IN api-core: the test entry
+ * `@pipeline-builder/api-core/testing` is a different
  * specifier from the `@pipeline-builder/api-core` barrel, so a suite's module
  * mock does NOT intercept it — the factory can therefore read the real module
  * without recursing into its own mock. Same trick as `tier-mock.ts`.

@@ -4,8 +4,8 @@
 /** The plugin page's tab panels (§6a "Plugin page"). */
 import { CheckCircle2, Download, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
-import { safeExternalUrl } from '@/lib/public-directory/links';
-import type { ListingDetail, RatingBucket } from '@/lib/public-directory/types';
+import { safeExternalUrl, versionSbomPath } from '@/lib/public-directory/links';
+import type { ListingDetail, RatingBucket, ReviewPage } from '@/lib/public-directory/types';
 import { ReviewsSection } from '@/components/reviews/ReviewsSection';
 import { formatDay } from './ListingCardView';
 import { VersionAdvisoryMarker } from './AdvisoryBanner';
@@ -139,6 +139,29 @@ export function SupplyChainPanel({ listing }: { listing: ListingDetail }) {
             : <span className="text-fg-subtle">Not available</span>}
         </Row>
       </dl>
+      {/* Each published version's own signed SBOM (SPDX JSON) — the one above is
+          the latest version's; auditing a pinned older version needs its own. */}
+      {listing.versions.some((v) => !v.yanked) && (
+        <section aria-labelledby="sc-sboms">
+          <h3 id="sc-sboms" className="mb-2 text-sm font-semibold text-fg">SBOM by version</h3>
+          <ul className="space-y-1 text-sm">
+            {listing.versions.filter((v) => !v.yanked).map((v) => (
+              <li key={v.version} className="flex items-center gap-3">
+                <span className="w-24 font-mono text-xs">v{v.version}</span>
+                <a
+                  href={versionSbomPath(listing.publisher.handle, listing.name, v.version)}
+                  download={`${listing.name}-${v.version}.spdx.json`}
+                  className="action-link inline-flex items-center gap-1"
+                  rel="nofollow"
+                  aria-label={`Download the SBOM for version ${v.version}`}
+                >
+                  <Download className="h-4 w-4" aria-hidden="true" /> SBOM
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {listing.advisories.length > 0 && (
         <section aria-labelledby="sc-advisories">
           <h3 id="sc-advisories" className="mb-2 text-sm font-semibold text-fg">Security advisories</h3>
@@ -169,7 +192,7 @@ const BUCKETS: RatingBucket[] = ['5', '4', '3', '2', '1'];
  * The Reviews tab: the SSR summary (score, recent-versions rating, distribution)
  * and the review list + write surface, which load in the browser.
  */
-export function ReviewsPanel({ listing }: { listing: ListingDetail }) {
+export function ReviewsPanel({ listing, initialReviews }: { listing: ListingDetail; initialReviews?: ReviewPage | null }) {
   const dist = listing.ratingDistribution;
   const total = dist ? BUCKETS.reduce((n, b) => n + (dist[b] ?? 0), 0) : 0;
   return (
@@ -203,7 +226,7 @@ export function ReviewsPanel({ listing }: { listing: ListingDetail }) {
           </ul>
         )}
       </div>
-      <ReviewsSection listing={listing} />
+      <ReviewsSection listing={listing} initial={initialReviews} />
     </div>
   );
 }

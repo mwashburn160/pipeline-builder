@@ -764,6 +764,54 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Request an install change that needs an approver',
+    file: 'pages/dashboard/plugins.tsx',
+    gateFiles: ['src/components/plugin-installs/InstallControls.tsx'],
+    permissions: ['plugins:install'],
+    // A major / breaking upgrade (or a move to `latest`) the org's policy tier
+    // needs an approver for: the member REQUESTS it instead of the PATCH.
+    routes: ['plugin POST /plugins/installs/:id/change-requests'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      router: { query: { tab: 'catalog' }, pathname: '/dashboard/plugins' },
+      api: {
+        getPluginCatalog: { listings: [{
+          listing: { id: 'l1', publisherHandle: 'acme', publisherDisplayName: 'Acme', publisherTier: 'community', name: 'tf', summary: null, category: 'deploy', icon: null, latestVersion: '2.0.0', state: 'listed', paused: false, license: null },
+          install: {
+            id: 'i1', listingId: 'l1', publisherHandle: 'acme', publisherDisplayName: 'Acme', publisherTier: 'community', name: 'tf',
+            summary: null, category: 'deploy', icon: null, state: 'listed', paused: false, versionPolicy: 'minor', pinnedVersion: '1.0.0',
+            resolvedVersion: '1.0.0', latestVersion: '2.0.0', status: 'active', implicit: false, inherited: false,
+            installedBy: 'u2', approvedBy: null, createdAt: '2026-09-01T00:00:00Z', decidedAt: null,
+            upgrade: { version: '2.0.0', breaking: false, changelog: null, vulnDelta: { newCritical: 0, newHigh: 0 } },
+            blocked: null, warnings: [], advisories: [], pendingChange: null,
+          },
+          installable: false, requiresApproval: true, needsApproval: true, blocked: null, resolved: null,
+          reference: { publisher: 'acme', name: 'tf' }, shadowedBy: null,
+        }] },
+      },
+      find: button(/^request upgrade to 2\.0\.0$/i),
+    },
+  },
+  {
+    control: 'Approve / reject a requested install change',
+    file: 'pages/dashboard/plugins.tsx',
+    gateFiles: ['src/components/plugin-installs/ApprovalsTab.tsx'],
+    permissions: ['plugin_installs:manage'],
+    routes: ['plugin POST /plugins/installs/:id/change-requests/approve', 'plugin POST /plugins/installs/:id/change-requests/reject'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      router: { query: { tab: 'approvals' }, pathname: '/dashboard/plugins' },
+      api: {
+        listPluginInstalls: { installs: [], policy: {} },
+        listInstallChangeRequests: { changeRequests: [{
+          installId: 'i1', listing: 'acme/tf', from: { version: '1.0.0', versionPolicy: 'minor' }, to: { version: '2.0.0', versionPolicy: 'minor' },
+          requestedBy: 'u2', requestedAt: '2026-09-01T00:00:00Z', note: null,
+        }] },
+      },
+      find: button(/^approve the change to acme\/tf$/i),
+    },
+  },
+  {
     control: 'Edit the plugin consumption policy',
     file: 'pages/dashboard/plugins.tsx',
     gateFiles: ['src/components/plugin-installs/PolicyTab.tsx'],
@@ -2111,6 +2159,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     why: 'The SBOM / scan links in a submission request\'s review (src/components/ecosystem/SubmissionReviewSection.tsx, from the request detail\'s sbomUrl / scanUrl), shown only inside the Ecosystem console review the mapped row gates on plugins:moderate + aal2.',
     coveredBy: 'Ecosystem console: review, approve / second-approve / reject a publish request',
   }),
+  'platform GET /admin/console-check': {
+    category: 'no-ui',
+    why: 'nginx auth_request target on the AWS gateway (deploy/aws/*/nginx/admin-uis.conf): every request to /pgadmin/ /mongo-express/ /grafana/ /kiali/ is checked here (sysadmin + aal2) before it is proxied. No dashboard code calls it; the browser only carries the pb_admin_console cookie nginx turns into the bearer.',
+  },
   'platform GET /internal/notify-email/status': {
     category: 'machine-only',
     why: 'Service-principal route (callers: plugin): the plugin service asks whether outbound email is configured before it enables anonymous submissions (W5, E6); no user token is admitted.',
@@ -2201,6 +2253,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], { category: 'machine-only', why: 'Service-principal route: the plugin service drives the public/* namespace (publish = copy + fresh sign with tier annotations, resign, yank, gc, verify) when the system org decides a publish request; no user token is admitted.' }),
   'image-registry POST /internal/plugin-signatures': { category: 'machine-only', why: 'Service-principal route: the plugin build worker asks image-registry (the plugin-signing key\'s only holder) to sign + SBOM-attest each pushed image; no user token is admitted.' },
   'reporting PUT /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route: billing pushes the org\'s effective retention here when a plan or retention pack changes.' },
+  'reporting GET /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: billing): the entitlement drift reconciler (api/billing/src/helpers/entitlement-drift.ts) reads the retention reporting enforces to compare it with the plan; no user token is admitted.' },
+  'image-registry POST /internal/quarantine/:submissionId/credential': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/services/ecosystem/registry.ts asks for a short-lived, registry-only pull credential scoped to one anonymous submission\'s quarantine image, for the submission build; no user token is admitted.' },
+  'plugin GET /internal/plugins/public-names': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/parent-public-plugins.ts reads the names of an org\'s live public plugins — the only repositories of its namespace its teams may pull (E22); no user token is admitted.' },
 
   // ── Machine credentials: a scoped key, never a session ────────────────────
   ...group('platform', [
@@ -2335,7 +2390,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'quota PUT /quotas/:orgId': { category: 'sysadmin-console', why: '"Save" in src/components/quotas/QuotasAdmin.tsx, rendered only when `isSuperAdmin`. Note the PAGE gate is quotas:read — the control-level check is what matches the route.' },
   'quota POST /quotas/:orgId/reset': {
     category: 'sysadmin-console',
-    why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (confirm modal + api.resetOrgQuota); systemAdmin + step-up, the latter replayed by the global step-up resume.',
+    why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (step-up dialog as the confirm + api.resetOrgQuota with its token); systemAdmin + step-up.',
   },
   'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx. The route asks for members:manage; the page is systemAdminOnly — see KNOWN_UI_GATE_MISMATCHES.' },
   'platform POST /admin/orgs/:orgId/kms-config/test': { category: 'sysadmin-console', why: '"Test" in src/components/admin/OrgKmsConfigModal.tsx, opened from the sysadmin org pages behind `can(\'org:kms\')` — the same gate the route carries.' },
@@ -2619,12 +2674,12 @@ function normaliseEndpoint(literal: string): string {
       let depth = 0;
       let j = i + 1;
       for (; j < literal.length; j += 1) {
-        if (literal[j] === '{') depth += 1;
+        if (literal[j] === '{') {depth += 1;}
         else if (literal[j] === '}') { depth -= 1; if (depth === 0) break; }
       }
       out += out.endsWith('/') ? ':p' : '';
       i = j;
-    } else out += literal[i];
+    } else {out += literal[i];}
   }
   return out.split('?')[0].replace(/\/+$/, '') || '/';
 }

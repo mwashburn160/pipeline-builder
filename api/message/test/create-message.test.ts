@@ -9,7 +9,9 @@
  * unscoped `findById` is wired to throw so a regression to it fails loudly.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import {
   createMockSseManager,
@@ -21,8 +23,8 @@ import {
   routeApiServerMock,
 } from './helpers/route-test-utils.js';
 
-const mockFindVisibleById = jest.fn<(...args: unknown[]) => unknown>();
-const mockCreate = jest.fn<(...args: unknown[]) => unknown>();
+const mockFindVisibleById = jest.fn<AnyFn>();
+const mockCreate = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -35,7 +37,7 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 // Remote-audit spy: route handlers emit attributed `message.*` events via
 // getAuditClient().record. Mock the module so tests can assert on the emitted
 // event and that NO message body reaches the trail.
-const mockAuditRecord = jest.fn();
+const mockAuditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
@@ -75,7 +77,7 @@ jest.unstable_mockModule('../src/services/attachment-service.js', () => ({
     findByMessageId: jest.fn(async () => []),
     findByMessageIds: jest.fn(async () => []),
     findById: jest.fn(async () => null),
-    createPending: jest.fn(),
+    createPending: jest.fn<AnyFn>(),
   },
 }));
 
@@ -83,9 +85,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeAp
 // `incCounter` is a spy (not the default no-op) so the shared persist-tail
 // suite at the bottom can assert the domain metric actually fires on EVERY
 // send route — the step a fourth route is most likely to forget.
-const mockIncCounter = jest.fn();
+const mockIncCounter = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock({ incCounter: mockIncCounter }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
 }));
 
@@ -98,7 +100,7 @@ const createRouter = createCreateMessageRoutes(mockSseManager);
 describe('POST /messages (create)', () => {
   const handler = getHandler(createRouter, 'post', '/');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('creates a message and returns 201', async () => {
     const created = { id: 'msg-new', subject: 'New message' };
@@ -163,7 +165,7 @@ describe('POST /messages (create)', () => {
       'New message',
       expect.objectContaining({ action: 'NEW_MESSAGE', subject: undefined }),
     );
-    const sseArg = (mockSseManager.send as jest.Mock).mock.calls.at(-1)?.[3] as Record<string, unknown>;
+    const sseArg = (mockSseManager.send as jest.Mock<AnyFn>).mock.calls.at(-1)?.[3] as Record<string, unknown>;
     expect(sseArg).not.toHaveProperty('recipientUserId');
   });
 
@@ -228,7 +230,7 @@ describe('POST /messages (create)', () => {
   });
 
   it('rejects recipientUserId on an announcement (broadcast is org-wide)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     const req = mockReq({
       body: {
         recipientOrgId: '*',
@@ -260,8 +262,8 @@ describe('POST /messages (create)', () => {
     ['a sysadmin', true, false],
     ['a service principal', false, true],
   ])('rejects a conversation with recipientOrgId="*" for %s (400, no row created)', async (_who, sysadmin, service) => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(sysadmin);
-    (isServicePrincipal as jest.Mock).mockReturnValue(service);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(sysadmin);
+    (isServicePrincipal as jest.Mock<AnyFn>).mockReturnValue(service);
 
     const req = mockReq({
       body: {
@@ -284,7 +286,7 @@ describe('POST /messages (create)', () => {
   });
 
   it('returns 403 when non-sysadmin creates announcement', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     const req = mockReq({
       body: {
         recipientOrgId: '*',
@@ -306,7 +308,7 @@ describe('POST /messages (create)', () => {
   });
 
   it('allows sysadmins to create announcements', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockCreate.mockResolvedValue({ id: 'msg-ann', subject: 'Update' });
 
     const req = mockReq({
@@ -331,7 +333,7 @@ describe('POST /messages (create)', () => {
   });
 
   it('allows a member to start a conversation with their own org', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockCreate.mockResolvedValue({ id: 'msg-self', subject: 'Hello' });
 
     // ctx.identity.orgId is 'ORG-1' → normalized to 'org-1' by withRoute.
@@ -355,8 +357,8 @@ describe('POST /messages (create)', () => {
     // Cross-tenant injection guard: an org outside the caller's account (and
     // not the system support inbox) is unreachable → 403, and NO row is
     // created. The default mock reachability denies any non-own/non-system org.
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    (isServicePrincipal as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isServicePrincipal as jest.Mock<AnyFn>).mockReturnValue(false);
 
     const req = mockReq({
       body: {
@@ -381,8 +383,8 @@ describe('POST /messages (create)', () => {
 
   it('allows a member to message a reachable org in their account subtree', async () => {
     // Same-account (shared root org) recipient → reachability resolves true.
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    (isServicePrincipal as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isServicePrincipal as jest.Mock<AnyFn>).mockReturnValue(false);
     mockIsRecipientReachable.mockResolvedValueOnce(true);
     mockCreate.mockResolvedValue({ id: 'msg-sibling', subject: 'Hello' });
 
@@ -410,8 +412,8 @@ describe('POST /messages (create)', () => {
   });
 
   it('allows a sysadmin to target any org, bypassing the reachability gate', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
-    (isServicePrincipal as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    (isServicePrincipal as jest.Mock<AnyFn>).mockReturnValue(false);
     mockCreate.mockResolvedValue({ id: 'msg-admin-cross', subject: 'Hello' });
 
     const req = mockReq({
@@ -432,8 +434,8 @@ describe('POST /messages (create)', () => {
   });
 
   it('allows a service principal to target any org, bypassing the reachability gate', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
-    (isServicePrincipal as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isServicePrincipal as jest.Mock<AnyFn>).mockReturnValue(true);
     mockCreate.mockResolvedValue({ id: 'msg-svc-cross', subject: 'Hello' });
 
     const req = mockReq({
@@ -553,7 +555,7 @@ describe('POST /messages (create)', () => {
 describe('POST /messages/support', () => {
   const handler = getHandler(createRouter, 'post', '/support');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('sends to the system support inbox on the support channel (201)', async () => {
     mockCreate.mockResolvedValue({ id: 'msg-support', subject: 'Help' });
@@ -653,11 +655,11 @@ describe('POST /messages/support', () => {
   });
 
   it('400s an invalid body without touching the service', async () => {
-    const req = mockReq({ body: undefined, context: { identity: { orgId: 'ORG-1', userId: 'user-1' }, log: jest.fn(), requestId: 'req-1' } });
+    const req = mockReq({ body: undefined, context: { identity: { orgId: 'ORG-1', userId: 'user-1' }, log: jest.fn<AnyFn>(), requestId: 'req-1' } });
     const res = mockRes();
     // The shared mock validateBody rejects a body with no caller-supplied
     // fields — i.e. subject/content missing, which the real schema also rejects.
-    (validateBody as jest.Mock).mockReturnValueOnce({ ok: false, error: 'Subject is required' });
+    (validateBody as jest.Mock<AnyFn>).mockReturnValueOnce({ ok: false, error: 'Subject is required' });
     await handler(req, res);
 
     expect(sendBadRequest).toHaveBeenCalledWith(res, 'Subject is required', 'VALIDATION_ERROR');
@@ -682,7 +684,7 @@ describe('POST /messages/support', () => {
 
   it('survives an SSE failure — the message is already persisted', async () => {
     mockCreate.mockResolvedValue({ id: 'msg-support-sse' });
-    (mockSseManager.send as jest.Mock).mockImplementationOnce(() => { throw new Error('boom'); });
+    (mockSseManager.send as jest.Mock<AnyFn>).mockImplementationOnce(() => { throw new Error('boom'); });
 
     const req = mockReq({ body: { subject: 'Help', content: 'Something is broken' } });
     const res = mockRes();
@@ -696,7 +698,7 @@ describe('POST /messages/support', () => {
 describe('POST /messages/:id/reply', () => {
   const handler = getHandler(createRouter, 'post', '/:id/reply');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('creates a reply and returns 201', async () => {
     const rootMessage = {
@@ -735,7 +737,7 @@ describe('POST /messages/:id/reply', () => {
   // by non-sysadmins (a member replying to a broadcast), polluting messageType
   // filters + the announcements feed. Replies must persist as `conversation`.
   it('persists an announcement reply as messageType="conversation" (not announcement)', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     const rootAnnouncement = {
       id: 'ann-1',
       orgId: '000000000000000000000001', // system org broadcast
@@ -862,10 +864,10 @@ describe('POST /messages/:id/reply', () => {
 describe('Remote audit emissions (create)', () => {
   const createHandler = getHandler(createRouter, 'post', '/');
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('emits message.announcement.create with metadata (no body) on announcement create', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockCreate.mockResolvedValue({ id: 'msg-ann', subject: 'Update' });
 
     const req = mockReq({
@@ -905,7 +907,7 @@ describe('Remote audit emissions (create)', () => {
   });
 
   it('does NOT emit audit for a 1:1 conversation create', async () => {
-    (isSystemAdmin as jest.Mock).mockReturnValue(false);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     mockCreate.mockResolvedValue({ id: 'msg-conv', subject: 'Hello' });
 
     const req = mockReq({
@@ -928,7 +930,7 @@ describe('Remote audit emissions (create)', () => {
 // SSE Notification Resilience
 
 describe('SSE notification resilience (create)', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it('does not fail HTTP response if SSE send throws on message create', async () => {
     mockSseManager.send.mockImplementation(() => { throw new Error('SSE failure'); });
@@ -955,7 +957,7 @@ describe('SSE notification resilience (create)', () => {
     mockSseManager.broadcast.mockImplementation(() => { throw new Error('SSE failure'); });
     // The announcement path requires a sysadmin caller (previously inherited
     // from an earlier suite's leaked mock state).
-    (isSystemAdmin as jest.Mock).mockReturnValue(true);
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
     mockCreate.mockResolvedValue({ id: 'msg-ann', subject: 'Update' });
 
     const handler = getHandler(createRouter, 'post', '/');
@@ -969,7 +971,7 @@ describe('SSE notification resilience (create)', () => {
       },
       context: {
         identity: { orgId: '000000000000000000000001', userId: 'admin' },
-        log: jest.fn(),
+        log: jest.fn<AnyFn>(),
         requestId: 'req-1',
       },
     });
@@ -998,7 +1000,7 @@ describe('shared persist tail', () => {
     ['support', '/support', { subject: 'Help', content: 'Broken', priority: 'normal' }, SYSTEM_ORG],
   ];
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => { jest.clearAllMocks(); });
 
   it.each(routes)('%s counts the domain metric and pushes the SSE ping', async (_label, path, body, recipient) => {
     mockCreate.mockResolvedValue({ id: 'msg-tail', subject: String(body.subject) });

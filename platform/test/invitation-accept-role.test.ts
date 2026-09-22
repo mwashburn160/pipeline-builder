@@ -122,3 +122,13 @@ describe('InvitationService.accept — RBAC Role assignment', () => {
     expect(mockRecomputeUserOrgRole).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('InvitationService.accept — a soft-deleted org', () => {
+  it('REFUSES an invitation into an org that was soft-deleted (inside its restore window)', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+    mockOrgFindById.mockReturnValue(sessionResolving({ _id: 'org-1', name: 'Acme', deletedAt: new Date() }));
+
+    await expect(invitationService.accept('tok', 'u1')).rejects.toThrow('INV_ORG_NOT_FOUND');
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+});

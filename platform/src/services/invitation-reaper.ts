@@ -19,10 +19,10 @@
  * alone, and lets the data self-heal without a re-invite touching each row.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { Invitation } from '../models/index.js';
-import { runWithLeaderLock } from '../utils/leader-lock.js';
+import { createLockedSweep } from '../utils/leader-lock.js';
 
 const logger = createLogger('invitation-reaper');
 
@@ -31,7 +31,7 @@ const logger = createLogger('invitation-reaper');
  *  correctness gate). */
 const LOCK_KEY = 'platform:leader:invitation-reaper';
 
-let timer: ReturnType<typeof setInterval> | null = null;
+let scheduler: Scheduler | null = null;
 
 /**
  * Flip every `pending` invitation whose `expiresAt` is at/before now to
@@ -64,20 +64,21 @@ export async function sweepExpiredInvitations(): Promise<number> {
  * Returns the stop function; wire it to SIGTERM in index.ts.
  */
 export function startInvitationReaper(intervalMs: number = config.invitation.sweepIntervalMs): () => void {
-  if (timer) return stopInvitationReaper;
-  const lockTtlMs = Math.max(intervalMs, 60_000);
-  const runLocked = () => void runWithLeaderLock(LOCK_KEY, lockTtlMs, async () => { await sweepExpiredInvitations(); });
-  timer = setInterval(runLocked, intervalMs).unref();
-  runLocked(); // immediate first sweep (leader-locked)
-  logger.info('Invitation reaper started', { intervalMs });
+  if (scheduler) return stopInvitationReaper;
+  scheduler = createLockedSweep({
+    name: 'invitation-reaper',
+    lockKey: LOCK_KEY,
+    intervalMs,
+    run: async () => { await sweepExpiredInvitations(); },
+  });
+  scheduler.start();
   return stopInvitationReaper;
 }
 
 /** Stop the periodic reaper. Idempotent. */
 export function stopInvitationReaper(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-    logger.info('Invitation reaper stopped');
+  if (scheduler) {
+    scheduler.stop();
+    scheduler = null;
   }
 }

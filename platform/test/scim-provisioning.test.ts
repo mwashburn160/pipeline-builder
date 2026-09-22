@@ -262,6 +262,8 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({
   userHasSeatInAccount: (...a: unknown[]) => seats.hasSeat(...a),
 }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishSessionSlotRevocation: async () => true,
+  publishAccessKeyRevocation: async () => true,
   publishUserRevocation: (...a: unknown[]) => mockPublishRevocation(...a),
 }));
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({
@@ -577,18 +579,24 @@ describe('replaceUser (PUT)', () => {
     expect(err.scimType).toBe('mutability');
   });
 
-  it('DEACTIVATES: sessions end in the same breath, and the mapped Roles fall away', async () => {
+  it('DEACTIVATES: access to THIS org ends in the same breath, and the mapped Roles fall away', async () => {
     mockSyncMappedRoles.mockResolvedValue({ added: [], removed: ['role-1'] });
+    db.users[0].refreshSessions = [{ id: 'laptop' }];
 
     const out = await scim.replaceUser(ctx(), ALICE, { userName: 'alice@acme.com', active: false });
 
     expect(out.action).toBe('deactivate');
     expect(out.resource.active).toBe(false);
-    // `requireAuth` only re-reads tokenVersion, so without the bump a removed
-    // member keeps full access until their token expires. Two bumps: one for
-    // the session revocation, one for the Role set the directory just dropped.
-    expect(db.users[0].tokenVersion).toBe(3);
-    expect(db.users[0].refreshSessions).toEqual([]);
+    // `requireAuth` re-reads the access version, so without a bump a removed
+    // member keeps acting in this org until their token expires. Two CLAIMS
+    // bumps: one for the deactivation, one for the Role set the directory
+    // just dropped.
+    expect(db.users[0].claimsVersion).toBe(2);
+    // One org's directory never signs the person out of their OTHER orgs: the
+    // hard version and the session slots are untouched — the next refresh
+    // re-mints into an org they are still active in.
+    expect(db.users[0].tokenVersion).toBe(1);
+    expect(db.users[0].refreshSessions).toEqual([{ id: 'laptop' }]);
     expect(mockPublishRevocation).toHaveBeenCalledWith(ALICE);
     expect(mockResolveMappedRoles).toHaveBeenCalledWith(ORG, []);
   });
@@ -748,7 +756,8 @@ describe('deleteUser (DELETE)', () => {
     // accounting; a deactivated membership grants nothing.
     expect(db.memberships).toHaveLength(1);
     expect(mockPublishRevocation).toHaveBeenCalledWith(ALICE);
-    expect(db.users[0].tokenVersion).toBe(2);
+    expect(db.users[0].claimsVersion).toBe(1);
+    expect(db.users[0].tokenVersion).toBe(1);
   });
 
   it('is idempotent — deleting an already-removed user does no further work', async () => {
@@ -922,10 +931,10 @@ describe('Groups', () => {
     const group = seedGroup('Engineers');
 
     const pathless = await scim.patchGroup(ctx(), String(group._id), [{ op: 'add', value: { members: [{ value: BOB }] } }]);
-    expect(pathless.affectedUserIds.sort()).toEqual([BOB]);
+    expect(pathless.affectedUserIds!.sort()).toEqual([BOB]);
 
     const cleared = await scim.patchGroup(ctx(), String(group._id), [{ op: 'remove', path: 'members' }]);
-    expect(cleared.affectedUserIds.sort()).toEqual([ALICE, BOB].sort());
+    expect(cleared.affectedUserIds!.sort()).toEqual([ALICE, BOB].sort());
     expect(db.memberships.every((m) => m.scim.groups.length === 0)).toBe(true);
   });
 

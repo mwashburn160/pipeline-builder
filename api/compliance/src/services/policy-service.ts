@@ -31,7 +31,9 @@ export class CompliancePolicyService extends CrudService<
       createdAt: schema.compliancePolicy.createdAt,
       updatedAt: schema.compliancePolicy.updatedAt,
     };
-    return cols[sortBy] || null;
+    // Own keys only: `sortBy` is client input, and a plain lookup walks the
+    // prototype (`?sortBy=constructor` returned a function, not a column).
+    return Object.hasOwn(cols, sortBy) ? cols[sortBy] : null;
   }
 
   protected getProjectColumn(): AnyColumn | null {

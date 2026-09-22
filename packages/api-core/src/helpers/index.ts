@@ -2,8 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export * from './crud-helpers.js';
-export * from './access-helpers.js';
-export * from './restore-helpers.js';
+export {
+  requireVisibilityWriteAccess,
+  checkVisibilityWriteAccess,
+  resolveVisibility,
+} from './access-helpers.js';
+export {
+  loadAndRestore,
+  loadAndPurge,
+  type RestorableService,
+  type PurgeableService,
+} from './restore-helpers.js';
 export * from './sse-helpers.js';
 export * from './org-hierarchy.js';
-export * from './org-hierarchy-http.js';
+export {
+  fetchParentOrgId,
+  fetchOrgDescendants,
+  fetchOrgNames,
+  fetchOrgMembership,
+} from './org-hierarchy-http.js';

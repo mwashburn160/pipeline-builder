@@ -198,7 +198,7 @@ export default function MessagesPage() {
     // hasn't already done so.
     const currentOrg = user?.organizationId?.toLowerCase();
     if (currentOrg && !msg.readBy?.[currentOrg]) {
-      markAsRead(msg.id);
+      void markAsRead(msg.id);
     }
   }, [markAsRead, user?.organizationId]);
 
@@ -210,7 +210,7 @@ export default function MessagesPage() {
   const handleBack = useCallback(() => {
     setSelectedMessage(null);
     writeMessageParam(null);
-    fetchMessages();
+    void fetchMessages();
   }, [fetchMessages, writeMessageParam]);
 
   // Deep link: `?message=<id>` opens that message even when it isn't on the

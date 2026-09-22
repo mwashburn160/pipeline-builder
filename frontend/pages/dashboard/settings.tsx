@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
+import { OrgDataExport } from '@/components/settings/OrgDataExport';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { DOMAIN_SETTINGS_ANCHOR } from '@/components/sso/VerifiedDomainPicker';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
@@ -273,6 +274,12 @@ export default function SettingsPage() {
 
             {/* AI Providers */}
             <AIProviderConfig canEdit={can('org:settings')} />
+
+            {/* Data portability: the org's own export (a read — shown during a
+                read-only session too). Same capability as the endpoint. */}
+            {canSeeOrgSettings && user.organizationId && (
+              <OrgDataExport orgId={user.organizationId} orgName={user.organizationName} />
+            )}
           </div>
         )}
 
@@ -362,11 +369,11 @@ function OrgIdentitySettings({ onSaved, readOnly = false }: { onSaved: () => Pro
       { successMessage: 'Organization updated successfully' },
     );
     if (result !== null) {
-      const org = result.data?.organization;
-      if (org) {
-        setName(org.name);
-        setSlug(org.slug);
-        setInitial({ name: org.name, slug: org.slug });
+      const saved = result.data?.organization;
+      if (saved) {
+        setName(saved.name);
+        setSlug(saved.slug);
+        setInitial({ name: saved.name, slug: saved.slug });
       }
       // The org switcher and every org list read the name through the shared
       // cache, so they keep the old one until it is dropped.

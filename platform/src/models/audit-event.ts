@@ -614,6 +614,10 @@ export const ALL_AUDIT_ACTIONS = [
   'plugin.install.deny',
   'plugin.install.create',
   'plugin.install.upgrade',
+  // A member's request to change an install past what they may do alone, and its decision.
+  'plugin.install.change-request',
+  'plugin.install.change-approve',
+  'plugin.install.change-reject',
   'plugin.install.remove',
   'org.plugin-install-policy.update',
   // Reviews and replies.
@@ -693,20 +697,28 @@ export interface AuditEventDocument extends Document {
   /** Distributed trace id (OpenTelemetry active span) when tracing is on.
    *  Correlates the action across services end-to-end. */
   traceId?: string;
-  /** TAMPER-EVIDENCE: SHA-256 digest of this event's immutable fields plus
-   *  `prevHash` (see `helpers/audit-chain.ts`). Lets a verifier detect any
-   *  post-hoc mutation of a stored row. */
+  /** TAMPER-EVIDENCE: HMAC-SHA256 (key = `AUDIT_CHAIN_HMAC_KEY`, held outside
+   *  the DB) of this event's immutable fields plus `seq` and `prevHash` (see
+   *  `helpers/audit-chain.ts`). Lets a verifier detect any post-hoc mutation of
+   *  a stored row — and, because the key isn't in the DB, a DB writer can't
+   *  re-chain around an edit. */
   hash?: string;
+  /** TAMPER-EVIDENCE: 1-based position in the per-tenant chain. Assigned from
+   *  the chain head under a UNIQUE `(affectedOrgId, seq)` index, so the chain
+   *  is ordered by sequence, never by wall-clock `createdAt`; a missing number
+   *  is a deleted row. */
+  seq?: number;
   /** TAMPER-EVIDENCE: the `hash` of the most recent PRIOR event in the same
    *  per-tenant chain (chain key = `affectedOrgId ?? orgId`), or `null` for the
    *  first event in a chain. A missing/re-pointed link reveals a deleted or
    *  reordered row. */
   prevHash?: string | null;
   /** DEDUP: the stable `Idempotency-Key` the remote-audit client stamps on each
-   *  emission (and reuses across its 5xx/timeout retries). Constrained by a
-   *  UNIQUE SPARSE index so a re-delivered event collides at the DB — even
-   *  across replicas — instead of writing a duplicate row / chain link. Only
-   *  events that carry a key are constrained (sparse skips the rest). */
+   *  emission (and reuses across its 5xx/timeout retries); platform-local
+   *  `audit()` stamps one too so a spooled retry dedups. UNIQUE PER ORG
+   *  (`orgId`, `idempotencyKey`) so a re-delivered event collides at the DB —
+   *  even across replicas — while one tenant can never pre-claim (and so
+   *  suppress, or read back) another tenant's key. */
   idempotencyKey?: string;
   /** DISPLAY-ONLY: the ISO-8601 instant the action ACTUALLY happened, as
    *  stamped by the remote-audit client at emission time. Differs from
@@ -739,13 +751,12 @@ const auditEventSchema = new Schema<AuditEventDocument>( {
   userAgent: { type: String },
   requestId: { type: String, index: { sparse: true } },
   traceId: { type: String },
-  // TAMPER-EVIDENCE hash chain (see helpers/audit-chain.ts). Deliberately NOT
-  // `required`: the append path is best-effort, so a hash/chain failure must
-  // still be able to write the row rather than reject it. The tail lookup that
-  // reads the chain's newest hash is served by the existing
-  // `{ affectedOrgId: 1, createdAt: -1 }` compound index below (the stored
-  // `affectedOrgId` always equals the chain key), so no extra index is needed.
+  // TAMPER-EVIDENCE hash chain (see helpers/audit-chain.ts). `hash` is
+  // deliberately NOT `required`: a digest failure still writes the row (with a
+  // sentinel) rather than rejecting it. The tail pointer lives in the
+  // `audit_chain_heads` collection; `(affectedOrgId, seq)` below orders the chain.
   hash: { type: String },
+  seq: { type: Number },
   prevHash: { type: String, default: null },
   idempotencyKey: { type: String },
   // DISPLAY-ONLY emission timestamp (see the interface field). A PLAIN stored
@@ -767,22 +778,20 @@ const auditEventSchema = new Schema<AuditEventDocument>( {
 auditEventSchema.index({ orgId: 1, createdAt: -1 });
 auditEventSchema.index({ affectedOrgId: 1, createdAt: -1 });
 
-// DEDUP backstop — UNIQUE + SPARSE on the ingest idempotency key. Sparse so only
-// the (minority of) events that carry a key are constrained; unique so a
-// re-delivered emission (same key) collides at the DB with an E11000, even
-// across replicas, letting the append path treat it as already-stored instead of
-// writing a duplicate row / extending the chain twice.
-auditEventSchema.index({ idempotencyKey: 1 }, { unique: true, sparse: true });
+// DEDUP backstop — UNIQUE per org on the ingest idempotency key. Partial (not
+// sparse: a sparse COMPOUND index still indexes every row that has `orgId`) so
+// only events that carry a key are constrained; scoped by `orgId` (the emitting
+// tenant) so a key can only collide with that same tenant's own emissions.
+auditEventSchema.index(
+  { orgId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $exists: true } } },
+);
 
-// CHAIN-LINK uniqueness — UNIQUE on (affectedOrgId, prevHash). Each event links to
-// exactly one predecessor via `prevHash`, so within a chain (a given affectedOrgId)
-// no two events may share a `prevHash`. Under multi-replica appends two workers can
-// read the same tail and try to write two events with the same prevHash — a chain
-// FORK that voids tamper-evidence. This index makes the second write collide (E11000)
-// so the append path re-reads the now-advanced tail and retries, turning the append
-// into a cross-process compare-and-set. (Fresh-install invariant: a pre-existing
-// forked collection must be de-duped before this unique index can build.)
-auditEventSchema.index({ affectedOrgId: 1, prevHash: 1 }, { unique: true });
+// CHAIN SEQUENCE — UNIQUE on (affectedOrgId, seq). The append path takes
+// `seq = head.seq + 1`; two replicas racing for the same slot collide here
+// (E11000) and the loser re-reads the advanced head and retries, so the chain
+// can never fork. Also the verify walk's ordering index (ascending seq).
+auditEventSchema.index({ affectedOrgId: 1, seq: 1 }, { unique: true });
 
 // TTL index — auto-delete events after `config.audit.retentionDays` days
 // (default 90, overridable via AUDIT_RETENTION_DAYS at boot). Reading from

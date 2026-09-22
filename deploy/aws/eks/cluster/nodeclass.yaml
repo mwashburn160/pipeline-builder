@@ -1,0 +1,29 @@
+# =============================================================================
+# NodeClass `pipeline-builder` — the EKS-managed `default` NodeClass + network
+# policy enforcement
+# =============================================================================
+# Applied by bin/setup.sh Phase 1b as an OVERLAY: setup reads the live `default`
+# NodeClass (the one EKS provisions while the built-in `system` pool is enabled)
+# and applies its spec — same node IAM role, subnets and security groups, so the
+# role's existing EKS access entry covers these nodes too — with the fields
+# below merged on top. Both NodePools in nodepool.yaml run on it.
+#
+# WHY: EKS Auto Mode does NOT enforce Kubernetes NetworkPolicy by default. Every
+# policy in k8s/networkpolicy.yaml (default-deny-ingress, the quarantine
+# builder's narrow egress, the IMDS carve-outs, …) is accepted by the API server
+# and then silently ignored until BOTH of these are true:
+#   1. the ConfigMap kube-system/amazon-vpc-cni carries
+#      `enable-network-policy-controller: "true"` (setup creates it), and
+#   2. the nodes' NodeClass sets `networkPolicy` (DefaultAllow = standard k8s
+#      semantics: allow until a policy selects the pod).
+# The `default` NodeClass is EKS-managed, so the setting lives on this copy.
+# setup.sh then PROBES that a connection the policies deny really is denied
+# (deploy/bin/post-provision-smoke.sh pb_probe_denied_connection).
+# =============================================================================
+apiVersion: eks.amazonaws.com/v1
+kind: NodeClass
+metadata:
+  name: pipeline-builder
+spec:
+  networkPolicy: DefaultAllow
+  networkPolicyEventLogs: Enabled

@@ -115,8 +115,8 @@ export function usePlugins(enabled = true) {
       }
       const fetched = await pendingFetch;
       setPlugins(fetched);
-    } catch (error) {
-      setError(formatError(error, 'Failed to load plugins'));
+    } catch (err) {
+      setError(formatError(err, 'Failed to load plugins'));
     } finally {
       setIsLoading(false);
     }
@@ -125,7 +125,7 @@ export function usePlugins(enabled = true) {
   useEffect(() => {
     if (enabled && !fetchedRef.current) {
       fetchedRef.current = true;
-      fetchPlugins();
+      void fetchPlugins();
     }
   }, [enabled, fetchPlugins]);
 
@@ -156,7 +156,7 @@ export function usePluginCatalog(enabled = true) {
         pendingCatalog = (async () => {
           try {
             const [catalog, shadowing] = await Promise.all([
-              api.getPluginCatalog().then((r) => r.data?.listings ?? []).catch(() => [] as CatalogEntry[]),
+              api.getAllPluginCatalog().catch(() => [] as CatalogEntry[]),
               api.getPluginShadowing().then((r) => r.data?.shadowing ?? []).catch(() => [] as ShadowingEntry[]),
             ]);
             const fetched = { entries: catalog, shadowing };
@@ -219,17 +219,17 @@ export function groupPlugins(plugins: Plugin[], filter: string): PluginGroup[] {
   // Build groups in defined category order, then append any remaining
   const groups: PluginGroup[] = [];
   for (const cat of PLUGIN_CATEGORIES) {
-    const plugins = categoryMap.get(cat);
-    if (plugins && plugins.length > 0) {
-      groups.push({ category: CATEGORY_DISPLAY_NAMES[cat], plugins });
+    const inCategory = categoryMap.get(cat);
+    if (inCategory && inCategory.length > 0) {
+      groups.push({ category: CATEGORY_DISPLAY_NAMES[cat], plugins: inCategory });
       categoryMap.delete(cat);
     }
   }
 
   // Append any remaining categories not in the defined order (includes 'unknown')
-  for (const [cat, plugins] of categoryMap) {
+  for (const [cat, rest] of categoryMap) {
     const label = cat.charAt(0).toUpperCase() + cat.slice(1);
-    groups.push({ category: label, plugins });
+    groups.push({ category: label, plugins: rest });
   }
 
   return groups;

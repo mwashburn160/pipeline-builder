@@ -16,12 +16,14 @@
  * pass-through) is skipped here.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const findDeletedByIdMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const restoreMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const emitComplianceAuditMock = jest.fn();
+const emitComplianceAuditMock = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p?.[k],
@@ -33,11 +35,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.status(status).json({ success: true, statusCode: status, data, message })),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
     try {
-      await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: req.user?.sub });
+      await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: req.user?.sub });
     } catch (error: any) {
       res.status(500).json({ message: error instanceof Error ? error.message : String(error) });
     }
@@ -46,7 +48,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
 
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   emitComplianceAudit: (...a: unknown[]) => emitComplianceAuditMock(...a),
-  getAuditClient: () => ({ record: jest.fn() }),
+  getAuditClient: () => ({ record: jest.fn<AnyFn>() }),
 }));
 
 class InvalidRuleRegexError extends Error {}
@@ -70,15 +72,15 @@ function lastHandler(router: any, path: string, method: string) {
 }
 
 function makeRes() {
-  const json = jest.fn();
-  const status = jest.fn().mockReturnValue({ json });
+  const json = jest.fn<AnyFn>();
+  const status = jest.fn<AnyFn>().mockReturnValue({ json });
   return { res: { status, json } as any, status, json };
 }
 
 const RULE_ID = '11111111-1111-4111-8111-111111111111';
 const USER = { sub: 'u-1', email: 'u1@example.com', organizationId: 'org-a' };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => { jest.clearAllMocks(); });
 
 describe('POST /:id/restore — restore emits compliance.rule.restore', () => {
   it('restores the tombstone and emits on success', async () => {

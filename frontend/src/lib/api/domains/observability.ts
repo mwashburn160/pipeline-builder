@@ -22,7 +22,7 @@ function logQueryToParams(params: LogQueryParams): Record<string, unknown> {
   if (params.q) out.q = params.q;
   if (params.limit !== undefined) out.limit = params.limit;
   if (params.orgs?.length) out.orgs = params.orgs.join(',');
-  if (params.window.kind === 'preset') out.range = params.window.key;
+  if (params.window.kind === 'preset') {out.range = params.window.key;}
   else { out.from = params.window.fromMs; out.to = params.window.toMs; }
   return out;
 }

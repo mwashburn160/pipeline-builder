@@ -522,3 +522,107 @@ tests:
       - eval_time: 190h
         alertname: OfficialAutoApprovalAnomaly
         exp_alerts: []
+
+  # PluginBuildFailureRateHigh / PipelineStageFailureRateHigh — the ratio math.
+  # The old rules divided by clamp_min(rate, 1); a per-second rate is almost
+  # always < 1, so a HEALTHY low-volume org read as a ~0% success rate and paged.
+  # a) healthy low-volume org (every build succeeds, ~5 per 5 min) — quiet.
+  - interval: 1m
+    input_series:
+      - series: 'plugin_builds_total{status="success",org_id="org-low",service="plugin",pod="plugin-aaa"}'
+        values: '0+1x40'
+      - series: 'pipeline_stage_result_total{result="succeeded",org_id="org-low",service="reporting",pod="reporting-aaa"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginBuildFailureRateHigh
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: PipelineStageFailureRateHigh
+        exp_alerts: []
+
+  # b) an org whose builds ALL fail — no success series exists at all, which
+  #    the `or ... * 0` arm must turn into a 0% rate that fires.
+  - interval: 1m
+    input_series:
+      - series: 'plugin_builds_total{status="failure",org_id="org-bad",service="plugin",pod="plugin-aaa"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PluginBuildFailureRateHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin, tenancy: org, org_id: org-bad }
+            exp_annotations:
+              summary: "Plugin build success rate below 90% for org org-bad"
+              description: "5-min success rate is 0% over the last 10 minutes."
+
+  # c) a single failed build in a quiet org is below the activity floor — quiet.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_stage_result_total{result="failed",org_id="org-one",service="reporting",pod="reporting-aaa"}'
+        values: '0 1+0x40'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: PipelineStageFailureRateHigh
+        exp_alerts: []
+
+  # d) a sustained stage failure rate in a busy org fires.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_stage_result_total{result="succeeded",org_id="org-busy",service="reporting",pod="reporting-aaa"}'
+        values: '0+1x40'
+      - series: 'pipeline_stage_result_total{result="failed",org_id="org-busy",service="reporting",pod="reporting-aaa"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PipelineStageFailureRateHigh
+        exp_alerts:
+          - exp_labels: { severity: warning, component: pipeline, tenancy: org, org_id: org-busy }
+            exp_annotations:
+              summary: "Pipeline stage success rate below 90% for org org-busy"
+              description: "5-min stage success rate is 50% over the last 10 minutes — inspect recent pipeline executions."
+
+  # GatewayError5xxRatioHigh — 10% 5xx at real volume fires; one 502 on a quiet
+  # gateway (below the 20-request floor) does not.
+  - interval: 1m
+    input_series:
+      - series: 'nginx_http_requests_total{service="platform",status_class="2xx",pod="nginx-a"}'
+        values: '0+90x30'
+      - series: 'nginx_http_requests_total{service="pipeline",status_class="5xx",pod="nginx-a"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GatewayError5xxRatioHigh
+        exp_alerts:
+          - exp_labels: { severity: critical, component: nginx, tenancy: platform }
+            exp_annotations:
+              summary: "Gateway 5xx ratio above 5%"
+              description: "10% of requests through nginx returned 5xx over the last 5 minutes. Break it down by route: sum by (service) (rate(nginx_http_requests_total{status_class=\"5xx\"}[5m]))."
+  - interval: 1m
+    input_series:
+      - series: 'nginx_http_requests_total{service="pipeline",status_class="5xx",pod="nginx-a"}'
+        values: '0 1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GatewayError5xxRatioHigh
+        exp_alerts: []
+
+  # GatewayLatencyHigh — long-lived websocket requests must not count.
+  - interval: 1m
+    input_series:
+      - series: 'nginx_http_request_duration_seconds_bucket{service="ws",le="30",pod="nginx-a"}'
+        values: '0+0x30'
+      - series: 'nginx_http_request_duration_seconds_bucket{service="ws",le="+Inf",pod="nginx-a"}'
+        values: '0+50x30'
+      - series: 'nginx_http_request_duration_seconds_count{service="ws",pod="nginx-a"}'
+        values: '0+50x30'
+      - series: 'nginx_http_request_duration_seconds_bucket{service="platform",le="0.1",pod="nginx-a"}'
+        values: '0+50x30'
+      - series: 'nginx_http_request_duration_seconds_bucket{service="platform",le="+Inf",pod="nginx-a"}'
+        values: '0+50x30'
+      - series: 'nginx_http_request_duration_seconds_count{service="platform",pod="nginx-a"}'
+        values: '0+50x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GatewayLatencyHigh
+        exp_alerts: []

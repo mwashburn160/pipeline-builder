@@ -7,15 +7,16 @@
  * plaintext crosses the wire), upsert idempotency.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { randomBytes } from 'crypto';
-import { jest, describe, it, expect, beforeEach, afterAll, test } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { resetDefaultKeyProvider } from '@pipeline-builder/api-core';
 
-const mockSave = jest.fn();
-const mockCreate = jest.fn();
-const mockFindOne = jest.fn();
-const mockFind = jest.fn();
-const mockDeleteOne = jest.fn();
+const mockSave = jest.fn<AnyFn>();
+const mockCreate = jest.fn<AnyFn>();
+const mockFindOne = jest.fn<AnyFn>();
+const mockFind = jest.fn<AnyFn>();
+const mockDeleteOne = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/models/org-idp-config.js', () => ({
   __esModule: true,

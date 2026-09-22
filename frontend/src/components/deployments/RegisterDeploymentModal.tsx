@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -23,6 +23,7 @@ export function RegisterDeploymentModal({
   onClose: () => void;
   onRegistered: (row: PipelineDeployment) => void;
 }) {
+  const uid = useId();
   const [pipelineId, setPipelineId] = useState('');
   const [region, setRegion] = useState('');
   const [stackName, setStackName] = useState('');
@@ -79,8 +80,9 @@ export function RegisterDeploymentModal({
     >
       <div className="space-y-4 text-sm">
         <div>
-          <label className="label">Pipeline</label>
+          <label className="label" htmlFor={`${uid}-pipeline`}>Pipeline</label>
           <Select
+            id={`${uid}-pipeline`}
             value={pipelineId}
             onChange={(e) => { setPipelineId(e.target.value); setErr(null); }}
             disabled={submitting}
@@ -100,8 +102,9 @@ export function RegisterDeploymentModal({
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label">Region <span className="text-fg-subtle">(optional)</span></label>
+            <label className="label" htmlFor={`${uid}-region-optional`}>Region <span className="text-fg-subtle">(optional)</span></label>
             <Input
+              id={`${uid}-region-optional`}
               type="text"
               value={region}
               onChange={(e) => setRegion(e.target.value)}
@@ -111,8 +114,9 @@ export function RegisterDeploymentModal({
             />
           </div>
           <div>
-            <label className="label">Stack name <span className="text-fg-subtle">(optional)</span></label>
+            <label className="label" htmlFor={`${uid}-stack-name-optional`}>Stack name <span className="text-fg-subtle">(optional)</span></label>
             <Input
+              id={`${uid}-stack-name-optional`}
               type="text"
               value={stackName}
               onChange={(e) => setStackName(e.target.value)}

@@ -8,13 +8,15 @@
  * Handlers are extracted from the router; models + helpers are mocked.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
 
-const mockSendSuccess = jest.fn();
-const mockSendError = jest.fn();
+const mockSendSuccess = jest.fn<AnyFn>();
+const mockSendError = jest.fn<AnyFn>();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -32,11 +34,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const userId = req.user?.sub || '';
-    const ctx = { log: jest.fn(), identity: { orgId, userId }, requestId: 'req-1' };
+    const ctx = { log: jest.fn<AnyFn>(), identity: { orgId, userId }, requestId: 'req-1' };
     if (!orgId) return mockSendError(res, 400, 'Organization ID is required', 'MISSING_REQUIRED_FIELD');
     try {
       await handler({ req, res, ctx, orgId, userId });
@@ -144,7 +146,7 @@ jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
 
 // Central-trail audit client — addon add/remove emit billing.addon.* here
 // ALONGSIDE the local billing_events write. Mock it to assert emission.
-const mockAuditRecord = jest.fn();
+const mockAuditRecord = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/audit.js', () => ({
   getAuditClient: () => ({ record: mockAuditRecord }),
 }));
@@ -174,8 +176,8 @@ function mockReq(overrides: Record<string, unknown> = {}): any {
 
 function mockRes(): any {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
 
@@ -192,8 +194,8 @@ function makeSubscription(overrides: Record<string, unknown> = {}) {
     metadata: {} as Record<string, unknown>,
     // Mixed-path markModified stub — the routes call it when stamping the durable
     // providerAddonSyncPending marker transactionally with the add-on save.
-    markModified: jest.fn(),
-    save: jest.fn().mockResolvedValue(undefined),
+    markModified: jest.fn<AnyFn>(),
+    save: jest.fn<AnyFn>().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -205,7 +207,7 @@ let loadedSub: any = null;
 /** Wire loadSubAndPlan: Subscription.findOne resolves the doc; Plan.findById().lean() the plan. */
 function withActiveSub(sub: any = makeSubscription(), plan: any = { name: 'Pro', tier: 'pro', prices: { monthly: 4000, annual: 40000 } }) {
   mockSubscriptionFindOne.mockResolvedValue(sub);
-  mockPlanFindById.mockReturnValue({ lean: jest.fn().mockResolvedValue(plan) });
+  mockPlanFindById.mockReturnValue({ lean: jest.fn<AnyFn>().mockResolvedValue(plan) });
   loadedSub = sub;
   return sub;
 }

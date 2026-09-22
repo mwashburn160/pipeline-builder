@@ -1,52 +1,48 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createHash, randomUUID } from 'crypto';
+import { createHmac, randomUUID } from 'crypto';
 import { createLogger, scrubAwsIdentifiers, errorMessage } from '@pipeline-builder/api-core';
+import { requireAuditChainHmacKey } from '../config/audit-chain-key.js';
+import AuditChainHead from '../models/audit-chain-head.js';
 import AuditEvent, { type AuditEventDocument } from '../models/audit-event.js';
 import type { AuditCreateInput } from '../services/audit-service.js';
 
 const logger = createLogger('audit-chain');
 
 /**
- * TAMPER-EVIDENCE: per-tenant hash CHAIN over audit events.
+ * TAMPER-EVIDENCE: per-tenant HMAC hash CHAIN over audit events.
  *
  * Design
  * ------
  * - Chain key: `affectedOrgId ?? orgId` — the NATURAL tenant chain. It answers
- *   "reconstruct everything that happened TO org X, in order, un-tampered",
- *   which is the SOC2/forensic question the audit log exists to answer. Both
- *   write paths (`helpers/audit.ts` and the `POST /audit/events` ingest, via
- *   `auditService.createEvent`) already default `affectedOrgId` to the actor's
- *   `orgId`, so for in-tenant actions the two coincide; cross-tenant sysadmin
- *   actions are (correctly) filed under the org they TOUCHED. `appendAuditEvent`
- *   re-applies that same defaulting so the STORED `affectedOrgId` always equals
- *   the chain key — which is why the existing `{ affectedOrgId: 1, createdAt: -1 }`
- *   index doubles as the chain (tail-lookup) index; no new index is required.
- * - Events with NO org context at all (anonymous actions, `bootstrap-env`
- *   super-admin grants) share the single {@link GENESIS_CHAIN_KEY} chain.
- * - Digest: `hash = sha256(canonical)` where `canonical` is a STABLE, sorted-key
- *   JSON serialization of ALL of the event's immutable, write-once fields
- *   (action, actorId, actorEmail, actorRole, orgId, affectedOrgId, targetType,
- *   targetId, roleId, impersonatorId, outcome, details, ip, userAgent,
- *   requestId, traceId, createdAt) PLUS the `prevHash` — so tampering with any
- *   forensic-attribution field (e.g. `impersonatorId`, `roleId`) is detectable.
- *   Sorted keys + a normalization of every absent field to `null`
- *   make re-computation from the stored row reproducible regardless of key order
- *   or undefined-vs-missing quirks in what Mongo returns.
- * - `prevHash` = the `hash` of the most recent PRIOR event in the same chain, or
- *   `null` for the first (genesis) event.
+ *   "reconstruct everything that happened TO org X, in order, un-tampered".
+ *   `appendAuditEvent` re-applies the `?? orgId` defaulting so the STORED
+ *   `affectedOrgId` always equals the chain key. Events with NO org context
+ *   share the single {@link GENESIS_CHAIN_KEY} chain.
+ * - ORDER is a per-chain SEQUENCE, not wall-clock time. The chain head
+ *   (`audit_chain_heads`, no TTL) holds `{ seq, hash }`; an append takes
+ *   `seq = head.seq + 1`, `prevHash = head.hash`, and inserts under the UNIQUE
+ *   `(affectedOrgId, seq)` index. That index is the cross-replica
+ *   compare-and-set: a writer that loses the slot re-reads the head and
+ *   retries, so the chain never forks and never depends on replica clocks.
+ *   (A blind `$inc` counter was rejected: a writer that dies between
+ *   allocating a number and inserting leaves a permanent gap that verify must
+ *   read as a deleted row. The insert-then-advance CAS is gapless.)
+ * - Digest: `hash = HMAC-SHA256(AUDIT_CHAIN_HMAC_KEY, canonical)` where
+ *   `canonical` is a stable, sorted-key JSON of every immutable, write-once
+ *   field PLUS `seq` and `prevHash`. The key lives outside the DB (env / KMS
+ *   secret), so someone who can write Mongo but doesn't hold the key cannot
+ *   produce a consistent chain after editing, deleting or inserting a row.
+ * - Tail truncation (deleting the NEWEST rows and rewinding the head) is the
+ *   one edit a hash chain can't see from the inside. The chain-head exporter
+ *   (`services/audit-head-export.ts`) periodically publishes each head, signed
+ *   with the same key, to WRITE-ONCE object storage; {@link verifyAuditChain}
+ *   checks the chain still reaches that published head.
  *
- * Concurrent writers
- * ------------------
- * Within a process, appends are serialized PER CHAIN by an async queue (see
- * {@link withChainLock}) so two concurrent appends can't read the same tail.
- * ACROSS replicas, the unique `(affectedOrgId, prevHash)` chain-link index is the
- * compare-and-set: a writer that loses the race for a link slot re-reads the
- * advanced tail and retries (see {@link appendAuditEvent}), so the chain never
- * forks. Tamper-evidence is a DETECTION aid, not a write gate: a hashing/chain
- * error must never drop the event or fail the originating request, so the append
- * path is best-effort (see {@link appendAuditEvent}).
+ * Best-effort by contract: tamper-evidence is a DETECTION aid, not a write
+ * gate. A digest failure writes a sentinel hash instead of dropping the event,
+ * and a failed platform-local write is spooled for retry (`helpers/audit.ts`).
  */
 
 /** Chain key for the org-less / genesis chain (no `affectedOrgId` and no `orgId`). */
@@ -60,13 +56,8 @@ export const GENESIS_PREV_HASH: null = null;
  * written (best-effort) but is visibly flagged as un-verifiable.
  *
  * Only a PREFIX: each sentinel row gets a unique suffix from
- * {@link hashErrorSentinel}. A constant sentinel collided with itself — two
- * hashing failures in one chain leave two rows whose `hash` is identical, so
- * the next append reads that tail, sets `prevHash` to the sentinel, and trips
- * the unique `(affectedOrgId, prevHash)` chain-link index against the other
- * sentinel row. The retry re-read the same ambiguous tail every time and, after
- * MAX_CHAIN_RETRIES, threw — DROPPING the audit event, which is exactly what
- * the best-effort sentinel exists to prevent.
+ * {@link hashErrorSentinel}, so two digest failures in one chain never share a
+ * `hash` (a successor's `prevHash` then names exactly one predecessor).
  */
 export const HASH_ERROR_SENTINEL = 'HASH_ERROR';
 
@@ -103,7 +94,8 @@ function stableStringify(value: unknown): string {
  * (`timestamps.updatedAt` is off), so hashing them makes a post-hoc mutation of
  * ANY of them detectable — notably `impersonatorId` (who really acted, under a
  * "view-as" token) and `roleId` (which Role was touched), the high-value
- * forensic-attribution fields an attacker would want to rewrite.
+ * forensic-attribution fields an attacker would want to rewrite. `seq` binds
+ * each row to its chain position, so rows can't be re-ordered or renumbered.
  */
 export interface AuditHashFields {
   action: string;
@@ -123,13 +115,27 @@ export interface AuditHashFields {
   requestId?: string | null;
   traceId?: string | null;
   createdAt: Date;
+  seq: number;
   prevHash: string | null;
 }
 
+let cachedKey: string | null = null;
+
+/** The chain HMAC key (env / KMS secret, never the DB). Resolved on first use. */
+function chainKeyMaterial(): string {
+  if (cachedKey === null) cachedKey = requireAuditChainHmacKey();
+  return cachedKey;
+}
+
+/** HMAC-SHA256 with the chain key over a domain-separated message. */
+export function auditHmac(domain: 'event' | 'head', message: string): string {
+  return createHmac('sha256', chainKeyMaterial()).update(`pb-audit-${domain}-v1\n`).update(message).digest('hex');
+}
+
 /**
- * Compute the SHA-256 digest of an audit event's immutable fields + `prevHash`.
- * Used by BOTH the append path (fresh events) and {@link verifyAuditChain}
- * (recomputation from stored rows) so a hash reproduces exactly.
+ * Compute the HMAC digest of an audit event's immutable fields + `seq` +
+ * `prevHash`. Used by BOTH the append path (fresh events) and
+ * {@link verifyAuditChain} (recomputation from stored rows).
  */
 export function computeAuditHash(f: AuditHashFields): string {
   const createdAt = f.createdAt instanceof Date ? f.createdAt : new Date(f.createdAt);
@@ -151,10 +157,14 @@ export function computeAuditHash(f: AuditHashFields): string {
     requestId: f.requestId ?? null,
     traceId: f.traceId ?? null,
     createdAt: createdAt.toISOString(),
+    seq: f.seq,
     prevHash: f.prevHash,
   });
-  return createHash('sha256').update(canonical).digest('hex');
+  return auditHmac('event', canonical);
 }
+
+/** Stable serialization shared with the head exporter's signature. */
+export { stableStringify };
 
 /**
  * Mongo filter selecting exactly one chain. Because the stored `affectedOrgId`
@@ -162,7 +172,7 @@ export function computeAuditHash(f: AuditHashFields): string {
  * chain is `{ affectedOrgId }`; the genesis chain is the rows with no
  * `affectedOrgId` (`{ affectedOrgId: null }` also matches a missing field).
  */
-function chainFilter(chainKey: string): Record<string, unknown> {
+export function chainFilter(chainKey: string): Record<string, unknown> {
   return chainKey === GENESIS_CHAIN_KEY ? { affectedOrgId: null } : { affectedOrgId: chainKey };
 }
 
@@ -172,10 +182,9 @@ function chainFilter(chainKey: string): Record<string, unknown> {
 const chainTails = new Map<string, Promise<void>>();
 
 /**
- * Serialize `fn` against all other appends for the same `key`: each append waits
- * for the previous one on its chain to finish (regardless of that one's outcome)
- * before reading the tail, so concurrent appends can't fork the chain. The map
- * entry is cleaned up once the chain drains to avoid unbounded growth.
+ * Serialize `fn` against all other appends for the same `key` within this
+ * process, so local appends don't burn CAS retries against each other. Cross-
+ * replica safety comes from the unique `(affectedOrgId, seq)` index, not this.
  */
 function withChainLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prior = chainTails.get(key) ?? Promise.resolve();
@@ -188,118 +197,123 @@ function withChainLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return result;
 }
 
-function errMessage(err: unknown): string {
-  return errorMessage(err);
+interface DupKeyError { code?: number; keyPattern?: Record<string, unknown>; message?: string }
+
+function isDupOn(err: unknown, field: string): boolean {
+  const e = err as DupKeyError | null;
+  if (!e || e.code !== 11000) return false;
+  if (e.keyPattern) return Object.prototype.hasOwnProperty.call(e.keyPattern, field);
+  return typeof e.message === 'string' && e.message.includes(field);
 }
 
-/**
- * Whether `err` is a Mongo duplicate-key (E11000) violation OF the
- * `idempotencyKey` unique index specifically — i.e. this exact event was already
- * ingested under the same `Idempotency-Key`. Any OTHER duplicate-key violation
- * (a future unique index) is NOT swallowed here; it propagates as a real error.
- */
+/** E11000 on the per-org `(orgId, idempotencyKey)` index: this exact emission
+ *  was already stored. Any OTHER duplicate-key violation propagates. */
 function isIdempotencyDuplicate(err: unknown): boolean {
-  const e = err as { code?: number; keyPattern?: Record<string, unknown>; message?: string } | null;
-  if (!e || e.code !== 11000) return false;
-  // Prefer the structured keyPattern (present on modern driver errors); fall back
-  // to the message text (some error shapes only carry the index name/message).
-  if (e.keyPattern && Object.prototype.hasOwnProperty.call(e.keyPattern, 'idempotencyKey')) return true;
-  return typeof e.message === 'string' && e.message.includes('idempotencyKey');
+  return isDupOn(err, 'idempotencyKey');
+}
+
+/** E11000 on the `(affectedOrgId, seq)` index: another writer took this slot. */
+function isSeqDuplicate(err: unknown): boolean {
+  return isDupOn(err, 'seq');
+}
+
+/** Max CAS retries when another writer wins a chain slot. */
+const MAX_CHAIN_RETRIES = 8;
+
+interface ChainTail { seq: number; hash: string | null }
+
+/** The chain's current head, from the head doc. Genesis when none exists. */
+async function readHead(chainKey: string): Promise<ChainTail> {
+  const head = await AuditChainHead.findById(chainKey).select('seq hash').lean();
+  return head ? { seq: head.seq, hash: head.hash } : { seq: 0, hash: GENESIS_PREV_HASH };
 }
 
 /**
- * Whether `err` is a duplicate-key violation of the CHAIN-LINK unique index
- * `(affectedOrgId, prevHash)` — i.e. another replica claimed this `prevHash` slot
- * concurrently (a would-be fork). The append path retries with the advanced tail.
+ * Move the head forward to `(seq, hash)` — never backward. The filter only
+ * matches a head BEHIND `seq`; when the doc is already at/after it, the upsert's
+ * insert collides on `_id` (E11000), which is exactly "someone got further" and
+ * is ignored.
  */
-function isChainLinkDuplicate(err: unknown): boolean {
-  const e = err as { code?: number; keyPattern?: Record<string, unknown>; message?: string } | null;
-  if (!e || e.code !== 11000) return false;
-  if (e.keyPattern && Object.prototype.hasOwnProperty.call(e.keyPattern, 'prevHash')) return true;
-  return typeof e.message === 'string' && e.message.includes('prevHash');
+async function advanceHead(chainKey: string, seq: number, hash: string, headCreatedAt: Date): Promise<void> {
+  try {
+    await AuditChainHead.updateOne(
+      { _id: chainKey, seq: { $lt: seq } },
+      { $set: { seq, hash, headCreatedAt } },
+      { upsert: true },
+    );
+  } catch (err) {
+    if ((err as DupKeyError)?.code === 11000) return;
+    throw err;
+  }
 }
 
-/** Max cross-replica CAS retries when another worker wins a chain-link slot. */
-const MAX_CHAIN_RETRIES = 5;
+/**
+ * Re-sync a head that LAGS the events (a writer died between its insert and
+ * its head advance, or a head write failed): advance it to the highest `seq`
+ * actually stored.
+ */
+async function repairHead(chainKey: string): Promise<void> {
+  const top = await AuditEvent.findOne(chainFilter(chainKey))
+    .sort({ seq: -1 })
+    .select('seq hash createdAt')
+    .lean();
+  if (top && typeof top.seq === 'number' && typeof top.hash === 'string') {
+    await advanceHead(chainKey, top.seq, top.hash, top.createdAt as Date);
+  }
+}
 
 /**
- * Append an audit event to its per-tenant hash chain and persist it. This is the
- * SINGLE shared "append to chain" function both write paths funnel through:
- *   - `helpers/audit.ts` `audit()` calls it directly, and
- *   - `auditService.createEvent()` delegates to it (so the `POST /audit/events`
- *     ingest, the `authz.denied` sink, and bootstrap super-admin grants are all
- *     chained too).
+ * Append an audit event to its per-tenant chain and persist it. The SINGLE
+ * shared "append to chain" function every write path funnels through
+ * (`helpers/audit.ts` `audit()`, and `auditService.createEvent()` — the
+ * `POST /audit/events` ingest, the `authz.denied` sink, bootstrap grants).
  *
- * Best-effort by contract: a tail-lookup or hashing failure is LOGGED and the
- * row is still written (with a genesis `prevHash` / sentinel hash) rather than
- * dropped — tamper-evidence must never become a write gate.
+ * A digest failure is logged and the row still written (sentinel hash). A
+ * persistence failure REJECTS — callers decide what durability they need
+ * (`audit()` spools; the ingest returns 5xx so the remote client spools).
  */
 export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEventDocument> {
-  // Normalize so the STORED affectedOrgId equals the chain key (mirrors the
-  // defaulting both callers already do; harmless when they've set it).
   const affectedOrgId = input.affectedOrgId ?? input.orgId;
   const chainKey = affectedOrgId ?? GENESIS_CHAIN_KEY;
 
   // Defense-in-depth: scrub AWS account identifiers (bare 12-digit ids and the
-  // account segment of any ARN — e.g. a KMS keyId ARN) out of `details` at this
-  // single choke point BOTH write paths funnel through, BEFORE the hash is
-  // computed. An AWS account id must never be persisted; scrubbing here (rather
-  // than at each call site) covers the KMS-orphaned case and any future leak, and
-  // the hash is then computed over the scrubbed details so verify stays
-  // deterministic.
+  // account segment of any ARN) out of `details` at this single choke point,
+  // BEFORE the hash is computed, so verify stays deterministic. An AWS account
+  // id must never be persisted.
   const scrubbedInput: AuditCreateInput = input.details
     ? { ...input, details: scrubAwsIdentifiers(input.details) }
     : input;
 
-  // The in-process lock serializes appends within ONE replica; the (affectedOrgId,
-  // prevHash) unique index + this retry loop serialize them ACROSS replicas (a
-  // cross-process compare-and-set): a worker that loses the race for a chain-link
-  // slot re-reads the advanced tail and links after the winner instead of forking.
   return withChainLock(chainKey, async () => {
     for (let attempt = 0; ; attempt++) {
-      // Assign createdAt explicitly so the value hashed is exactly the value stored.
-      // Mongoose's `timestamps` plugin preserves an explicitly-provided createdAt.
-      // Re-taken each attempt so a retried event orders after the tail that beat it.
+      const tail = await readHead(chainKey);
+      const seq = tail.seq + 1;
+      const prevHash = tail.hash;
+      // Stored verbatim and hashed; display/range-filter only — NOT the order.
       const createdAt = new Date();
-
-      let prevHash: string | null = GENESIS_PREV_HASH;
-      try {
-        const tail = await AuditEvent.findOne(chainFilter(chainKey))
-          .sort({ createdAt: -1, _id: -1 })
-          .select('hash')
-          .lean();
-        prevHash = (tail?.hash as string | undefined) ?? GENESIS_PREV_HASH;
-      } catch (err) {
-        // Best-effort: fall back to a genesis link rather than dropping the event.
-        logger.warn('Audit chain tail lookup failed; writing with genesis prevHash', {
-          chainKey, error: errMessage(err),
-        });
-        prevHash = GENESIS_PREV_HASH;
-      }
 
       let hash: string;
       try {
-        hash = computeAuditHash({ ...scrubbedInput, affectedOrgId, createdAt, prevHash });
+        hash = computeAuditHash({ ...scrubbedInput, affectedOrgId, createdAt, seq, prevHash });
       } catch (err) {
         logger.warn('Audit hash computation failed; writing sentinel hash', {
-          chainKey, error: errMessage(err),
+          chainKey, error: errorMessage(err),
         });
-        // Unique per row — a constant sentinel self-collides on the
-        // chain-link index and ends up dropping the event. See
-        // HASH_ERROR_SENTINEL.
         hash = hashErrorSentinel();
       }
 
+      let row: AuditEventDocument;
       try {
-        return await AuditEvent.create({ ...scrubbedInput, affectedOrgId, createdAt, prevHash, hash });
+        row = await AuditEvent.create({ ...scrubbedInput, affectedOrgId, createdAt, seq, prevHash, hash });
       } catch (err) {
-        // Idempotency-Key collision: this exact event was already ingested (a
-        // retried 5xx/timeout delivery, possibly from another replica). Treat it
-        // as ALREADY-STORED — return the existing row WITHOUT extending the chain a
-        // second time. `create` failed, so nothing was written and the chain tail
-        // is unchanged; we only re-read the winner to return it.
+        // Idempotency-Key collision (per org): this exact event was already
+        // stored (a retried delivery, possibly from another replica). Return
+        // the existing row WITHOUT extending the chain a second time.
         if (scrubbedInput.idempotencyKey && isIdempotencyDuplicate(err)) {
-          const existing = await AuditEvent.findOne({ idempotencyKey: scrubbedInput.idempotencyKey }).lean();
+          const existing = await AuditEvent.findOne({
+            orgId: scrubbedInput.orgId ?? null,
+            idempotencyKey: scrubbedInput.idempotencyKey,
+          }).lean();
           if (existing) {
             logger.info('Audit ingest deduped on Idempotency-Key; not re-chaining', {
               chainKey, idempotencyKey: scrubbedInput.idempotencyKey,
@@ -307,15 +321,28 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
             return existing as unknown as AuditEventDocument;
           }
         }
-        // Chain-link collision: another replica claimed this prevHash slot. Re-read
-        // the now-advanced tail and retry (bounded) so we link after the winner
-        // rather than fork the chain.
-        if (isChainLinkDuplicate(err) && attempt < MAX_CHAIN_RETRIES) {
-          logger.warn('Audit chain-link collision; retrying against the advanced tail', { chainKey, attempt });
+        // Chain-slot collision: another writer took `seq`. Bring the head up to
+        // the stored tail (it may lag if that writer hasn't advanced it yet, or
+        // died before doing so) and retry against it.
+        if (isSeqDuplicate(err) && attempt < MAX_CHAIN_RETRIES) {
+          logger.debug('Audit chain slot taken; re-reading the advanced head', { chainKey, seq, attempt });
+          await repairHead(chainKey);
           continue;
         }
         throw err;
       }
+
+      // Publish the new head. A failure here is recoverable (the next append's
+      // slot collision repairs it), so it is logged, not thrown — the event IS
+      // stored.
+      try {
+        await advanceHead(chainKey, seq, hash, createdAt);
+      } catch (err) {
+        logger.warn('Audit chain head advance failed (next append repairs it)', {
+          chainKey, seq, error: errorMessage(err),
+        });
+      }
+      return row;
     }
   });
 }
@@ -323,119 +350,209 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<AuditEv
 /** Cursor batch size for {@link verifyAuditChain}'s streamed walk. */
 const VERIFY_BATCH_SIZE = 500;
 
+/** Why a verification failed. */
+export type AuditChainBreak =
+  | 'hash-mismatch'
+  | 'broken-link'
+  | 'sequence-gap'
+  | 'head-mismatch'
+  | 'tail-truncated'
+  | 'published-head-invalid';
+
+/** State of the chain's published (write-once) head, when an export target is configured. */
+export interface PublishedHeadCheck {
+  status: 'matched' | 'absent' | 'expired' | 'pruned' | 'unavailable';
+  seq?: number;
+  exportedAt?: string;
+  /** True when the published head is older than 3 export intervals — the
+   *  newest events aren't covered by an external anchor yet. */
+  stale?: boolean;
+}
+
 /** Result of a chain verification walk. */
 export interface AuditChainVerifyResult {
-  /** True when every surviving event's hash recomputes and every non-head event
-   *  links to its predecessor. NOTE: deletion of a contiguous chain HEAD (the
-   *  oldest rows) is indistinguishable from TTL pruning and is therefore NOT
-   *  flagged — the first surviving event's stored prevHash is taken as the
-   *  anchor. */
+  /** True when every surviving event's hash recomputes, every non-first event
+   *  links to its predecessor with the next sequence number, and the chain
+   *  still reaches its in-DB head and its published head. Deletion of a
+   *  contiguous run of the OLDEST rows is indistinguishable from TTL pruning and
+   *  is therefore NOT flagged. */
   ok: boolean;
-  /** `_id` of the first event that failed (broken hash or broken forward linkage). */
+  /** `_id` of the first event that failed (hash / link / sequence). */
   brokenAt?: string;
-  /** How many events were walked — for an intact chain, its full length. On a
-   *  break this is the position of the offending row (inclusive), NOT the chain
-   *  total: the walk streams, so it never reads past the break. That position is
-   *  the more useful number anyway — it says how far the chain verified. */
+  /** Machine-readable failure reason. */
+  reason?: AuditChainBreak;
+  /** Events walked — for an intact chain, its surviving length; on a row-level
+   *  break, the position of the offending row (inclusive). */
   count: number;
-  /** Rows whose stored `hash` is a {@link HASH_ERROR_SENTINEL} marker — the digest
-   *  could not be computed when they were written, so they are un-verifiable but
-   *  NOT evidence of tampering. Skipped by the hash check and reported here. */
+  /** Rows whose stored `hash` is a {@link HASH_ERROR_SENTINEL} marker (digest
+   *  could not be computed at write time): un-verifiable, not tampering. */
   unverifiable: number;
+  /** Highest `seq` walked (0 for an empty chain). */
+  lastSeq: number;
+  /** Published-head comparison (omitted when no export target is configured). */
+  publishedHead?: PublishedHeadCheck;
+}
+
+/** A published chain head, already signature-verified by the caller's fetcher. */
+export interface PublishedHead {
+  seq: number;
+  hash: string;
+  headCreatedAt: string;
+  exportedAt: string;
+}
+
+export interface VerifyOptions {
+  /** Fetch the chain's published head from write-once storage. Returns null
+   *  when none has been published; throws `PublishedHeadInvalidError` when
+   *  the object exists but its signature doesn't verify. Omit when no export
+   *  target is configured. */
+  fetchPublishedHead?: (chainKey: string) => Promise<PublishedHead | null>;
+  /** Audit TTL in ms — a head older than this may have legitimately aged out. */
+  retentionMs: number;
+  /** Export interval in ms (for the staleness hint). */
+  exportIntervalMs?: number;
+  now?: Date;
+}
+
+/** Thrown by a published-head fetcher when the stored object fails its signature. */
+export class PublishedHeadInvalidError extends Error {
+  constructor(msg: string) {
+    super(msg);
+    this.name = 'PublishedHeadInvalidError';
+  }
 }
 
 /**
- * Walk a chain in creation order and verify tamper-evidence.
+ * Walk a chain in SEQUENCE order and verify tamper-evidence.
  *
- * ANCHOR = the FIRST surviving event's STORED `prevHash`. It may be `null` (a
- * true genesis chain) OR non-null (the true genesis and any number of the oldest
- * rows have aged out under the TTL retention index, leaving a retention-truncated
- * HEAD). Either way we ACCEPT that stored value as the anchor and enforce forward
- * linkage from there: for every SUBSEQUENT event `event.prevHash` must equal the
- * previous event's `hash`, and for EVERY event we still recompute the hash from
- * its immutable fields + stored `prevHash` and require it to equal the stored
- * `hash`.
+ * Row level: the first surviving event is the anchor (its predecessors may
+ * have aged out under the TTL). Every later event must carry `seq = prev + 1`
+ * and `prevHash = prev.hash`, and every event's HMAC must recompute. This
+ * catches field tampering, reordering/renumbering, and deleting any row that
+ * has a surviving successor.
  *
- * This preserves detection of (a) field tampering — the recomputed hash won't
- * match; (b) reordering; and (c) deletion of any event that HAS a surviving
- * successor — the successor's `prevHash` no longer links. The ONE thing it can no
- * longer flag is deletion of a CONTIGUOUS chain HEAD (the oldest rows), because
- * that is indistinguishable from legitimate TTL pruning — so it is (correctly)
- * not treated as tampering.
+ * Tail level: the walk must reach (a) the in-DB head doc and (b) the published
+ * write-once head — unless that head event is older than the retention window
+ * (it may have aged out). Reaching means the event at that `seq` still exists
+ * with the SAME hash; a published head beyond the last surviving row is TAIL
+ * TRUNCATION, the one edit an internal chain can't reveal.
  *
  * @param chainKey the tenant chain to verify (an org id, or {@link GENESIS_CHAIN_KEY}).
  */
-export async function verifyAuditChain(chainKey: string): Promise<AuditChainVerifyResult> {
-  // STREAMED, not materialized: a tenant at the retention ceiling has millions
-  // of events, and `find().lean()` on the whole chain was a single-request heap
-  // exhaustion. The walk only ever needs the running predecessor hash, so it
-  // costs O(1) memory regardless of chain length.
+export async function verifyAuditChain(chainKey: string, opts: VerifyOptions = { retentionMs: Infinity }): Promise<AuditChainVerifyResult> {
+  const now = opts.now ?? new Date();
+  let published: PublishedHead | null = null;
+  let publishedCheck: PublishedHeadCheck | undefined;
+  if (opts.fetchPublishedHead) {
+    try {
+      published = await opts.fetchPublishedHead(chainKey);
+      publishedCheck = published
+        ? { status: 'matched', seq: published.seq, exportedAt: published.exportedAt }
+        : { status: 'absent' };
+    } catch (err) {
+      if (err instanceof PublishedHeadInvalidError) {
+        return { ok: false, reason: 'published-head-invalid', count: 0, unverifiable: 0, lastSeq: 0, publishedHead: { status: 'unavailable' } };
+      }
+      logger.warn('Published audit head unavailable; verifying without the external anchor', {
+        chainKey, error: errorMessage(err),
+      });
+      publishedCheck = { status: 'unavailable' };
+    }
+  }
+  const dbHead = await AuditChainHead.findById(chainKey).select('seq hash headCreatedAt').lean();
+
+  // Heads to reach: seq → expected hash, only while the head event is inside
+  // the retention window (older ones may have been TTL-pruned legitimately).
+  const withinRetention = (createdAt: Date | string): boolean =>
+    now.getTime() - new Date(createdAt).getTime() < opts.retentionMs;
+  const anchors: Array<{ seq: number; hash: string; source: 'db' | 'published' }> = [];
+  if (dbHead && withinRetention(dbHead.headCreatedAt)) anchors.push({ seq: dbHead.seq, hash: dbHead.hash, source: 'db' });
+  if (published) {
+    if (withinRetention(published.headCreatedAt)) anchors.push({ seq: published.seq, hash: published.hash, source: 'published' });
+    else publishedCheck = { ...publishedCheck!, status: 'expired' };
+  }
+
+  // STREAMED, not materialized: O(1) memory regardless of chain length.
   const cursor = AuditEvent.find(chainFilter(chainKey))
-    .sort({ createdAt: 1, _id: 1 })
+    .sort({ seq: 1 })
     .lean()
     .cursor({ batchSize: VERIFY_BATCH_SIZE });
 
-  // `expectedPrev` is seeded from the first surviving event's own stored prevHash
-  // (the anchor) rather than forced to null — so a retention-truncated head is
-  // accepted. After the first event it tracks the running predecessor hash.
   let expectedPrev: string | null = null;
-  let isFirst = true;
+  let prevSeq = 0;
+  let firstSeq: number | null = null;
   let count = 0;
   let unverifiable = 0;
+  const reachedHash = new Map<number, string>();
+  const anchorSeqs = new Set(anchors.map((a) => a.seq));
+  const fail = (raw: Record<string, unknown>, reason: AuditChainBreak): AuditChainVerifyResult =>
+    ({ ok: false, brokenAt: String(raw._id), reason, count, unverifiable, lastSeq: prevSeq, ...(publishedCheck ? { publishedHead: publishedCheck } : {}) });
   try {
     for await (const leanDoc of cursor) {
       const raw = leanDoc as unknown as Record<string, unknown>;
       count += 1;
+      const seq = raw.seq as number;
       const storedPrev = (raw.prevHash ?? null) as string | null;
-      if (isFirst) {
-        // Anchor: accept whatever the surviving head's prevHash is (null=genesis or
-        // non-null=TTL-truncated). No linkage check for the very first event.
-        expectedPrev = storedPrev;
-        isFirst = false;
-      } else if (storedPrev !== expectedPrev) {
-        // Broken forward linkage: a deleted predecessor (that had a successor) or a
-        // re-pointed prevHash.
-        return { ok: false, brokenAt: String(raw._id), count, unverifiable };
+      if (firstSeq === null) {
+        // Anchor: accept the first survivor's own link (genesis or TTL-pruned head).
+        firstSeq = seq;
+      } else {
+        if (seq !== prevSeq + 1) return fail(raw, 'sequence-gap');
+        if (storedPrev !== expectedPrev) return fail(raw, 'broken-link');
       }
-      // A sentinel row never had a digest to begin with, so recomputing it would
-      // always "fail" — that is a write-time hashing error, not tampering. Its
-      // stored hash still carries the chain forward (the successor's prevHash
-      // links to it), so linkage above is still enforced.
       if (isHashErrorSentinel(raw.hash)) {
         unverifiable += 1;
-        expectedPrev = raw.hash as string;
-        continue;
+      } else {
+        const recomputed = computeAuditHash({
+          action: raw.action as string,
+          actorId: raw.actorId as string,
+          actorEmail: raw.actorEmail as string | undefined,
+          actorRole: raw.actorRole as string | undefined,
+          orgId: raw.orgId as string | undefined,
+          affectedOrgId: raw.affectedOrgId as string | undefined,
+          targetType: raw.targetType as string | undefined,
+          targetId: raw.targetId as string | undefined,
+          roleId: raw.roleId as string | undefined,
+          impersonatorId: raw.impersonatorId as string | undefined,
+          outcome: raw.outcome as string | undefined,
+          details: raw.details as Record<string, unknown> | undefined,
+          ip: raw.ip as string | undefined,
+          userAgent: raw.userAgent as string | undefined,
+          requestId: raw.requestId as string | undefined,
+          traceId: raw.traceId as string | undefined,
+          createdAt: raw.createdAt as Date,
+          seq,
+          prevHash: storedPrev,
+        });
+        if (recomputed !== raw.hash) return fail(raw, 'hash-mismatch');
       }
-      const recomputed = computeAuditHash({
-        action: raw.action as string,
-        actorId: raw.actorId as string,
-        actorEmail: raw.actorEmail as string | undefined,
-        actorRole: raw.actorRole as string | undefined,
-        orgId: raw.orgId as string | undefined,
-        affectedOrgId: raw.affectedOrgId as string | undefined,
-        targetType: raw.targetType as string | undefined,
-        targetId: raw.targetId as string | undefined,
-        roleId: raw.roleId as string | undefined,
-        impersonatorId: raw.impersonatorId as string | undefined,
-        outcome: raw.outcome as string | undefined,
-        details: raw.details as Record<string, unknown> | undefined,
-        ip: raw.ip as string | undefined,
-        userAgent: raw.userAgent as string | undefined,
-        requestId: raw.requestId as string | undefined,
-        traceId: raw.traceId as string | undefined,
-        createdAt: raw.createdAt as Date,
-        prevHash: storedPrev,
-      });
-      // Broken content: a field was mutated after the hash was written.
-      if (recomputed !== raw.hash) {
-        return { ok: false, brokenAt: String(raw._id), count, unverifiable };
-      }
+      if (anchorSeqs.has(seq)) reachedHash.set(seq, raw.hash as string);
       expectedPrev = raw.hash as string;
+      prevSeq = seq;
     }
   } finally {
-    // An early return abandons the iterator; close the server-side cursor
-    // explicitly rather than waiting for it to time out.
     await cursor.close();
   }
-  return { ok: true, count, unverifiable };
+
+  for (const a of anchors) {
+    if (firstSeq !== null && a.seq < firstSeq) {
+      // The anchored event itself aged out ahead of its retention estimate
+      // (e.g. a lowered AUDIT_RETENTION_DAYS); everything after it survives.
+      if (a.source === 'published') publishedCheck = { ...publishedCheck!, status: 'pruned' };
+      continue;
+    }
+    const got = reachedHash.get(a.seq);
+    if (got === undefined) {
+      return { ok: false, reason: 'tail-truncated', count, unverifiable, lastSeq: prevSeq, ...(publishedCheck ? { publishedHead: publishedCheck } : {}) };
+    }
+    if (got !== a.hash) {
+      return { ok: false, reason: 'head-mismatch', count, unverifiable, lastSeq: prevSeq, ...(publishedCheck ? { publishedHead: publishedCheck } : {}) };
+    }
+  }
+
+  if (publishedCheck?.status === 'matched' && published && opts.exportIntervalMs) {
+    const age = now.getTime() - new Date(published.exportedAt).getTime();
+    if (age > 3 * opts.exportIntervalMs && prevSeq > published.seq) publishedCheck = { ...publishedCheck, stale: true };
+  }
+  return { ok: true, count, unverifiable, lastSeq: prevSeq, ...(publishedCheck ? { publishedHead: publishedCheck } : {}) };
 }

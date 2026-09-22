@@ -13,7 +13,7 @@
 
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 
-const mockPost = jest.fn<() => Promise<{ data: unknown }>>();
+const mockPost = jest.fn<(...args: any[]) => Promise<{ data: unknown }>>();
 
 jest.unstable_mockModule('axios', () => ({
   __esModule: true,
@@ -52,7 +52,7 @@ describe('ensurePlatformToken — pre-auth inline login', () => {
 
     // Login POST targeted the token-optionally resolved base URL.
     expect(mockPost).toHaveBeenCalledTimes(1);
-    expect(mockPost.mock.calls[0][0]).toBe('https://api.example.com/api/auth/login');
+    expect(mockPost.mock.calls[0]![0]).toBe('https://api.example.com/api/auth/login');
     expect(process.env.PLATFORM_TOKEN).toBe('fresh.jwt.token');
   });
 
@@ -93,7 +93,7 @@ describe('ensurePlatformToken — pre-auth inline login', () => {
     expect(mockPost).toHaveBeenCalledTimes(1);
     // An SSL-disabling agent was passed (the verification-enabled path passes
     // `httpsAgent: undefined`, so a defined agent proves SSL was disabled).
-    const cfg = mockPost.mock.calls[0][2] as { httpsAgent?: unknown };
+    const cfg = mockPost.mock.calls[0]![2] as { httpsAgent?: unknown };
     expect(cfg.httpsAgent).toBeDefined();
     expect(process.env.PLATFORM_TOKEN).toBe('fresh.jwt.token');
   });

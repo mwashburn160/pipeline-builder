@@ -18,22 +18,23 @@
  * return undefined), so the mint→consume round-trip stays within-process.
  */
 
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockGetEnforcedLoginConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockGetEnforcedIdpProtocol = jest.fn<(...a: unknown[]) => Promise<string>>(async () => 'oidc');
-const mockFindSsoCoverageForEmail = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockIsBootstrapSuperAdmin = jest.fn<(...a: unknown[]) => boolean>(() => false);
-const mockAssertSsoIdentityTrusted = jest.fn<(...a: unknown[]) => Promise<void>>();
-const mockBuildAuthorizeUrl = jest.fn<(...a: unknown[]) => Promise<{ url: string; codeVerifier?: string }>>();
-const mockExchangeAndValidate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockFindOrCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockAssertSeat = jest.fn<(...a: unknown[]) => Promise<void>>();
-const mockProvisionJit = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-const mockAudit = jest.fn();
+const mockGetEnforcedLoginConfig = jest.fn<AnyFn>();
+const mockGetEnforcedIdpProtocol = jest.fn<AnyFn>(async () => 'oidc');
+const mockFindSsoCoverageForEmail = jest.fn<AnyFn>();
+const mockIsBootstrapSuperAdmin = jest.fn<AnyFn>(() => false);
+const mockAssertSsoIdentityTrusted = jest.fn<AnyFn>();
+const mockBuildAuthorizeUrl = jest.fn<AnyFn>();
+const mockExchangeAndValidate = jest.fn<AnyFn>();
+const mockFindOrCreate = jest.fn<AnyFn>();
+const mockIssueTokens = jest.fn<AnyFn>();
+const mockAssertSeat = jest.fn<AnyFn>();
+const mockProvisionJit = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (res: any, status: number, data: unknown) => { res.status(status).json(data); return res; },
@@ -50,7 +51,7 @@ jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn<AnyFn>() }));
 
 // The bootstrap-admin carve-out `discover` shares with password login: SSO
 // refuses superadmins, so the login page must keep their password field.
@@ -95,12 +96,14 @@ jest.unstable_mockModule('../src/services/sso-jit-service.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/token.js', () => ({
+  hashRefreshToken: (t: string) => `h:${t}`,
+  enforceOrgAssurance: async (_u: unknown, _m: unknown, a: unknown) => a,
   // Session-auth helpers the controllers now import (see utils/token.ts).
   signInAuth: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   authFromClaims: () => ({ amr: ['pwd'], aal: 1, authTime: new Date(0) }),
   findRefreshSession: jest.fn(async () => undefined),
-  signApiKeyToken: jest.fn(),
-  signServiceAccountToken: jest.fn(),
+  signApiKeyToken: jest.fn<AnyFn>(),
+  signServiceAccountToken: jest.fn<AnyFn>(),
   membershipForOrg: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
 }));
@@ -130,12 +133,18 @@ jest.unstable_mockModule('../src/controllers/saml.js', () => ({
 
 const { getSsoAuthUrl, handleSsoCallback, discoverSso, startSsoLogin } = await import('../src/controllers/sso.js');
 
+/** The browser-binding cookie the last minted flow set (helpers/login-binding.ts). */
+let bindingCookie = '';
 function makeRes() {
   const res: any = {};
-  res.status = jest.fn().mockReturnValue(res);
-  res.json = jest.fn().mockReturnValue(res);
+  res.status = jest.fn<AnyFn>().mockReturnValue(res);
+  res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.cookie = jest.fn((name: string, value: string) => { if (name === 'pb_login_binding') bindingCookie = value; return res; });
+  res.clearCookie = jest.fn<AnyFn>().mockReturnValue(res);
   return res;
 }
+/** The request surface of the browser that started the flow (carries its binding cookie). */
+const browser = () => ({ headers: { cookie: `pb_login_binding=${bindingCookie}` } });
 
 /** Mint a one-time state for `orgId` via the real getSsoAuthUrl. */
 async function mintState(orgId: string): Promise<string> {
@@ -143,7 +152,7 @@ async function mintState(orgId: string): Promise<string> {
   mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
   mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize?state=x', codeVerifier: 'verifier-1' });
   await (getSsoAuthUrl as any)({ params: { orgId } }, res);
-  return (res.json as jest.Mock).mock.calls[0][0].state as string;
+  return (res.json as jest.Mock<AnyFn>).mock.calls[0][0].state as string;
 }
 
 beforeEach(() => {
@@ -161,7 +170,7 @@ describe('getSsoAuthUrl', () => {
     mockGetEnforcedLoginConfig.mockResolvedValue({ provider: 'generic-oidc' });
     mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'verifier-1' });
     await (getSsoAuthUrl as any)({ params: { orgId: 'org-1' } }, res);
-    const body = (res.json as jest.Mock).mock.calls[0][0];
+    const body = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     expect(body.url).toBe('https://idp.test/authorize');
     expect(typeof body.state).toBe('string');
     expect(body.state.length).toBeGreaterThan(0);
@@ -183,10 +192,10 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
 
     const res = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
     expect(mockExchangeAndValidate).toHaveBeenCalled();
-    expect(mockAssertSsoIdentityTrusted).toHaveBeenCalledWith('org-1', expect.objectContaining({ email: 'u@x.com' }));
+    expect(mockAssertSsoIdentityTrusted).toHaveBeenCalledWith('org-1', expect.objectContaining({ email: 'u@x.com' }), { protocol: 'oidc', provider: 'generic-oidc' });
     // The link is bound to the IdP that signed the token.
     expect(mockFindOrCreate).toHaveBeenCalledWith(
       'generic-oidc',
@@ -207,7 +216,7 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     mockAssertSsoIdentityTrusted.mockRejectedValue(new Error('OIDC_EMAIL_DOMAIN_NOT_VERIFIED'));
 
     const res = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockFindOrCreate).not.toHaveBeenCalled();
@@ -223,7 +232,7 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     const res = makeRes();
     await (handleSsoCallback as any)(
       // A caller-supplied verifier in the body must be ignored entirely.
-      { params: { orgId: 'org-1' }, body: { code: 'c', state, code_verifier: 'attacker-supplied' } },
+      { ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state, code_verifier: 'attacker-supplied' } },
       res,
     );
 
@@ -240,7 +249,7 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     mockProvisionJit.mockResolvedValue({ membershipCreated: true, matchedGroups: ['eng'], rolesAdded: ['r1'], rolesRemoved: [] });
 
     const res = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
     expect(mockProvisionJit).toHaveBeenCalledWith({ orgId: 'org-1', user: { _id: 'u1' }, groups: ['eng'] });
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'sso.jit.provision', expect.objectContaining({
@@ -256,7 +265,7 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     mockAssertSeat.mockRejectedValue(new Error('JIT_SEAT_LIMIT'));
 
     const res = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockFindOrCreate).not.toHaveBeenCalled();
@@ -276,7 +285,7 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     mockProvisionJit.mockResolvedValue({ membershipCreated: false, matchedGroups: ['sre'], rolesAdded: [], rolesRemoved: ['r1'] });
 
     const res = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
     const actions = mockAudit.mock.calls.map((c) => c[1]);
     expect(actions).toContain('sso.jit.role.change');
@@ -290,23 +299,23 @@ describe('handleSsoCallback (state lifecycle + org binding)', () => {
     mockFindOrCreate.mockResolvedValue({ _id: 'u1' });
 
     const res1 = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res1); // consumes
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res1); // consumes
     const res2 = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res2); // replay
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res2); // replay
     expect(res2.status).toHaveBeenCalledWith(403);
   });
 
   it('rejects a state minted for a DIFFERENT org (cross-org replay) — 403', async () => {
     const state = await mintState('org-A');
     const res = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-B' }, body: { code: 'c', state } }, res);
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-B' }, body: { code: 'c', state } }, res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockExchangeAndValidate).not.toHaveBeenCalled();
   });
 
   it('rejects a never-minted (forged) state — 403', async () => {
     const res = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state: 'forged' } }, res);
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state: 'forged' } }, res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockExchangeAndValidate).not.toHaveBeenCalled();
   });
@@ -317,7 +326,7 @@ describe('discoverSso (enumeration-oracle fix, C2)', () => {
     mockFindSsoCoverageForEmail.mockResolvedValue({ orgId: 'secret-org', provider: 'okta', protocol: 'oidc', required: true });
     const res = makeRes();
     await (discoverSso as any)({ body: { email: 'a@corp.com' } }, res);
-    const body = (res.json as jest.Mock).mock.calls[0][0];
+    const body = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     expect(body).toEqual({ sso: true, required: true });
     expect(JSON.stringify(body)).not.toContain('secret-org');
     expect(JSON.stringify(body)).not.toContain('okta');
@@ -327,14 +336,14 @@ describe('discoverSso (enumeration-oracle fix, C2)', () => {
     mockFindSsoCoverageForEmail.mockResolvedValue({ orgId: 'o', provider: 'okta', protocol: 'oidc', required: false });
     const res = makeRes();
     await (discoverSso as any)({ body: { email: 'a@corp.com' } }, res);
-    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: true, required: false });
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0]).toEqual({ sso: true, required: false });
   });
 
   it('returns { sso: false } when no org serves the domain', async () => {
     mockFindSsoCoverageForEmail.mockResolvedValue(null);
     const res = makeRes();
     await (discoverSso as any)({ body: { email: 'a@personal.com' } }, res);
-    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: false, required: false });
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0]).toEqual({ sso: false, required: false });
   });
 
   it('never hides the password field from a bootstrap admin (SSO refuses them)', async () => {
@@ -342,7 +351,7 @@ describe('discoverSso (enumeration-oracle fix, C2)', () => {
     const res = makeRes();
     await (discoverSso as any)({ body: { email: 'admin@corp.com' } }, res);
 
-    expect((res.json as jest.Mock).mock.calls[0][0]).toEqual({ sso: false, required: false });
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0]).toEqual({ sso: false, required: false });
     // Not even looked up: both sign-in paths closing would leave no way in.
     expect(mockFindSsoCoverageForEmail).not.toHaveBeenCalled();
     mockIsBootstrapSuperAdmin.mockReturnValue(false);
@@ -358,7 +367,7 @@ describe('startSsoLogin (the login page starts by EMAIL)', () => {
 
     await (startSsoLogin as any)({ body: { email: 'a@corp.com' } }, res);
 
-    const body = (res.json as jest.Mock).mock.calls[0][0];
+    const body = (res.json as jest.Mock<AnyFn>).mock.calls[0][0];
     expect(body.url).toBe('https://idp.test/authorize');
     expect(typeof body.state).toBe('string');
     expect(Object.keys(body).sort()).toEqual(['state', 'url']);
@@ -370,12 +379,12 @@ describe('startSsoLogin (the login page starts by EMAIL)', () => {
     mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'v' });
     const startRes = makeRes();
     await (startSsoLogin as any)({ body: { email: 'a@corp.com' } }, startRes);
-    const state = (startRes.json as jest.Mock).mock.calls[0][0].state as string;
+    const state = (startRes.json as jest.Mock<AnyFn>).mock.calls[0][0].state as string;
 
     mockExchangeAndValidate.mockResolvedValue({ subject: 's', email: 'a@corp.com', issuer: 'https://idp.test', groups: [] });
     mockFindOrCreate.mockResolvedValue({ _id: 'u1', email: 'a@corp.com' });
     const res = makeRes();
-    await (handleSsoCallback as any)({ params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+    await (handleSsoCallback as any)({ ...browser(), params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -386,7 +395,7 @@ describe('startSsoLogin (the login page starts by EMAIL)', () => {
     mockBuildAuthorizeUrl.mockResolvedValue({ url: 'https://idp.test/authorize', codeVerifier: 'v' });
     const res = makeRes();
     await (startSsoLogin as any)({ body: { email: 'a@corp.com' } }, res);
-    expect((res.json as jest.Mock).mock.calls[0][0].url).toBe('https://idp.test/authorize');
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0].url).toBe('https://idp.test/authorize');
   });
 
   it('refuses a domain no org federates, rather than becoming a second oracle', async () => {
@@ -407,5 +416,17 @@ describe('startSsoLogin (the login page starts by EMAIL)', () => {
     await (startSsoLogin as any)({ body: { email: 'a@corp.com' } }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
+  });
+});
+
+describe('handleSsoCallback — login CSRF', () => {
+  it('REFUSES a code + state completed in a browser that did not start the flow', async () => {
+    const state = await mintState('org-1');
+    mockExchangeAndValidate.mockResolvedValue({ subject: 's', issuer: 'https://idp.test', email: 'u@x.com', groups: [] });
+    const res = makeRes();
+    await (handleSsoCallback as any)({ headers: {}, params: { orgId: 'org-1' }, body: { code: 'c', state } }, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockExchangeAndValidate).not.toHaveBeenCalled();
+    expect(mockFindOrCreate).not.toHaveBeenCalled();
   });
 });

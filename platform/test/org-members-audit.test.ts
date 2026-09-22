@@ -8,16 +8,17 @@
  * inside org X, by whom".
  */
 
-import { jest, describe, it, expect, beforeEach, test } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-const mockAudit = jest.fn();
-const mockAddMember = jest.fn();
-const mockRemoveMember = jest.fn();
-const mockTransferOwnership = jest.fn();
-const mockDeactivateMember = jest.fn();
-const mockActivateMember = jest.fn();
-const mockIsOrgOwner = jest.fn();
+const mockAudit = jest.fn<AnyFn>();
+const mockAddMember = jest.fn<AnyFn>();
+const mockRemoveMember = jest.fn<AnyFn>();
+const mockTransferOwnership = jest.fn<AnyFn>();
+const mockDeactivateMember = jest.fn<AnyFn>();
+const mockActivateMember = jest.fn<AnyFn>();
+const mockIsOrgOwner = jest.fn<AnyFn>();
 const mockValidateBody = jest.fn((_schema: unknown, body: unknown) => body);
 const mockGetAdminContext: jest.Mock = jest.fn(() => ({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'sysadmin' }));
 const mockIsSystemAdmin: jest.Mock = jest.fn(() => true);

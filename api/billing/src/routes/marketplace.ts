@@ -17,7 +17,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { config } from '../config.js';
-import { calculatePeriodEnd, createBillingEvent, syncEntitlements } from '../helpers/billing-helpers.js';
+import { createBillingEvent, syncEntitlements } from '../helpers/billing-helpers.js';
 import {
   verifySNSSignature,
   confirmSNSSubscription,
@@ -27,12 +27,14 @@ import {
 import {
   deriveMarketplaceInterval,
   getMarketplaceProvider,
+  marketplacePeriodEnd,
   processMarketplaceNotification,
 } from '../helpers/marketplace-notifications.js';
+import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { MarketplacePendingRegistration, PENDING_REGISTRATION_TTL_MS } from '../models/marketplace-pending-registration.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
-import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent } from '../models/webhook-dedupe.js';
+import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent, webhookEventStatus } from '../models/webhook-dedupe.js';
 import { getAuditClient } from '../services/audit.js';
 
 const logger = createLogger('billing-marketplace');
@@ -147,6 +149,7 @@ export function createMarketplaceRoutes(): Router {
           planId,
           dimension: activeEntitlement?.dimension,
           interval,
+          ...(activeEntitlement?.expirationDate ? { entitlementExpiresAt: activeEntitlement.expirationDate } : {}),
           expiresAt: new Date(Date.now() + PENDING_REGISTRATION_TTL_MS),
         });
 
@@ -189,6 +192,8 @@ export function createMarketplaceRoutes(): Router {
     // Binding a subscription to the org is an administrative action under the
     // org's "administrative actions require MFA" policy (machines pass).
     requireOrgAdminAssurance({ machines: 'allow' }) as RequestHandler,
+    // Billing belongs to the account root — a team can't bind a subscription.
+    refuseTeamBilling as RequestHandler,
     audited('billing.subscription.create'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registrationRef = (req.body as { registrationRef?: unknown })?.registrationRef;
@@ -238,7 +243,8 @@ export function createMarketplaceRoutes(): Router {
           status: 'active',
           interval: pending.interval,
           currentPeriodStart: now,
-          currentPeriodEnd: calculatePeriodEnd(now, pending.interval),
+          // AWS's own term end when the resolve captured it; else cadence-derived.
+          currentPeriodEnd: marketplacePeriodEnd(pending.entitlementExpiresAt, now, pending.interval),
           cancelAtPeriodEnd: false,
           externalId: `aws_sub_${pending.awsCustomerIdentifier}`,
           externalCustomerId: pending.awsCustomerIdentifier,
@@ -346,8 +352,16 @@ export function createMarketplaceRoutes(): Router {
         // event instead of it being stranded as "processed" for 30d.
         const claimToken = await claimWebhookEvent('sns', snsMessage.MessageId);
         if (!claimToken) {
-          logger.info('Skipping duplicate SNS delivery', { messageId: snsMessage.MessageId, type: snsMessage.Type });
-          return sendSuccess(res, 200, { message: 'Duplicate message acknowledged' });
+          // 200 ONLY for a completed message. A live in-progress claim (a
+          // concurrent delivery) answers 503 so SNS retries — the first attempt
+          // may still fail and release its claim, and acking here would lose it.
+          if (await webhookEventStatus('sns', snsMessage.MessageId) === 'done') {
+            logger.info('Skipping duplicate SNS delivery', { messageId: snsMessage.MessageId, type: snsMessage.Type });
+            return sendSuccess(res, 200, { message: 'Duplicate message acknowledged' });
+          }
+          logger.info('SNS delivery raced an in-progress attempt — asking SNS to retry', { messageId: snsMessage.MessageId, type: snsMessage.Type });
+          res.setHeader('Retry-After', '30');
+          return sendError(res, 503, 'Message is already being processed; retry later', ErrorCode.SERVICE_UNAVAILABLE);
         }
         claim = { messageId: snsMessage.MessageId, token: claimToken };
 

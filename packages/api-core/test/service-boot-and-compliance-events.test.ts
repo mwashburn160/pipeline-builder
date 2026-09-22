@@ -15,14 +15,15 @@
  *    stable Idempotency-Key so a retry can't double-apply.
  */
 
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 
 const post = jest.fn<(path: string, body: unknown, opts?: { headers?: Record<string, string> }) => Promise<unknown>>();
-const emitCounter = jest.fn();
-const wireAuthzDenialAuditor = jest.fn();
-const setTokenRevocationStore = jest.fn();
+const emitCounter = jest.fn<AnyFn>();
+const wireAuthzDenialAuditor = jest.fn<AnyFn>();
+const setTokenRevocationStore = jest.fn<AnyFn>();
 const createEnvRedisTokenRevocationStore = jest.fn(() => ({ store: 'redis' }));
-const getServiceAuthHeader = jest.fn(() => 'Bearer service-token');
+const getServiceAuthHeader = jest.fn((..._args: unknown[]) => 'Bearer service-token');
 
 jest.unstable_mockModule('../src/services/http-client.js', () => ({
   InternalHttpClient: jest.fn(() => ({ post })),
@@ -50,13 +51,13 @@ beforeEach(() => {
 
 describe('wireServiceSecurity', () => {
   it('wires the authz-denial auditor with the service name', () => {
-    const getAuditClient = jest.fn();
+    const getAuditClient = jest.fn<AnyFn>();
     wireServiceSecurity('pipeline', getAuditClient as never);
     expect(wireAuthzDenialAuditor).toHaveBeenCalledWith('pipeline', getAuditClient);
   });
 
   it('registers the env-Redis token revocation store', () => {
-    wireServiceSecurity('plugin', jest.fn() as never);
+    wireServiceSecurity('plugin', jest.fn<AnyFn>() as never);
     expect(createEnvRedisTokenRevocationStore).toHaveBeenCalledTimes(1);
     expect(setTokenRevocationStore).toHaveBeenCalledWith({ store: 'redis' });
   });

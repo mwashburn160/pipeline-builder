@@ -12,7 +12,8 @@
  *     and timeout enforced), save nothing, audit it.
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -75,7 +76,7 @@ function makeRes() {
   res.json = jest.fn().mockReturnValue(res);
   return res;
 }
-const body = (res: any) => (res.json as jest.Mock).mock.calls[0][0] as any;
+const body = (res: any) => (res.json as jest.Mock<AnyFn>).mock.calls[0][0] as any;
 
 beforeEach(() => {
   jest.clearAllMocks();

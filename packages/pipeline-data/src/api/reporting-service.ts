@@ -125,6 +125,7 @@ export class ReportingService {
             stageName: schema.pipelineStepManifest.stageName,
             actionName: schema.pipelineStepManifest.actionName,
             pluginPublisher: schema.pipelineStepManifest.pluginPublisher,
+            pluginPublisherId: schema.pipelineStepManifest.pluginPublisherId,
             pluginName: schema.pipelineStepManifest.pluginName,
             pluginVersion: schema.pipelineStepManifest.pluginVersion,
           })
@@ -197,6 +198,7 @@ export class ReportingService {
           // Plugin attribution from the step manifest (NULL for non-plugin
           // actions and for pipelines deployed before the manifest existed).
           pluginPublisher: plugin?.pluginPublisher ?? null,
+          pluginPublisherId: plugin?.pluginPublisherId ?? null,
           pluginName: plugin?.pluginName ?? null,
           pluginVersion: plugin?.pluginVersion ?? null,
           detail: event.detail !== undefined
@@ -745,7 +747,19 @@ export class ReportingService {
         severity,
       }).onConflictDoUpdate({
         target: [schema.incident.orgId, schema.incident.incidentId],
-        set: { environment, openedAt, resolvedAt, severity },
+        // A redelivered FIRING post (no resolvedAt) must not wipe a recorded
+        // resolve — senders re-post firing alerts on every repeat interval, and
+        // delivery order isn't guaranteed. Keep the stored resolve unless the
+        // post carries its own, or the incident was RE-OPENED (a different
+        // openedAt means a new occurrence, whose resolve state is the post's).
+        set: {
+          environment,
+          openedAt,
+          resolvedAt: sql`CASE WHEN ${schema.incident.openedAt} = excluded.opened_at
+            THEN COALESCE(excluded.resolved_at, ${schema.incident.resolvedAt})
+            ELSE excluded.resolved_at END`,
+          severity,
+        },
       })),
     );
     // A new/updated incident changes the DORA aggregate — drop cached reports.
@@ -760,7 +774,7 @@ export class ReportingService {
    * default, so the settings UI can show both. Runs under the caller's tenant
    * context (RLS-scoped); a single-org read.
    */
-  async getIncidentSettings(orgId: string): Promise<IncidentSettings> {
+  async getIncidentSettings(orgId: string, retentionOrgId: string = orgId): Promise<IncidentSettings> {
     const rows = drizzleRows<{
       incident_window_hours: number | null;
       event_retention_days: number | null;
@@ -774,14 +788,39 @@ export class ReportingService {
         LIMIT 1
       `))).rows);
     const row = rows[0];
+    // Retention is a billing entitlement synced onto the account ROOT only; a
+    // team reads its root's window (the incident window stays the team's own).
+    const retention = retentionOrgId === orgId
+      ? row
+      : await this.#readRetentionOverride(retentionOrgId);
     return {
       incidentWindowHours: row?.incident_window_hours != null ? Number(row.incident_window_hours) : null,
       defaultWindowHours: DORA_INCIDENT_WINDOW_HOURS,
-      eventRetentionDays: row?.event_retention_days != null ? Number(row.event_retention_days) : null,
-      doraRetentionDays: row?.dora_retention_days != null ? Number(row.dora_retention_days) : null,
+      eventRetentionDays: retention?.event_retention_days != null ? Number(retention.event_retention_days) : null,
+      doraRetentionDays: retention?.dora_retention_days != null ? Number(retention.dora_retention_days) : null,
       defaultEventRetentionDays: REPORTING_EVENT_RETENTION_DAYS,
       defaultDoraRetentionDays: REPORTING_DORA_RETENTION_DAYS,
     };
+  }
+
+  /**
+   * The ROOT org's stored retention override. The caller (a team) can't see the
+   * root's `dora_settings` row under its own RLS scope, so this narrow read of
+   * two integer columns — keyed by the explicit, JWT-derived root id — runs in a
+   * sysadmin scope.
+   */
+  async #readRetentionOverride(orgId: string): Promise<{ event_retention_days: number | null; dora_retention_days: number | null } | undefined> {
+    const rows = await runWithTenantContext({ isSuperAdmin: true }, async () => drizzleRows<{
+      event_retention_days: number | null;
+      dora_retention_days: number | null;
+    }>((await withTenantTx((tx) => tx.execute(sql`
+        SELECT ${schema.doraSettings.eventRetentionDays} AS event_retention_days,
+               ${schema.doraSettings.doraRetentionDays} AS dora_retention_days
+        FROM ${schema.doraSettings}
+        WHERE ${schema.doraSettings.orgId} = ${orgId}
+        LIMIT 1
+      `))).rows));
+    return rows[0];
   }
 
   /**
@@ -1013,6 +1052,7 @@ export class ReportingService {
     const batchSize = Math.max(1, opts.batchSize ?? 1000);
     const maxBatches = Math.max(1, opts.maxBatchesPerTable ?? 50);
     const now = opts.now ?? new Date();
+    const resolveRetentionOrgId = opts.resolveRetentionOrgId ?? (async (orgId: string) => orgId);
     const counts: ReportingRetentionCounts = {
       orgs: 0, standardEvents: 0, doraEvents: 0, deploymentOutcomes: 0, incidents: 0,
     };
@@ -1048,7 +1088,21 @@ export class ReportingService {
       const incidentsTable = sql`${schema.incident}`;
 
       for (const { org_id: orgId } of orgRows) {
-        const ov = overrides.get(orgId);
+        // Retention follows the account ROOT's entitlement (billing syncs it onto
+        // the root only). An unresolvable root ⇒ skip this org this tick rather
+        // than purge a team's rows on the (shorter) env default.
+        let retentionOrgId: string | null;
+        try {
+          retentionOrgId = await resolveRetentionOrgId(orgId);
+        } catch (err) {
+          logger.warn('Reporting retention: root resolution threw; skipping org this tick', { orgId, error: errorMessage(err) });
+          retentionOrgId = null;
+        }
+        if (retentionOrgId === null) {
+          logger.warn('Reporting retention: could not resolve the retention root; org skipped this tick', { orgId });
+          continue;
+        }
+        const ov = overrides.get(retentionOrgId);
         const eventDays = resolveEventRetentionDays(ov?.event_retention_days);
         const doraDays = resolveDoraRetentionDays(ov?.dora_retention_days);
         // `-1` = unlimited (Phase 8): keep forever, skip that window's deletes for

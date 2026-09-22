@@ -11,7 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { drizzleMock } from '@pipeline-builder/api-core/lib/testing/mock-drizzle.js';
+import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const insertedRowRef: { value: { id: string; filter: Record<string, unknown> | null } | null } = { value: null };
@@ -41,7 +41,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendEntityNotFound: jest.fn(),
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: 'u-1' });
@@ -61,7 +61,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     insert: () => insertChain,
     update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
   };
-  return {
+  return stubModule('@pipeline-builder/pipeline-data', {
     schema: {
       complianceScan: { id: 'col_id', orgId: 'col_org' },
     },
@@ -70,7 +70,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     withTenantTx: (fn: (tx: typeof dbLike) => unknown) => fn(dbLike),
     buildComplianceScanConditions: () => [],
     drizzleCount: (r: unknown) => r,
-  };
+  });
 });
 
 jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
