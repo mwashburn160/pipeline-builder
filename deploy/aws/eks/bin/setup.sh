@@ -104,6 +104,10 @@ echo "=== EKS Auto Mode deploy: cluster=$CLUSTER_NAME region=$REGION mode=$DEPLO
 # eksctl: install the pinned binary if it's not already on PATH (a prereq, like kubectl).
 ensure_eksctl
 
+# Prove the token-signing KMS key is usable BEFORE Phase 1 — `eksctl create
+# cluster` is ~20 minutes, and a missing key would otherwise surface in Phase 4.
+pb_preflight_token_signing_kms || exit 1
+
 # ---- Phase 1: cluster (Auto Mode) ------------------------------------------
 log "Phase 1: EKS Auto Mode cluster"
 if eksctl get cluster --name "$CLUSTER_NAME" --region "$REGION" >/dev/null 2>&1; then

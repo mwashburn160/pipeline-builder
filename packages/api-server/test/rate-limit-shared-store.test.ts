@@ -112,17 +112,17 @@ describe('Redis-backed global rate limiter', () => {
   });
 });
 
-describe('Redis-backed per-org limiter (rateLimitByOrg)', () => {
-  /** Run the limiter once for a verified org; resolve with whether next() ran. */
-  async function runOnce(mw: (req: unknown, res: unknown, next: (err?: unknown) => void) => void): Promise<boolean> {
-    const res = { setHeader: jest.fn(), getHeader: jest.fn(), status: jest.fn().mockReturnThis(), json: jest.fn(), headersSent: false };
-    return new Promise((resolve) => {
-      // next(err) is how a store error surfaces — only a clean next() counts as allowed.
-      mw({ ip: '10.0.0.1', headers: {}, user: { organizationId: 'org-1' } }, res, (err?: unknown) => resolve(err === undefined));
-      setTimeout(() => resolve(false), 1000);
-    });
-  }
+/** Run the limiter once for a verified org; resolve with whether next() ran. */
+async function runOnce(mw: (req: unknown, res: unknown, next: (err?: unknown) => void) => void): Promise<boolean> {
+  const res = { setHeader: jest.fn(), getHeader: jest.fn(), status: jest.fn().mockReturnThis(), json: jest.fn(), headersSent: false };
+  return new Promise((resolve) => {
+    // next(err) is how a store error surfaces — only a clean next() counts as allowed.
+    mw({ ip: '10.0.0.1', headers: {}, user: { organizationId: 'org-1' } }, res, (err?: unknown) => resolve(err === undefined));
+    setTimeout(() => resolve(false), 1000);
+  });
+}
 
+describe('Redis-backed per-org limiter (rateLimitByOrg)', () => {
   it('namespaces by service AND limiter name, sharing the one rate-limit connection', async () => {
     process.env.SERVICE_NAME = 'ask';
     const commands: string[][] = [];
@@ -146,5 +146,82 @@ describe('Redis-backed per-org limiter (rateLimitByOrg)', () => {
     } : null));
     const { rateLimitByOrg } = await import('../src/api/rate-limit-by-org.js');
     expect(await runOnce(rateLimitByOrg({ name: 'failing', max: 5, windowMs: 60_000 }) as never)).toBe(true);
+  });
+});
+
+/**
+ * The store's script loading.
+ *
+ * `rate-limit-redis` keeps its `SCRIPT LOAD` promises on the instance and every
+ * `increment` awaits them; express-rate-limit calls `init` once, at route setup,
+ * and never again. So a single rejection there — which the no-offline-queue env
+ * client produces whenever setup wins the race to a still-connecting socket —
+ * used to leave that limiter off for the life of the process, passing every
+ * request unlimited while Redis sat there perfectly healthy.
+ */
+describe('rate-limit store script loading', () => {
+  it('does not load scripts at route setup — only when the first request arrives', async () => {
+    // Deferring past setup is what removes the boot race: by the time a request
+    // arrives, the lazily built connection has long since become ready.
+    const commands: string[][] = [];
+    createEnvRedisClient.mockImplementation((label) => (label === 'rate-limit' ? {
+      on: jest.fn(),
+      call: jest.fn(async (...args: string[]) => { commands.push(args); return args[0] === 'SCRIPT' ? 'sha1' : [1, 60_000]; }),
+    } : null));
+
+    const { rateLimitByOrg } = await import('../src/api/rate-limit-by-org.js');
+    const mw = rateLimitByOrg({ name: 'deferred', max: 5, windowMs: 60_000 });
+    expect(commands).toHaveLength(0);
+
+    expect(await runOnce(mw as never)).toBe(true);
+    expect(commands.some((c) => c[0] === 'SCRIPT')).toBe(true);
+  });
+
+  it('retries the load on the next request instead of caching the rejection forever', async () => {
+    // THE REGRESSION. Only the first SCRIPT LOAD fails; everything after it is
+    // healthy. Before the retry, request 2 re-awaited request 1's rejected
+    // promise and never issued an EVALSHA again.
+    let loads = 0;
+    const commands: string[][] = [];
+    createEnvRedisClient.mockImplementation((label) => (label === 'rate-limit' ? {
+      on: jest.fn(),
+      call: jest.fn(async (...args: string[]) => {
+        commands.push(args);
+        if (args[0] === 'SCRIPT') {
+          loads += 1;
+          if (loads <= 2) throw new Error("Stream isn't writeable and enableOfflineQueue options is false");
+          return 'sha1';
+        }
+        return [1, 60_000];
+      }),
+    } : null));
+
+    const { rateLimitByOrg } = await import('../src/api/rate-limit-by-org.js');
+    const mw = rateLimitByOrg({ name: 'retrying', max: 5, windowMs: 60_000 });
+
+    // Request 1: the load fails, and passOnStoreError lets it through unlimited.
+    expect(await runOnce(mw as never)).toBe(true);
+    expect(commands.some((c) => c[0] === 'EVALSHA')).toBe(false);
+
+    // Request 2: a FRESH load, which succeeds — the limiter is enforcing again.
+    expect(await runOnce(mw as never)).toBe(true);
+    expect(commands.find((c) => c[0] === 'EVALSHA')![3]).toBe('rl:api:retrying:org:org-1');
+  });
+
+  it('loads the scripts once across many requests when the first load succeeds', async () => {
+    // The retry must not turn into a per-request SCRIPT LOAD on the happy path.
+    const commands: string[][] = [];
+    createEnvRedisClient.mockImplementation((label) => (label === 'rate-limit' ? {
+      on: jest.fn(),
+      call: jest.fn(async (...args: string[]) => { commands.push(args); return args[0] === 'SCRIPT' ? 'sha1' : [1, 60_000]; }),
+    } : null));
+
+    const { rateLimitByOrg } = await import('../src/api/rate-limit-by-org.js');
+    const mw = rateLimitByOrg({ name: 'stable', max: 50, windowMs: 60_000 });
+    for (let i = 0; i < 3; i += 1) expect(await runOnce(mw as never)).toBe(true);
+
+    // Two loads total: the increment script and the get script, from one init.
+    expect(commands.filter((c) => c[0] === 'SCRIPT')).toHaveLength(2);
+    expect(commands.filter((c) => c[0] === 'EVALSHA')).toHaveLength(3);
   });
 });

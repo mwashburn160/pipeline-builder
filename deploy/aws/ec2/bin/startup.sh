@@ -122,6 +122,14 @@ set +a
 # from healthy alerting, so it has to be caught here and not at 3am.
 pb_check_alert_delivery "$ENV_FILE" "$(pb_shared_dir)/config/alertmanager/alertmanager.yml" || exit 1
 
+# TOKEN-SIGNING PRE-FLIGHT, for the same reason: under TOKEN_SIGNING_MODE=kms
+# (the AWS default) the key is created out of band, and without this the first
+# thing to notice a missing one is the key generator in Phase 8 — after minikube
+# is already up. Also proves the INSTANCE ROLE can reach the key, which a
+# provision that skipped the CloudFormation update would otherwise only
+# discover when the first person tried to sign in.
+pb_preflight_token_signing_kms || exit 1
+
 # Grant minikube user read access to deploy assets (manifests, configs, nginx)
 # Exclude .env and auth dirs which contain secrets
 if [ "$(id -u)" = "0" ]; then

@@ -128,6 +128,57 @@ _mc_host_url() {
 _urlencode() { printf '%s' "$1" | jq -Rr '@uri'; }
 
 # ---------------------------------------------------------------------------
+# pb_preflight_token_signing_kms — prove the KMS signing key is USABLE, before
+# the deploy does anything expensive.
+#
+# Under TOKEN_SIGNING_MODE=kms the key is created out of band, so the first
+# thing that notices a missing one used to be the key generator in Phase 4 —
+# on eks that is after `eksctl create cluster`, i.e. ~20 minutes of cluster
+# build thrown away for a one-line .env mistake. Run this before Phase 1.
+#
+# `get-public-key` rather than `describe-key` deliberately: it is the same
+# permission platform itself needs, and it is the one the ec2 instance role is
+# granted (that policy carries kms:Sign + kms:GetPublicKey and NOT
+# kms:DescribeKey, so a describe-based check would AccessDeny on a correct
+# deploy). It also returns KeyUsage and KeySpec, so one call proves the key
+# exists, that this caller may use it, and that it is the right kind of key.
+#
+# No-op unless the mode is kms. Fails closed, naming the fix.
+# ---------------------------------------------------------------------------
+pb_preflight_token_signing_kms() {
+  [ "${TOKEN_SIGNING_MODE:-local}" = "kms" ] || return 0
+  local _alias="${TOKEN_SIGNING_KMS_KEY_ID:-}" _out _usage _spec
+  case "$_alias" in
+    alias/?*) ;;
+    *) echo "ERROR: TOKEN_SIGNING_MODE=kms requires TOKEN_SIGNING_KMS_KEY_ID=alias/<name> in .env" >&2
+       [ -n "$_alias" ] && echo "       got '${_alias}' — name the key BY ALIAS; an ARN embeds the AWS account id." >&2
+       _pb_kms_key_howto; return 1 ;;
+  esac
+  if ! _out=$(aws kms get-public-key --key-id "$_alias" ${AWS_REGION:+--region "$AWS_REGION"} \
+                --query '[KeyUsage,KeySpec]' --output text 2>&1); then
+    echo "ERROR: cannot use the token-signing KMS key '${_alias}'." >&2
+    echo "       aws kms get-public-key said: ${_out}" >&2
+    echo "       Either the alias does not exist, or this caller lacks kms:GetPublicKey on it." >&2
+    _pb_kms_key_howto; return 1
+  fi
+  _usage=$(printf '%s' "$_out" | awk '{print $1}')
+  _spec=$(printf '%s' "$_out" | awk '{print $2}')
+  if [ "$_usage" != SIGN_VERIFY ] || [ "$_spec" != ECC_NIST_P256 ]; then
+    echo "ERROR: '${_alias}' is KeyUsage=${_usage} KeySpec=${_spec}; ES256 needs SIGN_VERIFY + ECC_NIST_P256." >&2
+    echo "       A key's spec cannot be changed — create a new one and repoint the alias." >&2
+    _pb_kms_key_howto; return 1
+  fi
+  echo "  token signing: KMS key ${_alias} is usable (SIGN_VERIFY / ECC_NIST_P256)"
+}
+
+_pb_kms_key_howto() {
+  echo "       Create it once, before deploying:" >&2
+  echo "         aws kms create-key --key-spec ECC_NIST_P256 --key-usage SIGN_VERIFY" >&2
+  echo "         aws kms create-alias --alias-name ${TOKEN_SIGNING_KMS_KEY_ID:-alias/pipeline-builder-token-signing} --target-key-id <key-id>" >&2
+  echo "       Or set TOKEN_SIGNING_MODE=local to keep the signing key on disk." >&2
+}
+
+# ---------------------------------------------------------------------------
 # get_spec_field — extract a top-level field from a YAML file (e.g. plugin-spec.yaml)
 #   $1 field name   $2 YAML file path
 #   Echoes the value (trimmed), empty string if not found
