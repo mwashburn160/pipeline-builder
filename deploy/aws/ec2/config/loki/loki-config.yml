@@ -75,6 +75,9 @@ limits_config:
   # Pinned rather than left to the default because the log-export pager walks a
   # window in query_range pages and its correctness depends on this ceiling.
   max_entries_limit_per_query: 5000
+  # Enables the per-tenant delete API, which is how an org's logs are purged when
+  # the org is deleted (log data must follow the same erasure path as the rest).
+  deletion_mode: filter-and-delete
 
 storage_config:
   tsdb_shipper:
@@ -88,9 +91,6 @@ compactor:
   retention_delete_delay: 2h
   retention_delete_worker_count: 150
   delete_request_store: s3
-  # Enables the per-tenant delete API, which is how an org's logs are purged when
-  # the org is deleted (log data must follow the same erasure path as the rest).
-  deletion_mode: filter-and-delete
 
 chunk_store_config:
   chunk_cache_config:

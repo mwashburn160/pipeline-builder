@@ -1249,7 +1249,10 @@ services:
       mongodb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/mongo-express/status"]
+      # 127.0.0.1, not localhost: this image's /etc/hosts resolves localhost to
+      # ::1 first, but the Node server only binds 0.0.0.0 (IPv4), so
+      # localhost gets a spurious connection-refused even when the app is up.
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8081/mongo-express/status"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -1582,7 +1585,7 @@ services:
       - '--http-address=0.0.0.0:10902'
       - '--grpc-address=0.0.0.0:10901'
     volumes:
-      - './data/db-data/prometheus/:/prometheus:ro'
+      - './data/db-data/prometheus/:/prometheus:rw'
       - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
     networks:
       - backend-network
@@ -1619,6 +1622,13 @@ services:
       - '--grpc-address=0.0.0.0:10901'
     volumes:
       - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+    # /var is root:root in the image and the container runs as uid 1001, so the
+    # data-dir has to be a pre-created writable mount rather than left for the
+    # process to mkdir itself — matches the emptyDir the k8s targets use here.
+    # mode 1777 is required: Docker's tmpfs default (root:root 755) is not
+    # writable by the container's non-root user either.
+    tmpfs:
+      - /var/thanos/store:mode=1777
     networks:
       - backend-network
     depends_on:
@@ -1669,6 +1679,13 @@ services:
       - '--downsample.concurrency=1'
     volumes:
       - './config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro'
+    # /var is root:root in the image and the container runs as uid 1001, so the
+    # data-dir has to be a pre-created writable mount rather than left for the
+    # process to mkdir itself — matches the emptyDir the k8s targets use here.
+    # mode 1777 is required: Docker's tmpfs default (root:root 755) is not
+    # writable by the container's non-root user either.
+    tmpfs:
+      - /var/thanos/compact:mode=1777
     networks:
       - backend-network
     depends_on:
