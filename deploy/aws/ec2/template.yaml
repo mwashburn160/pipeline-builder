@@ -88,11 +88,11 @@ Parameters:
     Default: alias/pipeline-builder-token-signing
     AllowedPattern: "^alias/[A-Za-z0-9/_-]+$"
     Description: >
-      KMS alias of the ECC_NIST_P256 SIGN_VERIFY key platform signs user tokens
-      with under TOKEN_SIGNING_MODE=kms (the AWS default). The key is created
-      out of band — CloudFormation cannot resolve an alias to an ARN — and this
-      only scopes the instance role's kms:Sign / kms:GetPublicKey grant to it.
-      Must match TOKEN_SIGNING_KMS_KEY_ID in .env.
+      Alias for the ECC_NIST_P256 SIGN_VERIFY key platform signs user tokens
+      with under TOKEN_SIGNING_MODE=kms (the AWS default). This stack CREATES
+      the key and this alias, so no manual step is needed; it must match
+      TOKEN_SIGNING_KMS_KEY_ID in .env, and both default to the same name.
+      Two stacks in one account need different aliases.
 
   EbsVolumeSize:
     Type: Number
@@ -863,15 +863,52 @@ Resources:
   # only permission to use it, so a read of the instance's disk yields no signing
   # key. Mirrors the eks Pod Identity grant (aws/eks/bin/setup.sh TokenSigning).
   #
-  # Scoped by kms:RequestAlias rather than a key ARN: platform names the key BY
-  # ALIAS (TOKEN_SIGNING_KMS_KEY_ID=alias/…, an ARN is rejected outright by
-  # validation.ts because it embeds the AWS account id), so the alias travels
-  # with each Sign/GetPublicKey call and is the thing worth constraining. A key
-  # ARN would also have to be a stack parameter, since the key is created out of
-  # band and CloudFormation cannot resolve an alias.
+  # The stack OWNS this key, so a deploy needs no manual `aws kms create-key`
+  # step and teardown cannot orphan it. The instance cannot create it itself:
+  # its role holds kms:Sign + kms:GetPublicKey and nothing more, deliberately.
   #
-  # Attached unconditionally: it grants nothing until a key carrying this alias
-  # exists, so a local-mode deploy is unaffected.
+  # DeletionPolicy Delete means `cloudformation delete-stack` SCHEDULES deletion
+  # (KMS has no immediate delete) with the window below, which is also the grace
+  # period to `aws kms cancel-key-deletion` after an accidental teardown. Every
+  # session was signed by this key, so losing it signs everyone out — which is
+  # what deleting the deployment means anyway.
+  TokenSigningKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub "Pipeline Builder user-token signing (ES256) — ${AWS::StackName}"
+      KeySpec: ECC_NIST_P256
+      KeyUsage: SIGN_VERIFY
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          # Without this the key is unmanageable: KMS requires the account root
+          # to be able to administer a key, or no IAM policy can grant use of it.
+          - Sid: EnableIAMPolicies
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+      Tags:
+        - Key: ManagedBy
+          Value: pipeline-builder
+        - Key: PipelineBuilderDeploy
+          Value: !Ref AWS::StackName
+
+  # Platform names the key BY ALIAS (TOKEN_SIGNING_KMS_KEY_ID), never by ARN —
+  # an ARN embeds the AWS account id and its own validation rejects one. This
+  # alias must therefore match that .env value; both default to
+  # alias/pipeline-builder-token-signing. Two stacks in one account need
+  # distinct aliases, and the second create fails loudly if they collide.
+  TokenSigningKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Ref TokenSigningKmsAlias
+      TargetKeyId: !Ref TokenSigningKey
+
   InstanceRoleTokenSigningKmsPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -881,15 +918,14 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          # Scoped to this stack's key by ARN. Sign + GetPublicKey only: the
+          # instance uses the key, and never administers or deletes it.
           - Sid: TokenSigning
             Effect: Allow
             Action:
               - kms:Sign
               - kms:GetPublicKey
-            Resource: "*"
-            Condition:
-              StringEquals:
-                "kms:RequestAlias": !Ref TokenSigningKmsAlias
+            Resource: !GetAtt TokenSigningKey.Arn
 
   # ---------------------------------------------------------------------------
   # Boot-time secrets — Secrets Manager, NOT UserData. UserData is readable in

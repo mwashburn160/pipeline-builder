@@ -104,9 +104,12 @@ echo "=== EKS Auto Mode deploy: cluster=$CLUSTER_NAME region=$REGION mode=$DEPLO
 # eksctl: install the pinned binary if it's not already on PATH (a prereq, like kubectl).
 ensure_eksctl
 
-# Prove the token-signing KMS key is usable BEFORE Phase 1 — `eksctl create
-# cluster` is ~20 minutes, and a missing key would otherwise surface in Phase 4.
-pb_preflight_token_signing_kms || exit 1
+# Create (or adopt) the token-signing KMS key BEFORE Phase 1, and prove it is
+# usable. Up front because `eksctl create cluster` is ~20 minutes and a key
+# problem would otherwise surface in Phase 4, after that time is spent. The key
+# is tagged with this cluster, so shutdown.sh can schedule deletion of the one
+# it created without touching a key the account already had.
+pb_ensure_token_signing_kms_key "$CLUSTER_NAME" || exit 1
 
 # ---- Phase 1: cluster (Auto Mode) ------------------------------------------
 log "Phase 1: EKS Auto Mode cluster"
@@ -535,9 +538,7 @@ if [ "${TOKEN_SIGNING_MODE:-local}" = "kms" ]; then
   case "${TOKEN_SIGNING_KMS_KEY_ID:-}" in
     alias/?*) ;;
     *) echo "ERROR: TOKEN_SIGNING_MODE=kms needs TOKEN_SIGNING_KMS_KEY_ID=alias/<name> in .env (by alias, never ARN)." >&2
-       echo "       Create the key first:" >&2
-       echo "         aws kms create-key --key-spec ECC_NIST_P256 --key-usage SIGN_VERIFY" >&2
-       echo "         aws kms create-alias --alias-name alias/pipeline-builder-token-signing --target-key-id <key-id>" >&2
+       echo "       This should be unreachable — pb_ensure_token_signing_kms_key validated it before Phase 1." >&2
        exit 1 ;;
   esac
   _token_signing_key_arn=$(aws kms describe-key --key-id "$TOKEN_SIGNING_KMS_KEY_ID" --region "$REGION" \

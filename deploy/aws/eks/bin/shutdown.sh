@@ -215,11 +215,46 @@ delete_managed_policy() {
     || echo "  (IAM policy ${_name} still attached — delete once the cluster is fully gone)" >&2
 }
 
+# delete_token_signing_key — schedule deletion of the user-token signing key,
+# but ONLY the one this cluster's setup.sh created.
+#
+# setup.sh tags every key it mints `PipelineBuilderDeploy=<cluster>`; a key an
+# operator created by hand, or one shared with another deploy in the same
+# account, carries a different tag or none, and is left alone — deleting it
+# would take down an unrelated deployment's sign-in.
+#
+# Scheduled, not deleted: KMS has no immediate delete. 7 days is the minimum
+# window and is also the grace period to `cancel-key-deletion` if this teardown
+# was a mistake. The alias goes first so a later deploy can create a fresh key
+# under the same name.
+delete_token_signing_key() {
+  # This script does not read .env, so a deploy that customised the alias falls
+  # back to the default name here. Both outcomes are safe: the lookup either
+  # finds nothing, or finds a key without this cluster's tag, and the guard
+  # below keeps it. The customised key is then left for manual cleanup.
+  local _alias="${TOKEN_SIGNING_KMS_KEY_ID:-alias/pipeline-builder-token-signing}" _key_id _owner
+  _key_id=$(aws kms describe-key --key-id "$_alias" --region "$REGION" \
+    --query KeyMetadata.KeyId --output text 2>/dev/null) || return 0
+  [ -n "$_key_id" ] && [ "$_key_id" != None ] || return 0
+  _owner=$(aws kms list-resource-tags --key-id "$_key_id" --region "$REGION" \
+    --query "Tags[?TagKey=='PipelineBuilderDeploy'].TagValue | [0]" --output text 2>/dev/null) || true
+  if [ "$_owner" != "$CLUSTER_NAME" ]; then
+    echo "  keeping KMS key $_key_id ($_alias) — not created by this cluster (PipelineBuilderDeploy=${_owner:-<none>})"
+    return 0
+  fi
+  aws kms delete-alias --alias-name "$_alias" --region "$REGION" 2>/dev/null \
+    && echo "  deleted KMS alias $_alias" || true
+  aws kms schedule-key-deletion --key-id "$_key_id" --pending-window-in-days 7 --region "$REGION" >/dev/null 2>&1 \
+    && echo "  scheduled KMS key $_key_id for deletion in 7 days (aws kms cancel-key-deletion --key-id $_key_id to undo)" \
+    || echo "  (could not schedule deletion of KMS key $_key_id — delete it by hand)" >&2
+}
+
 if [ -n "$ACCOUNT_ID" ] && [ "$ACCOUNT_ID" != None ]; then
   delete_managed_policy "${CLUSTER_NAME}-eks-ses"
   delete_managed_policy "${CLUSTER_NAME}-eks-pipeline-exec"
   delete_managed_policy "${CLUSTER_NAME}-eks-plugin-signing"
   delete_managed_policy "${CLUSTER_NAME}-eks-token-signing"
+  delete_token_signing_key
   aws sns delete-topic --topic-arn "arn:aws:sns:${REGION}:${ACCOUNT_ID}:${CLUSTER_NAME}-email-events" --region "$REGION" 2>/dev/null \
     && echo "  deleted SNS topic ${CLUSTER_NAME}-email-events" || true
 fi

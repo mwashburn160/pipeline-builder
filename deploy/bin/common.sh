@@ -171,8 +171,84 @@ pb_preflight_token_signing_kms() {
   echo "  token signing: KMS key ${_alias} is usable (SIGN_VERIFY / ECC_NIST_P256)"
 }
 
+# ---------------------------------------------------------------------------
+# pb_ensure_token_signing_kms_key <owner> — create the KMS signing key if the
+# alias does not resolve yet, then prove it is usable.
+#
+# For callers that hold key-creation rights: the eks operator running setup.sh.
+# NOT for ec2, whose instance role deliberately carries only kms:Sign +
+# kms:GetPublicKey — there CloudFormation owns the key, so the instance only
+# ever runs the read-only pre-flight.
+#
+# The key is TAGGED with <owner> so teardown can tell a key this deploy created
+# from one an operator (or another deploy sharing the account) created by hand;
+# shutdown only ever schedules deletion of its own.
+#
+# Idempotent: an existing alias is adopted, never replaced — re-running setup
+# must not mint a second key and invalidate every live session. A NotFound is
+# the only error that leads to a create; anything else (AccessDenied, a
+# throttle) fails closed rather than creating a duplicate key.
+# ---------------------------------------------------------------------------
+pb_ensure_token_signing_kms_key() {
+  [ "${TOKEN_SIGNING_MODE:-local}" = "kms" ] || return 0
+  local _owner="$1" _alias="${TOKEN_SIGNING_KMS_KEY_ID:-}" _err _key_id
+  case "$_alias" in
+    alias/?*) ;;
+    *) echo "ERROR: TOKEN_SIGNING_MODE=kms requires TOKEN_SIGNING_KMS_KEY_ID=alias/<name> in .env" >&2
+       [ -n "$_alias" ] && echo "       got '${_alias}' — name the key BY ALIAS; an ARN embeds the AWS account id." >&2
+       return 1 ;;
+  esac
+  if _err=$(aws kms get-public-key --key-id "$_alias" ${AWS_REGION:+--region "$AWS_REGION"} \
+              --query KeyUsage --output text 2>&1); then
+    pb_preflight_token_signing_kms
+    return
+  fi
+  case "$_err" in
+    *NotFoundException*|*"not found"*) ;;
+    *) echo "ERROR: could not read the token-signing KMS key '${_alias}': ${_err}" >&2
+       echo "       Not creating one — this is a permissions or service error, not a missing key." >&2
+       return 1 ;;
+  esac
+  echo "  token signing: no key at ${_alias} — creating one"
+  _key_id=$(aws kms create-key \
+    --key-spec ECC_NIST_P256 --key-usage SIGN_VERIFY \
+    --description "Pipeline Builder user-token signing (ES256) — ${_owner}" \
+    --tags "TagKey=ManagedBy,TagValue=pipeline-builder" "TagKey=PipelineBuilderDeploy,TagValue=${_owner}" \
+    ${AWS_REGION:+--region "$AWS_REGION"} \
+    --query KeyMetadata.KeyId --output text) \
+    || { echo "ERROR: aws kms create-key failed (needs kms:CreateKey + kms:TagResource)" >&2; return 1; }
+  # If the alias step fails the key is real but unreachable by name — say so with
+  # the id, so it can be aliased or scheduled for deletion instead of silently
+  # becoming an untracked billable key.
+  if ! aws kms create-alias --alias-name "$_alias" --target-key-id "$_key_id" ${AWS_REGION:+--region "$AWS_REGION"}; then
+    echo "ERROR: created KMS key ${_key_id} but could not alias it as ${_alias}." >&2
+    echo "       Alias it by hand, or: aws kms schedule-key-deletion --key-id ${_key_id} --pending-window-in-days 7" >&2
+    return 1
+  fi
+  echo "  created KMS key ${_key_id} → ${_alias} (tagged PipelineBuilderDeploy=${_owner})"
+  # A brand-new alias is eventually consistent: the first read by alias can still
+  # 404 for a moment. Retry briefly so a correct deploy is not failed by timing —
+  # and still fail closed if it never resolves, rather than handing a cluster a
+  # key it cannot reach.
+  local _try=1
+  while [ "$_try" -le 5 ]; do
+    if pb_preflight_token_signing_kms 2>/dev/null; then return 0; fi
+    sleep 2
+    _try=$((_try + 1))
+  done
+  pb_preflight_token_signing_kms
+}
+
+# What to do about a key this deploy could not use. The deploy normally creates
+# it (eks in setup.sh, ec2 as a CloudFormation resource), so reaching here means
+# something is off rather than that a manual step was skipped — most often an
+# ec2 instance whose stack predates the KMS resources, or an alias that does not
+# match the one the deploy owns.
 _pb_kms_key_howto() {
-  echo "       Create it once, before deploying:" >&2
+  echo "       The deploy creates this key for you — eks in setup.sh, ec2 as a stack resource." >&2
+  echo "       On ec2, an older stack has no KMS key: update it (deploy/bin/cfn-deploy.sh) so" >&2
+  echo "       TokenSigningKey + TokenSigningKeyAlias exist and the instance role may use them." >&2
+  echo "       Check TOKEN_SIGNING_KMS_KEY_ID matches the alias the deploy owns, or create one:" >&2
   echo "         aws kms create-key --key-spec ECC_NIST_P256 --key-usage SIGN_VERIFY" >&2
   echo "         aws kms create-alias --alias-name ${TOKEN_SIGNING_KMS_KEY_ID:-alias/pipeline-builder-token-signing} --target-key-id <key-id>" >&2
   echo "       Or set TOKEN_SIGNING_MODE=local to keep the signing key on disk." >&2

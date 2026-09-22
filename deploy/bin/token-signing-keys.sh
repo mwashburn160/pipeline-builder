@@ -14,12 +14,12 @@
 # The AWS targets (ec2, eks) default to TOKEN_SIGNING_MODE=kms, where the
 # private key never leaves AWS: this script generates nothing, no token-signing
 # Secret is created (pb_create_token_signing_secret skips it), and platform
-# signs through kms:Sign. That needs an ECC_NIST_P256 SIGN_VERIFY key to exist
-# BEFORE the first deploy, named by alias in TOKEN_SIGNING_KMS_KEY_ID — this
-# script fails closed if it is missing rather than writing a key on disk that
-# would look like the live signer. The IAM grant is the instance role
-# (ec2 template.yaml) or a Pod Identity association (eks setup.sh), scoped to
-# that alias. Set TOKEN_SIGNING_MODE=local to opt back out.
+# signs through kms:Sign. The DEPLOY creates that key — eks in setup.sh
+# (pb_ensure_token_signing_kms_key), ec2 as a CloudFormation resource — and
+# names it by alias in TOKEN_SIGNING_KMS_KEY_ID. This script fails closed if the
+# key is missing rather than writing one on disk that would look like the live
+# signer. The IAM grant is the instance role (ec2 template.yaml) or a Pod
+# Identity association (eks setup.sh). Set TOKEN_SIGNING_MODE=local to opt out.
 # See docs/runbooks/secret-rotation.md.
 #
 #   token-signing-keys.sh [cert_dir] [--rotate]
@@ -65,9 +65,8 @@ if [ "${TOKEN_SIGNING_MODE:-local}" = "kms" ]; then
   case "${TOKEN_SIGNING_KMS_KEY_ID:-}" in
     alias/?*) ;;
     "") echo "TOKEN_SIGNING_MODE=kms requires TOKEN_SIGNING_KMS_KEY_ID (alias/<name>)" >&2
-        echo "  Create the key once, before deploying:" >&2
-        echo "    aws kms create-key --key-spec ECC_NIST_P256 --key-usage SIGN_VERIFY" >&2
-        echo "    aws kms create-alias --alias-name alias/pipeline-builder-token-signing --target-key-id <key-id>" >&2
+        echo "  The deploy normally sets this up for you (eks: setup.sh; ec2: the stack's" >&2
+        echo "  TokenSigningKey), so an empty value means .env drifted from the deploy." >&2
         exit 1 ;;
     *) echo "refusing TOKEN_SIGNING_KMS_KEY_ID='${TOKEN_SIGNING_KMS_KEY_ID}': name the key BY ALIAS (alias/<name>) — an ARN embeds the AWS account id" >&2
        exit 1 ;;
