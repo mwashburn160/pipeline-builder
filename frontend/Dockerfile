@@ -1,7 +1,7 @@
 # Base image pinned BY DIGEST (tag kept for readers): a re-pushed or
 # compromised tag cannot change what a release image is built from. Bump both
 # together (docker buildx imagetools inspect node:<ver>-alpine).
-ARG NODE_IMAGE=node:24.14.0-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114
+ARG NODE_IMAGE=node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
 
 # Production stage
 # Next.js standalone bundle is built OUTSIDE Docker by `pnpm nx run frontend:build`
@@ -13,7 +13,15 @@ FROM ${NODE_IMAGE}
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+# Runtime hardening: pull the latest patched OS packages (the base digest can lag
+# an openssl/musl/zlib fix) and drop the npm/corepack/yarn CLIs the image never runs —
+# they ship their own dependency trees (tar, pacote, sigstore, minimatch …) that the
+# release grype gate would otherwise flag.
+RUN apk upgrade --no-cache \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+       /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+       /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* \
+    && addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
 WORKDIR /app
 COPY --chown=nextjs:nodejs .next/standalone/ ./

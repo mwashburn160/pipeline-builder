@@ -1,7 +1,7 @@
 # Base image pinned BY DIGEST (tag kept for readers): a re-pushed or
 # compromised tag cannot change what a release image is built from. Bump both
 # together (docker buildx imagetools inspect node:<ver>-slim).
-ARG NODE_IMAGE=node:24.14.0-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8
+ARG NODE_IMAGE=node:24.21.0-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 # buildctl matches the buildkitd sidecar (moby/buildkit:v0.32.1-rootless in
 # deploy/*/k8s/plugin.yaml) — attestation + --metadata-file support lives in
 # both halves, so the client must not lag the daemon.
@@ -92,8 +92,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && rm -f buildkit.tgz crane.tgz syft.tgz grype.tgz
 
 FROM ${NODE_IMAGE}
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# Runtime hardening: pull the latest patched OS packages (the base digest can lag
+# an openssl/musl/zlib fix) and drop the npm/corepack/yarn CLIs the image never runs —
+# they ship their own dependency trees (tar, pacote, sigstore, minimatch …) that the
+# release grype gate would otherwise flag.
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+       /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+       /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*
 COPY --from=tools /usr/local/bin/buildctl /usr/local/bin/buildctl
 COPY --from=tools /usr/local/bin/crane /usr/local/bin/crane
 COPY --from=tools /usr/local/bin/cosign /usr/local/bin/cosign
