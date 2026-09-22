@@ -226,7 +226,7 @@ export class Workflow extends Component {
      * 5. Runs `nx affected --target build` to build changed projects
      * 6. Generates semantic versions using conventional commits
      * 7. Publishes library packages to npm (if any libraries affected)
-     * 8. Uploads build artifacts for the publish job
+     * 8. Uploads the frontend standalone bundle for the publish job
      * 9. Pushes version tags to the repository
      *
      * Conditional Execution:
@@ -351,17 +351,18 @@ export class Workflow extends Component {
                     run: 'tar -czf frontend-bundle.tar.gz -C ./frontend .next/standalone .next/static',
                 },
                 {
+                    // Only the frontend image consumes a build-job artifact: its
+                    // symlink-preserving standalone tarball. Every image's docker:publish
+                    // rebuilds its own lib/ from source (`nx run-many -t build --with-deps`
+                    // + `pnpm deploy`), so shipping the workspace's lib/ and dist/ trees
+                    // here was dead weight that the publish job overwrote anyway.
                     name: 'Upload artifact',
+                    if: 'steps.fe_bundle.outputs.exists == \'true\'',
                     uses: ACTIONS.uploadArtifact,
                     with: {
                         name: 'artifacts',
-                        // Frontend's standalone+static are bundled into frontend-bundle.tar.gz
-                        // above to preserve symlinks; the publish job extracts it back.
-                        // ./frontend/.next/ is excluded so the **/lib and **/dist globs don't
-                        // pick up dereferenced copies of next/dist, sharp/lib, etc. inside the
-                        // standalone tree — those collide with the tarball at extract time.
-                        path: './**/lib/\n./**/dist/\n./frontend-bundle.tar.gz\n!./node_modules/\n!./packages/*/node_modules/\n!./api/*/node_modules/\n!./platform/node_modules/\n!./frontend/node_modules/\n!./frontend/.next/',
-                        'include-hidden-files': true,
+                        path: './frontend-bundle.tar.gz',
+                        'if-no-files-found': 'error',
                     },
                 },
                 {
@@ -444,6 +445,9 @@ export class Workflow extends Component {
                 {
                     id: 'dnload_artifact',
                     name: 'Download artifact',
+                    // The artifact holds only the frontend bundle, and exists only when
+                    // the build job built the frontend — other images never need it.
+                    if: '${{ matrix.project_name == \'frontend\' }}',
                     uses: ACTIONS.downloadArtifact,
                     with: {
                         name: 'artifacts',
@@ -452,6 +456,7 @@ export class Workflow extends Component {
                 },
                 {
                     name: 'Copy artifacts to destination',
+                    if: '${{ matrix.project_name == \'frontend\' }}',
                     run: 'cp -rv dnload/* ./',
                 },
                 {

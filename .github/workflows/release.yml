@@ -151,20 +151,12 @@ jobs:
         run: tar -czf frontend-bundle.tar.gz -C ./frontend .next/standalone .next/static
       - name: Upload artifact
         id: upload_artifact
+        if: steps.fe_bundle.outputs.exists == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: artifacts
-          path: |-
-            ./**/lib/
-            ./**/dist/
-            ./frontend-bundle.tar.gz
-            !./node_modules/
-            !./packages/*/node_modules/
-            !./api/*/node_modules/
-            !./platform/node_modules/
-            !./frontend/node_modules/
-            !./frontend/.next/
-          include-hidden-files: true
+          path: ./frontend-bundle.tar.gz
+          if-no-files-found: error
       - name: Push new tag to the repository
         id: push_new_tag_to_the_repository
         run: git push --follow-tags
@@ -219,12 +211,14 @@ jobs:
         run: CUTOFF_DATE=$(date -d "15 days ago" +%s) && git for-each-ref --format="%(refname:short) %(creatordate:unix)" refs/tags | while read TAG DATE; do if [ $DATE -lt $CUTOFF_DATE ]; then echo "Deleting tag $TAG created on $(date -d @$DATE)"; git tag -d $TAG; fi; done && git push origin --tags --prune
       - name: Download artifact
         id: dnload_artifact
+        if: ${{ matrix.project_name == 'frontend' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: artifacts
           path: dnload
       - name: Copy artifacts to destination
         id: copy_artifacts_to_destination
+        if: ${{ matrix.project_name == 'frontend' }}
         run: cp -rv dnload/* ./
       - name: Extract frontend bundle
         id: extract_frontend_bundle
