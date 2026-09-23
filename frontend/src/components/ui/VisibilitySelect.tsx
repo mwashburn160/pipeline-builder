@@ -38,9 +38,27 @@ export function VisibilitySelect({ value, onChange, canPublish, disabled, id }: 
   );
 }
 
-/** Hint under the picker, explaining what the caller can and can't reach. */
-export function visibilityHint(canPublish: boolean, publishPermission: string): string {
-  return canPublish
+/**
+ * Says so explicitly for PLUGINS, because they are the one resource with a
+ * second, external meaning of "public": the plugin directory at /plugins.
+ * Every rung of this ladder — "Public" included — stays inside the org
+ * hierarchy, so without this the picker reads as the way to publish to the
+ * directory, which it is not. Listing there is a separate flow that does not
+ * start in this dialog.
+ */
+export const ECOSYSTEM_VISIBILITY_NOTE =
+  ' None of these list the plugin in the public plugin directory — that is a separate step:'
+  + ' register a publisher at /marketplace/register to publish under your own handle,'
+  + ' or submit anonymously at /plugins/submit (it lands under the `community` publisher after review).';
+
+/**
+ * Hint under the picker, explaining what the caller can and can't reach.
+ *
+ * `ecosystem` appends {@link ECOSYSTEM_VISIBILITY_NOTE} — pass it for plugins.
+ */
+export function visibilityHint(canPublish: boolean, publishPermission: string, ecosystem = false): string {
+  const base = canPublish
     ? 'Private keeps it as a personal draft. Org shares it with everyone in your organization. Public also reaches your org’s teams — the shared SYSTEM catalog (all orgs) is a superadmin action from the system org.'
     : `Private keeps it as a personal draft; Org shares it with everyone in your organization. Sharing it publicly needs the ${publishPermission} permission.`;
+  return ecosystem ? base + ECOSYSTEM_VISIBILITY_NOTE : base;
 }

@@ -291,7 +291,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
           <div>
             <h3 className="text-sm font-medium text-fg-muted mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
-              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
+              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish', true)}>
                 <VisibilitySelect value={visibility} onChange={setVisibility} canPublish={canPublish} disabled={saving} />
               </FormField>
               {/* Owner + team access — the same control the pipeline editor uses,

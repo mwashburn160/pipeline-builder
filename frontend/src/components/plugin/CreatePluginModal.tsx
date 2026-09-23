@@ -291,7 +291,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
                 )}
               </div>
 
-              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
+              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish', true)}>
                 <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={uploadDisabled} />
               </FormField>
 

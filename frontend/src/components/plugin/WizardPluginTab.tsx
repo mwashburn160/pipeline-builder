@@ -446,7 +446,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
           )}
 
           <div className="border-t border-default pt-4 flex items-center justify-between">
-            <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
+            <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish', true)}>
               <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={isWorking} />
             </FormField>
 

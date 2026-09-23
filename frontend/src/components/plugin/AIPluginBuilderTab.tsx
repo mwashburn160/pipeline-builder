@@ -337,7 +337,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
           {/* Access Level + Deploy */}
           <div className="border-t border-default pt-4">
             <div className="flex items-center justify-between">
-              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish')}>
+              <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish', true)}>
                 <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={isWorking} />
               </FormField>
 
