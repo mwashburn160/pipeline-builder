@@ -403,8 +403,19 @@ spec:
   # in-pod buildkitd sidecar is the sole builder, so each replica carries
   # its full ~1250m cost.
   maxReplicaCount: 2
-  pollingInterval: 15
-  cooldownPeriod: 120
+  # pollingInterval / cooldownPeriod are deliberately NOT set. KEDA applies both
+  # only when it owns the 0<->1 transition (minReplicaCount: 0, idleReplicaCount,
+  # or useCachedMetrics) — with minReplicaCount: 1 it hands scaling to a plain
+  # HPA and warns that they are "configured but not relevant". They were set to
+  # 15s/120s and silently ignored.
+  #
+  # Scale-DOWN damping, the thing cooldownPeriod was reaching for (replica churn
+  # aborts in-flight builds — BullMQ reports "stalled more than allowable
+  # limit"), comes from the HPA's own scale-down stabilization window, which
+  # defaults to 300s. That is stricter than the 120s that was never applied, so
+  # removing these lines does not make scale-down more eager. To tune it, set
+  # spec.advanced.horizontalPodAutoscalerConfig.behavior.scaleDown here — that
+  # is the knob KEDA actually forwards in this mode.
   # Hold a safe replica count if Prometheus (the primary trigger's source) is
   # unavailable, instead of collapsing to minReplicaCount and draining builds.
   fallback:
