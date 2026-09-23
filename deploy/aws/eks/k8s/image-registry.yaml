@@ -208,12 +208,19 @@ spec:
             - name: scratch-tmp
               mountPath: /tmp
           resources:
+            # Sized for Node PLUS the cosign it spawns (see the mount note above):
+            # execFile'd binaries share this cgroup, so their RSS lands here too.
+            # At 384Mi a plugin load OOMKilled the pod (exit 137) — and while it
+            # restarted, the mesh had no healthy endpoint for image-registry, so
+            # every buildkit token fetch got 503 "no healthy upstream", buildkit
+            # fell back to Docker Hub and every plugin build failed with a
+            # misleading "pull access denied".
             limits:
               cpu: "500m"
-              memory: 384Mi
+              memory: 1Gi
             requests:
               cpu: "250m"
-              memory: 192Mi
+              memory: 256Mi
           readinessProbe:
             httpGet:
               path: /ready

@@ -1396,7 +1396,19 @@ services:
       # The registry token realm for buildkitd-quarantine's pushes/pulls.
       - quarantine-network
     healthcheck: *api-healthcheck
-    deploy: *api-deploy-small
+    # NOT *api-deploy-small (384M): this service execFile's cosign to sign plugin
+    # images, and that binary's RSS counts against the same limit as Node. At 384M
+    # a plugin load OOM-killed it, and while it restarted nothing could fetch a
+    # registry token, so every plugin build failed. The other three services on
+    # that anchor spawn nothing and stay where they are.
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.15'
+          memory: 256M
 
   billing:
     image: 'ghcr.io/mwashburn160/billing:4.1.23@sha256:0b73ce4a10a9355b7b3c5d685cc2f42eeaf572ec6a5b2294b1a24a5d6fd7ff44'
