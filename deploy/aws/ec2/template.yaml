@@ -699,7 +699,8 @@ Resources:
   # public DNS) — never the private-mode in-stack zone. Verification is async:
   # the stack reaches CREATE_COMPLETE before SES marks the identity verified.
   # The platform (in minikube) signs with the instance role via IMDS — the
-  # instance metadata hop limit is 2 (see MetadataOptions), so pods can reach it.
+  # instance metadata hop limit is 3 (see MetadataOptions), which is what a pod
+  # inside the minikube node container needs to reach it.
   # ---------------------------------------------------------------------------
   SesEmailIdentity:
     Type: AWS::SES::EmailIdentity
@@ -1036,7 +1037,15 @@ Resources:
       MetadataOptions:
         HttpTokens: required
         HttpEndpoint: enabled
-        HttpPutResponseHopLimit: 2
+        # 3, not 2. A pod here is TWO containers deep: minikube runs with the
+        # docker driver, so the node itself is a container on this instance and
+        # the pod network lives inside it. The path pod -> CNI bridge -> minikube
+        # container -> host decrements the TTL twice before IMDS is reached, and
+        # at 2 the reply never arrives: the AWS SDK falls through its whole
+        # credential chain and platform dies at boot with "Could not load
+        # credentials from any providers" on the KMS token-signing key.
+        # Verified from a pod: at 2 a PUT to /latest/api/token times out.
+        HttpPutResponseHopLimit: 3
       UserData:
         Fn::Base64:
           Fn::Sub: |
