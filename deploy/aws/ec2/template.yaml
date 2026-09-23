@@ -190,12 +190,10 @@ Parameters:
     NoEcho: true
     AllowedPattern: "^$|^https://hooks\\.slack\\.com/services/.+$"
     Description: >
-      Slack incoming webhook for PLATFORM-WIDE CRITICAL alerts (the paging
-      channel). A webhook URL is a bearer credential, so it is stored in Secrets
-      Manager and read at boot — never interpolated into UserData.
-      Supply it WITH SlackWarningWebhookUrl, or leave BOTH empty to run without
-      ops-team Slack: platform alerts then stay in Alertmanager's own UI and the
-      deploy prints a banner saying so. Per-org destinations are unaffected.
+      Slack incoming webhook for PLATFORM-WIDE CRITICAL alerts (paging channel).
+      Held in Secrets Manager, never in UserData — a webhook URL is a credential.
+      Set BOTH Slack params or neither; empty runs without ops-team Slack
+      (alerts stay in Alertmanager's UI; per-org destinations are unaffected).
 
   SlackWarningWebhookUrl:
     Type: String
@@ -203,8 +201,8 @@ Parameters:
     NoEcho: true
     AllowedPattern: "^$|^https://hooks\\.slack\\.com/services/.+$"
     Description: >
-      Slack incoming webhook for PLATFORM-WIDE WARNING alerts (the non-paging
-      channel). See SlackCriticalWebhookUrl — set both or neither.
+      Slack incoming webhook for PLATFORM-WIDE WARNING alerts (non-paging).
+      See SlackCriticalWebhookUrl — set both or neither.
 
   AlertEmail:
     Type: String
@@ -1037,14 +1035,9 @@ Resources:
       MetadataOptions:
         HttpTokens: required
         HttpEndpoint: enabled
-        # 3, not 2. A pod here is TWO containers deep: minikube runs with the
-        # docker driver, so the node itself is a container on this instance and
-        # the pod network lives inside it. The path pod -> CNI bridge -> minikube
-        # container -> host decrements the TTL twice before IMDS is reached, and
-        # at 2 the reply never arrives: the AWS SDK falls through its whole
-        # credential chain and platform dies at boot with "Could not load
-        # credentials from any providers" on the KMS token-signing key.
-        # Verified from a pod: at 2 a PUT to /latest/api/token times out.
+        # 3, not 2: minikube's docker driver makes the node a container, so a pod
+        # is two hops from IMDS. At 2 the reply never arrives and platform dies at
+        # boot ("Could not load credentials from any providers") on the KMS key.
         HttpPutResponseHopLimit: 3
       UserData:
         Fn::Base64:
@@ -1068,9 +1061,8 @@ Resources:
                 --secret-id "${AWS::StackName}/$1" --query SecretString --output text 2>/dev/null || true
             }
             GHCR_TOKEN="$(pb_boot_secret ghcr-token)"; export GHCR_TOKEN
-            # Ops-team Slack webhooks. Credentials, so they take the same Secrets
-            # Manager path — an absent secret (parameter left empty) reads as "",
-            # which bootstrap treats as the deliberate "no ops Slack" choice.
+            # Ops-team Slack webhooks — same Secrets Manager path (credentials).
+            # An absent secret reads as "", the deliberate "no ops Slack" choice.
             SLACK_CRITICAL_WEBHOOK_URL="$(pb_boot_secret slack-critical-url)"; export SLACK_CRITICAL_WEBHOOK_URL
             SLACK_WARNING_WEBHOOK_URL="$(pb_boot_secret slack-warning-url)"; export SLACK_WARNING_WEBHOOK_URL
             # ghcr.io ignores the username for PAT auth; fixed to the image owner.

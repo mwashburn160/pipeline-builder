@@ -54,6 +54,44 @@ cfn_deploy() {
     echo "  Cleared ${full_name}."
   fi
 
+  # CloudFormation refuses an INLINE template over 51,200 bytes; past that it has
+  # to be staged in S3 (`--s3-bucket`, which uploads and deploys by URL). The ec2
+  # template crossed that line as parameters were added, and the failure is a
+  # late, opaque one — the deploy runs, talks to AWS, and only then reports
+  # "Templates with a size greater than 51,200 bytes must be deployed via an S3
+  # Bucket". Stage automatically instead of making every future edit a size
+  # negotiation. The bucket is per account+region, created on demand, private.
+  local tpl_bytes
+  tpl_bytes=$(wc -c < "$template_file" | tr -d ' ')
+  local stage=()
+  if [ "$tpl_bytes" -gt 51200 ]; then
+    local acct bucket
+    acct=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
+    if [ -z "$acct" ] || [ "$acct" = "None" ]; then
+      echo "ERROR: template is ${tpl_bytes} bytes (over CloudFormation's 51,200 inline limit)" >&2
+      echo "       and the account id could not be read to name a staging bucket." >&2
+      return 1
+    fi
+    bucket="pipeline-builder-cfn-${acct}-${REGION}"
+    if ! aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+      echo "  Template is ${tpl_bytes} bytes — creating staging bucket ${bucket}"
+      # us-east-1 is the one region that rejects an explicit LocationConstraint.
+      if [ "$REGION" = "us-east-1" ]; then
+        aws s3api create-bucket --bucket "$bucket" --region "$REGION" >/dev/null || return 1
+      else
+        aws s3api create-bucket --bucket "$bucket" --region "$REGION" \
+          --create-bucket-configuration "LocationConstraint=${REGION}" >/dev/null || return 1
+      fi
+      # A template carries no secrets (every credential is a NoEcho parameter that
+      # lands in Secrets Manager), but it does describe the whole topology.
+      aws s3api put-public-access-block --bucket "$bucket" \
+        --public-access-block-configuration \
+        'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true' >/dev/null 2>&1 || true
+    fi
+    echo "  Staging the ${tpl_bytes}-byte template through s3://${bucket}"
+    stage=(--s3-bucket "$bucket" --s3-prefix "cfn/${full_name}")
+  fi
+
   local cmd=(
     aws cloudformation deploy
     --stack-name "$full_name"
@@ -61,6 +99,7 @@ cfn_deploy() {
     --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
     --region "$REGION"
     --no-fail-on-empty-changeset
+    "${stage[@]+"${stage[@]}"}"
   )
   if [ ${#params[@]} -gt 0 ]; then
     cmd+=(--parameter-overrides "${params[@]}")
