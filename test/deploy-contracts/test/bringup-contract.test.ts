@@ -206,6 +206,39 @@ describe('per-target config copies stay identical', () => {
     same(K8S_TARGETS.map((t) => `${t}/config/promtail/promtail-config.yml`));
   });
 
+  // The copies being IDENTICAL says nothing about them being VALID, and that gap
+  // shipped: a `\1` backreference in an editing pass wrote a literal 0x01 over a
+  // comment prefix in ALL FOUR promtail configs at once, so every equality check
+  // above still passed while promtail CrashLoopBackOff'd on every target with
+  // "yaml: control characters are not allowed". Parse them, and reject the
+  // control bytes YAML forbids outright — a corrupted comment is invisible to a
+  // diff-style guard but fatal to the process that has to read the file.
+  it('every deploy config YAML parses and carries no control characters', () => {
+    const files = [
+      ...K8S_TARGETS.flatMap((t) => [`${t}/config/promtail/promtail-config.yml`, `${t}/config/prometheus/alert-rules.yml`]),
+      ...ALL_TARGETS.map((t) => `${t}/config/alertmanager/alertmanager.yml`),
+    ].filter((f) => existsSync(join(REPO_ROOT, f)));
+    expect(files.length).toBeGreaterThan(0);
+
+    const problems: string[] = [];
+    for (const f of files) {
+      const raw = read(f);
+      // Tab, LF and CR are the only control characters YAML allows.
+      const bad = [...raw].findIndex((ch) => ch < ' ' && ch !== '\t' && ch !== '\n' && ch !== '\r');
+      if (bad >= 0) {
+        const line = raw.slice(0, bad).split('\n').length;
+        problems.push(`${f}: control character 0x${raw.charCodeAt(bad).toString(16).padStart(2, '0')} at line ${line}`);
+        continue;
+      }
+      try {
+        yamlDocs(f);
+      } catch (err) {
+        problems.push(`${f}: ${(err as Error).message}`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
   it('grafana dashboards on every target', () => {
     const dir = (t: string) => (t.endsWith('docker') ? `${t}/config/grafana/provisioning/dashboards` : `${t}/config/grafana/dashboards`);
     same(ALL_TARGETS.map((t) => `${dir(t)}/dashboards.yaml`));
