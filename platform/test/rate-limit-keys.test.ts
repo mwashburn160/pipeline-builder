@@ -31,7 +31,7 @@ let rateLimitKey: Keys['rateLimitKey'];
 let peekJwtClaims: Keys['peekJwtClaims'];
 let scimOrgKey: Keys['scimOrgKey'];
 let verifiedIsSuperAdmin: Keys['verifiedIsSuperAdmin'];
-let tierLimitedMax: Keys['tierLimitedMax'];
+let tierLimitedMax: Keys['tierLimitedMax'], isSignOut: typeof import('../src/middleware/rate-limit-keys.js')['isSignOut'];
 let config: Cfg;
 /** Signs the ES256 user tokens these helpers verify. */
 let signUserToken: (payload: Record<string, unknown>) => Promise<string>;
@@ -42,7 +42,7 @@ beforeAll(async () => {
   process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
 
   ({ config } = await import('../src/config/index.js'));
-  ({ extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax } =
+  ({ extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax, isSignOut } =
     await import('../src/middleware/rate-limit-keys.js'));
 
   // Bucket selection verifies the token, so it needs platform's signing key
@@ -249,5 +249,29 @@ describe('tierLimitedMax', () => {
 
   it('never returns less than 1', async () => {
     expect(tierLimitedMax(req({ headers: await signed({ tier: 'developer' }) }))).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('isSignOut — sign-out is exempt from the auth limiter', () => {
+  // The shared `req()` above models only ip/headers; this predicate reads
+  // method + path, so it gets its own minimal request.
+  const call = (method: string, path: string) => ({ method, path }) as unknown as express.Request;
+
+  // Being rate-limited out of LEAVING, and then out of signing back in, was a
+  // real lockout: the app asks /auth/sso/logout for an SLO redirect before
+  // /auth/logout, so one sign-out spent two of the per-IP budget.
+  it('matches both sign-out paths', () => {
+    expect(isSignOut(call('POST', '/auth/logout'))).toBe(true);
+    expect(isSignOut(call('POST', '/auth/sso/logout'))).toBe(true);
+  });
+
+  it('does NOT exempt the credential-guessing surface it defends', () => {
+    for (const path of ['/auth/login', '/auth/register', '/auth/webauthn/login/options', '/auth/webauthn/login/verify', '/auth/step-up']) {
+      expect(isSignOut(call('POST', path))).toBe(false);
+    }
+  });
+
+  it('is POST-only, so a GET cannot slip past the limiter on the same path', () => {
+    expect(isSignOut(call('GET', '/auth/logout'))).toBe(false);
   });
 });

@@ -13,7 +13,7 @@ import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client
 import { config } from './config/index.js';
 import { SCIM_RATE_LIMIT_MAX, SCIM_RATE_LIMIT_WINDOW_MS } from './constants/scim.js';
 import { notFoundHandler, errorHandler } from './middleware/index.js';
-import { extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax } from './middleware/rate-limit-keys.js';
+import { extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax, isSignOut } from './middleware/rate-limit-keys.js';
 import { createLimiter } from './middleware/rate-limiter.js';
 import {
   isWriteBlockedByImpersonation,
@@ -149,7 +149,7 @@ const authLimiter = createLimiter({
   // every user's attempt from one pod IP; counting those in one IP bucket would
   // let one user's failures lock everyone out. That service limits per client
   // and username itself (image-registry token-rate-limiter).
-  skip: (req: Request) => verifyServicePrincipal(req),
+  skip: (req: Request) => verifyServicePrincipal(req) || isSignOut(req),
   message: 'Too many authentication attempts. Please try again later.',
 });
 

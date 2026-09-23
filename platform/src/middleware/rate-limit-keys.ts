@@ -183,3 +183,18 @@ export function tierLimitedMax(req: express.Request): number {
   const mult: number = (tier && isValidTier(tier) ? config.rateLimit.tierMultipliers[tier] : 1) || 1;
   return Math.max(1, Math.floor(config.rateLimit.max * mult));
 }
+
+/**
+ * Signing OUT. Neither path guesses a credential — `/auth/logout` ends a session
+ * the caller already holds, and `/auth/sso/logout` only asks whether that
+ * session has an IdP to redirect to — so neither is what this limiter defends
+ * against. Counting them produced the opposite of safety: sign-out spends TWO
+ * attempts of the per-IP budget (the app asks for the SLO redirect first), so a
+ * few sign-out/sign-in cycles locked the person out of LOGIN, and the only way
+ * back was waiting out the window or deleting the Redis keys by hand. Being
+ * rate-limited out of leaving is not a security property worth having.
+ */
+export function isSignOut(req: express.Request): boolean {
+  return req.method === 'POST' && (req.path === '/auth/logout' || req.path === '/auth/sso/logout');
+}
+
