@@ -137,6 +137,21 @@ describe('/plugins page', () => {
     expect(screen.queryByRole('heading', { name: 'Recently updated' })).toBeNull();
   });
 
+  it('offers Submit a plugin on the LANDING page, not only after a fruitless search', () => {
+    // Featured and Recently-updated both hide themselves when empty, so on a new
+    // instance the landing page is a category grid and nothing else. The submit
+    // link lived only in NoResults, which meant a visitor had to search for
+    // something that did not exist before the platform told them how to publish.
+    const props = {
+      ...baseProps, mode: 'home', categories: [{ id: 'security', count: 0, top: [] }], featured: [], recent: [],
+    } as DirectoryPageProps;
+    render(<DirectoryPage {...props} />);
+    expect(screen.queryByRole('heading', { name: 'Featured Official plugins' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Recently updated' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Submit a plugin' })).toHaveAttribute('href', '/plugins/submit');
+    expect(screen.getByRole('link', { name: 'sign in' })).toHaveAttribute('href', expect.stringContaining('/login'));
+  });
+
   it('SSR header is the guest variant, with a sign-in link back to this query', () => {
     asPath = '/plugins?q=trivy';
     const props = { ...baseProps, query: { q: 'trivy' }, mode: 'results', results: searchResult([card()]) } as DirectoryPageProps;

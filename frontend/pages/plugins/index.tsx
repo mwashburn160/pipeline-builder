@@ -132,6 +132,18 @@ function Home({ categories, featured, recent }: { categories: CategorySummary[];
           <ListingGrid items={recent} />
         </section>
       )}
+      {/* The way IN to the directory, on the page people actually land on. This
+          used to appear only in NoResults — i.e. you had to search for something
+          that did not exist before the platform told you how to contribute. Both
+          sections above hide themselves when empty, so on a new instance the
+          landing page was a category grid and nothing else. */}
+      <p className="text-sm text-fg-muted">
+        Have a plugin to share?{' '}
+        {/* No account needed. The submit page itself explains when this instance has submissions turned off. */}
+        <Link href="/plugins/submit" className="action-link">Submit a plugin</Link>
+        {' '}— no account needed — or{' '}
+        <Link href={loginHref('/plugins')} className="action-link">sign in</Link> to publish from your organization.
+      </p>
     </div>
   );
 }
