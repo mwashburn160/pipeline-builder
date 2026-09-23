@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery } from '../util';
+import { buildQuery, type ProposedByOptions } from '../util';
 import { ApiError } from '../errors';
 import type {
   ApiResponse, Criticality, EntityLink, Lifecycle, OwnerType, Plugin, PluginCatalogEdits, PluginInspectResult, QueueStatus, Visibility,
@@ -238,10 +238,11 @@ export function pluginsApi(core: ApiCore) {
        *  non-empty string, so ownership is reassigned, never cleared. */
       ownerId?: string;
       ownerType?: OwnerType;
-    }) => {
+    }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
+        headers: core.proposedByHeader(opts),
       });
     },
 
@@ -344,7 +345,7 @@ export function pluginsApi(core: ApiCore) {
       env?: Record<string, string>;
       dockerfile: string;
       visibility: Visibility;
-    }) => {
+    }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{
         requestId?: string;
         pluginName?: string;
@@ -352,6 +353,7 @@ export function pluginsApi(core: ApiCore) {
       }>>('/api/plugins/deploy-generated', {
         method: 'POST',
         body: JSON.stringify(data),
+        headers: core.proposedByHeader(opts),
       });
     },
 
@@ -394,10 +396,11 @@ export function pluginsApi(core: ApiCore) {
     },
 
     /** Save them (`org:settings`). A new external address is sent a confirmation link. */
-    updatePluginSecurityNotifications: async (body: PluginSecurityNotificationPrefsWrite) => {
+    updatePluginSecurityNotifications: async (body: PluginSecurityNotificationPrefsWrite, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ preferences: PluginSecurityNotificationPrefs }>>('/api/plugins/security-notifications', {
         method: 'PUT',
         body: JSON.stringify(body),
+        headers: core.proposedByHeader(opts),
       });
     },
 

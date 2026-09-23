@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, requirePermission, audited, actorId, proposable, recordAudit, withProposalProvenance } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
@@ -50,7 +50,7 @@ export function createReportSettingsRoutes(): Router {
   // Org-admin write: `org:settings` is the conventional org-admin config
   // permission (Member lacks it; Admin/Owner carry it), matching the sibling
   // per-org config surfaces (SSO, notification preferences).
-  router.put('/incidents', requirePermission('org:settings'), audited('reporting.settings.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/incidents', requirePermission('org:settings'), audited('reporting.settings.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, reportingSettingsSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     await reportingService.setReportingSettings(orgId, validation.value);
@@ -65,7 +65,7 @@ export function createReportSettingsRoutes(): Router {
       orgId,
       targetType: 'reporting-settings',
       targetId: orgId,
-      details: { ...validation.value },
+      details: withProposalProvenance(req.headers, { ...validation.value }),
     });
     return sendSuccess(res, 200, { settings });
   }));

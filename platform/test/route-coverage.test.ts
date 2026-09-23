@@ -339,8 +339,10 @@ const EXCEPTIONS: RouteCoverageException[] = [
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // compliance's notification channels + the plugin ecosystem's notices.
   { method: 'POST', path: '/internal/notify-email', callers: ['compliance', 'plugin'] },
-  // Whether outbound email is on — the anonymous-submission API's precondition.
-  { method: 'GET', path: '/internal/notify-email/status', callers: ['plugin'] },
+  // Whether outbound email is on — the anonymous-submission API's precondition,
+  // and the whole of the ask agent's notification diagnosis. Reading the switch
+  // is strictly weaker than sending, so `ask` is here but not on the send route.
+  { method: 'GET', path: '/internal/notify-email/status', callers: ['ask', 'plugin'] },
   // The plugin ecosystem's governance reads (approver count, Verified eligibility).
   { method: 'GET', path: '/internal/ecosystem/publisher-eligibility/:orgId', callers: ['plugin'] },
   { method: 'GET', path: '/internal/ecosystem/approvers', callers: ['plugin'] },

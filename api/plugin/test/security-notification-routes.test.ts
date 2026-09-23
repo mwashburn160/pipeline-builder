@@ -81,10 +81,20 @@ describe('org routes', () => {
     expect(svc.getSecurityPrefs).toHaveBeenLastCalledWith('org-a', true);
   });
 
-  it('PUT hands org, user and body to the service', async () => {
+  it('PUT hands org, user, body and the request headers to the service', async () => {
     const res = await call(router, 'put', '/security-notifications', { body: { recipientMode: 'users', targetUsers: ['u2'] } });
-    expect(svc.putSecurityPrefs).toHaveBeenCalledWith('org-a', 'u-1', { recipientMode: 'users', targetUsers: ['u2'] });
+    // The headers are the 4th argument for ONE reason: the Ask provenance
+    // marker, which the service folds into its audit event (design rule 6).
+    expect(svc.putSecurityPrefs).toHaveBeenCalledWith('org-a', 'u-1', { recipientMode: 'users', targetUsers: ['u2'] }, {});
     expect(res.body.data).toEqual({ preferences: { recipientMode: 'users' } });
+  });
+
+  it('PUT is gated by `proposable`, ahead of the handler', () => {
+    const layer = (router as unknown as { stack: Layer[] }).stack
+      .find((l) => l.route?.path === '/security-notifications' && l.route.methods.put);
+    const names = layer!.route!.stack.map((sl) => sl.handle.name);
+    expect(names).toContain('proposable');
+    expect(names.indexOf('proposable')).toBeLessThan(names.length - 1);
   });
 
   it('PUT answers a validation refusal as a 400 with its code', async () => {

@@ -97,6 +97,81 @@ export function askProposalAuditDetails(
   return { ...details, proposedBy: ASK_AGENT_PROPOSER };
 }
 
+/**
+ * The request HEADER a proposal commit stamps, and the only channel provenance
+ * travels on.
+ *
+ * A HEADER rather than a body field, for three reasons:
+ *
+ *  - **It cannot collide.** `proposedBy` in a body would be a new key in six
+ *    different domain schemas — `PipelineUpdateSchema`, the plugin/template
+ *    update schemas, three notification/settings schemas — two of which are
+ *    `.strict()` and the rest of which feed `Object.keys(body)` straight into
+ *    the update's column list and the audit's `fields`. A field named after an
+ *    audit key would then be indistinguishable from a real one, and the day a
+ *    domain grows its own `proposedBy` the two meanings merge silently.
+ *  - **It is transport metadata, and stays out of the payload.** Nothing
+ *    downstream of `validateBody` ever sees it, so it cannot be persisted, cannot
+ *    widen a diff, and cannot reach a service that forwards the body onward.
+ *  - **The platform already does this.** `X-Step-Up-Token` is the same shape of
+ *    thing — a per-request assertion about HOW the call was made rather than
+ *    WHAT it changes — and rides a header for the same reasons.
+ *
+ * Lower-case because that is how Node normalises incoming header names; the
+ * browser sends `X-PB-Proposed-By`, which arrives here.
+ */
+export const ASK_PROPOSED_BY_HEADER = 'x-pb-proposed-by';
+
+/**
+ * What a request's provenance header claims.
+ *
+ * `foreign` is any value that is not EXACTLY {@link ASK_AGENT_PROPOSER} — there
+ * is one legitimate proposer and no free-form text, so anything else is a bug
+ * or a forgery and is named as such rather than folded into `none`.
+ */
+export type ProposerClaim = 'none' | 'ask-agent' | 'foreign';
+
+/**
+ * Read the provenance claim off a request's header bag.
+ *
+ * Deliberately exact: no trimming, no case folding, no prefix matching. The
+ * only sender is the browser's confirm path, which stamps the shared constant,
+ * so every other value is refused rather than repaired. This is what keeps a
+ * client from writing arbitrary audit `details` — the header's whole vocabulary
+ * is one word, and the word is not the client's to choose.
+ *
+ * Takes the header BAG (`req.headers`) rather than a request, so this module
+ * keeps its zero runtime imports and the browser can still import the constant.
+ */
+export function readProposerClaim(headers: unknown): ProposerClaim {
+  const bag = headers as Record<string, unknown> | null | undefined;
+  const raw = bag && typeof bag === 'object' ? bag[ASK_PROPOSED_BY_HEADER] : undefined;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (value === undefined || value === null || value === '') return 'none';
+  return value === ASK_AGENT_PROPOSER ? 'ask-agent' : 'foreign';
+}
+
+/**
+ * The audit `details` for a write, with provenance folded in when — and ONLY
+ * when — the request carries the agent marker.
+ *
+ * `details` is what the HANDLER built and stays authoritative. Provenance is
+ * additive: the ONLY key it can ever write is `proposedBy`, so every field the
+ * handler set survives untouched, and {@link askProposalAuditDetails} applies
+ * that one key LAST so a `proposedBy` arriving from anywhere else cannot speak
+ * in its place. A request carrying no marker, or a `foreign` one, gets the
+ * handler's details unchanged — an ordinary edit records no `proposedBy` at
+ * all, which is the distinction the field exists to make.
+ */
+export function withProposalProvenance(
+  headers: unknown,
+  details?: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return readProposerClaim(headers) === 'ask-agent'
+    ? askProposalAuditDetails(details)
+    : { ...details };
+}
+
 // -----------------------------------------------------------------------------
 // The allowlist
 // -----------------------------------------------------------------------------

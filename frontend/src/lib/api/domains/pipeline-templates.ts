@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery } from '../util';
+import { buildQuery, type ProposedByOptions } from '../util';
 import type { ApiResponse, BuilderProps, PipelineTemplate, TemplateVisibility } from '@/types';
 
 export function pipelineTemplatesApi(core: ApiCore) {
@@ -44,10 +44,11 @@ export function pipelineTemplatesApi(core: ApiCore) {
       visibility?: TemplateVisibility;
       props: BuilderProps;
       inputs?: PipelineTemplate['inputs'];
-    }) => {
+    }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ template: PipelineTemplate }>>('/api/pipeline-templates', {
         method: 'POST',
         body: JSON.stringify(data),
+        headers: core.proposedByHeader(opts),
       });
     },
 
@@ -62,10 +63,11 @@ export function pipelineTemplatesApi(core: ApiCore) {
       props?: BuilderProps;
       inputs?: PipelineTemplate['inputs'];
       isActive?: boolean;
-    }) => {
+    }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
+        headers: core.proposedByHeader(opts),
       });
     },
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AppError, extractDbError, ErrorCode, createLogger, errorMessage, requirePermission, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, audited } from '@pipeline-builder/api-core';
+import { AppError, extractDbError, ErrorCode, createLogger, errorMessage, requirePermission, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, audited, proposable } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -28,6 +28,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
     requirePermission('pipelines:write'),
     // `inserted === false` promotes an existing default instead of inserting.
     audited('pipeline.create', 'pipeline.update'),
+    proposable,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const validation = validateBody(req, PipelineCreateSchema);
       if (!validation.ok) {

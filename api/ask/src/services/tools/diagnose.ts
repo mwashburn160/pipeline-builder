@@ -7,6 +7,14 @@
  * re-checks the caller's permissions and tenancy exactly as it would for the
  * user's own dashboard request.
  *
+ * ONE leg departs from that, deliberately: `diagnose_notifications` reads the
+ * instance-wide outbound-email switch from platform's internal status route on
+ * ASK's service identity (`readInstanceEmailStatus`), because that route is the
+ * authoritative source and it is service-only. It returns a single boolean about
+ * the INSTANCE — no tenant, no recipient, no provider — so no user's permissions
+ * or tenancy are bypassed by reading it, and ask is not a caller of the send
+ * route, so the same identity cannot make the instance send anything.
+ *
  * Design rule 5 governs every return value here: these tools SHAPE, they do not
  * dump. No recipient address, no webhook URL (not even a masked one), no raw
  * downstream error body ever enters the model's context, because anything in
@@ -38,7 +46,7 @@ const IsoInstant = z.string().datetime().describe('ISO-8601 timestamp');
 const isSet = (v: unknown): boolean => typeof v === 'string' && v.length > 0;
 
 export function diagnoseTools(deps: AgentToolDeps): ToolSet {
-  const { pipeline, plugin, platform, reporting, quota } = deps;
+  const { pipeline, plugin, platform, reporting, quota, emailStatus } = deps;
 
   return {
     inspect_pipeline_run: tool({
@@ -143,21 +151,37 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
         "Explain why the organization's notifications are or are not being delivered. Correlates the org's own "
         + 'settings (alert destinations, plugin security notices, compliance notices) against the PLATFORM-WIDE '
         + 'email switch that silently governs all of them. Use it for "we configured notifications and nothing '
-        + 'arrives". Read-only, and it returns no addresses and no webhook URLs — only whether each is set.',
+        + 'arrives". Read-only, and it returns no addresses and no webhook URLs — only whether each is set. '
+        + 'The email switch reads `enabled`, `disabled` or `unknown` — `unknown` means it could not be read and '
+        + 'must NEVER be reported as disabled.',
       inputSchema: z.object({}),
       execute: async () => {
-        const [instance, destinations, pluginPrefs, compliancePrefs] = await Promise.all([
-          // `/config` is platform's PUBLIC instance-switch read; it is the only
-          // place the org-facing surface can learn EMAIL_ENABLED, because
-          // `/internal/notify-email/status` is service-token-only and the agent
-          // holds no service principal.
+        const [authoritative, instance, destinations, pluginPrefs, compliancePrefs] = await Promise.all([
+          // THE authoritative source: platform's own
+          // `GET /internal/notify-email/status`, read with ask's SERVICE token
+          // (see `readInstanceEmailStatus`). Never throws; `unknown` when it
+          // could not be asked.
+          emailStatus(),
+          // Platform's PUBLIC `/config` — still read for `billingEnabled`, and
+          // it carries the same switch as `serviceFeatures.email`. It is the
+          // SECONDARY source for email: used only when the authoritative read
+          // failed, and always labelled as such in the answer below.
           settle(async () => unwrap<{ serviceFeatures?: Record<string, unknown> }>(await platform.get('/config'))),
           settle(async () => unwrap<{ destinations?: unknown[] }>(await platform.get('/observability/alert-destinations'))),
           settle(async () => unwrap<Record<string, unknown>>(await plugin.get('/plugins/security-notifications'))),
           settle(async () => unwrap<Record<string, unknown>>(await deps.compliance.get('/compliance/notification-preferences'))),
         ]);
 
-        const emailEnabled = instance.ok ? asRecord(instance.value?.serviceFeatures).email === true : null;
+        // Which source actually answered, so a reader can tell an AUTHORITATIVE
+        // "disabled" from one inferred off the public config — and so that
+        // "could not determine" never reads as "off".
+        const configured = instance.ok ? asRecord(instance.value?.serviceFeatures).email : undefined;
+        const inferred = configured === true ? 'enabled' : configured === false ? 'disabled' : 'unknown';
+        const email = authoritative !== 'unknown'
+          ? { state: authoritative, source: 'platform internal status route' }
+          : inferred !== 'unknown'
+            ? { state: inferred, source: 'platform public /config (INFERRED — the authoritative read failed)' }
+            : { state: 'unknown' as const, source: 'none — neither source answered' };
 
         const dests = destinations.ok
           ? asArray(unwrapList(destinations.value, 'destinations')).map((d) => {
@@ -179,9 +203,15 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
         if (sec && Object.keys(external).length > 0) emailChannels.push('plugin security external address');
 
         return {
-          platform: instance.ok
-            ? { emailEnabled, billingEnabled: asRecord(instance.value?.serviceFeatures).billing === true }
-            : { unavailable: instance.reason },
+          platform: {
+            // A STATE, never a value: `enabled` / `disabled` / `unknown`.
+            email: email.state,
+            emailSource: email.source,
+            emailAuthoritative: authoritative !== 'unknown',
+            ...(instance.ok
+              ? { billingEnabled: asRecord(instance.value?.serviceFeatures).billing === true }
+              : { configUnavailable: instance.reason }),
+          },
           alertDestinations: dests
             ? { count: dests.length, byChannel: countBy(dests.map((d) => String(d.channel ?? 'unknown'))), destinations: dests.slice(0, MAX_ROWS) }
             : { unavailable: destinations.ok ? 'no data' : destinations.reason },
@@ -214,17 +244,26 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
           // EMAIL_ENABLED is not 'true', so every caller that surfaces an
           // "emailSent" flag reports success for a message never attempted.
           // Nothing in the org-facing UI shows the switch.
-          finding: emailEnabled === false && emailChannels.length > 0
+          finding: email.state === 'disabled' && emailChannels.length > 0
             ? {
               severity: 'blocking',
               summary: `Outbound email is DISABLED on this instance (EMAIL_ENABLED is not true), but ${emailChannels.length} email channel(s) are configured: ${emailChannels.join(', ')}.`,
               detail: 'A disabled send REPORTS SUCCESS: invitations answer 201 and verification says "sent", so nothing anywhere reports the drop. In-app messages and per-org Slack/HTTPS webhooks are unaffected — they do not go through email. Only an operator can turn it on; the diagnostic an org admin can run is Send test on an email alert destination, which reports "email-disabled".',
+              source: email.source,
             }
-            : emailEnabled === false
-              ? { severity: 'info', summary: 'Outbound email is disabled on this instance, but no email channel is configured, so nothing is being silently dropped.' }
-              : emailEnabled === true
-                ? { severity: 'info', summary: 'Outbound email is enabled on this instance.' }
-                : { severity: 'unknown', summary: 'Could not read the instance email switch.' },
+            : email.state === 'disabled'
+              ? { severity: 'info', summary: 'Outbound email is disabled on this instance, but no email channel is configured, so nothing is being silently dropped.', source: email.source }
+              : email.state === 'enabled'
+                ? { severity: 'info', summary: 'Outbound email is enabled on this instance, so the cause is not the instance switch.', source: email.source }
+                // NOT "disabled". Reporting a switch we could not read as OFF
+                // would send an admin to an operator to turn on something that
+                // may already be on, while the real cause goes unlooked-at.
+                : {
+                  severity: 'unknown',
+                  summary: 'Could NOT determine whether outbound email is enabled on this instance — neither platform\'s internal status route nor its public config answered. This is not the same as disabled: do not tell the user email is off.',
+                  detail: 'Every other part of this report was still read. Re-run the diagnosis, and treat a platform that could not be reached as a fault of its own to chase.',
+                  source: email.source,
+                },
         };
       },
     }),

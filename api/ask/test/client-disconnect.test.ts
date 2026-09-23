@@ -120,6 +120,7 @@ jest.unstable_mockModule('../src/services/internal-http.js', () => ({
   complianceClient: jest.fn(),
   reportingClient: jest.fn(),
   quotaClient: jest.fn(),
+  readInstanceEmailStatus: jest.fn(async () => 'enabled' as const),
 }));
 const auditRecord = jest.fn();
 

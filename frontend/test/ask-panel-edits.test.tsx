@@ -134,7 +134,9 @@ describe('AskPanel edit proposals', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Apply change/i }));
     await waitFor(() => expect(updatePipeline).toHaveBeenCalled());
-    expect(updatePipeline).toHaveBeenCalledWith('p1', { pipelineName: 'web-ci-v2' });
+    // Second argument: rule 6's provenance marker, which rides the
+    // `X-PB-Proposed-By` header rather than the reviewed body.
+    expect(updatePipeline).toHaveBeenCalledWith('p1', { pipelineName: 'web-ci-v2' }, { proposedByAgent: true });
     await screen.findByText('Applied — open pipelines');
   });
 
@@ -252,8 +254,8 @@ describe('AskPanel org-settings proposals', () => {
 
     await waitFor(() => expect(updatePluginSecurityNotifications).toHaveBeenCalled());
     // `spec.field` is what each API's body calls it; the surface key never leaks.
-    expect(updatePluginSecurityNotifications).toHaveBeenCalledWith({ notifyRescan: false, digestMode: 'daily' });
-    await waitFor(() => expect(updateComplianceNotificationPreference).toHaveBeenCalledWith({ emailEnabled: true }));
+    expect(updatePluginSecurityNotifications).toHaveBeenCalledWith({ notifyRescan: false, digestMode: 'daily' }, { proposedByAgent: true });
+    await waitFor(() => expect(updateComplianceNotificationPreference).toHaveBeenCalledWith({ emailEnabled: true }, { proposedByAgent: true }));
     // The unchanged reporting field means that surface is never written at all.
     expect(putReportingSettings).not.toHaveBeenCalled();
   });

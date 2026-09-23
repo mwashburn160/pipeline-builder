@@ -254,6 +254,28 @@ credentials for the flow's 10-minute life). `device.authorize.expire` is written
 by whichever side first notices a lapsed code, so a code nobody ever returns to
 leaves only its `.start` row.
 
+**Agent-drafted changes** carry `details.proposedBy: 'ask-agent'`. The Ask
+panel's "Apply" commits a drafted change through the **same route the dashboard's
+own button calls**, with the person's own session and permissions — the agent
+never writes — so without this key the trail could not tell "the admin changed
+this" from "an AI drafted it and the admin clicked Apply", which mean very
+different things in an incident review. The actor is still the person: the key
+says how the change was DRAFTED, never who is answerable for it.
+
+The browser asserts it with the `X-PB-Proposed-By` request header, and the
+routes that accept it (`pipeline.create`/`.update`, `plugin.deploy`/`.update`,
+`pipeline_template.create`/`.update`, `reporting.settings.update`,
+`compliance.notification-preference.update`,
+`plugin.security_notifications.update`) carry the `proposable` gate. The header's
+whole vocabulary is one word: a request naming any other proposer is refused with
+a 400 **before** the write, and the handler's own `details` stay authoritative —
+provenance can add `proposedBy` and nothing else. A change made by hand records
+no `proposedBy` at all, which is what makes the key's presence mean something.
+The two proposal kinds that file into an approval QUEUE instead of writing
+(`plugin install change-request`, `compliance exemption`) carry the same fact as
+a sentence in the `note` / `reason` the approver reads, because there the
+provenance has to reach a person, not a query.
+
 Each record carries `actorId`/`actorEmail`, `orgId` (the actor's own org), and
 `affectedOrgId` (the org actually operated on). They diverge when a sysadmin acts
 on another org, so the trail answers "what did a sysadmin do to org X?" — SOC2

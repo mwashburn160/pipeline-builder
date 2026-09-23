@@ -93,10 +93,14 @@ spec:
             methods: ["POST"]
             paths: ["/internal/notify-email"]
     # GET /internal/notify-email/status — `{ enabled }`, the precondition the
-    # plugin service checks before serving anonymous submissions.
+    # plugin service checks before serving anonymous submissions, and the whole
+    # of the ask agent's notification diagnosis (a disabled send reports
+    # success, so nothing else surfaces it). Reading the instance-wide switch is
+    # strictly weaker than sending: `ask` is admitted here, never above.
     - from:
         - source:
             notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/ask
               - cluster.local/ns/pipeline-builder/sa/plugin
       to:
         - operation:

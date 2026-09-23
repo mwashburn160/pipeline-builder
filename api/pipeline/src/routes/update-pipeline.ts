@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendError, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, normalizeArrayFields, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendError, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, normalizeArrayFields, audited, actorId, proposable, recordAudit, withProposalProvenance } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
@@ -17,7 +17,7 @@ import { pipelineService } from '../services/pipeline-service.js';
 export function createUpdatePipelineRoutes(): Router {
   const router: Router = Router();
 
-  router.put('/:id', audited('pipeline.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id', audited('pipeline.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -92,11 +92,13 @@ export function createUpdatePipelineRoutes(): Router {
       orgId,
       targetType: 'pipeline',
       targetId: updated.id,
-      details: {
+      // The handler's details stay authoritative; `proposedBy: 'ask-agent'` is
+      // added only when the request carried the Ask panel's provenance header.
+      details: withProposalProvenance(req.headers, {
         pipelineName: updated.pipelineName,
         fields: Object.keys(updateData),
         setDefault: body.isDefault === true,
-      },
+      }),
     });
 
     return sendSuccess(res, 200, { pipeline: normalizeArrayFields(updated, ['keywords']) });

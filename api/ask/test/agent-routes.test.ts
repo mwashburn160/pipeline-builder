@@ -101,8 +101,11 @@ const platformClient = jest.fn((..._args: unknown[]) => stubClient());
 const complianceClient = jest.fn((..._args: unknown[]) => stubClient());
 const reportingClient = jest.fn((..._args: unknown[]) => stubClient());
 const quotaClient = jest.fn((..._args: unknown[]) => stubClient());
+// The email switch is read on ask's OWN service token (not the caller's), so it
+// is a plain function here rather than a client factory.
+const readInstanceEmailStatus = jest.fn(async () => 'enabled' as const);
 jest.unstable_mockModule('../src/services/internal-http.js', () => ({
-  pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient,
+  pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient, readInstanceEmailStatus,
 }));
 const auditRecord = jest.fn<AnyFn>();
 

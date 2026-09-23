@@ -5,7 +5,7 @@ import {
   audited, getParam, ErrorCode, isSystemAdmin, requireVisibilityWriteAccess, resolveVisibility, sendBadRequest, sendError, sendSuccess,
   userHasPermission, validateBody, PluginUpdateSchema, pickDefined, sendEntityNotFound, actorId,
   PLUGIN_CATALOG_FIELDS, contractKeysMessage, findContractKeys, type MetadataSources, type PluginCatalogField,
-  recordAudit,
+  proposable, recordAudit, withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
@@ -79,7 +79,7 @@ function lifecycleColumns(existing: Plugin, lifecycle: string | undefined): { co
 export function createUpdatePluginRoutes(): Router {
   const router: Router = Router();
 
-  router.put('/:id', audited('plugin.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id', audited('plugin.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -190,12 +190,14 @@ export function createUpdatePluginRoutes(): Router {
       orgId,
       targetType: 'plugin',
       targetId: id,
-      details: {
+      // The handler's details stay authoritative; `proposedBy: 'ask-agent'` is
+      // added only when the request carried the Ask panel's provenance header.
+      details: withProposalProvenance(req.headers, {
         pluginName: updated.name,
         version: updated.version,
         visibility: updated.visibility,
         fields: Object.keys(body),
-      },
+      }),
     });
 
     return sendSuccess(res, 200, { plugin: shapePlugin(updated) });

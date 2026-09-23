@@ -17,6 +17,7 @@ import {
   userHasPermission,
   audited,
   actorId,
+  proposable,
   recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
@@ -58,7 +59,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
   ];
 
   /** POST /pipelines/bulk/create — Create multiple pipelines in one request */
-  router.post('/bulk/create', ...bulkGuards, audited('pipeline.create', 'pipeline.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk/create', ...bulkGuards, audited('pipeline.create', 'pipeline.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const bulk = validateBulkArray<unknown>(req.body?.pipelines, 'pipelines', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     const pipelines = bulk.value;

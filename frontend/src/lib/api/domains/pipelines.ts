@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery } from '../util';
+import { buildQuery, type ProposedByOptions } from '../util';
 import { ApiError } from '../errors';
 import type { ApiResponse, CreatePipelineData, BuilderProps, OwnerType, Pipeline, PipelineScorecard, ScorecardRollup, Visibility } from '@/types';
 
@@ -123,10 +123,11 @@ export function pipelinesApi(core: ApiCore) {
       return core.request<ApiResponse<{ rollup: ScorecardRollup }>>('/api/pipelines/scorecard');
     },
 
-    createPipeline: async (data: CreatePipelineData) => {
+    createPipeline: async (data: CreatePipelineData, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ pipeline: Pipeline; warning?: string }>>('/api/pipelines', {
         method: 'POST',
         body: JSON.stringify(data),
+        headers: core.proposedByHeader(opts),
       });
     },
 
@@ -160,10 +161,11 @@ export function pipelinesApi(core: ApiCore) {
        *  non-empty string, so ownership is reassigned, never cleared. */
       ownerId?: string;
       ownerType?: OwnerType;
-    }) => {
+    }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
+        headers: core.proposedByHeader(opts),
       });
     },
 

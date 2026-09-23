@@ -10,9 +10,10 @@
 
 // Mocks — must be defined before imports
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { ASK_AGENT_PROPOSER, ASK_PROPOSED_BY_HEADER } from '@pipeline-builder/api-core/ask-proposals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindById = jest.fn<AnyFn>();
@@ -109,7 +110,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   tokenize: () => [],
 }));
 
-const { sendBadRequest, validateBody, requireVisibilityWriteAccess, sendEntityNotFound } = await import('@pipeline-builder/api-core');
+const { sendBadRequest, validateBody, requireVisibilityWriteAccess, sendEntityNotFound, recordAudit } = await import('@pipeline-builder/api-core');
 const { createUpdatePipelineRoutes } = await import('../src/routes/update-pipeline.js');
 
 // Helpers
@@ -299,5 +300,56 @@ describe('PUT /pipelines/:id (update)', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(500);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Agent provenance (design rule 6). The Ask panel's "Apply" commits a drafted
+  // edit through THIS route, with the user's own session and permissions, so the
+  // audit event must be able to say an AI drafted it. The header is the ONLY
+  // thing a client may add to `details`, and only one value counts.
+  // ---------------------------------------------------------------------------
+  describe('ask-agent provenance', () => {
+    const audit = recordAudit as jest.Mock<AnyFn>;
+    const details = () => (audit.mock.calls[0][0] as any).details;
+
+    const applyWith = async (headers: Record<string, unknown>) => {
+      mockFindById.mockResolvedValue(existingPipeline);
+      mockUpdate.mockResolvedValue({ ...existingPipeline, pipelineName: 'updated-name' });
+      await handler(mockReq({ headers: { authorization: 'Bearer tok', ...headers } }), mockRes());
+    };
+
+    it('is gated by `proposable`, ahead of the handler', () => {
+      const layer = (router as any).stack.find((l: any) => l.route?.path === '/:id' && l.route?.methods.put);
+      const names = layer.route.stack.map((l: any) => l.handle.name);
+      expect(names).toContain('proposable');
+      expect(names.indexOf('proposable')).toBeLessThan(names.length - 1);
+    });
+
+    it('records proposedBy when the request carries the marker', async () => {
+      await applyWith({ [ASK_PROPOSED_BY_HEADER]: ASK_AGENT_PROPOSER });
+      expect(details().proposedBy).toBe(ASK_AGENT_PROPOSER);
+    });
+
+    it('records NO proposer for an ordinary edit', async () => {
+      await applyWith({});
+      expect(details()).not.toHaveProperty('proposedBy');
+    });
+
+    it('does NOT store a forged proposer', async () => {
+      await applyWith({ [ASK_PROPOSED_BY_HEADER]: 'the-admin' });
+      expect(details()).not.toHaveProperty('proposedBy');
+    });
+
+    it('leaves every key the handler built untouched', async () => {
+      await applyWith({ [ASK_PROPOSED_BY_HEADER]: ASK_AGENT_PROPOSER });
+      // `pipelineName`/`fields`/`setDefault` are the handler's, and stay the
+      // handler's — provenance adds one key and overwrites none.
+      expect(details()).toMatchObject({
+        pipelineName: 'updated-name',
+        fields: expect.arrayContaining(['pipelineName', 'description']),
+        setDefault: false,
+        proposedBy: ASK_AGENT_PROPOSER,
+      });
+    });
   });
 });

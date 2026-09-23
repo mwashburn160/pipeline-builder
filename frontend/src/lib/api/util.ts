@@ -47,3 +47,22 @@ export function isStepUpErrorCode(code?: string): boolean {
 export function isMfaErrorCode(code?: string): boolean {
   return code === 'MFA_REQUIRED' || code === 'REAUTH_REQUIRED';
 }
+
+/**
+ * The one extra thing a write an Ask proposal can commit accepts, beyond its
+ * own body.
+ *
+ * Design rule 6: a change an AI drafted and an admin clicked Apply on must be
+ * distinguishable in the hash-chained audit trail from a change the admin made
+ * themselves. It travels as a HEADER rather than a body field so it cannot
+ * collide with a domain field, cannot be persisted as one, and never reaches
+ * the route's Zod schema at all — see `ASK_PROPOSED_BY_HEADER` in
+ * `@pipeline-builder/api-core/ask-proposals`.
+ *
+ * Only the Ask panel's confirm path sets it (`proposal-commit.ts`); every other
+ * caller omits it and its write records no proposer, which is the distinction.
+ */
+export interface ProposedByOptions {
+  /** True iff this write is an Ask-agent draft the user reviewed and applied. */
+  proposedByAgent?: boolean;
+}

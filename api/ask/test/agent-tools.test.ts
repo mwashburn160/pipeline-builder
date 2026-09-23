@@ -48,6 +48,11 @@ const reporting = client();
 const quota = client();
 const model = { id: 'm' } as never;
 
+// The instance-wide email switch, read from platform's AUTHORITATIVE internal
+// status route on ask's own service token (`readInstanceEmailStatus`). Injected,
+// so the suite can drive all three states — including the one that matters most,
+// `unknown` ("could not determine"), which is NOT "disabled".
+const emailStatus = jest.fn<() => Promise<'enabled' | 'disabled' | 'unknown'>>(async () => 'enabled');
 const chargeAiCall = jest.fn<(tool: string) => Promise<boolean>>(async () => true);
 const onRefusedFields = jest.fn<(tool: string, fields: string[]) => void>();
 
@@ -65,6 +70,7 @@ const makeTools = (overrides: Partial<Parameters<typeof buildAgentTools>[0]> = {
     compliance: compliance as never,
     reporting: reporting as never,
     quota: quota as never,
+    emailStatus,
     model,
     defaults: { provider: 'anthropic', model: 'claude-sonnet-5' },
     orgId: 'o',
@@ -88,6 +94,7 @@ const CLEAN = { data: { passed: true, blocked: false, violations: [], warnings: 
 beforeEach(() => {
   jest.clearAllMocks();
   compliance.post.mockResolvedValue(CLEAN);
+  emailStatus.mockResolvedValue('enabled');
 });
 
 // -- grounding + catalog reads (unchanged behaviour) --------------------------
@@ -219,9 +226,9 @@ describe('phase 1 — inspect_plugin_build', () => {
 });
 
 describe('phase 1 — diagnose_notifications', () => {
-  const wire = (emailEnabled: boolean) => {
+  const wire = (configEmail: boolean) => {
     platform.get.mockImplementation(async (path: string) => {
-      if (path === '/config') return { data: { serviceFeatures: { email: emailEnabled, billing: true } } };
+      if (path === '/config') return { data: { serviceFeatures: { email: configEmail, billing: true } } };
       return {
         data: {
           destinations: [
@@ -249,17 +256,31 @@ describe('phase 1 — diagnose_notifications', () => {
 
   it('names the platform email switch as the blocking cause when org email channels are configured', async () => {
     wire(false);
+    emailStatus.mockResolvedValue('disabled');
     const out = await call('diagnose_notifications', {});
     const finding = out.finding as { severity: string; summary: string; detail: string };
     expect(finding.severity).toBe('blocking');
     expect(finding.summary).toContain('EMAIL_ENABLED');
     // The documented trap: the send REPORTS SUCCESS, so nothing else surfaces it.
     expect(finding.detail).toContain('REPORTS SUCCESS');
-    expect(out.platform).toMatchObject({ emailEnabled: false });
+    expect(out.platform).toMatchObject({ email: 'disabled' });
+  });
+
+  it('reads the AUTHORITATIVE internal status route, not the public /config, and says which answered', async () => {
+    // `/config` disagrees on purpose: the authoritative answer must win, and the
+    // answer must carry its own provenance.
+    wire(true);
+    emailStatus.mockResolvedValue('disabled');
+    const out = await call('diagnose_notifications', {});
+    expect(emailStatus).toHaveBeenCalledTimes(1);
+    expect(out.platform).toMatchObject({ email: 'disabled', emailAuthoritative: true });
+    expect(String((out.platform as { emailSource: string }).emailSource)).toContain('internal status');
+    expect((out.finding as { severity: string }).severity).toBe('blocking');
   });
 
   it('SHAPES every channel: no address, no webhook URL, not even a masked one (rule 5)', async () => {
     wire(false);
+    emailStatus.mockResolvedValue('disabled');
     const out = await call('diagnose_notifications', {});
     const json = JSON.stringify(out);
     expect(json).not.toContain('ops@example.com');
@@ -274,16 +295,54 @@ describe('phase 1 — diagnose_notifications', () => {
 
   it('says so plainly when email is ON', async () => {
     wire(true);
+    emailStatus.mockResolvedValue('enabled');
     const out = await call('diagnose_notifications', {});
     expect((out.finding as { severity: string }).severity).toBe('info');
+    expect(out.platform).toMatchObject({ email: 'enabled', emailAuthoritative: true });
   });
 
-  it('reports each leg it could not read rather than failing', async () => {
+  it('falls back to the public /config when the authoritative read fails — and LABELS it as inferred', async () => {
+    wire(false);
+    emailStatus.mockResolvedValue('unknown');
+    const out = await call('diagnose_notifications', {});
+    expect(out.platform).toMatchObject({ email: 'disabled', emailAuthoritative: false });
+    expect(String((out.platform as { emailSource: string }).emailSource)).toContain('INFERRED');
+    // Still blocking (the switch is off either way) — but a reader can tell how it was learned.
+    const finding = out.finding as { severity: string; source: string };
+    expect(finding.severity).toBe('blocking');
+    expect(finding.source).toContain('INFERRED');
+  });
+
+  it('reports UNKNOWN, never "disabled", when neither source answered', async () => {
+    // The deliberate failure-path choice: platform's own consumers fail CLOSED
+    // (unreachable ⇒ off) because they are making an authorization decision. A
+    // diagnostic makes none, and answering "disabled" here would send an admin
+    // to an operator to turn on a switch that may already be on.
+    emailStatus.mockResolvedValue('unknown');
     platform.get.mockRejectedValue(new Error('GET /config -> 503'));
     plugin.get.mockRejectedValue(new Error('GET /plugins/security-notifications -> 403'));
     compliance.get.mockRejectedValue(new Error('GET /compliance/notification-preferences -> 403'));
     const out = await call('diagnose_notifications', {});
-    expect(out.platform).toEqual({ unavailable: expect.stringContaining('503') });
+    expect(out.platform).toMatchObject({ email: 'unknown', emailAuthoritative: false, configUnavailable: expect.stringContaining('503') });
+    const finding = out.finding as { severity: string; summary: string };
+    expect(finding.severity).toBe('unknown');
+    expect(finding.summary).toContain('not the same as disabled');
+    // Every other leg is still reported rather than failing the turn.
+    expect(out.alertDestinations).toMatchObject({ unavailable: expect.stringContaining('503') });
+    expect(out.pluginSecurityNotifications).toMatchObject({ unavailable: expect.stringContaining('403') });
+  });
+
+  it('never reports a "blocking" email finding off an unknown switch, whatever is configured', async () => {
+    wire(true);
+    emailStatus.mockResolvedValue('unknown');
+    platform.get.mockImplementation(async (path: string) => {
+      // /config answers, but without the email switch in it — the exact
+      // narrowing this tool used to depend on silently.
+      if (path === '/config') return { data: { serviceFeatures: { billing: true } } };
+      return { data: { destinations: [{ id: 'd1', channel: 'email', enabled: true }] } };
+    });
+    const out = await call('diagnose_notifications', {});
+    expect(out.platform).toMatchObject({ email: 'unknown' });
     expect((out.finding as { severity: string }).severity).toBe('unknown');
   });
 });

@@ -27,7 +27,7 @@ process.env.QUOTA_SERVICE_PORT = '4600';
 process.env.PIPELINE_URL = 'http://wrong-pipeline:1';
 process.env.PLUGIN_URL = 'http://wrong-plugin:1';
 
-const { pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient } =
+const { pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient, readInstanceEmailStatus } =
   await import('../src/services/internal-http.js');
 
 const realFetch = globalThis.fetch;
@@ -88,5 +88,60 @@ describe('internal-http error surface', () => {
   it('reports status only — never the downstream error body (it reaches the model/user)', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ message: 'SELECT * FROM secrets failed', stack: 'at internal.js:1' }), { status: 500 }));
     await expect(pipelineClient('Bearer USER').get('/pipelines/x')).rejects.toThrow(/^GET \/pipelines\/x -> 500$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The ONE call that does not forward the caller's token.
+//
+// `GET /internal/notify-email/status` is platform's AUTHORITATIVE answer to
+// "can this instance send email at all", and it is `requireInternalService`, so
+// it takes ask's OWN service identity. That is safe precisely because the answer
+// is one instance-wide boolean — no org, no recipient, no provider — and because
+// ask is NOT a caller of the send route, so the same identity can never make
+// platform send anything.
+// ---------------------------------------------------------------------------
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+/** The claims of a compact JWS, without verifying it (the payload is all we assert). */
+function claimsOf(header: string): Record<string, unknown> {
+  const token = header.replace(/^Bearer /, '');
+  return JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
+}
+
+describe('readInstanceEmailStatus — the authoritative email switch', () => {
+  it('asks platform\'s INTERNAL status route with ask\'s own SERVICE token, not a user bearer', async () => {
+    fetchMock.mockResolvedValueOnce(json({ data: { enabled: true } }));
+    await readInstanceEmailStatus();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('http://platform-svc.internal:4300/internal/notify-email/status');
+    const auth = (init!.headers as Record<string, string>).Authorization;
+    expect(auth).not.toBe('Bearer USER');
+    // A service principal naming THIS service — the claim the route's caller
+    // list matches, cryptographically bound to ask's signing key.
+    expect(claimsOf(auth)).toMatchObject({ sub: 'service:ask', principalType: 'service', role: 'member' });
+  });
+
+  it.each([
+    [{ data: { enabled: true } }, 'enabled'],
+    [{ data: { enabled: false } }, 'disabled'],
+    [{ enabled: true }, 'enabled'],
+    // A body that does not answer is not an answer.
+    [{ data: {} }, 'unknown'],
+  ])('maps %j to %s', async (body, expected) => {
+    fetchMock.mockResolvedValueOnce(json(body));
+    await expect(readInstanceEmailStatus()).resolves.toBe(expected);
+  });
+
+  it('resolves UNKNOWN (never "disabled") when platform refuses the token', async () => {
+    fetchMock.mockResolvedValueOnce(json({ message: 'Internal service calls only' }, 403));
+    await expect(readInstanceEmailStatus()).resolves.toBe('unknown');
+  });
+
+  it('resolves UNKNOWN when platform is unreachable — and never throws into the turn', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
+    await expect(readInstanceEmailStatus()).resolves.toBe('unknown');
   });
 });

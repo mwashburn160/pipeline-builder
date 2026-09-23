@@ -56,6 +56,10 @@ export {
   MAX_SANITIZE_DEPTH,
 } from './mongo-sanitize.js';
 export {
+  proposable,
+  ASK_PROVENANCE_REFUSED_COUNTER,
+} from './ask-provenance.js';
+export {
   requireStepUp,
   type StepUpMethod,
   STRONG_STEP_UP_METHODS,

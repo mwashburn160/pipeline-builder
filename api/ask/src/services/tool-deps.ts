@@ -9,7 +9,7 @@
 import type { GroundingIndex, LanguageModel } from '@pipeline-builder/ai-core';
 import { z } from 'zod';
 
-import type { ServiceClient } from './internal-http.js';
+import type { EmailSwitch, ServiceClient } from './internal-http.js';
 
 export interface AgentToolDeps {
   index: GroundingIndex;
@@ -25,6 +25,15 @@ export interface AgentToolDeps {
   reporting: ServiceClient;
   /** Quota service client (the org's own headroom). */
   quota: ServiceClient;
+  /**
+   * The instance-wide outbound-email switch, from platform's AUTHORITATIVE
+   * `GET /internal/notify-email/status` (`readInstanceEmailStatus`). Injected
+   * rather than imported because it is the one call that does NOT ride the
+   * caller's token — it uses ask's service identity — so the tool layer stays
+   * honest about it and the suites can drive all three states. Resolves
+   * `unknown` (never throws) when platform could not be asked.
+   */
+  emailStatus: () => Promise<EmailSwitch>;
   /** The resolved model — used by the tools that generate IN-PROCESS. */
   model: LanguageModel;
   /**

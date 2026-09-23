@@ -48,6 +48,7 @@ import {
   PLUGIN_SECURITY_DIGEST_MODES,
   PLUGIN_SECURITY_RECIPIENT_MODES,
   recordAudit,
+  withProposalProvenance,
   describeFindings,
   type EcosystemRecipientSpec,
   type PluginScanFinding,
@@ -318,8 +319,17 @@ export async function getSecurityPrefs(orgId: string, canEdit: boolean): Promise
   return toApiPrefs(await prefsStore.get(orgId), canEdit);
 }
 
-/** `PUT /plugins/security-notifications` — validated, stored, audited; a new/changed address gets a confirmation link. */
-export async function putSecurityPrefs(orgId: string, userId: string, body: unknown): Promise<ApiSecurityPrefs> {
+/**
+ * `PUT /plugins/security-notifications` — validated, stored, audited; a new/changed
+ * address gets a confirmation link.
+ *
+ * `headers` is the request's header bag, and is read for ONE thing: the Ask
+ * panel's provenance marker, which the audit event records as
+ * `proposedBy: 'ask-agent'`. The route gates it with `proposable`, so a header
+ * claiming any other proposer never reaches here; omitting it (as the service's
+ * own tests do) simply records no provenance.
+ */
+export async function putSecurityPrefs(orgId: string, userId: string, body: unknown, headers?: unknown): Promise<ApiSecurityPrefs> {
   const update = parsePrefsUpdate(body);
   const before = await prefsStore.get(orgId);
   const next: SecurityPrefs = { ...before, updatedBy: userId };
@@ -379,7 +389,7 @@ export async function putSecurityPrefs(orgId: string, userId: string, body: unkn
     orgId,
     targetType: 'plugin-security-notifications',
     targetId: orgId,
-    details: {
+    details: withProposalProvenance(headers, {
       // Field NAMES and the webhook host only — never the secret, never the address.
       fields: changed,
       recipientMode: next.recipientMode,
@@ -390,7 +400,7 @@ export async function putSecurityPrefs(orgId: string, userId: string, body: unkn
       webhookSecretSet: !!next.webhookSecret,
       externalEmailSet: !!next.externalEmailEnc,
       confirmationSent: token !== null,
-    },
+    }),
   });
   return toApiPrefs(await prefsStore.get(orgId), true);
 }

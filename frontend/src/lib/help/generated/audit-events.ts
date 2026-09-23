@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 63c9bba24a25d308e0cf23dc696b9fdbc0c1bbc072d3b0701a5abef8a94e631f
+// SOURCE-SHA256: 38729ddedc1afced7bba038e223a957ef9f811cdffb8b4d4fa670492f0c41b5c
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -358,6 +358,14 @@ export const auditEventsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Device authorization (how pipeline-manager auth login signs in — see Authentication → CLI sign-in by device authorization) is the one flow whose trail spans an anonymous and an authenticated actor. device.authorize.start is emitted pre-auth, so its actorId is anonymous and the only identifying detail is details.client — the requesting device's client summary. The decision events carry the person who approved or refused. All four share a targetId: a truncated hash of the device code, which is what lets \"a code was requested from X and approved by Y\" be reconstructed without ever recording the device code or the short user code (both are live credentials for the flow's 10-minute life). device.authorize.expire is written by whichever side first notices a lapsed code, so a code nobody ever returns to leaves only its .start row."
+        },
+        {
+          "type": "text",
+          "content": "Agent-drafted changes carry details.proposedBy: 'ask-agent'. The Ask panel's \"Apply\" commits a drafted change through the same route the dashboard's own button calls, with the person's own session and permissions — the agent never writes — so without this key the trail could not tell \"the admin changed this\" from \"an AI drafted it and the admin clicked Apply\", which mean very different things in an incident review. The actor is still the person: the key says how the change was DRAFTED, never who is answerable for it."
+        },
+        {
+          "type": "text",
+          "content": "The browser asserts it with the X-PB-Proposed-By request header, and the routes that accept it (pipeline.create/.update, plugin.deploy/.update, pipeline_template.create/.update, reporting.settings.update, compliance.notification-preference.update, plugin.security_notifications.update) carry the proposable gate. The header's whole vocabulary is one word: a request naming any other proposer is refused with a 400 before the write, and the handler's own details stay authoritative — provenance can add proposedBy and nothing else. A change made by hand records no proposedBy at all, which is what makes the key's presence mean something. The two proposal kinds that file into an approval QUEUE instead of writing (plugin install change-request, compliance exemption) carry the same fact as a sentence in the note / reason the approver reads, because there the provenance has to reach a person, not a query."
         },
         {
           "type": "text",

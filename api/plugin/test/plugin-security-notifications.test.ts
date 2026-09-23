@@ -121,6 +121,37 @@ describe('settings', () => {
     expect(JSON.stringify(audit)).not.toContain('key=abc');
   });
 
+  // Design rule 6: the Ask panel commits a notification-preference proposal
+  // through this service with the user's own session, so the audit event must
+  // say an AI drafted it — and a client must not be able to say anything else.
+  describe('ask-agent provenance', () => {
+    const HEADER = 'x-pb-proposed-by';
+    const updateAudit = () => h.audit.mock.calls.map((c: any[]) => c[0])
+      .find((e: any) => e.action === 'plugin.security_notifications.update');
+
+    it('records proposedBy when the request carried the marker', async () => {
+      await svc.putSecurityPrefs(ORG, 'u', { digestMode: 'weekly' }, { [HEADER]: 'ask-agent' });
+      expect(updateAudit().details).toMatchObject({ proposedBy: 'ask-agent', digestMode: 'weekly' });
+    });
+
+    it('records NO proposer for an ordinary admin save', async () => {
+      await svc.putSecurityPrefs(ORG, 'u', { digestMode: 'weekly' });
+      expect(updateAudit().details).not.toHaveProperty('proposedBy');
+    });
+
+    it('does NOT store a forged proposer', async () => {
+      await svc.putSecurityPrefs(ORG, 'u', { digestMode: 'weekly' }, { [HEADER]: 'u-admin' });
+      expect(updateAudit().details).not.toHaveProperty('proposedBy');
+    });
+
+    it('cannot displace what the service put in details', async () => {
+      await svc.putSecurityPrefs(ORG, 'u', { notifyRescan: false }, { [HEADER]: 'ask-agent' });
+      expect(updateAudit().details).toMatchObject({
+        fields: ['notifyRescan'], notifyRescan: false, webhookSecretSet: false, proposedBy: 'ask-agent',
+      });
+    });
+  });
+
   it('clearing the webhook URL drops its secret; an omitted secret is kept', async () => {
     await svc.putSecurityPrefs(ORG, 'u', { webhookUrl: 'https://93.184.216.34/h', webhookSecret: 'x' });
     await svc.putSecurityPrefs(ORG, 'u', { digestMode: 'weekly' });

@@ -728,7 +728,9 @@ spec:
         - operation:
             ports: ["3000"]
 ---
-# ask -> platform (audit ingest). Unions with platform-allow.
+# ask -> platform (audit ingest, the org-facing reads the agent forwards the
+# user's token for, and GET /internal/notify-email/status with ask's own
+# service token). Unions with platform-allow.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:

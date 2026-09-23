@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, audited, validateBody, requirePermission, ErrorCode, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, audited, validateBody, requirePermission, ErrorCode, actorId, proposable, recordAudit, withProposalProvenance } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -77,7 +77,7 @@ export function createNotificationPreferenceRoutes(): Router {
   }));
 
   // PUT / — upsert the calling org's preference. Org admin / owner only.
-  router.put('/', requirePermission('compliance:write'), audited('compliance.notification-preference.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/', requirePermission('compliance:write'), audited('compliance.notification-preference.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PreferenceUpdateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 
@@ -101,11 +101,11 @@ export function createNotificationPreferenceRoutes(): Router {
       orgId,
       targetType: 'notification-preference',
       targetId: orgId,
-      details: {
+      details: withProposalProvenance(req.headers, {
         fields: Object.keys(validation.value).sort(),
         webhookHost: webhookHostOf(saved.webhookUrl),
         webhookSecretSet: !!saved.webhookSecret,
-      },
+      }),
     });
 
     return sendSuccess(res, 200, { preference: toApiPreference(saved) });

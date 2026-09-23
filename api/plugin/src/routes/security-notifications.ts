@@ -16,7 +16,7 @@
  *   POST /public/plugin-security-notifications/confirm  { token }  consume the single-use link
  */
 
-import { audited, hasPermission, requirePermission, sendSuccess, type Permission } from '@pipeline-builder/api-core';
+import { audited, hasPermission, proposable, requirePermission, sendSuccess, type Permission } from '@pipeline-builder/api-core';
 import { rateLimitByOrg } from '@pipeline-builder/api-server';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 
@@ -37,8 +37,9 @@ export function createSecurityNotificationRoutes(): Router {
 
   router.put('/security-notifications', requirePermission('org:settings') as RequestHandler,
     audited('plugin.security_notifications.update') as RequestHandler,
+    proposable as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, { preferences: await putSecurityPrefs(caller.orgId, caller.userId, bodyOf(req)) });
+      sendSuccess(res, 200, { preferences: await putSecurityPrefs(caller.orgId, caller.userId, bodyOf(req), req.headers) });
     }));
 
   // A test send can reach people and an external endpoint: throttle it per org.

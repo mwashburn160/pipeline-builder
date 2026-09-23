@@ -97,8 +97,11 @@ export {
 } from './audit-events.js';
 export {
   ASK_AGENT_PROPOSER,
+  ASK_PROPOSED_BY_HEADER,
   PROPOSED_BY_DETAIL_KEY,
   askProposalAuditDetails,
+  readProposerClaim,
+  withProposalProvenance,
   ORG_SETTING_PROPOSAL_ALLOWLIST,
   ORG_SETTING_PROPOSAL_EXCLUSIONS,
   ORG_SETTING_PROPOSAL_KEYS,
@@ -109,6 +112,7 @@ export {
   diffOrgSettings,
   orgSettingRequests,
   type AskProposalProvenance,
+  type ProposerClaim,
   type OrgSettingChange,
   type OrgSettingKey,
   type OrgSettingPatch,

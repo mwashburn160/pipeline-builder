@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery } from '../util';
+import { buildQuery, type ProposedByOptions } from '../util';
 import type { ApiResponse } from '@/types';
 
 /** DORA performance band for a metric (elite → low), or null when unrated. */
@@ -319,9 +319,9 @@ export function reportingApi(core: ApiCore) {
      * from purchased packs) and must NOT be sent. Backend validates bounds +
      * org-admin `org:settings`.
      */
-    putReportingSettings: async (patch: ReportingSettingsPatch) => {
+    putReportingSettings: async (patch: ReportingSettingsPatch, opts?: ProposedByOptions) => {
       const res = await core.request<ApiResponse<{ settings: IncidentSettings }>>('/api/reports/settings/incidents', {
-        method: 'PUT', body: JSON.stringify(patch),
+        method: 'PUT', body: JSON.stringify(patch), headers: core.proposedByHeader(opts),
       });
       return res.data?.settings;
     },

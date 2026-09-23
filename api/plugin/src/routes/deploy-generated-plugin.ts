@@ -20,7 +20,9 @@ import {
   PluginDeployGeneratedSchema,
   userHasPermission,
   actorId,
+  proposable,
   recordAudit,
+  withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { getIdempotencyStore, withRoute, type SSEManager } from '@pipeline-builder/api-server';
@@ -65,6 +67,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
     // worker after).
     requirePermission('plugins:write') as RequestHandler,
     audited('plugin.deploy'),
+    proposable,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const registry = Config.get('registry');
       // Service-minted auth for downstream calls (quota, tier, compliance). The
@@ -304,12 +307,15 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
           actorId: actorId({ userId }),
           orgId,
           targetType: 'plugin',
-          details: {
+          // The handler's details stay authoritative; `proposedBy: 'ask-agent'`
+          // is added only when the request carried the provenance header — this
+          // is the plugin the Ask panel's generate/confirm path deploys.
+          details: withProposalProvenance(req.headers, {
             pluginName: name,
             version,
             visibility,
             buildType: 'build_image',
-          },
+          }),
         });
 
         return sendSuccess(res, 202, {

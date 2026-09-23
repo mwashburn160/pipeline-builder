@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery } from '../util';
+import { buildQuery, type ProposedByOptions } from '../util';
 import type { ApiResponse, BuilderProps } from '@/types';
 import type { CompliancePolicy, ComplianceRule, ComplianceRuleHistoryEntry, ComplianceCheckResult, ComplianceRuleCreate, ComplianceRuleUpdate, ComplianceAuditEntry, ComplianceRuleSubscription, PublishedRuleCatalogEntry, ComplianceExemption, ComplianceScan, RuleTemplate, ExemptionCreate, ScanSchedule } from '@/types/compliance';
 
@@ -21,10 +21,10 @@ export function complianceApi(core: ApiCore) {
 
     /** Upsert the calling org's preference (org-admin server-side gate). Omit
      *  `webhookSecret` to keep the existing secret. */
-    updateComplianceNotificationPreference: async (body: import('@/types/compliance-notifications').ComplianceNotificationPreferenceWrite) => {
+    updateComplianceNotificationPreference: async (body: import('@/types/compliance-notifications').ComplianceNotificationPreferenceWrite, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ preference: import('@/types/compliance-notifications').ComplianceNotificationPreference }>>(
         '/api/compliance/notification-preferences',
-        { method: 'PUT', body: JSON.stringify(body) },
+        { method: 'PUT', body: JSON.stringify(body), headers: core.proposedByHeader(opts) },
       );
     },
 

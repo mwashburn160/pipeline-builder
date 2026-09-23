@@ -27,7 +27,9 @@ import {
   type TemplateInput,
   audited,
   actorId,
+  proposable,
   recordAudit,
+  withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { tokenize } from '@pipeline-builder/pipeline-core';
@@ -175,7 +177,7 @@ export function createPipelineTemplateRoutes(): Router {
   }));
 
   // POST /pipeline-templates — author a template
-  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), audited('pipeline_template.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), audited('pipeline_template.create'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PipelineTemplateCreateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -235,13 +237,13 @@ export function createPipelineTemplateRoutes(): Router {
       orgId,
       targetType: 'pipeline_template',
       targetId: created.id,
-      details: { name: created.name, category: created.category, visibility: created.visibility },
+      details: withProposalProvenance(req.headers, { name: created.name, category: created.category, visibility: created.visibility }),
     });
     return sendSuccess(res, 201, { template: normalizeArrayFields(created, ['keywords']) });
   }));
 
   // PUT /pipeline-templates/:id
-  router.put('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), audited('pipeline_template.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('templates:write'), audited('pipeline_template.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -302,7 +304,7 @@ export function createPipelineTemplateRoutes(): Router {
       orgId,
       targetType: 'pipeline_template',
       targetId: id,
-      details: { fields: Object.keys(updateData) },
+      details: withProposalProvenance(req.headers, { fields: Object.keys(updateData) }),
     });
     return sendSuccess(res, 200, { template: normalizeArrayFields(updated, ['keywords']) });
   }));

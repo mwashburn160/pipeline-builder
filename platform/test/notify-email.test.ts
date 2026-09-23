@@ -36,8 +36,11 @@ jest.unstable_mockModule('mongoose', () => {
   return { ...api, default: api };
 });
 
+// A pass-through stand-in for the real service-token verification: it leaves
+// `req.user` exactly as the test set it, so the ROUTE-LEVEL suite below can
+// present any principal and let the real `requireInternalService` decide.
 jest.unstable_mockModule('../src/middleware/index.js', () => ({
-  requireServiceAuth: jest.fn<AnyFn>(),
+  requireServiceAuth: jest.fn<AnyFn>((_req: any, _res: any, next: any) => next()),
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -65,6 +68,7 @@ const mockEmailConfig = { enabled: true };
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ email: mockEmailConfig }));
 
 const { notifyEmail: handleNotifyEmail, notifyEmailStatus } = await import('../src/controllers/notify-email.js');
+const notifyEmailRouter = (await import('../src/routes/notify-email.js')).default as any;
 
 function mockRes() {
   const res: any = {};
@@ -260,5 +264,79 @@ describe('notifyEmailStatus', () => {
     notifyEmailStatus({} as any, res);
     const payload = (res.json.mock.calls[0][0] as { data: Record<string, unknown> }).data;
     expect(Object.keys(payload)).toEqual(['enabled']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The ROUTE-LEVEL caller gate — who may read the switch, and who may send.
+//
+// Reading the switch and sending mail are separate authorities and are gated
+// separately: `ask` (the agent's notification diagnosis) reads
+// GET /status, and must NEVER be admitted to POST / — a model, or a
+// prompt-injected message, would otherwise be one step from making the instance
+// send mail to an address it chose. `requireServiceAuth` is a pass-through here;
+// the real `requireInternalService` (from the api-core mock's faithful replica)
+// is what decides, off the `service:<name>` subject bound to the signing key.
+// ---------------------------------------------------------------------------
+
+/** A verified peer service, as `requireServiceAuth` leaves `req.user`. */
+const servicePrincipal = (name: string) => ({
+  sub: `service:${name}`,
+  principalType: 'service' as const,
+  token_use: 'access' as const,
+  organizationId: 'org-1',
+  isSuperAdmin: false,
+});
+
+/** Drive the mounted router with one request and resolve the captured response. */
+function drive(method: 'GET' | 'POST', url: string, user: unknown, body: unknown = {}): Promise<any> {
+  const res = mockRes();
+  const req: any = { method, url, originalUrl: url, body, query: {}, headers: {}, header: () => undefined, user };
+  return new Promise((resolve) => {
+    notifyEmailRouter(req, res, () => undefined);
+    setImmediate(() => resolve(res));
+  });
+}
+
+describe('internal caller gate', () => {
+  beforeEach(() => { mockEmailConfig.enabled = true; });
+
+  it('admits `ask` to GET /status — the agent diagnoses "nothing arrives" off this switch', async () => {
+    const res = await drive('GET', '/status', servicePrincipal('ask'));
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { enabled: true } }));
+  });
+
+  it('admits `plugin` to GET /status (the anonymous-submission precondition)', async () => {
+    const res = await drive('GET', '/status', servicePrincipal('plugin'));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it.each([['compliance'], ['billing'], ['pipeline']])(
+    'still refuses an unlisted service (%s) on GET /status',
+    async (name) => {
+      const res = await drive('GET', '/status', servicePrincipal(name));
+      expect(res.status).toHaveBeenCalledWith(403);
+    },
+  );
+
+  it('refuses a USER token on GET /status, however privileged', async () => {
+    const res = await drive('GET', '/status', { sub: 'u-1', organizationId: 'org-1', isSuperAdmin: true });
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('SECURITY: `ask` may read the switch but may NOT send — POST / refuses it', async () => {
+    const res = await drive('POST', '/', servicePrincipal('ask'), { orgId: 'org-1', subject: 'S', text: 'T' });
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockDeliver).not.toHaveBeenCalled();
+  });
+
+  it('keeps the send route on its own two callers', async () => {
+    mockMembershipFind.mockResolvedValue([]);
+    const compliance = await drive('POST', '/', servicePrincipal('compliance'), { orgId: 'org-1', subject: 'S', text: 'T' });
+    expect(compliance.status).not.toHaveBeenCalledWith(403);
+    const quota = await drive('POST', '/', servicePrincipal('quota'), { orgId: 'org-1', subject: 'S', text: 'T' });
+    expect(quota.status).toHaveBeenCalledWith(403);
   });
 });

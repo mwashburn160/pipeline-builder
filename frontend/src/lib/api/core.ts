@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { ASK_AGENT_PROPOSER } from '@pipeline-builder/api-core/ask-proposals';
 import type { AuthTokens, ApiResponse } from '@/types';
 import { REFRESH_BUFFER_MS, REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, API_REQUEST_TIMEOUT_MS } from '../constants';
 import { ApiError, MfaRequiredError, StepUpRequiredError } from './errors';
-import { API_URL, base64UrlDecode, isMfaErrorCode, isStepUpErrorCode } from './util';
+import { API_URL, base64UrlDecode, isMfaErrorCode, isStepUpErrorCode, type ProposedByOptions } from './util';
 
 /** Upper bound on the server-side revoke when stopping impersonation. Stopping
  *  must never wait on the network longer than this. */
@@ -942,6 +943,19 @@ export class ApiCore {
    *  callers can spread it unconditionally. */
   stepUpHeader(token?: string): Record<string, string> {
     return token ? { 'X-Step-Up-Token': token } : {};
+  }
+
+  /**
+   * Build the header that marks a write as an Ask-agent draft the user
+   * reviewed and applied (design rule 6). Spread it unconditionally: without
+   * `proposedByAgent` it is empty, and the write records no proposer.
+   *
+   * The value is the SHARED constant, never a caller-supplied string — the
+   * receiving routes accept exactly that one word and 400 on anything else
+   * (`proposable`), so there is no free text to get wrong or to abuse.
+   */
+  proposedByHeader(opts?: ProposedByOptions): Record<string, string> {
+    return opts?.proposedByAgent ? { 'X-PB-Proposed-By': ASK_AGENT_PROPOSER } : {};
   }
 
   /**

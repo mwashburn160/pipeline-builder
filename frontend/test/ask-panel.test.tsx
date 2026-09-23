@@ -149,9 +149,11 @@ describe('AskPanel', () => {
     // Confirm → wraps the drafted BuilderProps in the create envelope (project +
     // organization + props), NOT the bare props.
     fireEvent.click(screen.getByRole('button', { name: /Create pipeline/i }));
+    // ...and marks the write as an agent draft the user applied (rule 6), which
+    // the route turns into `details: { proposedBy: 'ask-agent' }` on its audit event.
     await waitFor(() => expect(createPipeline).toHaveBeenCalledWith(expect.objectContaining({
       project: 'proj', organization: 'org', pipelineName: 'lint-deploy', props, visibility: 'private',
-    })));
+    }), { proposedByAgent: true }));
     await waitFor(() => expect(screen.getByText(/Created/i)).toBeInTheDocument());
     // Every cached pipeline list must re-read so the new pipeline shows up.
     expect(invalidatePipelines).toHaveBeenCalledTimes(1);
@@ -205,7 +207,7 @@ describe('AskPanel', () => {
 
     await waitFor(() => expect(deployGeneratedPlugin).toHaveBeenCalledWith(expect.objectContaining({
       name: 'trivy-scan', dockerfile: 'FROM aquasec/trivy:0.58.0', visibility: 'private',
-    })));
+    }), { proposedByAgent: true }));
   });
 
   it('refuses the plugin commit without `plugins:write` — the route\'s own gate', async () => {

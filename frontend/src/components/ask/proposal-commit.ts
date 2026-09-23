@@ -27,27 +27,37 @@
  *    commit enqueues into it rather than writing, so the decision stays with an
  *    approver who was not in the conversation.
  *
- * PROVENANCE (rule 6), and where it stops. The queue kinds carry the marker in
- * the free-text field their route already delivers to the approver and the
- * audit row (`note` / `reason`), folded in before the diff is rendered so the
- * reviewed text is the filed text.
+ * PROVENANCE (rule 6). Every commit made here is marked as an agent draft that
+ * a person applied, by one of two channels.
  *
- * The plain edit and org-settings kinds have no such channel. The shared module
- * exports `askProposalAuditDetails()`, which produces the
- * `details: { proposedBy: 'ask-agent' }` fragment rule 6 wants — but it is a
- * fragment for a `RemoteAuditEvent`, which only the SERVICE that handles the
- * write can emit, and no write route reads a provenance field off the request.
- * `PUT /pipelines/:id` validates its body with a non-strict Zod object
- * (`PipelineUpdateSchema`), which STRIPS unknown keys, and the plugin, template
- * and notification-preference routes are the same. Putting `details` in the
- * body would be inventing a field the API ignores, so nothing is sent from
- * here. Closing the gap is a passthrough on those schemas and handlers
- * (api-core + the owning service) that calls `askProposalAuditDetails()` when
- * it records — not a change to this file.
+ * The queue kinds carry it in the free-text field their route already delivers
+ * to the approver and the audit row (`note` / `reason`), folded in before the
+ * diff is rendered so the reviewed text is the filed text. That text is FOR A
+ * HUMAN, so it is not duplicated into `details` — the same fact twice in two
+ * vocabularies is one more thing to keep in sync, and the approver is the one
+ * who needs to see it.
+ *
+ * Every other kind — the creates, the plain edits, and org settings — sends the
+ * `X-PB-Proposed-By` HEADER, as `{ proposedByAgent: true }` on the api call.
+ * The receiving route accepts exactly one value (the shared
+ * `ASK_AGENT_PROPOSER` constant, refusing any other with a 400 before it
+ * writes) and folds it into its OWN audit details with
+ * `withProposalProvenance`, which can write only the `proposedBy` key and
+ * applies it last. So the audit event stays the handler's, and the one thing
+ * this browser can add to it is the one thing rule 6 asks for:
+ * `details: { proposedBy: 'ask-agent' }`.
+ *
+ * A HEADER, not a body field, for the reason the earlier gap existed at all: a
+ * `proposedBy` in the body would be a new key on six domain schemas, several of
+ * which feed `Object.keys(body)` straight into a column list and an audit
+ * `fields` array, and two of which are `.strict()` and would 400 on it.
+ * Transport metadata belongs on the transport — the same place
+ * `X-Step-Up-Token` rides.
  */
 
 import { orgSettingRequests } from '@pipeline-builder/api-core/ask-proposals';
 import api from '@/lib/api';
+import type { ProposedByOptions } from '@/lib/api/util';
 import { invalidate } from '@/lib/api-cache';
 import type { BuilderProps } from '@/types';
 import { commitPayload, staleFields } from './proposal-diff';
@@ -73,6 +83,18 @@ export class StaleDraftError extends Error {
 function incomplete(what: string): Error {
   return new Error(`Draft is incomplete (${what}).`);
 }
+
+/**
+ * Rule 6's marker, on every write this module makes. It is a constant, not a
+ * parameter: there is no path through `commitProposal` that is not an agent
+ * draft the user reviewed and applied.
+ *
+ * The two QUEUE kinds are the exception and deliberately do not use it — their
+ * provenance is the sentence in the `note` / `reason` the approver reads (see
+ * the module note above), and a duplicate in `details` would add nothing the
+ * queue row does not already say.
+ */
+const PROPOSED_BY_AGENT: ProposedByOptions = { proposedByAgent: true };
 
 type Row = Record<string, unknown>;
 
@@ -145,15 +167,15 @@ async function applyPayload(p: Proposal, payload: Row): Promise<void> {
   // dynamic object meets a per-route body type.
   switch (p.kind) {
     case 'pipeline-edit':
-      await api.updatePipeline(p.id as string, body<Parameters<typeof api.updatePipeline>[1]>(payload));
+      await api.updatePipeline(p.id as string, body<Parameters<typeof api.updatePipeline>[1]>(payload), PROPOSED_BY_AGENT);
       invalidate.pipelines();
       return;
     case 'plugin-edit':
-      await api.updatePlugin(p.id as string, body<Parameters<typeof api.updatePlugin>[1]>(payload));
+      await api.updatePlugin(p.id as string, body<Parameters<typeof api.updatePlugin>[1]>(payload), PROPOSED_BY_AGENT);
       invalidate.plugins();
       return;
     case 'template-edit':
-      await api.updatePipelineTemplate(p.id as string, body<Parameters<typeof api.updatePipelineTemplate>[1]>(payload));
+      await api.updatePipelineTemplate(p.id as string, body<Parameters<typeof api.updatePipelineTemplate>[1]>(payload), PROPOSED_BY_AGENT);
       return;
     case 'install-change-request':
       await api.requestInstallChange(p.id as string, body<Parameters<typeof api.requestInstallChange>[1]>(payload));
@@ -181,7 +203,7 @@ async function commitCreate(p: Proposal): Promise<boolean> {
       description: p.description,
       props: bp,
       visibility: 'private',
-    });
+    }, PROPOSED_BY_AGENT);
     // Every cached pipeline list (the Pipelines page, palette, home) is stale now.
     invalidate.pipelines();
     return true;
@@ -193,14 +215,14 @@ async function commitCreate(p: Proposal): Promise<boolean> {
       ...(p.config as Parameters<typeof api.deployGeneratedPlugin>[0]),
       dockerfile: p.dockerfile,
       visibility: 'private',
-    });
+    }, PROPOSED_BY_AGENT);
     return true;
   }
 
   if (p.kind === 'template') {
     const tmpl = p.template as Parameters<typeof api.createPipelineTemplate>[0] | undefined;
     if (!tmpl?.name || !tmpl.props) throw incomplete('missing name/props');
-    await api.createPipelineTemplate(tmpl);
+    await api.createPipelineTemplate(tmpl, PROPOSED_BY_AGENT);
     return true;
   }
 

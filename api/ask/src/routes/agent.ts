@@ -24,7 +24,7 @@ import { AskBodySchema } from '../request-schema.js';
 import { buildAgentTools } from '../services/agent-tools.js';
 import { recordAi } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
-import { complianceClient, pipelineClient, platformClient, pluginClient, quotaClient, reportingClient } from '../services/internal-http.js';
+import { complianceClient, pipelineClient, platformClient, pluginClient, quotaClient, readInstanceEmailStatus, reportingClient } from '../services/internal-http.js';
 import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
 
 const logger = createLogger('ask-agent');
@@ -44,7 +44,8 @@ const AGENT_SYSTEM = [
   '- inspect_plugin_build: why an async plugin build failed, and its scan/signing state.',
   '- diagnose_notifications: why notifications are not arriving. The platform-wide email switch',
   '  is invisible in the org UI and a disabled send REPORTS SUCCESS, so never conclude from an',
-  '  API\'s "sent" that a message was delivered — run this tool.',
+  '  API\'s "sent" that a message was delivered — run this tool. Its `platform.email` is a state:',
+  '  `unknown` means the switch could not be read, which is NOT "disabled" — say it is unknown.',
   '- diagnose_installs: which plugin installs sit on advised/flagged versions and the smallest',
   '  upgrade that clears them.',
   '- check_quota_headroom: remaining quota. Quotas are per-period FLOW counters — deleting',
@@ -170,6 +171,11 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         compliance: complianceClient(userAuth),
         reporting: reportingClient(userAuth),
         quota: quotaClient(userAuth),
+        // The ONE read that does not ride the caller's token: platform's
+        // internal email-status route answers with a single instance-wide
+        // boolean, so ask's own service identity asks for it (see
+        // readInstanceEmailStatus).
+        emailStatus: readInstanceEmailStatus,
         model: aiModel,
         defaults: { provider, model, repoToken },
         // Authenticated org — injected into tenant-scoping tool inputs so the

@@ -12,6 +12,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import {
   ASK_AGENT_PROPOSER,
+  ASK_PROPOSED_BY_HEADER,
   ORG_SETTING_PROPOSAL_ALLOWLIST,
   ORG_SETTING_PROPOSAL_EXCLUSIONS,
   ORG_SETTING_PROPOSAL_KEYS,
@@ -23,6 +24,8 @@ import {
   orgSettingRequests,
   orgSettingSpec,
   pickAllowed,
+  readProposerClaim,
+  withProposalProvenance,
   type OrgSettingKey,
 } from '../src/types/ask-proposals.js';
 import { PLUGIN_SECURITY_DIGEST_MODES } from '../src/types/wire-vocabulary.js';
@@ -41,6 +44,72 @@ describe('audit provenance', () => {
 
   it('cannot be overwritten by the caller', () => {
     expect(askProposalAuditDetails({ proposedBy: 'the-admin' }).proposedBy).toBe('ask-agent');
+  });
+});
+
+describe('reading the provenance header', () => {
+  const headers = (value: unknown) => ({ [ASK_PROPOSED_BY_HEADER]: value });
+
+  it('names the header in the form node delivers it (lower case)', () => {
+    expect(ASK_PROPOSED_BY_HEADER).toBe('x-pb-proposed-by');
+  });
+
+  it('recognises the agent marker, and an array-valued header', () => {
+    expect(readProposerClaim(headers(ASK_AGENT_PROPOSER))).toBe('ask-agent');
+    expect(readProposerClaim(headers([ASK_AGENT_PROPOSER]))).toBe('ask-agent');
+  });
+
+  it('reports no claim when the header is absent or empty', () => {
+    expect(readProposerClaim({})).toBe('none');
+    expect(readProposerClaim(headers(undefined))).toBe('none');
+    expect(readProposerClaim(headers(''))).toBe('none');
+    expect(readProposerClaim(undefined)).toBe('none');
+    expect(readProposerClaim(null)).toBe('none');
+    expect(readProposerClaim('not-a-bag')).toBe('none');
+  });
+
+  it('treats ANYTHING else as foreign — no trimming, no case folding, no prefixes', () => {
+    for (const forged of ['the-admin', 'Ask-Agent', ' ask-agent', 'ask-agent ', 'ask-agent-2', 'ask', 42, { proposedBy: 'ask-agent' }]) {
+      expect(readProposerClaim(headers(forged))).toBe('foreign');
+    }
+  });
+});
+
+describe('folding provenance into a handler\'s audit details', () => {
+  const marked = { [ASK_PROPOSED_BY_HEADER]: ASK_AGENT_PROPOSER };
+  const handlerDetails = { fields: ['digestMode'], pipelineName: 'acme-web' };
+
+  it('adds proposedBy when the request carries the marker, keeping every handler key', () => {
+    expect(withProposalProvenance(marked, handlerDetails))
+      .toEqual({ fields: ['digestMode'], pipelineName: 'acme-web', proposedBy: 'ask-agent' });
+  });
+
+  it('records NO proposer for an ordinary request', () => {
+    expect(withProposalProvenance({}, handlerDetails)).toEqual(handlerDetails);
+    expect(withProposalProvenance({}, handlerDetails)).not.toHaveProperty('proposedBy');
+  });
+
+  it('records NO proposer for a forged claim — it is dropped, never stored', () => {
+    const forged = { [ASK_PROPOSED_BY_HEADER]: 'the-admin' };
+    expect(withProposalProvenance(forged, handlerDetails)).toEqual(handlerDetails);
+    expect(withProposalProvenance(forged, handlerDetails)).not.toHaveProperty('proposedBy');
+  });
+
+  it('cannot overwrite a key the handler set — proposedBy is the only key it writes', () => {
+    const before = { ...handlerDetails };
+    const out = withProposalProvenance(marked, handlerDetails);
+    expect(out.fields).toEqual(['digestMode']);
+    expect(out.pipelineName).toBe('acme-web');
+    expect(Object.keys(out).filter((k) => !(k in handlerDetails))).toEqual(['proposedBy']);
+    // The handler's own object is never mutated.
+    expect(handlerDetails).toEqual(before);
+  });
+
+  it('copies rather than aliases, with or without a marker', () => {
+    expect(withProposalProvenance(marked, handlerDetails)).not.toBe(handlerDetails);
+    expect(withProposalProvenance({}, handlerDetails)).not.toBe(handlerDetails);
+    expect(withProposalProvenance(marked)).toEqual({ proposedBy: 'ask-agent' });
+    expect(withProposalProvenance({})).toEqual({});
   });
 });
 

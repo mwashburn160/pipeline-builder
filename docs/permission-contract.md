@@ -319,7 +319,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
 | platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin)` |
-| platform | GET | `/internal/notify-email/status` | `service-principal + internal(plugin)` |
+| platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask,plugin)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |
 | platform | DELETE | `/invitation/:invitationId` | `any(invitations:manage) + org-admin-assurance` |
 | platform | POST | `/invitation/:invitationId/resend` | `any(invitations:manage) + org-admin-assurance` |

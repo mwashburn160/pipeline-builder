@@ -27,14 +27,29 @@ import {
   type OrgSettingValue,
 } from '@pipeline-builder/api-core/ask-proposals';
 import api from '@/lib/api';
+import type { ProposedByOptions } from '@/lib/api/util';
+
+/**
+ * Every write this module makes is an agent draft the user reviewed and
+ * clicked Apply on, so the marker is constant rather than a parameter — there
+ * is no path through here that is not a proposal commit.
+ */
+const PROPOSED_BY_AGENT: ProposedByOptions = { proposedByAgent: true };
 
 interface SurfaceClient {
   /** Human name, for a partial-failure message. */
   label: string;
   /** The live record, keyed by the API's own field names (`spec.field`). */
   read: () => Promise<Record<string, unknown>>;
-  /** Write a partial body, keyed by the API's own field names. */
-  apply: (body: Record<string, unknown>) => Promise<void>;
+  /**
+   * Write a partial body, keyed by the API's own field names.
+   *
+   * `opts` carries the one thing that is not part of the body: the provenance
+   * marker (rule 6), which every write from here sets because every write from
+   * here IS an agent draft the user applied. It rides the `X-PB-Proposed-By`
+   * header, so it can never be mistaken for one of the reviewed fields.
+   */
+  apply: (body: Record<string, unknown>, opts: ProposedByOptions) => Promise<void>;
 }
 
 /** Exhaustive by construction: a new surface in the shared table is a type error here. */
@@ -42,17 +57,17 @@ const SURFACE_CLIENTS: Record<OrgSettingSurface, SurfaceClient> = {
   reporting: {
     label: 'incident reporting',
     read: async () => ({ ...(await api.getIncidentSettings()) }),
-    apply: async (body) => { await api.putReportingSettings(body as Parameters<typeof api.putReportingSettings>[0]); },
+    apply: async (body, opts) => { await api.putReportingSettings(body as Parameters<typeof api.putReportingSettings>[0], opts); },
   },
   complianceNotifications: {
     label: 'compliance notifications',
     read: async () => ({ ...(await api.getComplianceNotificationPreference()).data?.preference }),
-    apply: async (body) => { await api.updateComplianceNotificationPreference(body as Parameters<typeof api.updateComplianceNotificationPreference>[0]); },
+    apply: async (body, opts) => { await api.updateComplianceNotificationPreference(body as Parameters<typeof api.updateComplianceNotificationPreference>[0], opts); },
   },
   pluginSecurityNotifications: {
     label: 'plugin security notifications',
     read: async () => ({ ...(await api.getPluginSecurityNotifications()).data?.preferences }),
-    apply: async (body) => { await api.updatePluginSecurityNotifications(body as Parameters<typeof api.updatePluginSecurityNotifications>[0]); },
+    apply: async (body, opts) => { await api.updatePluginSecurityNotifications(body as Parameters<typeof api.updatePluginSecurityNotifications>[0], opts); },
   },
 };
 
@@ -111,7 +126,7 @@ export async function applyOrgSettingRequests(
       continue;
     }
     try {
-      await client.apply(req.body);
+      await client.apply(req.body, PROPOSED_BY_AGENT);
       applied.push(req.surface);
     } catch (e) {
       failed.push({ surface: req.surface, label: client.label, message: e instanceof Error ? e.message : String(e) });

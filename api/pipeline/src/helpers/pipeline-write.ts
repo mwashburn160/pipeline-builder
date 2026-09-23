@@ -19,6 +19,7 @@ import {
   type PipelineCreateSchema,
   type PipelineUpdateSchema,
   recordAudit,
+  withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import { replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import type { Request } from 'express';
@@ -177,13 +178,16 @@ export async function createOnePipeline(
     orgId,
     targetType: 'pipeline',
     targetId: pipeline.id,
-    details: {
+    // The caller's details stay authoritative (`bulk: true` and friends);
+    // `proposedBy: 'ask-agent'` is added only when the request carried the Ask
+    // panel's provenance header, and is the only key provenance can write.
+    details: withProposalProvenance(req.headers, {
       project: pipeline.project,
       organization: pipeline.organization,
       pipelineName: pipeline.pipelineName,
       visibility: pipeline.visibility,
       ...ctx.auditDetails,
-    },
+    }),
   });
 
   return { status: 'saved', pipeline, inserted };
