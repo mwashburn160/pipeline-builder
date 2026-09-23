@@ -15,11 +15,20 @@ process.env.PIPELINE_SERVICE_HOST = 'pipeline-svc.internal';
 process.env.PIPELINE_SERVICE_PORT = '4100';
 process.env.PLUGIN_SERVICE_HOST = 'plugin-svc.internal';
 process.env.PLUGIN_SERVICE_PORT = '4200';
+process.env.PLATFORM_SERVICE_HOST = 'platform-svc.internal';
+process.env.PLATFORM_SERVICE_PORT = '4300';
+process.env.COMPLIANCE_SERVICE_HOST = 'compliance-svc.internal';
+process.env.COMPLIANCE_SERVICE_PORT = '4400';
+process.env.REPORTING_SERVICE_HOST = 'reporting-svc.internal';
+process.env.REPORTING_SERVICE_PORT = '4500';
+process.env.QUOTA_SERVICE_HOST = 'quota-svc.internal';
+process.env.QUOTA_SERVICE_PORT = '4600';
 // Set to prove the dead env vars are NOT consulted.
 process.env.PIPELINE_URL = 'http://wrong-pipeline:1';
 process.env.PLUGIN_URL = 'http://wrong-plugin:1';
 
-const { pipelineClient, pluginClient } = await import('../src/services/internal-http.js');
+const { pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient } =
+  await import('../src/services/internal-http.js');
 
 const realFetch = globalThis.fetch;
 const fetchMock = jest.fn(async (_url: string, _init?: RequestInit) =>
@@ -44,6 +53,34 @@ describe('internal-http service discovery', () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe('http://plugin-svc.internal:4200/plugins/generate');
     expect(init!.method).toBe('POST');
+  });
+});
+
+describe('internal-http — the diagnosis clients', () => {
+  /**
+   * Every client the agent's tools use resolves from the SAME typed
+   * `server.services` config and forwards the CALLER's bearer. The agent holds
+   * no service principal, so a client that minted its own identity would let a
+   * tool read something the asking user cannot.
+   */
+  it.each([
+    ['platformClient', () => platformClient('Bearer USER'), '/config', 'http://platform-svc.internal:4300/config'],
+    ['complianceClient', () => complianceClient('Bearer USER'), '/compliance/notification-preferences', 'http://compliance-svc.internal:4400/compliance/notification-preferences'],
+    ['reportingClient', () => reportingClient('Bearer USER'), '/reports/execution/dora', 'http://reporting-svc.internal:4500/reports/execution/dora'],
+    ['quotaClient', () => quotaClient('Bearer USER'), '/quotas', 'http://quota-svc.internal:4600/quotas'],
+  ])('%s targets its configured host:port and forwards the user token', async (_name, make, path, expected) => {
+    await make().get(path);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(expected);
+    expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer USER');
+  });
+
+  it('forwards the user token on POST too (the compliance dry-run)', async () => {
+    await complianceClient('Bearer USER').post('/compliance/validate/pipeline/dry-run', { attributes: {} });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('http://compliance-svc.internal:4400/compliance/validate/pipeline/dry-run');
+    expect(init!.method).toBe('POST');
+    expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer USER');
   });
 });
 

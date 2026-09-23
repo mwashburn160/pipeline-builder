@@ -116,6 +116,9 @@
       ],
       "plugin-catalog": [
         "lib/types/plugin-catalog.d.ts"
+      ],
+      "ask-proposals": [
+        "lib/types/ask-proposals.d.ts"
       ]
     }
   },
@@ -241,6 +244,10 @@
     "./plugin-catalog": {
       "types": "./lib/types/plugin-catalog.d.ts",
       "default": "./lib/types/plugin-catalog.js"
+    },
+    "./ask-proposals": {
+      "types": "./lib/types/ask-proposals.d.ts",
+      "default": "./lib/types/ask-proposals.js"
     },
     "./testing": {
       "types": "./lib/testing/index.d.ts",

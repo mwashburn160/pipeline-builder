@@ -146,6 +146,7 @@
       "^@pipeline-builder/api-core/metadata-keys$": "<rootDir>/../packages/api-core/src/types/metadata-keys.ts",
       "^@pipeline-builder/api-core/feature-flags$": "<rootDir>/../packages/api-core/src/types/feature-flags.ts",
       "^@pipeline-builder/api-core/plugin-catalog$": "<rootDir>/../packages/api-core/src/types/plugin-catalog.ts",
+      "^@pipeline-builder/api-core/ask-proposals$": "<rootDir>/../packages/api-core/src/types/ask-proposals.ts",
       "^@pipeline-builder/pipeline-core/template$": "<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts"
     },
     "modulePathIgnorePatterns": [

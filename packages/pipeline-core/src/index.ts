@@ -92,6 +92,13 @@ export {
   type TemplateValidationResult,
   type ResolveResult,
   resolveSelfReferencing,
+  validateTemplateDraft,
+  formatTemplateDraftProblems,
+  type TemplateDraftInput,
+  type TemplateDraftLike,
+  type TemplateDraftProblem,
+  type TemplateDraftProblemKind,
+  type TemplateDraftValidation,
 } from './template/index.js';
 // A plugin's `{{ … }}` resolution against a pipeline scope (synth, `plugin test`)
 export { resolvePluginTemplates, isPluginTemplatableField } from './template/plugin-resolver.js';

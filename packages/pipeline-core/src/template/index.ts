@@ -37,6 +37,16 @@ export {
   type TemplateValidationResult,
 } from './validate.js';
 
+export {
+  validateTemplateDraft,
+  formatTemplateDraftProblems,
+  type TemplateDraftInput,
+  type TemplateDraftLike,
+  type TemplateDraftProblem,
+  type TemplateDraftProblemKind,
+  type TemplateDraftValidation,
+} from './draft.js';
+
 // -- Convenience: high-level resolve() that walks + resolves + measures
 
 import { ErrorCode } from '@pipeline-builder/api-core';

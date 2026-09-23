@@ -113,7 +113,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex: jest.fn(async () => ({ search: () => [], size: 1 })) }));
 jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048 }));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools: jest.fn(() => ({})) }));
-jest.unstable_mockModule('../src/services/internal-http.js', () => ({ pipelineClient: jest.fn(), pluginClient: jest.fn() }));
+jest.unstable_mockModule('../src/services/internal-http.js', () => ({
+  pipelineClient: jest.fn(),
+  pluginClient: jest.fn(),
+  platformClient: jest.fn(),
+  complianceClient: jest.fn(),
+  reportingClient: jest.fn(),
+  quotaClient: jest.fn(),
+}));
 const auditRecord = jest.fn();
 
 const express = (await import('express')).default;

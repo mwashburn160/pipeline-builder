@@ -3,8 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Sparkles, Send, BookOpen, AlertTriangle, GitBranch, Package, LayoutTemplate, Check, Loader2 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Sparkles, Send, BookOpen, AlertTriangle, Check, Loader2 } from 'lucide-react';
 import { SideDrawer } from '@/components/ui/SideDrawer';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAIProviders } from '@/hooks/useAIProviders';
@@ -15,39 +14,26 @@ import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
 import api from '@/lib/api';
-import { invalidate } from '@/lib/api-cache';
 import type { AskSource, AskTurn } from '@/lib/api/domains/ask';
-import type { BuilderProps } from '@/types';
 import { formatError } from '@/lib/constants';
 import { useUnmountedRef } from '../../hooks/useUnmountedRef';
+import type { Proposal } from './proposal';
+import { PROPOSAL_META, isDiffProposal, proposalDiff, proposalReady, requiredPermissions } from './proposal';
+import { ProposalDiffView } from './ProposalDiffView';
+import { ProposalNotes } from './ProposalNotes';
+import { StaleDraftError, commitProposal as runCommit } from './proposal-commit';
 
-/** A reviewable draft the agent produced (nothing is created until the user commits). */
-interface Proposal {
-  kind: 'pipeline' | 'plugin' | 'template';
-  description?: string;
-  props?: Record<string, unknown>; // pipeline
-  config?: Record<string, unknown>; // plugin
-  dockerfile?: string; // plugin
-  template?: Record<string, unknown>; // template
-}
-
-/** Per-kind card presentation + the dashboard the created resource lives on. */
-const PROPOSAL_META: Record<Proposal['kind'], { label: string; icon: LucideIcon; createLabel: string; href: string; createdText: string; permission: string }> = {
-  pipeline: { label: 'Proposed pipeline', icon: GitBranch, createLabel: 'Create pipeline', href: '/dashboard/pipelines', createdText: 'Created — open pipelines', permission: 'pipelines:write' },
-  plugin: { label: 'Proposed plugin', icon: Package, createLabel: 'Create plugin', href: '/dashboard/plugins', createdText: 'Build queued — open plugins', permission: 'plugins:write' },
-  template: { label: 'Proposed template', icon: LayoutTemplate, createLabel: 'Create template', href: '/dashboard/templates', createdText: 'Created — open templates', permission: 'templates:write' },
-};
-
-/** Whether a draft carries the fields its create API requires (gates the button). */
-function proposalReady(p: Proposal): boolean {
-  if (p.kind === 'pipeline') return !!(p.props?.project && p.props?.organization);
-  if (p.kind === 'plugin') return !!(p.config && p.dockerfile);
-  return !!(p.template as { name?: string } | undefined)?.name;
-}
-
-/** A key/value + code review of a drafted spec, per kind. */
+/**
+ * The review body of a proposal card.
+ *
+ * An EDIT proposal is reviewed as a CURRENT -> PROPOSED diff, never as a JSON
+ * blob: a blob gets skimmed, and the diff is also literally the commit payload,
+ * so a field that is not on screen cannot be applied.
+ */
 function ProposalDetails({ p }: { p: Proposal }) {
   const json = (v: unknown) => JSON.stringify(v ?? {}, null, 2);
+
+  if (isDiffProposal(p)) return <ProposalDiffView diff={proposalDiff(p)} />;
 
   if (p.kind === 'plugin') {
     const c = (p.config ?? {}) as Record<string, unknown>;
@@ -106,8 +92,10 @@ interface ChatMessage {
   content: string;
   sources?: AskSource[];
   proposal?: Proposal;
-  /** Commit state for a proposal on this message. */
-  proposalStatus?: 'creating' | 'created' | 'error';
+  /** Commit state for a proposal on this message. `stale` is its own state: the
+   *  live entity moved after the draft was reviewed, so NOTHING was written —
+   *  that must not read as a failed write. */
+  proposalStatus?: 'creating' | 'created' | 'error' | 'stale';
   proposalError?: string;
   /** True while the assistant message is still streaming. */
   pending?: boolean;
@@ -129,7 +117,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // does (`plugins:write` for POST /plugins/deploy-generated, `pipelines:write`
   // for POST /pipelines, `templates:write` for POST /pipeline-templates), so the
   // entitlement that opens this panel is not enough to show its Create action.
-  const { can } = useAuthGuard();
+  const { can, isReadOnly } = useAuthGuard();
   // The stream has always accepted `provider` / `model` / `apiKey`; only the
   // pipeline and plugin AI tabs offered the choice. Same hook, same picker, so
   // the three surfaces stay identical — here the "server" providers are the ask
@@ -149,6 +137,21 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // stops calling setState on a dead component; stopping iteration also aborts the
   // underlying SSE fetch (streamRequest's AbortController runs in its `finally`).
   const cancelledRef = useUnmountedRef();
+
+  /**
+   * Whether this viewer may commit this proposal — EVERY permission its route
+   * (or routes: an org-settings change spans services) requires, not just one.
+   *
+   * `can()` is impersonation-aware, but only for permissions it classifies as
+   * mutations — and one of these kinds FILES A REQUEST behind a read permission
+   * (any member may request a compliance exemption). Every commit here is a
+   * write, so the read-only-session check is applied to all of them rather than
+   * left to each permission's own classification.
+   */
+  const commitAllowed = useCallback(
+    (p: Proposal) => !isReadOnly && requiredPermissions(p).every((perm) => can(perm)),
+    [can, isReadOnly],
+  );
 
   useEffect(() => {
     // Optional-chain the method: jsdom (and some older browsers) don't implement
@@ -227,48 +230,27 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     }
   }, [busy, messages, ai.selectedProvider, ai.selectedModel, ai.customApiKey, repoToken]);
 
-  /** Commit a proposal via the normal create API (the user's own session). */
+  /** Commit a proposal via the normal write API (the user's own session). */
   const commitProposal = useCallback(async (index: number) => {
     const p = messages[index]?.proposal;
     if (!p) return;
-    // Re-checked here, not only on the button: the create call would 403 anyway,
+    // Re-checked here, not only on the button: the write call would 403 anyway,
     // and a refused proposal should never look like a failed draft.
-    if (!can(PROPOSAL_META[p.kind]?.permission ?? '')) return;
+    if (!commitAllowed(p)) return;
     const patch = (u: Partial<ChatMessage>) => setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, ...u } : m)));
     patch({ proposalStatus: 'creating', proposalError: undefined });
     try {
-      if (p.kind === 'pipeline') {
-        // The drafted `props` is a full BuilderProps (carries project/organization);
-        // wrap it in the create envelope exactly like the normal create flow.
-        const bp = p.props as BuilderProps | undefined;
-        if (!bp?.project || !bp.organization) throw new Error('Draft is incomplete (missing project/organization).');
-        await api.createPipeline({
-          project: bp.project,
-          organization: bp.organization,
-          pipelineName: bp.pipelineName,
-          description: p.description,
-          props: bp,
-          visibility: 'private',
-        });
-        // Every cached pipeline list (the Pipelines page, palette, home) is stale now.
-        invalidate.pipelines();
-      } else if (p.kind === 'plugin') {
-        if (!p.config || !p.dockerfile) throw new Error('Draft is incomplete (missing config or Dockerfile).');
-        await api.deployGeneratedPlugin({
-          ...(p.config as Parameters<typeof api.deployGeneratedPlugin>[0]),
-          dockerfile: p.dockerfile,
-          visibility: 'private',
-        });
-      } else {
-        const tmpl = p.template as Parameters<typeof api.createPipelineTemplate>[0] | undefined;
-        if (!tmpl?.name || !tmpl.props) throw new Error('Draft is incomplete (missing name/props).');
-        await api.createPipelineTemplate(tmpl);
-      }
+      await runCommit(p);
       patch({ proposalStatus: 'created' });
     } catch (e) {
-      patch({ proposalStatus: 'error', proposalError: formatError(e, 'Failed to create.') });
+      // A stale draft is not a failed write — nothing was applied, and saying so
+      // is the whole point of the re-read.
+      patch({
+        proposalStatus: e instanceof StaleDraftError ? 'stale' : 'error',
+        proposalError: formatError(e, 'Failed to apply.'),
+      });
     }
-  }, [messages, can]);
+  }, [messages, commitAllowed]);
 
   return (
     <SideDrawer
@@ -342,25 +324,59 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   const meta = PROPOSAL_META[m.proposal.kind];
                   if (!meta) return null; // ignore an unrecognized proposal kind rather than crash
                   const Icon = meta.icon;
-                  const ready = proposalReady(m.proposal);
-                  // The create route's own permission — without it the action stays
+                  const proposal = m.proposal;
+                  const ready = proposalReady(proposal);
+                  const diffKind = isDiffProposal(proposal);
+                  // The write route's own permission — without it the action stays
                   // visible (the draft is still worth reading) but inert, saying why.
-                  const allowed = can(meta.permission);
+                  const allowed = commitAllowed(proposal);
+                  const needed = requiredPermissions(proposal).join(' + ');
                   return (
                     <div className="mt-2 rounded-xl border border-default p-3 bg-surface">
                       <div className="flex items-center gap-2 text-sm font-medium text-fg">
                         <Icon className="w-4 h-4" style={{ color: 'var(--pb-brand)' }} /> {meta.label}
+                        {proposal.target && <span className="font-normal text-fg-muted">{proposal.target}</span>}
                       </div>
-                      {m.proposal.description && (
-                        <p className="mt-1 text-xs text-fg-muted">{m.proposal.description}</p>
+                      {proposal.description && (
+                        <p className="mt-1 text-xs text-fg-muted">{proposal.description}</p>
                       )}
-                      {/* Full drafted spec — review before creating (nothing is committed sight-unseen). */}
-                      <details className="mt-2 text-xs">
+                      {proposal.error && (
+                        <p className="mt-1 text-xs text-warning-strong">{proposal.error}</p>
+                      )}
+                      {/* The org's own policy verdict, and whether the create route
+                          would refuse the draft — above the fold, not behind a summary. */}
+                      <ProposalNotes p={proposal} />
+                      {/* Fields the TOOL refused before drafting (outside its allowlist).
+                          Surfaced rather than swallowed: a draft that asked for something
+                          it may not touch is the signal worth seeing. */}
+                      {proposal.refusedFields && proposal.refusedFields.length > 0 && (
+                        <p className="mt-1 text-2xs text-warning-strong" data-testid="ask-tool-refused">
+                          Not proposable, and left out of this draft: {proposal.refusedFields.join(', ')}.
+                        </p>
+                      )}
+                      {/* Drafted but not appliable: a value outside the setting's
+                          declared domain, or one whose current value could not be
+                          read — so there is no baseline to re-read against. */}
+                      {((proposal.invalidFields?.length ?? 0) + (proposal.unreadableFields?.length ?? 0)) > 0 && (
+                        <p className="mt-1 text-2xs text-warning-strong" data-testid="ask-tool-dropped">
+                          {proposal.invalidFields?.length ? `Out-of-range values, left out: ${proposal.invalidFields.join(', ')}. ` : ''}
+                          {proposal.unreadableFields?.length ? `Current value could not be read, so not proposed: ${proposal.unreadableFields.join(', ')}.` : ''}
+                        </p>
+                      )}
+                      {meta.filesRequest && (
+                        <p className="mt-1 text-2xs text-fg-muted" data-testid="ask-files-request">
+                          This files a request in the organization&apos;s approval queue. An approver decides — nothing changes when you submit it.
+                        </p>
+                      )}
+                      {/* The diff / drafted spec — review before committing (nothing
+                          is committed sight-unseen), and for an edit the reviewed
+                          diff is exactly what gets sent. */}
+                      <details className="mt-2 text-xs" open={diffKind}>
                         <summary className="cursor-pointer select-none text-fg-muted hover:text-brand">
-                          Review full spec
+                          {diffKind ? 'Review the change' : 'Review full spec'}
                         </summary>
                         <div className="mt-2">
-                          <ProposalDetails p={m.proposal} />
+                          <ProposalDetails p={proposal} />
                         </div>
                       </details>
                       {m.proposalStatus === 'created' ? (
@@ -373,22 +389,31 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                           <button
                             onClick={() => commitProposal(i)}
                             disabled={m.proposalStatus === 'creating' || !ready || !allowed}
-                            title={allowed ? undefined : `Requires the ${meta.permission} permission`}
+                            title={allowed ? undefined : `Requires the ${needed} permission`}
                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs disabled:opacity-50"
                             style={{ background: 'var(--pb-brand)' }}
                           >
                             {m.proposalStatus === 'creating'
-                              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating…</>
+                              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {meta.busyLabel}</>
                               : meta.createLabel}
                           </button>
                           <span className="text-2xs text-fg-muted">
-                            {!allowed ? `Requires the ${meta.permission} permission`
-                              : ready ? 'Review before creating' : 'Draft incomplete'}
+                            {!allowed ? `Requires the ${needed} permission`
+                              : ready ? meta.reviewHint : 'Draft incomplete'}
                           </span>
                         </div>
                       )}
                       {m.proposalStatus === 'error' && (
                         <p className="mt-1 text-xs text-danger">{m.proposalError}</p>
+                      )}
+                      {/* Refused, not failed: the live state moved after the draft was
+                          reviewed, so the approved diff is no longer the diff that
+                          would be applied — and nothing was written. */}
+                      {m.proposalStatus === 'stale' && (
+                        <p className="mt-1 flex items-start gap-1 text-xs text-warning-strong" data-testid="ask-stale">
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>{m.proposalError}</span>
+                        </p>
                       )}
                     </div>
                   );

@@ -6,7 +6,9 @@
 // existing service routes — never a service principal — so compliance, quota,
 // permissions, and tenancy apply exactly as they do for the user's own requests.
 // Base URLs come from the typed `server.services` config (PIPELINE_SERVICE_HOST/PORT,
-// PLUGIN_SERVICE_HOST/PORT) — the same discovery config every other service uses.
+// PLUGIN_SERVICE_HOST/PORT, PLATFORM_SERVICE_HOST/PORT, COMPLIANCE_SERVICE_HOST/PORT,
+// REPORTING_SERVICE_HOST/PORT, QUOTA_SERVICE_HOST/PORT) — the same discovery config
+// every other service uses.
 
 import { envInt } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
@@ -55,4 +57,36 @@ export function pipelineClient(authHeader: string): ServiceClient {
 export function pluginClient(authHeader: string): ServiceClient {
   const { pluginHost, pluginPort } = Config.get('server').services;
   return makeClient(`http://${pluginHost}:${pluginPort}`, authHeader);
+}
+
+/**
+ * Client for the platform service, forwarding the user token.
+ *
+ * Reachable with a USER token: `/config` (the public instance switches — this is
+ * where `diagnose_notifications` learns whether EMAIL_ENABLED is on) and
+ * `/observability/alert-destinations` + `/organization/*` (the caller's own
+ * permissions decide). Platform's `/internal/*` routes are service-token-only and
+ * are NOT reachable this way — deliberately: the agent has no service principal.
+ */
+export function platformClient(authHeader: string): ServiceClient {
+  const { platformHost, platformPort } = Config.get('server').services;
+  return makeClient(`http://${platformHost}:${platformPort}`, authHeader);
+}
+
+/** Client for the compliance service (`/compliance/*`), forwarding the user token. */
+export function complianceClient(authHeader: string): ServiceClient {
+  const { complianceHost, compliancePort } = Config.get('server').services;
+  return makeClient(`http://${complianceHost}:${compliancePort}`, authHeader);
+}
+
+/** Client for the reporting service (`/reports/*`), forwarding the user token. */
+export function reportingClient(authHeader: string): ServiceClient {
+  const { reportingHost, reportingPort } = Config.get('server').services;
+  return makeClient(`http://${reportingHost}:${reportingPort}`, authHeader);
+}
+
+/** Client for the quota service (`/quotas`), forwarding the user token. */
+export function quotaClient(authHeader: string): ServiceClient {
+  const { quotaHost, quotaPort } = Config.get('server').services;
+  return makeClient(`http://${quotaHost}:${quotaPort}`, authHeader);
 }

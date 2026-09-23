@@ -8,8 +8,8 @@
  * completed turn.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -46,6 +46,7 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
   stepCountIs,
 }));
 
+const mockIncCounter = jest.fn<AnyFn>();
 const mockGetServiceAuthHeader = jest.fn<(...a: unknown[]) => string>(() => SERVICE_TOKEN);
 const mockReserveQuota = jest.fn<AnyFn>(() =>
   Promise.resolve({ exceeded: false, quota: { type: 'aiCalls', resetAt: '2026-09-01T00:00:00Z' } }));
@@ -83,7 +84,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
     if (!orgId) { (res as { status: (n: number) => { json: (b: unknown) => unknown } }).status(400).json({ message: 'org required' }); return; }
     await handler({ req, res, ctx, orgId, userId: ctx.identity.userId || '' });
   },
-  incCounter: jest.fn<AnyFn>(),
+  incCounter: mockIncCounter,
   observe: jest.fn<AnyFn>(),
   withSpan: (_name: string, fn: (span: unknown) => Promise<unknown>) => fn({ addEvent: jest.fn<AnyFn>(), setAttributes: jest.fn<AnyFn>() }),
 }));
@@ -93,9 +94,16 @@ jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex:
 jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048 }));
 const buildAgentTools = jest.fn(() => ({}));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools }));
-const pipelineClient = jest.fn((..._args: unknown[]) => ({ get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() }));
-const pluginClient = jest.fn(() => ({ get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() }));
-jest.unstable_mockModule('../src/services/internal-http.js', () => ({ pipelineClient, pluginClient }));
+const stubClient = () => ({ get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() });
+const pipelineClient = jest.fn((..._args: unknown[]) => stubClient());
+const pluginClient = jest.fn((..._args: unknown[]) => stubClient());
+const platformClient = jest.fn((..._args: unknown[]) => stubClient());
+const complianceClient = jest.fn((..._args: unknown[]) => stubClient());
+const reportingClient = jest.fn((..._args: unknown[]) => stubClient());
+const quotaClient = jest.fn((..._args: unknown[]) => stubClient());
+jest.unstable_mockModule('../src/services/internal-http.js', () => ({
+  pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient,
+}));
 const auditRecord = jest.fn<AnyFn>();
 
 ({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
@@ -140,6 +148,11 @@ describe('POST /ask/agent/stream', () => {
     await handler(mockReq({ query: 'help me' }), mockRes());
 
     expect(pipelineClient).toHaveBeenCalledWith('Bearer USER-tok');
+    // EVERY service client the tools use is bound to the CALLER's bearer — the
+    // agent never acts as a service principal against any of them.
+    for (const client of [pluginClient, platformClient, complianceClient, reportingClient, quotaClient]) {
+      expect(client).toHaveBeenCalledWith('Bearer USER-tok');
+    }
     expect(buildAgentTools).toHaveBeenCalled();
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask', orgId: 'org-1', role: 'member' });
     expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
@@ -266,12 +279,50 @@ describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
   it('an in-process generating tool reserves its OWN aiCalls slot (not free on the turn\'s slot)', async () => {
     streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
-    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ chargeAiCall: () => Promise<boolean>; maxOutputTokens: number }])[0];
+    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ chargeAiCall: (t: string) => Promise<boolean>; maxOutputTokens: number }])[0];
     expect(deps.maxOutputTokens).toBe(2048);
     mockReserveQuota.mockClear();
-    await expect(deps.chargeAiCall()).resolves.toBe(true);
+    await expect(deps.chargeAiCall('propose_template')).resolves.toBe(true);
     expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
     mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'aiCalls', resetAt: 'x' } });
-    await expect(deps.chargeAiCall()).resolves.toBe(false);
+    await expect(deps.chargeAiCall('propose_template')).resolves.toBe(false);
+  });
+});
+
+describe('POST /ask/agent/stream — refused-field signal (design rule 10)', () => {
+  it('counts, logs and AUDITS a proposal that named fields outside the allowlist', async () => {
+    // A propose tool that refuses fields does so DURING the turn, so drive the
+    // callback from the tool-building step the way a real tool would.
+    buildAgentTools.mockImplementationOnce(((deps: { onRefusedFields: (t: string, f: string[]) => void }) => {
+      deps.onRefusedFields('propose_org_settings', ['mfaRequired', 'ssoRequired']);
+      return {};
+    }) as never);
+    streamParts = turn(...text('I cannot change that.'));
+    const req = mockReq({ query: 'turn off MFA for everyone' });
+    await handler(req, mockRes());
+
+    // A dedicated counter, so an operator can alert on injection attempts.
+    expect(mockIncCounter).toHaveBeenCalledWith('ask_proposal_refused_fields_total', { tool: 'propose_org_settings' }, 2);
+    // A log line naming the fields.
+    expect(req.context.log).toHaveBeenCalledWith(
+      'WARN',
+      expect.stringContaining('outside the allowlist'),
+      { tool: 'propose_org_settings', fields: ['mfaRequired', 'ssoRequired'] },
+    );
+    // And the turn's audit event, so the attempt is reconstructable later.
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ask.agent.turn',
+        details: expect.objectContaining({ refusedFields: ['mfaRequired', 'ssoRequired'] }),
+      }),
+      'ask',
+    );
+  });
+
+  it('omits refusedFields from the audit when a turn refused nothing', async () => {
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    const details = (auditRecord.mock.calls[0]?.[0] as { details: Record<string, unknown> }).details;
+    expect(details).not.toHaveProperty('refusedFields');
   });
 });
