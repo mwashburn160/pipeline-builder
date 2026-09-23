@@ -66,6 +66,7 @@ const MANIFEST = [
   { id: 'deploy-operations', icon: 'Wrench', title: 'Deploy Operations', description: 'Operator runbook — preflight, secret rotation, backups & DR, teardown', doc: 'deploy-operations.md' },
   { id: 'service-mesh', icon: 'Network', title: 'Service Mesh', description: 'Istio ambient — STRICT mTLS, identity-based L4 authorization, per-route L7 policy', doc: 'service-mesh.md' },
   { id: 'observability-logs', icon: 'FileSearch', title: 'Logs', description: 'Per-organization application logs — search syntax, entry detail, download, masking', doc: 'observability-logs.md' },
+  { id: 'notifications', icon: 'Bell', title: 'Notifications', description: 'Email, Slack, webhooks and the in-app inbox — what an operator enables and what an organization configures', doc: 'notifications.md' },
   { id: 'dora-metrics', icon: 'Gauge', title: 'DORA Metrics', description: 'Deploy frequency, change-failure rate, MTTR, measured lead time, build health', doc: 'dora-metrics.md' },
   { id: 'incidents-webhook', icon: 'Siren', title: 'Incident Webhook', description: 'Point PagerDuty, Datadog or Alertmanager at the platform for automated CFR and MTTR', doc: 'incidents-webhook.md' },
   { id: 'error-handling', icon: 'TriangleAlert', title: 'Error Handling', description: 'The error-to-HTTP convention and the typed AppError catalog', doc: 'error-handling.md' },

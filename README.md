@@ -371,6 +371,7 @@ The full docs hub is **[docs/](docs/README.md)**, grouped by task. For a term, s
 | [Deploy Operations](docs/deploy-operations.md) | Preflight, secret rotation, backups and DR, teardown |
 | [Service Mesh](docs/service-mesh.md) | Istio ambient: STRICT mTLS and identity-based authorization |
 | [Environment Variables](docs/environment-variables.md) | Every configuration variable, by subsystem |
+| [Notifications](docs/notifications.md) | Email, Slack, webhooks and the in-app inbox — what an operator enables, what an org configures |
 | [DORA Metrics](docs/dora-metrics.md) | Deployment frequency, change failure rate, MTTR, measured lead time |
 | [Incident Webhook](docs/incidents-webhook.md) | Connect PagerDuty, Datadog, or Alertmanager for change failure rate and MTTR |
 

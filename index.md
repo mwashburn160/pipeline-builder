@@ -371,6 +371,7 @@ The full docs hub is **[docs/]({{ '/docs/' | relative_url }})**, grouped by task
 | [Deploy Operations]({{ '/docs/deploy-operations.html' | relative_url }}) | Preflight, secret rotation, backups and DR, teardown |
 | [Service Mesh]({{ '/docs/service-mesh.html' | relative_url }}) | Istio ambient: STRICT mTLS and identity-based authorization |
 | [Environment Variables]({{ '/docs/environment-variables.html' | relative_url }}) | Every configuration variable, by subsystem |
+| [Notifications]({{ '/docs/notifications.html' | relative_url }}) | Email, Slack, webhooks and the in-app inbox — what an operator enables, what an org configures |
 | [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, measured lead time |
 | [Incident Webhook]({{ '/docs/incidents-webhook.html' | relative_url }}) | Connect PagerDuty, Datadog, or Alertmanager for change failure rate and MTTR |
 

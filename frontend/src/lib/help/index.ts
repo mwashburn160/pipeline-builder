@@ -4,7 +4,7 @@
 /**
  * The in-app help corpus, loaded ON DEMAND.
  *
- * The twenty-six generated topics are ~1 MB of TypeScript source — `authentication`
+ * The generated topics are ~1 MB of TypeScript source — `authentication`
  * is 4,050 lines, `env-variables` 2,991, `deployment` 2,240. A static barrel put
  * all of it in whatever chunk touched this module — through the provider tree,
  * onto the signed-out landing page.
@@ -41,7 +41,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       gettingStarted, pipelines, plugins, aiGeneration, registry,
       organizationBenefits, onboarding, architectureFlow, developerGuide, developerPortal, pluginPublishing, pluginInstalling,
       templates, metadataKeys, cdkUsage, samples, deployment, cliReference,
-      deployOperations, serviceMesh, observabilityLogs, doraMetrics, incidentsWebhook,
+      deployOperations, serviceMesh, observabilityLogs, notifications, doraMetrics, incidentsWebhook,
       authentication, permissions, compliance, auditEvents,
       billingProviders, billingBundles, billingDiscounts,
       apiReference, envVariables, errorHandling,
@@ -67,6 +67,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       import('./generated/deploy-operations'),
       import('./generated/service-mesh'),
       import('./generated/observability-logs'),
+      import('./generated/notifications'),
       import('./generated/dora-metrics'),
       import('./generated/incidents-webhook'),
       import('./generated/authentication'),
@@ -116,6 +117,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
           deployOperations.deployOperationsTopic,
           serviceMesh.serviceMeshTopic,
           observabilityLogs.observabilityLogsTopic,
+          notifications.notificationsTopic,
           doraMetrics.doraMetricsTopic,
           incidentsWebhook.incidentsWebhookTopic,
         ],

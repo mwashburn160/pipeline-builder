@@ -85,7 +85,8 @@ the links below.
 - **EC2 deployment** — [AWS Deployment: EC2](aws-deployment.md#ec2)
 - **EKS deployment** — [AWS Deployment: EKS](aws-deployment.md#eks), [EKS vs other k8s targets](aws-deployment.md#eks-vs-the-other-k8s-targets)
 - **Egress (external, allow-any)** — [Service Mesh: External egress](service-mesh.md#external-egress)
-- **Email / SES (sending, bounces, sandbox)** — [AWS Deployment: Email (SES)](aws-deployment.md#email-ses), [Env vars: Email](environment-variables.md#email)
+- **Email / SES (sending, bounces, sandbox)** — [Notifications: Platform outbound email](notifications.md#platform-outbound-email), [SES on the AWS targets](notifications.md#ses-on-the-aws-targets), [AWS Deployment: Email (SES)](aws-deployment.md#email-ses), [Env vars: Email](environment-variables.md#email)
+- **`EMAIL_ENABLED` is off (invitations, verification, submissions silently do nothing)** — [Notifications: Symptoms](notifications.md#symptoms)
 - **Event reporting / `setup-events` (EventBridge → SQS → Lambda)** — [Onboarding: Set up event reporting](onboarding.md#step-6--set-up-event-reporting-aws-targets), [AWS: EventBridge Reporting](aws-deployment.md#3-deploy-eventbridge-reporting-infrastructure)
 - **Encryption (per-team secret, KMS)** — [Metadata Keys: Encryption](metadata-keys.md#encryption), [Env vars: Multi-team secret encryption](environment-variables.md#multi-team-secret-encryption)
 - **Environment variables (full reference)** — [Environment Variables](environment-variables.md)
@@ -143,7 +144,8 @@ the links below.
 ## N
 
 - **Network / VPC configuration** — [CDK: VPC and Network](cdk-usage.md#vpc-and-network-configuration), [Metadata Keys: Network](metadata-keys.md#network-configuration)
-- **Notifications (Slack, email, alerts)** — [Compliance: Notifications](compliance.md#notifications), [Notification Plugins](plugins/notification.md), [Developer Guide: Slack Notifications](developer-guide.md#adding-slack-notifications)
+- **Notifications (email, Slack, webhooks, in-app)** — [Notifications](notifications.md), [Platform: outbound email](notifications.md#platform-outbound-email), [Alertmanager and ops-team Slack](notifications.md#platform-alertmanager-and-ops-team-slack), [Alert destinations](notifications.md#organization-alert-destinations), [Symptoms](notifications.md#symptoms), [Compliance: Notifications](compliance.md#notifications), [Notification Plugins](plugins/notification.md), [Developer Guide: Slack Notifications](developer-guide.md#adding-slack-notifications)
+- **Notification preferences (per user, ecosystem email opt-outs)** — [Notifications: Per-user preferences](notifications.md#per-user-preferences)
 
 ## O
 
@@ -190,7 +192,8 @@ the links below.
 - **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service-account keys](onboarding.md#step-5--store-the-service-account-keys-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Secret naming convention (`pipeline-builder/{orgId}/{name}`)** — [Plugins: Naming Convention](plugins/README.md#naming-convention)
 - **Secrets — rotation runbook** — [Secret Rotation](runbooks/secret-rotation.md) (per-secret: JWT, refresh, at-rest master key + re-encryption tool, alert relay, registry signing key, plugin-signing key), [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag) (databases, Mongo keyfile)
-- **Slack alert delivery (ops-team channels)** — [Env vars: Ops-team Slack alert delivery](environment-variables.md#ops-team-slack-alert-delivery) (`SLACK_CRITICAL_WEBHOOK_URL` / `SLACK_WARNING_WEBHOOK_URL`; the deploy refuses to start on a placeholder)
+- **Slack alert delivery (ops-team channels)** — [Notifications: Alertmanager and ops-team Slack](notifications.md#platform-alertmanager-and-ops-team-slack), [Env vars: Ops-team Slack alert delivery](environment-variables.md#ops-team-slack-alert-delivery) (`SLACK_CRITICAL_WEBHOOK_URL` / `SLACK_WARNING_WEBHOOK_URL`; the deploy refuses to start on a placeholder)
+- **Security notifications for plugins (N30 / N31, external address, webhook)** — [Notifications: Plugin security notifications](notifications.md#organization-plugin-security-notifications)
 - **Security plugins (SAST, SCA, secret detection)** — [Security Plugins](plugins/security.md)
 - **Self-references (pipeline.json cross-refs)** — [Templates: pipeline-level self-references](templates.md#example-pipeline-level-self-references)
 - **Service mesh (Istio ambient, mTLS, AuthZ)** — [Service Mesh](service-mesh.md), also [AWS](aws-deployment.md#service-mesh-istio-ambient) / [Ops](deploy-operations.md#service-mesh-istio-ambient)
@@ -249,6 +252,7 @@ the links below.
 | [environment-variables](environment-variables.md) | Every env var by subsystem |
 | [error-handling](error-handling.md) | Typed `AppError` convention |
 | [metadata-keys](metadata-keys.md) | All `aws:cdk:*` and step/pipeline metadata keys |
+| [notifications](notifications.md) | Email, Slack, webhooks and the in-app inbox — operator switches, org settings, symptom table |
 | [onboarding](onboarding.md) | New-org walkthrough: initial login → org → members → access key → store-token → setup-events → first pipeline |
 | [organization-benefits](organization-benefits.md) | Value story, orgs/teams/billing, impact by role |
 | [permissions](permissions.md) | RBAC model, permission catalog, enforcement, sessions |
