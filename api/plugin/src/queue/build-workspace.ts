@@ -18,6 +18,7 @@ import { UnrecoverableError } from 'bullmq';
 import { v7 as uuid } from 'uuid';
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { BuildRequest } from '../helpers/docker-build.js';
+import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { extractZipToDir } from '../helpers/zip-extract.js';
 import { deletePluginArtifact, getPluginArtifactToFile } from '../services/plugin-artifact-storage.js';
 
@@ -43,6 +44,32 @@ export function cleanupContextDir(dir: string): void {
 export function cleanupBuildArtifacts(buildRequest: Pick<BuildRequest, 'contextDir' | 's3Key'>): void {
   cleanupContextDir(buildRequest.contextDir);
   void deletePluginArtifact(buildRequest.s3Key);
+}
+
+/**
+ * Record on the job that its build context has been cleaned, so the failed-build
+ * list can tell a retryable failure from one that can never be retried.
+ *
+ * Without it the queue UI offered Retry on every failed row, including the ones
+ * {@link cleanupBuildArtifacts} had just stripped — the re-enqueued job then died
+ * in {@link ensureLocalBuildContext} with "Build context missing", which reads
+ * like data loss rather than "this one needs re-uploading".
+ *
+ * Only worth setting where the job STAYS in the failed set; the DLQ purge paths
+ * remove the job outright, so nobody can see the flag. Best-effort for the same
+ * reason the deletes above are: losing the marker costs a misleading button, not
+ * correctness.
+ */
+export async function markBuildContextCleaned(job: {
+  id?: string;
+  data: PluginBuildJobData;
+  updateData: (data: PluginBuildJobData) => Promise<void>;
+}): Promise<void> {
+  try {
+    await job.updateData({ ...job.data, contextCleaned: true });
+  } catch (err) {
+    logger.debug('Could not mark build context cleaned', { jobId: job.id, error: errorMessage(err) });
+  }
 }
 
 /**

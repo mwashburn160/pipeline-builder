@@ -233,6 +233,10 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       attemptsMade: job.attemptsMade,
       maxAttempts: job.opts?.attempts ?? null,
       failedAt: isoOrNull(job.finishedOn),
+      // False once the terminal failure path deleted the build context. Retry
+      // would re-enqueue a job that dies immediately in ensureLocalBuildContext
+      // with "Build context missing", so the UI offers re-upload instead.
+      contextAvailable: job.data?.contextCleaned !== true,
     }));
 
     return sendSuccess(res, 200, { jobs, pagination });

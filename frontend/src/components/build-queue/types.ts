@@ -10,6 +10,14 @@ export interface FailedJob {
   attemptsMade?: number;
   maxAttempts?: number;
   failedAt?: string;
+  /**
+   * False once the build context has been deleted, which the terminal failure
+   * path does. Such a build can never be retried — the re-enqueued job dies
+   * immediately with "Build context missing" — so the row offers re-upload
+   * instead of a button that only produces an error that reads like data loss.
+   * Absent on the DLQ view, where replay sources differently.
+   */
+  contextAvailable?: boolean;
 }
 
 export interface DlqJob extends FailedJob {
@@ -19,5 +27,3 @@ export interface DlqJob extends FailedJob {
   createdAt?: string;
 }
 
-export type SortField = 'pluginName' | 'attemptsMade' | 'failedAt' | 'error';
-export type SortDir = 'asc' | 'desc';

@@ -17,7 +17,7 @@ import type { Job } from 'bullmq';
 
 import { classifyFailure, isFinalAttempt, recordBuildEvent, summarizeBuildFailure } from './build-failures.js';
 import { releasePluginQuota } from './build-quota.js';
-import { cleanupBuildArtifacts } from './build-workspace.js';
+import { cleanupBuildArtifacts, markBuildContextCleaned } from './build-workspace.js';
 import { dlqJobId, getBuildCfg, getDeadLetterQueue, totalAttemptBudget } from './connections.js';
 import { emitTerminalBuildFailure, enforceDlqMaxSize } from './plugin-build-dlq.js';
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
@@ -129,6 +129,9 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
       // failure would double-count.
       if (category === 'permanent' || totalAttempts >= budget) {
         cleanupBuildArtifacts(buildRequest);
+        // The job stays in the failed set, so tell the queue UI its context is
+        // gone — Retry on this row can only ever fail.
+        await markBuildContextCleaned(job);
         releasePluginQuota(job, quotaService);
 
         // Record the terminal `failed` build event HERE (not on every attempt): a
@@ -221,6 +224,9 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
           // the DLQ's own give-up path does.
           logger.warn('Failed to move job to DLQ — abandoning the build', { jobId: job.id, error: errorMessage(dlqErr) });
           cleanupBuildArtifacts(buildRequest);
+          // Not awaited: this is a non-async .catch, and the marker is
+          // best-effort like the deletes it accompanies.
+          void markBuildContextCleaned(job);
           releasePluginQuota(job, quotaService);
           emitTerminalBuildFailure(job, error.message);
         });

@@ -167,6 +167,13 @@ export interface PluginBuildJobData {
    */
   quotaReleased?: boolean;
   /**
+   * Set once the build context (local scratch dir + staged object) has been
+   * deleted, which the terminal failure path does. A job carrying this can never
+   * be retried — `ensureLocalBuildContext` has nothing left to rehydrate from —
+   * so the queue UI reads it to stop offering Retry on a row that can only fail.
+   */
+  contextCleaned?: boolean;
+  /**
    * ISO `resetAt` of the quota period this job's slot was reserved in (captured
    * at route reserve time, or at re-reserve time for a DLQ replay / failed
    * retry). Passed as the conditional-decrement snapshot when the slot is later

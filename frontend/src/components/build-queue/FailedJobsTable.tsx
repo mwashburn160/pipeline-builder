@@ -5,12 +5,11 @@ import { useMemo, useState } from 'react';
 import { Inbox } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { SearchInput } from '@/components/ui/SearchInput';
-import { SortHeader } from './SortHeader';
-import type { DlqJob, FailedJob, SortDir, SortField } from './types';
+import type { DlqJob, FailedJob } from './types';
 import { buildFailureInfo } from '@/lib/plugin-vulns';
 
 /** A failed job's error: a scan-gate refusal gets its plain-words title ahead of the raw text. */
@@ -59,21 +58,10 @@ export function FailedJobsTable({
   jobs, pagination, onPageChange, onPageSizeChange, loading, title, showCategory,
   onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle,
 }: FailedJobsTableProps) {
-  const [sortBy, setSortBy] = useState<SortField>('failedAt');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
   // Page-local triage: plugin-name search + a failure-category quick-chip
   // (DLQ tables only), over the rows on screen.
   const [nameQuery, setNameQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
-
-  const handleSort = (field: SortField) => {
-    if (sortBy === field) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortBy(field);
-      setSortDir('desc');
-    }
-  };
 
   // Distinct failure categories present in the DLQ rows, for the quick-chips.
   const categories = useMemo(
@@ -90,30 +78,96 @@ export function FailedJobsTable({
     });
   }, [jobs, nameQuery, showCategory, categoryFilter]);
 
-  const sorted = useMemo(() => {
-    const copy = [...filtered];
-    copy.sort((a, b) => {
-      const av = a[sortBy] ?? '';
-      const bv = b[sortBy] ?? '';
-      if (typeof av === 'number' && typeof bv === 'number') {
-        return sortDir === 'asc' ? av - bv : bv - av;
-      }
-      const cmp = String(av).localeCompare(String(bv));
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return copy;
-  }, [filtered, sortBy, sortDir]);
+  // Sorting stays CLIENT-side (DataTable's default): the server hands back one
+  // newest-first page and these headers reorder THAT page, which is what the
+  // toolbar copy promises. `serverSort` would claim to order the whole set.
+  const columns = useMemo<Column<FailedJob>[]>(() => {
+    const cols: Column<FailedJob>[] = [
+      {
+        id: 'id',
+        header: 'Job ID',
+        cellClassName: 'font-mono text-xs text-fg-muted whitespace-nowrap',
+        render: (job) => job.id?.slice(0, 12),
+      },
+      {
+        id: 'pluginName',
+        header: 'Plugin',
+        cellClassName: 'text-fg font-medium',
+        sortValue: (job) => job.pluginName ?? '',
+        render: (job) => job.pluginName || '—',
+      },
+    ];
 
-  if (pagination.total === 0 && !loading) {
-    return (
-      <Card className="p-8 text-center">
-        <Inbox className="w-8 h-8 text-fg-subtle mx-auto mb-2" />
-        <p className="text-sm text-fg-muted">No {title.toLowerCase()} found.</p>
-      </Card>
+    if (showCategory) {
+      cols.push({
+        id: 'failureCategory',
+        header: 'Category',
+        render: (job) => (
+          <Badge color={(job as DlqJob).failureCategory === 'permanent' ? 'red' : 'yellow'}>
+            {(job as DlqJob).failureCategory || '—'}
+          </Badge>
+        ),
+      });
+    }
+
+    cols.push(
+      {
+        id: 'attemptsMade',
+        header: 'Attempts',
+        cellClassName: 'text-fg-muted tabular-nums',
+        sortValue: (job) => job.attemptsMade ?? 0,
+        render: (job) => `${job.attemptsMade ?? '—'}${job.maxAttempts ? ` / ${job.maxAttempts}` : ''}`,
+      },
+      {
+        id: 'failedAt',
+        header: 'Failed at',
+        cellClassName: 'text-fg-muted whitespace-nowrap',
+        sortValue: (job) => job.failedAt ?? '',
+        render: (job) => (job.failedAt ? <RelativeTime value={job.failedAt} /> : '—'),
+      },
+      {
+        id: 'error',
+        header: 'Error',
+        cellClassName: 'text-danger text-xs max-w-xs',
+        sortValue: (job) => job.error ?? '',
+        render: (job) => <FailureCell error={job.error} />,
+      },
     );
-  }
 
-  const colCount = 5 + (showCategory ? 1 : 0) + (onAction ? 1 : 0);
+    if (onAction) {
+      cols.push({
+        id: 'actions',
+        header: 'Actions',
+        headerClassName: 'text-right',
+        cellClassName: 'text-right whitespace-nowrap',
+        locked: true,
+        render: (job) => (job.contextAvailable === false ? (
+          // Explicitly false only: the DLQ view omits the field, and an absent
+          // value must not take the action away there.
+          <span
+            className="text-xs text-fg-muted"
+            title="The build context was released when this build gave up, so it cannot be retried. Upload the plugin again to rebuild it."
+          >
+            Re-upload to rebuild
+          </span>
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onAction(job.id)}
+            disabled={actionPendingIds?.has(job.id)}
+            title={actionTitle}
+          >
+            {actionPendingIds?.has(job.id) ? (actionPendingLabel ?? 'Working…') : (actionLabel ?? 'Retry')}
+          </Button>
+        )),
+      });
+    }
+
+    return cols;
+  }, [showCategory, onAction, actionPendingIds, actionLabel, actionPendingLabel, actionTitle]);
+
+  const filterActive = nameQuery.trim() !== '' || (showCategory && categoryFilter !== null);
 
   return (
     <div>
@@ -160,75 +214,26 @@ export function FailedJobsTable({
           </div>
         )}
       </div>
-      <Card className={`overflow-hidden transition-opacity ${loading ? 'opacity-60' : ''}`} aria-busy={loading || undefined}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-surface-muted">
-                <th scope="col" className="px-4 py-2.5 text-left font-medium text-fg-muted">Job ID</th>
-                <SortHeader label="Plugin" field="pluginName" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                {showCategory && (
-                  <th scope="col" className="px-4 py-2.5 text-left font-medium text-fg-muted">Category</th>
-                )}
-                <SortHeader label="Attempts" field="attemptsMade" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Failed at" field="failedAt" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                <SortHeader label="Error" field="error" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
-                {onAction && (
-                  <th scope="col" className="px-4 py-2.5 text-right font-medium text-fg-muted">Actions</th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-default">
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={colCount} className="px-4 py-8 text-center text-sm text-fg-muted">
-                    No jobs on this page match your filter.
-                  </td>
-                </tr>
-              )}
-              {sorted.map((job) => (
-                <tr key={job.id} className="hover:bg-surface-muted/30 transition-colors">
-                  <td className="px-4 py-2.5 font-mono text-xs text-fg-muted whitespace-nowrap">
-                    {job.id?.slice(0, 12)}
-                  </td>
-                  <td className="px-4 py-2.5 text-fg font-medium">
-                    {job.pluginName || '—'}
-                  </td>
-                  {showCategory && (
-                    <td className="px-4 py-2.5">
-                      <Badge color={(job as DlqJob).failureCategory === 'permanent' ? 'red' : 'yellow'}>
-                        {(job as DlqJob).failureCategory || '—'}
-                      </Badge>
-                    </td>
-                  )}
-                  <td className="px-4 py-2.5 text-fg-muted tabular-nums">
-                    {job.attemptsMade ?? '—'}{job.maxAttempts ? ` / ${job.maxAttempts}` : ''}
-                  </td>
-                  <td className="px-4 py-2.5 text-fg-muted whitespace-nowrap">
-                    {job.failedAt ? <RelativeTime value={job.failedAt} /> : '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-danger text-xs max-w-xs">
-                    <FailureCell error={job.error} />
-                  </td>
-                  {onAction && (
-                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => onAction(job.id)}
-                        disabled={actionPendingIds?.has(job.id)}
-                        title={actionTitle}
-                      >
-                        {actionPendingIds?.has(job.id) ? (actionPendingLabel ?? 'Working…') : (actionLabel ?? 'Retry')}
-                      </Button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {/* Dim, don't blank, while a LATER page is in flight — the rows on screen
+          stay readable. Skeletons are for the first load, when there is nothing
+          to keep. */}
+      <div className={`transition-opacity ${loading && jobs.length > 0 ? 'opacity-60' : ''}`} aria-busy={loading || undefined}>
+        <DataTable<FailedJob>
+          data={filtered}
+          columns={columns}
+          isLoading={!!loading && jobs.length === 0}
+          getRowKey={(job) => job.id}
+          defaultSortColumn="failedAt"
+          defaultSortDirection="desc"
+          emptyState={{
+            icon: Inbox,
+            title: filterActive ? 'No matches on this page' : `No ${title.toLowerCase()} found`,
+            description: filterActive
+              ? 'The filter applies to the jobs on this page only — clear it, or page through the rest.'
+              : 'Nothing has failed here.',
+          }}
+        />
+      </div>
       {pagination.total > pagination.limit && (
         <div className="mt-3">
           <Pagination
@@ -242,4 +247,3 @@ export function FailedJobsTable({
     </div>
   );
 }
-
