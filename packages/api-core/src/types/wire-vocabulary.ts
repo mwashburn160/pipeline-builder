@@ -8,8 +8,8 @@
  *
  * Dependency-free on purpose: the frontend imports these types, so a value added
  * here reaches the UI's exhaustive label maps as a compile error instead of a
- * silently unhandled string. The Postgres CHECK constraints in
- * deploy/*/postgres-init.sql mirror the ones stored in SQL.
+ * silently unhandled string. The Postgres CHECK constraints in each deploy
+ * target's `postgres-init.sql` mirror the ones stored in SQL.
  */
 
 // -----------------------------------------------------------------------------
