@@ -14,6 +14,8 @@ jobs:
     permissions:
       contents: read
       packages: read
+    env:
+      RUN_MONGO_INTEGRATION: "true"
     steps:
       - name: Disable Nx telemetry and daemon
         id: disable_nx_telemetry_and_daemon
@@ -45,7 +47,6 @@ jobs:
         id: build_affected_projects
         env:
           PUSH_BEFORE: ${{ github.event.before }}
-          RUN_MONGO_INTEGRATION: "true"
         run: 'case "$GITHUB_EVENT_NAME" in pull_request) BASE="origin/$GITHUB_BASE_REF" ;; push) BASE="$PUSH_BEFORE" ;; *) BASE="" ;; esac; case "$BASE" in 0000000000000000000000000000000000000000) BASE="" ;; esac; if [ -n "$BASE" ] && ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then BASE=""; fi; echo "diff base: ${BASE:-<none: checking everything>}"; if [ -n "$BASE" ]; then pnpm nx affected -t build --base "$BASE" --head HEAD --verbose; else pnpm nx run-many -t build --all --verbose; fi'
   deploy_contracts:
     name: deploy contracts

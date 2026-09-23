@@ -243,6 +243,13 @@ export class Workflow extends Component {
             name: 'build',
             needs: ['init'],
             runsOn: ['ubuntu-latest'],
+            // JOB-level, not per step: the Mongo integration gate FAILS on a GitHub
+            // Actions runner when this is unset rather than skipping silently
+            // (platform/test/helpers/integration-gate.ts), so ANY step here that
+            // reaches `nx build`/`nx test` must carry it. Setting it once on the job
+            // means a step added later cannot miss it — which is precisely the
+            // "a new workflow forgets it" failure the gate was written to catch.
+            env: { RUN_MONGO_INTEGRATION: 'true' },
             permissions: {
                 actions: JobPermission.READ,
                 contents: JobPermission.WRITE,
@@ -269,16 +276,7 @@ export class Workflow extends Component {
                 {
                     name: 'Run build target',
                     run: 'pnpm nx affected --target build --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
-                    env: {
-                        GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}',
-                        // The `build` target runs each project's tests, so the DB-backed
-                        // suites are in scope here exactly as in the `test` workflow. The
-                        // gate (platform/test/helpers/integration-gate.ts) FAILS on a
-                        // GitHub Actions runner when this is unset rather than skipping
-                        // silently, so every Actions workflow that compiles or tests must
-                        // set it — otherwise the release path dies on a green-looking hole.
-                        RUN_MONGO_INTEGRATION: 'true',
-                    },
+                    env: { GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}' },
                 },
                 {
                     // Release gate: run the affected projects' tests against the
@@ -291,12 +289,7 @@ export class Workflow extends Component {
                     // workflow is the per-PR merge gate; this is the release-path gate.
                     name: 'Run test target',
                     run: 'pnpm nx affected --target test --base ${{ env.NX_BASE }} --head ${{ env.NX_HEAD }} --verbose',
-                    env: {
-                        GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}',
-                        // Same reason as the build step above: the release gate must run
-                        // the integration tier, not skip it.
-                        RUN_MONGO_INTEGRATION: 'true',
-                    },
+                    env: { GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}' },
                 },
                 {
                     name: 'Semantic version',
@@ -420,6 +413,13 @@ export class Workflow extends Component {
             name: 'publish image',
             needs: ['init', 'build'],
             runsOn: ['ubuntu-latest'],
+            // `nx run <project>:docker:publish` resolves that project's task graph,
+            // which reaches `build` — and `build` runs each project's tests. So this
+            // job DOES execute platform's Mongo integration tier even though it looks
+            // like a pure packaging step, and without this it dies on the gate that
+            // refuses to skip silently on a runner. Job-level so every step here has
+            // it, including `docker:verify` and anything added later.
+            env: { RUN_MONGO_INTEGRATION: 'true' },
             permissions: {
                 actions: JobPermission.READ,
                 contents: JobPermission.WRITE,
@@ -819,6 +819,13 @@ export class Workflow extends Component {
         return {
             name: 'build (compile + test + lint)',
             runsOn: ['ubuntu-latest'],
+            // JOB-level, not per step: the Mongo integration gate FAILS on a GitHub
+            // Actions runner when this is unset rather than skipping silently
+            // (platform/test/helpers/integration-gate.ts), so ANY step here that
+            // reaches `nx build`/`nx test` must carry it. Setting it once on the job
+            // means a step added later cannot miss it — which is precisely the
+            // "a new workflow forgets it" failure the gate was written to catch.
+            env: { RUN_MONGO_INTEGRATION: 'true' },
             permissions: {
                 contents: JobPermission.READ,
                 packages: JobPermission.READ,
@@ -834,10 +841,7 @@ export class Workflow extends Component {
                     // them; local `pnpm test` stays fast (env unset). The pipeline-manager
                     // integration test needs a LIVE platform (PLATFORM_URL) and correctly
                     // stays skipped here.
-                    env: {
-                        ...Workflow.DIFF_BASE_ENV,
-                        RUN_MONGO_INTEGRATION: 'true',
-                    },
+                    env: { ...Workflow.DIFF_BASE_ENV },
                 },
             ],
         };
