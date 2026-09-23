@@ -206,6 +206,7 @@ jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () =
   getAvailableProviders: () => [],
   generatePluginConfig: jest.fn<AnyFn>(),
   streamPluginConfig: jest.fn<AnyFn>(),
+  toPluginGenerationResult: jest.fn<AnyFn>(),
 }));
 
 await import('../src/index.js');

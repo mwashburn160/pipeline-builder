@@ -16,7 +16,6 @@ export {
   CacheService,
 } from './cache-service.js';
 export {
-  closeLeaderLock,
   withLeaderLock,
   createEnvRedisLock,
   type LockRedis,
@@ -102,11 +101,9 @@ export {
   type QuotaService,
 } from './quota.js';
 export {
-  isRemoteAuditAction,
   createRemoteAuditClient,
   wireAuthzDenialAuditor,
   recordAudit,
-  REMOTE_AUDIT_ACTIONS,
   type RemoteAuditEvent,
   type RemoteAuditClient,
 } from './remote-audit-client.js';

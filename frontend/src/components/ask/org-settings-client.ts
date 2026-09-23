@@ -72,10 +72,6 @@ const SURFACE_CLIENTS: Record<OrgSettingSurface, SurfaceClient> = {
 };
 
 /** The surface a planned request belongs to, and how to reach it. */
-export function surfaceClient(surface: OrgSettingSurface): SurfaceClient | undefined {
-  return SURFACE_CLIENTS[surface];
-}
-
 /**
  * The org's CURRENT values for the given proposal keys, keyed by proposal key.
  *

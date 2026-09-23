@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Select } from '@/components/ui/Select';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Loader2, Eye, CheckCircle, XCircle, AlertTriangle, Lock } from 'lucide-react';
+import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Eye, CheckCircle, XCircle, AlertTriangle, Lock } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination, type PaginationState } from '@/components/ui/Pagination';
 import { TextEmptyState } from '@/components/ui/EmptyState';
@@ -18,6 +18,8 @@ import type { ComplianceSetFlag } from '@/lib/feature-flags';
 import { formatError } from '@/lib/constants';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
+import { LoadingSpinner } from '@/components/ui/Loading';
+import { StatusPill } from '@/components/ui/StatusPill';
 
 interface SubscriptionWithRule extends ComplianceRuleSubscription {
   rule: ComplianceRule | null;
@@ -139,6 +141,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
     else void fetchCatalog();
     // Invalidate any in-flight fetch on unmount / tab switch so a late response
     // can't clobber the newly-selected tab's state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the cleanup WRITES the generation counter; it reads no value captured at effect time
     return () => { reqRef.current++; };
   }, [tab, fetchSubscriptions, fetchCatalog]);
 
@@ -248,7 +251,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-brand" />
+          <LoadingSpinner label="Loading catalog" />
         </div>
       ) : tab === 'subscriptions' && (
         <>
@@ -285,12 +288,12 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                         )}
                       </div>
                       {sub.rule && (
-                        <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[sub.rule.severity] || SEVERITY_COLORS.warning}`}>
+                        <StatusPill className={SEVERITY_COLORS[sub.rule.severity] || SEVERITY_COLORS.warning}>
                           {sub.rule.severity}
-                        </span>
+                        </StatusPill>
                       )}
                       {sub.pinnedVersion && (
-                        <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-full px-2 py-0.5">pinned</span>
+                        <StatusPill className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400">pinned</StatusPill>
                       )}
                     </div>
                     <div className="flex items-center gap-1">
@@ -442,8 +445,8 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                         <div className="text-sm font-medium text-fg">{rule.name}</div>
                         {rule.description && <div className="text-xs text-fg-muted truncate max-w-md">{rule.description}</div>}
                       </div>
-                      <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>
-                      <span className="text-xs bg-surface-muted text-fg-muted rounded-full px-2 py-0.5">{rule.target}</span>
+                      <StatusPill className={SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}>{rule.severity}</StatusPill>
+                      <StatusPill className="bg-surface-muted text-fg-muted">{rule.target}</StatusPill>
                       {setMeta && (
                         <span className="inline-flex items-center gap-1 text-xs font-medium rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5">
                           <Lock className="h-3 w-3" aria-hidden="true" /> {setMeta.label}

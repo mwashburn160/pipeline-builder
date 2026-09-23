@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { formatDateLong } from '@/lib/format';
 import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 
 /** Where enrolment lives. Both anchors exist on the security tab. */
@@ -52,7 +53,7 @@ export function MfaRequiredBanner() {
 
   const days = policy.graceUntil ? daysUntil(policy.graceUntil) : 0;
   const deadline = policy.graceUntil
-    ? new Date(policy.graceUntil).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    ? formatDateLong(policy.graceUntil)
     : null;
 
   // An approved MFA reset: the org still requires MFA, but not of this person

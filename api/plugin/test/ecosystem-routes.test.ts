@@ -47,8 +47,9 @@ const consoleSvc = svc([
 ] as const);
 const decisions = svc(['approve', 'reject', 'secondApprove'] as const);
 const advisoriesSvc = svc([
-  'consoleAdvisories', 'createModeratorDraft', 'deprecateOwnListedVersion', 'editDraft', 'publisherAdvisories', 'setListedVersionDeprecation', 'withdrawAdvisory',
+  'consoleAdvisories', 'createModeratorDraft', 'editDraft', 'publisherAdvisories', 'withdrawAdvisory',
 ] as const);
+const deprecationSvc = svc(['deprecateOwnListedVersion', 'setListedVersionDeprecation'] as const);
 const requestById = jest.fn(async (): Promise<unknown> => null);
 const insightsSvc = svc(['publisherInsights'] as const);
 
@@ -57,6 +58,7 @@ jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => reqs);
 jest.unstable_mockModule('../src/services/ecosystem/console.js', () => consoleSvc);
 jest.unstable_mockModule('../src/services/ecosystem/decisions.js', () => decisions);
 jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => advisoriesSvc);
+jest.unstable_mockModule('../src/services/ecosystem/version-deprecation.js', () => deprecationSvc);
 jest.unstable_mockModule('../src/services/ecosystem/insights.js', () => insightsSvc);
 jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({ requests: { byId: requestById } }));
 jest.unstable_mockModule('../src/services/ecosystem/review-moderation.js', () =>
@@ -105,7 +107,7 @@ describe('tenant publisher routes', () => {
     ['get', '/publisher/listings', publishers.ownListings, 200],
     ['get', '/publisher/insights', insightsSvc.publisherInsights, 200],
     ['post', '/publisher/listings/:listingId/pause', publishers.pause, 200],
-    ['post', '/publisher/listings/:listingId/deprecate', advisoriesSvc.deprecateOwnListedVersion, 200],
+    ['post', '/publisher/listings/:listingId/deprecate', deprecationSvc.deprecateOwnListedVersion, 200],
     ['get', '/publisher/advisories', advisoriesSvc.publisherAdvisories, 200],
     ['get', '/publisher/incoming-transfers', reqs.incomingTransfers, 200],
     ['get', '/publish-requests', reqs.ownRequests, 200],
@@ -150,7 +152,7 @@ describe('Ecosystem console routes', () => {
     ['post', '/listings/:id/state', consoleSvc.setListingState],
     ['post', '/listings/:id/versions/:version/yank', consoleSvc.yankVersion],
     ['post', '/listings/:id/versions/:version/unyank', consoleSvc.unyankVersion],
-    ['post', '/listings/:id/versions/:version/deprecate', advisoriesSvc.setListedVersionDeprecation],
+    ['post', '/listings/:id/versions/:version/deprecate', deprecationSvc.setListedVersionDeprecation],
     ['get', '/advisories', advisoriesSvc.consoleAdvisories],
     ['patch', '/advisories/:id', advisoriesSvc.editDraft],
     ['post', '/advisories/:id/withdraw', advisoriesSvc.withdrawAdvisory],
@@ -177,7 +179,7 @@ describe('Ecosystem console routes', () => {
     expect(res.statusCode).toBe(201);
     expect(advisoriesSvc.createModeratorDraft).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-acme' }), { listingId: 'l-1', severity: 'high' });
     await call(consoleRouter, 'post', '/listings/:id/versions/:version/deprecate', { params: { id: 'l-1', version: '1.0.0' }, body: { deprecated: false } });
-    expect(advisoriesSvc.setListedVersionDeprecation).toHaveBeenCalledWith(expect.anything(), 'l-1', '1.0.0', { deprecated: false });
+    expect(deprecationSvc.setListedVersionDeprecation).toHaveBeenCalledWith(expect.anything(), 'l-1', '1.0.0', { deprecated: false });
   });
 
   it('approves, second-approves and rejects, answering with the queue item', async () => {

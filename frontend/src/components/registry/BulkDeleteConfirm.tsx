@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { api } from '@/lib/api';
+import { mapInWaves, PARALLEL_MANIFEST_DELETES, PARALLEL_MANIFEST_READS } from '@/lib/registry-scan';
 
 interface BulkDeleteConfirmProps {
   repo: string;
@@ -21,9 +22,6 @@ interface BulkDeleteConfirmProps {
   onDone: (summary: { succeeded: number; failed: number }) => void;
 }
 
-const PARALLEL_DELETE = 4;
-/** Concurrency cap for the pre-flight digest scan. */
-const PARALLEL_DIGEST_SCAN = 8;
 /** Above this many tags, require a type-to-confirm gate before delete. */
 const TYPE_CONFIRM_THRESHOLD = 5;
 
@@ -39,7 +37,7 @@ const TYPE_CONFIRM_THRESHOLD = 5;
  * point at the same digest, and that's the figure that meaningfully
  * describes what's about to be removed from the registry.
  *
- * On submit, deletes are dispatched in parallel waves of 4; each
+ * On submit, deletes are dispatched in bounded parallel waves; each
  * completion fires onProgress so the parent can update state incrementally.
  */
 export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: BulkDeleteConfirmProps) {
@@ -75,11 +73,8 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
     };
 
     void (async () => {
-      for (let i = 0; i < refs.length; i += PARALLEL_DIGEST_SCAN) {
-        if (cancelled) return;
-        await Promise.all(refs.slice(i, i + PARALLEL_DIGEST_SCAN).map(scanOne));
-      }
-      if (!cancelled) setDistinctDigests(seen.size);
+      const completed = await mapInWaves(refs, PARALLEL_MANIFEST_READS, scanOne, () => cancelled);
+      if (completed) setDistinctDigests(seen.size);
     })();
 
     return () => { cancelled = true; };
@@ -104,10 +99,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
       setProgress({ done, succeeded, failed });
     };
 
-    for (let i = 0; i < refs.length; i += PARALLEL_DELETE) {
-      const batch = refs.slice(i, i + PARALLEL_DELETE);
-      await Promise.all(batch.map(deleteOne));
-    }
+    await mapInWaves(refs, PARALLEL_MANIFEST_DELETES, deleteOne);
 
     // Keep the delete button disabled after the batch completes — re-clicking
     // would re-issue deletes against already-removed refs.

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, verifyServicePrincipal, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
+import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -11,17 +11,18 @@ import mongoose from 'mongoose';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
 import { config } from './config/index.js';
-import { SCIM_RATE_LIMIT_MAX, SCIM_RATE_LIMIT_WINDOW_MS } from './constants/scim.js';
 import { notFoundHandler, errorHandler } from './middleware/index.js';
-import { extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax, isSignOut } from './middleware/rate-limit-keys.js';
-import { createLimiter } from './middleware/rate-limiter.js';
+import {
+  alertWebhookLimiter, authLimiter, generalLimiter, observabilityLimiter, scimLimiter,
+} from './middleware/limiters.js';
+import { peekJwtClaims } from './middleware/rate-limit-keys.js';
 import {
   isWriteBlockedByImpersonation,
   IMPERSONATION_READ_ONLY_MESSAGE,
   IMPERSONATION_READ_ONLY_CODE,
 } from './middleware/require-write-access.js';
 import jwksRoutes from './routes/jwks.js';
-import { ALERT_WEBHOOK_PATH, SCIM_PATH, mountApiRoutes } from './routes/mount.js';
+import { mountApiRoutes } from './routes/mount.js';
 
 const logger = createLogger('platform-api');
 
@@ -80,112 +81,6 @@ const httpRequestsTotal = new Counter({
 });
 
 /**
- * The Alertmanager relay webhook. Machine-to-machine, and unauthenticated at
- * middleware time (it checks a per-instance bearer inside the handler), so
- * without this exemption it lands in the ANONYMOUS bucket of the user-sized
- * limiters and an alert storm gets 429'd — which Alertmanager treats as a
- * failed notification, silently delaying alerts. It gets `alertWebhookLimiter`
- * instead, sized for burst fan-out. (The path itself is declared next to the
- * mount that uses it — `routes/mount.ts`.)
- */
-function isAlertWebhook(req: Request): boolean {
-  return req.method === 'POST' && req.path === ALERT_WEBHOOK_PATH;
-}
-
-/**
- * The device-authorization poll. RFC 8628 has the waiting client poll every few
- * seconds until the person approves in a browser — ~120 requests over one
- * sign-in, against a general bucket of 100 per 15 minutes for an anonymous
- * caller. It has its own per-device-code and per-IP limiters on the router
- * (`routes/device-auth.ts`), which is where the abuse ceiling belongs; counting
- * it here would 429 every legitimate CLI login halfway through.
- */
-function isDevicePoll(req: Request): boolean {
-  return req.method === 'POST' && req.path === '/auth/device/token';
-}
-
-/**
- * The SCIM surface. An identity provider's initial import is a burst of
- * hundreds of requests, all from one org — against a general bucket sized for a
- * person's interactive use. It has its own per-org bucket (`scimLimiter`), so a
- * directory sync can neither be throttled by, nor starve, the org's people.
- */
-function isScim(req: Request): boolean {
-  return req.path.startsWith(SCIM_PATH);
-}
-
-/** Generous, dedicated bucket for the alert relay — see `isAlertWebhook`. */
-const alertWebhookLimiter = createLimiter({
-  name: 'alert-webhook',
-  windowMs: config.rateLimit.alertWebhook.windowMs,
-  max: config.rateLimit.alertWebhook.max,
-  keyGenerator: extractClientIp,
-  message: 'Alert webhook rate limit exceeded.',
-});
-
-/** General rate limiter — per-tier max, keyed by org (or IP for anon callers). */
-const limiter = createLimiter({
-  name: 'general',
-  windowMs: config.rateLimit.windowMs,
-  max: tierLimitedMax,
-  keyGenerator: rateLimitKey,
-  // Sysadmins are internal operators who legitimately make burst calls
-  // (audit replays, fleet-wide scans). Bypass the limiter rather than size it
-  // for the worst case. The alert relay has its own generous bucket; it must
-  // not share the anonymous user budget. The sysadmin check VERIFIES the token:
-  // the bypass removes throttling entirely, so a forged `isSuperAdmin:true`
-  // must not grant it. `requireAuth` still authorizes the request later.
-  skip: (req: Request) => isAlertWebhook(req) || isDevicePoll(req) || isScim(req) || verifiedIsSuperAdmin(req),
-  message: 'Too many requests. Please try again later.',
-});
-
-/** Strict rate limiter for auth endpoints (login, register, OAuth) — IP-based since the user is not yet authenticated. */
-const authLimiter = createLimiter({
-  name: 'auth',
-  windowMs: config.rateLimit.auth.windowMs,
-  max: config.rateLimit.auth.max,
-  keyGenerator: extractClientIp,
-  // A verified internal service (image-registry relaying `docker login`) sends
-  // every user's attempt from one pod IP; counting those in one IP bucket would
-  // let one user's failures lock everyone out. That service limits per client
-  // and username itself (image-registry token-rate-limiter).
-  skip: (req: Request) => verifyServicePrincipal(req) || isSignOut(req),
-  message: 'Too many authentication attempts. Please try again later.',
-});
-
-/**
- * Per-org rate limiter for observability endpoints. Tighter than the general
- * limiter because every request fans out to Prometheus, and a noisy tenant can
- * degrade that upstream for everyone else (dashboards across all orgs go blank).
- * Keys by the verified token's org when present, falls back to IP.
- */
-const observabilityLimiter = createLimiter({
-  name: 'observability',
-  windowMs: config.rateLimit.observability.windowMs,
-  max: config.rateLimit.observability.max,
-  keyGenerator: rateLimitKey,
-  // The alert relay is mounted under /observability but is not a tenant
-  // dashboard query — it has its own bucket (see `isAlertWebhook`).
-  skip: isAlertWebhook,
-  message: 'Observability rate limit exceeded for your organization. Please slow down or batch your queries.',
-});
-
-/**
- * Per-ORG limiter for SCIM. Keyed by the VERIFIED token's org — never the
- * service account — because the plan's requirement is a per-ORG ceiling: a tenant
- * that issues five SCIM keys still gets one directory-sync budget. Falls back to
- * the credential hash / client IP for a request whose token doesn't verify (which
- * `requireScimScope` then refuses anyway).
- */
-const scimLimiter = createLimiter({
-  name: 'scim',
-  windowMs: SCIM_RATE_LIMIT_WINDOW_MS,
-  max: SCIM_RATE_LIMIT_MAX,
-  keyGenerator: scimOrgKey,
-  message: 'SCIM rate limit exceeded for your organization. Slow the provisioning job down and retry.',
-});
-
-/**
  * The background sweeps (services/background-sweeps.ts), kept so `shutdown()`
  * can stop them. Their intervals are unref'd, so they never keep the process
  * alive — but that does not stop them FIRING during a graceful teardown, and a
@@ -194,15 +89,49 @@ const scimLimiter = createLimiter({
  */
 const backgroundSweeps: Scheduler[] = [];
 
-/** Request ID middleware  attaches a unique ID to each request for log correlation */
-function requestIdMiddleware(req: Request, _res: Response, next: NextFunction): void {
-  const requestId = (req.headers['x-request-id'] as string) || crypto.randomUUID();
+/**
+ * Request ID — prefer the id nginx already stamped, otherwise mint one, so every
+ * log line and audit event for one request shares a correlation key.
+ *
+ * A repeated `X-Request-Id` header arrives as an ARRAY, so the first value is
+ * taken rather than cast: the normalized value is written BACK onto the headers
+ * (which is where `helpers/audit.ts` reads it) and echoed on the response, so a
+ * caller can quote it. Matches api-server's `createApp`.
+ */
+function requestIdMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const header = req.headers['x-request-id'];
+  const requestId = (Array.isArray(header) ? header[0] : header) || crypto.randomUUID();
   req.headers['x-request-id'] = requestId;
+  res.setHeader('X-Request-Id', requestId);
   next();
 }
 
-/** Configure security and parsing middleware */
-app.use(helmet({ contentSecurityPolicy: false }));
+/**
+ * Configure security and parsing middleware.
+ *
+ * The CSP is the SAME strict set api-server's `createApp` applies to every other
+ * service (`defaultSrc 'self'`, `objectSrc`/`frameAncestors 'none'`,
+ * `baseUri`/`formAction 'self'`) — platform renders no HTML at all (JSON, SAML
+ * metadata XML and 302s only) and mounts no Swagger UI, so nothing here needs
+ * the relaxation, and an auth/SSO/SCIM origin is the last one that should be
+ * frameable.
+ */
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+    },
+  },
+}));
 app.use(cors(config.cors));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
@@ -285,7 +214,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.use(limiter);
+app.use(generalLimiter);
 
 /**
  * Read-only impersonation gate. When the caller's JWT carries
@@ -364,10 +293,11 @@ async function initDependencies(): Promise<void> {
   logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
 
   // Register the process-wide authorization-denial auditor. Platform gates its
-  // state-changing routes with api-core's shared `requirePermission`, which
-  // forwards every DENIED (non-GET) request to this sink. We persist each as an
-  // `authz.denied` failure event so probing/privilege-escalation attempts leave
-  // a trail. Best-effort by contract: the sink must never throw or block the
+  // state-changing routes with api-core's shared `requirePermission` and with
+  // its own `requireSystemAdmin` (middleware/auth.ts + helpers/controller-
+  // helper.ts); all of them forward every DENIED (non-GET) request to this sink.
+  // We persist each as an `authz.denied` failure event so probing/privilege-
+  // escalation attempts leave a trail. Best-effort by contract: the sink must never throw or block the
   // auth gate (the gate wraps the call in try/catch, and the write is
   // fire-and-forget with its own catch). Registered after Mongo connects so the
   // AuditEvent write has a live connection; requests are 503'd until ready.

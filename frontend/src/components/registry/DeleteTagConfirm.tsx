@@ -7,6 +7,7 @@ import { CopyButton } from '@/components/ui/CopyButton';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { api } from '@/lib/api';
+import { scanTagsForDigest } from '@/lib/registry-scan';
 
 interface DeleteTagConfirmProps {
   repo: string;
@@ -15,15 +16,12 @@ interface DeleteTagConfirmProps {
   onDeleted: (digest?: string) => void;
 }
 
-const MAX_TAGS_TO_SCAN = 50;
-const PARALLEL_FETCH = 8;
-
 /**
- * Destructive confirm for tag deletion. On open, resolves the tag → digest
- * then scans up to 50 other tags in the same repo (8 in parallel) to find
- * which ones share the digest — those tags all stop working because
- * distribution deletes manifests by digest. Renders incremental progress so
- * a slow registry doesn't show a blank modal for seconds at a time.
+ * Destructive confirm for tag deletion. On open, resolves the tag → digest then
+ * scans the repo's other tags for the ones that share it — those tags all stop
+ * working, because distribution deletes manifests by digest. Renders
+ * incremental progress so a slow registry doesn't show a blank modal for
+ * seconds at a time.
  */
 export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTagConfirmProps) {
   const [digest, setDigest] = useState<string | null>(null);
@@ -44,32 +42,13 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
         const d = manifest.data?.digest ?? '';
         setDigest(d);
 
-        const tagsRes = await api.listImageTags(repo);
-        if (aborted) return;
-        const allTags = tagsRes.data?.tags ?? [];
-        const toScan = allTags.slice(0, MAX_TAGS_TO_SCAN);
-        setTotalToScan(toScan.length);
-        setExtraTagCount(Math.max(0, allTags.length - MAX_TAGS_TO_SCAN));
-
-        // Parallelized scan with incremental updates.
-        const found: string[] = [];
-        let done = 0;
-        const scanOne = async (t: string) => {
-          try {
-            const m = await api.getImageManifest(repo, t);
-            if (m.data?.digest === d) found.push(t);
-          } catch {
-            // skip — counted below regardless
-          }
-          done++;
-          if (!aborted) setScanned(done);
-        };
-        for (let i = 0; i < toScan.length; i += PARALLEL_FETCH) {
-          if (aborted) return;
-          await Promise.all(toScan.slice(i, i + PARALLEL_FETCH).map(scanOne));
-        }
-        if (!aborted) {
-          setSharedTags(found.sort());
+        const found = await scanTagsForDigest(repo, d, {
+          isCancelled: () => aborted,
+          onScope: (toScan, skipped) => { setTotalToScan(toScan); setExtraTagCount(skipped); },
+          onProgress: setScanned,
+        });
+        if (found) {
+          setSharedTags(found);
           setScanning(false);
         }
       } catch (err) {

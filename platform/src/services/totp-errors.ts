@@ -36,6 +36,25 @@ export const TOTP_SSO_ENFORCED = 'TOTP_SSO_ENFORCED';
 /** The sign-in MFA challenge is unknown, expired or already spent. → 401 */
 export const TOTP_INVALID_CHALLENGE = 'TOTP_INVALID_CHALLENGE';
 
+/** The HTTP answer for each TOTP sentinel above — kept beside the codes, like
+ *  {@link RECOVERY_CODES_ERROR_MAP}, so a new sentinel and its refusal land in
+ *  one file. */
+export const TOTP_ERROR_MAP: ErrorMap = {
+  [TOTP_NOT_ENROLLED]: { status: 409, message: 'This account has no authenticator app set up' },
+  [TOTP_ALREADY_ENROLLED]: { status: 409, message: 'An authenticator app is already set up. Remove it first to enrol a new one.' },
+  [TOTP_INVALID_CODE]: { status: 401, message: 'That code isn\'t right. Check your authenticator app and try the current code.' },
+  [TOTP_LOCKED_OUT]: { status: 429, message: 'Too many incorrect codes. Try again in a few minutes, or use a recovery code.' },
+  [TOTP_LAST_SIGN_IN_METHOD]: {
+    status: 409,
+    message: 'This is the only way you can sign in. Set a password or add a passkey first.',
+  },
+  [TOTP_SSO_ENFORCED]: {
+    status: 403,
+    message: 'Your organization signs you in through its identity provider — set up two-factor authentication there.',
+  },
+  [TOTP_INVALID_CHALLENGE]: { status: 401, message: 'This sign-in expired. Please enter your password again.' },
+};
+
 /** `POST /auth/recovery-codes` on an account that has no second factor. */
 export const RECOVERY_CODES_NO_FACTOR = 'RECOVERY_CODES_NO_FACTOR';
 

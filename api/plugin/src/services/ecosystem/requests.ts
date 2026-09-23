@@ -64,7 +64,7 @@ import {
 } from './store.js';
 import { claimantEmailHash as claimantEmailHashOf } from './submission-moderation.js';
 import { topInstalledListings } from './submissions-store.js';
-import { isActiveListing, optionalText, requiredText } from './util.js';
+import { isActiveListing, iso, optionalText, requiredText } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { listingView, publisherView, requestView } from './views.js';
 import { pluginService } from '../plugin-service.js';
@@ -173,7 +173,7 @@ export async function draft(caller: Caller, pluginId: unknown) {
       license: plugin.license,
       hasReadme: !!plugin.readmeHtml,
       signed: plugin.imageDigest !== null,
-      scannedAt: plugin.scannedAt?.toISOString() ?? null,
+      scannedAt: iso(plugin.scannedAt),
       vulnCritical: plugin.vulnCritical,
       vulnHigh: plugin.vulnHigh,
       vulnCriticalFixable: plugin.vulnCriticalFixable,

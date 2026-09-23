@@ -30,7 +30,7 @@ import { PASSWORD_MAX_LENGTH } from '../constants/password.js';
 import { checkPasswordBreach } from '../services/password-breach.js';
 
 /** The platform-wide floor every org minimum sits on. */
-export function platformPasswordMinLength(): number {
+function platformPasswordMinLength(): number {
   return config.auth.passwordMinLength;
 }
 

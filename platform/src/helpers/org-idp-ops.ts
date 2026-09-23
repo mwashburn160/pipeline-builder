@@ -23,7 +23,8 @@ import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { incCounter } from '../observability/metrics.js';
 import { IDP_DOMAIN_NOT_VERIFIED, IDP_SECRET_REQUIRED, IDP_SSO_REQUIRED_NO_DOMAIN } from '../services/idp-mapping-errors.js';
 import { type OrgIdpConfigDto, orgIdpService } from '../services/org-idp-service.js';
-import { orgIdpCreateSchema, orgIdpPatchSchema, validateBody } from '../utils/validation.js';
+import { orgIdpCreateSchema, orgIdpPatchSchema } from '../utils/validation-idp.js';
+import { validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-idp-ops');
 

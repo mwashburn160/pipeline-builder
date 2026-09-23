@@ -49,7 +49,8 @@ import {
   samlSpEntityId,
 } from '../services/saml-service.js';
 import { getSamlSpKeys } from '../services/saml-sp-keys.js';
-import { idpMetadataImportSchema, validateBody } from '../utils/validation.js';
+import { idpMetadataImportSchema } from '../utils/validation-idp.js';
+import { validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-idp-self');
 

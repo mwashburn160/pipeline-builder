@@ -50,8 +50,8 @@ export function loginHref(returnTo?: string | null): string {
 }
 
 /** Major version for a `^<major>` range, or null when the version isn't semver-shaped. */
-export function majorOf(version: string): string | null {
-  const m = /^v?(\d+)\.\d+/.exec(version.trim());
+export function majorOf(version: string | null | undefined): string | null {
+  const m = /^v?(\d+)\.\d+/.exec((version ?? '').trim());
   return m ? String(Number(m[1])) : null;
 }
 

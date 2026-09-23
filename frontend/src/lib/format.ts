@@ -95,6 +95,16 @@ export function formatDateLong(iso: string | number | Date | null | undefined, p
     : d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+/** Null-safe month + year — "Feb 2026" in en-US. For billing periods and other
+ *  month-granular labels. */
+export function formatMonthYear(iso: string | number | Date | null | undefined, placeholder = '—'): string {
+  if (iso == null || iso === '') return placeholder;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? placeholder
+    : d.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
+
 /**
  * Null-safe abbreviated-month date — "Feb 25, 2026" in en-US. {@link formatDateLong}
  * where the surface is tight (a card line, a table cell) but a numeric date

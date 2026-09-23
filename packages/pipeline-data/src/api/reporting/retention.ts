@@ -11,7 +11,7 @@ import { envInt, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS } from '@pipeline-builde
 /**
  * Reporting retention windows. Records in `pipeline_events`,
  * `deployment_outcomes`, and `incidents` grow unbounded without a sweep, so a
- * split, per-org retention purge (see {@link ReportingService.purgeExpiredReportingData})
+ * split, per-org retention purge (see `purgeExpiredReportingData` in ./retention-sweep.ts)
  * hard-deletes rows older than these windows, by `created_at`:
  *  - **Standard events** — `pipeline_events` with `environment IS NULL`
  *    (non-deploy STAGE/ACTION/build). High volume → short default (30 days).

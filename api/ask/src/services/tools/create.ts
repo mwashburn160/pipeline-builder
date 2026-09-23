@@ -5,17 +5,15 @@
  * The CREATE proposals: whole new pipelines, plugins and templates.
  *
  * None of these writes. Each returns a DRAFT the user reviews and commits from
- * the Ask panel through their own session. What changed in this pass is that a
- * draft no longer comes back unexamined:
+ * the Ask panel through their own session. No draft comes back unexamined:
  *
  *  - every draft is dry-run against the org's compliance rules before it is
- *    returned, so the card says "compliant" or NAMES the rule it breaks
- *    (phase 2), and
+ *    returned, so the card says "compliant" or NAMES the rule it breaks; and
  *  - a drafted TEMPLATE additionally goes through pipeline-core's
  *    `validateTemplateDraft`, because `propose_template` is the only propose
- *    tool with no service-side generator behind it: it was raw model output
- *    against a Zod schema, so an undeclared `{{ vars.NAME }}` or a reference
- *    cycle was creatable and only surfaced at synth.
+ *    tool with no service-side generator behind it: without that check it is
+ *    raw model output against a Zod schema, so an undeclared `{{ vars.NAME }}`
+ *    or a reference cycle would be creatable and surface only at synth.
  */
 
 import { generateObject, tool } from '@pipeline-builder/ai-core';

@@ -9,7 +9,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
-import { formatError } from '@/lib/constants';
+import { formatEnvelopeError, formatError } from '@/lib/constants';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { IconButton } from '@/components/ui/IconButton';
@@ -21,6 +21,7 @@ import { Select } from '@/components/ui/Select';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { Modal } from '@/components/ui/Modal';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { useDelete } from '@/hooks/useDelete';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { TabBar } from '@/components/ui/TabBar';
 import api from '@/lib/api';
@@ -82,8 +83,6 @@ export default function TemplatesPage() {
   const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
 
   // Delete state
-  const [deleteTarget, setDeleteTarget] = useState<PipelineTemplate | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   // Edit state
   const [editTarget, setEditTarget] = useState<PipelineTemplate | null>(null);
@@ -209,25 +208,17 @@ export default function TemplatesPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      const res = await api.deletePipelineTemplate(deleteTarget.id);
-      if (res.success) {
-        toast.success('Template deleted');
-        setDeleteTarget(null);
-        void fetchAll();
-      } else {
-        // Surface the real reason (permission / not found), not a generic message.
-        toast.error((res as { message?: string }).message || 'Failed to delete template');
-      }
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to delete template'));
-    } finally {
-      setDeleting(false);
-    }
-  };
+  // `useDelete` also owns the step-up replay: a delete refused pending re-auth
+  // refreshes the list once the person confirms, instead of toasting an error.
+  const del = useDelete<PipelineTemplate>(
+    async (t) => {
+      const res = await api.deletePipelineTemplate(t.id);
+      // Surface the real reason (permission / not found), not a generic message.
+      if (!res.success) throw new Error(formatEnvelopeError(res, 'Failed to delete template'));
+    },
+    () => { toast.success('Template deleted'); void fetchAll(); },
+    (err) => toast.error(formatError(err, 'Failed to delete template')),
+  );
 
   const modalFooter = (
     <div className="flex items-center justify-end gap-3">
@@ -338,7 +329,7 @@ export default function TemplatesPage() {
                     )}
                     {canManage(t) && (
                       <IconButton
-                        onClick={() => setDeleteTarget(t)}
+                        onClick={() => del.open(t)}
                         title="Delete template"
                         aria-label={`Delete template ${t.name}`}
                         tone="danger"
@@ -456,13 +447,13 @@ export default function TemplatesPage() {
         />
       )}
 
-      {deleteTarget && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete template"
-          itemName={deleteTarget.name}
-          loading={deleting}
-          onConfirm={handleDelete}
-          onCancel={() => (deleting ? undefined : setDeleteTarget(null))}
+          itemName={del.target.name}
+          loading={del.loading}
+          onConfirm={() => void del.confirm()}
+          onCancel={() => (del.loading ? undefined : del.close())}
         />
       )}
     </DashboardLayout>

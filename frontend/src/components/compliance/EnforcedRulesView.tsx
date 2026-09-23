@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Shield, Loader2 } from 'lucide-react';
+import { Shield } from 'lucide-react';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterSelect } from '@/components/ui/FilterSelect';
@@ -11,6 +11,8 @@ import api from '@/lib/api';
 import type { ComplianceRule, RuleTarget } from '@/types/compliance';
 import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
 import { InheritedBadge } from './InheritedBadge';
+import { LoadingSpinner } from '@/components/ui/Loading';
+import { StatusPill } from '@/components/ui/StatusPill';
 
 export default function EnforcedRulesView() {
   const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
@@ -55,7 +57,7 @@ export default function EnforcedRulesView() {
       {error && !loading && <RetryError message={error.message} onRetry={() => void refetch()} />}
 
       {loading ? (
-        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-success" /></div>
+        <div className="flex items-center justify-center py-12"><LoadingSpinner label="Loading enforced rules" /></div>
       ) : rules.length === 0 ? (
         <TextEmptyState>No rules are currently enforced. Create org rules or activate subscribed rules.</TextEmptyState>
       ) : (
@@ -93,12 +95,12 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
   {
     id: 'target',
     header: 'Target',
-    render: (rule) => <span className="text-xs bg-surface-muted text-fg-muted rounded-full px-2 py-0.5">{rule.target}</span>,
+    render: (rule) => <StatusPill className="bg-surface-muted text-fg-muted">{rule.target}</StatusPill>,
   },
   {
     id: 'severity',
     header: 'Severity',
-    render: (rule) => <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}`}>{rule.severity}</span>,
+    render: (rule) => <StatusPill className={SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}>{rule.severity}</StatusPill>,
   },
   {
     id: 'field',

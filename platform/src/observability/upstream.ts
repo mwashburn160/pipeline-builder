@@ -24,7 +24,7 @@ export type UpstreamError =
   | { kind: 'upstream-4xx'; status: number; message: string }
   | { kind: 'unreachable'; message: string };
 
-export function isUpstreamError(err: unknown): err is UpstreamError {
+function isUpstreamError(err: unknown): err is UpstreamError {
   return !!err && typeof err === 'object'
     && ((err as { kind?: unknown }).kind === 'upstream-4xx' || (err as { kind?: unknown }).kind === 'unreachable');
 }

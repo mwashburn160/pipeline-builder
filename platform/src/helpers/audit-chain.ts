@@ -49,7 +49,7 @@ const logger = createLogger('audit-chain');
 export const GENESIS_CHAIN_KEY = '__no-org__';
 
 /** `prevHash` value for the first event in any chain. */
-export const GENESIS_PREV_HASH: null = null;
+const GENESIS_PREV_HASH: null = null;
 
 /**
  * Stored `hash` prefix when digest computation itself failed — the row is still
@@ -59,10 +59,10 @@ export const GENESIS_PREV_HASH: null = null;
  * {@link hashErrorSentinel}, so two digest failures in one chain never share a
  * `hash` (a successor's `prevHash` then names exactly one predecessor).
  */
-export const HASH_ERROR_SENTINEL = 'HASH_ERROR';
+const HASH_ERROR_SENTINEL = 'HASH_ERROR';
 
 /** A unique, recognizable un-verifiable-hash marker. See {@link HASH_ERROR_SENTINEL}. */
-export function hashErrorSentinel(): string {
+function hashErrorSentinel(): string {
   return `${HASH_ERROR_SENTINEL}:${randomUUID()}`;
 }
 
@@ -152,7 +152,7 @@ export function computeAuditHash(f: AuditHashFields): string {
  * chain is `{ affectedOrgId }`; the genesis chain is the rows with no
  * `affectedOrgId` (`{ affectedOrgId: null }` also matches a missing field).
  */
-export function chainFilter(chainKey: string): Record<string, unknown> {
+function chainFilter(chainKey: string): Record<string, unknown> {
   return chainKey === GENESIS_CHAIN_KEY ? { affectedOrgId: null } : { affectedOrgId: chainKey };
 }
 

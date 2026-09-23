@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { PERMISSION_CATALOG, READ_ONLY_PERMISSIONS, permissionLabel } from '@pipeline-builder/api-core/permissions';
+import type { CredentialStatus } from '@/lib/api/domains/auth';
 
 /**
  * Capability scopes a credential may carry INSTEAD of its holder's roles.
@@ -19,6 +20,14 @@ export const TOKEN_SCOPE_OPTIONS: ReadonlyArray<{ value: string; label: string }
   { value: 'registry:push', label: 'registry:push — push images to this org’s namespace' },
   { value: 'scim', label: 'scim — provision members from your identity provider (SCIM 2.0)' },
 ];
+
+/** Badge tone for a credential's lifecycle status. Shared by the access-key
+ *  table and the machine-token history so the two can't drift. */
+export const CREDENTIAL_STATUS_COLOR: Record<CredentialStatus, 'green' | 'gray' | 'red'> = {
+  active: 'green',
+  expired: 'gray',
+  revoked: 'red',
+};
 
 /** Longest lifetime the API accepts for a machine token or key, in days. */
 export const MAX_CREDENTIAL_DAYS = 365;

@@ -13,10 +13,30 @@ import {
   MessageEditSchema,
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
-import type { SSEManager } from '@pipeline-builder/api-server';
+import type { RouteContext, SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { messageService } from '../services/message-service.js';
+
+/**
+ * Tell the org's clients their unread badge is stale.
+ *
+ * Signal only — the COUNT is deliberately NOT in the payload. The SSE fan-out
+ * is ORG-scoped (there is no per-user channel), while `getUnreadCount` is
+ * viewer-scoped: it honours the per-user rung, so a message targeted at one
+ * member is unread for them alone. Putting the reader's number on the org
+ * channel would overwrite every other member's badge with a count that was
+ * never theirs, so each client refetches its own.
+ *
+ * Best-effort: a failed push must not fail the read that already committed.
+ */
+function signalUnreadCountChanged(sseManager: SSEManager, orgId: string, log: RouteContext['ctx']['log']): void {
+  try {
+    sseManager.send(orgId, 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' as const });
+  } catch (err) {
+    log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
+  }
+}
 
 /**
  * Create update routes for the message service.
@@ -83,19 +103,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
 
     ctx.log('COMPLETED', 'Message marked as read', { id });
 
-    // Signal only — the COUNT is deliberately not in the payload. The SSE
-    // fan-out is ORG-scoped (there is no per-user channel), while
-    // `getUnreadCount` is viewer-scoped: it honours the per-user rung, so a
-    // message targeted at one member is unread for them alone. Sending the
-    // reader's number on the org channel overwrote every other member's badge
-    // with a count that was never theirs. Each client refetches its own.
-    try {
-      sseManager.send(orgId, 'MESSAGE', 'Unread count changed', {
-        action: 'UNREAD_COUNT' as const,
-      });
-    } catch (err) {
-      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
-    }
+    signalUnreadCountChanged(sseManager, orgId, ctx.log);
 
     return sendSuccess(res, 200, { message: await enrichOneWithOrgNames(message) }, 'Message marked as read');
   }));
@@ -116,19 +124,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
 
     ctx.log('COMPLETED', 'Thread marked as read', { threadId: id, count: total });
 
-    // Signal only — the COUNT is deliberately not in the payload. The SSE
-    // fan-out is ORG-scoped (there is no per-user channel), while
-    // `getUnreadCount` is viewer-scoped: it honours the per-user rung, so a
-    // message targeted at one member is unread for them alone. Sending the
-    // reader's number on the org channel overwrote every other member's badge
-    // with a count that was never theirs. Each client refetches its own.
-    try {
-      sseManager.send(orgId, 'MESSAGE', 'Unread count changed', {
-        action: 'UNREAD_COUNT' as const,
-      });
-    } catch (err) {
-      ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
-    }
+    signalUnreadCountChanged(sseManager, orgId, ctx.log);
 
     return sendSuccess(res, 200, { updated: total }, 'Thread marked as read');
   }));

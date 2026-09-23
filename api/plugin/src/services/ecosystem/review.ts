@@ -21,6 +21,7 @@ import { effectiveMetadata, listingFieldValue, metadataRow, type RequestMetadata
 import { contractDiff, sameValue, specSnapshot, versionGates, vulnDelta } from './policy.js';
 import { listings, plugins, previousVersion, requests, type PluginRow } from './store.js';
 import { submissionReviewContext } from './submission-moderation.js';
+import { iso } from './util.js';
 import { fetchImageSbom, fetchPublicImageSbom } from '../../helpers/supply-chain.js';
 
 const logger = createLogger('ecosystem-review');
@@ -110,7 +111,7 @@ export async function reviewDiff(r: PluginPublishRequest, publisher: Publisher) 
         high: plugin.vulnHigh,
         criticalFixable: plugin.vulnCriticalFixable,
         highFixable: plugin.vulnHighFixable,
-        scannedAt: plugin.scannedAt ? new Date(plugin.scannedAt).toISOString() : null,
+        scannedAt: iso(plugin.scannedAt),
       },
       ...vulnDelta(prev ? { critical: prev.vulnCritical, high: prev.vulnHigh } : null, { critical: plugin.vulnCritical, high: plugin.vulnHigh }),
     } : null,

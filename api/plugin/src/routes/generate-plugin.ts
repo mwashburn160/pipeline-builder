@@ -23,7 +23,7 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 
 import {
-  AIEmptyOutputError, dockerfileViolations, getAvailableProviders, generatePluginConfig, streamPluginConfig,
+  AIEmptyOutputError, getAvailableProviders, generatePluginConfig, streamPluginConfig, toPluginGenerationResult,
 } from '../services/ai-plugin-generation-service.js';
 import { findSimilarPlugins } from '../services/similar-plugin-lookup.js';
 
@@ -178,21 +178,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         // Get final validated output
         const finalOutput = await result.output;
         if (finalOutput) {
-          const { dockerfile, ...config } = finalOutput;
-          sse.send({
-            type: 'done',
-            data: {
-              config: {
-                ...config,
-                description: config.description ?? undefined,
-                primaryOutputDirectory: config.primaryOutputDirectory ?? undefined,
-                env: config.env ?? undefined,
-              },
-              dockerfile,
-              dockerfileViolations: dockerfileViolations(dockerfile),
-              similarPlugins,
-            },
-          });
+          sse.send({ type: 'done', data: { ...toPluginGenerationResult(finalOutput), similarPlugins } });
         }
         sse.done();
         // Quota policy: a COMPLETED stream keeps the reserved `aiCalls` slot even

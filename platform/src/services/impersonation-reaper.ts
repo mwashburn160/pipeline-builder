@@ -28,7 +28,7 @@ const logger = createLogger('impersonation-reaper');
 const LOCK_KEY = 'platform:leader:impersonation-reaper';
 
 /** Requests live an hour, so a five-minute sweep keeps status at most minutes stale. */
-export const IMPERSONATION_REAPER_INTERVAL_MS = 5 * 60 * 1000;
+const IMPERSONATION_REAPER_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Flip every `pending` or `approved` request whose window has passed to

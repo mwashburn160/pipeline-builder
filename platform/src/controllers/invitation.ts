@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, MAX_PAGE_LIMIT, parsePage, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
-import { paginationMeta } from '../helpers/pagination.js';
+import { listPage, paginationMeta } from '../helpers/pagination.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { auditService, invitationService } from '../services/index.js';
 import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from '../services/invitation-errors.js';
@@ -128,9 +128,9 @@ export const acceptInvitation = withController('Accept invitation', async (req, 
 /** POST /invitation/accept-oauth — first-time OAuth-based accept (creates user if needed).
  *  Public route: the caller supplies the OAuth authorization `code` + `state`
  *  (obtained via the normal /auth/url → provider redirect), NOT a profile. The
- *  identity is verified SERVER-SIDE via {@link verifyOAuthCode} — accepting a
- *  client-supplied `oauthData` previously let anyone holding an invite token
- *  bind the invitee's email to an attacker-chosen account (org/account takeover). */
+ *  identity is verified SERVER-SIDE via {@link verifyOAuthCode}: accepting a
+ *  client-supplied `oauthData` would let anyone holding an invite token bind
+ *  the invitee's email to an attacker-chosen account (org/account takeover). */
 export const acceptInvitationViaOAuth = withController('Accept invitation via OAuth', async (req, res) => {
   const { token, oauthProvider, code, state } = req.body ?? {};
   if (!token) return sendError(res, 400, 'Invitation token is required');
@@ -205,7 +205,7 @@ export const listInvitations = withController('List invitations', async (req, re
   }
 
   const { status, invitationType, role, search } = req.query;
-  const { offset, limit: limitNum } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
+  const { offset, limit: limitNum } = listPage(req.query);
 
   const { invitations, total } = await invitationService.listForOrg(orgId, {
     status: status as string | undefined,

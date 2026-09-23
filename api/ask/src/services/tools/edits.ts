@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * PHASE 3 — EDIT proposals.
+ * EDIT proposals.
  *
- * Everything the agent could draft before CREATED something. "Add a test stage",
- * "bump the base image", "add an input to that template" — the more common
- * request by far — had no tool at all, so the assistant either refused or
- * re-drafted the whole thing from scratch and silently dropped whatever the
- * existing document carried.
+ * Every other propose tool CREATES something. "Add a test stage", "bump the base
+ * image", "add an input to that template" — the more common request by far —
+ * needs its own tools, or the assistant either refuses or re-drafts the whole
+ * thing from scratch and silently drops whatever the existing document carried.
  *
  * Each tool here READS the entity as it is now, diffs the model's requested
  * changes against it, and returns BOTH sides. Three properties fall out of that:

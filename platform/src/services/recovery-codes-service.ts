@@ -139,7 +139,7 @@ function recordFailure(userId: string): Promise<void> {
 }
 
 /** Delete the set. Returns whether one existed. */
-export async function removeRecoveryCodes(userId: string): Promise<boolean> {
+async function removeRecoveryCodes(userId: string): Promise<boolean> {
   const result = await MfaRecoveryCodes.deleteOne({ userId });
   return (result.deletedCount ?? 0) > 0;
 }

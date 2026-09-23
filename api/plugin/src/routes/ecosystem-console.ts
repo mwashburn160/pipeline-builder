@@ -20,7 +20,7 @@ import { Router, type NextFunction, type Request, type RequestHandler, type Resp
 import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
 import { attachmentDisposition } from '../helpers/content-disposition.js';
 import {
-  consoleAdvisories, createModeratorDraft, editDraft, setListedVersionDeprecation, withdrawAdvisory,
+  consoleAdvisories, createModeratorDraft, editDraft, withdrawAdvisory,
 } from '../services/ecosystem/advisories.js';
 import {
   approveRuleChange, asQueueItem, createRule, deleteReserved, deleteRule, listListings, listPublishers, listReserved, listRules, overview, putReserved,
@@ -32,6 +32,7 @@ import { recordDecision } from '../services/ecosystem/metrics.js';
 import { holdReview, releaseReview, removeReply, removeReview, reviewQueue, reviewQueueCounts } from '../services/ecosystem/review-moderation.js';
 import { requests } from '../services/ecosystem/store.js';
 import { submissionSbom, submissionScan } from '../services/ecosystem/submission-moderation.js';
+import { setListedVersionDeprecation } from '../services/ecosystem/version-deprecation.js';
 
 /** Require a step-up only when the request being decided is of a sensitive kind. */
 async function stepUpForSensitiveRequest(req: Request, res: Response, next: NextFunction): Promise<void> {

@@ -447,9 +447,9 @@ export default function MessagesPage() {
                 onLoadMore={loadMore}
                 emptyTitle={debouncedSearch || messageFilter !== 'all' || filtersActive ? `No matching ${noun}` : undefined}
                 emptyDescription={
-                  // Honest now that the tab and filters are server-side: "no
-                  // announcements" means the SERVER has none for this org, not
-                  // "none in the pages we happened to load".
+                  // The tab and filters are server-side, so "no announcements"
+                  // means the SERVER has none for this org — not "none in the
+                  // pages we happened to load".
                   debouncedSearch ? `No ${noun} match "${debouncedSearch}"`
                     : filtersActive ? `No ${noun} match these filters — clear them to see everything.`
                       : messageFilter === 'announcements' ? 'No announcements have been sent to your organization.'

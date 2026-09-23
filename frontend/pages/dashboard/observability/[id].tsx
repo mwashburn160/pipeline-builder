@@ -203,7 +203,7 @@ export default function DashboardPage() {
   // Measure container width for the grid driver (ResizeObserver via a callback
   // ref — see useElementWidth for why a mount-only effect stuck it at 960px).
   const [gridContainerRef, gridWidth] = useElementWidth(960);
-  // Delete confirmation (in-app modal, replacing the native confirm()).
+  // Delete confirmation, shown as an in-app modal.
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 

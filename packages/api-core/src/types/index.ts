@@ -96,6 +96,11 @@ export {
   type AuditEvent,
 } from './audit-events.js';
 export {
+  REMOTE_AUDIT_ACTIONS,
+  isRemoteAuditAction,
+  type RemoteAuditAction,
+} from './remote-audit-actions.js';
+export {
   ASK_AGENT_PROPOSER,
   ASK_PROPOSED_BY_HEADER,
   PROPOSED_BY_DETAIL_KEY,
@@ -164,6 +169,7 @@ export {
   HEALTH_COMPONENTS,
   HEALTH_WEIGHTS,
   type HealthBreakdown,
+  type HealthComponentScore,
   type HealthResult,
   type HealthInputs,
   type HealthBand,
@@ -176,7 +182,6 @@ export {
   exceedsVulnFloor,
   pluginVulnMaxCritical,
   SCAN_FLAG_TOP_FINDINGS,
-  VULN_FLAGGED_WARNING,
   vulnBlockedMessage,
   vulnFlaggedMessage,
   vulnFlaggedWarning,

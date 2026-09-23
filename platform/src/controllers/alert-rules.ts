@@ -18,14 +18,15 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, getParam, MAX_PAGE_LIMIT, parsePage, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, getParam, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
-import { paginationMeta } from '../helpers/pagination.js';
+import { listPage, paginationMeta } from '../helpers/pagination.js';
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule } from '../services/alert-rule-service.js';
 import { PromQLRewriteError } from '../services/promql-rewriter.js';
-import { createAlertRuleSchema, updateAlertRuleSchema, validateBody } from '../utils/validation.js';
+import { createAlertRuleSchema, updateAlertRuleSchema } from '../utils/validation-observability.js';
+import { validateBody } from '../utils/validation.js';
 
 const logger = createLogger('alert-rules-controller');
 
@@ -39,7 +40,7 @@ export const listAlertRules = withController('List alert rules', async (req, res
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
 
-  const { offset, limit } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
+  const { offset, limit } = listPage(req.query);
   const { rules, total } = await alertRuleService.listForOrg(orgId, { offset, limit });
   sendSuccess(res, 200, {
     rules,

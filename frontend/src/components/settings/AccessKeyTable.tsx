@@ -7,19 +7,13 @@ import { Button } from '@/components/ui/Button';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { AccessKeyMeta } from '@/lib/api/domains/auth';
-import { describeCredentialAuthority } from '@/components/settings/token-scopes';
+import { CREDENTIAL_STATUS_COLOR, describeCredentialAuthority } from '@/components/settings/token-scopes';
 
 /** A key row with the service account that owns it (absent for a personal key). */
 export interface KeyRow extends AccessKeyMeta {
   /** The account id a service-account key belongs to — the revoke handle. */
   ownerAccountId?: string;
 }
-
-const STATUS_COLOR: Record<AccessKeyMeta['status'], 'green' | 'gray' | 'red'> = {
-  active: 'green',
-  expired: 'gray',
-  revoked: 'red',
-};
 
 interface AccessKeyTableProps {
   keys: KeyRow[];
@@ -110,7 +104,7 @@ export function AccessKeyTable({
       header: 'Status',
       render: (k) => (
         <div className="flex flex-wrap items-center gap-1">
-          <Badge color={STATUS_COLOR[k.status]}>{k.status}</Badge>
+          <Badge color={CREDENTIAL_STATUS_COLOR[k.status]}>{k.status}</Badge>
           {/* Hygiene flags — only meaningful while the key is still live. */}
           {k.status === 'active' && k.neverUsed && (
             <span title="This key has never been used. If nothing needs it, revoke it.">

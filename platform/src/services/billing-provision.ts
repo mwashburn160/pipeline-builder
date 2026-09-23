@@ -6,8 +6,8 @@
  *
  * Closes the fail-open gap where a customer who selected a paid plan at signup
  * would end up PERMANENTLY developer-tier with no subscription if billing was
- * unavailable at that moment: the old fire-and-forget call swallowed the error
- * (catch → warn) and nothing ever retried it.
+ * unavailable at that moment — a fire-and-forget POST that only warns on failure
+ * loses the intent for good.
  *
  * Flow:
  *   1. {@link provisionBillingSubscription} — called fire-and-forget from the
@@ -159,8 +159,7 @@ export async function provisionBillingSubscription(orgId: string, planId: string
  *  - process at most `reconcileBatchSize` orgs (oldest marker first); leftovers
  *    roll to the next pass;
  *  - a SINGLE billing POST attempt per org per pass — the interval IS the retry
- *    loop, so the old in-loop backoff sleeps (which serialized the whole batch)
- *    are gone;
+ *    loop, so no in-loop backoff sleep serializes the batch;
  *  - small random per-org jitter to avoid a synchronized retry thundering-herd
  *    against a billing service recovering from a fleet-wide outage.
  *

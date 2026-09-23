@@ -66,11 +66,17 @@ export {
   policyOf,
   effectiveConsumptionPolicy,
   applyPolicyUpdate,
-  listingBlock,
+  type ConsumptionPolicy,
+  DEFAULT_CONSUMPTION_POLICY,
+} from './api/plugin-consumption-policy.js';
+export {
   advisoryRangeCovers,
   advisoryRangeProblem,
   advisoriesCovering,
   blockingAdvisories,
+} from './api/plugin-advisories.js';
+export {
+  listingBlock,
   implicitInstallRange,
   installAdmits,
   scopeOrgIds,
@@ -82,8 +88,6 @@ export {
   loadOrgInstallContext,
   orgListingStates,
   resolvableListings,
-  type ConsumptionPolicy,
-  DEFAULT_CONSUMPTION_POLICY,
   type ResolutionRefusal,
   type ResolutionScope,
   type ListingDataSource,

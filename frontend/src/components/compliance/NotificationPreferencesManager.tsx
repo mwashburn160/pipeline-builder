@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useId } from 'react';
-import { Loader2, Save } from 'lucide-react';
+import { Save } from 'lucide-react';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
 import { queries } from '@/lib/api-cache';
@@ -18,6 +18,7 @@ import type {
   ComplianceNotificationPreferenceWrite,
 } from '@/types/compliance-notifications';
 import { formatError } from '@/lib/constants';
+import { LoadingSpinner } from '@/components/ui/Loading';
 
 interface NotificationPreferencesManagerProps {
   readOnly?: boolean;
@@ -115,7 +116,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
   };
 
   if (loading) {
-    return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-brand" /></div>;
+    return <div className="flex justify-center py-12"><LoadingSpinner label="Loading notification preferences" /></div>;
   }
 
   return (

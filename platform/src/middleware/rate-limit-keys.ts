@@ -61,15 +61,25 @@ export interface TokenClaims {
 }
 
 /**
+ * The credential from an `Authorization: Bearer <value>` header, or undefined
+ * when the header is absent or is some other scheme. Everything below reads the
+ * header through this, so no caller re-derives the offset.
+ */
+function bearerCredential(req: express.Request): string | undefined {
+  const auth = req.headers.authorization;
+  return auth?.startsWith('Bearer ') ? auth.slice(7) : undefined;
+}
+
+/**
  * Peek at the JWT payload WITHOUT verifying it. Only for pre-auth hints that
  * grant nothing (tenant-context hints, the impersonation write fence that
  * `requireAuth` re-checks) — never for anything a forged token could exploit.
  * Tolerates missing / malformed tokens by returning `{}`.
  */
 export function peekJwtClaims(req: express.Request): TokenClaims {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) return {};
-  const parts = auth.slice(7).split('.');
+  const credential = bearerCredential(req);
+  if (credential === undefined) return {};
+  const parts = credential.split('.');
   if (parts.length !== 3 || !parts[1]) return {};
   try {
     return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as TokenClaims;
@@ -95,10 +105,10 @@ export function verifiedAccessClaims(req: express.Request): TokenClaims | null {
   const cached = verifiedClaimsCache.get(req);
   if (cached !== undefined) return cached;
   let claims: TokenClaims | null = null;
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) {
+  const credential = bearerCredential(req);
+  if (credential !== undefined) {
     try {
-      const payload = verifyPlatformJwt<TokenClaims>(auth.slice(7));
+      const payload = verifyPlatformJwt<TokenClaims>(credential);
       if (payload.type === 'access') claims = payload;
     } catch {
       // Invalid / expired / forged — treated as anonymous.
@@ -124,11 +134,8 @@ export function verifiedAccessClaims(req: express.Request): TokenClaims | null {
  *  4. `ip:<addr>` — anonymous, unverified or forged.
  */
 export function rateLimitKey(req: express.Request): string {
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) {
-    const credential = auth.slice(7);
-    if (isOpaqueApiKey(credential)) return `key:${hashApiKey(credential)}`;
-  }
+  const credential = bearerCredential(req);
+  if (credential !== undefined && isOpaqueApiKey(credential)) return `key:${hashApiKey(credential)}`;
   const claims = verifiedAccessClaims(req);
   if (claims?.principalType === 'service_account' && typeof claims.sub === 'string' && claims.sub.length > 0) {
     return `sa:${claims.sub}`;
@@ -152,11 +159,8 @@ export function rateLimitKey(req: express.Request): string {
 export function scimOrgKey(req: express.Request): string {
   const orgId = verifiedAccessClaims(req)?.organizationId;
   if (typeof orgId === 'string' && orgId.length > 0) return `scim-org:${orgId.toLowerCase()}`;
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) {
-    const credential = auth.slice(7);
-    if (isOpaqueApiKey(credential)) return `scim-key:${hashApiKey(credential)}`;
-  }
+  const credential = bearerCredential(req);
+  if (credential !== undefined && isOpaqueApiKey(credential)) return `scim-key:${hashApiKey(credential)}`;
   return `scim-ip:${extractClientIp(req)}`;
 }
 

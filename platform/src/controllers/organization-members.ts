@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, MAX_PAGE_LIMIT, parsePage, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { canAccessOrg, requireOrgScope, ensureAuthenticated, getAdminContext, withController } from '../helpers/controller-helper.js';
-import { paginationMeta } from '../helpers/pagination.js';
+import { listPage, paginationMeta } from '../helpers/pagination.js';
 import { orgMembersService, type RoleAssignmentActor } from '../services/index.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
 import { RL_ASSIGN_EXCEEDS_CEILING } from '../services/roles-errors.js';
@@ -35,7 +35,7 @@ export const getOrganizationMembers = withController('Get members', async (req, 
   // Bound the roster: parse limit/offset + optional search/role, and push them
   // into the DB query (service-side, never in-memory) so a large org doesn't
   // ship its whole membership. Mirrors the paginated list endpoints' shape.
-  const { offset, limit } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
+  const { offset, limit } = listPage(req.query);
   const search = typeof req.query.search === 'string' ? req.query.search : undefined;
   const roleRaw = typeof req.query.role === 'string' ? req.query.role : undefined;
   const role = roleRaw === 'owner' || roleRaw === 'admin' || roleRaw === 'member' ? roleRaw : undefined;

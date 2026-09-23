@@ -26,10 +26,8 @@
  * refuses per the org's `blockOnAdvisory` (pipeline-data plugin-resolution);
  * withdrawal clears both and tells the orgs that were told.
  *
- * Also here: LISTED-VERSION DEPRECATION (the handoff) — a publisher
- * deprecates its own listed version at once (it only narrows, like pause), the
- * system org may deprecate or clear, and deprecating the source plugin row of a
- * listed version carries over. Lookup warns; installers get N14.
+ * Listed-version DEPRECATION — the softer signal, which never refuses a
+ * resolution — lives in version-deprecation.ts.
  */
 
 import {
@@ -58,12 +56,11 @@ import {
 
 import { advisoryStore, deliveryStore } from './advisories-store.js';
 import { ecosystemAudit } from './audit.js';
-import { can, EcosystemError, submitterTag, type Caller } from './context.js';
-import { INSTALLER_RECIPIENT_CHUNK, installingOrgs, notifyInstallers, orgApprovers, sendToOrgs } from './install-notify.js';
+import { can, EcosystemError, invalid, submitterTag, type Caller } from './context.js';
+import { INSTALLER_RECIPIENT_CHUNK, installingOrgs, orgApprovers, sendToOrgs } from './install-notify.js';
 import { moderators, publisherManagers, sendNotice } from './notify.js';
-import { assertRootOrg, ownPublisher } from './publishers.js';
-import { listings, listingsWithPublishers, OPEN_STATUSES, publishers, requests, versions } from './store.js';
-import { listingView } from './views.js';
+import { listingWithPublisher } from './publishers.js';
+import { listings, OPEN_STATUSES, publishers, requests, versions } from './store.js';
 import { enqueueEcosystemNotification } from '../ecosystem-notifications.js';
 import { isActiveListing, iso, normalizeVulnId, requiredText } from './util.js';
 
@@ -78,8 +75,6 @@ export const ADVISORY_MAX_IDS = 50;
 const VULN_ID = /^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9._:-]{1,60}$/;
 /** How long after publication the maintenance pass keeps retrying an unfinished fan-out. */
 export const FAN_OUT_RETRY_WINDOW_MS = 24 * 3_600_000;
-/** Deprecation message cap. */
-export const DEPRECATION_MESSAGE_MAX = 500;
 
 type Advisory = PluginAdvisory;
 
@@ -96,10 +91,6 @@ export interface AdvisoryFields {
   detailsHtml: string | null;
   cveIds: string[];
   fixedVersion: string | null;
-}
-
-function invalid(message: string): never {
-  throw new EcosystemError(ErrorCode.VALIDATION_ERROR, message);
 }
 
 /** Vulnerability ids from an array or a comma/space-separated string: validated, CVE ids upper-cased, deduplicated. */
@@ -336,15 +327,6 @@ async function createSystemDraft(input: {
   });
   incCounter('ecosystem_advisory_drafts_total', { source });
   return { advisory, request };
-}
-
-/** The listing an advisory is about, with its publisher (404 when either is gone). */
-async function listingWithPublisher(listingId: unknown): Promise<{ listing: PluginListing; publisher: Publisher }> {
-  if (typeof listingId !== 'string' || listingId === '') throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'listingId is required');
-  const listing = await listings.byId(listingId);
-  const publisher = listing ? await publishers.byId(listing.publisherId) : null;
-  if (!listing || !publisher) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Listing not found');
-  return { listing, publisher };
 }
 
 /** POST /plugins/ecosystem/advisories — an Ecosystem Manager opens a draft (another manager publishes it). */
@@ -728,121 +710,4 @@ export async function consoleAdvisories(query: Record<string, unknown>) {
   const state = typeof query.state === 'string' && (STATES as readonly string[]).includes(query.state) ? query.state as AdvisoryState : null;
   const listingId = typeof query.listingId === 'string' && query.listingId ? query.listingId : undefined;
   return advisoryViews(await advisoryStore.list({ ...(state ? { states: [state] } : {}), ...(listingId ? { listingId } : {}) }));
-}
-
-// -----------------------------------------------------------------------------
-// Listed-version deprecation
-// -----------------------------------------------------------------------------
-
-function deprecationMessageOf(raw: unknown, required: boolean): string | null {
-  if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) {
-    if (required) throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'message is required (why the version is deprecated and what to use instead)');
-    return null;
-  }
-  if (typeof raw !== 'string') invalid('message must be a string');
-  const message = raw.trim().replace(/\s+/g, ' ');
-  if (message.length > DEPRECATION_MESSAGE_MAX) invalid(`message must be at most ${DEPRECATION_MESSAGE_MAX} characters`);
-  return message;
-}
-
-/** N14 to the orgs whose install reaches the version. */
-function notifyVersionDeprecated(publisher: Publisher, listing: PluginListing, version: string, message: string | null): Promise<number> {
-  const ref = `${publisher.handle}/${listing.name}@${version}`;
-  return notifyInstallers('N14', publisher, listing, {
-    subject: `Plugin ${ref} is deprecated`,
-    text: `${ref}, installed in your organization, was deprecated by its publisher${message ? `: ${message}` : '.'} `
-      + 'It keeps resolving, but synth prints a warning. Move your pipelines to a supported version.',
-  }, { version });
-}
-
-/** Mark one listed version deprecated (idempotent; a new message replaces the old one). Returns whether it was newly deprecated. */
-async function markDeprecated(
-  v: PluginListingVersion, listing: PluginListing, publisher: Publisher, message: string | null,
-  audit: { actor: string; orgId: string; via: 'publisher' | 'system_org' | 'source_plugin' },
-): Promise<boolean> {
-  const fresh = v.deprecatedAt === null;
-  if (!fresh && (v.deprecationMessage ?? null) === message) return false;
-  await versions.update(v.id, { deprecatedAt: v.deprecatedAt ?? new Date(), deprecationMessage: message });
-  ecosystemAudit({
-    action: 'plugin.version.deprecate',
-    actor: audit.actor,
-    orgId: audit.orgId,
-    affectedOrgId: publisher.ownerOrgId,
-    targetType: 'plugin-listing-version',
-    targetId: v.id,
-    details: { listing: `${publisher.handle}/${listing.name}`, version: v.version, deprecated: true, via: audit.via },
-  });
-  if (fresh) await notifyVersionDeprecated(publisher, listing, v.version, message);
-  return fresh;
-}
-
-/**
- * POST /plugins/publisher/listings/:listingId/deprecate — the publisher
- * deprecates one of its OWN listed versions, at once and without review: it
- * only narrows (lookup warns, AI selection skips it, N14 to installers). There
- * is no tenant un-deprecate.
- */
-export async function deprecateOwnListedVersion(caller: Caller, listingId: string, body: Record<string, unknown>) {
-  assertRootOrg(caller);
-  if (!can(caller, 'plugins:publish')) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Deprecating needs plugins:publish');
-  const publisher = await ownPublisher(caller);
-  const listing = await listings.byId(listingId);
-  if (!listing || listing.publisherId !== publisher.id) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Listing not found');
-  if (typeof body.version !== 'string' || body.version === '') throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'version is required');
-  const v = await versions.get(listing.id, body.version);
-  if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
-  const message = deprecationMessageOf(body.message, true);
-  await markDeprecated(v, listing, publisher, message, { actor: actorId({ userId: caller.userId }), orgId: caller.orgId, via: 'publisher' });
-  return listingView((await listings.byId(listing.id))!, publisher, { versions: await versions.forListings([listing.id]) });
-}
-
-/** POST /plugins/ecosystem/listings/:id/versions/:version/deprecate — the system org deprecates (or, `deprecated: false`, clears) a listed version. */
-export async function setListedVersionDeprecation(caller: Caller, listingId: string, version: string, body: Record<string, unknown>) {
-  if (!can(caller, 'plugins:moderate')) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Deprecating needs plugins:moderate');
-  const { listing, publisher } = await listingWithPublisher(listingId);
-  const v = await versions.get(listing.id, version);
-  if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
-  const actor = actorId({ userId: caller.userId });
-  if (body.deprecated === false) {
-    if (v.deprecatedAt !== null) {
-      await versions.update(v.id, { deprecatedAt: null, deprecationMessage: null });
-      ecosystemAudit({
-        action: 'plugin.version.deprecate',
-        actor: actor,
-        affectedOrgId: publisher.ownerOrgId,
-        targetType: 'plugin-listing-version',
-        targetId: v.id,
-        details: { listing: `${publisher.handle}/${listing.name}`, version, deprecated: false, via: 'system_org' },
-      });
-    }
-  } else {
-    await markDeprecated(v, listing, publisher, deprecationMessageOf(body.message, false), { actor, orgId: SYSTEM_ORG_ID, via: 'system_org' });
-  }
-  return listingView((await listings.byId(listing.id))!, publisher, { versions: await versions.forListings([listing.id]) });
-}
-
-/**
- * Deprecating an org plugin row carries over to every listing version
- * published FROM it ( `POST /plugins/:id/deprecate` and a `lifecycle:
- * deprecated` update, through deprecation-notice.ts). Never throws; returns how
- * many listed versions were newly deprecated.
- */
-export async function deprecateListedFromSource(
-  plugin: { id: string; orgId: string; deprecationMessage?: string | null },
-  actor: string,
-): Promise<number> {
-  try {
-    const listed = await versions.bySourcePlugins([plugin.id]);
-    const owners = await listingsWithPublishers(listed.map((v) => v.listingId));
-    let count = 0;
-    for (const v of listed) {
-      const { listing, publisher } = owners.get(v.listingId) ?? { listing: null, publisher: null };
-      if (!listing || !publisher || v.deprecatedAt !== null) continue;
-      if (await markDeprecated(v, listing, publisher, plugin.deprecationMessage?.trim() || null, { actor, orgId: plugin.orgId, via: 'source_plugin' })) count++;
-    }
-    return count;
-  } catch (err) {
-    logger.warn('Listed-version deprecation from the source plugin failed', { pluginId: plugin.id, error: errorMessage(err) });
-    return 0;
-  }
 }

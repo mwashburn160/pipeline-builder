@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { ShieldOff, Check, X, Plus, Loader2, Clock, Trash2, Upload } from 'lucide-react';
+import { ShieldOff, Check, X, Plus, Clock, Trash2, Upload } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
@@ -21,6 +21,8 @@ import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-style
 import { parseCsv } from '@/lib/csv';
 import { formatDate } from '@/lib/format';
 import { formatError } from '@/lib/constants';
+import { LoadingSpinner } from '@/components/ui/Loading';
+import { StatusPill } from '@/components/ui/StatusPill';
 
 interface ExemptionManagerProps {
   readOnly?: boolean;
@@ -218,7 +220,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-brand" /></div>;
+    return <div className="flex items-center justify-center py-12"><LoadingSpinner label="Loading exemptions" /></div>;
   }
 
   return (
@@ -315,7 +317,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
               <div key={ex.id} className="p-3 rounded-lg border border-default bg-surface">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>{ex.status}</span>
+                    <StatusPill className={`${style.bg} ${style.text}`}>{ex.status}</StatusPill>
                     <div>
                       <div className="text-sm text-fg">{ex.entityName || ex.entityId}</div>
                       <div className="text-xs text-fg-muted">{ex.entityType} — {ex.reason.slice(0, 80)}{ex.reason.length > 80 ? '...' : ''}</div>

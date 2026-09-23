@@ -28,7 +28,8 @@ import { getAdminContext, requireAuthContext, withController } from '../helpers/
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { canQueryCatalogKey, type CatalogCaller, QUERIES } from '../observability/catalog.js';
 import { dashboardService, type PanelInput } from '../services/dashboard-service.js';
-import { createDashboardSchema, updateDashboardSchema, validateBody } from '../utils/validation.js';
+import { createDashboardSchema, updateDashboardSchema } from '../utils/validation-observability.js';
+import { validateBody } from '../utils/validation.js';
 
 const logger = createLogger('dashboards-controller');
 

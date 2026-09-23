@@ -50,17 +50,17 @@ export function buildAgentTools(deps: AgentToolDeps): ToolSet {
       },
     }),
 
-    // Phase 1 — diagnosis (plus the original catalog reads).
+    // Diagnosis + catalog reads.
     ...diagnoseTools(deps),
-    // Phase 2 — policy awareness.
+    // Policy awareness.
     ...complianceTools(deps),
-    // The create proposals (each now compliance-checked; templates validated).
+    // Create proposals (each compliance-checked; templates additionally validated).
     ...createTools(deps),
-    // Phase 3 — edit proposals.
+    // Edit proposals.
     ...editTools(deps),
-    // Phase 4 — remediation into the org's existing approval queues.
+    // Remediation into the org's existing approval queues.
     ...remediationTools(deps),
-    // Phase 5 — org settings, behind the shared allowlist.
+    // Org settings, behind the shared allowlist.
     ...orgSettingsTools(deps),
   };
 }

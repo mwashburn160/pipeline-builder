@@ -6,7 +6,6 @@ import {
   sendPaginatedNested,
   sendBadRequest,
   ErrorCode,
-  errorMessage,
   getParam,
   parsePaginationParams,
   validateBody,
@@ -300,8 +299,8 @@ export function createSubscriptionRoutes(): Router {
   }));
 
   // POST /clone — clone a published rule into org scope (one-shot copy, no
-  // upstream link). Previously named `/fork`; "fork" carried git connotations
-  // (track upstream for merge) we never delivered.
+  // upstream link). Named `clone`, not `fork`: "fork" carries git connotations
+  // (track upstream for merge) this does not deliver.
   // Cloning authors a new org-scoped rule (same write as POST /compliance/rules),
   // so it requires `compliance:write`. Subscribe/toggle/delete below stay at
   // member level — those are per-org opt-in, not rule authoring.
@@ -318,31 +317,25 @@ export function createSubscriptionRoutes(): Router {
     const source = await complianceRuleService.findPublishedById(validation.value.ruleId);
     if (denyIfUnentitled(req, res, complianceFeatureForTags(source?.tags))) return;
 
-    try {
-      const rule = await complianceRuleService.cloneRule(validation.value.ruleId, orgId, userId);
-      ctx.log('COMPLETED', 'Cloned published rule', { sourceRuleId: validation.value.ruleId, newRuleId: rule.id });
+    // An unknown/unpublished source raises `ValidationError`, which `withRoute`
+    // answers as a 400 — no try/catch here.
+    const rule = await complianceRuleService.cloneRule(validation.value.ruleId, orgId, userId);
+    ctx.log('COMPLETED', 'Cloned published rule', { sourceRuleId: validation.value.ruleId, newRuleId: rule.id });
 
-      // Best-effort attributed audit — the clone authored a new ORG rule, the
-      // same mutation as POST /compliance/rules, so it carries that action.
-      // `details` names the source published rule so a reviewer can see the
-      // curated rule the org copied.
-      recordAudit({
-        action: 'compliance.rule.create',
-        actorId: actorId({ userId }),
-        orgId,
-        targetType: 'rule',
-        targetId: rule.id,
-        details: { name: rule.name, target: rule.target, scope: rule.scope, clonedFrom: validation.value.ruleId },
-      });
+    // Best-effort attributed audit — the clone authored a new ORG rule, the
+    // same mutation as POST /compliance/rules, so it carries that action.
+    // `details` names the source published rule so a reviewer can see the
+    // curated rule the org copied.
+    recordAudit({
+      action: 'compliance.rule.create',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'rule',
+      targetId: rule.id,
+      details: { name: rule.name, target: rule.target, scope: rule.scope, clonedFrom: validation.value.ruleId },
+    });
 
-      return sendSuccess(res, 201, { rule });
-    } catch (err) {
-      const message = errorMessage(err);
-      if (message.includes('not found')) {
-        return sendBadRequest(res, message, ErrorCode.VALIDATION_ERROR);
-      }
-      throw err;
-    }
+    return sendSuccess(res, 201, { rule });
   }));
 
   // GET /enforced — merged view of all enforced rules (org + active subscriptions)

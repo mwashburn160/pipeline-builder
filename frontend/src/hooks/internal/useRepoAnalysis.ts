@@ -151,7 +151,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
       },
       onSettled: () => setAnalyzing(false),
     });
-  }, [gitUrl, repoToken, ai.selectedProvider, ai.selectedModel, ai.customApiKey, generate, setError, setPreviewJson]);
+  }, [gitUrl, repoToken, ai.selectedProvider, ai.selectedModel, ai.customApiKey, generate, setError, setPreviewJson, cancelledRef]);
 
   // Auto-generate when initialUrl + autoGenerate are set. Fires exactly once,
   // when both provider and model are non-empty AND providers have finished

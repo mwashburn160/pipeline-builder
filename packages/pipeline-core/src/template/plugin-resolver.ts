@@ -1,30 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// Which plugin fields accept `{{ ... }}` is the plugin spec's TEMPLATE
+// CONTRACT, owned by api-core so the upload check, the CLI and this resolver
+// can't disagree about it. Do not re-declare the field list here.
+import { isPluginTemplatableField } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { resolveSelfReferencing, resolveTemplates } from './index.js';
-
-/**
- * Fields inside a Plugin record that accept `{{ ... }}` templates.
- *
- * Pure-string leaves only. `name`, `version`, `pluginType`, `computeType`,
- * `timeout`, `secrets`, `failureBehavior`, `requiredMetadata`, `requiredVars`
- * stay literal. `metadata.*` is excluded because CDK-metadata values are
- * structural, not user-interpolated.
- */
-const TEMPLATABLE_FIELDS = [
-  'description',
-  'commands', // string[]
-  'installCommands', // string[]
-  'env', // Record<string, string>
-  'buildArgs', // Record<string, string>
-] as const;
-
-export function isPluginTemplatableField(field: string): boolean {
-  // `commands` / `installCommands` are arrays of strings → entries like 'commands[0]'
-  // `env` / `buildArgs` are objects → entries like 'env.STAGE'
-  return TEMPLATABLE_FIELDS.some(f => field === f || field.startsWith(`${f}[`) || field.startsWith(`${f}.`));
-}
 
 /**
  * Return a shallow clone of `plugin` with all `{{ ... }}` templates

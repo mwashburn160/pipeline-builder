@@ -10,6 +10,7 @@ import api from '@/lib/api';
 import type { Message, MessageAttachment } from '@/types';
 import { scrollBehavior } from '@/lib/motion';
 import { formatError } from '@/lib/constants';
+import { LoadingSpinner } from '@/components/ui/Loading';
 
 /**
  * A thread bubble that may be an OPTIMISTIC local reply not yet confirmed by the
@@ -360,7 +361,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+            <LoadingSpinner label="Loading conversation" />
           </div>
         ) : (
           thread.map((msg) => {

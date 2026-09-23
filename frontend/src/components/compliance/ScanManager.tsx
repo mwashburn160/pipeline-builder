@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Scan, Play, Square, Loader2, Eye } from 'lucide-react';
+import { Scan, Play, Square, Eye } from 'lucide-react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -17,6 +17,7 @@ import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan } from '@/types/compliance';
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG } from '@/lib/compliance-styles';
 import { formatDateTime } from '@/lib/format';
+import { LoadingSpinner } from '@/components/ui/Loading';
 
 interface ScanManagerProps {
   onViewScan?: (scanId: string) => void;
@@ -201,7 +202,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" /></div>
+        <div className="flex items-center justify-center py-12"><LoadingSpinner label="Loading scans" /></div>
       ) : scans.length === 0 ? (
         <TextEmptyState>No scans found.</TextEmptyState>
       ) : (

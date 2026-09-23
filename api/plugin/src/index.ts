@@ -34,11 +34,12 @@ const { app, sseManager } = createApp({
 // -- Shared boot security -----------------------------------------------------
 // The SAME wiring every other service uses: the `authz.denied` audit sink, the
 // token-revocation reader, and this process's name in the access-key exchange
-// token. Plugin previously hand-rolled these three calls (so any concern added
-// to `wireServiceSecurity` would have silently skipped it); the one thing it
-// actually needs differently — a revocation store on the pooled ioredis
-// connection the BullMQ build queue and the readiness probe already share,
-// rather than a second env-Redis connection — is now an override.
+// token. Going through the shared helper (rather than hand-rolling the three
+// calls) is what stops a concern later added to `wireServiceSecurity` from
+// silently skipping plugin. The one thing plugin needs differently — a
+// revocation store on the pooled ioredis connection the BullMQ build queue and
+// the readiness probe already share, rather than a second env-Redis connection
+// — is an override.
 wireServiceSecurity('plugin', {
   tokenRevocationStore: createRedisTokenRevocationStore(getHealthRedisConnection()),
 });

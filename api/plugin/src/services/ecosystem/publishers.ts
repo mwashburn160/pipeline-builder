@@ -21,7 +21,7 @@ import {
   publisherTermsVersion,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
-import { OFFICIAL_PUBLISHER_HANDLE, type Publisher } from '@pipeline-builder/pipeline-data';
+import { OFFICIAL_PUBLISHER_HANDLE, type PluginListing, type Publisher } from '@pipeline-builder/pipeline-data';
 
 import { ecosystemAudit } from './audit.js';
 import { can, ecosystemDeps, EcosystemError, type Caller } from './context.js';
@@ -33,6 +33,15 @@ import { listingView, publisherView } from './views.js';
 /** Publisher display-name / description caps (mirror the columns). */
 export const DISPLAY_NAME_MAX = 255;
 export const DESCRIPTION_MAX = 2000;
+
+/** A listing with its publisher, resolved together (404 when either is gone). */
+export async function listingWithPublisher(listingId: unknown): Promise<{ listing: PluginListing; publisher: Publisher }> {
+  if (typeof listingId !== 'string' || listingId === '') throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'listingId is required');
+  const listing = await listings.byId(listingId);
+  const publisher = listing ? await publishers.byId(listing.publisherId) : null;
+  if (!listing || !publisher) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Listing not found');
+  return { listing, publisher };
+}
 
 /**
  * Why `handle` can't be claimed by `forPublisherId` (null = a new publisher):

@@ -228,7 +228,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (!cancelledRef.current) setBusy(false);
     }
-  }, [busy, messages, ai.selectedProvider, ai.selectedModel, ai.customApiKey, repoToken]);
+  }, [busy, messages, ai.selectedProvider, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef]);
 
   /** Commit a proposal via the normal write API (the user's own session). */
   const commitProposal = useCallback(async (index: number) => {

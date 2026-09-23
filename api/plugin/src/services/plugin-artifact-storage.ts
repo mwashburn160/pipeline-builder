@@ -107,8 +107,20 @@ async function ensureBucket(bucket: string): Promise<void> {
           await s3().send(new CreateBucketCommand({ Bucket: bucket }));
           logger.info('Created plugins bucket', { bucket });
         } catch (err) {
-          // Another replica may have created it between our HEAD and CREATE.
-          logger.warn('Plugins bucket ensure race (continuing)', { bucket, error: String(err) });
+          // CreateBucket failed — could be a benign race (another replica created it
+          // between our HEAD and CREATE) or a real outage (MinIO unreachable). Re-HEAD
+          // to tell them apart: if it now exists the race is benign; otherwise DON'T
+          // memoize the failure (drop the entry so a later call retries) and fail this
+          // attempt, rather than caching a permanently-broken "ready" for the process
+          // lifetime — every later upload would then fail NoSuchBucket against a MinIO
+          // that came up seconds after boot.
+          try {
+            await s3().send(new HeadBucketCommand({ Bucket: bucket }));
+            logger.warn('Plugins bucket ensure race (now exists, continuing)', { bucket, error: String(err) });
+          } catch {
+            bucketsReady.delete(bucket);
+            throw new Error(`Plugins bucket unavailable: ${String(err)}`);
+          }
         }
       }
     })();

@@ -6,7 +6,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleUpdateSchema } from './rule-schemas.js';
 import { rejectIfInheritedRule } from '../helpers/inherited-rule-guard.js';
-import { complianceRuleService, InvalidRuleRegexError, InvalidSetTagError } from '../services/compliance-rule-service.js';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 export function createUpdateRuleRoutes(): Router {
   const router = Router();
@@ -30,34 +30,29 @@ export function createUpdateRuleRoutes(): Router {
       updateData.effectiveUntil = body.effectiveUntil ? new Date(body.effectiveUntil) : null;
     }
 
-    try {
-      const updated = await complianceRuleService.update(id, updateData, orgId, userId);
-      if (!updated) {
-        // Not in the caller's org — a team editing its parent's propagated rule gets a clear 403.
-        if (await rejectIfInheritedRule(req, res, id)) return;
-        return sendEntityNotFound(res, 'Rule');
-      }
-
-      ctx.log('COMPLETED', 'Updated compliance rule', { id: updated.id, name: updated.name });
-
-      // Best-effort attributed audit — the rule update succeeded. Safe scalar
-      // metadata only; never the full rule definition.
-      recordAudit({
-        action: 'compliance.rule.update',
-        actorId: actorId({ userId }),
-        orgId,
-        targetType: 'rule',
-        targetId: updated.id,
-        details: { name: updated.name, target: updated.target, scope: updated.scope },
-      });
-
-      return sendSuccess(res, 200, { rule: updated });
-    } catch (err) {
-      if (err instanceof InvalidRuleRegexError || err instanceof InvalidSetTagError) {
-        return sendBadRequest(res, err.message, ErrorCode.VALIDATION_ERROR);
-      }
-      throw err;
+    // A bad regex operator or an unknown `set:` tag raises a ValidationError,
+    // which `withRoute` answers as a 400 — no try/catch here.
+    const updated = await complianceRuleService.update(id, updateData, orgId, userId);
+    if (!updated) {
+      // Not in the caller's org — a team editing its parent's propagated rule gets a clear 403.
+      if (await rejectIfInheritedRule(req, res, id)) return;
+      return sendEntityNotFound(res, 'Rule');
     }
+
+    ctx.log('COMPLETED', 'Updated compliance rule', { id: updated.id, name: updated.name });
+
+    // Best-effort attributed audit — the rule update succeeded. Safe scalar
+    // metadata only; never the full rule definition.
+    recordAudit({
+      action: 'compliance.rule.update',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'rule',
+      targetId: updated.id,
+      details: { name: updated.name, target: updated.target, scope: updated.scope },
+    });
+
+    return sendSuccess(res, 200, { rule: updated });
   }));
 
   return router;

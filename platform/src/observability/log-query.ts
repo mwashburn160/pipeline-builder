@@ -39,13 +39,13 @@ export const MAX_TENANTS_PER_QUERY = 100;
  * Matches what promtail promotes (see any `config/promtail/promtail-config.yml`);
  * `pod`/`container` exist only on the Kubernetes targets, `service_name` on all.
  */
-export const FILTERABLE_LABELS = [
+const FILTERABLE_LABELS = [
   'service_name', 'service', 'level', 'pod', 'container', 'event', 'eventCategory', 'actor', 'pluginName',
 ] as const;
 export type FilterableLabel = typeof FILTERABLE_LABELS[number];
 
 /** Structured-metadata / parsed fields filterable AFTER the stream selector. */
-export const FILTERABLE_FIELDS = ['orgId', 'trace_id', 'requestId'] as const;
+const FILTERABLE_FIELDS = ['orgId', 'trace_id', 'requestId'] as const;
 export type FilterableField = typeof FILTERABLE_FIELDS[number];
 
 export type TextTerm =

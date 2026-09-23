@@ -51,7 +51,7 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   // NOT gated on sysadmin here: an ancestor-org admin may also impersonate
   // within their own subtree. Authority is resolved below, once the target's
   // pinned org is known — it depends on BOTH parties, so it cannot be a
-  // route-level middleware the way the old sysadmin-only check was.
+  // route-level middleware the way a fixed sysadmin-only check could be.
   if (!ensureAuthenticated(req, res)) return;
   // Disallow impersonating from within an impersonation session — keeps
   // the audit trail straightforward (always requester → user, never chained).

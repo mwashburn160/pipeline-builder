@@ -45,16 +45,12 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 
-class InvalidRuleRegexError extends Error {}
-class InvalidSetTagError extends Error {}
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     create: (...a: unknown[]) => createMock(...a),
     update: (...a: unknown[]) => updateMock(...a),
     delete: (...a: unknown[]) => deleteMock(...a),
   },
-  InvalidRuleRegexError,
-  InvalidSetTagError,
 }));
 
 const { createCreateRuleRoutes } = await import('../src/routes/create-rules.js');

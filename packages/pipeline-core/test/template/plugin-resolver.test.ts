@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
-import { resolvePluginTemplates, isPluginTemplatableField } from '../../src/template/plugin-resolver.js';
+import { resolvePluginTemplates } from '../../src/template/plugin-resolver.js';
 
 function mkPlugin(overrides: Partial<Plugin> = {}): Plugin {
   return {
@@ -28,23 +28,6 @@ function mkPlugin(overrides: Partial<Plugin> = {}): Plugin {
     ...overrides,
   } as unknown as Plugin;
 }
-
-describe('isPluginTemplatableField', () => {
-  it('accepts commands array entries', () => {
-    expect(isPluginTemplatableField('commands[0]')).toBe(true);
-  });
-  it('accepts env child keys', () => {
-    expect(isPluginTemplatableField('env.STAGE')).toBe(true);
-  });
-  it('rejects name/version/pluginType', () => {
-    expect(isPluginTemplatableField('name')).toBe(false);
-    expect(isPluginTemplatableField('version')).toBe(false);
-    expect(isPluginTemplatableField('pluginType')).toBe(false);
-  });
-  it('rejects metadata', () => {
-    expect(isPluginTemplatableField('metadata.CDK_KEY')).toBe(false);
-  });
-});
 
 describe('resolvePluginTemplates', () => {
   const scope = {

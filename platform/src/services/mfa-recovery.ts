@@ -24,8 +24,8 @@
  * GRACE (`User.mfaResetGraceUntil`). The grace is what lets them sign in with
  * their password and enrol a new factor while their org requires MFA — for
  * them alone, for a few days. The org's policy is never touched: resetting one
- * member must not weaken it for everybody else (the old `--clear-org-policy`
- * flag did exactly that, and missed a policy inherited from a parent anyway).
+ * member must not weaken it for everybody else — and a policy inherited from a
+ * parent org could not be cleared from here in any case.
  *
  * Lives here, not in the script, so the script's `process.exit` never stands
  * between a test and the one recovery path there is.
@@ -199,7 +199,7 @@ type StoredRequest = Pick<MfaResetRequestData,
   | 'decidedByEmail' | 'decidedAt' | 'decisionNote' | 'result'>
   & { _id: unknown; targetUserId: unknown; requestedBy: unknown; decidedBy?: unknown };
 
-export function toRequestView(doc: StoredRequest): MfaResetRequestView {
+function toRequestView(doc: StoredRequest): MfaResetRequestView {
   return {
     id: String(doc._id),
     organizationId: String(doc.organizationId),

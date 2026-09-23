@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * PHASE 2 — policy-aware drafting.
+ * Policy-aware drafting.
  *
- * The platform's differentiator is policy-as-code, and the agent used to draft in
- * complete ignorance of it: a user asked for a pipeline, got a confident draft,
- * pressed Apply and the create 403'd on a rule the assistant had never read.
+ * The platform's differentiator is policy-as-code, and an agent that drafts in
+ * ignorance of it is worse than useless: the user asks for a pipeline, gets a
+ * confident draft, presses Apply and the create 403s on a rule the assistant
+ * never read.
  *
  * `check_compliance` puts the org's own rule set in front of the model, and
  * `checkDraft` is called by every propose tool before it returns — so a draft

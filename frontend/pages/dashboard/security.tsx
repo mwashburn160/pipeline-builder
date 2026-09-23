@@ -52,7 +52,7 @@ import { PasskeySection } from '@/components/settings/PasskeySection';
 import { ServiceAccountsSection } from '@/components/settings/ServiceAccountsSection';
 import { SessionsSection } from '@/components/settings/SessionsSection';
 import { TotpSection } from '@/components/settings/TotpSection';
-import { MAX_CREDENTIAL_DAYS, TOKEN_SCOPE_OPTIONS, readOnlyPreset, type PermissionMode } from '@/components/settings/token-scopes';
+import { CREDENTIAL_STATUS_COLOR, MAX_CREDENTIAL_DAYS, TOKEN_SCOPE_OPTIONS, readOnlyPreset, type PermissionMode } from '@/components/settings/token-scopes';
 import { TokenPermissionPicker, permissionsForRequest } from '@/components/settings/TokenPermissionPicker';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import api from '@/lib/api';
@@ -386,12 +386,6 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
 /** Fired by the mint form so the history list re-reads without a shared store. */
 const TOKEN_ISSUED_EVENT = 'pb:machine-token-issued';
 
-const TOKEN_STATUS_COLOR: Record<TokenHistoryEntry['status'], 'green' | 'gray' | 'red'> = {
-  active: 'green',
-  expired: 'gray',
-  revoked: 'red',
-};
-
 /**
  * The tokens this account has been issued (`GET /user/tokens`), newest first,
  * each with where it stands now: `revoked` means a sign-out-everywhere came
@@ -437,7 +431,7 @@ function TokenHistorySection() {
                 <tr key={t.id}>
                   <td className="py-2 pr-4">{formatDateTime(t.createdAt)}</td>
                   <td className="py-2 pr-4">{formatDateTime(t.expiresAt)}</td>
-                  <td className="py-2"><Badge color={TOKEN_STATUS_COLOR[t.status]}>{t.status}</Badge></td>
+                  <td className="py-2"><Badge color={CREDENTIAL_STATUS_COLOR[t.status]}>{t.status}</Badge></td>
                 </tr>
               ))}
             </tbody>

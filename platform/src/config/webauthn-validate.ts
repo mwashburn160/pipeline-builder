@@ -41,7 +41,7 @@ function isIpLiteral(host: string): boolean {
 }
 
 /** Whether `host` is the RP ID itself or a subdomain of it (the browser's rule). */
-export function isRegistrableUnder(host: string, rpID: string): boolean {
+function isRegistrableUnder(host: string, rpID: string): boolean {
   return host === rpID || host.endsWith(`.${rpID}`);
 }
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { COMPLIANCE_CONTENT_SETS, ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { COMPLIANCE_CONTENT_SETS, ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, desc, inArray, isNull } from 'drizzle-orm';
@@ -14,11 +14,11 @@ import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier.js';
 
 /**
  * Thrown by `create`/`update` when one of the rule's regex operators fails
- * to compile. Routes catch this and surface a 400. Domain-typed via a class
- * (rather than a string code) because the user-facing message comes from
- * the `RegExp` engine and is per-rule.
+ * to compile. Domain-typed via a class (rather than a string code) because the
+ * user-facing message comes from the `RegExp` engine and is per-rule; extends
+ * `ValidationError` so `withRoute` answers it as a 400 with no route-side catch.
  */
-export class InvalidRuleRegexError extends Error {
+export class InvalidRuleRegexError extends ValidationError {
   constructor(message: string) {
     super(message);
     this.name = 'InvalidRuleRegexError';
@@ -30,9 +30,9 @@ export class InvalidRuleRegexError extends Error {
  * `<x>` isn't a KNOWN content set. A typo'd `set:advance` would otherwise be
  * invisible to the entitlement gate (which only recognizes `set:standard` /
  * `set:advanced`) — enforced for free to everyone AND absent from any paid
- * library. Routes catch this and surface a 400.
+ * library. Extends `ValidationError`, so `withRoute` answers it as a 400.
  */
-export class InvalidSetTagError extends Error {
+export class InvalidSetTagError extends ValidationError {
   constructor(message: string) {
     super(message);
     this.name = 'InvalidSetTagError';
@@ -360,8 +360,12 @@ export class ComplianceRuleService extends CrudService<
    * `compliance.rule.create` audit event already records `sourceRuleId` +
    * `newRuleId` in the tamper-evident central trail.
    *
-   * Previously named `forkRule`; "fork" carried git connotations (track upstream
-   * for merge) we never delivered. Renamed outright — there is no back-compat alias.
+   * Named `clone`, not `fork`: "fork" carries git connotations (track upstream
+   * for merge) this deliberately does not deliver.
+   *
+   * An unknown/unpublished source is the CALLER's mistake, not a server fault,
+   * so it raises `ValidationError`, which `withRoute` maps to a 400. Typed
+   * rather than a bare `Error`, so no route has to sniff the message text.
    */
   async cloneRule(ruleId: string, orgId: string, userId: string): Promise<ComplianceRule> {
     // Published rules live with scope='published' and don't share the caller's
@@ -378,7 +382,7 @@ export class ComplianceRuleService extends CrudService<
         ))),
     );
 
-    if (!sourceRule) throw new Error('Published rule not found');
+    if (!sourceRule) throw new ValidationError('Published rule not found');
 
     const cloned = await this.create(ruleInsertFromSource(sourceRule, {
       orgId,

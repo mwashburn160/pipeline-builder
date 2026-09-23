@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { ShieldPlus } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
-import { decodeJwt } from '@/lib/jwt';
+import { isEnrolmentPendingSession } from '@/lib/enrolment-session';
 import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 import type { User } from '@/types';
 
@@ -69,18 +69,6 @@ function isSuppressed(user: User | null): boolean {
   if (!nudge) return false;
   if (nudge.declinedAt) return true;
   return !!nudge.snoozedUntil && new Date(nudge.snoozedUntil).getTime() > Date.now();
-}
-
-/** Is this the bootstrap admin's enrolment-limited session? */
-function isEnrolmentPendingSession(): boolean {
-  try {
-    const token = api.getAccessToken();
-    return !!token && decodeJwt(token)?.payload?.mfaEnrollmentPending === true;
-  } catch {
-    // A malformed or absent token is not an enrolment session; the ordinary
-    // banner is the safe reading.
-    return false;
-  }
 }
 
 export function MfaEnrolmentNudge() {

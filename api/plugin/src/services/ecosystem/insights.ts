@@ -21,7 +21,7 @@ import { advisoryStore } from './advisories-store.js';
 import type { Caller } from './context.js';
 import { listingStats, reports, reviews } from './reviews-store.js';
 import { listings, publishers } from './store.js';
-import { roundTo } from './util.js';
+import { iso, roundTo } from './util.js';
 
 /** Adoption counts below this are shown as "<5". */
 export const K_ANONYMITY = 5;
@@ -132,7 +132,7 @@ export async function publisherInsights(caller: Caller, now: Date = new Date()) 
         ratingTrend: monthlyRatingTrend(published, now),
         openReviewReports: openReports.get(l.id) ?? 0,
         openAdvisories: advisories.filter((a) => a.listingId === l.id).length,
-        statsUpdatedAt: s?.updatedAt ? new Date(s.updatedAt).toISOString() : null,
+        statsUpdatedAt: iso(s?.updatedAt),
       };
     }),
   };

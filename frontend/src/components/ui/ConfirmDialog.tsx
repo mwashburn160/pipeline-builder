@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useRef, type ReactNode } from 'react';
-import { LoadingSpinner } from './Loading';
 import { Modal } from './Modal';
+import { ModalFooter } from './ModalFooter';
 
 interface ConfirmDialogProps {
   /** Dialog heading — state the action ("Discard changes?", "Reduce seats?"). */
@@ -55,22 +55,15 @@ export function ConfirmDialog({
       initialFocusRef={cancelRef}
       maxWidth="max-w-md"
       footer={(
-        // Buttons rendered directly (not ModalFooter) so Cancel can hold the ref
-        // that takes initial focus — `Button` doesn't forward refs. Mirrors
-        // DeleteConfirmModal.
-        <div className="flex justify-end space-x-3">
-          <button ref={cancelRef} type="button" onClick={onCancel} disabled={loading} className="btn btn-secondary">
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={loading}
-            className={`btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`}
-          >
-            {loading ? <><LoadingSpinner size="sm" className="mr-2" label={null} />Working…</> : confirmLabel}
-          </button>
-        </div>
+        <ModalFooter
+          cancelRef={cancelRef}
+          cancelLabel={cancelLabel}
+          confirmLabel={loading ? 'Working…' : confirmLabel}
+          confirmVariant={tone === 'danger' ? 'danger' : 'primary'}
+          loading={loading}
+          onCancel={onCancel}
+          onConfirm={onConfirm}
+        />
       )}
     >
       <div className="text-sm text-fg-muted space-y-2">{children}</div>

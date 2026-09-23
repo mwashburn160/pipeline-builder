@@ -16,7 +16,9 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 type Cmd = { __type: string; input: Record<string, unknown> };
 const sent: Cmd[] = [];
-let failOn: Record<string, Error | undefined> = {};
+// An entry may be a function so a test can vary the outcome across calls — the
+// bucket-ensure race and a real outage differ only in the SECOND HeadBucket.
+let failOn: Record<string, Error | (() => Error | undefined) | undefined> = {};
 let getBody: () => unknown = () => Readable.from([Buffer.from('zip-bytes')]);
 const clientConfigs: unknown[] = [];
 
@@ -30,7 +32,8 @@ jest.unstable_mockModule('@aws-sdk/client-s3', () => ({
     constructor(cfg: unknown) { clientConfigs.push(cfg); }
     async send(c: Cmd) {
       sent.push(c);
-      const err = failOn[c.__type];
+      const entry = failOn[c.__type];
+      const err = typeof entry === 'function' ? entry() : entry;
       if (err) throw err;
       return c.__type === 'Get' ? { Body: getBody() } : {};
     }
@@ -82,6 +85,37 @@ describe('putPluginArtifact', () => {
   it('propagates a failed write (the caller must not enqueue the build)', async () => {
     failOn.Put = new Error('disk full');
     await expect(storage.putPluginArtifact('org/c.zip', Buffer.from('z'))).rejects.toThrow('disk full');
+  });
+
+  // The bucket-ensure memo is module-level, so these load a fresh copy to get an
+  // unprimed one. Both start the same way — HEAD misses, CREATE fails — and are
+  // told apart only by whether the bucket exists on the re-HEAD.
+  it('continues when CreateBucket lost a benign race (the bucket now exists)', async () => {
+    jest.resetModules();
+    const fresh = await import('../src/services/plugin-artifact-storage.js');
+    let heads = 0;
+    failOn.HeadBucket = () => (++heads === 1 ? new Error('NoSuchBucket') : undefined);
+    failOn.CreateBucket = new Error('BucketAlreadyOwnedByYou');
+
+    await fresh.putPluginArtifact('org/race.zip', Buffer.from('x'));
+    expect(sent.map((c) => c.__type)).toEqual(['HeadBucket', 'CreateBucket', 'HeadBucket', 'Put']);
+  });
+
+  it('does not memoize a real outage — a later call retries the ensure', async () => {
+    jest.resetModules();
+    const fresh = await import('../src/services/plugin-artifact-storage.js');
+    failOn.HeadBucket = new Error('ECONNREFUSED');
+    failOn.CreateBucket = new Error('ECONNREFUSED');
+
+    await expect(fresh.putPluginArtifact('org/down.zip', Buffer.from('x')))
+      .rejects.toThrow('Plugins bucket unavailable');
+
+    // MinIO comes up. Without the reset the memo would hold a resolved "ready"
+    // and every later upload would fail NoSuchBucket for the process lifetime.
+    sent.length = 0;
+    failOn = {};
+    await fresh.putPluginArtifact('org/up.zip', Buffer.from('y'));
+    expect(sent.map((c) => c.__type)).toEqual(['HeadBucket', 'Put']);
   });
 });
 

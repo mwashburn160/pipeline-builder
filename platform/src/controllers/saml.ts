@@ -67,14 +67,15 @@ import {
 } from '../services/saml-service.js';
 import { recordSamlSession } from '../services/saml-sessions.js';
 import { assertJitSeatAvailable, provisionJitMembership } from '../services/sso-jit-service.js';
-import { samlAcsSchema, samlCompleteSchema, validateBody } from '../utils/validation.js';
+import { samlAcsSchema, samlCompleteSchema } from '../utils/validation-idp.js';
+import { validateBody } from '../utils/validation.js';
 
 const logger = createLogger('saml-controller');
 
 /** The SAML provider key under `User.oauth` — see models/user.ts. A SAML config
  *  has no named provider, and the link is only ever matched together with its
  *  issuer (the IdP entity id), so one key serves every SAML IdP. */
-export const SAML_PROVIDER_KEY = 'saml';
+const SAML_PROVIDER_KEY = 'saml';
 
 /**
  * The ACS's verified result, waiting for the browser to collect it.

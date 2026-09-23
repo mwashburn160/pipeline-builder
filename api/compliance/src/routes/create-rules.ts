@@ -5,7 +5,7 @@ import { sendSuccess, sendBadRequest, sendError, ErrorCode, audited, isSystemAdm
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleCreateSchema } from './rule-schemas.js';
-import { complianceRuleService, InvalidRuleRegexError, InvalidSetTagError } from '../services/compliance-rule-service.js';
+import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 export function createCreateRuleRoutes(): Router {
   const router = Router();
@@ -24,37 +24,32 @@ export function createCreateRuleRoutes(): Router {
       return sendError(res, 403, 'Only sysadmins can create published rules', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
-    try {
-      const rule = await complianceRuleService.create({
-        ...body,
-        orgId,
-        effectiveFrom: body.effectiveFrom ? new Date(body.effectiveFrom) : undefined,
-        effectiveUntil: body.effectiveUntil ? new Date(body.effectiveUntil) : undefined,
-        createdBy: userId,
-        updatedBy: userId,
-      }, userId);
+    // A bad regex operator or an unknown `set:` tag raises a ValidationError,
+    // which `withRoute` answers as a 400 — no try/catch here.
+    const rule = await complianceRuleService.create({
+      ...body,
+      orgId,
+      effectiveFrom: body.effectiveFrom ? new Date(body.effectiveFrom) : undefined,
+      effectiveUntil: body.effectiveUntil ? new Date(body.effectiveUntil) : undefined,
+      createdBy: userId,
+      updatedBy: userId,
+    }, userId);
 
-      ctx.log('COMPLETED', 'Created compliance rule', { id: rule.id, name: rule.name });
+    ctx.log('COMPLETED', 'Created compliance rule', { id: rule.id, name: rule.name });
 
-      // Best-effort attributed audit — the rule create succeeded. Only safe
-      // scalar metadata (name/target/scope); never the full rule definition,
-      // which can carry sensitive match config.
-      recordAudit({
-        action: 'compliance.rule.create',
-        actorId: actorId({ userId }),
-        orgId,
-        targetType: 'rule',
-        targetId: rule.id,
-        details: { name: rule.name, target: rule.target, scope: rule.scope },
-      });
+    // Best-effort attributed audit — the rule create succeeded. Only safe
+    // scalar metadata (name/target/scope); never the full rule definition,
+    // which can carry sensitive match config.
+    recordAudit({
+      action: 'compliance.rule.create',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'rule',
+      targetId: rule.id,
+      details: { name: rule.name, target: rule.target, scope: rule.scope },
+    });
 
-      return sendSuccess(res, 201, { rule });
-    } catch (err) {
-      if (err instanceof InvalidRuleRegexError || err instanceof InvalidSetTagError) {
-        return sendBadRequest(res, err.message, ErrorCode.VALIDATION_ERROR);
-      }
-      throw err;
-    }
+    return sendSuccess(res, 201, { rule });
   }));
 
   return router;

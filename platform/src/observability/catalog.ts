@@ -293,7 +293,7 @@ export function substituteOrg(query: string, vars: { org?: string; isSuperAdmin?
  * land near ~240–360 points (1h@15s, 6h@1m, 24h@5m) — comfortable for line
  * rendering without overwhelming the response payload.
  */
-export const RANGES: Record<RangeKey, { seconds: number; step: string }> = {
+const RANGES: Record<RangeKey, { seconds: number; step: string }> = {
   '1h': { seconds: 3600, step: '15s' },
   '6h': { seconds: 21_600, step: '60s' },
   '24h': { seconds: 86_400, step: '300s' },

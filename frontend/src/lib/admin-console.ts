@@ -76,11 +76,6 @@ function cookieToken(): string | null {
   try { return decodeURIComponent(value); } catch { return null; }
 }
 
-/** Whether this browser currently carries the console cookie. */
-export function hasAdminConsoleCookie(): boolean {
-  return cookieToken() !== null;
-}
-
 /**
  * Keep an already-set cookie in step with the access token (wired to
  * `api.onAccessTokenChange`): re-written for a rotated token of the SAME

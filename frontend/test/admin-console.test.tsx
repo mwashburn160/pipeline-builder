@@ -56,8 +56,11 @@ let deployTarget = 'aws-eks';
 jest.mock('@/hooks/useFeatures', () => ({ __esModule: true, useFeatures: () => ({ deployTarget }) }));
 
 import {
-  ADMIN_CONSOLE_COOKIE, clearAdminConsoleCookie, hasAdminConsoleCookie, setAdminConsoleCookie, syncAdminConsoleCookie,
+  ADMIN_CONSOLE_COOKIE, clearAdminConsoleCookie, setAdminConsoleCookie, syncAdminConsoleCookie,
 } from '../src/lib/admin-console';
+
+/** Whether the jar above currently carries the console cookie. */
+const cookieIsSet = () => !!jar.get(ADMIN_CONSOLE_COOKIE);
 import { AdminConsoleLinks } from '../src/components/admin/AdminConsoleLinks';
 import { ApiCore } from '../src/lib/api/core';
 
@@ -75,12 +78,12 @@ describe('the console cookie', () => {
     expect(setAdminConsoleCookie(admin())).toBe(true);
     expect(writes[0]).toMatch(new RegExp(`^${ADMIN_CONSOLE_COOKIE}=`));
     expect(writes[0]).toContain('; Secure; SameSite=Strict; Path=/; Max-Age=600');
-    expect(hasAdminConsoleCookie()).toBe(true);
+    expect(cookieIsSet()).toBe(true);
   });
 
   it('is not written for a token with no time left', () => {
     expect(setAdminConsoleCookie(admin({ exp: NOW / 1000 - 1 }))).toBe(false);
-    expect(hasAdminConsoleCookie()).toBe(false);
+    expect(cookieIsSet()).toBe(false);
   });
 
   it('follows a rotated token of the same administrator and org', () => {
@@ -99,7 +102,7 @@ describe('the console cookie', () => {
   ])('is dropped on %s', (_label, token) => {
     setAdminConsoleCookie(admin());
     syncAdminConsoleCookie(token as string | null);
-    expect(hasAdminConsoleCookie()).toBe(false);
+    expect(cookieIsSet()).toBe(false);
   });
 
   it('is never written by a token change when no console was opened', () => {
@@ -110,7 +113,7 @@ describe('the console cookie', () => {
   it('clears', () => {
     setAdminConsoleCookie(admin());
     clearAdminConsoleCookie();
-    expect(hasAdminConsoleCookie()).toBe(false);
+    expect(cookieIsSet()).toBe(false);
   });
 });
 
@@ -146,7 +149,7 @@ describe('AdminConsoleLinks', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Grafana' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(open).not.toHaveBeenCalled();
-    expect(hasAdminConsoleCookie()).toBe(false);
+    expect(cookieIsSet()).toBe(false);
   });
 
   it('sets the cookie for a fresh token, then opens the console', async () => {

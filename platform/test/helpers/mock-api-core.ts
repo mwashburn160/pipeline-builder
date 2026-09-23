@@ -12,7 +12,6 @@
  * identity/tier/permission default set, below.
  */
 import { jest } from '@jest/globals';
-import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core/lib/services/remote-audit-client.js';
 // Shared tier fixture — deep path is NOT intercepted by the api-core module mock
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
 // Deep-import the REAL canonical constants from side-effect-free submodules (NOT
@@ -32,6 +31,7 @@ import {
   isSystemOrgOnlyPermission,
   resolveUserPermissions,
 } from '@pipeline-builder/api-core/lib/types/permissions.js';
+import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core/lib/types/remote-audit-actions.js';
 import { scrubAwsIdentifiers } from '@pipeline-builder/api-core/lib/utils/aws-scrub.js';
 import {
   MockNotFoundError,
@@ -171,14 +171,6 @@ const platformDefaults = (): Record<string, unknown> => ({
     if (typeof v === 'string') return v;
     if (Array.isArray(v)) return typeof v[0] === 'string' ? v[0] : undefined;
     return undefined;
-  },
-  // Pagination parser (controllers migrated off the local shim to this).
-  parsePaginationParams: (q: Record<string, unknown> = {}) => {
-    const toInt = (v: unknown, d: number) => {
-      const n = parseInt(String(v ?? ''), 10);
-      return Number.isFinite(n) && n >= 0 ? n : d;
-    };
-    return { limit: Math.min(toInt(q.limit, 10), 100), offset: toInt(q.offset, 0) };
   },
   ErrorCode: mockErrorCode,
 });

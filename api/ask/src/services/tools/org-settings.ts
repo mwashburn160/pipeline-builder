@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * PHASE 5 — organization settings.
+ * Organization settings.
  *
  * The one place a BESPOKE confirm gate is warranted, because unlike installs and
  * exemptions there is no existing approval queue to file into: an org setting is

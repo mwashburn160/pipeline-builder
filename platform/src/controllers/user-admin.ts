@@ -1,13 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, MAX_PAGE_LIMIT, parsePage, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { paginationMeta } from '../helpers/pagination.js';
+import { listPage, paginationMeta } from '../helpers/pagination.js';
 import { formatUserResponse, toOverridesRecord, type OrgMembership, type OrgSummary } from '../helpers/user-response.js';
 import { Organization } from '../models/index.js';
 import { userAdminService } from '../services/index.js';
@@ -99,7 +99,7 @@ export const listAllUsers = withController('List users', async (req, res) => {
     }
   }
 
-  const { offset, limit: limitNum } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
+  const { offset, limit: limitNum } = listPage(req.query);
   const { users, total, membershipsByUser, orgNameMap } = await userAdminService.list(
     scopedUserIds,
     { search: search as string | undefined },

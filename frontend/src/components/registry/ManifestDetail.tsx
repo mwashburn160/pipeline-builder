@@ -11,6 +11,7 @@ import { TabBar } from '@/components/ui/TabBar';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { api } from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { scanTagsForDigest } from '@/lib/registry-scan';
 import { redactString, redactDetails } from '@/lib/redact';
 import type { RegistryManifestKind, RegistryPlatformRef } from '@/types';
 import { formatDate, formatDateTime } from '@/lib/format';
@@ -252,35 +253,16 @@ function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: stri
     setManualOpen(null);
     void (async () => {
       try {
-        const res = await api.listImageTags(repo);
-        if (cancelled) return;
-        const all = res.data?.tags ?? [];
-        setTotalCount(all.length);
-        // Cap at 50 to bound the scan; parallelize for speed.
-        const toScan = all.slice(0, 50);
-        const found: string[] = [];
-        let done = 0;
-        const fetchOne = async (t: string) => {
-          try {
-            const m = await api.getImageManifest(repo, t);
-            // Collect ALL tags on this digest here; the active tag is filtered
-            // out at render (see `displayTags`). Keeping the scan independent of
-            // `activeTag` avoids re-running the whole 50-tag scan on every tag
-            // selection (the N+1).
-            if (m.data?.digest === digest) found.push(t);
-          } catch {
-            // skip
-          }
-          done++;
-          if (!cancelled) setScannedCount(done);
-        };
-        // Bounded concurrency: 8 in flight at a time.
-        for (let i = 0; i < toScan.length; i += 8) {
-          if (cancelled) return;
-          await Promise.all(toScan.slice(i, i + 8).map(fetchOne));
-        }
-        if (!cancelled) {
-          setTags(found.sort());
+        // The scan collects ALL tags on this digest; the active tag is filtered
+        // out at render (see `displayTags`). Keeping it independent of
+        // `activeTag` avoids re-running the whole scan on every tag selection.
+        const found = await scanTagsForDigest(repo, digest, {
+          isCancelled: () => cancelled,
+          onScope: (toScan, skipped) => setTotalCount(toScan + skipped),
+          onProgress: setScannedCount,
+        });
+        if (found) {
+          setTags(found);
           setScanning(false);
         }
       } catch {

@@ -123,12 +123,3 @@ export const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
 export function formatJSON(obj: unknown): string {
   return JSON.stringify(obj, null, 2);
 }
-
-/** Parse a JSON string, returning `fallback` on failure. */
-export function safeJSONParse<T>(str: string, fallback: T): T {
-  try {
-    return JSON.parse(str) as T;
-  } catch {
-    return fallback;
-  }
-}

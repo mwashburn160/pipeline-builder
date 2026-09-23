@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomBytes } from 'node:crypto';
-import { createLogger, createMemorySseTicketStore, envSseTicketCaps, SSE_TICKET_TTL_MS, writeSseHeaders, type SseTicketStore, errorMessage, envInt } from '@pipeline-builder/api-core';
+import { createLogger, writeSseHeaders, type SseTicketStore, errorMessage, envInt } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
 import type { SSERelay, SSERelayMessage } from './sse-relay.js';
+import { normalizeRequestId, SseTicketBroker, type CreateTicketResult } from './sse-ticket-broker.js';
 import { incCounter, setGauge } from '../api/metrics.js';
 
 const logger = createLogger('sse-manager');
@@ -96,8 +97,8 @@ export interface SSEManagerOptions {
    */
   logStream?: boolean;
   /**
-   * TTL for a stream-ownership binding (default: `SSE_STREAM_OWNER_TTL_MS` env or
-   * 1h). Long enough to outlive a build; the producer re-binds as needed.
+   * TTL for a stream-ownership binding (default 1h). Long enough to outlive a
+   * build; the producer re-binds as needed.
    */
   streamOwnerTtlMs?: number;
   /**
@@ -125,10 +126,7 @@ export interface SSEManagerOptions {
  */
 export const SSE_REQUEST_ID_RE = /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
 
-/** Result of {@link SSEManager.createTicket}. */
-export type CreateTicketResult =
-  | { ok: true; ticket: string }
-  | { ok: false; reason: 'org-limit' | 'capacity' | 'forbidden' };
+export type { CreateTicketResult };
 
 /**
  * SSE Manager statistics
@@ -163,17 +161,11 @@ export class SSEManager {
    *  map mirrors `clients[].orgId` counts at all times. Orgs reach zero are
    *  deleted to keep the map bounded. */
   private orgClientCounts = new Map<string, number>();
-  /** Injected ticket + stream-ownership backend, or the lazily built in-memory default. */
-  private ticketStoreInstance?: SseTicketStore;
-  /** True when this manager built its ticket store (so shutdown stops it). */
-  private ownsTicketStore = false;
+  /** Ticket minting / redemption + stream ownership (see ./sse-ticket-broker.ts). */
+  private readonly tickets: SseTicketBroker;
   private readonly maxClientsPerRequest: number;
   private readonly maxTotalClients: number;
   private readonly maxClientsPerOrg: number;
-  private readonly maxTotalTickets: number;
-  private readonly maxTicketsPerOrg: number;
-  private readonly ticketTtlMs: number;
-  private readonly streamOwnerTtlMs: number;
   private readonly clientTimeoutMs: number;
   private cleanupInterval: NodeJS.Timeout | null = null;
   /** Cross-pod fan-out bus (undefined ⇒ local-only delivery). */
@@ -188,12 +180,13 @@ export class SSEManager {
     this.maxClientsPerRequest = options.maxClientsPerRequest ?? envInt('SSE_MAX_CLIENTS_PER_REQUEST', 10, { min: 1 });
     this.maxTotalClients = options.maxTotalClients ?? envInt('SSE_MAX_TOTAL_CLIENTS', 1000, { min: 1 });
     this.maxClientsPerOrg = options.maxClientsPerOrg ?? envInt('SSE_MAX_CLIENTS_PER_ORG', 50, { min: 1 });
-    const ticketCaps = envSseTicketCaps();
-    this.maxTotalTickets = options.maxTotalTickets ?? ticketCaps.maxTotal;
-    this.maxTicketsPerOrg = options.maxTicketsPerOrg ?? ticketCaps.maxPerOrg;
-    this.ticketTtlMs = options.ticketTtlMs ?? SSE_TICKET_TTL_MS;
-    this.streamOwnerTtlMs = options.streamOwnerTtlMs ?? 3_600_000; // 1 hour
-    this.ticketStoreInstance = options.ticketStore;
+    this.tickets = new SseTicketBroker({
+      store: options.ticketStore,
+      maxTotal: options.maxTotalTickets,
+      maxPerOrg: options.maxTicketsPerOrg,
+      ttlMs: options.ticketTtlMs,
+      ownerTtlMs: options.streamOwnerTtlMs,
+    });
     this.logStreamEnabled = options.logStream ?? false;
     this.clientTimeoutMs = options.clientTimeoutMs ?? envInt('SSE_CLIENT_TIMEOUT_MS', 1_800_000, { min: 1 }); // 30 minutes
 
@@ -222,19 +215,6 @@ export class SSEManager {
     if (this.relay || !this.relayFactory) return;
     const relay = this.relayFactory();
     if (relay) this.attachRelay(relay);
-  }
-
-  /** The ticket store, building the in-memory default on first use. */
-  private get ticketStore(): SseTicketStore {
-    if (!this.ticketStoreInstance) {
-      this.ticketStoreInstance = createMemorySseTicketStore({
-        ttlMs: this.ticketTtlMs,
-        maxTotal: this.maxTotalTickets,
-        maxPerOrg: this.maxTicketsPerOrg,
-      });
-      this.ownsTicketStore = true;
-    }
-    return this.ticketStoreInstance;
   }
 
   /**
@@ -275,130 +255,31 @@ export class SSEManager {
   }
 
   /**
-   * Canonical form of a requestId for equality checks: dashes stripped and
-   * lowercased, so the dashed (api-server `uuid()`) and undashed (nginx
-   * `$request_id`) renderings of the same id compare equal. Callers are
-   * expected to have already format-validated against {@link SSE_REQUEST_ID_RE}.
-   */
-  private static normalizeRequestId(requestId: string): string {
-    return requestId.replace(/-/g, '').toLowerCase();
-  }
-
-  /**
-   * Canonical form of an orgId for ownership equality checks: trimmed and
-   * lowercased. The stream PRODUCER (bindStreamOwner) and the ticket-minting
-   * CONSUMER (createTicket) run in different services, so a casing / whitespace
-   * drift between how each renders the same org would otherwise make the owner
-   * comparison in {@link createTicket} false-`forbidden` the real owner.
-   * Normalizing both sides — mirroring {@link normalizeRequestId} — closes that.
-   */
-  private static normalizeOrgId(orgId: string): string {
-    return orgId.trim().toLowerCase();
-  }
-
-  /**
-   * Record the org that OWNS a stream subject. The stream PRODUCER calls this
-   * when it creates a build-log stream so that ticket minting can assert the
-   * caller's org owns the subject (see {@link createTicket}). Backed by the
-   * injected ticket store, so when a Redis store is wired the platform producer
-   * (a different service sharing the same Redis) can bind ownership that this
-   * service reads — closing the cross-tenant attach gap where any org could mint
-   * a ticket for a guessed requestId.
-   *
-   * @param requestId - The stream subject (format-validated by the caller).
-   * @param orgId - The owning org (normalized internally via normalizeOrgId).
+   * Record the org that OWNS a stream subject, so ticket minting can refuse a
+   * cross-tenant mint. Delegates to the ticket broker.
    */
   async bindStreamOwner(requestId: string, orgId: string): Promise<void> {
-    await this.ticketStore.bindOwner(
-      SSEManager.normalizeRequestId(requestId),
-      SSEManager.normalizeOrgId(orgId),
-      this.streamOwnerTtlMs,
-    );
+    await this.tickets.bindStreamOwner(requestId, orgId);
   }
 
   /**
-   * Mint a short-lived, single-use SSE ticket bound to `orgId` AND a specific
-   * stream subject (`requestId`). Clients POST to obtain one (JWT-authenticated)
-   * for the exact stream they intend to open, then open the EventSource with
-   * `?ticket=<t>` so the JWT never lands in a query string / access log. The
-   * ticket can then only be consumed to open that one subject's stream — see
-   * {@link consumeTicket} — which is what enforces per-subject authorization.
-   *
-   * ORG-OWNERSHIP: if a stream owner has been bound for this subject (via
-   * {@link bindStreamOwner}) and it is a DIFFERENT org, minting is refused
-   * (`reason: 'forbidden'`) — an org cannot mint a ticket for another org's
-   * stream even if it guesses the requestId. When no owner is bound (producer
-   * wiring not yet present), minting falls back to binding the ticket to the
-   * caller's own org, preserving current behavior.
-   *
-   * Bounded by the ticket store's live-ticket caps (total and per org). An
-   * ownership lookup the store can't answer is refused as `capacity`.
-   *
-   * @param orgId - Owning org (normalized internally via normalizeOrgId).
-   * @param requestId - The build-log stream subject this ticket authorizes.
-   *   The caller must have format-validated it (see {@link SSE_REQUEST_ID_RE}).
-   * @returns `{ ok: true, ticket }` on success, or `{ ok: false, reason }`
-   *   where reason is `'org-limit'`, `'capacity'`, or `'forbidden'`.
+   * Mint a short-lived, single-use ticket bound to `orgId` AND this stream
+   * subject — how a browser opens an EventSource without putting its JWT in a
+   * query string. Delegates to the ticket broker, which owns the ownership and
+   * cap rules.
    */
   async createTicket(orgId: string, requestId: string): Promise<CreateTicketResult> {
-    // Ownership gate first — a cross-tenant mint attempt should never even
-    // consume cap budget. Only enforced when an owner is actually bound. Both
-    // sides are org-normalized so a producer/consumer casing drift can't
-    // false-`forbidden` the real owner (mirrors requestId normalization).
-    const normalized = SSEManager.normalizeRequestId(requestId);
-    const normalizedOrg = SSEManager.normalizeOrgId(orgId);
-    let owner: string | null;
-    try {
-      owner = await this.ticketStore.getOwner(normalized);
-    } catch (err) {
-      // Can't tell who owns the subject — refuse rather than mint unchecked.
-      logger.warn('SSE ticket refused: stream ownership lookup failed', { error: errorMessage(err) });
-      incCounter('sse_ticket_rejected_total', { reason: 'capacity' });
-      return { ok: false, reason: 'capacity' };
-    }
-    if (owner && owner !== normalizedOrg) {
-      logger.warn(`SSE ticket refused: org ${normalizedOrg} does not own stream subject`);
-      incCounter('sse_ticket_rejected_total', { reason: 'forbidden' });
-      return { ok: false, reason: 'forbidden' };
-    }
-
-    const issued = await this.ticketStore.issue(normalizedOrg, normalized);
-    if (!issued.ok) {
-      const reason = issued.reason === 'org' ? 'org-limit' : 'capacity';
-      logger.warn(`SSE ticket refused (${reason}) for ${normalizedOrg}`);
-      incCounter('sse_ticket_rejected_total', { reason });
-      return { ok: false, reason };
-    }
-    return { ok: true, ticket: issued.ticket };
+    return this.tickets.createTicket(orgId, requestId);
   }
 
   /**
-   * Validate and CONSUME a ticket for a specific stream subject. Single-use:
-   * the ticket is deleted whether or not it turns out to be valid, so a replay
-   * of the same value always fails. Returns the bound org on success, or null
-   * when the ticket is unknown / already-used / expired / OR was minted for a
-   * DIFFERENT `requestId` than the one being opened.
-   *
-   * The subject check is the authorization fix: without it, a ticket minted for
-   * one stream could be presented to open ANY stream the holder's org could
-   * name, letting an authenticated org attach to another org's log stream by
-   * guessing its requestId. The generic 401 the caller returns does not
-   * distinguish "unknown ticket" from "wrong subject", so it leaks nothing
-   * about which requestIds exist.
-   *
-   * @param ticketId - The opaque ticket value from `?ticket=`.
-   * @param requestId - The stream subject from the URL path (`:requestId`),
-   *   already format-validated by the caller.
+   * Validate and CONSUME a ticket for a specific stream subject (single-use,
+   * subject-bound). Delegates to the ticket broker.
    */
   async consumeTicket(ticketId: string, requestId: string): Promise<{ orgId: string } | null> {
-    const ticket = await this.ticketStore.consume(ticketId); // single-use
-    if (!ticket) return null;
-    // Subject binding — reject a ticket presented for a subject it was not
-    // minted for (including an unbound, org-channel ticket). Both sides are
-    // normalized so dashed/undashed forms match.
-    if (ticket.subject !== SSEManager.normalizeRequestId(requestId)) return null;
-    return { orgId: ticket.orgId };
+    return this.tickets.consumeTicket(ticketId, requestId);
   }
+
 
   /**
    * Adds a client to the SSE manager
@@ -418,7 +299,7 @@ export class SSEManager {
     // render it differently would otherwise key different Map entries — the client
     // registers under one and every send()/relay writes to another, dropping all
     // frames. Normalizing here (and in send/sendLocal/closeRequest/etc.) unifies them.
-    requestId = SSEManager.normalizeRequestId(requestId);
+    requestId = normalizeRequestId(requestId);
     const existing = this.clients.get(requestId) || [];
 
     // Check client limit
@@ -548,7 +429,7 @@ export class SSEManager {
    * @returns Number of clients the message was sent to
    */
   send(requestId: string, type: SSEEventType, message: string, data?: unknown): number {
-    requestId = SSEManager.normalizeRequestId(requestId); // unify producer/consumer key forms
+    requestId = normalizeRequestId(requestId); // unify producer/consumer key forms
     const payload: SSEPayload = {
       ts: new Date().toISOString(),
       type,
@@ -571,7 +452,7 @@ export class SSEManager {
    * Never relays — callers decide whether to publish.
    */
   private sendLocal(requestId: string, payload: SSEPayload): number {
-    requestId = SSEManager.normalizeRequestId(requestId); // idempotent; covers the relay re-emit path
+    requestId = normalizeRequestId(requestId); // idempotent; covers the relay re-emit path
     const clients = [...(this.clients.get(requestId) || [])];
     let sentCount = 0;
     const serialized = `data: ${JSON.stringify(payload)}\n\n`;
@@ -651,7 +532,7 @@ export class SSEManager {
    * @param finalMessage - Optional final message to send before closing
    */
   closeRequest(requestId: string, finalMessage?: string): void {
-    requestId = SSEManager.normalizeRequestId(requestId);
+    requestId = normalizeRequestId(requestId);
     if (!this.clients.has(requestId)) return;
 
     // LOCAL only: this closes this pod's clients, so the final frame is for them
@@ -707,7 +588,7 @@ export class SSEManager {
    * Check if a request has any connected clients
    */
   hasClients(requestId: string): boolean {
-    const clients = this.clients.get(SSEManager.normalizeRequestId(requestId));
+    const clients = this.clients.get(normalizeRequestId(requestId));
     return clients !== undefined && clients.length > 0;
   }
 
@@ -715,7 +596,7 @@ export class SSEManager {
    * Get the number of clients for a specific request
    */
   getClientCount(requestId: string): number {
-    return this.clients.get(SSEManager.normalizeRequestId(requestId))?.length ?? 0;
+    return this.clients.get(normalizeRequestId(requestId))?.length ?? 0;
   }
 
   /**
@@ -769,7 +650,7 @@ export class SSEManager {
       // `addClient` — AFTER `flushHeaders()` — which is exactly the case this
       // pre-flight exists to avoid: the client got a silently-closed stream
       // instead of a 429.
-      const existing = this.clients.get(SSEManager.normalizeRequestId(requestId)) || [];
+      const existing = this.clients.get(normalizeRequestId(requestId)) || [];
       if (existing.length >= this.maxClientsPerRequest) {
         logger.warn(`Client limit reached for request ${requestId} (max: ${this.maxClientsPerRequest})`);
         res.status(429).end('Too many connections for this request');
@@ -876,7 +757,7 @@ export class SSEManager {
 
     // Tear down the relay's Redis connections (best-effort; never throws).
     void this.relay?.close().catch(() => { /* already closing */ });
-    if (this.ownsTicketStore) this.ticketStoreInstance?.stop();
+    this.tickets.shutdown();
 
     logger.info('SSE Manager shut down');
   }

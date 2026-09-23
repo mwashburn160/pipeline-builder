@@ -3,7 +3,7 @@
 
 import { appendAuditEvent } from '../helpers/audit-chain.js';
 import { paginationMeta, type PaginationMeta } from '../helpers/pagination.js';
-import AuditEvent, { type AuditAction, type StoredAuditEvent } from '../models/audit-event.js';
+import AuditEvent, { type AuditEventData, type StoredAuditEvent } from '../models/audit-event.js';
 import { escapeRegex } from '../utils/regex.js';
 
 export interface AuditFilter {
@@ -49,38 +49,16 @@ export interface AuditFilter {
   createdTo?: Date;
 }
 
-export interface AuditCreateInput {
-  action: AuditAction;
-  actorId: string;
-  actorEmail?: string;
-  actorRole?: string;
-  orgId?: string;
-  /** Org being operated on (cross-tenant sysadmin actions). Falls back to
-   *  `orgId` when omitted, matching how the audit helper auto-populates it. */
-  affectedOrgId?: string;
-  targetType?: string;
-  targetId?: string;
-  roleId?: string;
-  impersonatorId?: string;
-  outcome?: 'success' | 'failure';
-  details?: Record<string, unknown>;
-  ip?: string;
-  userAgent?: string;
-  requestId?: string;
-  traceId?: string;
-  /** Ingest dedup key (remote-audit `Idempotency-Key`). When set, a repeat
-   *  emission with the same value is treated as already-stored by the append
-   *  path (unique-index backstop) rather than chained a second time. */
-  idempotencyKey?: string;
-  /** DISPLAY-ONLY emission time (ISO-8601 instant the action actually
-   *  happened, stamped by the remote-audit client). Persisted verbatim on the
-   *  event doc via the shared append's field spread, but NOT part of the
-   *  tamper-evidence hash and NOT the chain-ordering field — the chain still
-   *  orders/appends by ingest `createdAt`, so a spool-delayed re-delivery does
-   *  not perturb ordering or verification. Reviewers fall back to `createdAt`
-   *  when it is unset. */
-  occurredAt?: Date;
-}
+/**
+ * What a caller supplies when appending an event: every field of a stored
+ * {@link AuditEventData} except the ones the append path OWNS — the ingest
+ * timestamp and the three tamper-evidence fields (`hash`, `seq`, `prevHash`),
+ * which are computed from the chain head and must never come from a caller.
+ *
+ * DERIVED, not restated, so a new field on the model is accepted here the day
+ * it is added; a hand-copied list silently dropped fields on their way in.
+ */
+export type AuditCreateInput = Omit<AuditEventData, 'createdAt' | 'hash' | 'seq' | 'prevHash'>;
 
 export interface PaginatedAuditResult {
   events: StoredAuditEvent[];

@@ -6,10 +6,10 @@
  *
  * `index.ts` still owns the surrounding middleware (helmet, cors, body parsing,
  * mongo sanitization, health/readiness, tenant context, metrics, the general
- * rate limiter, the impersonation read-only gate and the error handlers) and the
- * limiters themselves; this module owns ONLY the `app.use(...)` route
- * registrations, so the route table the coverage test builds
- * (`test/route-coverage.test.ts`) is the one production serves.
+ * rate limiter, the impersonation read-only gate and the error handlers), and
+ * the buckets themselves live in `middleware/limiters.ts`; this module owns
+ * ONLY the `app.use(...)` route registrations, so the route table the coverage
+ * test builds (`test/route-coverage.test.ts`) is the one production serves.
  *
  * Mount ORDER is load-bearing (the alert-webhook limiter must precede the
  * tenant-facing `/observability` mount so the two never share a budget) — keep
@@ -29,16 +29,16 @@ import {
  * The Alertmanager relay webhook path. Machine-to-machine and unauthenticated at
  * middleware time (it checks a per-instance bearer inside the handler), so it
  * gets its own generous limiter rather than the user-sized buckets — see
- * `isAlertWebhook` in `index.ts`.
+ * `isAlertWebhook` in `middleware/limiters.ts`.
  */
 export const ALERT_WEBHOOK_PATH = '/observability/alert-webhook';
 
 /** Where an identity provider's SCIM client connects. Declared next to the
- *  mount that uses it, like the alert webhook, because `index.ts` also needs it
- *  to keep the general limiter off this surface. */
+ *  mount that uses it, like the alert webhook, because `middleware/limiters.ts`
+ *  also needs it to keep the general limiter off this surface. */
 export const SCIM_PATH = '/scim/v2';
 
-/** The per-surface limiters `index.ts` builds and this module mounts. */
+/** The per-surface limiters (`middleware/limiters.ts`) this module mounts. */
 export interface RouteLimiters {
   /** Strict IP-keyed limiter for the pre-auth `/auth*` surface. */
   auth: RequestHandler;
@@ -79,8 +79,8 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use(ALERT_WEBHOOK_PATH, limiters.alertWebhook);
   app.use('/observability', limiters.observability, observabilityRoutes);
   app.use('/dashboards', dashboardRoutes);
-  // SCIM gets its OWN per-org bucket, sized for a directory sync — `index.ts`
-  // keeps the general limiter off this path so the two never share a budget.
+  // SCIM gets its OWN per-org bucket, sized for a directory sync — the general
+  // limiter skips this path so the two never share a budget.
   app.use(SCIM_PATH, limiters.scim, scimRoutes);
   app.use('/admin/org-idp', orgIdpRoutes);
   app.use('/admin/orgs/:orgId/kms-config', orgKmsConfigRoutes);

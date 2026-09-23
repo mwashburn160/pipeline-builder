@@ -25,7 +25,7 @@ import { isServiceAccountPrincipal, isServicePrincipal, sendError } from '@pipel
 import type { Request, Response, NextFunction } from 'express';
 import type { AccessTokenPayload } from '../types/index.js';
 
-export const INTERACTIVE_SESSION_REQUIRED_CODE = 'INTERACTIVE_SESSION_REQUIRED';
+const INTERACTIVE_SESSION_REQUIRED_CODE = 'INTERACTIVE_SESSION_REQUIRED';
 
 export function requireInteractiveSession(req: Request, res: Response, next: NextFunction): void {
   const user = req.user as AccessTokenPayload | undefined;

@@ -20,8 +20,9 @@
 
 import { sql, type SQL } from 'drizzle-orm';
 
-import { advisoryRangeCovers } from './plugin-resolution.js';
+import { advisoryRangeCovers } from './plugin-advisories.js';
 import { compareSemver } from './semver-range.js';
+import type { HealthBreakdown } from '../database/drizzle-schema.js';
 import { resultRows } from '../database/pg-result.js';
 import { getPublicReaderDb } from '../database/public-reader.js';
 
@@ -35,8 +36,6 @@ export type DirectorySort = 'relevance' | 'rating' | 'installs' | 'updated' | 'n
 
 export const DIRECTORY_SORTS: readonly DirectorySort[] = ['relevance', 'rating', 'installs', 'updated', 'name', 'health'];
 
-/** Per-component health scores: `{ score: 0..1 | null (missing), weight }`. */
-export type DirectoryHealthBreakdown = Record<string, { score: number | null; weight: number }>;
 export const DIRECTORY_TIERS: readonly DirectoryTrustTier[] = ['official', 'verified', 'community', 'unverified'];
 
 /** Minimum `word_similarity(query, name)` for a fuzzy name match (typo tolerance). */
@@ -164,7 +163,7 @@ export interface DirectoryListingDetail extends DirectoryListingCard {
   recentRating: number | null;
   activeOrgCount: number | null;
   /** Per-component health scores behind {@link DirectoryListingCard.healthScore}. */
-  healthBreakdown: DirectoryHealthBreakdown | null;
+  healthBreakdown: HealthBreakdown | null;
   /** 30-day runtime success rate (0..1), or null with no runs. */
   successRate30d: number | null;
 }
@@ -242,7 +241,7 @@ export interface PublicListingRow {
   install_count: number | string;
   active_org_count: number | string | null;
   health_score?: number | string | null;
-  health_breakdown?: DirectoryHealthBreakdown | null;
+  health_breakdown?: HealthBreakdown | null;
   success_rate_30d?: number | string | null;
   state: 'listed' | 'unmaintained';
 }

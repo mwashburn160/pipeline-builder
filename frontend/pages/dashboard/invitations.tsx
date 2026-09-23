@@ -220,24 +220,26 @@ export default function InvitationsPage() {
     }
   };
 
-  const handleResend = async (invitation: InvitationListItem) => {
+  // Destructured so the memo below depends on the two STABLE members of `list`
+  // rather than the object it returns fresh on every render.
+  const { refresh: refreshList, setError: setListError } = list;
+  const handleResend = useCallback(async (invitation: InvitationListItem) => {
     setResendLoadingId(invitation.id);
     try {
       await api.resendInvitation(invitation.id);
       toast.success(`Invitation to ${invitation.email} resent`);
-      list.refresh();
+      refreshList();
     } catch (err) {
-      list.setError(formatError(err, 'Failed to resend invitation'));
+      setListError(formatError(err, 'Failed to resend invitation'));
     } finally {
       setResendLoadingId(null);
     }
-  };
+  }, [refreshList, setListError, toast]);
 
-  // The row and bulk actions share the header button's gate. Only "Send
-  // Invitation" was gated; Resend, Revoke, the checkboxes and bulk Revoke
-  // rendered for anyone who could READ the page — most visibly a sysadmin in a
-  // read-only impersonation, where every one of them was a live control the
-  // backend then 403'd (bulk revoke reporting N failures).
+  // The row and bulk actions share the header button's gate: Resend, Revoke, the
+  // checkboxes and bulk Revoke must not render for someone who can only READ the
+  // page — most visibly a sysadmin in a read-only impersonation, for whom every
+  // one of them would be a live control the backend then 403s.
   const columns: Column<InvitationListItem>[] = useMemo(() => [
     ...(canManageInvitations ? [{
       id: 'select',
@@ -313,7 +315,7 @@ export default function InvitationsPage() {
         </>
       ) : null,
     },
-  ], [canManageInvitations, resendLoadingId, selectedIds, allPendingSelected, toggleSelected, toggleSelectAllPending]);
+  ], [canManageInvitations, resendLoadingId, selectedIds, allPendingSelected, toggleSelected, toggleSelectAllPending, handleResend]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

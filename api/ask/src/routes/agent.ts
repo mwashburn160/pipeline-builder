@@ -13,6 +13,7 @@ import {
   sendBadRequest,
   actorId,
   recordAudit,
+  validateBody,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withQuotaReservation, withRoute, incCounter, withSpan } from '@pipeline-builder/api-server';
@@ -109,16 +110,14 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   router.post('/agent/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.agent.turn'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const parsed = AskBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
-    }
+    const parsed = validateBody(req, AskBodySchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error);
     // The agent's tools act as the calling user — forward THEIR bearer token.
     const userAuth = req.headers.authorization;
     if (!userAuth) {
       return sendBadRequest(res, 'Missing Authorization header');
     }
-    const { query, provider, model, apiKey, history, repoToken } = parsed.data;
+    const { query, provider, model, apiKey, history, repoToken } = parsed.value;
 
     // Service-minted header for the quota reserve/refund (the quota /increment
     // endpoint rejects user principals) — distinct from the user token above.

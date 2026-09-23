@@ -59,15 +59,6 @@ export function isAuditQuickFilterKey(v: string | undefined): v is AuditQuickFil
   return v === 'ecosystem' || v === 'moderation';
 }
 
-function matchesPattern(action: string, pattern: string): boolean {
-  return pattern.endsWith('.') ? action.startsWith(pattern) : action === pattern;
-}
-
-/** Whether `action` belongs to the group (prefix/exact semantics). */
-export function matchesAuditQuickFilter(action: string, key: AuditQuickFilterKey): boolean {
-  return AUDIT_QUICK_FILTERS[key].patterns.some((p) => matchesPattern(action, p));
-}
-
 /** The `actions` query value for a group. */
 export function auditQuickFilterActions(key: AuditQuickFilterKey): string {
   return AUDIT_QUICK_FILTERS[key].patterns.join(',');

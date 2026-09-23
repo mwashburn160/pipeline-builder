@@ -29,7 +29,7 @@ export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGc
   const [gcPrefix, setGcPrefix] = useState('');
   const [gcDryRun, setGcDryRun] = useState(true);
   const [gcRunning, setGcRunning] = useState(false);
-  // Real-run confirmation (in-app modal, replacing the native confirm()).
+  // Real-run confirmation, shown as an in-app modal.
   const [confirmGc, setConfirmGc] = useState(false);
 
   const executeGc = useCallback(async () => {

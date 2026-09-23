@@ -40,166 +40,22 @@ import {
 } from '@pipeline-builder/api-core';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { CrudTx } from './crud-service.js';
+import { advisoriesCovering, blockingAdvisories } from './plugin-advisories.js';
+import { effectiveConsumptionPolicy, type ConsumptionPolicy } from './plugin-consumption-policy.js';
 import {
-  compareSemver, isVersionRange, parseSemver, parseVersionSpec, satisfiesVersionSpec,
+  compareSemver, isVersionRange, parseSemver, satisfiesVersionSpec,
 } from './semver-range.js';
 import {
   OFFICIAL_PUBLISHER_HANDLE,
-  PUBLISHER_TIERS,
   schema,
-  type AdvisorySeverity,
-  type BlockedListingRef,
-  type BlockOnAdvisory,
   type InstallVersionPolicy,
-  type OfficialInstalls,
   type PluginAdvisory,
   type PluginInstall,
   type PluginInstallPolicy,
   type PluginListing,
   type PluginListingVersion,
   type Publisher,
-  type PublisherTier,
 } from '../database/drizzle-schema.js';
-
-// -----------------------------------------------------------------------------
-// Consumption policy
-// -----------------------------------------------------------------------------
-
-/** An org's consumption policy, as the resolver applies it. */
-export interface ConsumptionPolicy {
-  allowedTiers: PublisherTier[];
-  requireApprovalTiers: PublisherTier[];
-  secretsAllowedTiers: PublisherTier[];
-  blockOnAdvisory: BlockOnAdvisory;
-  officialInstalls: OfficialInstalls;
-  blockedListings: BlockedListingRef[];
-}
-
-/** The defaults (and the column defaults of `plugin_install_policies`). */
-export const DEFAULT_CONSUMPTION_POLICY: Readonly<ConsumptionPolicy> = Object.freeze<ConsumptionPolicy>({
-  allowedTiers: ['official', 'verified'],
-  requireApprovalTiers: ['community', 'unverified'],
-  secretsAllowedTiers: ['official', 'verified'],
-  blockOnAdvisory: 'critical',
-  officialInstalls: 'implicit',
-  blockedListings: [],
-});
-
-/** At most this many blocked listings per policy. */
-export const MAX_BLOCKED_LISTINGS = 500;
-
-const BLOCK_ORDER: readonly BlockOnAdvisory[] = ['never', 'critical', 'high'];
-
-const sortTiers = (tiers: Iterable<PublisherTier>): PublisherTier[] =>
-  PUBLISHER_TIERS.filter((t) => new Set(tiers).has(t));
-
-const listingKey = (r: BlockedListingRef): string => `${r.publisher}/${r.name}`;
-
-function uniqueListings(refs: readonly BlockedListingRef[]): BlockedListingRef[] {
-  const seen = new Map<string, BlockedListingRef>();
-  for (const r of refs) seen.set(listingKey(r), { publisher: r.publisher, name: r.name });
-  return [...seen.values()].sort((a, b) => listingKey(a).localeCompare(listingKey(b)));
-}
-
-/** A stored policy row (or none) as a {@link ConsumptionPolicy}. */
-export function policyOf(row: Partial<PluginInstallPolicy> | null | undefined): ConsumptionPolicy {
-  const d = DEFAULT_CONSUMPTION_POLICY;
-  return {
-    allowedTiers: sortTiers(row?.allowedTiers ?? d.allowedTiers),
-    requireApprovalTiers: sortTiers(row?.requireApprovalTiers ?? d.requireApprovalTiers),
-    secretsAllowedTiers: sortTiers(row?.secretsAllowedTiers ?? d.secretsAllowedTiers),
-    blockOnAdvisory: row?.blockOnAdvisory ?? d.blockOnAdvisory,
-    officialInstalls: row?.officialInstalls ?? d.officialInstalls,
-    blockedListings: uniqueListings(row?.blockedListings ?? d.blockedListings),
-  };
-}
-
-/**
- * A team's policy under its root org's: each field takes the STRICTER of
- * the two, so a team can narrow what its root allows but never widen it.
- */
-export function mergeConsumptionPolicies(root: ConsumptionPolicy, team: ConsumptionPolicy): ConsumptionPolicy {
-  const intersect = (a: PublisherTier[], b: PublisherTier[]) => sortTiers(a.filter((t) => b.includes(t)));
-  const union = (a: PublisherTier[], b: PublisherTier[]) => sortTiers([...a, ...b]);
-  const stricterBlock = BLOCK_ORDER.indexOf(root.blockOnAdvisory) >= BLOCK_ORDER.indexOf(team.blockOnAdvisory)
-    ? root.blockOnAdvisory : team.blockOnAdvisory;
-  return {
-    allowedTiers: intersect(root.allowedTiers, team.allowedTiers),
-    requireApprovalTiers: union(root.requireApprovalTiers, team.requireApprovalTiers),
-    secretsAllowedTiers: intersect(root.secretsAllowedTiers, team.secretsAllowedTiers),
-    blockOnAdvisory: stricterBlock,
-    officialInstalls: root.officialInstalls === 'explicit' || team.officialInstalls === 'explicit' ? 'explicit' : 'implicit',
-    blockedListings: uniqueListings([...root.blockedListings, ...team.blockedListings]),
-  };
-}
-
-/**
- * The policy an org's resolution runs under. A root org: its own row (or the
- * defaults). A team (`rootOrgId` set): its root's policy, merged with the
- * team's own row when it has one.
- */
-export function effectiveConsumptionPolicy(
-  rows: ReadonlyArray<Partial<PluginInstallPolicy> & { orgId?: string }>,
-  orgId: string,
-  rootOrgId?: string,
-): ConsumptionPolicy {
-  const own = rows.find((r) => r.orgId === orgId) ?? null;
-  if (!rootOrgId || rootOrgId === orgId) return policyOf(own);
-  const root = policyOf(rows.find((r) => r.orgId === rootOrgId) ?? null);
-  return own ? mergeConsumptionPolicies(root, policyOf(own)) : root;
-}
-
-const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
-
-function tierList(v: unknown, field: string): PublisherTier[] | string {
-  if (!Array.isArray(v)) return `${field} must be an array of tiers`;
-  const bad = v.filter((t) => !(PUBLISHER_TIERS as readonly unknown[]).includes(t));
-  if (bad.length) return `${field} has unknown tiers: ${bad.map(String).join(', ')}`;
-  return sortTiers(v as PublisherTier[]);
-}
-
-/**
- * Validate a (partial) policy update over `base`. Returns the full new policy,
- * or an error message. `blockedListings` entries are `{ publisher, name }` or
- * `"publisher/name"`.
- */
-export function applyPolicyUpdate(base: ConsumptionPolicy, input: unknown): ConsumptionPolicy | string {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return 'body must be an object';
-  const b = input as Record<string, unknown>;
-  const next: ConsumptionPolicy = { ...base };
-  for (const field of ['allowedTiers', 'requireApprovalTiers', 'secretsAllowedTiers'] as const) {
-    if (b[field] === undefined) continue;
-    const tiers = tierList(b[field], field);
-    if (typeof tiers === 'string') return tiers;
-    next[field] = tiers;
-  }
-  if (b.blockOnAdvisory !== undefined) {
-    if (!BLOCK_ORDER.includes(b.blockOnAdvisory as BlockOnAdvisory)) return 'blockOnAdvisory must be critical, high or never';
-    next.blockOnAdvisory = b.blockOnAdvisory as BlockOnAdvisory;
-  }
-  if (b.officialInstalls !== undefined) {
-    if (b.officialInstalls !== 'implicit' && b.officialInstalls !== 'explicit') return 'officialInstalls must be implicit or explicit';
-    next.officialInstalls = b.officialInstalls;
-  }
-  if (b.blockedListings !== undefined) {
-    if (!Array.isArray(b.blockedListings)) return 'blockedListings must be an array';
-    if (b.blockedListings.length > MAX_BLOCKED_LISTINGS) return `at most ${MAX_BLOCKED_LISTINGS} blocked listings`;
-    const refs: BlockedListingRef[] = [];
-    for (const raw of b.blockedListings) {
-      const ref = typeof raw === 'string'
-        ? (() => { const [publisher, name, extra] = raw.split('/'); return extra === undefined ? { publisher, name } : null; })()
-        : raw && typeof raw === 'object' ? { publisher: (raw as BlockedListingRef).publisher, name: (raw as BlockedListingRef).name } : null;
-      if (!ref || typeof ref.publisher !== 'string' || typeof ref.name !== 'string'
-        || !HANDLE_RE.test(ref.publisher) || !NAME_RE.test(ref.name)) {
-        return 'each blocked listing must be { publisher, name } (or "publisher/name")';
-      }
-      refs.push({ publisher: ref.publisher, name: ref.name });
-    }
-    next.blockedListings = uniqueListings(refs);
-  }
-  return next;
-}
 
 // -----------------------------------------------------------------------------
 // Refusals and warnings
@@ -248,97 +104,6 @@ export function blockRefusal(block: ListingBlock): ResolutionRefusal {
   return block.reason === 'suspended'
     ? { code: 'PLUGIN_UNAVAILABLE', reason: 'suspended', message: block.message }
     : { code: 'PLUGIN_BLOCKED_BY_POLICY', reason: block.reason, message: block.message };
-}
-
-// -----------------------------------------------------------------------------
-// Advisories
-// -----------------------------------------------------------------------------
-
-/** Severities each `blockOnAdvisory` setting blocks. */
-export const ADVISORY_BLOCK_SEVERITIES: Readonly<Record<BlockOnAdvisory, readonly AdvisorySeverity[]>> = {
-  critical: ['critical'],
-  high: ['critical', 'high'],
-  never: [],
-};
-
-const COMPARATOR = /^(>=|<=|>|<|=)?\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/;
-
-/** One comparator set (`>=1.0.0 <1.2.3`, `^1.2`, `1.x`, `1.0.0 - 1.2.0`) against `version`. */
-function comparatorSetCovers(set: string, version: string): boolean {
-  const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(set);
-  if (hyphen) return compareSemver(version, hyphen[1]!) >= 0 && compareSemver(version, hyphen[2]!) <= 0;
-  const parts = set.split(/\s+/).filter(Boolean);
-  if (parts.length === 1 && parseVersionSpec(parts[0]!)) return satisfiesVersionSpec(version, parts[0]!);
-  return parts.every((p) => {
-    const m = COMPARATOR.exec(p);
-    if (!m) return false;
-    const c = compareSemver(version, m[2]!);
-    switch (m[1] ?? '=') {
-      case '>=': return c >= 0;
-      case '<=': return c <= 0;
-      case '>': return c > 0;
-      case '<': return c < 0;
-      default: return c === 0;
-    }
-  });
-}
-
-/**
- * Whether an advisory's `affectedRange` covers `version`: `||`-separated
- * comparator sets, each either the lookup spec forms (`^`, `~`, partial,
- * exact) or space-separated comparators (`>=1.0.0 <1.2.3`) or a hyphen range.
- * `*` covers everything; an unparseable range covers nothing.
- */
-export function advisoryRangeCovers(range: string, version: string): boolean {
-  if (!parseSemver(version)) return false;
-  return range.split('||').map((s) => s.trim()).some((set) => set === '*' || (set !== '' && comparatorSetCovers(set, version)));
-}
-
-/**
- * Why `range` isn't a usable advisory range (the forms {@link advisoryRangeCovers}
- * understands), or null when it is. An advisory whose range parses as nothing
- * would silently cover nothing, so drafts are refused instead.
- */
-export function advisoryRangeProblem(range: string): string | null {
-  const trimmed = range.trim();
-  if (trimmed === '') return 'the affected range is empty';
-  if (trimmed.length > 255) return 'the affected range is longer than 255 characters';
-  for (const set of trimmed.split('||').map((x) => x.trim())) {
-    if (set === '*') continue;
-    if (set === '') return 'the affected range has an empty "||" alternative';
-    const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(set);
-    if (hyphen) {
-      if (!parseSemver(hyphen[1]!) || !parseSemver(hyphen[2]!)) return `"${set}" is not a valid hyphen range`;
-      continue;
-    }
-    const parts = set.split(/\s+/).filter(Boolean);
-    if (parts.length === 1 && parts[0] !== 'latest' && parseVersionSpec(parts[0]!)) continue;
-    const bad = parts.find((x) => !COMPARATOR.test(x));
-    if (bad !== undefined) return `"${bad}" is not a version, a ^/~ range or a comparator (>=, <=, >, <, =)`;
-  }
-  return null;
-}
-
-/** The PUBLISHED advisories whose range covers `version` (any severity), most severe first. */
-export function advisoriesCovering<A extends Pick<PluginAdvisory, 'severity' | 'state' | 'affectedRange'>>(
-  advisories: readonly A[],
-  version: string,
-): A[] {
-  const rank: Record<AdvisorySeverity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-  return advisories
-    .filter((a) => a.state === 'published' && advisoryRangeCovers(a.affectedRange, version))
-    .sort((a, b) => rank[a.severity] - rank[b.severity]);
-}
-
-/** The PUBLISHED advisories the policy blocks `version` for. */
-export function blockingAdvisories(
-  advisories: readonly Pick<PluginAdvisory, 'id' | 'severity' | 'state' | 'affectedRange' | 'fixedVersion' | 'summary'>[],
-  version: string,
-  policy: Pick<ConsumptionPolicy, 'blockOnAdvisory'>,
-): Array<Pick<PluginAdvisory, 'id' | 'severity' | 'state' | 'affectedRange' | 'fixedVersion' | 'summary'>> {
-  const severities = ADVISORY_BLOCK_SEVERITIES[policy.blockOnAdvisory];
-  if (severities.length === 0) return [];
-  return advisories.filter((a) => a.state === 'published' && severities.includes(a.severity) && advisoryRangeCovers(a.affectedRange, version));
 }
 
 // -----------------------------------------------------------------------------

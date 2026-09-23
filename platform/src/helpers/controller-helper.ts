@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isSystemAdmin, isSystemOrgId, normalizeOrgId, sendError } from '@pipeline-builder/api-core';
+import { createLogger, isSystemAdmin, isSystemOrgId, normalizeOrgId, recordAuthzDenial, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 
 const logger = createLogger('platform-api');
@@ -82,10 +82,15 @@ export function requireAuthUserId(req: Request, res: Response): string | null {
 
 /**
  * Verify request is from a system admin. Sends 401/403 if not.
+ *
+ * The 403 reaches the same `authz.denied` trail as every gate in the fleet —
+ * `recordAuthzDenial` skips GET/HEAD/OPTIONS itself, so only refused WRITES are
+ * recorded.
  */
 export function requireSystemAdmin(req: Request, res: Response): boolean {
   if (!ensureAuthenticated(req, res)) return false;
   if (!isSystemAdmin(req)) {
+    recordAuthzDenial(req, 'system-admin');
     sendError(res, 403, 'Forbidden: System admin access required');
     return false;
   }
@@ -272,8 +277,7 @@ export async function canAdministerOrg(req: Request, targetOrgId: string): Promi
  * Callers on these routes are ONLY reached after the route's `requirePermission`
  * middleware has already 403'd anyone lacking the capability — so a coarse
  * `isOrgAdmin` re-check here would be redundant AND would make fine-grained
- * delegation inert on platform (which is why the old admin-only helper this
- * superseded was removed).
+ * delegation inert on platform.
  */
 export async function canManageOrgScope(req: Request, targetOrgId: string): Promise<boolean> {
   if (isSystemAdmin(req)) return true;

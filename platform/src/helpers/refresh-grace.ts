@@ -22,7 +22,7 @@ import { createPendingStateStore } from './pending-state-store.js';
 import type { IssuedTokens } from '../services/session/refresh-sessions.js';
 
 /** How long a just-rotated refresh token still yields the pair that replaced it. */
-export const REFRESH_GRACE_MS = 30_000;
+const REFRESH_GRACE_MS = 30_000;
 
 interface GraceEntry {
   userId: string;

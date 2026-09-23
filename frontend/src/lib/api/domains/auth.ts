@@ -36,13 +36,16 @@ export interface SessionMeta {
   current: boolean;
 }
 
+/** Lifecycle of an issued credential — a machine token or an access key. */
+export type CredentialStatus = 'active' | 'expired' | 'revoked';
+
 /** One entry of `GET /user/tokens`: when a token was issued, when it lapses,
  *  and its status now (`revoked` = a sign-out-everywhere bumped past it). */
 export interface TokenHistoryEntry {
   id: string;
   createdAt: string;
   expiresAt: string;
-  status: 'active' | 'expired' | 'revoked';
+  status: CredentialStatus;
 }
 
 /**
@@ -79,7 +82,7 @@ export interface AccessKeyMeta {
   createdFrom: string | null;
   createdIp: string | null;
   revoked: boolean;
-  status: 'active' | 'expired' | 'revoked';
+  status: CredentialStatus;
   /** Never exchanged — a candidate to clean up. */
   neverUsed: boolean;
   /** Active, but expires within 14 days. */

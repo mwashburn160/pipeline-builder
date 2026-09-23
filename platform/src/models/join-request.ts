@@ -10,7 +10,7 @@ import { Schema, model, Types, type HydratedDocument } from 'mongoose';
  * user can't stack duplicate pending requests against the same org.
  */
 export type JoinRequestStatus = 'pending' | 'approved' | 'denied';
-export const JOIN_REQUEST_STATUSES: readonly JoinRequestStatus[] = ['pending', 'approved', 'denied'];
+const JOIN_REQUEST_STATUSES: readonly JoinRequestStatus[] = ['pending', 'approved', 'denied'];
 
 export interface JoinRequestData {
   organizationId: Types.ObjectId;

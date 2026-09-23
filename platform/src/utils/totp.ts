@@ -41,7 +41,7 @@ import crypto from 'crypto';
 export const TOTP_PERIOD_SECONDS = 30;
 
 /** Digits in a code. Six — see the module doc on interoperability. */
-export const TOTP_DIGITS = 6;
+const TOTP_DIGITS = 6;
 
 /** HMAC hash. SHA-1 for the same interoperability reason. */
 const TOTP_ALGORITHM = 'sha1';

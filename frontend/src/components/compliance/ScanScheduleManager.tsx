@@ -15,6 +15,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import type { ScanSchedule } from '@/types/compliance';
 import { formatDateTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
+import { LoadingSpinner } from '@/components/ui/Loading';
 
 interface ScanScheduleFormData {
   target: string;
@@ -215,7 +216,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
 
       {/* Table */}
       {loading ? (
-        <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" /></div>
+        <div className="flex items-center justify-center py-12"><LoadingSpinner label="Loading scan schedules" /></div>
       ) : schedules.length === 0 ? (
         <TextEmptyState>No scan schedules found.</TextEmptyState>
       ) : (

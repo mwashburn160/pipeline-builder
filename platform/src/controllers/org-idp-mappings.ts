@@ -32,7 +32,8 @@ import { requireOwnOrgSso } from '../helpers/sso-enforcement.js';
 import { idpGroupMappingService } from '../services/idp-group-mapping-service.js';
 import { IDP_MAPPING_ERROR_MAP } from '../services/idp-mapping-errors.js';
 import type { RoleAssignmentActor } from '../services/role-authority.js';
-import { idpGroupMappingCreateSchema, idpGroupMappingUpdateSchema, validateBody } from '../utils/validation.js';
+import { idpGroupMappingCreateSchema, idpGroupMappingUpdateSchema } from '../utils/validation-idp.js';
+import { validateBody } from '../utils/validation.js';
 
 /**
  * The actor context for authoring a mapping — identical to the one a direct Role

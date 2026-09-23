@@ -36,7 +36,9 @@ export default function ObservabilityIndexPage() {
     async (signal) => (ready ? (await api.listDashboards({ signal })).data?.dashboards ?? [] : []),
     [ready],
   );
-  const dashboards: Dashboard[] = data ?? [];
+  // Memoized so the empty (loading/error) case keeps ONE array identity — the
+  // filter memo below keys off it.
+  const dashboards: Dashboard[] = useMemo(() => data ?? [], [data]);
 
   // Client-side grid filters over the already-fetched dashboards (no backend
   // call): free-text over the name + a visibility quick-filter.

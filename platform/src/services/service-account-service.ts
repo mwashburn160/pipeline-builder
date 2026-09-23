@@ -75,7 +75,7 @@ const logger = createLogger('service-account-service');
 
 /** Most service accounts one org may hold. Bounds both the blast radius of a
  *  compromised admin session and the per-org listing cost. */
-export const MAX_SERVICE_ACCOUNTS_PER_ORG = 50;
+const MAX_SERVICE_ACCOUNTS_PER_ORG = 50;
 
 /** Most ACTIVE (non-revoked, unexpired) keys one account may hold. Five is
  *  enough to rotate without downtime across a few consumers, and no more. */
@@ -85,7 +85,7 @@ export const MAX_ACTIVE_KEYS_PER_ACCOUNT = 5;
 export const MAX_KEY_EXPIRES_IN_SECONDS = 365 * 24 * 60 * 60;
 
 /** Default key lifetime when the caller doesn't say. */
-export const DEFAULT_KEY_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
+const DEFAULT_KEY_EXPIRES_IN_SECONDS = 90 * 24 * 60 * 60;
 
 /** One service account as the API returns it. */
 export interface ServiceAccountView {

@@ -9,6 +9,7 @@
  */
 
 import { spawn } from 'child_process';
+import { sleep } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import type { TargetId } from './targets.js';
 import { httpsAgentForUrl } from '../utils/tls.js';
@@ -46,8 +47,6 @@ async function probe(url: string): Promise<boolean> {
     return false;
   }
 }
-
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * Poll `<url>/health` then `<url>/ready` until both pass or the timeout elapses.
@@ -90,7 +89,7 @@ export async function waitHealthy(
     } else {
       opts.onTick?.(`Waiting for ${url}/health …`);
     }
-    await delay(intervalMs);
+    await sleep(intervalMs);
   }
   // Overall timeout. If /health came up but /ready never did, proceed (non-fatal).
   return healthSeenAt > 0
@@ -126,5 +125,5 @@ export async function ensureMinikubeGateway(
     opts.onInfo?.(`Couldn't start it (is kubectl on PATH?). Start it manually: kubectl port-forward -n ${ns} svc/nginx ${port}:${port}`);
   });
   child.unref(); // detached + unref → survives this CLI so the user keeps the gateway
-  await delay(2000); // let it bind before the caller polls
+  await sleep(2000); // let it bind before the caller polls
 }

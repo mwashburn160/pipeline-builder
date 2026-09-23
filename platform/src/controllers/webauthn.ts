@@ -31,7 +31,7 @@
 import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { closeBootstrapExceptionOnEnrolment } from '../helpers/bootstrap-admin.js';
-import { withController, type ErrorMap } from '../helpers/controller-helper.js';
+import { withController } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { completeInteractiveSignIn } from '../helpers/sign-in.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
@@ -45,41 +45,12 @@ import {
   WEBAUTHN_ATTESTATION_UNVERIFIABLE,
   WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED,
   WEBAUTHN_COUNTER_REGRESSION,
-  WEBAUTHN_CREDENTIAL_EXISTS,
-  WEBAUTHN_CREDENTIAL_NOT_FOUND,
-  WEBAUTHN_INVALID_CEREMONY,
-  WEBAUTHN_LAST_SIGN_IN_METHOD,
-  WEBAUTHN_NO_CREDENTIALS,
-  WEBAUTHN_VERIFICATION_FAILED,
+  WEBAUTHN_ERROR_MAP,
 } from '../services/webauthn-errors.js';
 import * as webauthn from '../services/webauthn-service.js';
 import { passkeyRenameSchema, validateBody, webauthnCeremonySchema, webauthnRegisterVerifySchema } from '../utils/validation.js';
 
 const logger = createLogger('webauthn');
-
-export const WEBAUTHN_ERROR_MAP: ErrorMap = {
-  [WEBAUTHN_INVALID_CEREMONY]: { status: 403, message: 'This passkey request expired or was already used. Please try again.' },
-  [WEBAUTHN_VERIFICATION_FAILED]: { status: 400, message: 'That passkey could not be verified' },
-  [WEBAUTHN_CREDENTIAL_EXISTS]: { status: 409, message: 'This passkey is already registered' },
-  [WEBAUTHN_CREDENTIAL_NOT_FOUND]: { status: 404, message: 'Passkey not found' },
-  [WEBAUTHN_NO_CREDENTIALS]: { status: 409, message: 'This account has no passkeys' },
-  [WEBAUTHN_LAST_SIGN_IN_METHOD]: {
-    status: 409,
-    message: 'This is the only way you can sign in. Set a password or add another passkey first.',
-  },
-  [WEBAUTHN_COUNTER_REGRESSION]: { status: 403, message: 'That passkey could not be verified' },
-  [WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED]: {
-    status: 403,
-    message: 'Your organization does not allow this kind of passkey. Use one of the security keys or authenticators it has approved.',
-    code: WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED,
-  },
-  [WEBAUTHN_ATTESTATION_UNVERIFIABLE]: {
-    status: 403,
-    message: 'Your organization only accepts approved authenticators, and this one could not prove its make and model. Use an approved security key or authenticator.',
-    code: WEBAUTHN_ATTESTATION_UNVERIFIABLE,
-  },
-};
-
 
 /** Metric for every ceremony outcome, so enrolment and sign-in failures are
  *  visible without reading the audit log. */

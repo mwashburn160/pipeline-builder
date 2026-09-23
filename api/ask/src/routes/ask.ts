@@ -18,6 +18,7 @@ import {
   sendSuccess,
   actorId,
   recordAudit,
+  validateBody,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
@@ -74,11 +75,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
 
   // -- POST /ask  grounded how-to answer (non-streaming) ---------------------
   router.post('/', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const parsed = AskBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
-    }
-    const { query, provider, model, apiKey, history } = parsed.data;
+    const parsed = validateBody(req, AskBodySchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error);
+    const { query, provider, model, apiKey, history } = parsed.value;
     const startedAt = Date.now();
     // The provider STARTED responding (a paid call) marks the slot consumed — the
     // same `provider-responded` signal the stream path uses. The answer is
@@ -112,11 +111,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
 
   // -- POST /ask/stream  grounded how-to answer as SSE -----------------------
   router.post('/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const parsed = AskBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      return sendBadRequest(res, parsed.error.issues[0]?.message ?? 'Invalid request');
-    }
-    const { query, provider, model, apiKey, history } = parsed.data;
+    const parsed = validateBody(req, AskBodySchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error);
+    const { query, provider, model, apiKey, history } = parsed.value;
     const startedAt = Date.now();
     // Once the provider has started responding (a paid call) a later failure or
     // abort keeps the slot; a failure before that refunds it.

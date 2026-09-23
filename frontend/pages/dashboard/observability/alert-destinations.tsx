@@ -25,6 +25,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { useDelete } from '@/hooks/useDelete';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { api } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
@@ -80,26 +81,18 @@ export default function AlertDestinationsPage() {
     },
     [ready, viewingAll],
   );
-  const destinations: AlertDestination[] = data ?? [];
+  // Memoized so the empty (loading/error) case keeps ONE array identity — the
+  // filter memo below keys off it.
+  const destinations: AlertDestination[] = useMemo(() => data ?? [], [data]);
   const refresh = async () => { void refetch(); };
 
-  // Delete confirmation (in-app modal, replacing the native confirm()).
-  const [pendingDelete, setPendingDelete] = useState<AlertDestination | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const onDelete = async () => {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    try {
-      await api.deleteAlertDestination(pendingDelete.id);
-      toast.success('Destination deleted');
-      await refresh();
-      setPendingDelete(null);
-    } catch (err) {
-      toast.error(formatError(err));
-    } finally {
-      setDeleting(false);
-    }
-  };
+  // Delete confirmation. `useDelete` also owns the step-up replay: a delete
+  // refused pending re-auth refreshes the list once the person confirms.
+  const del = useDelete<AlertDestination>(
+    (d) => api.deleteAlertDestination(d.id),
+    () => { toast.success('Destination deleted'); void refresh(); },
+    (err) => toast.error(formatError(err)),
+  );
 
   // Per-destination "send test" — id of the row currently sending (for the
   // spinner/disabled state); a delivery failure toasts the downstream reason.
@@ -176,7 +169,7 @@ export default function AlertDestinationsPage() {
               <Send className="w-3.5 h-3.5" /> {testingId === d.id ? 'Sending…' : 'Send test'}
             </Button>
             <IconButton onClick={() => setEditing(d)} aria-label="Edit destination"><Edit2 className="w-4 h-4" /></IconButton>
-            <IconButton onClick={() => setPendingDelete(d)} tone="danger" aria-label="Delete destination"><Trash2 className="w-4 h-4" /></IconButton>
+            <IconButton onClick={() => del.open(d)} tone="danger" aria-label="Delete destination"><Trash2 className="w-4 h-4" /></IconButton>
           </div>
         ),
       } as Column<AlertDestination>]
@@ -290,13 +283,13 @@ export default function AlertDestinationsPage() {
         />
       )}
 
-      {pendingDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete destination"
-          itemName={pendingDelete.label}
-          loading={deleting}
-          onConfirm={() => void onDelete()}
-          onCancel={() => setPendingDelete(null)}
+          itemName={del.target.label}
+          loading={del.loading}
+          onConfirm={() => void del.confirm()}
+          onCancel={del.close}
         />
       )}
     </DashboardLayout>

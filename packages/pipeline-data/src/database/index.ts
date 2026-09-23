@@ -155,7 +155,6 @@ export {
   type PluginInstallPolicy,
   type PluginInstallPolicyInsert,
   type PluginSecurityNotificationPref,
-  type PluginSecurityNotificationPrefInsert,
   type PublicReview,
 } from './drizzle-schema.js';
 export {
@@ -171,7 +170,6 @@ export * from './retry-strategy.js';
 export * from './tenancy.js';
 export * from './public-reader.js';
 export {
-  PG_UNIQUE_VIOLATION,
   isUniqueViolation,
   resultRows,
   executeRows,

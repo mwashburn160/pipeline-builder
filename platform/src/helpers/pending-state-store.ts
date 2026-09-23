@@ -6,11 +6,11 @@
  * metadata) that the OAuth and per-org SSO login flows mint on initiate and
  * consume-once on callback.
  *
- * WHY: the OAuth/SSO controllers previously held these in a process-local `Map`.
- * Under multiple replicas the initiate (that mints the state) and the callback
- * (that consumes it) routinely land on DIFFERENT pods, so the callback pod never
- * sees the state and login fails — at `maxReplicas: 5` roughly 80% of the time.
- * Backing the state with the shared env Redis makes it visible fleet-wide.
+ * WHY SHARED: under multiple replicas the initiate (which mints the state) and
+ * the callback (which consumes it) routinely land on DIFFERENT pods, so a
+ * process-local `Map` leaves the callback pod without the state and login fails
+ * — at `maxReplicas: 5` roughly 80% of the time. Backing the state with the
+ * shared env Redis makes it visible fleet-wide.
  *
  * Semantics:
  *   - `put(state, value)` writes the entry with a short PX TTL (auto-expiry — no

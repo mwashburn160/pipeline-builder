@@ -14,6 +14,7 @@ import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Textarea } from '@/components/ui/Textarea';
 import { formatError } from '@/lib/constants';
 import { installActionState, VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
+import { majorOf } from '@/lib/public-directory/links';
 import type { CatalogEntry, InstallUpgrade, InstallView, UpdateInstallBody } from '@/types/plugin-installs';
 import { InstallPolicyDialog } from './InstallPolicyDialog';
 
@@ -348,12 +349,6 @@ function RequestChangeDialog({ listingName, what, onSubmit, onClose }: {
       </div>
     </Modal>
   );
-}
-
-/** The major component of a semver string (`null` when absent/unparseable). */
-function majorOf(version: string | null | undefined): string | null {
-  const m = /^v?(\d+)\./.exec(version ?? '');
-  return m ? m[1] : null;
 }
 
 const TONE: Record<'success' | 'warning' | 'danger', string> = {

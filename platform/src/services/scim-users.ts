@@ -108,7 +108,7 @@ export async function requireMembership(orgId: string, id: string): Promise<User
 }
 
 /** Refuse to touch a platform administrator through a tenant's directory. */
-export async function assertNotPlatformAdmin(userId: Types.ObjectId | string): Promise<void> {
+async function assertNotPlatformAdmin(userId: Types.ObjectId | string): Promise<void> {
   const user = await User.findById(userId).select('+isSuperAdmin').lean();
   if (user?.isSuperAdmin === true) throw scimPlatformAdmin();
 }
@@ -148,7 +148,7 @@ export async function resyncMemberRoles(orgId: string, userId: Types.ObjectId | 
  * The next refresh re-mints into an org they are still active in — never this
  * one, whose membership is now inactive (and whose pin is dropped below).
  */
-export async function endOrgAccess(userId: Types.ObjectId | string, orgId: string, session: ClientSession): Promise<void> {
+async function endOrgAccess(userId: Types.ObjectId | string, orgId: string, session: ClientSession): Promise<void> {
   await User.updateOne({ _id: userId }, { $inc: { claimsVersion: 1 } }, { session });
   await User.updateOne(
     { _id: userId, lastActiveOrgId: String(toOrgId(orgId)) },

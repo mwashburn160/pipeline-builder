@@ -30,7 +30,8 @@ import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
 import { isValidEmail } from '../utils/email-address.js';
-import { createAlertDestinationSchema, updateAlertDestinationSchema, validateBody } from '../utils/validation.js';
+import { createAlertDestinationSchema, updateAlertDestinationSchema } from '../utils/validation-observability.js';
+import { validateBody } from '../utils/validation.js';
 
 const logger = createLogger('alert-destinations-controller');
 

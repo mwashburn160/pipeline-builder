@@ -227,6 +227,28 @@ For a "Python test plugin":
 // Main Generation Function
 
 /**
+ * THE shaping of a raw model output into the generated-plugin wire payload:
+ * split the Dockerfile off the config, normalize the absent optionals, and lint
+ * the Dockerfile. Both the one-shot generator and the SSE stream's terminal
+ * `done` frame go through here, so a client can't see the same generation
+ * described two different ways depending on which route produced it.
+ */
+export function toPluginGenerationResult(output: z.infer<typeof PluginGenerationSchema>): PluginGenerationResult {
+  const { dockerfile, ...config } = output;
+  return {
+    config: {
+      ...config,
+      description: config.description ?? undefined,
+      primaryOutputDirectory: config.primaryOutputDirectory ?? undefined,
+      env: config.env ?? undefined,
+    },
+    dockerfile,
+    dockerfileViolations: dockerfileViolations(dockerfile),
+  };
+}
+
+
+/**
  * Generate a plugin configuration from a natural language description.
  *
  * Calls the AI SDK's generateText() with a structured output schema to
@@ -262,25 +284,16 @@ export async function generatePluginConfig(request: PluginGenerationRequest): Pr
     throw new AIEmptyOutputError();
   }
 
-  const { dockerfile, ...config } = output;
+  const result = toPluginGenerationResult(output);
 
   logger.info('AI plugin generation completed', {
     orgId: request.orgId,
     provider: request.provider,
-    name: config.name,
-    pluginType: config.pluginType,
+    name: result.config.name,
+    pluginType: result.config.pluginType,
   });
 
-  return {
-    config: {
-      ...config,
-      description: config.description ?? undefined,
-      primaryOutputDirectory: config.primaryOutputDirectory ?? undefined,
-      env: config.env ?? undefined,
-    },
-    dockerfile,
-    dockerfileViolations: dockerfileViolations(dockerfile),
-  };
+  return result;
 }
 
 // Streaming Generation Function

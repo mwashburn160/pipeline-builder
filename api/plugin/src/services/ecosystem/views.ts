@@ -41,7 +41,6 @@ export function publisherView(p: Publisher) {
     updatedAt: iso(p.updatedAt)!,
   };
 }
-export type PublisherView = ReturnType<typeof publisherView>;
 
 export function versionView(v: PluginListingVersion) {
   return {
@@ -169,7 +168,6 @@ export function queueItemView(
     conflictReason: conflict.reason,
   };
 }
-export type QueueItemView = ReturnType<typeof queueItemView>;
 
 export function ruleView(r: EcosystemAutoApprovalRule, extra: { approvedToday: number; flagDisabled: boolean }) {
   const conditions = (r.conditions ?? {}) as Record<string, unknown>;

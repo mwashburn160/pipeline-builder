@@ -48,13 +48,11 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 
-class InvalidRuleRegexError extends Error {}
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     findDeletedById: (...a: unknown[]) => findDeletedByIdMock(...a),
     purgeById: (...a: unknown[]) => purgeByIdMock(...a),
   },
-  InvalidRuleRegexError,
 }));
 
 const { createPurgeRuleRoutes } = await import('../src/routes/purge-rules.js');

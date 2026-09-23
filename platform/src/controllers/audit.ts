@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, MAX_PAGE_LIMIT, parsePage, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
+import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { requireAdminContext, requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { listPage } from '../helpers/pagination.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { verifyAuditChainAnchored } from '../services/audit-head-export.js';
 import { auditService, type AuditFilter } from '../services/audit-service.js';
@@ -65,7 +66,7 @@ export const listAuditEvents = withController('List audit events', async (req, r
   if (from === null || to === null) {
     return sendError(res, 400, 'from/to must be ISO dates');
   }
-  const { offset, limit: limitNum } = parsePage(req.query as Record<string, unknown>, { def: 10, max: MAX_PAGE_LIMIT });
+  const { offset, limit: limitNum } = listPage(req.query);
 
   const filter: AuditFilter = {};
 

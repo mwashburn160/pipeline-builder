@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * PHASE 4 — remediation through the org's EXISTING approval workflows.
+ * Remediation through the org's EXISTING approval workflows.
  *
  * The platform already has two human-approval queues, with their own
  * permissions, their own notifications and their own audit trail:

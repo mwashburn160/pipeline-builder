@@ -24,7 +24,7 @@ jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockIncCounter }));
 const mockDeprecateListed = jest.fn(async (..._a: unknown[]) => 0);
-jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ deprecateListedFromSource: mockDeprecateListed }));
+jest.unstable_mockModule('../src/services/ecosystem/version-deprecation.js', () => ({ deprecateListedFromSource: mockDeprecateListed }));
 
 const { onPluginDeprecated, renderDeprecationNotice, DEPRECATION_RECIPIENT_CHUNK } = await import('../src/helpers/deprecation-notice.js');
 const { parseEcosystemNotifyRequest } = await import('@pipeline-builder/api-core');

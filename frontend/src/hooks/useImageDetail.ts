@@ -3,21 +3,12 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { IMAGE_MEDIA_TYPES, INDEX_MEDIA_TYPES } from '@/lib/registry-scan';
 import type {
   RegistryManifestKind,
   RegistryImageConfig,
   RegistryPlatformRef,
 } from '@/types';
-
-const INDEX_MEDIA_TYPES = new Set([
-  'application/vnd.oci.image.index.v1+json',
-  'application/vnd.docker.distribution.manifest.list.v2+json',
-]);
-
-const IMAGE_MEDIA_TYPES = new Set([
-  'application/vnd.oci.image.manifest.v1+json',
-  'application/vnd.docker.distribution.manifest.v2+json',
-]);
 
 /**
  * Fetch a manifest and dispatch on its mediaType:

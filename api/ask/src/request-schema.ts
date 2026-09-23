@@ -27,4 +27,3 @@ export const AskBodySchema = z.object({
     .optional(),
 });
 
-export type AskBody = z.infer<typeof AskBodySchema>;

@@ -23,7 +23,6 @@ export {
   sendBadRequest,
   sendInternalError,
   parsePaginationParams,
-  parseSort,
   type PaginationParams,
   type SortParams,
 } from './response.js';

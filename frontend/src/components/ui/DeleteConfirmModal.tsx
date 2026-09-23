@@ -1,6 +1,6 @@
 import { useRef } from 'react';
-import { LoadingSpinner } from './Loading';
 import { Modal } from './Modal';
+import { ModalFooter } from './ModalFooter';
 
 /** Props for the DeleteConfirmModal component. */
 interface DeleteConfirmModalProps {
@@ -43,16 +43,14 @@ export function DeleteConfirmModal({ title, itemName, loading, onConfirm, onCanc
       initialFocusRef={cancelRef}
       maxWidth={`max-w-md ${className}`.trim()}
       footer={(
-        <div className="flex justify-end space-x-3">
-          <button ref={cancelRef} onClick={onCancel} disabled={loading} className="btn btn-secondary">
-            Cancel
-          </button>
-          <button onClick={onConfirm} disabled={loading} className="btn btn-danger">
-            {loading ? (
-              <><LoadingSpinner size="sm" className="mr-2" label={null} />Deleting...</>
-            ) : 'Delete'}
-          </button>
-        </div>
+        <ModalFooter
+          cancelRef={cancelRef}
+          confirmLabel={loading ? 'Deleting...' : 'Delete'}
+          confirmVariant="danger"
+          loading={loading}
+          onCancel={onCancel}
+          onConfirm={onConfirm}
+        />
       )}
     >
       <p className="text-sm text-fg-muted mb-1">

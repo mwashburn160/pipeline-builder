@@ -39,7 +39,7 @@ export * from './config/service-client.js';
 export { parsePlatformBaseUrl } from './config/infrastructure-config.js';
 
 // Core types (public surface)
-export { ComputeType, PluginType, type MetaDataType, type Visibility, TriggerType, MetadataKeys, type MetadataKey, CDK_METADATA_PREFIX } from './core/pipeline-types.js';
+export { ComputeType, PluginType, type MetaDataType, type Visibility, TriggerType, MetadataKeys, type MetadataKey } from './core/pipeline-types.js';
 export * from './core/role-types.js';
 export * from './core/security-group-types.js';
 export { replaceNonAlphanumeric, extractMetadataEnv, resolveFailureBehavior, wrapCommandsForFailureBehavior, STEP_BOOTSTRAP_CMD } from './core/metadata-helpers.js';
@@ -80,11 +80,7 @@ export {
   resolve,
   dependencies,
   type Scope,
-  type EvalError,
-  type WalkEntry,
   type FieldPredicate,
-  type TopoNode,
-  type TopoResult,
   validateTemplates,
   detectCycles,
   allowedScopeRoots,
@@ -101,4 +97,4 @@ export {
   type TemplateDraftValidation,
 } from './template/index.js';
 // A plugin's `{{ … }}` resolution against a pipeline scope (synth, `plugin test`)
-export { resolvePluginTemplates, isPluginTemplatableField } from './template/plugin-resolver.js';
+export { resolvePluginTemplates } from './template/plugin-resolver.js';

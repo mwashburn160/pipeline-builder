@@ -13,7 +13,7 @@
  * is refused, and a retry after the short failure TTL tries again).
  */
 
-import { envInt, createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, serviceEndpoint, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { TtlCache } from './ttl-cache.js';
 
 const logger = createLogger('parent-public-plugins');
@@ -27,11 +27,7 @@ type Fetcher = (orgId: string) => Promise<string[]>;
 const cache = new TtlCache<ReadonlySet<string>>(MAX_ENTRIES, TTL_MS);
 
 const liveFetcher: Fetcher = async (orgId) => {
-  const client = new InternalHttpClient({
-    host: process.env.PLUGIN_SERVICE_HOST || 'plugin',
-    port: envInt('PLUGIN_SERVICE_PORT', 3000, { min: 1, max: 65535 }),
-    timeout: 5_000,
-  });
+  const client = new InternalHttpClient({ ...serviceEndpoint('plugin'), timeout: 5_000 });
   const res = await client.get<{ data?: { names?: unknown } }>(`/internal/plugins/public-names?orgId=${encodeURIComponent(orgId)}`, {
     headers: { Authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) },
   });

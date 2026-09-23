@@ -8,6 +8,7 @@ export * from './user-profile.js';
 export * from './mfa-nudge.js';
 export * from './user-admin.js';
 export * from './organization.js';
+export * from './organization-internal.js';
 export * from './org-domain.js';
 export * from './organization-members.js';
 export * from './organization-roles.js';

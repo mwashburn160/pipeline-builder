@@ -28,12 +28,13 @@ import { audited, requirePermission, requireStepUp, sendSuccess } from '@pipelin
 import { Router, type RequestHandler } from 'express';
 
 import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
-import { deprecateOwnListedVersion, publisherAdvisories } from '../services/ecosystem/advisories.js';
+import { publisherAdvisories } from '../services/ecosystem/advisories.js';
 import { publisherInsights } from '../services/ecosystem/insights.js';
 import {
   acceptTerms, claimPublisher, ownListings, pause, publisherState, updatePublisherProfile,
 } from '../services/ecosystem/publishers.js';
 import { draft, incomingTransfers, ownRequests, respondToTransfer, submit, withdraw } from '../services/ecosystem/requests.js';
+import { deprecateOwnListedVersion } from '../services/ecosystem/version-deprecation.js';
 
 /** Build the tenant publisher router (mounted at `/plugins`, behind the shared auth + org chain). */
 export function createPublisherRoutes(): Router {

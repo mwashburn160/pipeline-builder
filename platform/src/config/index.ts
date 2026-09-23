@@ -274,7 +274,6 @@ export const config = {
      * Email-verification token lifetime (ms). 24 h default; tokens are
      * single-use and tied to the user record so a short TTL is mostly a
      * UX trade-off (users following a stale link have to re-request).
-     * Previously read inline in services/auth-service.ts.
      */
     verificationTokenTtlMs: envInt('AUTH_VERIFICATION_TOKEN_TTL_MS', 86400000),
     /**

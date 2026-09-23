@@ -47,7 +47,7 @@ import type { ssoTestCompleteSchema } from '../utils/validation.js';
 /** Prefix of every test `state` / `RelayState`. The frontend callback and SAML
  *  landing pages route on it: a test result goes back to the window that opened
  *  the popup, never into a sign-in. */
-export const TEST_STATE_PREFIX = 'ssotest.';
+const TEST_STATE_PREFIX = 'ssotest.';
 
 /** A test must finish promptly. */
 const TEST_TTL_MS = Math.min(config.oauth.stateTtlMs, 10 * 60_000);

@@ -199,12 +199,12 @@ export async function startServer(
   // flips it true once dependencies connect.
   setReady(false);
 
-  // Listen FIRST. Previously the process tested the DB and `process.exit(1)`'d
-  // on failure (to be restarted), so during a cold-DB stampede services
-  // crash-looped and never even opened their port. Now we open the port
-  // immediately — /health (liveness), /ready (readiness) and the readiness
-  // guard all respond at once — and establish + monitor the datastore in the
-  // background, reporting NotReady until it connects instead of exiting.
+  // Listen FIRST, then establish + monitor the datastore in the background,
+  // reporting NotReady until it connects. Testing the DB before listen and
+  // exiting on failure crash-loops the whole fleet during a cold-DB stampede:
+  // the process never opens its port, so /health (liveness), /ready and the
+  // readiness guard can't answer and the orchestrator only sees a dead pod.
+  // Opening the port first makes "dependency down" an observable state.
   const server = app.listen(port, () => {
     logger.info(`${name} listening on port: ${port}`);
     logger.info(`Platform URL: ${serverConfig.platformUrl}`);
@@ -231,8 +231,8 @@ export async function startServer(
 
     // Drain FIRST: report NotReady before anything else, so the load balancer /
     // readiness probe stops sending new work while the rest of shutdown runs.
-    // (Previously readiness stayed green through onShutdown, which could take
-    // seconds — new requests kept arriving at a process tearing itself down.)
+    // `onShutdown` can take seconds; readiness left green across it keeps new
+    // requests arriving at a process that is already tearing itself down.
     setReady(false);
 
     if (signal) {

@@ -44,6 +44,15 @@ export interface Caller {
   features: readonly string[];
 }
 
+/**
+ * Refuse a malformed request body. Every ecosystem input check funnels through
+ * here so a validation refusal always carries `VALIDATION_ERROR` (and the 400
+ * that maps to) rather than whatever code the nearest throw happened to pick.
+ */
+export function invalid(message: string): never {
+  throw new EcosystemError(ErrorCode.VALIDATION_ERROR, message);
+}
+
 /** Whether the caller holds `permission` (superadmins hold everything). */
 export function can(caller: Caller, permission: Permission): boolean {
   return hasPermission(caller.permissions as Permission[], permission, caller.isSuperAdmin);

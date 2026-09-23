@@ -13,6 +13,7 @@ import { mockConfig } from './helpers/config-mock.js';
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig());
 
 const v = await import('../src/utils/validation.js');
+const obs = await import('../src/utils/validation-observability.js');
 
 function res() {
   const r: any = {};
@@ -23,19 +24,19 @@ function res() {
 
 describe('alert destination schemas', () => {
   it('defaults a non-string target to empty and ignores a non-boolean enabled', () => {
-    expect(v.createAlertDestinationSchema.parse({ channel: 'in-app', label: 'x', target: 5, enabled: 'yes' }))
+    expect(obs.createAlertDestinationSchema.parse({ channel: 'in-app', label: 'x', target: 5, enabled: 'yes' }))
       .toEqual({ channel: 'in-app', label: 'x', target: '', enabled: undefined });
   });
 
   it('refuses an unknown channel and a bad severity', () => {
-    expect(v.createAlertDestinationSchema.safeParse({ channel: 'fax', label: 'x' }).success).toBe(false);
-    expect(v.updateAlertDestinationSchema.safeParse({ minSeverity: 'info' }).success).toBe(false);
+    expect(obs.createAlertDestinationSchema.safeParse({ channel: 'fax', label: 'x' }).success).toBe(false);
+    expect(obs.updateAlertDestinationSchema.safeParse({ minSeverity: 'info' }).success).toBe(false);
   });
 });
 
 describe('dashboard schemas', () => {
   it('accepts a null description, ignores a non-object layout and keeps panel extras only when typed', () => {
-    const parsed = v.updateDashboardSchema.parse({
+    const parsed = obs.updateDashboardSchema.parse({
       description: null,
       layoutJson: 'nope',
       panels: [{ queryKey: 'k', title: 't', groupBy: 3, format: 'bytes', position: 'x' }],
@@ -46,9 +47,9 @@ describe('dashboard schemas', () => {
   });
 
   it('refuses an empty name, an unknown visibility and a panel span out of range', () => {
-    expect(v.createDashboardSchema.safeParse({ name: '' }).success).toBe(false);
-    expect(v.createDashboardSchema.safeParse({ name: 'd', visibility: 'world' }).success).toBe(false);
-    expect(v.createDashboardSchema.safeParse({ name: 'd', panels: [{ queryKey: 'k', title: 't', span: 13 }] }).success).toBe(false);
+    expect(obs.createDashboardSchema.safeParse({ name: '' }).success).toBe(false);
+    expect(obs.createDashboardSchema.safeParse({ name: 'd', visibility: 'world' }).success).toBe(false);
+    expect(obs.createDashboardSchema.safeParse({ name: 'd', panels: [{ queryKey: 'k', title: 't', span: 13 }] }).success).toBe(false);
   });
 });
 

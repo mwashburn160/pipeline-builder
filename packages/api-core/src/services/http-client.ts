@@ -13,10 +13,11 @@ import {
 } from './retry-strategy.js';
 import { HttpStatus } from '../constants/http-status.js';
 import type { ServiceConfig } from '../types/common.js';
+import { sleep } from '../utils/concurrency.js';
+import { envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
-import { envInt } from '../utils/env.js';
 
 const logger = createLogger('http-client');
 
@@ -287,7 +288,7 @@ export class InternalHttpClient {
         if (decision.shouldRetry && (response.statusCode === 429 || retrySafe)) {
           logger.debug(decision.reason + ', retrying', { method, path, attempt: attempt + 1, delayMs: decision.delayMs });
           emitCounter('s2s_request_retries_total', { target, method });
-          await this.sleep(decision.delayMs);
+          await sleep(decision.delayMs);
           continue;
         }
 
@@ -317,7 +318,7 @@ export class InternalHttpClient {
         if (decision.shouldRetry && retrySafe) {
           logger.debug('Retrying after error', { method, path, error: lastError.message, attempt: attempt + 1 });
           emitCounter('s2s_request_retries_total', { target, method });
-          await this.sleep(decision.delayMs);
+          await sleep(decision.delayMs);
           continue;
         }
         // Not retrying (non-idempotent, or attempts exhausted) — a connection
@@ -332,10 +333,6 @@ export class InternalHttpClient {
     breaker.recordFailure();
     emitCounter('s2s_requests_total', { target, method, outcome: 'error' });
     throw lastError!;
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**

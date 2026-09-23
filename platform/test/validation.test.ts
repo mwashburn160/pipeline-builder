@@ -19,10 +19,9 @@ const {
   updateOrganizationSchema,
   addMemberSchema,
   transferOwnershipSchema,
-  orgIdpCreateSchema,
-  orgIdpPatchSchema,
   orgKmsConfigSchema,
 } = await import('../src/utils/validation.js');
+const { orgIdpCreateSchema, orgIdpPatchSchema } = await import('../src/utils/validation-idp.js');
 
 // Tests
 

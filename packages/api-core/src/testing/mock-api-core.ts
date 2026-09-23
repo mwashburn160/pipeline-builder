@@ -150,7 +150,6 @@ export function serviceApiCoreDefaults(): Record<string, unknown> {
     createLogger: loggerMock,
     MAX_PAGE_LIMIT: 1000,
     DEFAULT_PAGE_LIMIT: 100,
-    closeLeaderLock: async () => undefined,
     REPORT_INTERVALS: ['day', 'week', 'month'],
     scrubAwsIdentifiersFromString: (s: string) => s,
     scrubAwsIdentifiers: <T>(v: T): T => v,

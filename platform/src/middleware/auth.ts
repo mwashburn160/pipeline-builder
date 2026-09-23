@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, resolveUserPermissions, sendError, tagRouteGate } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, recordAuthzDenial, resolveUserPermissions, sendError, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { accessTokenVersion } from '../helpers/access-version.js';
 import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
@@ -122,6 +122,27 @@ async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSe
 }
 
 /**
+ * The Bearer credential, or `undefined` once the 401 has already been written.
+ *
+ * A MISSING header and a MALFORMED one answer with different codes on purpose:
+ * the client UI distinguishes "log in" (TOKEN_MISSING) from "session is broken"
+ * (TOKEN_INVALID). Both entry points (`requireAuth`, `requireServiceAuth`) read
+ * the header through here so the two can never drift apart.
+ */
+function bearerTokenOr401(req: Request, res: Response): string | undefined {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    sendError(res, 401, 'Authorization header required', ErrorCode.TOKEN_MISSING);
+    return undefined;
+  }
+  if (!authHeader.startsWith('Bearer ')) {
+    sendError(res, 401, 'Malformed authorization header', ErrorCode.TOKEN_INVALID);
+    return undefined;
+  }
+  return authHeader.split(' ')[1];
+}
+
+/**
  * Service-token kill-switch (api-core `SERVICE_TOKEN_DENYLIST`): answer 401 for a
  * denylisted `service:<name>` principal, exactly as api-core's `requireAuth`
  * does. Returns true when the response was sent.
@@ -165,19 +186,8 @@ export async function requireAuth(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const authHeader = req.headers.authorization;
-
-  // Distinguish missing header (no Authorization at all) from malformed
-  // (present but not a Bearer token). The client UI distinguishes "log in"
-  // (TOKEN_MISSING) from "session is broken" (TOKEN_INVALID).
-  if (!authHeader) {
-    return sendError(res, 401, 'Authorization header required', ErrorCode.TOKEN_MISSING);
-  }
-  if (!authHeader.startsWith('Bearer ')) {
-    return sendError(res, 401, 'Malformed authorization header', ErrorCode.TOKEN_INVALID);
-  }
-
-  const token = authHeader.split(' ')[1];
+  const token = bearerTokenOr401(req, res);
+  if (token === undefined) return;
 
   // An OPAQUE ACCESS KEY (`pb_pat_…` or a service account's `pb_sa_…`)
   // presented straight to platform — the CLI and the deploy scripts export one
@@ -391,14 +401,8 @@ export async function requireServiceAuth(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return sendError(res, 401, 'Authorization header required', ErrorCode.TOKEN_MISSING);
-  }
-  if (!authHeader.startsWith('Bearer ')) {
-    return sendError(res, 401, 'Malformed authorization header', ErrorCode.TOKEN_INVALID);
-  }
-  const token = authHeader.split(' ')[1];
+  const token = bearerTokenOr401(req, res);
+  if (token === undefined) return;
 
   try {
     const decoded = verifyAccessToken(token);
@@ -519,6 +523,12 @@ export async function isValidRefreshToken(
  * `requireSystemAdmin` *helper*, so the route reads accurately (org admins do
  * NOT qualify) and is rejected one layer earlier (defense in depth). Unlike an
  * org-role gate, org admins/owners do NOT qualify here — only platform sysadmins.
+ *
+ * Platform keeps its own copy rather than api-core's `requireSystemAdmin`
+ * because that one answers 403 to everyone: here an UNAUTHENTICATED caller must
+ * get 401 so the client knows to sign in rather than to give up. The refusal is
+ * reported to the same `authz.denied` sink as every other gate in the fleet
+ * (`recordAuthzDenial` itself skips GET/HEAD/OPTIONS, so this adds no scan noise).
  */
 export function requireSystemAdmin(req: Request, res: Response, next: NextFunction): void {
   if (req.user && isSystemAdmin(req)) {
@@ -526,6 +536,7 @@ export function requireSystemAdmin(req: Request, res: Response, next: NextFuncti
   }
   // Unauthenticated → 401 (missing/invalid credentials); authenticated non-sysadmin → 403.
   if (!req.user) return sendError(res, 401, 'Authentication required');
+  recordAuthzDenial(req, 'system-admin');
   return sendError(res, 403, 'Forbidden: system administrator access required');
 }
 

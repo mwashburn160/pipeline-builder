@@ -31,7 +31,7 @@ function uriEncode(s: string): string {
 }
 
 /** Encode an object path, keeping `/` separators. */
-export function encodeS3Path(path: string): string {
+function encodeS3Path(path: string): string {
   return path.split('/').map(uriEncode).join('/');
 }
 

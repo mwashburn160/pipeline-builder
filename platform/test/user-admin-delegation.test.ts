@@ -27,7 +27,6 @@ const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (r: any, status: number, message: string, code?: string) => r.status(status).json({ success: false, message, code }),
   sendSuccess: (r: any, status: number, data: unknown) => r.status(status).json({ success: true, data }),
-  parsePaginationParams: () => ({ offset: 0, limit: 20 }),
   isSystemOrgId: () => false,
   // Linking stubs for exports these handlers don't exercise.
   validateBulkArray: jest.fn(),

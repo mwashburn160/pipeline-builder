@@ -53,8 +53,6 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
   resolveParentOrgId: jest.fn<AnyFn>(),
 }));
 
-class InvalidRuleRegexError extends Error {}
-class InvalidSetTagError extends Error {}
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     update: (...a: unknown[]) => updateMock(...a),
@@ -63,8 +61,6 @@ jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
     findAllEnforced: (...a: unknown[]) => findAllEnforcedMock(...a),
     findPaginated: (...a: unknown[]) => findPaginatedMock(...a),
   },
-  InvalidRuleRegexError,
-  InvalidSetTagError,
 }));
 
 const { createUpdateRuleRoutes } = await import('../src/routes/update-rules.js');

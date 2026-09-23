@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { Button, type ButtonVariant } from './Button';
 
 interface ModalFooterProps {
@@ -21,6 +21,9 @@ interface ModalFooterProps {
   confirmType?: 'button' | 'submit';
   /** Optional left-aligned content (a tertiary action or a note). */
   children?: ReactNode;
+  /** Handle on the Cancel button, for a dialog that gives it initial focus so a
+   *  stray Enter can't confirm. */
+  cancelRef?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -31,12 +34,12 @@ interface ModalFooterProps {
 export function ModalFooter({
   onCancel, onConfirm, confirmLabel = 'Save', cancelLabel = 'Cancel',
   loading = false, confirmDisabled = false, confirmVariant = 'primary',
-  confirmType = 'button', children,
+  confirmType = 'button', children, cancelRef,
 }: ModalFooterProps) {
   return (
     <div className="flex items-center justify-end gap-2">
       {children && <div className="mr-auto">{children}</div>}
-      <Button variant="secondary" onClick={onCancel} disabled={loading}>{cancelLabel}</Button>
+      <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={loading}>{cancelLabel}</Button>
       <Button
         variant={confirmVariant}
         type={confirmType}

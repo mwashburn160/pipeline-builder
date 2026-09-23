@@ -61,7 +61,8 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   updateOrgIdentitySchema: {},
 }));
 
-const { updateOrganizationSeatLimit, updateOrganizationTier } = await import('../src/controllers/organization.js');
+const { updateOrganizationTier } = await import('../src/controllers/organization.js');
+const { updateOrganizationSeatLimit } = await import('../src/controllers/organization-internal.js');
 
 function mockRes() {
   const res: any = {};

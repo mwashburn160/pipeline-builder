@@ -4,11 +4,13 @@
 /**
  * Passkey (WebAuthn) error codes.
  *
- * Thrown by `services/webauthn-service.ts` and mapped to HTTP status in
- * `controllers/webauthn.ts`. Dependency-free on purpose (see `auth-errors.ts`):
- * controllers and tests import the codes without loading the service, its models
- * or the SimpleWebAuthn runtime.
+ * Thrown by `services/webauthn-service.ts` and answered with the HTTP status in
+ * {@link WEBAUTHN_ERROR_MAP} below. Dependency-free on purpose (see
+ * `auth-errors.ts`): controllers and tests import the codes without loading the
+ * service, its models or the SimpleWebAuthn runtime.
  */
+
+import type { ErrorMap } from '../helpers/controller-helper.js';
 
 /** The ceremony id is unknown, expired, already consumed, or was minted for
  *  someone else. Deliberately one code for all four — telling them apart is a
@@ -36,3 +38,29 @@ export const WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED = 'WEBAUTHN_AUTHENTICATOR_NOT_AL
  *  attestation could not be verified (no attestation, self attestation, a model
  *  the FIDO Metadata Service does not know, or no metadata loaded). → 403 */
 export const WEBAUTHN_ATTESTATION_UNVERIFIABLE = 'WEBAUTHN_ATTESTATION_UNVERIFIABLE';
+
+/** The HTTP answer for each passkey sentinel above — kept beside the codes,
+ *  the same convention as `totp-errors.ts`, so a new sentinel and its refusal
+ *  land in one file. */
+export const WEBAUTHN_ERROR_MAP: ErrorMap = {
+  [WEBAUTHN_INVALID_CEREMONY]: { status: 403, message: 'This passkey request expired or was already used. Please try again.' },
+  [WEBAUTHN_VERIFICATION_FAILED]: { status: 400, message: 'That passkey could not be verified' },
+  [WEBAUTHN_CREDENTIAL_EXISTS]: { status: 409, message: 'This passkey is already registered' },
+  [WEBAUTHN_CREDENTIAL_NOT_FOUND]: { status: 404, message: 'Passkey not found' },
+  [WEBAUTHN_NO_CREDENTIALS]: { status: 409, message: 'This account has no passkeys' },
+  [WEBAUTHN_LAST_SIGN_IN_METHOD]: {
+    status: 409,
+    message: 'This is the only way you can sign in. Set a password or add another passkey first.',
+  },
+  [WEBAUTHN_COUNTER_REGRESSION]: { status: 403, message: 'That passkey could not be verified' },
+  [WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED]: {
+    status: 403,
+    message: 'Your organization does not allow this kind of passkey. Use one of the security keys or authenticators it has approved.',
+    code: WEBAUTHN_AUTHENTICATOR_NOT_ALLOWED,
+  },
+  [WEBAUTHN_ATTESTATION_UNVERIFIABLE]: {
+    status: 403,
+    message: 'Your organization only accepts approved authenticators, and this one could not prove its make and model. Use an approved security key or authenticator.',
+    code: WEBAUTHN_ATTESTATION_UNVERIFIABLE,
+  },
+};

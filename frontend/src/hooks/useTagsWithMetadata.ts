@@ -3,11 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-
-const INDEX_MEDIA_TYPES = new Set([
-  'application/vnd.oci.image.index.v1+json',
-  'application/vnd.docker.distribution.manifest.list.v2+json',
-]);
+import { INDEX_MEDIA_TYPES, mapInWaves, PARALLEL_MANIFEST_READS } from '@/lib/registry-scan';
 
 /** Per-tag metadata used to enrich the TagTable rows. */
 export interface TagMetadata {
@@ -18,9 +14,6 @@ export interface TagMetadata {
   totalSize: number;
   created?: string;
 }
-
-/** Limit concurrent manifest fetches so we don't hammer the registry. */
-const MAX_CONCURRENT = 8;
 
 /**
  * Populate per-tag metadata (digest, multi-arch flag, total size, created date)
@@ -98,13 +91,8 @@ export function useTagsWithMetadata(repo: string | null, tags: string[] | null) 
     };
 
     void (async () => {
-      // Bounded concurrency. Walk the tag list in waves of MAX_CONCURRENT.
-      for (let i = 0; i < tags.length; i += MAX_CONCURRENT) {
-        if (cancelled) return;
-        const batch = tags.slice(i, i + MAX_CONCURRENT);
-        await Promise.all(batch.map(fetchTag));
-      }
-      if (!cancelled) setLoading(false);
+      const completed = await mapInWaves(tags, PARALLEL_MANIFEST_READS, fetchTag, () => cancelled);
+      if (completed) setLoading(false);
     })();
 
     return () => { cancelled = true; };

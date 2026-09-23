@@ -12,13 +12,11 @@ import {
   logAuditEvent,
   audited,
   requirePermission,
-  actorId,
-  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { canWriteRepo } from './repo-access.js';
-import { logger, RegistryMetrics } from './shared.js';
+import { logger, recordRegistryAudit, RegistryMetrics } from './shared.js';
 import { cosignCompanionTags } from '../../services/cosign-tags.js';
 import { COPY_PARALLEL_BLOBS } from '../../services/manifest-copy.js';
 import { repoOwnerOrgId } from '../../services/namespaces.js';
@@ -74,11 +72,8 @@ export function registerDeleteRoutes(router: Router): void {
       await deleteManifest(name, digest);
       const deletedCompanions = await deleteCosignCompanions(name, digest);
       ctx.log('COMPLETED', 'Deleted manifest', { name, reference, digest, deletedCompanions });
-      // Intentional dual-emit (NOT an accidental duplication): two independent
-      // consumers. The Loki line below (`logAuditEvent` → winston) feeds the operator
-      // Audit-Activity dashboard / RecentActionsPanel — a short-retention, human-
-      // facing ops view. The `recordAudit` call feeds the tamper-evident
-      // Mongo hash-chain audit trail — the durable compliance record. Keep both.
+      // The operator-facing Loki line; `recordRegistryAudit` below is its durable
+      // twin — see that helper for why both exist.
       logAuditEvent(logger, {
         event: 'registry.tag.delete',
         actor: req.user?.sub ?? 'unknown',
@@ -86,18 +81,9 @@ export function registerDeleteRoutes(router: Router): void {
         ref: reference,
         digest,
       });
-      // Durable audit trail for the destructive delete, emitted only AFTER the
-      // manifest DELETE lands. Fire-and-forget; never blocks/throws.
-      // `affectedOrgId` = the repo's owning org, so its admins see the delete.
-      const ownerOrgId = repoOwnerOrgId(name);
-      recordAudit({
+      recordRegistryAudit(req, userId, {
         action: 'registry.image.delete',
-        actorId: actorId({ userId }),
-        ...(req.user?.email && { actorEmail: req.user.email }),
-        ...(req.user?.organizationId && { orgId: req.user.organizationId }),
-        ...(ownerOrgId && { affectedOrgId: ownerOrgId }),
-        outcome: 'success',
-        targetType: 'registry-image',
+        ownerOrgId: repoOwnerOrgId(name),
         targetId: name,
         details: { scope: 'tag', repo: name, ref: reference, digest },
       });
@@ -162,11 +148,8 @@ export function registerDeleteRoutes(router: Router): void {
     });
 
     ctx.log('COMPLETED', 'Pruned repository', { name, deletedManifests, tags: tags.length });
-    // Intentional dual-emit (NOT an accidental duplication): two independent
-    // consumers. The Loki line below (`logAuditEvent` → winston) feeds the operator
-    // Audit-Activity dashboard / RecentActionsPanel — a short-retention, human-
-    // facing ops view. The `recordAudit` call feeds the tamper-evident
-    // Mongo hash-chain audit trail — the durable compliance record. Keep both.
+    // The operator-facing Loki line; `recordRegistryAudit` below is its durable
+    // twin — see that helper for why both exist.
     logAuditEvent(logger, {
       event: 'registry.repo.delete',
       actor: req.user?.sub ?? 'unknown',
@@ -174,17 +157,9 @@ export function registerDeleteRoutes(router: Router): void {
       deletedManifests,
       deletedTags: tags.length,
     });
-    // Durable audit trail for the whole-repo prune, emitted only AFTER the
-    // manifests are deleted. Fire-and-forget; never blocks/throws.
-    const ownerOrgId = repoOwnerOrgId(name);
-    recordAudit({
+    recordRegistryAudit(req, userId, {
       action: 'registry.image.delete',
-      actorId: actorId({ userId }),
-      ...(req.user?.email && { actorEmail: req.user.email }),
-      ...(req.user?.organizationId && { orgId: req.user.organizationId }),
-      ...(ownerOrgId && { affectedOrgId: ownerOrgId }),
-      outcome: 'success',
-      targetType: 'registry-image',
+      ownerOrgId: repoOwnerOrgId(name),
       targetId: name,
       details: { scope: 'repo', repo: name, deletedManifests, deletedTags: tags.length },
     });

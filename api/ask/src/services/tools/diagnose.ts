@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * PHASE 1 — diagnosis. Six READ tools, every one of them a GET (or a cached
+ * Diagnosis. Six READ tools, every one of them a GET (or a cached
  * report read) through the CALLER'S OWN forwarded token, so each owning service
  * re-checks the caller's permissions and tenancy exactly as it would for the
  * user's own dashboard request.

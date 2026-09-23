@@ -220,7 +220,8 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
   organization: { cascadeHttpTimeoutMs: 5000 },
 }));
 
-const { cascadeDeleteOrg, exportOrg, CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES } = await import('../src/services/org-cascade-service.js');
+const { cascadeDeleteOrg, exportOrg } = await import('../src/services/org-cascade-service.js');
+const { CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES } = await import('../src/services/org-cascade-registry.js');
 const { SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-errors.js');
 
 // The REAL drizzle schema (deep import — bypasses the barrel's DB pool, which is

@@ -46,6 +46,7 @@ import type {
   PluginScanFlag,
   PluginSecurityRecipientMode,
   PluginSecurityDigestMode,
+  HealthComponentScore,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import {
@@ -54,8 +55,14 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { PluginIcon, PluginSecret, PluginUploadedIcon } from './plugin.js';
 
-/** Per-component health scores; mirrors api-core's `HealthBreakdown`. */
-export type HealthBreakdown = Record<string, { score: number | null; weight: number }>;
+/**
+ * Per-component health scores, as STORED. The component score shape is
+ * api-core's `HealthComponentScore` — only the key is widened to `string`,
+ * because drizzle's `$type<>()` on a jsonb column must accept whatever
+ * component set a row was written with (api-core's `HealthBreakdown` keys on
+ * the current `HealthComponent` union and would reject an older row).
+ */
+export type HealthBreakdown = Record<string, HealthComponentScore>;
 
 /** Postgres `tsvector`, which drizzle-orm has no native column for. */
 const tsvector = customType<{ data: string }>({
@@ -1016,7 +1023,6 @@ export type PluginInstallPolicy = typeof pluginInstallPolicy.$inferSelect;
 export type PluginInstallPolicyInsert = typeof pluginInstallPolicy.$inferInsert;
 
 export type PluginSecurityNotificationPref = typeof pluginSecurityNotificationPref.$inferSelect;
-export type PluginSecurityNotificationPrefInsert = typeof pluginSecurityNotificationPref.$inferInsert;
 
 export type PluginAdvisoryDelivery = typeof pluginAdvisoryDelivery.$inferSelect;
 export type PluginAdvisoryDeliveryInsert = typeof pluginAdvisoryDelivery.$inferInsert;

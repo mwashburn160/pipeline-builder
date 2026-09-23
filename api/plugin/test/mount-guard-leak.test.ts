@@ -125,6 +125,7 @@ jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () =
   getAvailableProviders: jest.fn(() => []),
   generatePluginConfig: jest.fn(),
   streamPluginConfig: jest.fn(),
+  toPluginGenerationResult: jest.fn(),
 }));
 jest.unstable_mockModule('../src/services/similar-plugin-lookup.js', () => ({
   findSimilarPlugins: jest.fn(async () => []),
@@ -161,7 +162,8 @@ const realEcosystemContext = await import('../src/services/ecosystem/context.js'
 jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ ...realEcosystemContext, initEcosystem: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/publishers.js', () => ({ ensureOfficialPublisher: jest.fn(async () => ({})) }));
 // app-routes registers the review → advisory seam at mount; the advisory service itself is not under test.
-jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ deprecateListedFromSource: jest.fn(), openReviewAdvisoryDraft: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ openReviewAdvisoryDraft: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/version-deprecation.js', () => ({ deprecateListedFromSource: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
   createEcosystemMaintenanceScheduler: () => ({ start: () => undefined, stop: () => undefined }),
 }));

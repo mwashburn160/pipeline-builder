@@ -1,12 +1,14 @@
 'use client';
 
-import { History, ArrowLeft, Loader2 } from 'lucide-react';
+import { History, ArrowLeft } from 'lucide-react';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { RetryError } from '@/components/ui/RetryError';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import type { ComplianceRuleHistoryEntry } from '@/types/compliance';
 import { formatDateTime } from '@/lib/format';
+import { LoadingSpinner } from '@/components/ui/Loading';
+import { StatusPill } from '@/components/ui/StatusPill';
 
 const CHANGE_STYLES: Record<string, { bg: string; text: string }> = {
   created: { bg: 'bg-success-bg', text: 'text-success' },
@@ -56,7 +58,7 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-brand" />
+          <LoadingSpinner label="Loading rule history" />
         </div>
       ) : history.length === 0 ? (
         <TextEmptyState>No history entries found.</TextEmptyState>
@@ -68,9 +70,9 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
               <div key={entry.id} className="p-4 rounded-lg border border-default bg-surface">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-3">
-                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>
+                    <StatusPill className={`${style.bg} ${style.text}`}>
                       {entry.changeType}
-                    </span>
+                    </StatusPill>
                     <span className="text-xs text-fg-muted">
                       by {entry.changedBy}
                     </span>

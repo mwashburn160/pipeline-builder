@@ -18,27 +18,31 @@ import {
   advisoriesCovering,
   advisoryRangeCovers,
   advisoryRangeProblem,
-  applyPolicyUpdate,
   blockingAdvisories,
-  blockRefusal,
+} from '../src/api/plugin-advisories.js';
+import {
+  applyPolicyUpdate,
   DEFAULT_CONSUMPTION_POLICY,
-  drizzleListingSource,
   effectiveConsumptionPolicy,
+  mergeConsumptionPolicies,
+  policyOf,
+  type ConsumptionPolicy,
+} from '../src/api/plugin-consumption-policy.js';
+import {
+  blockRefusal,
+  drizzleListingSource,
   implicitInstallRange,
   installAdmits,
   installModeFor,
   listedPluginRecord,
   listedVersionWarnings,
   listingBlock,
-  mergeConsumptionPolicies,
   modeAdmits,
   orgListingStates,
-  policyOf,
   resolvableListings,
   resolveListingReference,
   scopeOrgIds,
   selectListingVersion,
-  type ConsumptionPolicy,
   type ListingDataSource,
 } from '../src/api/plugin-resolution.js';
 import type {

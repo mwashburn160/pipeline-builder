@@ -31,12 +31,18 @@ class MockAIEmptyOutputError extends Error {
   readonly providerContacted = true;
 }
 
+const mockDockerfileViolations = (dockerfile: string) =>
+  (dockerfile.includes('USER 1000:1000') ? [] : ['Dockerfile: the final stage sets no USER']);
 jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () => ({
   AIEmptyOutputError: MockAIEmptyOutputError,
-  dockerfileViolations: (dockerfile: string) => (dockerfile.includes('USER 1000:1000') ? [] : ['Dockerfile: the final stage sets no USER']),
+  dockerfileViolations: mockDockerfileViolations,
   getAvailableProviders: jest.fn(() => []),
   generatePluginConfig: mockGeneratePluginConfig,
   streamPluginConfig: mockStreamPluginConfig,
+  // Same shaping the real module applies to the stream's terminal frame.
+  toPluginGenerationResult: ({ dockerfile, ...config }: any) => ({
+    config, dockerfile, dockerfileViolations: mockDockerfileViolations(dockerfile),
+  }),
 }));
 
 const SIMILAR = [{ id: 'p-1', name: 'eslint-lint', version: '2.0.0', category: 'quality', summary: 'Runs ESLint', keywords: ['lint'] }];

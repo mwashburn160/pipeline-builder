@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readFileSync } from 'fs';
-import { envInt } from '@pipeline-builder/api-core';
+import { envInt, serviceEndpoint } from '@pipeline-builder/api-core';
 
 /**
  * Resolve an env-supplied secret material to its raw value. The convention
@@ -70,10 +70,11 @@ export interface AppConfig {
   /**
    * Platform service, reached IN-CLUSTER for the `docker login` flow
    * (auth-resolver Path 2): Basic auth whose password isn't a JWT is forwarded
-   * to platform's `/auth/login`. Same `PLATFORM_SERVICE_HOST`/`_PORT` every other
-   * service uses to call platform (billing, message, remote audit) — NOT the
-   * public `PLATFORM_BASE_URL`, which is the ingress URL (with an `/api` prefix
-   * that the platform service itself doesn't serve).
+   * to platform's `/auth/login`. Resolved through api-core's `serviceEndpoint`,
+   * so it is the same `PLATFORM_SERVICE_HOST`/`_PORT` every other service uses to
+   * call platform (billing, message, remote audit) — NOT the public
+   * `PLATFORM_BASE_URL`, which is the ingress URL (with an `/api` prefix that the
+   * platform service itself doesn't serve).
    */
   readonly platformService: {
     readonly host: string;
@@ -122,10 +123,7 @@ export function loadConfig(): AppConfig {
       expiresInSeconds: envInt('REGISTRY_TOKEN_EXPIRES_IN', 300, { min: 1 }),
     },
 
-    platformService: {
-      host: process.env.PLATFORM_SERVICE_HOST || 'platform',
-      port: envInt('PLATFORM_SERVICE_PORT', 3000, { min: 1, max: 65535 }),
-    },
+    platformService: serviceEndpoint('platform'),
 
     pluginSigning: {
       mode: process.env.PLUGIN_SIGNING_MODE === 'kms' ? 'kms' : 'local',

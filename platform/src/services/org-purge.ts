@@ -80,7 +80,7 @@ function purgeAuditDetails(report: CascadeReport): Record<string, unknown> {
 }
 
 /** Every cascade leg that failed and so blocks the hard delete. */
-export function failedTeardownLegs(report: CascadeReport): string[] {
+function failedTeardownLegs(report: CascadeReport): string[] {
   return [
     !report.billing.ok ? 'billing' : null,
     !report.quota.ok ? 'quota' : null,

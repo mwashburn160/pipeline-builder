@@ -59,7 +59,7 @@ import {
 } from './submission-moderation.js';
 import { submissions } from './submissions-store.js';
 import { communityPublisher, dropQuarantineArtifacts, lintPackage, submissionNameGate } from './submissions.js';
-import { emailPurgeAt } from './util.js';
+import { emailPurgeAt, iso } from './util.js';
 import { buildAndPushQuarantine, runQuarantineSmokeTest, type QuarantineBuildOptions } from '../../helpers/docker-build.js';
 import { readPackageFiles } from '../../helpers/package-files.js';
 import { parsePluginZip, validateBuildArgs, type ParsedPlugin } from '../../helpers/plugin-spec.js';
@@ -295,7 +295,7 @@ export async function runSubmissionGates(submissionId: string): Promise<GateRunO
       vulnLow: outcome.scan.vulnLow,
       vulnCriticalFixable: outcome.scan.vulnCriticalFixable,
       vulnHighFixable: outcome.scan.vulnHighFixable,
-      scannedAt: outcome.scan.scannedAt ? new Date(outcome.scan.scannedAt).toISOString() : null,
+      scannedAt: iso(outcome.scan.scannedAt),
       runAsRoot: outcome.runAsRoot,
     };
     const scanned = facts.scannedAt !== null;

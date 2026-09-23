@@ -9,12 +9,10 @@ import { Pagination } from '@/components/ui/Pagination';
 import { useFetch } from '@/hooks/useFetch';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { StatCard } from '@/components/ui/StatCard';
-import { formatCents as money } from '@/lib/format';
+import { formatCents as money, formatMonthYear } from '@/lib/format';
 import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib/api/domains/billing';
 
 type AllocationRow = BillingAllocation['rows'][number];
-
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 
 const INVOICE_PAGE_SIZE = 24;
 
@@ -26,7 +24,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 const INVOICE_COLUMNS: Column<BillingInvoiceRow>[] = [
-  { id: 'period', header: 'Period', cellClassName: 'text-fg-muted', render: (r) => fmtDate(r.periodStart) },
+  { id: 'period', header: 'Period', cellClassName: 'text-fg-muted', render: (r) => formatMonthYear(r.periodStart) },
   { id: 'gross', header: 'Gross', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => money(r.grossCents) },
   { id: 'discount', header: 'Discount', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.discountCents ? `−${money(r.discountCents)}` : '—') },
   { id: 'credit', header: 'Credit', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums text-fg-muted', render: (r) => (r.creditCents ? `−${money(r.creditCents)}` : '—') },
@@ -171,7 +169,7 @@ export function BillingDashboard() {
               const creditPct = Math.round(((p.creditCents + p.discountCents) / maxGross) * 100);
               return (
                 <div key={p.periodStart} className="flex items-center gap-3">
-                  <span className="text-xs text-fg-muted w-20 shrink-0 tabular-nums">{fmtDate(p.periodStart)}</span>
+                  <span className="text-xs text-fg-muted w-20 shrink-0 tabular-nums">{formatMonthYear(p.periodStart)}</span>
                   <div className="flex-1 h-4 bg-surface-muted rounded overflow-hidden flex">
                     <div className="h-full bg-blue-500" style={{ width: `${netPct}%` }} title={`Net ${money(p.netCents)}`} />
                     <div className="h-full bg-emerald-400" style={{ width: `${creditPct}%` }} title={`Discounts + credits ${money(p.creditCents + p.discountCents)}`} />

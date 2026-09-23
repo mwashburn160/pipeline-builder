@@ -41,7 +41,9 @@ export default function IdpRosterPage() {
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load IdP roster');
     return res.data.configs ?? [];
   }, [enabled]);
-  const configs = roster.data ?? [];
+  // Memoized so the empty (loading/error) case keeps ONE array identity — the
+  // column and org-name memos below key off it.
+  const configs = useMemo(() => roster.data ?? [], [roster.data]);
   const loading = roster.loading;
   const load = roster.refetch;
 

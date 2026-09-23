@@ -11,14 +11,12 @@ import {
   audited,
   requireAllPermissions,
   validateBody,
-  actorId,
-  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { canReadRepo, canWriteRepo } from './repo-access.js';
-import { logger, RegistryMetrics } from './shared.js';
+import { logger, recordRegistryAudit, RegistryMetrics } from './shared.js';
 import { copyManifestTree, InvalidManifestError, SourceIncompleteError } from '../../services/manifest-copy.js';
 import { inSystemNamespace, repoOwnerOrgId, repoTenant } from '../../services/namespaces.js';
 import {
@@ -181,12 +179,9 @@ export function registerCopyRoutes(router: Router): void {
       mountedBlobs,
     });
 
-    // Intentional dual-emit (NOT an accidental duplication): the Loki line
-    // (`logAuditEvent` → winston) feeds the short-retention operator dashboard; the
-    // `recordAudit` call feeds the tamper-evident Mongo hash-chain
-    // durable compliance record. A cross-tenant copy moves data across customer
-    // boundaries, so it MUST land in the durable trail too (the sibling deletes
-    // already dual-emit).
+    // The operator-facing Loki line; `recordRegistryAudit` below is its durable
+    // twin (see that helper for why both exist). A cross-tenant copy moves data
+    // across customer boundaries, so it MUST land in the durable trail too.
     logAuditEvent(logger, {
       event: 'registry.tag.copy',
       actor: req.user?.sub ?? 'unknown',
@@ -197,21 +192,13 @@ export function registerCopyRoutes(router: Router): void {
       isPromotionToSystem: inSystemNamespace(targetRepo),
       mounted: { manifests: mountedManifests, blobs: mountedBlobs },
     });
-    // Durable audit trail for the copy, emitted only AFTER the manifest(s) land.
-    // Fire-and-forget; never blocks/throws. Records the tenant boundary crossing
-    // (crossTenant) so cross-org promotions are auditable long after request logs
-    // lapse. Details carry no secrets / AWS account ids.
-    const targetOwnerOrgId = repoOwnerOrgId(targetRepo);
-    recordAudit({
+    // `crossTenant` records the tenant boundary crossing, so cross-org promotions
+    // stay auditable long after the request logs lapse. Details carry no secrets
+    // / AWS account ids. The owning org here is the TARGET's (the namespace that
+    // was written).
+    recordRegistryAudit(req, userId, {
       action: 'registry.image.copy',
-      actorId: actorId({ userId }),
-      ...(req.user?.email && { actorEmail: req.user.email }),
-      ...(req.user?.organizationId && { orgId: req.user.organizationId }),
-      // The org whose namespace was WRITTEN (so its admins see the copy even when
-      // a superadmin performed it). Absent for org-less namespaces (library/*).
-      ...(targetOwnerOrgId && { affectedOrgId: targetOwnerOrgId }),
-      outcome: 'success',
-      targetType: 'registry-image',
+      ownerOrgId: repoOwnerOrgId(targetRepo),
       targetId: target,
       details: {
         source,

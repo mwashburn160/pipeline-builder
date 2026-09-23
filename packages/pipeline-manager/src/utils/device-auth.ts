@@ -13,6 +13,7 @@
 
 import { spawn } from 'child_process';
 import type https from 'https';
+import { sleep } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import { printDebug } from './output-utils.js';
 
@@ -81,11 +82,6 @@ export async function requestDeviceCode(
   return data;
 }
 
-/** Sleep, without pulling in a timers dependency. */
-function wait(ms: number): Promise<void> {
-  return new Promise((resolve) => { setTimeout(resolve, ms); });
-}
-
 /**
  * Poll `/auth/device/token` until the browser decides, the code expires, or
  * `signal` says to stop.
@@ -105,7 +101,7 @@ export async function pollForDeviceToken(
   let intervalMs = Math.max(1, code.interval) * 1000;
 
   while (Date.now() < deadline) {
-    await wait(intervalMs);
+    await sleep(intervalMs);
 
     printDebug('POST', { url: tokenUrl });
     const response = await axios.post<DeviceTokenResponse & DeviceErrorResponse>(

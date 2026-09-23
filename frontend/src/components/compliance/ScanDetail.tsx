@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useId } from 'react';
-import { ArrowLeft, Loader2, AlertTriangle, CheckCircle, XCircle, Square, ShieldOff } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, CheckCircle, XCircle, Square, ShieldOff } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
 import { Modal } from '@/components/ui/Modal';
@@ -18,6 +18,7 @@ import type { ComplianceScan, ComplianceAuditEntry, RuleTarget } from '@/types/c
 import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RESULT_STYLES } from '@/lib/compliance-styles';
 import { formatDateTime, formatTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
+import { LoadingSpinner } from '@/components/ui/Loading';
 
 /** The subset of an audit row needed to pre-fill an exemption request. */
 interface ExemptTarget {
@@ -51,7 +52,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
   const [scanLoading, setScanLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  // Cancel-scan confirmation (in-app modal, replacing the native confirm()).
+  // Cancel-scan confirmation, shown as an in-app modal.
   const [confirmCancel, setConfirmCancel] = useState(false);
 
   // Exemption request modal, opened from a violating row.
@@ -171,7 +172,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-indigo-600 dark:text-indigo-400" />
+        <LoadingSpinner label="Loading scan" />
       </div>
     );
   }

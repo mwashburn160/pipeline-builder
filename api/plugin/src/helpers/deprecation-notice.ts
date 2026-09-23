@@ -24,7 +24,7 @@
 import { createLogger, errorMessage, type EcosystemRecipientSpec } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 
-import { deprecateListedFromSource } from '../services/ecosystem/advisories.js';
+import { deprecateListedFromSource } from '../services/ecosystem/version-deprecation.js';
 import { enqueueEcosystemNotification } from '../services/ecosystem-notifications.js';
 import { pluginService } from '../services/plugin-service.js';
 

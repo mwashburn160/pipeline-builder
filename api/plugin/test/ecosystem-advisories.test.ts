@@ -20,6 +20,7 @@ import {
 
 const h = setupEcosystemHarness();
 const advisories = await import('../src/services/ecosystem/advisories.js');
+const deprecation = await import('../src/services/ecosystem/version-deprecation.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
 const decisions = await import('../src/services/ecosystem/decisions.js');
 const installs = await import('../src/services/ecosystem/installs.js');
@@ -382,7 +383,7 @@ describe('advisory lists', () => {
 describe('listed-version deprecation', () => {
   it('the publisher deprecates its own listed version at once: lookup warns, installers get N14, audited', async () => {
     const { listing } = seedLint();
-    const out = await advisories.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: ' Use 2.x ' });
+    const out = await deprecation.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: ' Use 2.x ' });
     expect(out.versions!.find((v) => v.version === '1.1.0')).toMatchObject({ deprecationMessage: 'Use 2.x', deprecatedAt: expect.any(String) });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'plugin.version.deprecate', orgId: 'org-acme', affectedOrgId: 'org-acme', targetType: 'plugin-listing-version', details: expect.objectContaining({ version: '1.1.0', deprecated: true, via: 'publisher' }),
@@ -395,7 +396,7 @@ describe('listed-version deprecation', () => {
 
     // Re-deprecating with a new message updates it without a second N14.
     h.notify.mockClear();
-    await advisories.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: 'Use 3.x' });
+    await deprecation.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: 'Use 3.x' });
     expect(h.notify.mock.calls.filter((c) => c[0] === 'N14')).toHaveLength(0);
     expect(db.tables.plugin_listing_versions!.find((v) => v.version === '1.1.0')!.deprecationMessage).toBe('Use 3.x');
   });
@@ -403,40 +404,40 @@ describe('listed-version deprecation', () => {
   it('refuses without a message, a version, the permission, from a team, or on another publisher\'s listing', async () => {
     const { listing, official } = seedLint();
     const other = db.seed('plugin_listings', { publisherId: official.id, name: 'trivy' });
-    await rejects(advisories.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0' }), 'MISSING_REQUIRED_FIELD');
-    await rejects(advisories.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: 'x'.repeat(501) }), 'VALIDATION_ERROR');
-    await rejects(advisories.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: 3 }), 'VALIDATION_ERROR');
-    await rejects(advisories.deprecateOwnListedVersion(tenant() as any, listing.id, { message: 'x' }), 'MISSING_REQUIRED_FIELD');
-    await rejects(advisories.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '9.9.9', message: 'x' }), 'NOT_FOUND');
-    await rejects(advisories.deprecateOwnListedVersion(tenant() as any, other.id, { version: '1.0.0', message: 'x' }), 'NOT_FOUND');
-    await rejects(advisories.deprecateOwnListedVersion(tenant({ permissions: ['publishers:manage'] }) as any, listing.id, { version: '1.1.0', message: 'x' }), 'INSUFFICIENT_PERMISSIONS');
-    await rejects(advisories.deprecateOwnListedVersion(tenant({ parentOrgId: 'org-root' }) as any, listing.id, { version: '1.1.0', message: 'x' }), 'PUBLISHER_ROOT_ORG_REQUIRED');
+    await rejects(deprecation.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0' }), 'MISSING_REQUIRED_FIELD');
+    await rejects(deprecation.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: 'x'.repeat(501) }), 'VALIDATION_ERROR');
+    await rejects(deprecation.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '1.1.0', message: 3 }), 'VALIDATION_ERROR');
+    await rejects(deprecation.deprecateOwnListedVersion(tenant() as any, listing.id, { message: 'x' }), 'MISSING_REQUIRED_FIELD');
+    await rejects(deprecation.deprecateOwnListedVersion(tenant() as any, listing.id, { version: '9.9.9', message: 'x' }), 'NOT_FOUND');
+    await rejects(deprecation.deprecateOwnListedVersion(tenant() as any, other.id, { version: '1.0.0', message: 'x' }), 'NOT_FOUND');
+    await rejects(deprecation.deprecateOwnListedVersion(tenant({ permissions: ['publishers:manage'] }) as any, listing.id, { version: '1.1.0', message: 'x' }), 'INSUFFICIENT_PERMISSIONS');
+    await rejects(deprecation.deprecateOwnListedVersion(tenant({ parentOrgId: 'org-root' }) as any, listing.id, { version: '1.1.0', message: 'x' }), 'PUBLISHER_ROOT_ORG_REQUIRED');
   });
 
   it('the system org deprecates or clears any listed version', async () => {
     const { listing } = seedLint();
-    await advisories.setListedVersionDeprecation(moderator() as any, listing.id, '1.0.0', {});
+    await deprecation.setListedVersionDeprecation(moderator() as any, listing.id, '1.0.0', {});
     expect(db.tables.plugin_listing_versions!.find((v) => v.version === '1.0.0')).toMatchObject({ deprecatedAt: expect.any(Date), deprecationMessage: null });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.version.deprecate', orgId: SYSTEM_ORG, affectedOrgId: 'org-acme', details: expect.objectContaining({ via: 'system_org' }) }));
     h.audit.mockClear();
-    await advisories.setListedVersionDeprecation(moderator() as any, listing.id, '1.0.0', { deprecated: false });
+    await deprecation.setListedVersionDeprecation(moderator() as any, listing.id, '1.0.0', { deprecated: false });
     expect(db.tables.plugin_listing_versions!.find((v) => v.version === '1.0.0')).toMatchObject({ deprecatedAt: null });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ details: expect.objectContaining({ deprecated: false }) }));
     h.audit.mockClear();
-    await advisories.setListedVersionDeprecation(moderator() as any, listing.id, '1.0.0', { deprecated: false });
+    await deprecation.setListedVersionDeprecation(moderator() as any, listing.id, '1.0.0', { deprecated: false });
     expect(h.audit).not.toHaveBeenCalled();
-    await rejects(advisories.setListedVersionDeprecation(moderator() as any, listing.id, '7.0.0', {}), 'NOT_FOUND');
-    await rejects(advisories.setListedVersionDeprecation(tenant() as any, listing.id, '1.0.0', {}), 'INSUFFICIENT_PERMISSIONS');
+    await rejects(deprecation.setListedVersionDeprecation(moderator() as any, listing.id, '7.0.0', {}), 'NOT_FOUND');
+    await rejects(deprecation.setListedVersionDeprecation(tenant() as any, listing.id, '1.0.0', {}), 'INSUFFICIENT_PERMISSIONS');
   });
 
   it('deprecating the source plugin row carries over to its listed versions', async () => {
     const { versions } = seedLint();
     versions[1]!.sourcePluginId = 'plugin-row-1';
-    expect(await advisories.deprecateListedFromSource({ id: 'plugin-row-1', orgId: 'org-acme', deprecationMessage: 'EOL' }, 'u-acme')).toBe(1);
+    expect(await deprecation.deprecateListedFromSource({ id: 'plugin-row-1', orgId: 'org-acme', deprecationMessage: 'EOL' }, 'u-acme')).toBe(1);
     expect(versions[1]).toMatchObject({ deprecatedAt: expect.any(Date), deprecationMessage: 'EOL' });
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.version.deprecate', details: expect.objectContaining({ via: 'source_plugin' }) }));
     // Already deprecated: nothing more.
-    expect(await advisories.deprecateListedFromSource({ id: 'plugin-row-1', orgId: 'org-acme' }, 'u-acme')).toBe(0);
-    expect(await advisories.deprecateListedFromSource({ id: 'no-listing', orgId: 'org-acme' }, 'u-acme')).toBe(0);
+    expect(await deprecation.deprecateListedFromSource({ id: 'plugin-row-1', orgId: 'org-acme' }, 'u-acme')).toBe(0);
+    expect(await deprecation.deprecateListedFromSource({ id: 'no-listing', orgId: 'org-acme' }, 'u-acme')).toBe(0);
   });
 });

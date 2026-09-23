@@ -16,18 +16,11 @@ export {
   resolve,
   dependencies,
   type Scope,
-  type EvalError,
 } from './evaluator.js';
 
 export {
-  type WalkEntry,
   type FieldPredicate,
 } from './walker.js';
-
-export {
-  type TopoNode,
-  type TopoResult,
-} from './topo-sort.js';
 
 export {
   validateTemplates,

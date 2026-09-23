@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getErrorRetryDecision, type RetryConfig, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, getErrorRetryDecision, sleep, type RetryConfig, errorMessage } from '@pipeline-builder/api-core';
 
 const logger = createLogger('retry-strategy');
 
@@ -67,7 +67,7 @@ export class ConnectionRetryStrategy {
           { error: errorMessage(error) },
         );
 
-        await this.sleep(decision.delayMs);
+        await sleep(decision.delayMs);
       }
     }
   }
@@ -95,7 +95,7 @@ export class ConnectionRetryStrategy {
     }
 
     logger.info(`Retrying connection in ${decision.delayMs}ms...`);
-    await this.sleep(decision.delayMs);
+    await sleep(decision.delayMs);
 
     try {
       const isHealthy = await testConnection();
@@ -123,14 +123,5 @@ export class ConnectionRetryStrategy {
    */
   getAttempts(): number {
     return this.attempts;
-  }
-
-  /**
-   * Sleeps for the specified duration.
-   *
-   * @param ms - Milliseconds to sleep
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
