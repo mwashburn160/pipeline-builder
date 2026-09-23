@@ -38,7 +38,7 @@ const suite = integrationSuite();
 suite('refresh-session slots (real Mongo)', () => {
   let mongod: { getUri: () => string; stop: () => Promise<boolean> };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mongoose: any, User: any, token: any, authMw: any, authCtl: any, profileCtl: any, jwt: any;
+  let mongoose: any, User: any, token: any, authMw: any, authCtl: any, credsCtl: any, jwt: any;
   /** Let the refresh-rotation grace lapse (it lives in the pending-state store). */
   let endRotationGrace: () => void;
 
@@ -58,7 +58,9 @@ suite('refresh-session slots (real Mongo)', () => {
     };
     authMw = await import('../src/middleware/auth.js');
     authCtl = await import('../src/controllers/auth.js');
-    profileCtl = await import('../src/controllers/user-profile.js');
+    // Session + credential handlers live in user-credentials.ts; user-profile.ts
+    // keeps only profile and preferences.
+    credsCtl = await import('../src/controllers/user-credentials.js');
     jwt = (await import('jsonwebtoken')).default;
     // Platform signs every user token with ES256; install an in-memory key so
     // the real token module can mint (and verify) them here.
@@ -134,7 +136,7 @@ suite('refresh-session slots (real Mongo)', () => {
 
   /** POST /user/generate-token as `caller` (verified access-token claims). */
   const generateToken = (caller: Record<string, unknown>, body: Record<string, unknown> = {}) =>
-    run(profileCtl.generateToken, { user: caller, body, ip: '198.51.100.9' });
+    run(credsCtl.generateToken, { user: caller, body, ip: '198.51.100.9' });
 
   it('opens one slot per sign-in and evicts the oldest past the cap', async () => {
     const issued = [];
@@ -372,7 +374,7 @@ suite('refresh-session slots (real Mongo)', () => {
     const caller = token.verifyAccessToken(operator.accessToken);
     const machine = await generateToken(caller);
 
-    const listed = await run(profileCtl.listSessions, { user: caller });
+    const listed = await run(credsCtl.listSessions, { user: caller });
     expect(listed.status).toBe(200);
     expect(listed.body.data.sessions).toHaveLength(1);
     expect(listed.body.data.sessions[0]).toMatchObject({
@@ -382,14 +384,14 @@ suite('refresh-session slots (real Mongo)', () => {
     expect(listed.body.data.machineSessions[0]).toMatchObject({ kind: 'machine', current: false, scope: null });
 
     // The current session can't revoke itself (that's logout).
-    expect((await run(profileCtl.revokeSession, { user: caller, params: { id: caller.sid } })).status).toBe(400);
+    expect((await run(credsCtl.revokeSession, { user: caller, params: { id: caller.sid } })).status).toBe(400);
 
     // Revoking the machine session stops its renewal.
     const machineSid = sidOf(machine.body.data.accessToken);
-    expect((await run(profileCtl.revokeSession, { user: caller, params: { id: machineSid } })).status).toBe(200);
+    expect((await run(credsCtl.revokeSession, { user: caller, params: { id: machineSid } })).status).toBe(200);
     expect((await generateToken(token.verifyAccessToken(machine.body.data.accessToken))).status).toBe(401);
     // Unknown slot → 404.
-    expect((await run(profileCtl.revokeSession, { user: caller, params: { id: 'nope' } })).status).toBe(404);
+    expect((await run(credsCtl.revokeSession, { user: caller, params: { id: 'nope' } })).status).toBe(404);
   });
 
   it('sign-out-everywhere (tokenVersion bump + clear) rejects every slot', async () => {
