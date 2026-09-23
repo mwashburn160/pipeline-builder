@@ -184,6 +184,28 @@ Parameters:
     Default: "pipeline-builder"
     Description: Display name on outbound platform email.
 
+  SlackCriticalWebhookUrl:
+    Type: String
+    Default: ""
+    NoEcho: true
+    AllowedPattern: "^$|^https://hooks\\.slack\\.com/services/.+$"
+    Description: >
+      Slack incoming webhook for PLATFORM-WIDE CRITICAL alerts (the paging
+      channel). A webhook URL is a bearer credential, so it is stored in Secrets
+      Manager and read at boot — never interpolated into UserData.
+      Supply it WITH SlackWarningWebhookUrl, or leave BOTH empty to run without
+      ops-team Slack: platform alerts then stay in Alertmanager's own UI and the
+      deploy prints a banner saying so. Per-org destinations are unaffected.
+
+  SlackWarningWebhookUrl:
+    Type: String
+    Default: ""
+    NoEcho: true
+    AllowedPattern: "^$|^https://hooks\\.slack\\.com/services/.+$"
+    Description: >
+      Slack incoming webhook for PLATFORM-WIDE WARNING alerts (the non-paging
+      channel). See SlackCriticalWebhookUrl — set both or neither.
+
   AlertEmail:
     Type: String
     Default: ""
@@ -219,6 +241,8 @@ Conditions:
     - !Not [!Equals [!Ref AlertEmail, ""]]
   HasEmailFrom: !Not [!Equals [!Ref EmailFrom, ""]]
   HasGhcrToken: !Not [!Equals [!Ref GhcrToken, ""]]
+  HasSlackCritical: !Not [!Equals [!Ref SlackCriticalWebhookUrl, ""]]
+  HasSlackWarning: !Not [!Equals [!Ref SlackWarningWebhookUrl, ""]]
   HasAdminPassword: !Not [!Equals [!Ref AdminPassword, ""]]
   CreateSesIdentityCond: !And
     - !Condition SesEnabled
@@ -945,6 +969,22 @@ Resources:
       Description: Initial platform admin password (AutoInit)
       SecretString: !Ref AdminPassword
 
+  SlackCriticalWebhookSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: HasSlackCritical
+    Properties:
+      Name: !Sub "${AWS::StackName}/slack-critical-url"
+      Description: Slack incoming webhook for platform-wide CRITICAL alerts
+      SecretString: !Ref SlackCriticalWebhookUrl
+
+  SlackWarningWebhookSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: HasSlackWarning
+    Properties:
+      Name: !Sub "${AWS::StackName}/slack-warning-url"
+      Description: Slack incoming webhook for platform-wide WARNING alerts
+      SecretString: !Ref SlackWarningWebhookUrl
+
   InstanceRoleBootSecretsPolicy:
     Type: AWS::IAM::Policy
     Properties:
@@ -961,6 +1001,8 @@ Resources:
             Resource:
               - !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/ghcr-token-*"
               - !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/admin-password-*"
+              - !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/slack-critical-url-*"
+              - !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}/slack-warning-url-*"
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -1017,6 +1059,11 @@ Resources:
                 --secret-id "${AWS::StackName}/$1" --query SecretString --output text 2>/dev/null || true
             }
             GHCR_TOKEN="$(pb_boot_secret ghcr-token)"; export GHCR_TOKEN
+            # Ops-team Slack webhooks. Credentials, so they take the same Secrets
+            # Manager path — an absent secret (parameter left empty) reads as "",
+            # which bootstrap treats as the deliberate "no ops Slack" choice.
+            SLACK_CRITICAL_WEBHOOK_URL="$(pb_boot_secret slack-critical-url)"; export SLACK_CRITICAL_WEBHOOK_URL
+            SLACK_WARNING_WEBHOOK_URL="$(pb_boot_secret slack-warning-url)"; export SLACK_WARNING_WEBHOOK_URL
             # ghcr.io ignores the username for PAT auth; fixed to the image owner.
             export GHCR_USER="mwashburn160"
             export GIT_REPO="${GitRepo}"

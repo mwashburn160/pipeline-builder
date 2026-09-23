@@ -322,6 +322,28 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
   sed -i "s|^GHCR_TOKEN=.*|GHCR_TOKEN=${GHCR_TOKEN}|" .env
 fi
 
+# Ops-team Slack webhooks, from the stack parameters via Secrets Manager. Guarded
+# on non-empty for the same reason as GHCR_TOKEN: a bootstrap RE-RUN must not wipe
+# a URL an operator edited into .env by hand. An empty parameter therefore leaves
+# whatever .env already says — on a first run that is the shipped empty value,
+# which is the documented "no ops-team Slack" choice.
+for _slack_key in SLACK_CRITICAL_WEBHOOK_URL SLACK_WARNING_WEBHOOK_URL; do
+  eval "_slack_val=\${${_slack_key}:-}"
+  if [ -n "$_slack_val" ]; then
+    # `|` is safe as the sed delimiter here: the AllowedPattern on both stack
+    # parameters admits only https://hooks.slack.com/services/... URLs.
+    sed -i "s|^${_slack_key}=.*|${_slack_key}=${_slack_val}|" .env
+  fi
+done
+
+# ALERT-DELIVERY PRE-FLIGHT, run HERE rather than inside startup.sh at Phase 9.
+# It is a pure .env check with no dependency on Docker, minikube or the cluster,
+# and a placeholder used to abort the boot only AFTER seven phases of installs —
+# and then take Phases 10-12 (auto-init, backup timer, lifecycle unit) down with
+# it, because this script is `set -e`. startup.sh keeps its own call for the
+# standalone path; running it twice is free.
+pb_check_alert_delivery "$DEPLOY_DIR/.env" "$DEPLOY_DIR/config/alertmanager/alertmanager.yml" || exit 1
+
 # Deploy mode + VPC identity (exported by template.yaml UserData). In PRIVATE mode the
 # pipeline service builds VPC-attached CodeBuild projects from PIPELINE_VPC_ID/SUBNET_IDS,
 # and init-platform's private-mode prerequisite gate requires them; without this the
