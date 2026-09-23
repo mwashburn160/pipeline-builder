@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4d786e292c44fb67e0de36668afb5b23d733d5c6a853c2246f797bb708ad428a
+// SOURCE-SHA256: d8216c4e56f46cc414be544e8d9742da6ce945716ebedce8b523e8f1b2d7ca5c
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -502,7 +502,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Alertmanager does not expand environment variables in its config, so the deploy writes each URL into the alertmanager-slack Secret (k8s) / a compose secret (docker) and mounts it as a file that deploy/shared/config/alertmanager/alertmanager.yml reads with api_url_file. The URLs therefore never land in a ConfigMap, and rotating one is a Secret update plus a pod restart with no config change."
+          "content": "Alertmanager does not expand environment variables in its config, so the deploy writes each URL into the alertmanager-slack Secret (k8s) / a compose secret (docker) and mounts it as a file that the target's config/alertmanager/alertmanager.yml reads with api_url_file. The URLs therefore never land in a ConfigMap, and rotating one is a Secret update plus a pod restart with no config change."
         },
         {
           "type": "table",

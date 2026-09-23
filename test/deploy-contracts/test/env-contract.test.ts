@@ -139,6 +139,132 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
 });
 
 /**
+ * Table 0: KEY PARITY across the four `.env.example` files.
+ *
+ * The four files used to be rendered from ONE template by a generator, whose
+ * per-target block directives were the only place that recorded "this key
+ * belongs to these targets and not the others". The template is gone: each file
+ * is now a source maintained on its own, so a new key has to be added to all
+ * four BY HAND, and forgetting one is silent at author time.
+ *
+ * It is not silent at deploy time, it is just unreadable. `pb_sync_env_keys`
+ * (deploy/bin/gen-env-secrets.sh) appends only keys the example already has, and
+ * a target seeds `.env` from `.env.example` only when `.env` is absent — so the
+ * target that missed the key dies under `set -u` with a bare
+ *   setup.sh: line N: PLUGIN_S3_ACCESS_KEY: unbound variable
+ * which is exactly how the MinIO credential rework broke provisioning.
+ *
+ * So this table takes over the job those directives were doing, as data rather
+ * than as a generator: a key must appear in ALL FOUR files unless it is listed here
+ * with the EXACT set of targets it belongs to. That distinguishes the two cases
+ * the template distinguished, and fails on either mistake:
+ *   - a key added to some targets and forgotten in others is not in the table →
+ *     "missing from" failure;
+ *   - a genuinely target-specific key is in the table, and the assertion is set
+ *     EQUALITY, so it also fails if the key later appears in a target the entry
+ *     does not name (or disappears from one it does). Widening a key's reach is
+ *     then a deliberate one-line edit here, reviewed with the change.
+ *
+ * What this does NOT cover, deliberately, and what still needs eyes in review:
+ *   - VALUE drift. A key present everywhere with the wrong value on one target
+ *     is invisible here, because most of these keys are SUPPOSED to differ per
+ *     target (hostnames, replica counts, URLs) and there is no way to tell a
+ *     deliberate difference from a typo. The value assertions that do matter
+ *     are written out one by one in the `describe.each(TARGETS)` block above.
+ *   - COMMENTED-OUT keys (`#FOO=bar` tunables). `pb_sync_env_keys` only ever
+ *     syncs uncommented assignments, so a commented key reaching only three
+ *     files cannot break a bring-up; matching its parser keeps the two in step.
+ *   - Section ordering and comment text, which drift harmlessly.
+ */
+const TARGET_KEYS: Record<string, string> = {
+  'deploy/local/docker/.env.example': 'docker',
+  'deploy/local/minikube/.env.example': 'minikube',
+  'deploy/aws/ec2/.env.example': 'ec2',
+  'deploy/aws/eks/.env.example': 'eks',
+};
+
+/**
+ * The keys that legitimately exist on only some targets, each with the exact
+ * target set and the reason. Every entry must carry a reason: an unannotated
+ * entry is how a key that was simply FORGOTTEN on a target gets parked here
+ * instead of added.
+ */
+const TARGET_SPECIFIC: Record<string, { targets: string[]; why: string }> = {
+  // --- Infrastructure SHAPE, not cloud: compose runs one of everything and no
+  //     service mesh, so these have no meaning there.
+  REDIS_URL: { targets: ['docker', 'minikube'], why: 'single Redis; the AWS targets run Sentinel HA and use REDIS_SENTINELS instead' },
+  REDIS_SENTINELS: { targets: ['ec2', 'eks'], why: 'Sentinel HA; docker/minikube run one redis and use REDIS_URL' },
+  REDIS_SENTINEL_MASTER: { targets: ['ec2', 'eks'], why: 'Sentinel master name; meaningless without Sentinel' },
+  AUTH_LIMITER_MAX: { targets: ['docker', 'minikube'], why: 'raised for local setup runs; the AWS targets keep the strict code default' },
+  KIALI_SIGNING_KEY: { targets: ['minikube', 'ec2', 'eks'], why: 'Kiali ships with the service mesh, which only the k8s targets run' },
+  OTEL_TRACING_ENABLED: { targets: ['minikube', 'ec2', 'eks'], why: 'tracing collector is a k8s-target workload' },
+  OTEL_EXPORTER_OTLP_ENDPOINT: { targets: ['minikube', 'ec2', 'eks'], why: 'ditto — no collector on the compose target' },
+  REGISTRY_HTTP_SECRET: { targets: ['minikube', 'ec2', 'eks'], why: 'shared upload-session secret across registry REPLICAS; compose runs one' },
+
+  // --- AWS-only: an account, a domain, a KMS key, a VPC.
+  DOMAIN: { targets: ['ec2', 'eks'], why: 'public DNS name; the local targets are reached at localhost' },
+  DEPLOY_MODE: { targets: ['ec2', 'eks'], why: 'private/public ALB scheme + how CodeBuild reaches it; there is no ALB locally' },
+  ADMIN_UIS_ENABLED: { targets: ['ec2', 'eks'], why: 'the internet-exposed admin-UI switch; local targets reach them directly' },
+  SES_CONFIGURATION_SET: { targets: ['ec2', 'eks'], why: 'SES bounce/complaint config set; local targets send through the mail catcher' },
+  TOKEN_SIGNING_KMS_KEY_ID: { targets: ['ec2', 'eks'], why: 'TOKEN_SIGNING_MODE=kms only on AWS (asserted above); local signs from a file' },
+  TOKEN_SIGNING_KMS_KEY_PREVIOUS_ID: { targets: ['ec2', 'eks'], why: 'KMS rotation overlap slot' },
+  PIPELINE_VPC_ID: { targets: ['ec2', 'eks'], why: 'VPC wiring for pipeline execution' },
+  PIPELINE_SUBNET_IDS: { targets: ['ec2', 'eks'], why: 'VPC wiring for pipeline execution' },
+  PIPELINE_SECURITY_GROUP_IDS: { targets: ['ec2', 'eks'], why: 'VPC wiring for pipeline execution' },
+  GHCR_USER: { targets: ['ec2', 'eks'], why: 'images are PULLED from GHCR on AWS; local targets build/load them' },
+  GHCR_TOKEN: { targets: ['ec2', 'eks'], why: 'ditto' },
+  IMAGE_REGISTRY_PULL_HOST: { targets: ['ec2', 'eks'], why: 'plugin pulls traverse the public gateway (${DOMAIN}) on AWS only' },
+  IMAGE_REGISTRY_PULL_PORT: { targets: ['ec2', 'eks'], why: 'ditto' },
+
+  // --- One target only.
+  PIPELINE_ROOT: { targets: ['ec2'], why: 'the EC2 instance data root (/opt/pipeline); no other target has a host filesystem layout' },
+};
+
+describe('.env.example key parity', () => {
+  const keysOf = (relPath: string) => new Set(Object.keys(parseEnv(relPath)));
+  const byTarget = new Map(Object.entries(TARGET_KEYS).map(([p, t]) => [t, keysOf(p)] as const));
+  const allTargets = [...byTarget.keys()].sort();
+  const union = [...new Set([...byTarget.values()].flatMap((s) => [...s]))].sort();
+
+  it('parses a plausible number of keys from each file (guards against a vacuous pass)', () => {
+    for (const [target, keys] of byTarget) expect([target, keys.size > 150]).toEqual([target, true]);
+  });
+
+  it('declares every key on every target, except the declared target-specific ones', () => {
+    const problems: string[] = [];
+    for (const key of union) {
+      const present = allTargets.filter((t) => byTarget.get(t)!.has(key));
+      const declared = TARGET_SPECIFIC[key];
+      const want = declared ? [...declared.targets].sort() : allTargets;
+      if (present.join(' ') === want.join(' ')) continue;
+      const missing = want.filter((t) => !present.includes(t));
+      const extra = present.filter((t) => !want.includes(t));
+      problems.push(
+        `${key}: present on [${present.join(', ')}], expected [${want.join(', ')}]` +
+        (declared
+          ? ` per its TARGET_SPECIFIC entry (${declared.why})`
+          : ' — add it to the missing target(s), or, if it is genuinely target-specific, add a TARGET_SPECIFIC entry saying why') +
+        (missing.length ? ` | missing from: ${missing.join(', ')}` : '') +
+        (extra.length ? ` | unexpectedly on: ${extra.join(', ')}` : ''),
+      );
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it('carries no stale TARGET_SPECIFIC entry', () => {
+    // A key deleted from the examples must not leave a carve-out behind that
+    // would later excuse a genuine omission of the same name.
+    const stale = Object.entries(TARGET_SPECIFIC).filter(([k, v]) => !union.includes(k) || v.targets.length === 0 || !v.why);
+    expect(stale.map(([k]) => k)).toEqual([]);
+    for (const [key, v] of Object.entries(TARGET_SPECIFIC)) {
+      expect([key, v.targets.every((t) => allTargets.includes(t))]).toEqual([key, true]);
+      // A carve-out naming all four targets is not a carve-out.
+      expect([key, v.targets.length < allTargets.length]).toEqual([key, true]);
+    }
+  });
+});
+
+/**
  * Table A: every uncommented var in a `.env.example` must have a CONSUMER.
  *
  * A var that nothing reads is worse than clutter: an operator treats it as live

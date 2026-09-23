@@ -101,7 +101,7 @@ jobs:
       - name: Generated files are current
         id: generated_files_are_current
         if: steps.changes.outputs.deploy == 'true'
-        run: node scripts/gen-env-examples.mjs --check && node scripts/gen-readme-index.mjs --check && npx nx run @pipeline-builder/api-core:post-compile && node scripts/gen-promtail-masking.mjs --check
+        run: node scripts/gen-readme-index.mjs --check && npx nx run @pipeline-builder/api-core:post-compile && node scripts/gen-promtail-masking.mjs --check
       - name: Validate observability configs
         id: validate_observability_configs
         if: steps.changes.outputs.deploy == 'true'

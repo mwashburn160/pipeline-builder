@@ -255,7 +255,7 @@ describe('release supply chain', () => {
     expect(test).toContain('deploy contracts');
     // ONE deploy job runs every deploy check; no parallel per-check workflows.
     for (const step of ['cd test/deploy-contracts', 'kubectl kustomize', 'docker compose', 'deploy/bin/validate-configs.sh',
-      'gen-env-examples.mjs --check', 'gen-readme-index.mjs --check', 'gen-promtail-masking.mjs --check', 'shellcheck -x -S error']) {
+      'gen-readme-index.mjs --check', 'gen-promtail-masking.mjs --check', 'shellcheck -x -S error']) {
       expect([step, test.includes(step)]).toEqual([step, true]);
     }
     for (const gone of ['deploy-configs.yml', 'deploy-shellcheck.yml']) expect(existsSync(join(REPO_ROOT, '.github/workflows', gone))).toBe(false);

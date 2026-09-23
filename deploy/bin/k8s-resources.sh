@@ -319,31 +319,25 @@ pb_nginx_config() {
   pb_configmap nginx-config "${_args[@]}"
 }
 
-# pb_shared_dir — print deploy/shared, the ONE copy of the target-independent
-# config files (postgres-init.sql, mongodb-init.js, njs jwt.js/metrics.js, loki /
-# alertmanager / thanos objstore configs), so a fix cannot land in one
-# environment only. Resolved relative to THIS file (BASH_SOURCE inside a function
-# names the file that defined it), so it holds wherever the caller runs from.
-pb_shared_dir() { (cd "$(dirname "${BASH_SOURCE[0]}")/../shared" && pwd); }
-
 # Config-file ConfigMaps + the MongoDB keyfile secret. Args: <deploy_dir> <config_dir> <nginx_dir>.
-# Target-specific files come from those dirs; the shared ones from pb_shared_dir.
+# EVERY file comes from the target being provisioned — each target owns a full
+# copy of its config tree, and the copies that must not drift are guarded by
+# test/deploy-contracts (bringup-contract.test.ts), not by a shared directory.
 # registry-auth.js is optional: only the AWS gateways import it (minikube's nginx.conf
-# does not), so a target without one gets just the shared njs modules.
+# does not), so a target without one gets just jwt.js + metrics.js.
 pb_create_config_maps() {
-  local _deploy="$1" _config="$2" _nginx="$3" _shared
-  _shared="$(pb_shared_dir)" || return 1
-  local _njs=(--from-file=jwt.js="$_shared/nginx/jwt.js" --from-file=metrics.js="$_shared/nginx/metrics.js")
+  local _deploy="$1" _config="$2" _nginx="$3"
+  local _njs=(--from-file=jwt.js="$_nginx/jwt.js" --from-file=metrics.js="$_nginx/metrics.js")
   [ -f "$_nginx/registry-auth.js" ] && _njs+=(--from-file=registry-auth.js="$_nginx/registry-auth.js")
   pb_secret    mongodb-keyfile     --from-file=mongodb-keyfile="$_deploy/mongodb-keyfile"
-  pb_configmap postgres-init       --from-file=init.sql="$_shared/postgres-init.sql"
-  pb_configmap mongodb-init        --from-file=mongo-init.js="$_shared/mongodb-init.js"
+  pb_configmap postgres-init       --from-file=init.sql="$_deploy/postgres-init.sql"
+  pb_configmap mongodb-init        --from-file=mongo-init.js="$_deploy/mongodb-init.js"
   pb_nginx_config "$_nginx" || return 1
   pb_configmap nginx-njs           "${_njs[@]}"
-  pb_configmap loki-config         --from-file=loki-config.yml="$_shared/config/loki/loki-config.yml"
+  pb_configmap loki-config         --from-file=loki-config.yml="$_config/loki/loki-config.yml"
   pb_configmap prometheus-config   --from-file=prometheus.yml="$_config/prometheus/prometheus.yml" --from-file=alert-rules.yml="$_config/prometheus/alert-rules.yml"
-  pb_configmap thanos-objstore     --from-file=objstore.yml="$_shared/config/thanos/objstore.yml"
-  pb_configmap alertmanager-config --from-file=alertmanager.yml="$_shared/config/alertmanager/alertmanager.yml"
+  pb_configmap thanos-objstore     --from-file=objstore.yml="$_config/thanos/objstore.yml"
+  pb_configmap alertmanager-config --from-file=alertmanager.yml="$_config/alertmanager/alertmanager.yml"
   pb_configmap promtail-config     --from-file=promtail-config.yml="$_config/promtail/promtail-config.yml"
   pb_configmap grafana-dashboards  --from-file=dashboards.yaml="$_config/grafana/dashboards/dashboards.yaml" --from-file=plugin-ecosystem.json="$_config/grafana/dashboards/plugin-ecosystem.json"
 }

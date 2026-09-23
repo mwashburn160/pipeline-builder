@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 71a13d207355f8845758af8b67a3cb1b8e23f820d899ae63965ddfd1da40e8d2
+// SOURCE-SHA256: 82ce04035bf003bcbfb91cf60cacfa3b78d9e7f0980467c7ab2fb5aec2bd9b22
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3150,7 +3150,7 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The gateway receives no signing secret: deploy/shared/nginx/jwt.js decodes"
+            "The gateway receives no signing secret: each target's nginx/jwt.js decodes"
           ]
         },
         {

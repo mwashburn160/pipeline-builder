@@ -110,7 +110,7 @@ spec:
             - name: PORT
               value: "3000"
             # Per-org alert relay: the one Alertmanager instance (id `alertmanager`,
-            # sent as X-Alertmanager-Instance by deploy/shared/config/alertmanager/alertmanager.yml)
+            # sent as X-Alertmanager-Instance by config/alertmanager/alertmanager.yml)
             # and its bearer token. $(VAR) expands the secret-backed entry above it.
             - name: ALERT_WEBHOOK_INSTANCE_TOKEN
               valueFrom:

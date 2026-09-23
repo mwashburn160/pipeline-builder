@@ -15,7 +15,10 @@
 /.projen/files.json linguist-generated
 /.projen/tasks.json linguist-generated
 /.vscode/settings.json linguist-generated
-/deploy/shared/services.txt linguist-generated
+/deploy/aws/ec2/services.txt linguist-generated
+/deploy/aws/eks/services.txt linguist-generated
+/deploy/local/docker/services.txt linguist-generated
+/deploy/local/minikube/services.txt linguist-generated
 /LICENSE linguist-generated
 /nx.json linguist-generated
 /package.json linguist-generated

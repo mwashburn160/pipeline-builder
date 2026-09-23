@@ -22,7 +22,17 @@ import { PGlite } from '@electric-sql/pglite';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
-export const INIT_SQL_PATH = resolve(REPO_ROOT, 'deploy/shared/postgres-init.sql');
+
+/**
+ * Each deploy target ships its OWN copy of the init script (byte-identical —
+ * `test/deploy-contracts/test/bringup-contract.test.ts` fails the build if they
+ * diverge). These suites read the DOCKER target's copy because that is the one
+ * consumed the same way this harness consumes it: compose bind-mounts the file
+ * straight into `/docker-entrypoint-initdb.d/init.sql`, so what runs here is
+ * literally what a fresh postgres runs there. The k8s targets wrap the same
+ * bytes in a ConfigMap first.
+ */
+export const INIT_SQL_PATH = resolve(REPO_ROOT, 'deploy/local/docker/postgres-init.sql');
 
 /** The application login role the init script creates (NOSUPERUSER, NOBYPASSRLS). */
 export const APP_ROLE = 'pb_app';

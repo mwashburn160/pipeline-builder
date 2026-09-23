@@ -20,7 +20,7 @@ import { pipelineEvent } from '../src/database/schema/pipeline.js';
 import { plugin } from '../src/database/schema/plugin.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const DDL = readFileSync(resolve(REPO_ROOT, 'deploy/shared/postgres-init.sql'), 'utf8');
+const DDL = readFileSync(resolve(REPO_ROOT, 'deploy/local/docker/postgres-init.sql'), 'utf8');
 
 /** The `CREATE TABLE <name> (...)` body, so a column can't be found in an unrelated table. */
 function tableBody(name: string): string {

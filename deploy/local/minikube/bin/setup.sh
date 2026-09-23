@@ -146,7 +146,7 @@ set +a
 # ALERT DELIVERY PRE-FLIGHT. Fails the deploy while a Slack webhook URL is still
 # a placeholder — alerting that 404s into nothing is indistinguishable from
 # healthy alerting. Set both SLACK_*_WEBHOOK_URL empty in .env to run without it.
-pb_check_alert_delivery "$ENV_FILE" "$(pb_shared_dir)/config/alertmanager/alertmanager.yml" || exit 1
+pb_check_alert_delivery "$ENV_FILE" "$CONFIG_DIR/alertmanager/alertmanager.yml" || exit 1
 
 # Generate the MongoDB replica-set keyfile per-deploy if absent (idempotent —
 # skips if present). It is not tracked in git, so a fresh checkout has none; the
@@ -440,7 +440,7 @@ echo "  TLS + registry + user-token + plugin signing keys done"
 
 log "Creating ConfigMaps"
 # Config-file ConfigMaps + the MongoDB keyfile Secret — the same set ec2/eks
-# create; shared files come from deploy/shared, target files from this dir.
+# create; every file comes from this target's own tree.
 pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 
 # -- Deploy -------------------------------------------------------------------

@@ -5,8 +5,8 @@
  * Drift guard for the four gateway `nginx.conf` copies (docker, minikube, ec2,
  * eks).
  *
- * Unlike jwt.js / metrics.js (one copy, deploy/shared/nginx/), nginx.conf
- * genuinely differs per substrate: docker + minikube terminate TLS themselves,
+ * Unlike jwt.js / metrics.js (four byte-identical copies, guarded in
+ * bringup-contract.test.ts), nginx.conf genuinely differs per substrate: docker + minikube terminate TLS themselves,
  * ec2 + eks sit behind an ALB and recover the client from X-Forwarded-For, the
  * k8s targets address services by cluster DNS, and ec2/eks move the admin
  * consoles into admin-uis.conf. Everything ELSE — every API route, its

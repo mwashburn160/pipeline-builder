@@ -9,7 +9,7 @@
  * Dependency-free on purpose: the frontend imports these types, so a value added
  * here reaches the UI's exhaustive label maps as a compile error instead of a
  * silently unhandled string. The Postgres CHECK constraints in
- * deploy/shared/postgres-init.sql mirror the ones stored in SQL.
+ * deploy/*/postgres-init.sql mirror the ones stored in SQL.
  */
 
 // -----------------------------------------------------------------------------

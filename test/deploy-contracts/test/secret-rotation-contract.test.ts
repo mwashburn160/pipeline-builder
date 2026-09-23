@@ -152,13 +152,15 @@ describe('secret-rotation shell plumbing', () => {
     expect(k8sResources).toContain('_PREVIOUS)$/');
   });
 
-  it('keeps the one shared njs jwt.js free of signing secrets, with no per-target copies', () => {
-    // jwt.js lives once, in deploy/shared/nginx/ — a per-target copy is how a
-    // fix lands in one environment only.
-    for (const target of ALL_TARGETS) expect(existsSync(join(REPO_ROOT, target, 'nginx/jwt.js'))).toBe(false);
-    const jwt = read('deploy/shared/nginx/jwt.js');
-    expect(jwt).not.toContain('process.env.JWT_SECRET');
-    expect(jwt).not.toContain('createHmac');
+  it('keeps every target\'s njs jwt.js free of signing secrets', () => {
+    // Each target ships its own copy; the byte-identity of the four is guarded
+    // in bringup-contract.test.ts, so a fix cannot land in one environment only.
+    for (const target of ALL_TARGETS) {
+      expect([target, existsSync(join(REPO_ROOT, target, 'nginx/jwt.js'))]).toEqual([target, true]);
+      const jwt = read(`${target}/nginx/jwt.js`);
+      expect(jwt).not.toContain('process.env.JWT_SECRET');
+      expect(jwt).not.toContain('createHmac');
+    }
   });
 
   it('routes every target\'s JWKS path to platform, unauthenticated', () => {

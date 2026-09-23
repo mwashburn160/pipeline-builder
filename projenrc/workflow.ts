@@ -854,8 +854,8 @@ export class Workflow extends Component {
      *   - the deploy-contracts suites (manifests, compose, env, shell tooling,
      *     per-target config copies);
      *   - every k8s target rendered with kustomize, and compose config;
-     *   - the generated files (.env.example ×4, promtail masking, index.md)
-     *     against their generators;
+     *   - the generated files (promtail masking, index.md) against their
+     *     generators;
      *   - the observability configs against their pinned images
      *     (validate-configs.sh: loki / amtool / promtool incl. rule tests);
      *   - shellcheck over every deploy script.
@@ -898,7 +898,7 @@ export class Workflow extends Component {
                     // gen-promtail-masking reads api-core's BUILT patterns.
                     name: 'Generated files are current',
                     if: changed,
-                    run: 'node scripts/gen-env-examples.mjs --check && node scripts/gen-readme-index.mjs --check && npx nx run @pipeline-builder/api-core:post-compile && node scripts/gen-promtail-masking.mjs --check',
+                    run: 'node scripts/gen-readme-index.mjs --check && npx nx run @pipeline-builder/api-core:post-compile && node scripts/gen-promtail-masking.mjs --check',
                 },
                 {
                     name: 'Validate observability configs',

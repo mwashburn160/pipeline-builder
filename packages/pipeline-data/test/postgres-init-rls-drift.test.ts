@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Drift-guard for the shipped `postgres-init.sql`. There is exactly ONE copy,
- * `deploy/shared/postgres-init.sql`, consumed by all four targets (docker,
- * minikube, ec2, eks) — RLS policies are security-relevant and a per-target
- * copy that silently diverges is how a tenant-isolation gap ships to one
- * environment only. That one-copy rule itself is a deploy contract
- * (test/deploy-contracts, bringup-contract.test.ts).
+ * Drift-guard for the shipped `postgres-init.sql`. Each of the four targets
+ * (docker, minikube, ec2, eks) ships its own copy, and the copies are held
+ * BYTE-identical by a deploy contract (test/deploy-contracts,
+ * bringup-contract.test.ts) — RLS policies are security-relevant and a copy
+ * that silently diverges is how a tenant-isolation gap ships to one
+ * environment only. This suite reads the docker copy, the one the PGlite
+ * harness boots from.
  *
  * It also pins the messaging RLS RECIPIENT carve-out: `messages` /
  * `message_attachments` need a dedicated policy so a recipient org can read a
@@ -22,7 +23,7 @@ import { fileURLToPath } from 'url';
 import { describe, it, expect } from '@jest/globals';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const INIT_FILE = 'deploy/shared/postgres-init.sql';
+const INIT_FILE = 'deploy/local/docker/postgres-init.sql';
 
 const read = (rel: string) => readFileSync(resolve(REPO_ROOT, rel), 'utf8');
 

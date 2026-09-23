@@ -2039,7 +2039,7 @@ dead rather than degraded. There is no shared-secret fallback to land on: no
    every service together — each one verifies its peers by `kid` against the
    shared bundle (see
    [Internal service tokens](#internal-service-tokens-one-key-per-service)).
-3. The gateway receives no signing secret: `deploy/shared/nginx/jwt.js` decodes
+3. The gateway receives no signing secret: each target's `nginx/jwt.js` decodes
    claims for the access log and the `x-org-id` / `x-user-id` hints and verifies
    nothing (ES256 verification needs an async JWKS fetch, which a synchronous
    njs `js_set` handler cannot make). Nothing is lost that was enforcing: the

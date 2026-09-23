@@ -104,7 +104,7 @@ set +a
 # ALERT DELIVERY PRE-FLIGHT. Fails the provision while a Slack webhook URL is
 # still a placeholder — alerting that 404s into nothing is indistinguishable
 # from healthy alerting, so it has to be caught here and not at 3am.
-pb_check_alert_delivery "$ENV_FILE" "$(pb_shared_dir)/config/alertmanager/alertmanager.yml" || exit 1
+pb_check_alert_delivery "$ENV_FILE" "$CONFIG_DIR/alertmanager/alertmanager.yml" || exit 1
 
 # TOKEN-SIGNING PRE-FLIGHT, for the same reason: under TOKEN_SIGNING_MODE=kms
 # (the AWS default) the key is created out of band, and without this the first

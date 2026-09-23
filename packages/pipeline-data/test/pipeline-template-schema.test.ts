@@ -23,7 +23,7 @@ import { pipeline } from '../src/database/schema/pipeline.js';
 import { plugin } from '../src/database/schema/plugin.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const DDL = readFileSync(resolve(REPO_ROOT, 'deploy/shared/postgres-init.sql'), 'utf8');
+const DDL = readFileSync(resolve(REPO_ROOT, 'deploy/local/docker/postgres-init.sql'), 'utf8');
 
 /** The `CREATE TABLE pipeline_templates (...)` body, so assertions can't be
  *  satisfied by an unrelated table that happens to have a `visibility` column. */

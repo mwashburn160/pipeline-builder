@@ -162,7 +162,7 @@ destinations, these two are the operator's channels.
 Alertmanager does not expand environment variables in its config, so the deploy
 writes each URL into the `alertmanager-slack` Secret (k8s) / a compose secret
 (docker) and mounts it as a **file** that
-`deploy/shared/config/alertmanager/alertmanager.yml` reads with `api_url_file`. The URLs
+the target's `config/alertmanager/alertmanager.yml` reads with `api_url_file`. The URLs
 therefore never land in a ConfigMap, and rotating one is a Secret update plus a
 pod restart with no config change.
 

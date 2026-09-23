@@ -9,9 +9,9 @@
 # Validating against the deployed digest matters — newer images are stricter.
 #
 # Checks:
-#   - loki -verify-config           deploy/shared/config/loki/loki-config.yml
-#   - amtool check-config           deploy/shared/config/alertmanager/alertmanager.yml
-#     (one copy for every target — see deploy/README.md "Shared config")
+#   - loki -verify-config           every target's config/loki/loki-config.yml
+#   - amtool check-config           every target's config/alertmanager/alertmanager.yml
+#     (a per-target copy — see deploy/README.md "Per-target config")
 #   - promtool check config         every target's prometheus.yml (+ its rules)
 #   - promtool test rules           any alert-rules.test.yml present
 #   - docker compose config -q      deploy/local/docker
@@ -56,25 +56,23 @@ for img in "$LOKI_IMAGE" "$PROM_IMAGE" "$AM_IMAGE"; do
   done < <(grep -rhoE "${repo}@sha256:[0-9a-f]{64}" deploy/*/*/k8s 2>/dev/null | sort -u)
 done
 
-SHARED=deploy/shared/config
-
-if out="$(docker run --rm -v "$ROOT/$SHARED/loki:/cfg:ro" "$LOKI_IMAGE" \
-    -config.file=/cfg/loki-config.yml -config.expand-env=true -verify-config 2>&1)"; then
-  pass "loki       shared"
-else
-  fail "loki       shared"; echo "$out" >&2
-fi
-
-if out="$(docker run --rm --entrypoint amtool \
-    -v "$ROOT/$SHARED/alertmanager:/cfg:ro" "$AM_IMAGE" \
-    check-config /cfg/alertmanager.yml 2>&1)"; then
-  pass "alertmgr   shared"
-else
-  fail "alertmgr   shared"; echo "$out" >&2
-fi
-
 for t in "${TARGETS[@]}"; do
   cfg="deploy/$t/config"
+
+  if out="$(docker run --rm -v "$ROOT/$cfg/loki:/cfg:ro" "$LOKI_IMAGE" \
+      -config.file=/cfg/loki-config.yml -config.expand-env=true -verify-config 2>&1)"; then
+    pass "loki       $t"
+  else
+    fail "loki       $t"; echo "$out" >&2
+  fi
+
+  if out="$(docker run --rm --entrypoint amtool \
+      -v "$ROOT/$cfg/alertmanager:/cfg:ro" "$AM_IMAGE" \
+      check-config /cfg/alertmanager.yml 2>&1)"; then
+    pass "alertmgr   $t"
+  else
+    fail "alertmgr   $t"; echo "$out" >&2
+  fi
 
   # rule_files references /etc/prometheus/alert-rules.yml — mount it there.
   if out="$(docker run --rm --entrypoint promtool \

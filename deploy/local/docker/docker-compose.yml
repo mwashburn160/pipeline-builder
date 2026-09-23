@@ -103,7 +103,7 @@ x-dev-ca: &dev-ca
 # bucket takes both (the querier touches only its peers' StoreAPIs, so it takes
 # neither).
 x-thanos-objstore: &thanos-objstore
-  ../../shared/config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro
+  ./config/thanos/objstore.yml:/etc/thanos/objstore.yml:ro
 
 x-thanos-env: &thanos-env
   THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
@@ -410,8 +410,8 @@ services:
       - './certs/nginx-tls.crt:/etc/nginx/certs/nginx.crt:ro'
       - './certs/nginx-tls.key:/etc/nginx/certs/nginx.key:ro'
       - './nginx/nginx.conf:/etc/nginx/nginx.conf:ro'
-      - '../../shared/nginx/jwt.js:/etc/nginx/njs/jwt.js:ro'
-      - '../../shared/nginx/metrics.js:/etc/nginx/njs/metrics.js:ro'
+      - './nginx/jwt.js:/etc/nginx/njs/jwt.js:ro'
+      - './nginx/metrics.js:/etc/nginx/njs/metrics.js:ro'
     networks:
       - proxy-network
       - backend-network
@@ -458,7 +458,7 @@ services:
     volumes:
       - './data/db-data/mongodb/:/data/db/:rw'
       - './mongodb-keyfile:/etc/mongodb-keyfile:ro'
-      - '../../shared/mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
+      - './mongodb-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro'
     networks:
       - backend-network
     healthcheck:
@@ -506,7 +506,7 @@ services:
       ECOSYSTEM_PUBLIC_READER_PASSWORD: ${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}
     volumes:
       - './data/db-data/postgres/:/var/lib/postgresql:rw'
-      - '../../shared/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
+      - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
     networks:
       - backend-network
     healthcheck:
@@ -2043,7 +2043,7 @@ services:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
     volumes:
-      - '../../shared/config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro'
+      - './config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro'
       - './data/db-data/alertmanager/:/alertmanager:rw'
     secrets:
       - source: alert_webhook_token
@@ -2084,7 +2084,7 @@ services:
       LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY}
     volumes:
       - './data/db-data/loki/:/loki:rw'
-      - '../../shared/config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro'
+      - './config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro'
     networks:
       - backend-network
     depends_on:
