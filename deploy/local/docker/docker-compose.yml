@@ -668,7 +668,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.1.28@sha256:7be0357d3be0590a240626a5fb17c7d7f4673ea455b5dd2fca41d500f9ee6c68'
+    image: 'ghcr.io/mwashburn160/frontend:4.1.29@sha256:c1f2989110335eaeca76120f069467b6b770f7927cbb763c8555833dc2b04528'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -871,7 +871,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:4.2.4@sha256:0805bbaacec4475d34b7e6f611819212c1fc7d81097dba5045168d2c7307dd8b'
+    image: 'ghcr.io/mwashburn160/plugin:4.2.5@sha256:304ffbd4c4281531d03f11d9d1deb956518c76260436f559fa447a6c5495de0c'
     container_name: plugin
     restart: always
     stop_grace_period: 10s
