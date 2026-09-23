@@ -96,6 +96,7 @@
       "<rootDir>/test/jest.setup.ts",
       "<rootDir>/../jest-env-guard.js"
     ],
+    "testTimeout": 30000,
     "clearMocks": true,
     "collectCoverage": true,
     "coverageReporters": [

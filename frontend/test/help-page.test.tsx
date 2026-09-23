@@ -28,11 +28,6 @@ jest.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-// The topic corpus is a dynamic import, so whichever test renders first pays the
-// transpile cost for 588 KB of generated source. That lands well inside the default
-// 5s alone, but not when the whole frontend suite runs in parallel on a busy machine.
-jest.setTimeout(30_000);
-
 const search = () => screen.getByLabelText(/search the docs/i) as HTMLInputElement;
 
 /**

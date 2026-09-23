@@ -815,6 +815,14 @@ const frontend = new FrontEndProject({
       // Auto-extends jest's expect() with `toBeInTheDocument`, `toHaveTextContent`,
       // etc. from @testing-library/jest-dom  so per-test imports aren't needed.
       setupFilesAfterEnv: ['<rootDir>/test/jest.setup.ts'],
+      // 5s (jest's default) is not enough for a RENDER suite running alongside
+      // 293 others. These tests mount a page, let its fetches settle and assert
+      // on the result; each step is fast alone, but under full parallelism the
+      // whole suite contends for the same cores, and several have failed on
+      // time while passing in isolation — a false red that says nothing about
+      // the code. The budget is per TEST, so a genuinely hung test still fails,
+      // just after 30s instead of 5.
+      testTimeout: 30_000,
     },
   },
   deps: [
