@@ -44,6 +44,18 @@ data:
       MASTER="$(redis-cli -h "$s.redis-sentinel-headless" -p 26379 sentinel get-master-addr-by-name mymaster 2>/dev/null | head -1 || true)"
       [ -n "$MASTER" ] && break
     done
+    # Sentinel answers with an IP, so the "is that me?" test must compare IPs.
+    # Comparing it against "${HOSTNAME}.redis-headless" is never equal, which made
+    # a restarting PRIMARY demote itself to a replica of its own previous pod IP:
+    # Sentinel still advertised that address, nothing answered on it, and the node
+    # sat in an endless SYNC handshake while clients Sentinel sent to it were reset.
+    MY_IP="$(getent hosts "${HOSTNAME}.redis-headless" 2>/dev/null | awk '{print $1}' | head -1 || true)"
+    # A reported primary that answers nothing is worse than no primary at all:
+    # every node would chase a dead address and none would serve. Verify it is
+    # alive, and otherwise fall back to the first-boot rule.
+    if [ -n "$MASTER" ] && [ "$MASTER" != "$MY_IP" ]; then
+      redis-cli -h "$MASTER" -p 6379 ping >/dev/null 2>&1 || MASTER=""
+    fi
     if [ -z "$MASTER" ]; then
       [ "$HOSTNAME" = "redis-0" ] && MASTER="" || MASTER="redis-0.redis-headless"
     fi
@@ -53,7 +65,7 @@ data:
       echo "replica-announce-ip ${HOSTNAME}.redis-headless"
       echo "replica-announce-port 6379"
     } > /etc/redis/runtime.conf
-    if [ -n "$MASTER" ] && [ "$MASTER" != "${HOSTNAME}.redis-headless" ]; then
+    if [ -n "$MASTER" ] && [ "$MASTER" != "$MY_IP" ] && [ "$MASTER" != "${HOSTNAME}.redis-headless" ]; then
       echo "replicaof $MASTER 6379" >> /etc/redis/runtime.conf
     fi
     exec redis-server /etc/redis/runtime.conf --maxmemory 256mb --maxmemory-policy noeviction
