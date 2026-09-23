@@ -7,7 +7,14 @@ set -euo pipefail
 # this target's standalone k8s manifests (../k8s) and the same secret/configmap
 # layout the ec2 target uses (so the service images need no per-target changes).
 #
-#   ./bin/setup.sh --domain pipeline-builder.com --hosted-zone-id Z... --region us-east-1
+#   ./bin/setup.sh --domain pipeline-builder.com --hosted-zone-id Z... --region us-east-1 \
+#     --slack-critical-url https://hooks.slack.com/services/T.../B.../...  \
+#     --slack-warning-url  https://hooks.slack.com/services/T.../B.../...
+#
+# Ops-team Slack is REQUIRED to be decided, not required to exist: pass both
+# URLs, or --no-ops-slack to deploy without them (platform alerts then stay in
+# Alertmanager's UI; per-org destinations are unaffected). It is checked BEFORE
+# the cluster is created, so a wrong answer costs seconds, not 20 minutes.
 #
 # Prereqs (provision checks these): aws, kubectl, openssl, envsubst. eksctl is auto-installed
 # below if missing (latest binary). The final auto-init phase (AUTO_INIT, default on) additionally
@@ -42,6 +49,11 @@ EMAIL_FROM="${EMAIL_FROM:-}"                     # default noreply@<domain> (set
 EMAIL_FROM_NAME="${EMAIL_FROM_NAME:-pipeline-builder}"
 CREATE_SES_IDENTITY="${CREATE_SES_IDENTITY:-true}"  # --no-create-ses-identity when domain is already a verified identity
 ALERT_EMAIL="${ALERT_EMAIL:-}"
+# Ops-team Slack webhooks. Supplied at invocation (or in the environment)
+# because on a FIRST run .env does not exist yet — it is seeded from
+# .env.example in Phase 4, long after the pre-flight below needs a value.
+SLACK_CRITICAL_WEBHOOK_URL="${SLACK_CRITICAL_WEBHOOK_URL:-}"
+SLACK_WARNING_WEBHOOK_URL="${SLACK_WARNING_WEBHOOK_URL:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -57,6 +69,9 @@ while [ $# -gt 0 ]; do
     --email-from) EMAIL_FROM="$2"; shift 2 ;;
     --email-from-name) EMAIL_FROM_NAME="$2"; shift 2 ;;
     --alert-email) ALERT_EMAIL="$2"; shift 2 ;;
+    --slack-critical-url) SLACK_CRITICAL_WEBHOOK_URL="$2"; shift 2 ;;
+    --slack-warning-url) SLACK_WARNING_WEBHOOK_URL="$2"; shift 2 ;;
+    --no-ops-slack) SLACK_CRITICAL_WEBHOOK_URL=""; SLACK_WARNING_WEBHOOK_URL=""; PB_OPS_SLACK_OPT_OUT=1; shift ;;
     --eks-version) EKS_VERSION="$2"; shift 2 ;;
     --auto-init) AUTO_INIT=true; shift ;;
     --no-auto-init) AUTO_INIT=false; shift ;;
@@ -120,6 +135,39 @@ TOKEN_SIGNING_MODE="$(pb_env_value TOKEN_SIGNING_MODE "$ENV_FILE" "$DEPLOY_DIR/.
 TOKEN_SIGNING_KMS_KEY_ID="$(pb_env_value TOKEN_SIGNING_KMS_KEY_ID "$ENV_FILE" "$DEPLOY_DIR/.env.example")" \
 AWS_REGION="$REGION" \
   pb_ensure_token_signing_kms_key "$CLUSTER_NAME" || exit 1
+
+# Shared .env secret generator (deploy/bin/gen-env-secrets.sh) — sourced HERE,
+# not at Phase 4, because the alert pre-flight below needs
+# pb_check_alert_delivery and runs before the cluster is created. It is a
+# pure function library with no side effects at source time.
+. "$SCRIPT_DIR/../../../bin/gen-env-secrets.sh"
+
+# Alert delivery, validated here for exactly the reason the KMS key above is:
+# it used to run in Phase 4, so a placeholder webhook surfaced only AFTER
+# `eksctl create cluster` (~20 min), a live EFS and an ACM certificate — all of
+# which the operator then owns. It reads one file and needs none of that.
+#
+# Same authority chain as the KMS settings: the flag/environment first (the only
+# way a FIRST run can answer, since Phase 4 has not seeded .env yet), then .env,
+# then .env.example. Checking .env.example alone would read its CHANGE_ME and
+# fail every first deploy by construction — the bug this ordering fixes.
+_pb_slack_crit="${SLACK_CRITICAL_WEBHOOK_URL:-$(pb_env_value SLACK_CRITICAL_WEBHOOK_URL "$ENV_FILE" "$DEPLOY_DIR/.env.example")}"
+_pb_slack_warn="${SLACK_WARNING_WEBHOOK_URL:-$(pb_env_value SLACK_WARNING_WEBHOOK_URL "$ENV_FILE" "$DEPLOY_DIR/.env.example")}"
+if [ "${PB_OPS_SLACK_OPT_OUT:-0}" = 1 ]; then _pb_slack_crit=""; _pb_slack_warn=""; fi
+_pb_slack_env=$(mktemp)
+printf 'SLACK_CRITICAL_WEBHOOK_URL=%s\nSLACK_WARNING_WEBHOOK_URL=%s\n' "$_pb_slack_crit" "$_pb_slack_warn" > "$_pb_slack_env"
+if ! pb_check_alert_delivery "$_pb_slack_env" "$CONFIG_DIR/alertmanager/alertmanager.yml"; then
+  rm -f "$_pb_slack_env"
+  echo "" >&2
+  echo "  Nothing has been created yet. Supply them at invocation:" >&2
+  echo "    ./bin/setup.sh --domain … --hosted-zone-id … \\" >&2
+  echo "      --slack-critical-url https://hooks.slack.com/services/T…/B…/… \\" >&2
+  echo "      --slack-warning-url  https://hooks.slack.com/services/T…/B…/…" >&2
+  echo "  or deploy without ops-team Slack:  ./bin/setup.sh … --no-ops-slack" >&2
+  echo "" >&2
+  exit 1
+fi
+rm -f "$_pb_slack_env"
 
 # ---- Phase 1: cluster (Auto Mode) ------------------------------------------
 log "Phase 1: EKS Auto Mode cluster"
@@ -258,8 +306,7 @@ echo "  cert ready: $ACM_CERT_ARN"
 
 # ---- Phase 4: .env + namespace + secrets/configmaps ------------------------
 log "Phase 4: secrets + configmaps"
-# Shared .env secret generator (deploy/bin/gen-env-secrets.sh).
-. "$SCRIPT_DIR/../../../bin/gen-env-secrets.sh"
+# (gen-env-secrets.sh is sourced above, before the Phase 0 alert pre-flight.)
 # Generate .env from the template ONCE (regenerating would rotate DB passwords
 # out from under existing PVC data on a re-run). Mirrors ec2 bootstrap.sh Phase 7.
 if [ ! -f "$ENV_FILE" ]; then
@@ -299,6 +346,21 @@ pb_sync_env_keys "$ENV_FILE" "$DEPLOY_DIR/.env.example"
 # legitimate value. (ec2's bootstrap.sh runs its domain sed unguarded for the
 # same reason.)
 sed -i.bak "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" "$ENV_FILE"; rm -f "$ENV_FILE.bak"
+
+# Ops-team Slack webhooks from the flags/environment. OUTSIDE the fresh-seed
+# branch on purpose: an operator may supply one on a RE-deploy, and the value
+# has to reach .env or the Phase 4 pre-flight below still reads the placeholder
+# the sync just appended. Guarded on non-empty for the same reason GHCR_TOKEN is
+# — a re-run without the flag must not wipe a URL edited into .env by hand.
+# `--no-ops-slack` writes the empty value deliberately, which is the documented
+# "run without ops-team Slack" choice rather than an absent one.
+for _pb_slack_key in SLACK_CRITICAL_WEBHOOK_URL SLACK_WARNING_WEBHOOK_URL; do
+  eval "_pb_slack_val=\${${_pb_slack_key}:-}"
+  if [ -n "$_pb_slack_val" ] || [ "${PB_OPS_SLACK_OPT_OUT:-0}" = 1 ]; then
+    sed -i.bak "s|^${_pb_slack_key}=.*|${_pb_slack_key}=${_pb_slack_val}|" "$ENV_FILE"
+    rm -f "$ENV_FILE.bak"
+  fi
+done
 # Source so secret values match exactly what ec2 startup.sh consumes.
 set -a
 # shellcheck disable=SC1090
