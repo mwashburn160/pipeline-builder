@@ -114,7 +114,7 @@ export default function SecurityPage() {
             {/* An account that signs in only through Google/GitHub/SSO has no
                 password to change — the form could only fail. */}
             {user.authFactors?.hasPassword !== false && (
-              <Anchor id="password"><PasswordSection readOnly={isReadOnly} /></Anchor>
+              <Anchor id="password"><PasswordSection readOnly={isReadOnly} username={user?.email} /></Anchor>
             )}
             <Anchor id="passkeys"><PasskeySection readOnly={isReadOnly} /></Anchor>
             <Anchor id="totp"><TotpSection readOnly={isReadOnly} /></Anchor>
@@ -167,7 +167,7 @@ export default function SecurityPage() {
  * ONE dialog that both states the consequence and takes the factor, rather than
  * posting blind and letting the 401 produce a dialog after the fact.
  */
-function PasswordSection({ readOnly }: { readOnly: boolean }) {
+function PasswordSection({ readOnly, username }: { readOnly: boolean; username?: string }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -221,14 +221,21 @@ function PasswordSection({ readOnly }: { readOnly: boolean }) {
         submitLoading={form.loading}
         submitDisabled={readOnly}
       >
+        {/* A password manager needs to know WHICH account it is saving against, and
+            a change form has no visible username field. Without this hidden one
+            browsers warn and may offer to save the new password under the wrong
+            entry. `autoComplete` likewise tells it to offer the stored password
+            for the current field and to generate/save for the new ones — a
+            `type="password"` input with no hint gets guessed at. */}
+        <input type="text" name="username" autoComplete="username" value={username ?? ''} readOnly hidden aria-hidden="true" tabIndex={-1} />
         <FormField label="Current password">
-          <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={form.loading || readOnly} />
+          <Input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} disabled={form.loading || readOnly} />
         </FormField>
         <FormField label="New password" hint={`At least ${minLength} characters.`}>
-          <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={form.loading || readOnly} />
+          <Input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={form.loading || readOnly} />
         </FormField>
         <FormField label="Confirm new password">
-          <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={form.loading || readOnly} />
+          <Input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={form.loading || readOnly} />
         </FormField>
       </FormSection>
 

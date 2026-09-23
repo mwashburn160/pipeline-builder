@@ -146,6 +146,11 @@ describe('bootstrapSessionMayReach — what an enrolment session can touch', () 
   it('allows leaving: sign-out and the refresh that keeps enrolment alive', () => {
     expect(may('POST', '/auth/logout')).toBe(true);
     expect(may('POST', '/auth/refresh')).toBe(true);
+    // Sign-out asks for the SSO Single-Logout redirect FIRST, so refusing it
+    // made every bootstrap sign-out spend one of the IP-keyed auth limiter's
+    // 20-per-15-minutes on a request that could never succeed — and the
+    // frontend swallows the failure, so nothing showed it.
+    expect(may('POST', '/auth/sso/logout')).toBe(true);
   });
 
   it('allows exactly the setup calls init-platform.sh makes', () => {

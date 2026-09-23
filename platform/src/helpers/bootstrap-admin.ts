@@ -238,6 +238,14 @@ const BOOTSTRAP_SESSION_ALLOWLIST: ReadonlyArray<{ method: string; pattern: RegE
   { method: 'POST', pattern: /^\/auth\/step-up\b/ },
   // 2. Leaving
   { method: 'POST', pattern: /^\/auth\/logout$/ },
+  // Sign-out asks for an SSO Single-Logout redirect BEFORE ending the session
+  // (auth.ts `logout()`), so it is part of leaving, not a second privilege. The
+  // frontend swallows a failure here, which made the 403 invisible — while still
+  // spending one of the IP-keyed auth limiter's 20 attempts per 15 minutes on a
+  // request that could never succeed. A bootstrap admin has no SSO, so the
+  // answer is `redirectUrl: null`; admitting it costs nothing and stops
+  // sign-out from burning the budget the person needs to sign back IN.
+  { method: 'POST', pattern: /^\/auth\/sso\/logout$/ },
   { method: 'POST', pattern: /^\/auth\/refresh$/ },
   // 3. Setup (init-platform.sh)
   { method: 'GET', pattern: /^\/organization$/ },

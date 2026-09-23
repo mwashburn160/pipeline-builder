@@ -40,6 +40,7 @@ import { rememberReturnPath } from '@/lib/return-to';
 import { useAuth } from './useAuth';
 import { isSystemAdmin, isOrgAdmin, hasPermission, isMutationPermission } from '@/lib/auth-helpers';
 import { resolvePageGate } from '@/lib/page-access';
+import { isEnrolmentPendingSession, ENROLMENT_PATHNAME, ENROLMENT_HREF } from '@/lib/enrolment-session';
 
 /** Options for configuring the auth guard's requirements. */
 interface AuthGuardOptions {
@@ -125,6 +126,17 @@ export function useAuthGuard(options?: AuthGuardOptions) {
     // avoid a redirect loop).
     if (needsOnboarding && !allowOnboarding && router.pathname !== '/dashboard/onboarding') {
       void router.replace('/dashboard/onboarding');
+      return;
+    }
+    // The bootstrap admin's enrolment-limited session can reach ONLY enrolment,
+    // sign-out and the setup routes; platform refuses everything else with 403.
+    // Without this the dashboard still renders in full and every panel fires a
+    // request that cannot succeed — a page of red in the console, widgets stuck
+    // loading, and no indication that enrolling a factor is what fixes it.
+    // Same shape as the onboarding redirect above, and it clears itself: the
+    // first enrolment closes the exception for good.
+    if (isEnrolmentPendingSession() && router.pathname !== ENROLMENT_PATHNAME) {
+      void router.replace(ENROLMENT_HREF);
       return;
     }
     // Authorization failures deliberately do NOT redirect — see `accessDenied`.

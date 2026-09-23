@@ -29,6 +29,7 @@ import { StepUpRequiredError } from '@/lib/api/errors';
 import { POLL_INTERVAL } from '@/hooks/useMessages';
 import { usePolling } from '@/hooks/usePolling';
 import { pollUnreadCount, useUnreadCount } from '@/lib/unread-count-store';
+import { isEnrolmentPendingSession } from '@/lib/enrolment-session';
 
 interface DashboardLayoutProps {
   title: string;
@@ -177,7 +178,11 @@ export function DashboardLayout({
     return () => window.removeEventListener('mfa-required', handler);
   }, []);
 
-  usePolling(pollUnreadCount, POLL_INTERVAL, { enabled: !hasLiveSource });
+  // An enrolment-limited bootstrap session is refused every one of these
+  // (403 MFA_ENROLLMENT_REQUIRED), so polling only fills the console with
+  // failures the viewer can do nothing about until they enrol a factor.
+  const enrolmentLimited = isEnrolmentPendingSession();
+  usePolling(pollUnreadCount, POLL_INTERVAL, { enabled: !hasLiveSource && !enrolmentLimited });
 
   // Mobile drawer: a fixed overlay with no native dialog semantics, so it gets
   // the same shared overlay behaviour as Modal/SideDrawer — focus moves in, Tab
@@ -352,7 +357,7 @@ export function DashboardLayout({
               construction (the nudge stands down whenever `user.mfaPolicy` is
               present), so the two can never stack. */}
           <MfaEnrolmentNudge />
-          <QuotaBanner />
+          {!enrolmentLimited && <QuotaBanner />}
 
           <main id="main-content" tabIndex={-1} className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
             {/* PAGE HEADER. One block, rendered for every route from the props
