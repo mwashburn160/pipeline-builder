@@ -4,12 +4,26 @@
 /** URLs and small derivations shared by the public directory pages. */
 import { OFFICIAL_PUBLISHER } from './types';
 
-/** The project's source repository (docs links on category pages). */
+/** The project's source repository. */
 export const PROJECT_REPO_URL = 'https://github.com/mwashburn160/pipeline-builder';
 
-/** The per-category plugin doc on GitHub (`docs/plugins/<category>.md`). */
+/**
+ * The published documentation site (`_config.yml`: url + empty baseurl, so it is
+ * served at the domain root). Reader-facing links point HERE, not at the Markdown
+ * source on GitHub — the rendered page is what a visitor to the plugin directory
+ * expects, and the raw file is the wrong audience.
+ */
+export const DOCS_SITE_URL = 'https://docs.pipeline-builder.com';
+
+/** The plugin catalog landing page (`docs/plugins/README.md`, `permalink: /docs/plugins/`). */
+export const PLUGIN_DOCS_URL = `${DOCS_SITE_URL}/docs/plugins/`;
+
+/**
+ * The per-category plugin doc. `docs/plugins/<category>.md` carries front matter
+ * but no explicit permalink, so Jekyll serves it at the file path with `.html`.
+ */
 export function categoryDocUrl(category: string): string {
-  return `${PROJECT_REPO_URL}/blob/main/docs/plugins/${encodeURIComponent(category)}.md`;
+  return `${DOCS_SITE_URL}/docs/plugins/${encodeURIComponent(category)}.html`;
 }
 
 /** `/plugins/<publisher>/<name>` — the listing's public page. */

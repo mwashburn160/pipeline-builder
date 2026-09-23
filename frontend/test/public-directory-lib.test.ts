@@ -53,8 +53,8 @@ describe('category data', () => {
     expect(isPluginCategory(undefined)).toBe(false);
   });
 
-  it('links each category to its doc on GitHub', () => {
-    expect(categoryDocUrl('security')).toBe('https://github.com/mwashburn160/pipeline-builder/blob/main/docs/plugins/security.md');
+  it('links each category to its doc on the published docs site', () => {
+    expect(categoryDocUrl('security')).toBe('https://docs.pipeline-builder.com/docs/plugins/security.html');
   });
 });
 

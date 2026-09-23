@@ -221,7 +221,7 @@ describe('/plugins/category/[category]', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Security' })).toBeInTheDocument();
     expect(screen.getByText('Build · Test')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Security plugin docs/ }))
-      .toHaveAttribute('href', 'https://github.com/mwashburn160/pipeline-builder/blob/main/docs/plugins/security.md');
+      .toHaveAttribute('href', 'https://docs.pipeline-builder.com/docs/plugins/security.html');
   });
 });
 
