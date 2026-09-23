@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  SYSTEM_ACTOR_ID,
   audited,
   requireAuth,
   requireOrgAdminAssurance,
@@ -67,7 +68,7 @@ async function recordLostCombos(orgId: string, lost: ComboChange[], subscription
     await createBillingEvent(orgId, 'combo_expired', { comboId: c.comboId }, subscriptionId, eventActorId);
     recordAudit({
       action: 'billing.combo.expired',
-      actorId: eventActorId ?? 'system',
+      actorId: eventActorId ?? SYSTEM_ACTOR_ID,
       orgId,
       targetId: c.comboId,
       details: { comboId: c.comboId, creditCents: c.creditCents, subscriptionId },
@@ -138,7 +139,7 @@ async function commitAddonChange(args: {
   await createBillingEvent(orgId, 'subscription_updated', args.eventDetails, subscriptionId, eventActorId);
   recordAudit({
     action: source === 'addon_add' ? 'billing.addon.add' : 'billing.addon.remove',
-    actorId: eventActorId ?? 'system',
+    actorId: eventActorId ?? SYSTEM_ACTOR_ID,
     orgId,
     targetId: bundleId,
     details: { ...args.auditDetails, subscriptionId },

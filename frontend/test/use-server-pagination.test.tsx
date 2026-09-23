@@ -52,9 +52,10 @@ describe('useServerPagination', () => {
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // Advance the offset
+    // Advance the offset. The pager still reports 0 — with a total of 0 there
+    // is no page 3 to be on (THE clamp rule) — but the read goes out at 40.
     act(() => result.current.setOffset(40));
-    await waitFor(() => expect(result.current.pagination.offset).toBe(40));
+    await waitFor(() => expect(fetcher.mock.calls.at(-1)![0].offset).toBe(40));
 
     // Change filters — must reset offset to 0
     rerender({ filters: { q: 'b' } });

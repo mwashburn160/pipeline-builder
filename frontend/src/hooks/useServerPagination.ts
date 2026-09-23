@@ -3,12 +3,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { runCancellableFetch } from './internal/fetchCore';
-
-interface PaginationState {
-  offset: number;
-  limit: number;
-  total: number;
-}
+import { DEFAULT_PAGE_SIZE, usePagination } from './usePagination';
+import type { PaginationState } from '@/components/ui/Pagination';
 
 interface PaginatedResult<T> {
   items: T[];
@@ -25,6 +21,10 @@ interface PaginatedResult<T> {
  * offset resets to 0 and a refetch is triggered. The fetcher is read via a
  * ref so callers don't need to memoize it.
  *
+ * The page triple, the page-size default and the clamp rule all come from
+ * {@link usePagination} — see its module doc for why that is the one
+ * server-pagination convention.
+ *
  * @example
  * const { items, pagination, loading, error, setOffset, refetch } =
  *   useServerPagination(
@@ -38,21 +38,22 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
    *  forward it to the API client to cancel the superseded page on the wire. */
   fetcher: (args: { offset: number; limit: number; filters: F; signal: AbortSignal }) => Promise<PaginatedResult<T>>,
   filters: F,
-  initialLimit = 20,
+  initialLimit: number = DEFAULT_PAGE_SIZE,
 ): {
   items: T[];
   pagination: PaginationState;
   loading: boolean;
   error: Error | null;
   setOffset: (offset: number) => void;
+  /** Change the rows-per-page; returns to page 1, like every other list. */
+  setLimit: (limit: number) => void;
   refetch: () => void;
 } {
   const [items, setItems] = useState<T[]>([]);
-  const [pagination, setPagination] = useState<PaginationState>({
-    offset: 0,
-    limit: initialLimit,
-    total: 0,
-  });
+  const [total, setTotal] = useState(0);
+  const page = usePagination(initialLimit);
+  const { offset, limit, setOffset, setLimit, reset } = page;
+  const pagination = page.withTotal(total);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [tick, setTick] = useState(0);
@@ -68,12 +69,12 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
   const [shownFilterKey, setShownFilterKey] = useState(filterKey);
   if (shownFilterKey !== filterKey) {
     setShownFilterKey(filterKey);
-    if (pagination.offset !== 0) setPagination((p) => ({ ...p, offset: 0 }));
+    reset();
   }
 
   useEffect(() => {
     return runCancellableFetch(
-      (signal) => fetcherRef.current({ offset: pagination.offset, limit: pagination.limit, filters, signal }),
+      (signal) => fetcherRef.current({ offset, limit, filters, signal }),
       {
         onStart: () => {
           setLoading(true);
@@ -81,15 +82,9 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
         },
         onSuccess: (result) => {
           setItems(result.items);
-          setPagination((p) => {
-            const total = result.pagination.total;
-            // Clamp a now-out-of-range offset (e.g. a filter shrank the result
-            // set while the user was on a later page) to the last valid page, so
-            // the list doesn't render empty on a stale offset (mirrors useListPage).
-            const maxOffset = total === 0 ? 0 : Math.floor((total - 1) / p.limit) * p.limit;
-            const offset = p.offset > maxOffset ? maxOffset : p.offset;
-            return p.total === total && p.offset === offset ? p : { ...p, total, offset };
-          });
+          // `usePagination` clamps against this, so a filter that shrank the set
+          // while the viewer was on a later page snaps back to a real page.
+          setTotal(result.pagination.total);
         },
         onError: setError,
         onSettled: () => setLoading(false),
@@ -97,13 +92,9 @@ export function useServerPagination<T, F extends Record<string, unknown>>(
     );
     // filters is read via JSON key (avoids object-identity churn)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `filters` is tracked by its JSON key, which avoids object-identity churn
-  }, [pagination.offset, pagination.limit, filterKey, tick]);
+  }, [offset, limit, filterKey, tick]);
 
-  const setOffset = useCallback(
-    (offset: number) => setPagination((p) => ({ ...p, offset })),
-    [],
-  );
   const refetch = useCallback(() => setTick((t) => t + 1), []);
 
-  return { items, pagination, loading, error, setOffset, refetch };
+  return { items, pagination, loading, error, setOffset, setLimit, refetch };
 }

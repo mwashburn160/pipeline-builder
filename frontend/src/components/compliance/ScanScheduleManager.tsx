@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { CalendarClock, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
+import { useDelete } from '@/hooks/useDelete';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -35,8 +36,6 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
   const [formData, setFormData] = useState<ScanScheduleFormData>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<ScanSchedule | null>(null);
 
   const { data, loading, refetch: fetchSchedules } = useFetch<ScanSchedule[]>(
     async () => (await api.getScanSchedules()).data?.schedules ?? [],
@@ -93,18 +92,14 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     setTogglingId(null);
   };
 
-  const performDelete = async (schedule: ScanSchedule) => {
-    setDeletingId(schedule.id);
-    setConfirmDelete(null);
-    try {
-      await api.deleteScanSchedule(schedule.id);
-      toast.success('Schedule deleted');
-      void fetchSchedules();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to delete schedule'));
-    }
-    setDeletingId(null);
-  };
+  // `useDelete` owns the step-up replay: a delete refused pending re-auth
+  // completes and refreshes once the person confirms in the global dialog.
+  const del = useDelete<ScanSchedule>(
+    (schedule) => api.deleteScanSchedule(schedule.id),
+    () => { toast.success('Schedule deleted'); void fetchSchedules(); },
+    (err) => toast.error(formatError(err, 'Failed to delete schedule')),
+  );
+  const deletingId = del.loading ? del.target?.id : undefined;
 
   const columns: Column<ScanSchedule>[] = [
     { id: 'target', header: 'Target', cellClassName: 'text-sm text-fg-muted capitalize', render: (s) => s.target },
@@ -144,7 +139,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
           <Button variant="ghost" size="xs" onClick={() => openEdit(s)} title="Edit schedule" aria-label="Edit schedule">
             <Pencil className="w-4 h-4" />
           </Button>
-          <Button variant="danger" size="xs" onClick={() => setConfirmDelete(s)} disabled={deletingId === s.id} title="Delete schedule" aria-label="Delete schedule">
+          <Button variant="danger" size="xs" onClick={() => del.open(s)} disabled={deletingId === s.id} title="Delete schedule" aria-label="Delete schedule">
             {deletingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
           </Button>
         </div>
@@ -230,13 +225,13 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
           />
         </div>
       )}
-      {confirmDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete scan schedule"
-          itemName={`${confirmDelete.target} schedule (${confirmDelete.cronExpression})`}
-          loading={deletingId === confirmDelete.id}
-          onConfirm={() => performDelete(confirmDelete)}
-          onCancel={() => setConfirmDelete(null)}
+          itemName={`${del.target.target} schedule (${del.target.cronExpression})`}
+          loading={del.loading}
+          onConfirm={() => void del.confirm()}
+          onCancel={del.close}
         />
       )}
     </div>

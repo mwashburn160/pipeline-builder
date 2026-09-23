@@ -83,19 +83,21 @@ function TeamIdentitySection({ team, readOnly, onRenamed }: {
     const next = name.trim();
     if (next === saved) { form.setError('No changes to save'); return; }
     if (next.length < 2) { form.setError('Team name must be at least 2 characters'); return; }
-    const result = await form.run(
+    await form.run(
       () => api.updateOrganizationIdentity(team.orgId, { name: next }),
-      { successMessage: 'Team renamed' },
+      {
+        successMessage: 'Team renamed',
+        onSuccess: (result) => {
+          const renamed = result.data?.organization?.name ?? next;
+          setName(renamed);
+          setSaved(renamed);
+          // The team's name is what the org switcher and every org list show, and
+          // both read through the shared cache.
+          invalidate.organizations();
+          void onRenamed();
+        },
+      },
     );
-    if (result !== null) {
-      const renamed = result.data?.organization?.name ?? next;
-      setName(renamed);
-      setSaved(renamed);
-      // The team's name is what the org switcher and every org list show, and
-      // both read through the shared cache.
-      invalidate.organizations();
-      await onRenamed();
-    }
   };
 
   return (
@@ -137,8 +139,9 @@ function TeamSsoSection({ orgId, readOnly }: { orgId: string; readOnly: boolean 
   // Entitlements pool at the root, so the parent's verdict is the team's.
   const gate = useFeatureGate('sso');
   const idp = useFetch(
-    async (signal) => (gate.entitled ? (await api.getOwnOrgIdpConfig(orgId, { signal })).data?.config ?? null : null),
+    async (signal) => (await api.getOwnOrgIdpConfig(orgId, { signal })).data?.config ?? null,
     [gate.entitled, orgId],
+    { enabled: gate.entitled },
   );
   const [config, setConfig] = useState<OrgIdpConfigDto | null>(null);
   useEffect(() => { setConfig(idp.data); }, [idp.data]);

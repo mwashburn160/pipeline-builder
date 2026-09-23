@@ -9,7 +9,7 @@
  */
 
 import type { PluginScanFinding, QuotaService } from '@pipeline-builder/api-core';
-import { createLogger, ErrorCode, errorMessage, extractDbError, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, ErrorCode, errorMessage, extractDbError, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
@@ -100,7 +100,7 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
         eventCategory: 'plugin-build',
         action,
         event: isTimeout ? 'timeout' : 'failed',
-        actorId: job.data.userId ?? 'system',
+        actorId: job.data.userId ?? SYSTEM_ACTOR_ID,
         orgId,
         targetType: 'plugin',
         pluginName: pluginRecord.name,
@@ -148,7 +148,7 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
         // jobs (DLQ-bound jobs get theirs from the DLQ on its own exhaustion).
         recordAudit({
           action,
-          actorId: job.data.userId ?? 'system',
+          actorId: job.data.userId ?? SYSTEM_ACTOR_ID,
           orgId,
           targetType: 'plugin',
           details: {

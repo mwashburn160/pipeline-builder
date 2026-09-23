@@ -29,6 +29,7 @@ import { BulkSelectionBanner, BulkResultSummary } from '@/components/dashboard/B
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 import type { UserListItem, NewUserState, OrgRoleOption } from '@/components/users/types';
 import api from '@/lib/api';
+import { continueAfterStepUp } from '@/lib/api/errors';
 import { interpretImpersonationStart } from '@/lib/impersonation-start';
 import type { User } from '@/types';
 
@@ -85,13 +86,19 @@ export default function UsersPage() {
   const [pendingDelete, setPendingDelete] = useState<UserListItem | null>(null);
   const [pendingEdit, setPendingEdit] = useState<Parameters<typeof api.updateUserById>[1] | null>(null);
 
+  // Step-up gated, so StepUpModal IS the confirmation and there is no
+  // DeleteConfirmModal triplet to fold into `useDelete`. The replay still
+  // matters: a token that raced its expiry is refused again, the global dialog
+  // takes it over, and the list must refresh when that replay lands.
   const executeDelete = useCallback(async (stepUpToken: string) => {
     if (!pendingDelete) return;
     try {
       await api.deleteUserById(pendingDelete.id, stepUpToken);
       list.refresh();
     } catch (err) {
-      list.setError(formatError(err, 'Failed to delete user'));
+      if (!continueAfterStepUp(err, () => list.refresh())) {
+        list.setError(formatError(err, 'Failed to delete user'));
+      }
     } finally {
       setPendingDelete(null);
     }
@@ -109,9 +116,13 @@ export default function UsersPage() {
   // The editor opens on the list row (no flash), then re-reads the user so it
   // shows — and diffs against — their CURRENT record, not a possibly stale row.
   const editingId = editingUser?.id ?? null;
+  // Gated with `enabled`, not with a fetcher that returns null when no editor is
+  // open: the latter still schedules a full async round trip on every mount whose
+  // only effect is flipping `loading` back off.
   const detail = useFetch(
-    async (signal) => (editingId ? (await api.getUser(editingId, { signal })).data?.user ?? null : null),
+    async (signal) => (await api.getUser(editingId!, { signal })).data?.user ?? null,
     [editingId],
+    { enabled: !!editingId },
   );
   // Delayed auto-close after a successful create/edit, so the success message is
   // readable before the modal goes.
@@ -186,7 +197,7 @@ export default function UsersPage() {
     if (!newUser.email.trim()) { createForm.setError('Email is required'); return; }
     if (newUser.password.length < 8) { createForm.setError('Password must be at least 8 characters'); return; }
 
-    const result = await createForm.run(
+    await createForm.run(
       () => api.createUser({
         username: newUser.username.trim(),
         email: newUser.email.trim(),
@@ -196,13 +207,14 @@ export default function UsersPage() {
         // Roles are org-scoped — only send them alongside an org.
         ...(newUser.organizationId && selectedRoleIds.size > 0 && { roleIds: Array.from(selectedRoleIds) }),
       }),
-      { successMessage: 'User created successfully' },
+      {
+        successMessage: 'User created successfully',
+        onSuccess: () => {
+          list.refresh();
+          createClose.schedule(() => setShowCreate(false), 1200);
+        },
+      },
     );
-
-    if (result !== null) {
-      list.refresh();
-      createClose.schedule(() => setShowCreate(false), 1200);
-    }
   };
 
   const executeImpersonate = useCallback(async (stepUpToken: string) => {
@@ -363,20 +375,21 @@ export default function UsersPage() {
     const updates = pendingEdit;
     setPendingEdit(null);
     if (!editingUser || !updates) return;
-    const result = await editForm.run(
+    await editForm.run(
       () => api.updateUserById(editingUser.id, updates, stepUpToken),
-      { successMessage: 'User updated successfully' },
+      {
+        successMessage: 'User updated successfully',
+        onSuccess: () => {
+          list.refresh();
+          void detail.refetch();
+          setNewPassword('');
+          const savedId = editingUser.id;
+          editClose.schedule(() => {
+            setEditingUser((current) => (current?.id === savedId ? null : current));
+          }, 1500);
+        },
+      },
     );
-
-    if (result !== null) {
-      list.refresh();
-      void detail.refetch();
-      setNewPassword('');
-      const savedId = editingUser.id;
-      editClose.schedule(() => {
-        setEditingUser((current) => (current?.id === savedId ? null : current));
-      }, 1500);
-    }
   };
 
   // Open the step-up modal; the actual grant/revoke runs after password

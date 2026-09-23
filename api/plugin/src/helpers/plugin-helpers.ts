@@ -1,12 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { normalizeArrayFields, SYSTEM_ORG_ID, type MetadataSources, type Visibility } from '@pipeline-builder/api-core';
+import { normalizeArrayFields, SYSTEM_ORG_ID, type MetadataSources, type Visibility, type WriteAccess } from '@pipeline-builder/api-core';
 import { type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
 import type { PluginContractValueType, PluginIcon } from '@pipeline-builder/pipeline-data';
 
 import type { BuildRequest, BuildType } from './docker-build.js';
-import type { PluginInsert, WriteAccess } from '../services/plugin-service.js';
+import type { PluginInsert } from '../services/plugin-service.js';
 
 /** Plugin config parsed from config.yaml in the ZIP root. */
 export interface PluginConfig {

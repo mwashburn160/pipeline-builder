@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
+import { ANONYMOUS_ACTOR_ID, JWKS_PATH, createHealthRouter, createLogger, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -307,7 +307,7 @@ async function initDependencies(): Promise<void> {
     // Durable fire-and-forget: a failed write is spooled, never dropped.
     recordAuditEvent({
       action: 'authz.denied',
-      actorId: info.actorId ?? 'anonymous',
+      actorId: info.actorId ?? ANONYMOUS_ACTOR_ID,
       actorEmail: info.actorEmail,
       orgId: info.orgId,
       affectedOrgId: info.orgId,

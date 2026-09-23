@@ -1,3 +1,4 @@
+import type { BadgeColor } from '@/components/ui/Badge';
 import { useState, useMemo, useCallback, useId } from 'react';
 import { formatError } from '@/lib/constants';
 import { Mail } from 'lucide-react';
@@ -39,8 +40,11 @@ interface InvitationListItem {
   createdAt: string;
 }
 
-const STATUS_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray' | 'red'> = {
-  pending: 'blue',
+// `pending` is YELLOW, as it is on every other status surface (MFA resets,
+// publish requests, compliance scans and exemptions): it means "waiting on
+// someone", which is what the yellow token says. It was blue only here.
+const STATUS_BADGE_COLOR: Record<string, BadgeColor> = {
+  pending: 'yellow',
   accepted: 'green',
   expired: 'gray',
   revoked: 'red',

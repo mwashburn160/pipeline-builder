@@ -151,7 +151,7 @@ export default function PipelinesPage() {
 
   const handleCreatePipeline = async (props: BuilderProps, visibility: Visibility, description?: string, keywords?: string[]) => {
     setCreateSuccess(null);
-    const result = await createForm.run(() =>
+    await createForm.run(() =>
       api.createPipeline({
         project: props.project,
         organization: props.organization,
@@ -161,13 +161,16 @@ export default function PipelinesPage() {
         props,
         visibility,
       }),
+      {
+        onSuccess: (result) => {
+          if (!result?.success) return;
+          setCreateSuccess('Pipeline created successfully!');
+          afterWrite();
+          toast.success('Pipeline created');
+          setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
+        },
+      },
     );
-    if (result?.success) {
-      setCreateSuccess('Pipeline created successfully!');
-      afterWrite();
-      toast.success('Pipeline created');
-      setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
-    }
   };
 
   // ── Bulk Operations ──

@@ -27,6 +27,7 @@ import {
 } from '@/lib/plugin-submissions/status';
 import { pluginPagePath } from '@/lib/public-directory/links';
 import type { SubmissionStatusView } from '@/types/plugin-submissions';
+import { Card } from '@/components/ui/Card';
 
 /** How often an in-flight submission is re-read. */
 const STATUS_POLL_MS = 15_000;
@@ -87,7 +88,7 @@ export default function SubmissionStatusPage() {
         {token && !view && !error && <Skeleton className="h-40 w-full" />}
 
         {view && (
-          <div className="card space-y-4 p-6" data-testid="submission-status">
+          <Card className="space-y-4 p-6" data-testid="submission-status">
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="font-mono text-lg font-semibold text-fg">community/{view.name}</h2>
@@ -127,7 +128,7 @@ export default function SubmissionStatusPage() {
             {(view.status === 'gate_failed' || view.status === 'rejected' || view.status === 'expired') && (
               <Link href="/plugins/submit" className="action-link text-sm">Submit a new version</Link>
             )}
-          </div>
+          </Card>
         )}
       </div>
     </PublicLayout>

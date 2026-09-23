@@ -126,7 +126,7 @@ describe('Reviews tab — guest', () => {
   it('says so when there are no ratings or reviews yet', async () => {
     getListingReviews.mockImplementation(() => page([]));
     renderPanel({ rating: null, ratingDistribution: null, recentRating: null });
-    expect(screen.getByText('No ratings yet.')).toBeInTheDocument();
+    expect(screen.getByText('No ratings yet')).toBeInTheDocument();
     expect(screen.queryByTestId('recent-rating')).toBeNull();
     expect(screen.queryByRole('list', { name: 'Rating distribution' })).toBeNull();
     expect(await screen.findByText('No reviews yet.')).toBeInTheDocument();

@@ -3,17 +3,18 @@
 
 /**
  * The steps every build-queuing route shares (the zip upload and the
- * AI-generated deploy): reserve a `plugins` quota slot, run the fail-closed
- * compliance preflight, and queue the build on the org's tier queue.
+ * AI-generated deploy): run the fail-closed compliance preflight and queue the
+ * build on the org's tier queue.
+ *
+ * The `plugins` quota slot itself is NOT reserved here — both routes use
+ * api-server's shared `withQuotaReservation` guard, which hands ownership of the
+ * slot to the queued build job via `markConsumed()`.
  */
 
 import {
   createComplianceClient,
-  decrementQuota,
   errorMessage,
-  reserveQuota,
   type PluginComplianceAttributes,
-  type QuotaReserveResult,
   type QuotaService,
 } from '@pipeline-builder/api-core';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -25,41 +26,6 @@ import { enqueueBuild, getOrgTier } from '../queue/connections.js';
 type LogFn = (message: string, data?: unknown) => void;
 
 const complianceClient = createComplianceClient();
-
-/** A reserved `plugins` quota slot. */
-export interface PluginSlot {
-  /** The quota period the slot was charged to (for a conditional refund). */
-  readonly resetAt: string | undefined;
-  /** Give the slot back. Idempotent: only the first call refunds. */
-  release(): void;
-}
-
-/**
- * Reserve one `plugins` slot. `slot` is null when the reservation was denied
- * (answer with `sendQuotaReserveDenied(res, 'plugins', reservation)`).
- */
-export async function reservePluginSlot(
-  quotaService: QuotaService,
-  orgId: string,
-  authHeader: string,
-  logWarn: LogFn,
-): Promise<{ slot: PluginSlot | null; reservation: QuotaReserveResult }> {
-  const reservation = await reserveQuota(quotaService, orgId, 'plugins', authHeader);
-  if (reservation.exceeded) return { slot: null, reservation };
-  const resetAt = reservation.quota.resetAt;
-  let held = true;
-  return {
-    reservation,
-    slot: {
-      resetAt,
-      release() {
-        if (!held) return;
-        held = false;
-        decrementQuota(quotaService, orgId, 'plugins', authHeader, logWarn, 1, resetAt);
-      },
-    },
-  };
-}
 
 /** What the preflight checks: the spec's attributes plus what the image facts derive from. */
 export interface PreflightInput {

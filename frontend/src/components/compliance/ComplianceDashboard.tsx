@@ -13,7 +13,6 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry, ComplianceRule } from '@/types/compliance';
-import { RESULT_STYLES } from '@/lib/compliance-styles';
 import { formatDateTime } from '@/lib/format';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { ComplianceOverview } from './ComplianceOverview';

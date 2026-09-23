@@ -3,10 +3,10 @@
 
 /**
  * Tests for utility functions in lib/constants.ts:
- * formatError, formatEnvelopeError, formatJSON.
+ * formatError, formatJSON.
  */
 import { describe, it, expect } from '@jest/globals';
-import { formatEnvelopeError, formatError, formatJSON } from '../src/lib/constants';
+import { formatError, formatJSON } from '../src/lib/constants';
 
 // ---------------------------------------------------------------------------
 // formatError
@@ -33,19 +33,15 @@ describe('formatError', () => {
 });
 
 // ---------------------------------------------------------------------------
-// formatEnvelopeError — an API envelope is not an Error, so formatError would
-// always fall back and hide the server's reason.
+// An API envelope is NOT an Error, so formatError falls back on one and hides
+// the server's reason. That is why envelope sites read `res.message` directly
+// rather than passing the envelope here.
 // ---------------------------------------------------------------------------
-describe('formatEnvelopeError', () => {
-  it("returns the envelope's message", () => {
+describe('formatError on an API envelope', () => {
+  it('falls back rather than reaching into the envelope', () => {
     const res = { success: false as const, statusCode: 409, message: 'Name already taken' };
     expect(formatError(res, 'Failed')).toBe('Failed');
-    expect(formatEnvelopeError(res, 'Failed')).toBe('Name already taken');
-  });
-
-  it('falls back when the envelope has no message', () => {
-    expect(formatEnvelopeError({ message: '' }, 'Failed')).toBe('Failed');
-    expect(formatEnvelopeError(undefined, 'Failed')).toBe('Failed');
+    expect(res.message || 'Failed').toBe('Name already taken');
   });
 });
 

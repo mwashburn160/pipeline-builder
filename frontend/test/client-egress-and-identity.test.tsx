@@ -146,6 +146,7 @@ describe('usePlugins cache invalidation', () => {
 
     // A fresh consumer is served the new identity's answer, never tenant A's.
     const second = renderHook(() => usePlugins(true));
+    await waitFor(() => expect(second.result.current.isLoading).toBe(false));
     expect(second.result.current.plugins).toEqual([]);
   });
 });

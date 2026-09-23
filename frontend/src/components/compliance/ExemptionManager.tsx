@@ -1,5 +1,6 @@
 'use client';
 
+import { Badge } from '@/components/ui/Badge';
 import { useState, useEffect, useRef } from 'react';
 import { ShieldOff, Check, X, Plus, Clock, Trash2, Upload } from 'lucide-react';
 import api from '@/lib/api';
@@ -16,8 +17,9 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useServerPagination } from '@/hooks/useServerPagination';
+import { useDelete } from '@/hooks/useDelete';
 import type { ComplianceExemption } from '@/types/compliance';
-import { EXEMPTION_STATUS_STYLES as STATUS_STYLES } from '@/lib/compliance-styles';
+import { EXEMPTION_STATUS_COLOR } from '@/lib/compliance-styles';
 import { parseCsv } from '@/lib/csv';
 import { formatDate } from '@/lib/format';
 import { formatError } from '@/lib/constants';
@@ -42,8 +44,6 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   // Submit had no in-flight state: repeated clicks fired N create calls, and an
   // incomplete form did nothing at all (a bare `return`) with no explanation.
   const [submitting, setSubmitting] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; label: string } | null>(null);
-  const [deleting, setDeleting] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; total: number } | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -55,6 +55,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
     loading,
     error: fetchError,
     setOffset,
+    setLimit,
     refetch: fetchExemptions,
   } = useServerPagination<ComplianceExemption, { status: string }>(
     async ({ offset, limit, filters }) => {
@@ -72,19 +73,12 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       };
     },
     { status: statusFilter },
-    10,
   );
 
   // Surface fetch errors as toasts.
   useEffect(() => {
     if (fetchError) toastRef.current.error(fetchError.message || 'Failed to load exemptions');
   }, [fetchError]);
-
-  const handlePageChange = (offset: number) => { setOffset(offset); };
-  // Page-size changes were a no-op (pagination.limit isn't externally settable
-  // and the previous code re-fetched with `0,limit` without persisting it).
-  // Keep the Pagination prop wired but drive only the offset.
-  const handlePageSizeChange = (_limit: number) => { setOffset(0); };
 
   const handleCreate = async () => {
     if (!form.ruleId || !form.entityId || !form.reason || submitting) return;
@@ -132,15 +126,13 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
     }
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await api.deleteExemption(id);
-      toastRef.current.success('Exemption deleted');
-      fetchExemptions();
-    } catch (err) {
-      toastRef.current.error(formatError(err, 'Failed to delete exemption'));
-    }
-  };
+  // `useDelete` owns the step-up replay: a delete refused pending re-auth
+  // completes and refreshes once the person confirms in the global dialog.
+  const del = useDelete<{ id: string; label: string }>(
+    (ex) => api.deleteExemption(ex.id),
+    () => { toastRef.current.success('Exemption deleted'); fetchExemptions(); },
+    (err) => toastRef.current.error(formatError(err, 'Failed to delete exemption')),
+  );
 
   // Bulk-import exemptions from a user-uploaded CSV.
   // Required columns: ruleId, entityType, entityId, reason.
@@ -312,12 +304,12 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         <>
         <div className="space-y-2">
           {exemptions.map((ex: ComplianceExemption) => {
-            const style = STATUS_STYLES[ex.status];
+            const statusColor = EXEMPTION_STATUS_COLOR[ex.status];
             return (
               <div key={ex.id} className="p-3 rounded-lg border border-default bg-surface">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <StatusPill className={`${style.bg} ${style.text}`}>{ex.status}</StatusPill>
+                    <Badge color={statusColor}>{ex.status}</Badge>
                     <div>
                       <div className="text-sm text-fg">{ex.entityName || ex.entityId}</div>
                       <div className="text-xs text-fg-muted">{ex.entityType} — {ex.reason.slice(0, 80)}{ex.reason.length > 80 ? '...' : ''}</div>
@@ -341,7 +333,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                           </IconButton>
                         </>
                       )}
-                      <IconButton tone="danger" onClick={() => setPendingDelete({ id: ex.id, label: ex.entityName || ex.entityId })} title="Delete" aria-label="Delete">
+                      <IconButton tone="danger" onClick={() => del.open({ id: ex.id, label: ex.entityName || ex.entityId })} title="Delete" aria-label="Delete">
                         <Trash2 className="h-4 w-4" />
                       </IconButton>
                     </div>
@@ -375,23 +367,20 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         {pagination.total > pagination.limit && (
           <Pagination
             pagination={pagination}
-            onPageChange={handlePageChange}
-            onPageSizeChange={handlePageSizeChange}
+            onPageChange={setOffset}
+            onPageSizeChange={setLimit}
           />
         )}
         </>
       )}
 
-      {pendingDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete exemption"
-          itemName={pendingDelete.label}
-          loading={deleting}
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={async () => {
-            setDeleting(true);
-            try { await handleDelete(pendingDelete.id); } finally { setDeleting(false); setPendingDelete(null); }
-          }}
+          itemName={del.target.label}
+          loading={del.loading}
+          onCancel={del.close}
+          onConfirm={() => void del.confirm()}
         />
       )}
     </div>

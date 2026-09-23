@@ -93,16 +93,17 @@ export function OrgIdentityCard({
     const changes = pendingEdit;
     setPendingEdit(null);
     if (!changes) return;
-    const result = await editForm.run(() => api.updateOrganization(org.id, changes, stepUpToken));
-    if (result !== null) {
-      setEditing(false);
-      toast.success('Organization updated');
-      // The name/slug is what the org switcher and every org list show, and
-      // both read through the shared cache — without this they keep the old one
-      // until the cache goes stale.
-      invalidate.organizations();
-      onChanged();
-    }
+    await editForm.run(() => api.updateOrganization(org.id, changes, stepUpToken), {
+      onSuccess: () => {
+        setEditing(false);
+        toast.success('Organization updated');
+        // The name/slug is what the org switcher and every org list show, and
+        // both read through the shared cache — without this they keep the old one
+        // until the cache goes stale.
+        invalidate.organizations();
+        onChanged();
+      },
+    });
   };
 
   const executeTierChange = async (stepUpToken: string) => {

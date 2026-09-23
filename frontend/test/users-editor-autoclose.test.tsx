@@ -58,7 +58,9 @@ jest.mock('@/lib/api', () => {
   return { __esModule: true, default: api, api, ApiError: class extends Error {} };
 });
 
-/** Let the mocked update resolve and the page apply its result (microtasks only). */
+/** Let a mocked read/write resolve and the page apply its result (microtasks
+ *  only, so it works with fake timers running). Opening an editor starts a user
+ *  DETAIL read too, which must land inside the test that opened it. */
 async function flushSave() {
   for (let i = 0; i < 5; i++) await act(async () => { await Promise.resolve(); });
 }
@@ -83,6 +85,7 @@ describe('UsersPage editor auto-close', () => {
 
     // Save alice.
     fireEvent.click(editButtons[0]);
+    await flushSave(); // the editor's detail read
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     jest.useFakeTimers(); // before the save completes, so the delayed close is a fake timer
@@ -93,6 +96,7 @@ describe('UsersPage editor auto-close', () => {
 
     // Within the 1.5s window, open bob.
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[1]);
+    await flushSave(); // the second editor's detail read
     expect(screen.getByText('Editing bob@acme.com')).toBeInTheDocument();
 
     act(() => { jest.advanceTimersByTime(2000); });
@@ -104,6 +108,7 @@ describe('UsersPage editor auto-close', () => {
   it("still closes the saved user's editor after the delay", async () => {
     render(<UsersPage />);
     fireEvent.click((await screen.findAllByRole('button', { name: 'Edit' }))[0]);
+    await flushSave(); // the editor's detail read
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     jest.useFakeTimers();

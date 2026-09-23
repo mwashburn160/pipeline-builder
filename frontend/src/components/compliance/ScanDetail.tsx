@@ -1,5 +1,6 @@
 'use client';
 
+import { Badge } from '@/components/ui/Badge';
 import { useState, useEffect, useCallback, useId } from 'react';
 import { ArrowLeft, AlertTriangle, CheckCircle, XCircle, Square, ShieldOff } from 'lucide-react';
 import api from '@/lib/api';
@@ -84,6 +85,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
     pagination: auditPagination,
     loading: auditLoading,
     setOffset: setAuditOffset,
+    setLimit: setAuditLimit,
     refetch: refetchAudit,
   } = useServerPagination<ComplianceAuditEntry, { scanId: string }>(
     async ({ offset, limit, filters }) => {
@@ -99,14 +101,10 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
       };
     },
     { scanId },
-    25,
   );
 
   const loading = scanLoading || auditLoading;
-  const handleAuditPageChange = (offset: number) => { setAuditOffset(offset); };
-  // Page-size changes are not currently supported by useServerPagination's
-  // public surface; keep the Pagination wired but treat resize as a reset.
-  const handleAuditPageSizeChange = (_limit: number) => { setAuditOffset(0); };
+
 
   // Cancel a running scan (mirrors ScanManager's cancel + confirm, then refetches).
   // A scan cancel is NOT a delete (the record persists as `cancelled`), so this
@@ -201,7 +199,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
       header: 'Result',
       render: (entry) => {
         const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
-        return <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>;
+        return <Badge color={r.color}>{r.label}</Badge>;
       },
     },
     { id: 'entity', header: 'Entity', cellClassName: 'text-sm text-fg', render: (entry) => entry.entityName || entry.entityId || '-' },
@@ -256,10 +254,10 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <div className="text-xs text-fg-muted mb-1">Status</div>
-            <StatusPill gap className={`${cfg.bg} ${cfg.color}`}>
+            <Badge color={cfg.color} className="gap-1">
               <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} />
               {scan.status}
-            </StatusPill>
+            </Badge>
           </div>
           <div>
             <div className="text-xs text-fg-muted mb-1">Target</div>
@@ -314,8 +312,8 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
             {auditPagination.total > auditPagination.limit && (
               <Pagination
                 pagination={auditPagination}
-                onPageChange={handleAuditPageChange}
-                onPageSizeChange={handleAuditPageSizeChange}
+                onPageChange={setAuditOffset}
+                onPageSizeChange={setAuditLimit}
               />
             )}
           </>

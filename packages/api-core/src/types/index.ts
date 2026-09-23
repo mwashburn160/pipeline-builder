@@ -31,6 +31,7 @@ export {
 } from './pipeline-template.js';
 export * from './visibility.js';
 export * from './wire-vocabulary.js';
+export { type ComplianceExemptionRequest } from './compliance-exemption.js';
 export {
   PLUGIN_SUMMARY_MAX,
   PLUGIN_README_MAX_BYTES,

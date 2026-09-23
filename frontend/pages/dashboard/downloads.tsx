@@ -6,6 +6,7 @@ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LinkButton } from '@/components/ui/LinkButton';
+import { Card } from '@/components/ui/Card';
 
 function CopyInline({ text }: { text: string }) {
   // The checkmark shows only once the write resolves; a refused write
@@ -54,11 +55,11 @@ export default function DownloadsPage() {
     <DashboardLayout title="Downloads" subtitle="Install the Pipeline Manager CLI">
       <div className="max-w-3xl space-y-6">
         {/* Hero install card */}
-        <motion.div
+        <Card
+          as={motion.div}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="card"
         >
           <div className="flex items-start gap-4">
             <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand text-white shrink-0">
@@ -91,14 +92,14 @@ export default function DownloadsPage() {
               </TerminalBlock>
             </div>
           </div>
-        </motion.div>
+        </Card>
 
         {/* Quick start */}
-        <motion.div
+        <Card
+          as={motion.div}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.1 }}
-          className="card"
         >
           <h3 className="text-base font-semibold text-fg mb-4">Quick start</h3>
           <div className="space-y-3">
@@ -138,14 +139,14 @@ export default function DownloadsPage() {
               </div>
             </div>
           </div>
-        </motion.div>
+        </Card>
 
         {/* Prerequisites */}
-        <motion.div
+        <Card
+          as={motion.div}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, delay: 0.15 }}
-          className="card"
         >
           <h3 className="text-base font-semibold text-fg mb-3">Prerequisites</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -171,7 +172,7 @@ export default function DownloadsPage() {
               <p className="text-xs text-fg-muted">For plugin builds</p>
             </div>
           </div>
-        </motion.div>
+        </Card>
 
         {/* Links */}
         <motion.div

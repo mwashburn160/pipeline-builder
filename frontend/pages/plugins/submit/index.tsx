@@ -36,6 +36,7 @@ import { COMMUNITY_PUBLISHER, SUBMISSION_DOCS_URL } from '@/lib/plugin-submissio
 import type { SubmissionErrorInfo } from '@/lib/plugin-submissions/submit-flow';
 import { loginHref } from '@/lib/public-directory/links';
 import { resolveSiteUrl, type WithSiteUrl } from '@/lib/site-url';
+import { Card } from '@/components/ui/Card';
 
 const DESCRIPTION = 'Submit a plugin to the Pipeline Builder directory without an account. Every submission is checked automatically and reviewed by a moderator.';
 
@@ -83,7 +84,7 @@ function ErrorNotice({ error }: { error: SubmissionErrorInfo }) {
 function Disabled() {
   const router = useRouter();
   return (
-    <div className="card space-y-3 p-6" data-testid="submissions-disabled">
+    <Card className="space-y-3 p-6" data-testid="submissions-disabled">
       <h2 className="text-lg font-semibold text-fg">Submissions are not enabled on this instance</h2>
       <p className="text-sm text-fg-muted">
         This Pipeline Builder instance doesn&apos;t accept plugins from visitors without an account. To publish a plugin,
@@ -93,13 +94,13 @@ function Disabled() {
         <LinkButton href={loginHref(router.asPath)} size="sm">Sign in</LinkButton>
         <LinkButton href="/plugins" variant="secondary" size="sm">Browse plugins</LinkButton>
       </div>
-    </div>
+    </Card>
   );
 }
 
 function Sent({ email, onAnother }: { email: string; onAnother: () => void }) {
   return (
-    <div className="card space-y-3 p-6" data-testid="submission-sent" role="status">
+    <Card className="space-y-3 p-6" data-testid="submission-sent" role="status">
       <div className="flex items-center gap-2">
         <MailCheck className="h-6 w-6 text-success" aria-hidden />
         <h2 className="text-lg font-semibold text-fg">Check your email</h2>
@@ -113,7 +114,7 @@ function Sent({ email, onAnother }: { email: string; onAnother: () => void }) {
         your spam folder; an unconfirmed submission is deleted after 30 days.
       </p>
       <Button variant="secondary" size="sm" onClick={onAnother}>Submit another plugin</Button>
-    </div>
+    </Card>
   );
 }
 
@@ -140,7 +141,7 @@ export default function SubmitPluginPage({ siteUrl }: WithSiteUrl) {
             <HowItWorks />
             {state.error && <ErrorNotice error={state.error} />}
 
-            <section aria-labelledby="package-heading" className="card space-y-3 p-5">
+            <Card as="section" aria-labelledby="package-heading" className="space-y-3 p-5">
               <h2 id="package-heading" className="flex items-center gap-2 text-base font-semibold text-fg">
                 <FileArchive className="h-5 w-5" aria-hidden />1. Your plugin package
               </h2>
@@ -163,11 +164,11 @@ export default function SubmitPluginPage({ siteUrl }: WithSiteUrl) {
               {state.step === 'inspecting' && state.phase && (
                 <PowProgress phase={state.phase} attempts={state.attempts} difficulty={state.difficulty} action="Reading your package." />
               )}
-            </section>
+            </Card>
 
             {inspect && (state.step === 'review' || state.step === 'submitting') && (
               <>
-                <section aria-labelledby="details-heading" className="card space-y-4 p-5" data-testid="submission-review">
+                <Card as="section" aria-labelledby="details-heading" className="space-y-4 p-5" data-testid="submission-review">
                   <h2 id="details-heading" className="text-base font-semibold text-fg">2. Check the details</h2>
                   <p className="text-sm text-fg">
                     <span className="font-mono font-medium">{COMMUNITY_PUBLISHER}/{inspect.plugin.name}</span>{' '}
@@ -205,9 +206,9 @@ export default function SubmitPluginPage({ siteUrl }: WithSiteUrl) {
                     publisher={{ handle: COMMUNITY_PUBLISHER, displayName: 'Community', tier: 'unverified' }}
                   />
                   <SubmissionChecksPreview lint={inspect.lint} heuristics={inspect.heuristics} />
-                </section>
+                </Card>
 
-                <section aria-labelledby="confirm-heading" className="card space-y-4 p-5">
+                <Card as="section" aria-labelledby="confirm-heading" className="space-y-4 p-5">
                   <h2 id="confirm-heading" className="text-base font-semibold text-fg">3. Confirm and submit</h2>
                   <FormField
                     label="Email address"
@@ -247,7 +248,7 @@ export default function SubmitPluginPage({ siteUrl }: WithSiteUrl) {
                   <div className="flex justify-end">
                     <Button onClick={submit} loading={state.step === 'submitting'}>Submit for review</Button>
                   </div>
-                </section>
+                </Card>
               </>
             )}
           </>

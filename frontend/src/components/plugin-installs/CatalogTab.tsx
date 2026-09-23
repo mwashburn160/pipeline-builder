@@ -23,6 +23,7 @@ import type { CatalogEntry } from '@/types/plugin-installs';
 import { InstallControls } from './InstallControls';
 import { InstallWarnings } from './InstallWarnings';
 import { invalidate } from '@/lib/api-cache';
+import { Card } from '@/components/ui/Card';
 
 /** Listings fetched per page (the server's cap). */
 const CATALOG_PAGE = 200;
@@ -140,7 +141,7 @@ function CatalogCard({ entry, canInstall, usage, onChanged }: {
   const { listing, resolved, reference } = entry;
   const used = listingUsage(listing, usage, { shadowed: !!entry.shadowedBy });
   return (
-    <li className="card flex flex-col gap-3 p-4" data-testid="catalog-card">
+    <Card as="li" className="flex flex-col gap-3 p-4" data-testid="catalog-card">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -175,6 +176,6 @@ function CatalogCard({ entry, canInstall, usage, onChanged }: {
         </div>
       </div>
       <InstallControls entry={entry} canInstall={canInstall} onChanged={onChanged} />
-    </li>
+    </Card>
   );
 }

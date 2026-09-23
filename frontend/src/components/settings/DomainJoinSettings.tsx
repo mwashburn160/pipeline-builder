@@ -18,9 +18,12 @@ import { useToast } from '@/components/ui/Toast';
 import { DOMAIN_SETTINGS_ANCHOR } from '@/components/sso/VerifiedDomainPicker';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
+import { useDelete } from '@/hooks/useDelete';
+import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type { OrgDomainDto, OrgJoinRequestDto } from '@/lib/api/domains/organizations';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 /**
  * Admin panel for the org's EMAIL DOMAINS: register + DNS-verify them, choose
@@ -56,10 +59,7 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
   // the superadmin / per-user-override cases where they don't.)
   const sso = useFeatureGate('sso');
   const [newDomain, setNewDomain] = useState('');
-  const [busy, setBusy] = useState(false);
-  const locked = busy || readOnly;
-  const [error, setError] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<OrgDomainDto | null>(null);
+  const form = useFormState();
 
   // Domains and pending join requests, read together.
   const read = useFetch(
@@ -82,19 +82,22 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
 
   // Wrap a mutating action: clear errors, run, toast, then re-read. A failed
   // re-read surfaces as the section's retry state, not as a failed action.
-  const run = async (fn: () => Promise<unknown>, successMsg?: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
+  // `useFormState.run` also owns the step-up replay, so a write refused pending
+  // re-auth completes (and re-reads) once the person confirms in the dialog.
+  const run = (fn: () => Promise<unknown>, successMsg?: string) => form.run(fn, {
+    onSuccess: () => {
       if (successMsg) toast.success(successMsg);
       void read.refetch();
-    } catch (e) {
-      setError(formatError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+    },
+  });
+
+  // Same for the delete: `useDelete` follows the replay and re-reads after it.
+  const del = useDelete<OrgDomainDto>(
+    (d) => api.deleteOrgDomain(orgId, d.id),
+    () => { toast.success('Domain removed'); void read.refetch(); },
+    (e) => form.setError(formatError(e)),
+  );
+  const locked = form.loading || del.loading || readOnly;
 
   // The anchor wrapper carries `tabIndex={-1}` because `useUrlTab` FOCUSES the
   // fragment's target: a keyboard user following "Verify a domain" then arrives
@@ -106,7 +109,7 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
       title="Email domains"
       description={`Prove your organization owns an email domain with a DNS TXT record. A verified domain is what single sign-on serves, and what lets matching signups discover and join this organization.${!entitled ? ' Registering one needs the Team or Enterprise tier.' : ''}`}
     >
-      {error && <div className="mb-3"><ErrorAlert message={error} /></div>}
+      {form.error && <div className="mb-3"><ErrorAlert message={form.error} /></div>}
 
       {read.error ? (
         <RetryError message={formatError(read.error, 'Could not load domains')} onRetry={read.refetch} />
@@ -148,7 +151,9 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
 
           {/* Domain list */}
           <div className="space-y-3">
-            {domains.length === 0 && <p className="text-sm text-fg-muted">No domains registered yet.</p>}
+            {domains.length === 0 && (
+              <EmptyState compact title="No domains registered yet" description="Add a domain above, then publish its DNS TXT record to verify it." />
+            )}
             {domains.map((d) => (
               <div key={d.id} className="rounded-lg border border-default p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -162,7 +167,7 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
                       aria-label={`Delete ${d.domain}`}
                       className="text-fg-muted hover:text-danger"
                       disabled={locked}
-                      onClick={() => setPendingDelete(d)}
+                      onClick={() => del.open(d)}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -220,17 +225,13 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
         </>
       )}
 
-      {pendingDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete domain"
-          itemName={pendingDelete.domain}
-          loading={busy}
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={() => {
-            const d = pendingDelete;
-            setPendingDelete(null);
-            void run(() => api.deleteOrgDomain(orgId, d.id), 'Domain removed');
-          }}
+          itemName={del.target.domain}
+          loading={del.loading}
+          onCancel={del.close}
+          onConfirm={() => void del.confirm()}
         />
       )}
     </SectionCard>

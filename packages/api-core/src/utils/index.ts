@@ -18,6 +18,8 @@ export {
   sendError,
   sendQuotaExceeded,
   sendPaginatedNested,
+  paginationMeta,
+  type PaginationMeta,
   extractDbError,
   errorMessage,
   sendBadRequest,
@@ -63,6 +65,7 @@ export type {
   JwksDocument,
 } from './jwk.js';
 export * from './object.js';
+export * from './date.js';
 export {
   resetSupportAliasesCache,
   getPrimarySupportAlias,
@@ -94,6 +97,10 @@ export {
   emitCounter,
 } from './metric-emitter.js';
 export * from './aws-scrub.js';
+export {
+  extractPredicate,
+  SPDX_PREDICATE_TYPE,
+} from './dsse.js';
 export {
   maskLine,
   looksSensitive,

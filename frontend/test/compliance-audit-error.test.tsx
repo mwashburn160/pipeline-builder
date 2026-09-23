@@ -33,7 +33,7 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
-const okList = { success: true, data: { entries: [], pagination: { limit: 20, offset: 0, total: 0 } } };
+const okList = { success: true, data: { entries: [], pagination: { limit: 25, offset: 0, total: 0 } } };
 
 beforeEach(() => {
   listFetch = () => Promise.resolve(okList);

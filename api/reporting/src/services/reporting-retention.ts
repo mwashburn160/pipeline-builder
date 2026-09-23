@@ -39,6 +39,7 @@ import {
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
+import { REPORTING_HTTP_TIMEOUT_MS } from '../helpers/report-helpers.js';
 
 const logger = createLogger('reporting-retention');
 
@@ -47,7 +48,7 @@ async function fetchParentFromPlatform(orgId: string): Promise<string | undefine
   return fetchParentOrgId(orgId, {
     authOrgId: SYSTEM_ORG_ID,
     throwOnHttpError: true,
-    timeout: 3000,
+    timeout: REPORTING_HTTP_TIMEOUT_MS,
   });
 }
 

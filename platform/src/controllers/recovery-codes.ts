@@ -9,7 +9,7 @@
  *   POST /auth/recovery-codes   — replace the set (step-up + interactive session)
  */
 
-import { sendSuccess } from '@pipeline-builder/api-core';
+import { isoOrNull, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import {
@@ -26,7 +26,7 @@ export const recoveryCodeStatus = withController('Recovery code status', async (
     recoveryCodes: {
       remaining: status.remaining,
       total: status.total,
-      generatedAt: status.generatedAt ? status.generatedAt.toISOString() : null,
+      generatedAt: isoOrNull(status.generatedAt),
     },
   });
 }, RECOVERY_CODES_ERROR_MAP);

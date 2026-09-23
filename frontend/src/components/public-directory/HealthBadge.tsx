@@ -4,6 +4,7 @@
 import { Activity } from 'lucide-react';
 import { HEALTH_BAND_LABELS, healthBand, healthRows, HEALTH_COMPONENT_MISSING, type HealthBand } from '@/lib/public-directory/health';
 import type { HealthBreakdown } from '@/lib/public-directory/types';
+import { Card } from '@/components/ui/Card';
 
 const BAND_CLS: Record<HealthBand, string> = {
   good: 'bg-success-bg text-success-strong border-success-border',
@@ -41,7 +42,7 @@ export function HealthBreakdownPanel({ score, breakdown, successRate30d }: {
 }) {
   const rows = healthRows(breakdown);
   return (
-    <section aria-labelledby="health-heading" className="card space-y-3 p-4" data-testid="health-breakdown">
+    <Card as="section" aria-labelledby="health-heading" className="space-y-3 p-4" data-testid="health-breakdown">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="health-heading" className="text-sm font-semibold text-fg">Health</h2>
         {score === null || score === undefined
@@ -95,6 +96,6 @@ export function HealthBreakdownPanel({ score, breakdown, successRate30d }: {
       <p className="text-xs text-fg-subtle">
         Signals without enough data are left out and the rest reweighted. Weight shows each counted signal&apos;s share of the score.
       </p>
-    </section>
+    </Card>
   );
 }

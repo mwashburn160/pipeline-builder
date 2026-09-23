@@ -20,7 +20,7 @@ import { JsonPreviewPanel } from './JsonPreviewPanel';
 import { useBuilderWizard } from '@/hooks/useBuilderWizard';
 import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
-import { formatError, formatEnvelopeError } from '@/lib/constants';
+import { formatError } from '@/lib/constants';
 import { useIsDirty } from '@/hooks/useIsDirty';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOwnerFields';
@@ -80,7 +80,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   // an empty config would let a save wipe the pipeline's real one.
   const fetchPipeline = useCallback(async (id: string): Promise<Pipeline> => {
     const response = await api.getPipelineById(id);
-    if (!response.data?.pipeline) throw new Error(formatEnvelopeError(response, 'Failed to load pipeline'));
+    if (!response.data?.pipeline) throw new Error(response.message || 'Failed to load pipeline');
     return response.data.pipeline;
   }, []);
   const { entity: fullPipeline, fetching, error: fetchError } = useEntityFetch<Pipeline>(pipeline.id, fetchPipeline);

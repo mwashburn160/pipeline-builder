@@ -32,7 +32,7 @@ export { getIdempotencyStore, type IdempotencyStore } from './idempotency-middle
 // Observability. `shutdownTracing` is called by this package's own `server.js`
 // shutdown path, and the metrics middleware/handler are mounted by `createApp`.
 export { withSpan, currentTraceId } from './tracing.js';
-export { registerSecretRotationGauge, incCounter, observe, setGauge } from './metrics.js';
+export { registerSecretRotationGauge, incCounter, observe, setGauge, createMetricHelpers, type MetricHelpers } from './metrics.js';
 
 // Server utilities
 export * from './server.js';

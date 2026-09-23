@@ -59,7 +59,7 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 
 function client(): InternalHttpClient {
   const { services } = Config.get('server');
-  return new InternalHttpClient({ host: services.platformHost, port: services.platformPort, timeout: 5_000 });
+  return new InternalHttpClient({ host: services.platformHost, port: services.platformPort });
 }
 
 const headers = () => ({ Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId: SYSTEM_ORG_ID, role: 'member' }) });

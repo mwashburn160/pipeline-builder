@@ -47,12 +47,14 @@ export function SamlMetadataImport({
       form.setError(source === 'url' ? 'Enter the https URL of the metadata document.' : 'Paste or upload the metadata XML.');
       return;
     }
-    const res = await form.run(() => api.importIdpMetadata(orgId, payload));
-    const metadata = res?.data?.metadata;
-    if (metadata) {
-      onImported(metadata);
-      form.setSuccess(`Imported ${metadata.entityId} — review the fields below, then save.`);
-    }
+    await form.run(() => api.importIdpMetadata(orgId, payload), {
+      onSuccess: (res) => {
+        const metadata = res?.data?.metadata;
+        if (!metadata) return;
+        onImported(metadata);
+        form.setSuccess(`Imported ${metadata.entityId} — review the fields below, then save.`);
+      },
+    });
   };
 
   return (

@@ -14,7 +14,7 @@
  * takes the review out of the score; a release puts it back).
  */
 
-import { actorId, ErrorCode, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { isoOrNull, actorId, ErrorCode, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { PluginListing, PluginReview, PluginReviewReply, PluginReviewReport, Publisher } from '@pipeline-builder/pipeline-data';
 import { z } from 'zod';
 
@@ -25,7 +25,6 @@ import { replies, reports, reviews } from './reviews-store.js';
 import { loadReview, replyView } from './reviews.js';
 import { refreshListingRating } from './stats.js';
 import { listings, publishers } from './store.js';
-import { iso } from './util.js';
 
 /** How many items one queue page holds. */
 export const REVIEW_QUEUE_LIMIT = 200;
@@ -53,10 +52,10 @@ function moderationView(
     moderationReason: r.moderationReason,
     helpfulCount: r.helpfulCount,
     openReportCount: reviewReports.filter((p) => p.resolvedAt === null).length,
-    reports: reviewReports.map((p) => ({ category: p.category, reason: p.reason, createdAt: iso(p.createdAt)!, resolved: p.resolvedAt !== null })),
+    reports: reviewReports.map((p) => ({ category: p.category, reason: p.reason, createdAt: isoOrNull(p.createdAt)!, resolved: p.resolvedAt !== null })),
     reply: reply && publisher ? replyView(reply, publisher) : null,
-    createdAt: iso(r.createdAt)!,
-    updatedAt: iso(r.updatedAt)!,
+    createdAt: isoOrNull(r.createdAt)!,
+    updatedAt: isoOrNull(r.updatedAt)!,
   };
 }
 export type ModerationReviewView = ReturnType<typeof moderationView>;

@@ -25,6 +25,7 @@ import {
   SUBMISSION_STATUS_COLORS, SUBMISSION_STATUS_LABELS, SUBMISSION_STATUS_NEXT, submissionStatusPath, tokenFromQuery,
 } from '@/lib/plugin-submissions/status';
 import type { SubmissionVerified } from '@/types/plugin-submissions';
+import { Card } from '@/components/ui/Card';
 
 function verifyErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
@@ -78,7 +79,7 @@ export default function VerifySubmissionPage() {
         )}
 
         {token && !result && (
-          <div className="card space-y-3 p-6" data-testid="verify-prompt">
+          <Card className="space-y-3 p-6" data-testid="verify-prompt">
             <p className="text-sm text-fg">
               Confirming starts the automated checks on your plugin: an isolated build, a vulnerability scan, a scan for
               suspicious patterns and its smoke test. A moderator then reviews it.
@@ -87,11 +88,11 @@ export default function VerifySubmissionPage() {
             <Button onClick={confirm} loading={busy}>
               <MailCheck className="mr-1.5 h-4 w-4" aria-hidden />Confirm submission
             </Button>
-          </div>
+          </Card>
         )}
 
         {result && (
-          <div className="card space-y-3 p-6" data-testid="verify-result" role="status">
+          <Card className="space-y-3 p-6" data-testid="verify-result" role="status">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold text-fg">Submission confirmed</h2>
               <Badge color={SUBMISSION_STATUS_COLORS[result.status]}>{SUBMISSION_STATUS_LABELS[result.status]}</Badge>
@@ -112,7 +113,7 @@ export default function VerifySubmissionPage() {
             ) : (
               <p className="text-sm text-fg-muted">We&apos;ll email you the outcome.</p>
             )}
-          </div>
+          </Card>
         )}
       </div>
     </PublicLayout>

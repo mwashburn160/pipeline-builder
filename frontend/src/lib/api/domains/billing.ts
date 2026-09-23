@@ -126,7 +126,7 @@ export function billingApi(core: ApiCore) {
     /** Exchange an AWS Marketplace `x-amzn-marketplace-token` for a short-lived
      *  pending registration (public — no auth). Returns either `alreadyRegistered`
      *  or a single-use `registrationRef` to bind later via {@link claimMarketplaceRegistration}. */
-    resolveMarketplace: async (token: string) => {
+    resolveMarketplace: async (token: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{
         alreadyRegistered: boolean;
         registrationRef?: string;
@@ -136,6 +136,7 @@ export function billingApi(core: ApiCore) {
       }>>('/api/billing/marketplace/resolve', {
         method: 'POST',
         body: JSON.stringify({ token }),
+        ...opts,
       });
     },
 

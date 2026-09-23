@@ -46,7 +46,7 @@ describe('RolesPage', () => {
     serve(2);
     render(<RolesPage />);
     expect(await screen.findByText('user1')).toBeInTheDocument();
-    expect(getOrganizationRoles).toHaveBeenCalledWith('org-1', { limit: 20, offset: 0 }, expect.anything());
+    expect(getOrganizationRoles).toHaveBeenCalledWith('org-1', { limit: 25, offset: 0 }, expect.anything());
     // Everything fits — no pager.
     expect(screen.queryByRole('navigation', { name: 'Pagination' })).not.toBeInTheDocument();
   });
@@ -55,7 +55,7 @@ describe('RolesPage', () => {
     serve(45);
     render(<RolesPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Page 2' }));
-    await waitFor(() => expect(getOrganizationRoles).toHaveBeenLastCalledWith('org-1', { limit: 20, offset: 20 }, expect.anything()));
+    await waitFor(() => expect(getOrganizationRoles).toHaveBeenLastCalledWith('org-1', { limit: 25, offset: 25 }, expect.anything()));
   });
 
   it('offers a retry when the roles fail to load', async () => {

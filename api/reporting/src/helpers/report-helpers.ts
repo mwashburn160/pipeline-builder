@@ -1,10 +1,22 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, fetchOrgDescendants, RETENTION_MAX_DAYS, userHasPermission } from '@pipeline-builder/api-core';
+import { createLogger, envInt, fetchOrgDescendants, RETENTION_MAX_DAYS, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 
 const _descLogger = createLogger('reporting-rollup');
+
+/**
+ * Timeout (ms) for reporting's outbound platform org-hierarchy lookups
+ * (env: `REPORTING_HTTP_TIMEOUT`).
+ *
+ * Deliberately TIGHTER than the global `HTTP_CLIENT_TIMEOUT` (5s): both callers
+ * sit in front of a user-facing report or a batched retention sweep where a
+ * hierarchy lookup is a best-effort enhancement — failing fast and degrading to
+ * a single-org report (or skipping the org this tick) beats holding the request
+ * for the full global budget.
+ */
+export const REPORTING_HTTP_TIMEOUT_MS = envInt('REPORTING_HTTP_TIMEOUT', 3000, { min: 1 });
 
 // Interval validation MUST happen at the route layer (against REPORT_INTERVALS):
 // ReportingService interpolates the value directly into `DATE_TRUNC(${interval}, ...)`,
@@ -59,7 +71,7 @@ export async function resolveOrgRollup(orgId: string): Promise<string[] | undefi
   try {
     return await fetchOrgDescendants(orgId, {
       headers: { 'x-org-id': orgId },
-      timeout: 3000,
+      timeout: REPORTING_HTTP_TIMEOUT_MS,
     });
   } catch (err) {
     _descLogger.warn('Org rollup resolution failed; falling back to single-org report', { orgId, err: String(err) });

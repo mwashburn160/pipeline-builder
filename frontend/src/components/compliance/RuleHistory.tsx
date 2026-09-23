@@ -8,13 +8,13 @@ import api from '@/lib/api';
 import type { ComplianceRuleHistoryEntry } from '@/types/compliance';
 import { formatDateTime } from '@/lib/format';
 import { LoadingSpinner } from '@/components/ui/Loading';
-import { StatusPill } from '@/components/ui/StatusPill';
+import { Badge, type BadgeColor } from '@/components/ui/Badge';
 
-const CHANGE_STYLES: Record<string, { bg: string; text: string }> = {
-  created: { bg: 'bg-success-bg', text: 'text-success' },
-  updated: { bg: 'bg-info-bg', text: 'text-info-strong' },
-  deleted: { bg: 'bg-danger-bg', text: 'text-danger' },
-  restored: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400' },
+const CHANGE_COLOR: Record<string, BadgeColor> = {
+  created: 'green',
+  updated: 'blue',
+  deleted: 'red',
+  restored: 'purple',
 };
 
 interface RuleHistoryProps {
@@ -65,14 +65,12 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
       ) : (
         <div className="space-y-3">
           {history.map(entry => {
-            const style = CHANGE_STYLES[entry.changeType] || CHANGE_STYLES.updated;
+            const changeColor = CHANGE_COLOR[entry.changeType] || CHANGE_COLOR.updated;
             return (
               <div key={entry.id} className="p-4 rounded-lg border border-default bg-surface">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-3">
-                    <StatusPill className={`${style.bg} ${style.text}`}>
-                      {entry.changeType}
-                    </StatusPill>
+                    <Badge color={changeColor}>{entry.changeType}</Badge>
                     <span className="text-xs text-fg-muted">
                       by {entry.changedBy}
                     </span>

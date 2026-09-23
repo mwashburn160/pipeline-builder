@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { formatError } from '@/lib/constants';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 /** Which version-lifecycle action the dialog confirms. */
 export type PluginLifecycleAction = 'deprecate' | 'undeprecate' | 'yank';
@@ -131,7 +132,7 @@ export function PluginLifecycleModal({ plugin, action, onClose, onDone }: {
           />
         </FormField>
       )}
-      {action === 'undeprecate' && error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      {action === 'undeprecate' && <ErrorAlert message={error} />}
     </ConfirmDialog>
   );
 }

@@ -6,8 +6,9 @@ import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useDelete } from '@/hooks/useDelete';
+import { usePagination } from '@/hooks/usePagination';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleTarget, RuleSeverity, RuleScope } from '@/types/compliance';
-import { SEVERITY_CONFIG } from '@/lib/compliance-styles';
+import { SeverityBadge } from './SeverityBadge';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -35,8 +36,6 @@ type RuleParams = {
 
 /** Typing in a search box waits this long before it becomes a request. */
 const SEARCH_DEBOUNCE_MS = 300;
-const DEFAULT_PAGE_SIZE = 25;
-
 export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleListProps) {
   const [targetFilter, setTargetFilter] = useState<RuleTarget | ''>('');
   const [severityFilter, setSeverityFilter] = useState<RuleSeverity | ''>('');
@@ -45,14 +44,15 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
   const [tagSearch, setTagSearch] = useState('');
   const [sortBy, setSortBy] = useState<'priority' | 'name' | 'severity'>('priority');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [page, setPage] = useState({ offset: 0, limit: DEFAULT_PAGE_SIZE });
+  const page = usePagination();
   const debouncedName = useDebounce(nameSearch.trim(), SEARCH_DEBOUNCE_MS);
   const debouncedTag = useDebounce(tagSearch.trim(), SEARCH_DEBOUNCE_MS);
 
   // Any filter/sort change starts again from page 1.
+  const { reset: resetPage } = page;
   useEffect(() => {
-    setPage((p) => (p.offset === 0 ? p : { ...p, offset: 0 }));
-  }, [targetFilter, severityFilter, scopeFilter, debouncedName, debouncedTag, sortBy, sortOrder]);
+    resetPage();
+  }, [resetPage, targetFilter, severityFilter, scopeFilter, debouncedName, debouncedTag, sortBy, sortOrder]);
 
   // Every filter, the sort and the page go to the server, so they apply across
   // ALL of the org's rules rather than just the rows already on screen.
@@ -84,7 +84,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       return { success: res.success, data: res.data ? { item: res.data.rule } : undefined };
     },
     delete: (id: string) => api.deleteComplianceRule(id),
-  }), [targetFilter, severityFilter, scopeFilter, debouncedName, debouncedTag, sortBy, sortOrder, page]);
+  }), [targetFilter, severityFilter, scopeFilter, debouncedName, debouncedTag, sortBy, sortOrder, page.limit, page.offset]);
   const { items: rules, total, loading, loadError, mutationError, clearError, fetch: fetchRules, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
 
   // Deleting a rule is confirmed via a modal. `deleteRule` never throws — a
@@ -132,13 +132,7 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       id: 'severity',
       header: 'Severity',
       render: (rule) => {
-        const sev = SEVERITY_CONFIG[rule.severity];
-        const SevIcon = sev.icon;
-        return (
-          <StatusPill gap className={`${sev.bg} ${sev.color}`}>
-            <SevIcon className="h-3 w-3" /> {rule.severity}
-          </StatusPill>
-        );
+        return <SeverityBadge severity={rule.severity} withIcon />;
       },
     },
     {
@@ -325,9 +319,9 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
           </div>
           {total > page.limit && (
             <Pagination
-              pagination={{ ...page, total }}
-              onPageChange={(offset) => setPage((p) => ({ ...p, offset }))}
-              onPageSizeChange={(limit) => setPage({ offset: 0, limit })}
+              pagination={page.withTotal(total)}
+              onPageChange={page.setOffset}
+              onPageSizeChange={page.setLimit}
             />
           )}
         </div>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  createLogger, exchangeApiKey, getServiceAuthHeader, hasValidIdentityClaims, isAccessTokenRevoked,
+  createLogger, envInt, exchangeApiKey, getServiceAuthHeader, hasValidIdentityClaims, isAccessTokenRevoked,
   isOpaqueApiKey, isServiceTokenDenied, serviceNameOf, verifyBearerToken, SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import axios from 'axios';
@@ -13,6 +13,17 @@ import { config } from '../config/index.js';
 const logger = createLogger('auth-resolver');
 
 const ORG_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+
+/**
+ * Timeout for the outbound `docker login` → platform `/auth/login` relay.
+ *
+ * This one call uses raw axios (it needs `validateStatus` so a failed login
+ * never throws an error whose message could interpolate the password), so it
+ * cannot inherit `InternalHttpClient`'s default. It reads the SAME knob
+ * (`HTTP_CLIENT_TIMEOUT`, same 5s default) on purpose — dropping the value
+ * entirely would give axios an UNBOUNDED wait, not the shared default.
+ */
+const PLATFORM_LOGIN_TIMEOUT_MS = envInt('HTTP_CLIENT_TIMEOUT', 5000, { min: 1 });
 
 /**
  * Platform's `/auth/login` reply. Platform answers through api-core's
@@ -289,7 +300,7 @@ async function resolvePlatformUser(identifier: string, password: string): Promis
       `http://${config.platformService.host}:${config.platformService.port}/auth/login`,
       { identifier, password },
       {
-        timeout: 5000,
+        timeout: PLATFORM_LOGIN_TIMEOUT_MS,
         // Identify the relay as a service, so platform's per-IP login limiter
         // doesn't pool every user's attempts under this pod's IP. This service
         // rate-limits by client and username before it gets here.

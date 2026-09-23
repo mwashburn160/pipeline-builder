@@ -6,9 +6,9 @@
  * colours, state / source labels, and the CVE-id parser the advisory forms use.
  */
 
+import type { BadgeColor } from '@/components/ui/Badge';
 import type { AdvisorySeverity, AdvisorySource, AdvisoryState } from '@/types/ecosystem';
 
-type BadgeColor = 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
 
 export const ADVISORY_SEVERITIES: AdvisorySeverity[] = ['critical', 'high', 'medium', 'low'];
 

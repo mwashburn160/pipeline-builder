@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, parsePage, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, parsePage, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import {
@@ -11,7 +11,6 @@ import {
   ensureAuthenticated,
   withController,
 } from '../helpers/controller-helper.js';
-import { paginationMeta } from '../helpers/pagination.js';
 import { listRolesWithMembers, addUserToRole, removeUserFromRole, createRole, updateRole, deleteRole, ecosystemRoleName, notifyEcosystemManagerChange } from '../services/index.js';
 import type { ActorPermissionCeiling, RoleAssignmentActor } from '../services/index.js';
 import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } from '../services/roles-errors.js';
@@ -72,7 +71,7 @@ export const getOrganizationRoles = withController('Get roles', async (req, res)
   const { roles, total } = await listRolesWithMembers(id, page);
   const limit = page?.limit ?? total;
   const offset = page?.offset ?? 0;
-  sendSuccess(res, 200, { roles, pagination: paginationMeta(total, offset, limit, roles.length) });
+  sendSuccess(res, 200, { roles, pagination: paginationMeta({ total, offset, limit, returned: roles.length }) });
 });
 
 /** POST /organization/:id/roles — create a custom permission Role. */

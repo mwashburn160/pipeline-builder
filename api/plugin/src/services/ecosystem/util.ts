@@ -10,9 +10,6 @@ import { EcosystemError } from './context.js';
 
 export const DAY_MS = 24 * 3_600_000;
 
-/** An ISO timestamp, or null for no date. */
-export const iso = (d: Date | string | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
-
 /** The first row, or null. */
 export const first = <T>(rows: T[]): T | null => rows[0] ?? null;
 

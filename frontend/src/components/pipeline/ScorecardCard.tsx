@@ -31,12 +31,11 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
   const enabled = gate.entitled;
 
   const read = useFetch<PipelineScorecard | null>(async (signal) => {
-    if (!enabled) return null;
     const res = await api.getPipelineScorecard(pipelineId, { signal });
     // A `success: false` body is a failure too — not an empty scorecard.
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load the scorecard');
     return res.data.scorecard;
-  }, [pipelineId, enabled]);
+  }, [pipelineId, enabled], { enabled });
   const scorecard = read.data;
   const loading = enabled && read.loading;
   const failed = !!read.error;

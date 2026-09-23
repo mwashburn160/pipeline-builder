@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, checkVisibilityWriteAccess, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, rejectForbiddenBulkRows, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -100,7 +100,7 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // every deleted default.
     for (const row of deleted) {
       if (refundPluginSlot(quotaService, row, ctx.log.bind(null, 'WARN'))) await pluginService.clearQuotaSnapshot(row.id);
-      if (row.isDefault) await pluginService.promoteNextDefault(orgId, row, userId || 'system');
+      if (row.isDefault) await pluginService.promoteNextDefault(orgId, row, userId || SYSTEM_ACTOR_ID);
     }
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length, skipped: skipped.length });
@@ -168,20 +168,10 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     const catalogEdited = PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(updateData, f))
       || updateData.visibility !== undefined;
     const matched = (!isSystemAdmin(req) || recheck || catalogEdited) ? await pluginService.findByIds(ids, orgId) : [];
-    if (!isSystemAdmin(req)) {
-      const forbidden = matched.filter(
-        (p) => checkVisibilityWriteAccess(req, p, userId, 'plugins:publish') !== 'ok',
-      );
-      if (forbidden.length > 0) {
-        return sendError(
-          res,
-          403,
-          'Bulk update rejected: you cannot modify one or more of these plugins',
-          ErrorCode.INSUFFICIENT_PERMISSIONS,
-          { ids: forbidden.map((p) => p.id) },
-        );
-      }
-    }
+    if (!isSystemAdmin(req) && rejectForbiddenBulkRows(
+      req, res, matched, userId, 'plugins:publish',
+      'Bulk update rejected: you cannot modify one or more of these plugins',
+    )) return;
 
     // Same fail-closed compliance re-check as single-row update, per row: a bulk
     // edit (e.g. flipping visibility) must not turn a compliant plugin

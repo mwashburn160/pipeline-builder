@@ -6,6 +6,7 @@ import { CATEGORY_DESCRIPTIONS, CATEGORY_DISPLAY_NAMES, PLUGIN_CATEGORIES, isPlu
 import { categoryPagePath, pluginPagePath } from '@/lib/public-directory/links';
 import type { CategorySummary } from '@/lib/public-directory/types';
 import { CategoryTile } from './PluginIcon';
+import { Card } from '@/components/ui/Card';
 
 /**
  * The directory's category grid: glyph, description, a LIVE count (from the
@@ -21,7 +22,7 @@ export function CategoryGrid({ categories }: { categories: CategorySummary[] }) 
         const summary = byId.get(id);
         const count = summary?.count ?? 0;
         return (
-          <li key={id} className="card flex flex-col gap-3 p-4">
+          <Card as="li" key={id} className="flex flex-col gap-3 p-4">
             <div className="flex items-center gap-3">
               <CategoryTile category={id} size="sm" />
               <h3 className="flex-1 text-base font-semibold text-fg">
@@ -46,7 +47,7 @@ export function CategoryGrid({ categories }: { categories: CategorySummary[] }) 
                 ))}
               </ul>
             )}
-          </li>
+          </Card>
         );
       })}
     </ul>

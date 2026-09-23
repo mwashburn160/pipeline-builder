@@ -1,5 +1,6 @@
 'use client';
 
+import { Badge } from '@/components/ui/Badge';
 import { useState } from 'react';
 import { Scan, Play, Square, Eye } from 'lucide-react';
 import api from '@/lib/api';
@@ -40,6 +41,7 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
     pagination,
     loading,
     setOffset,
+    setLimit,
     refetch: fetchScans,
   } = useServerPagination<ComplianceScan, { target: string; status: string; triggeredBy: string }>(
     async ({ offset, limit, filters }) => {
@@ -59,11 +61,9 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
       };
     },
     { target: targetFilter, status: statusFilter, triggeredBy: triggeredByFilter },
-    10,
   );
 
-  const handlePageChange = (offset: number) => { setOffset(offset); };
-  const handlePageSizeChange = (_limit: number) => { setOffset(0); };
+
 
   const handleTrigger = async (target: 'plugin' | 'pipeline' | 'all') => {
     setTriggering(true);
@@ -99,9 +99,9 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
         const cfg = STATUS_CONFIG[scan.status];
         const StatusIcon = cfg.icon;
         return (
-          <StatusPill gap className={`${cfg.bg} ${cfg.color}`}>
+          <Badge color={cfg.color} className="gap-1">
             <StatusIcon className={`h-3 w-3 ${scan.status === 'running' ? 'animate-spin' : ''}`} /> {scan.status}
-          </StatusPill>
+          </Badge>
         );
       },
     },
@@ -219,8 +219,8 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
           {pagination.total > pagination.limit && (
             <Pagination
               pagination={pagination}
-              onPageChange={handlePageChange}
-              onPageSizeChange={handlePageSizeChange}
+              onPageChange={setOffset}
+              onPageSizeChange={setLimit}
             />
           )}
         </div>

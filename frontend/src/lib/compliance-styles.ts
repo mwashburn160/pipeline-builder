@@ -7,44 +7,47 @@
  * used across compliance components.
  */
 import { AlertCircle, AlertTriangle, CheckCircle, Clock, Info, Loader2, Square, XCircle } from 'lucide-react';
+import type { BadgeColor } from '@/components/ui/Badge';
 import type { ExemptionStatus, RuleSeverity, ScanStatus } from '../types/compliance';
 
-/** Severity badge with icon, color, and background classes. */
-export const SEVERITY_CONFIG: Record<RuleSeverity, { icon: typeof AlertCircle; color: string; bg: string }> = {
-  critical: { icon: AlertCircle, color: 'text-danger-strong', bg: 'bg-danger-bg' },
-  error: { icon: AlertTriangle, color: 'text-danger', bg: 'bg-danger-bg' },
-  warning: { icon: Info, color: 'text-warning', bg: 'bg-warning-bg' },
+/**
+ * Compliance statuses, in the SAME vocabulary as every other status surface —
+ * {@link BadgeColor}, rendered by `<Badge>`. These were raw Tailwind `bg`/`text`
+ * pairs fed to `StatusPill`, which is how `pending` ended up yellow here and
+ * blue on the invitations page.
+ */
+
+/** Severity: colour plus the icon that goes in front of it. */
+export const SEVERITY_CONFIG: Record<RuleSeverity, { icon: typeof AlertCircle; color: BadgeColor; className?: string }> = {
+  // `critical` and `error` are both red; the ring is what separates them (the
+  // token set is brand + success/warning/danger/info, with no second red).
+  critical: { icon: AlertCircle, color: 'red', className: 'ring-1 ring-danger-border' },
+  error: { icon: AlertTriangle, color: 'red' },
+  warning: { icon: Info, color: 'yellow' },
 };
 
-/** Severity badge classes (combined bg + text). */
-export const SEVERITY_BADGE: Record<RuleSeverity, string> = {
-  warning: 'bg-warning-bg text-warning',
-  error: 'bg-danger-bg text-danger',
-  critical: 'bg-danger-bg text-danger-strong ring-1 ring-danger-border',
+/** Scan status: colour plus its icon. */
+export const SCAN_STATUS_CONFIG: Record<ScanStatus, { icon: typeof CheckCircle; color: BadgeColor }> = {
+  pending: { icon: Clock, color: 'yellow' },
+  running: { icon: Loader2, color: 'blue' },
+  completed: { icon: CheckCircle, color: 'green' },
+  failed: { icon: XCircle, color: 'red' },
+  cancelled: { icon: Square, color: 'gray' },
 };
 
-/** Scan status badge with icon, color, and background classes. */
-export const SCAN_STATUS_CONFIG: Record<ScanStatus, { icon: typeof CheckCircle; color: string; bg: string }> = {
-  pending: { icon: Clock, color: 'text-warning', bg: 'bg-warning-bg' },
-  running: { icon: Loader2, color: 'text-brand', bg: 'bg-info-bg' },
-  completed: { icon: CheckCircle, color: 'text-success', bg: 'bg-success-bg' },
-  failed: { icon: XCircle, color: 'text-danger', bg: 'bg-danger-bg' },
-  cancelled: { icon: Square, color: 'text-fg-muted', bg: 'bg-surface-muted' },
+/** Exemption status. */
+export const EXEMPTION_STATUS_COLOR: Record<ExemptionStatus, BadgeColor> = {
+  pending: 'yellow',
+  approved: 'green',
+  rejected: 'red',
+  expired: 'gray',
 };
 
-/** Exemption status badge classes. */
-export const EXEMPTION_STATUS_STYLES: Record<ExemptionStatus, { bg: string; text: string }> = {
-  pending: { bg: 'bg-warning-bg', text: 'text-warning' },
-  approved: { bg: 'bg-success-bg', text: 'text-success' },
-  rejected: { bg: 'bg-danger-bg', text: 'text-danger' },
-  expired: { bg: 'bg-surface-muted', text: 'text-fg-muted' },
-};
-
-/** Compliance check result badge classes (pass/warn/block). */
-export const RESULT_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  pass: { bg: 'bg-success-bg', text: 'text-success', label: 'Pass' },
-  warn: { bg: 'bg-warning-bg', text: 'text-warning', label: 'Warn' },
-  block: { bg: 'bg-danger-bg', text: 'text-danger', label: 'Block' },
+/** Compliance check result (pass/warn/block). */
+export const RESULT_STYLES: Record<string, { color: BadgeColor; label: string }> = {
+  pass: { color: 'green', label: 'Pass' },
+  warn: { color: 'yellow', label: 'Warn' },
+  block: { color: 'red', label: 'Block' },
 };
 
 /**

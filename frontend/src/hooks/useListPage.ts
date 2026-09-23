@@ -6,6 +6,7 @@ import { useRouter } from 'next/router';
 import { useDebounce } from './useDebounce';
 import { runCancellableFetch } from './internal/fetchCore';
 import type { PaginationState } from '@/components/ui/Pagination';
+import { DEFAULT_PAGE_SIZE, usePagination } from './usePagination';
 import { formatError } from '@/lib/constants';
 
 // ─── Types ──────────────────────────────────────────────
@@ -38,7 +39,7 @@ export interface UseListPageOptions<T> {
   }>;
   /** Whether fetching is allowed (e.g. isAuthenticated) */
   enabled?: boolean;
-  /** Initial page size */
+  /** Initial page size. Defaults to {@link DEFAULT_PAGE_SIZE}. */
   pageSize?: number;
   /** Debounce delay for text fields in ms */
   debounceMs?: number;
@@ -103,7 +104,7 @@ export interface UseListPageResult<T> {
  * ```
  */
 export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResult<T> {
-  const { fields, fetcher, enabled = true, pageSize = 25, debounceMs = 300, buildParams, initialSort, urlSync = false } = options;
+  const { fields, fetcher, enabled = true, pageSize = DEFAULT_PAGE_SIZE, debounceMs = 300, buildParams, initialSort, urlSync = false } = options;
   const router = useRouter();
   // One-shot guard: hydrate from the URL exactly once (before write-back begins),
   // so the mirror-to-URL effect can't feed back into hydration and loop.
@@ -121,16 +122,16 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
   const [error, setError] = useState<string | null>(null);
   // `total` is driven by the server response, `limit`/`offset` by the user;
   // keep them split so we don't bounce pagination state on every fetch.
+  // `usePagination` owns the page triple, the default size and THE clamp rule —
+  // see its module doc for why every list shares one.
   const [total, setTotal] = useState(0);
-  const [pageState, setPageState] = useState<{ limit: number; offset: number }>({ limit: pageSize, offset: 0 });
+  const page = usePagination(pageSize);
+  const { limit, offset, setOffset, setLimit, reset: resetOffset } = page;
+  const pagination = page.withTotal(total);
   // Server-side sort. Empty strings mean "unset" — no sort params are sent,
   // preserving behavior for consumers that don't opt in.
   const [sortState, setSortState] = useState<{ sortBy: string; sortOrder: string }>(
     initialSort ?? { sortBy: '', sortOrder: '' },
-  );
-  const pagination: PaginationState = useMemo(
-    () => ({ ...pageState, total }),
-    [pageState, total],
   );
   const [fetchKey, setFetchKey] = useState(0);
 
@@ -193,8 +194,8 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     const finalParams = buildParams ? { ...params, ...buildParams(debouncedFilters) } : params;
 
     // Add pagination
-    finalParams.limit = String(pageState.limit);
-    finalParams.offset = String(pageState.offset);
+    finalParams.limit = String(limit);
+    finalParams.offset = String(offset);
 
     // Add server-side sort (only when opted into — empty means unset)
     if (sortState.sortBy) finalParams.sortBy = sortState.sortBy;
@@ -205,12 +206,11 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
       onSuccess: (result) => {
         setData(result.items);
         if (result.pagination) {
+          // The server may itself have clamped; `usePagination` then applies THE
+          // clamp rule to this total, so a server that echoes the request
+          // unchanged past the end can't leave an empty list on a live pager.
           setTotal(result.pagination.total);
-          // Only sync offset if the server returned a different one (e.g.
-          // clamped to last page) — avoids a redundant re-render loop.
-          setPageState(prev => prev.offset === result.pagination!.offset
-            ? prev
-            : { ...prev, offset: result.pagination!.offset });
+          setOffset(result.pagination.offset);
         }
         setError(null);
       },
@@ -220,7 +220,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
       onSettled: () => setIsLoading(false),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; the dynamic filter values are folded into selectFilterKey
-  }, [enabled, debouncedTextValues, selectFilterKey, pageState.limit, pageState.offset, sortState.sortBy, sortState.sortOrder, fetchKey]);
+  }, [enabled, debouncedTextValues, selectFilterKey, limit, offset, sortState.sortBy, sortState.sortOrder, fetchKey]);
 
   // URL → state (once, when the router is ready). Reads any managed filter keys,
   // sortBy/sortOrder, and offset from the query so a refresh/shared link restores
@@ -240,7 +240,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     const so = typeof q.sortOrder === 'string' ? q.sortOrder : '';
     if (sb || so) setSortState({ sortBy: sb, sortOrder: so });
     const off = typeof q.offset === 'string' ? parseInt(q.offset, 10) : NaN;
-    if (Number.isFinite(off) && off > 0) setPageState(prev => ({ ...prev, offset: off }));
+    if (Number.isFinite(off) && off > 0) setOffset(off);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot hydration keyed on router readiness.
   }, [urlSync, router.isReady]);
 
@@ -256,17 +256,12 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     }
     if (sortState.sortBy) query.sortBy = sortState.sortBy;
     if (sortState.sortOrder) query.sortOrder = sortState.sortOrder;
-    if (pageState.offset > 0) query.offset = String(pageState.offset);
+    if (offset > 0) query.offset = String(offset);
     void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- select values are folded into selectFilterKey (fixed-size deps, same as the fetch effect).
-  }, [urlSync, debouncedTextValues, selectFilterKey, sortState.sortBy, sortState.sortOrder, pageState.offset]);
+  }, [urlSync, debouncedTextValues, selectFilterKey, sortState.sortBy, sortState.sortOrder, offset]);
 
-  // A changed filter/sort returns to page 1 (offset 0) — the no-op guard keeps
-  // an already-first-page change from causing an extra render.
-  const resetOffset = useCallback(() => {
-    setPageState(prev => prev.offset === 0 ? prev : { ...prev, offset: 0 });
-  }, []);
-
+  // A changed filter/sort returns to page 1 (offset 0) — `usePagination.reset`.
   const updateFilter = useCallback((key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
     resetOffset();
@@ -289,14 +284,6 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     return f.type === 'select' ? val !== f.defaultValue : val !== '';
   }).length, [fields, filters]);
 
-  const handlePageChange = useCallback((offset: number) => {
-    setPageState(prev => prev.offset === offset ? prev : { ...prev, offset });
-  }, []);
-
-  const handlePageSizeChange = useCallback((limit: number) => {
-    setPageState(prev => prev.limit === limit ? prev : { ...prev, limit, offset: 0 });
-  }, []);
-
   const refresh = useCallback(() => setFetchKey(k => k + 1), []);
 
   const setSort = useCallback((sortBy: string, sortOrder: string) => {
@@ -315,8 +302,8 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
     hasActiveFilters,
     advancedFilterCount,
     pagination,
-    handlePageChange,
-    handlePageSizeChange,
+    handlePageChange: setOffset,
+    handlePageSizeChange: setLimit,
     refresh,
     sortBy: sortState.sortBy,
     sortOrder: sortState.sortOrder,

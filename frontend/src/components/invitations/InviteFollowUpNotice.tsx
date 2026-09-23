@@ -51,14 +51,13 @@ interface InviteFollowUpNoticeProps {
  */
 export function InviteFollowUpNotice({ orgId, role, hasTeams }: InviteFollowUpNoticeProps) {
   const mfa = useFetch<OrgMfaPolicy | null>(async (signal) => {
-    if (!orgId) return null;
     try {
-      return (await api.getMfaPolicy(orgId, { signal })).data ?? null;
+      return (await api.getMfaPolicy(orgId!, { signal })).data ?? null;
     } catch {
       // 403 for an invitations-only admin — the notice simply omits the MFA line.
       return null;
     }
-  }, [orgId]);
+  }, [orgId], { enabled: !!orgId });
 
   const summary = ROLE_SUMMARY[role];
   const mfaRequired = mfa.data?.requireMfa === true;

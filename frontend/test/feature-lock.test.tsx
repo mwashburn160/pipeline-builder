@@ -39,6 +39,21 @@ jest.mock('@/hooks/useBuildStatus', () => ({
   useBuildStatus: () => ({ status: 'idle', events: [], lastEvent: null }),
 }));
 
+// The AI builder reads its provider list on mount; that list has its own suite,
+// and here only the entitlement gate in front of it matters. Stubbed as already
+// settled so no read lands after a test body has finished.
+jest.mock('@/hooks/useAIProviders', () => ({
+  __esModule: true,
+  useAIProviders: () => ({
+    providers: [], loading: false, error: null,
+    selectedProvider: '', selectedModel: '',
+    setSelectedProvider: () => {}, setSelectedModel: () => {},
+    currentModels: [], currentSource: undefined,
+    customApiKey: '', setCustomApiKey: () => {},
+    showKeyOverride: false, setShowKeyOverride: () => {},
+  }),
+}));
+
 beforeEach(() => {
   features = [];
   isLoaded = true;

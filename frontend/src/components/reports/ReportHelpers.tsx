@@ -234,7 +234,9 @@ export function AutoRefresh({ onRefresh, loading }: AutoRefreshProps) {
       {interval > 0 && (
         <Timer className="w-3.5 h-3.5 text-brand animate-pulse" />
       )}
-      <Button variant="secondary" onClick={onRefresh} disabled={loading} className="px-3 py-1.5 text-sm">
+      {/* Icon-only, so it carries its own name — a screen reader otherwise
+          announces an unnamed button. */}
+      <Button variant="secondary" onClick={onRefresh} disabled={loading} aria-label="Refresh reports" className="px-3 py-1.5 text-sm">
         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
       </Button>
     </div>

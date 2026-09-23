@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { canAccessOrg, requireOrgScope, ensureAuthenticated, getAdminContext, withController } from '../helpers/controller-helper.js';
-import { listPage, paginationMeta } from '../helpers/pagination.js';
+import { listPage } from '../helpers/pagination.js';
 import { orgMembersService, type RoleAssignmentActor } from '../services/index.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
 import { RL_ASSIGN_EXCEEDS_CEILING } from '../services/roles-errors.js';
@@ -57,7 +57,7 @@ export const getOrganizationMembers = withController('Get members', async (req, 
     organizationName,
     ownerId,
     members,
-    pagination: paginationMeta(total, off, lim),
+    pagination: paginationMeta({ total, offset: off, limit: lim }),
   });
 });
 

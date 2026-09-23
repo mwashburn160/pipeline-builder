@@ -5,6 +5,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Checkbox } from '@/components/ui/Checkbox';
 import type { OrganizationMember, OrganizationRole } from '@/types';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 interface ManageRolesModalProps {
   target: OrganizationMember | null;
@@ -61,7 +62,7 @@ export function ManageRolesModal({
           <button type="button" onClick={() => void onRetry()} className="action-link">Retry</button>
         </div>
       ) : roles.length === 0 ? (
-        <p className="text-sm text-fg-subtle italic">No roles exist in this organization yet.</p>
+        <EmptyState compact title="No roles exist in this organization yet" />
       ) : (
         <div className="max-h-72 overflow-y-auto border border-default rounded-lg divide-y divide-default">
           {roles.map((r) => (

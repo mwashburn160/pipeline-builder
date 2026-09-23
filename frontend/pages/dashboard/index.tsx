@@ -263,7 +263,7 @@ export default function DashboardPage() {
         )}
 
         {/* ─── Primary action: generate a pipeline from Git ─── */}
-        <motion.div variants={stagger.item} className="card mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-info-border">
+        <Card as={motion.div} variants={stagger.item} className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-info-border">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-brand flex items-center justify-center">
               <GitBranch className="w-6 h-6 text-white" />
@@ -303,7 +303,7 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-        </motion.div>
+        </Card>
 
         {/* ─── Role-specific home view ─── */}
         {/* Sysadmin: operations-focused (fleet stats, RLS posture, recent audit).
@@ -369,7 +369,7 @@ export default function DashboardPage() {
             "is the platform busy"); org-admins still see it as a quick
             org-wide pipeline-health signal alongside their health cards. */}
         {!isSuperAdmin && timeline.length > 0 && (
-          <motion.div variants={stagger.item} className="card mt-4">
+          <Card as={motion.div} variants={stagger.item} className="mt-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="h3">
                 <Activity className="w-4 h-4 inline mr-1.5 text-fg-subtle" />
@@ -432,7 +432,7 @@ export default function DashboardPage() {
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-500 inline-block" /> Passed</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500 inline-block" /> Failed</span>
             </div>
-          </motion.div>
+          </Card>
         )}
       </motion.div>
 

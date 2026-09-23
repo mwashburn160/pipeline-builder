@@ -27,6 +27,7 @@ import { useState } from 'react';
 import { KeyRound, MonitorPlay, RefreshCw, Send, ShieldAlert } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
+import { usePagination } from '@/hooks/usePagination';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SectionCard } from '@/components/ui/SectionCard';
@@ -67,32 +68,30 @@ const STATUS_LABEL: Record<string, string> = {
   undeliverable: 'Nobody could be asked',
 };
 
-/** Rows per page for each list. */
-const PAGE_SIZE = 10;
-
 /**
  * One server-paged view of impersonation requests. Re-reads when the viewer's
  * identity or active org changes (what they may act on changes with it).
  */
 function useRequestView(view: ImpersonationListView, enabled: boolean, identity: string) {
-  const [offset, setOffset] = useState(0);
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const page = usePagination();
   const q = useFetch(
     async (signal) => {
       if (!enabled) return null;
-      const res = await api.listImpersonationRequests(view, { limit, offset }, { signal });
+      const res = await api.listImpersonationRequests(view, { limit: page.limit, offset: page.offset }, { signal });
       if (!res.success || !res.data) throw new Error(res.message || 'Could not load access requests');
       return res.data;
     },
-    [enabled, identity, offset, limit],
+    [enabled, identity, page.offset, page.limit],
   );
+  const pagination = page.withTotal(q.data?.pagination.total ?? 0);
   return {
     requests: q.data?.requests ?? [],
-    total: q.data?.pagination.total ?? 0,
+    total: pagination.total,
     loading: q.loading && !q.data,
     error: q.error,
+    pagination,
     refetch: q.refetch,
-    pager: { limit, offset, setOffset, setLimit: (n: number) => { setLimit(n); setOffset(0); } },
+    pager: page,
   };
 }
 
@@ -103,10 +102,9 @@ function ViewPager({ view }: { view: RequestView }) {
   if (view.total <= view.pager.limit) return null;
   return (
     <Pagination
-      pagination={{ limit: view.pager.limit, offset: view.pager.offset, total: view.total }}
+      pagination={view.pagination}
       onPageChange={view.pager.setOffset}
       onPageSizeChange={view.pager.setLimit}
-      pageSizeOptions={[10, 25, 50, 100]}
     />
   );
 }

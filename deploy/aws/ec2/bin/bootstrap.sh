@@ -8,6 +8,7 @@
 #   3. Environment configuration (.env generation)
 #   4. iptables HTTP bridge (instance:30080 → minikube NodePort 30080)
 #   5. Launch minikube startup
+#   6. Cluster lifecycle unit (resume on boot, clean stop before halt)
 # TLS is terminated at the ALB (ACM cert) — no cert/certbot on this instance.
 #
 # Expected environment variables (set by CloudFormation UserData):
@@ -396,6 +397,23 @@ export GHCR_USER
 # LEAN passthrough (from UserData's `Lean` stack param); unset => startup.sh defaults off.
 export LEAN
 
+# PERSIST the effective LEAN into .env before the first run. It arrives from the
+# CloudFormation UserData and lives nowhere else, so without this ANY later
+# startup.sh — the boot-recovery unit from Phase 12, or an operator re-running it
+# by hand — would default LEAN=0 and re-apply the FULL manifest set onto a box
+# sized for lean. That is not a cosmetic difference: `ask-model` alone is ~52% of
+# the LEAN memory footprint (see the note at startup.sh's manifest step), so a
+# t3.xlarge would be pushed into OOM. Writing it here makes the shape of the
+# deployment a property of the instance rather than of one shell's environment.
+_lean_norm=0
+case "${LEAN:-0}" in 1|true|TRUE|True|yes|y) _lean_norm=1 ;; esac
+if grep -qE '^[[:space:]]*LEAN=' "${DEPLOY_DIR}/.env" 2>/dev/null; then
+  sed -i -E "s|^[[:space:]]*LEAN=.*|LEAN=${_lean_norm}|" "${DEPLOY_DIR}/.env"
+else
+  printf '\n# Deployment shape, captured at provision time from the stack LEAN parameter.\n# 1 = drop the optional observability + admin services. Read by startup.sh on\n# every run, including the Phase 12 boot-recovery unit.\nLEAN=%s\n' "$_lean_norm" >> "${DEPLOY_DIR}/.env"
+fi
+echo "  LEAN=${_lean_norm} persisted to .env (survives reboots)"
+
 bash "${DEPLOY_DIR}/bin/startup.sh"
 
 # Ensure iptables-services is installed for persistence across reboots
@@ -566,6 +584,87 @@ BACKUPTIMER
   fi
 else
   echo "  backup.sh not found at $BACKUP_SH — skipping backup timer install"
+fi
+
+# =============================================================================
+# Phase 12: Cluster lifecycle unit (systemd) — resume on boot, stop on halt
+# =============================================================================
+# WHY: minikube runs with --driver=docker, so the cluster node is a container,
+# and nothing else ties its lifetime to the instance's.
+#
+#   On HALT, without this: `aws ec2 stop-instances`, an ASG terminate or a plain
+#   `shutdown -h now` tears the box down with the cluster live — systemd stops
+#   docker.service, docker SIGKILLs the node container after its own short grace
+#   period, and postgres / mongodb / minio on the VM's /data disk are cut off
+#   mid-write. `minikube stop` halts the VM cleanly and PRESERVES the disk.
+#
+#   On BOOT, without this: a stop/start leaves a profile whose node VM is
+#   Stopped, and the ALB target stays 503 until someone SSHes in and runs
+#   startup.sh by hand.
+#
+# ONE unit covers both, because a systemd service that is ACTIVE gets its
+# ExecStop run when the system halts. Type=oneshot + RemainAfterExit=yes is what
+# makes it stay active after ExecStart returns; there is no shutdown-only hook
+# for an ordinary service.
+#
+# Both halves delegate to the scripts an operator already runs by hand, so the
+# automatic path and the manual one cannot diverge — and the iptables DNAT
+# teardown/rebuild comes along for free, which matters because the minikube node
+# IP is not guaranteed to survive a restart and a stale rule restored from
+# /etc/sysconfig/iptables would point at an address nothing answers on.
+#
+# ORDERING IS THE WHOLE POINT: `After=docker.service` puts this unit AFTER docker
+# on the way up and therefore BEFORE it on the way down (shutdown order is the
+# reverse of start order). Drop that line and docker may already be gone when
+# `minikube stop` runs — the exact failure this phase exists to prevent.
+echo ""
+echo "========================================"
+echo "Phase 12: Install cluster lifecycle unit"
+echo "========================================"
+BOOT_SH="${INSTALL_DIR}/deploy/aws/ec2/bin/boot-recover.sh"
+SHUTDOWN_SH="${INSTALL_DIR}/deploy/aws/ec2/bin/shutdown.sh"
+if [ -f "$BOOT_SH" ] && [ -f "$SHUTDOWN_SH" ]; then
+  cat > /etc/systemd/system/pipeline-minikube.service <<LIFECYCLESVC
+[Unit]
+Description=Pipeline Builder minikube cluster (resume on boot, stop before halt)
+Documentation=file://${BOOT_SH}
+# AFTER docker on the way up == BEFORE it on the way down. See bootstrap Phase 12.
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/env bash ${BOOT_SH}
+ExecStop=/usr/bin/env bash ${SHUTDOWN_SH}
+# Resuming re-applies manifests and waits on pods, so allow room; the stop is
+# bounded far tighter so a wedged \`minikube stop\` cannot hold the halt past the
+# window EC2 allows before forcing the instance off (a partial stop beats none).
+TimeoutStartSec=1800
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+LIFECYCLESVC
+
+  systemctl daemon-reload
+  # --now is deliberate: the unit must be ACTIVE for its ExecStop to fire at the
+  # FIRST halt, not just at later ones. Starting it here is cheap — Phase 9 has
+  # already brought the cluster up, and boot-recover.sh no-ops when the node VM
+  # is already Running.
+  systemctl enable --now pipeline-minikube.service
+  echo "  ENABLED pipeline-minikube.service"
+  echo "    halt  -> shutdown.sh     (minikube stop + iptables teardown)"
+  echo "    boot  -> boot-recover.sh (resumes the cluster + rebuilds the DNAT bridge)"
+  echo "    Verify:  systemctl is-enabled pipeline-minikube.service"
+  echo "    Logs:    journalctl -u pipeline-minikube.service -b"
+  echo "    An instance stop/start now comes back on its own; no SSH needed."
+else
+  [ -f "$BOOT_SH" ]      || echo "  boot-recover.sh not found at $BOOT_SH"
+  [ -f "$SHUTDOWN_SH" ]  || echo "  shutdown.sh not found at $SHUTDOWN_SH"
+  echo "  Skipping cluster lifecycle unit."
+  echo "  WARNING: an instance stop will kill the cluster mid-write, and a start"
+  echo "           will NOT bring it back without running startup.sh by hand."
 fi
 
 echo ""

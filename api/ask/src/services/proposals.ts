@@ -32,7 +32,7 @@
  */
 
 import { ASK_AGENT_PROPOSER } from '@pipeline-builder/api-core';
-import type { AskProposalProvenance, OrgSettingRequest, OrgSettingValue } from '@pipeline-builder/api-core';
+import type { AskProposalProvenance, ComplianceExemptionRequest, OrgSettingRequest, OrgSettingValue } from '@pipeline-builder/api-core';
 import type { TemplateDraftValidation } from '@pipeline-builder/pipeline-core';
 
 /**
@@ -225,15 +225,9 @@ export interface ExemptionRequestProposal extends ProposalBase {
   kind: 'compliance-exemption-request';
   /** Rule + entity label for the card. */
   target: string;
-  /** Exactly the `POST /compliance/exemptions` body. */
-  request: {
-    ruleId: string;
-    entityType: 'plugin' | 'pipeline';
-    entityId: string;
-    entityName?: string;
-    reason: string;
-    expiresAt?: string;
-  };
+  /** Exactly the `POST /compliance/exemptions` body — the shared wire contract,
+   *  so this proposal cannot drift from what the compliance service accepts. */
+  request: ComplianceExemptionRequest;
   commit: CommitTarget;
 }
 

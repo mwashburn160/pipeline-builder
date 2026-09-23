@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d8216c4e56f46cc414be544e8d9742da6ce945716ebedce8b523e8f1b2d7ca5c
+// SOURCE-SHA256: 38e852a61ad057f0632ed83c89891fdcd0c3d5a92e064132ef3da8faf1d93665
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1716,12 +1716,42 @@ export const envVariablesTopic: HelpTopic = {
               "LIMITER_MULT_UNLIMITED",
               "100",
               "Unlimited-tier rate-limit multiplier (billing-disabled default tier)"
+            ],
+            [
+              "ASK_RATE_LIMIT_PER_MIN",
+              "30",
+              "Per-org ceiling on the Ask agent's routes. These run an LLM per request, so the cap is about model spend and latency, not abuse"
+            ],
+            [
+              "PIPELINE_GENERATE_RATE_LIMIT_PER_MIN",
+              "20",
+              "Per-org ceiling on AI pipeline generation (POST /pipelines/generate)"
+            ],
+            [
+              "PLUGIN_GENERATE_RATE_LIMIT_PER_MIN",
+              "20",
+              "Per-org ceiling on AI plugin generation. POST /plugins/generate and /generate/stream share ONE limiter instance, so this is the combined allowance across both, not per route"
             ]
           ]
         },
         {
           "type": "note",
           "content": "SCIM has no rate-limit env vars. The /scim/v2/* limiter is fixed at 600 requests / 60 s from the SCIM_RATE_LIMIT_MAX / SCIM_RATE_LIMIT_WINDOW_MS constants in platform/src/constants/scim.ts — changing it is a code change, not configuration."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "SCIM_DOCUMENTATION_URL",
+              "https://docs.pipeline-builder.com/docs/authentication.html",
+              "The documentationUri served in the SCIM ServiceProviderConfig — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally"
+            ]
+          ]
         },
         {
           "type": "note",
@@ -2823,6 +2853,16 @@ export const envVariablesTopic: HelpTopic = {
               "HTTP_CLIENT_RETRY_DELAY_MS",
               "200",
               "Internal HTTP client retry delay"
+            ],
+            [
+              "REPORTING_HTTP_TIMEOUT",
+              "3000",
+              "Timeout (ms) for reporting's outbound org-hierarchy lookups to platform. Deliberately TIGHTER than HTTP_CLIENT_TIMEOUT: a report that degrades fast beats a dashboard that hangs"
+            ],
+            [
+              "REGISTRY_HTTP_TIMEOUT",
+              "30000",
+              "Timeout (ms) for image-registry's management calls to the upstream OCI registry. Deliberately LONGER than HTTP_CLIENT_TIMEOUT because catalog, manifest and blob operations are slow"
             ],
             [
               "QUOTA_SERVICE_TIMEOUT",

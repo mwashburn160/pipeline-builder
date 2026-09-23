@@ -10,7 +10,7 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { DoraMetrics } from '../src/lib/api/domains/reporting';
 import { fmtWindow, doraLevelBadge } from '../src/components/reports/DoraParts';
 import ReportsPage from '../pages/dashboard/reports';
@@ -100,6 +100,10 @@ beforeEach(() => {
  *  view). Click it to mount the DORA panel + trigger its fetches. */
 const goToDora = async () => {
   fireEvent.click(await screen.findByRole('button', { name: /^dora$/i }));
+  // The tab fires five parallel reads and only the metrics one is visible in
+  // most assertions below. Wait for the page to go idle (Refresh re-enables)
+  // before asserting, so no read lands after the test body has finished.
+  await waitFor(() => expect(screen.getByRole('button', { name: /refresh reports/i })).toBeEnabled());
 };
 
 describe('ReportsPage — DORA section', () => {

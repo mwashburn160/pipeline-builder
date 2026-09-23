@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { COMPLIANCE_CONTENT_SETS, ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, COMPLIANCE_CONTENT_SETS, ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, desc, inArray, isNull } from 'drizzle-orm';
@@ -448,7 +448,7 @@ export class ComplianceRuleService extends CrudService<
    * pair already exists, skip the insert. Avoids backlog buildup when many
    * rules are mutated in quick succession (e.g. bulk imports).
    */
-  private async triggerRuleChangeScan(orgId: string, target: string, userId: string = 'system'): Promise<void> {
+  private async triggerRuleChangeScan(orgId: string, target: string, userId: string = SYSTEM_ACTOR_ID): Promise<void> {
     await withTenantTx(async (tx) => {
       const [existing] = await tx
         .select({ id: schema.complianceScan.id })

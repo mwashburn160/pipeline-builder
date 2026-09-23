@@ -15,6 +15,7 @@ import { scanTagsForDigest } from '@/lib/registry-scan';
 import { redactString, redactDetails } from '@/lib/redact';
 import type { RegistryManifestKind, RegistryPlatformRef } from '@/types';
 import { formatDate, formatDateTime } from '@/lib/format';
+import { useFetch } from '@/hooks/useFetch';
 
 interface BreadcrumbSegment {
   /** Label shown in the breadcrumb (e.g. `org-acme/foo:rc1` or `linux/amd64`). */
@@ -238,42 +239,36 @@ function Field({ label, value, mono = false }: { label: string; value: string; m
  * operator can still toggle it closed; `manualOpen` overrides the auto
  * default after any user interaction.
  */
+
+/** Stable empty result for a scan that failed. */
+const EMPTY_TAGS: string[] = [];
+
 function TagsForDigest({ repo, digest, activeTag }: { repo: string; digest: string; activeTag?: string }) {
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
-  const [tags, setTags] = useState<string[] | null>(null);
-  const [scanning, setScanning] = useState(true);
   const [scannedCount, setScannedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    setScanning(true);
-    setScannedCount(0);
-    setTags(null);
-    setManualOpen(null);
-    void (async () => {
-      try {
-        // The scan collects ALL tags on this digest; the active tag is filtered
-        // out at render (see `displayTags`). Keeping it independent of
-        // `activeTag` avoids re-running the whole scan on every tag selection.
-        const found = await scanTagsForDigest(repo, digest, {
-          isCancelled: () => cancelled,
-          onScope: (toScan, skipped) => setTotalCount(toScan + skipped),
-          onProgress: setScannedCount,
-        });
-        if (found) {
-          setTags(found);
-          setScanning(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setTags([]);
-          setScanning(false);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [repo, digest]);
+  const scan = useFetch(
+    async (signal) => {
+      setScannedCount(0);
+      setManualOpen(null);
+      // The scan collects ALL tags on this digest; the active tag is filtered
+      // out at render (see `displayTags`). Keeping it independent of
+      // `activeTag` avoids re-running the whole scan on every tag selection.
+      return scanTagsForDigest(repo, digest, {
+        isCancelled: () => signal.aborted,
+        onScope: (toScan, skipped) => setTotalCount(toScan + skipped),
+        onProgress: setScannedCount,
+      });
+    },
+    [repo, digest],
+    // A failed scan shows "no other tags", not the previous digest's tags.
+    { clearDataOnError: true },
+  );
+  const tags = scan.data ?? (scan.error ? EMPTY_TAGS : null);
+  // A cancelled scan resolves with nothing; it is still in progress as far as
+  // this panel is concerned (a newer scan has taken over).
+  const scanning = scan.loading || (!scan.error && !scan.data);
 
   // The scanned set includes the active tag; exclude it for display (this only
   // re-filters — it does NOT re-scan — when the selected tag changes).

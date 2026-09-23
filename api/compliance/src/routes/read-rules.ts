@@ -78,7 +78,7 @@ export function createReadRuleRoutes(): Router {
     const { history, total } = await complianceRuleService.findRuleHistory(id, orgId, { limit, offset });
 
     return sendPaginatedNested(res, 'history', history, {
-      total, limit, offset, hasMore: offset + history.length < total,
+      total, limit, offset,
     });
   }));
 

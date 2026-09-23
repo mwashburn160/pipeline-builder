@@ -40,7 +40,7 @@ jest.unstable_mockModule('node:readline/promises', () => ({
 const {
   runPostSteps, bootstrapAndLocate, runDeployWithRetry, preflightPorts, runTeardown, resolveLoadsInteractively,
   buildParams, printPlan, ensureLocalEnvFile, offerToolFetch, runDiagnose,
-} = await import('../src/commands/provision.js');
+} = await import('../src/commands/provision-steps.js');
 const { TARGETS } = await import('../src/agent/targets.js');
 
 const step = (id: string, command: string): PostStep => ({ id, label: id, command });

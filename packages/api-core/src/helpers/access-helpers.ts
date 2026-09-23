@@ -11,9 +11,24 @@ import { sendError } from '../utils/response.js';
 /** The slice of a catalog entity the write gate needs. */
 export interface VisibilityWriteTarget {
   /** Rung the row currently sits at — see {@link Visibility}. */
-  visibility?: string;
+  visibility?: string | null;
   /** Author. The only non-admin who may touch a `private` row. */
-  createdBy?: string;
+  createdBy?: string | null;
+}
+
+/**
+ * The caller's authority on the visibility ladder, as PLAIN DATA.
+ *
+ * Captured from the request (`isSystemAdmin(req)`,
+ * `userHasPermission(req, '<entity>:publish')`) at the edge, so the same gate
+ * can run where no `Request` exists — a plugin deploy performed by a BullMQ
+ * worker, or `CrudService.bulkDelete` down in the data layer. That is the whole
+ * reason {@link checkWriteAccess} and {@link checkVisibilityWriteAccess} are two
+ * functions: one rule, two ways of naming the caller.
+ */
+export interface WriteAccess {
+  isSystemAdmin: boolean;
+  canPublish: boolean;
 }
 
 /**
@@ -82,9 +97,37 @@ export function checkVisibilityWriteAccess(
   userId: string,
   publishPermission: Permission,
 ): VisibilityWriteVerdict {
-  if (isSystemAdmin(req)) return 'ok';
+  return checkWriteAccess(resource, userId, {
+    isSystemAdmin: isSystemAdmin(req),
+    canPublish: userHasPermission(req, publishPermission),
+  });
+}
 
-  if (resource.visibility === 'public' && !userHasPermission(req, publishPermission)) {
+/**
+ * The visibility write rule itself, over a request-free {@link WriteAccess}.
+ *
+ * THE one implementation — `checkVisibilityWriteAccess` is this function with
+ * the caller's authority read off a `Request`. The job path (a plugin deploy
+ * running in a BullMQ worker, long after the HTTP request is gone) and the
+ * request path must never drift: a job-path gate that disagreed with the
+ * request-path gate is a tenancy bug, not a cosmetic one, so there is no second
+ * copy of the rungs to drift.
+ *
+ * Callers layer their own not-found / already-exists policy on top and turn the
+ * verdict into a user-facing message; the RULE stays here.
+ *
+ *   - `private` → author only (fails closed on an empty `userId`)
+ *   - `org`     → any member of the org
+ *   - `public`  → requires the publish capability
+ */
+export function checkWriteAccess(
+  resource: VisibilityWriteTarget,
+  userId: string,
+  access: WriteAccess,
+): VisibilityWriteVerdict {
+  if (access.isSystemAdmin) return 'ok';
+
+  if (resource.visibility === 'public' && !access.canPublish) {
     return 'needs-publish';
   }
 
@@ -95,6 +138,36 @@ export function checkVisibilityWriteAccess(
   }
 
   return 'ok';
+}
+
+/** A bulk-operation row: its id, plus the slice the write gate reads. */
+export interface BulkWriteRow extends VisibilityWriteTarget {
+  id: string;
+}
+
+/**
+ * Apply the per-row write gate across a BULK operation's matched rows, and
+ * refuse the WHOLE batch if any row fails.
+ *
+ * All-or-nothing on purpose: a partial bulk write is impossible for a client to
+ * reason about, and the 403 names the offending `ids` so the caller can retry
+ * with a narrowed set.
+ *
+ * Returns `true` having ALREADY sent a 403 (so the route returns); `false` when
+ * every row is writable and the batch may proceed.
+ */
+export function rejectForbiddenBulkRows(
+  req: Request,
+  res: Response,
+  rows: readonly BulkWriteRow[],
+  userId: string,
+  publishPermission: Permission,
+  message: string,
+): boolean {
+  const forbidden = rows.filter((row) => checkVisibilityWriteAccess(req, row, userId, publishPermission) !== 'ok');
+  if (forbidden.length === 0) return false;
+  sendError(res, 403, message, ErrorCode.INSUFFICIENT_PERMISSIONS, { ids: forbidden.map((row) => row.id) });
+  return true;
 }
 
 /**

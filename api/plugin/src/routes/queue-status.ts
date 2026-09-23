@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  envInt, ErrorCode, audited, getParam, isSystemAdmin, parsePage, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess, actorId, userHasPermission,
+  isoOrNull,
+  envInt, ErrorCode, audited, getParam, isSystemAdmin, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess, actorId, userHasPermission,
   recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
@@ -121,7 +122,11 @@ function pageOf<T extends Job>(
   total: number | undefined,
 ): { page: T[]; pagination: { total?: number; limit: number; offset: number; hasMore: boolean } } {
   const page = window.slice(offset, offset + limit);
-  const hasMore = total !== undefined ? offset + page.length < total : window.length > offset + limit;
+  // With a known total the shared rule applies; without one (a tenant-scoped
+  // caller, whose total can't be counted) the peeked extra row is the signal.
+  const hasMore = total !== undefined
+    ? paginationMeta({ total, offset, limit, returned: page.length }).hasMore
+    : window.length > offset + limit;
   return { page, pagination: { ...(total !== undefined ? { total } : {}), limit, offset, hasMore } };
 }
 
@@ -227,7 +232,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       error: job.failedReason ?? null,
       attemptsMade: job.attemptsMade,
       maxAttempts: job.opts?.attempts ?? null,
-      failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString(): null,
+      failedAt: isoOrNull(job.finishedOn),
     }));
 
     return sendSuccess(res, 200, { jobs, pagination });
@@ -316,8 +321,8 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       lastError: job.data?.lastError ?? job.failedReason ?? null,
       attemptsMade: job.attemptsMade,
       maxAttempts: job.opts?.attempts ?? null,
-      createdAt: job.timestamp ? new Date(job.timestamp).toISOString(): null,
-      failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString(): null,
+      createdAt: isoOrNull(job.timestamp),
+      failedAt: isoOrNull(job.finishedOn),
     }));
 
     return sendSuccess(res, 200, { jobs, pagination });
@@ -472,7 +477,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
           pluginName,
           version: job.data?.pluginRecord?.version ?? null,
           error: err,
-          failedAt: job.finishedOn ? new Date(job.finishedOn).toISOString(): null,
+          failedAt: isoOrNull(job.finishedOn),
           source,
         });
       }

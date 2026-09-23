@@ -11,7 +11,7 @@
  * uses exactly these diffs.
  */
 
-import { createLogger, errorMessage, PLUGIN_CATALOG_FIELDS, SYSTEM_ORG_ID, type PluginCatalogField } from '@pipeline-builder/api-core';
+import { isoOrNull, createLogger, errorMessage, PLUGIN_CATALOG_FIELDS, SYSTEM_ORG_ID, type PluginCatalogField } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import type { PluginListing, PluginPublishRequest, Publisher } from '@pipeline-builder/pipeline-data';
 
@@ -21,7 +21,6 @@ import { effectiveMetadata, listingFieldValue, metadataRow, type RequestMetadata
 import { contractDiff, sameValue, specSnapshot, versionGates, vulnDelta } from './policy.js';
 import { listings, plugins, previousVersion, requests, type PluginRow } from './store.js';
 import { submissionReviewContext } from './submission-moderation.js';
-import { iso } from './util.js';
 import { fetchImageSbom, fetchPublicImageSbom } from '../../helpers/supply-chain.js';
 
 const logger = createLogger('ecosystem-review');
@@ -111,7 +110,7 @@ export async function reviewDiff(r: PluginPublishRequest, publisher: Publisher) 
         high: plugin.vulnHigh,
         criticalFixable: plugin.vulnCriticalFixable,
         highFixable: plugin.vulnHighFixable,
-        scannedAt: iso(plugin.scannedAt),
+        scannedAt: isoOrNull(plugin.scannedAt),
       },
       ...vulnDelta(prev ? { critical: prev.vulnCritical, high: prev.vulnHigh } : null, { critical: plugin.vulnCritical, high: plugin.vulnHigh }),
     } : null,

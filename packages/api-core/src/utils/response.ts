@@ -152,16 +152,48 @@ export function sendQuotaExceeded(
   );
 }
 
+/** The `pagination` envelope every list route returns. */
+export interface PaginationMeta {
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+/**
+ * Build the `pagination` envelope for one page.
+ *
+ * `hasMore` is derived, never hand-computed: `offset + <rows on this page> <
+ * total` was THE most-repeated expression in the codebase, and a route that
+ * spells it slightly differently reports a phantom next page (or hides a real
+ * one) — a paging bug that only shows on the last page, where nobody looks.
+ *
+ * `returned` is the row count this page actually carries. It defaults to
+ * `limit` because a list route that doesn't say otherwise returns a full page;
+ * pass it for a route whose page can be shorter than its limit, and for an
+ * unpaged "everything" answer (which reports `limit = total`).
+ */
+export function paginationMeta(
+  options: { total: number; offset: number; limit: number; returned?: number },
+): PaginationMeta {
+  const { total, offset, limit, returned } = options;
+  return { total, offset, limit, hasMore: offset + (returned ?? limit) < total };
+}
+
 /**
  * Send a paginated list response with the items nested under a named key.
  * Use when the API contract is `{ <key>: [...], pagination: {...} }`
  * (the dominant shape across api/* services).
  *
+ * `hasMore` is OPTIONAL and defaults to `offset + data.length < total` — the
+ * expression every caller used to write out by hand. Pass it only when the
+ * route knows something the row count does not (a cursor page, or a window
+ * fetched with `limit + 1` to peek ahead). Without a `total` there is nothing to
+ * derive from, so it falls back to "a cursor was issued".
+ *
  * @example
  * ```typescript
- * sendPaginatedNested(res, 'pipelines', items, {
- *   total: 50, limit: 25, offset: 0, hasMore: true,
- * });
+ * sendPaginatedNested(res, 'pipelines', items, { total: 50, limit: 25, offset: 0 });
  * // → { pipelines: [...], pagination: { total: 50, limit: 25, offset: 0, hasMore: true } }
  * ```
  */
@@ -173,7 +205,7 @@ export function sendPaginatedNested<T>(
     total?: number;
     limit: number;
     offset: number;
-    hasMore: boolean;
+    hasMore?: boolean;
     nextCursor?: string;
     statusCode?: number;
   },
@@ -183,7 +215,11 @@ export function sendPaginatedNested<T>(
     return;
   }
   const { statusCode = 200, total, limit, offset, hasMore, nextCursor } = options;
-  const pagination: Record<string, unknown> = { limit, offset, hasMore };
+  const resolved = hasMore
+    ?? (total !== undefined
+      ? paginationMeta({ total, offset, limit, returned: data.length }).hasMore
+      : nextCursor !== undefined);
+  const pagination: Record<string, unknown> = { limit, offset, hasMore: resolved };
   if (total !== undefined) pagination.total = total;
   if (nextCursor) pagination.nextCursor = nextCursor;
   res.status(statusCode).json({

@@ -107,6 +107,22 @@ export const SENSITIVE_VALUE_PATTERNS: readonly SensitiveValuePattern[] = [
     replacement: REDACTED,
   },
   {
+    // Fine-grained PAT: `github_pat_` + a 22-char id + `_` + a 59-char secret.
+    // The classic `gh[pousr]_` rule above does NOT cover it (`i` is not in that
+    // class), so without this one a fine-grained PAT reached Loki in the clear.
+    name: 'github_fine_grained_pat',
+    js: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+    re2: '\\bgithub_pat_[A-Za-z0-9_]{20,}\\b',
+    replacement: REDACTED,
+  },
+  {
+    // GitLab personal/project/group access tokens: `glpat-` + 20 chars.
+    name: 'gitlab_token',
+    js: /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
+    re2: '\\bglpat-[A-Za-z0-9_-]{20,}\\b',
+    replacement: REDACTED,
+  },
+  {
     name: 'slack_token',
     js: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g,
     re2: '\\bxox[abprs]-[A-Za-z0-9-]{10,}\\b',

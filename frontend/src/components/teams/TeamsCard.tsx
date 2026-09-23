@@ -11,6 +11,7 @@ import { useToast } from '@/components/ui/Toast';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { TeamSettingsDrawer } from './TeamSettingsDrawer';
 import api from '@/lib/api';
+import { continueAfterStepUp } from '@/lib/api/errors';
 import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import { formatDateMedium } from '@/lib/format';
@@ -91,18 +92,28 @@ export function TeamsCard({
     }
   };
 
+  // NOT `useDelete`: the delete is step-up gated, so `StepUpModal` IS the
+  // confirmation (the one-dialog rule) and there is no DeleteConfirmModal
+  // triplet to fold away. What was missing is the replay — if the token raced
+  // its expiry the server refuses again, the global dialog takes it over, and
+  // this used to toast a failure for a delete that then went through.
   const executeDelete = async (stepUpToken: string) => {
     const team = pendingDelete;
     setPendingDelete(null);
     if (!team) return;
-    try {
-      await api.deleteTeam(parentOrgId, team.orgId, stepUpToken);
+    const done = () => {
       toast.success(`Deleted ${team.orgName} — restore it from Recently deleted teams`);
       invalidate.organizations();
-      await onChanged();
+      void onChanged();
+    };
+    try {
+      await api.deleteTeam(parentOrgId, team.orgId, stepUpToken);
     } catch (e) {
+      if (continueAfterStepUp(e, done)) return;
       toast.error(formatError(e, `Failed to delete ${team.orgName}`));
+      return;
     }
+    done();
   };
 
   const executeRestore = async (stepUpToken: string) => {

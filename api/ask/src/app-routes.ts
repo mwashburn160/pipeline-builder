@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { envInt } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import type { Express } from 'express';
@@ -28,7 +29,12 @@ export function mountRoutes(app: Express, { quotaService }: AskRouteDeps): void 
   app.use(
     '/ask',
     ...createAuthenticatedWithOrgRoute(),
-    rateLimitByOrg({ name: 'ask', max: 30, windowMs: 60_000, message: 'Too many Ask requests' }),
+    rateLimitByOrg({
+      name: 'ask',
+      max: envInt('ASK_RATE_LIMIT_PER_MIN', 30, { min: 1 }),
+      windowMs: 60_000,
+      message: 'Too many Ask requests',
+    }),
     createAskRoutes(quotaService),
     createAgentRoutes(quotaService),
   );

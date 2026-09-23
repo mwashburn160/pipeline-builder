@@ -28,6 +28,7 @@
  */
 
 import {
+  isoOrNull,
   actorId,
   createLogger,
   ErrorCode,
@@ -58,7 +59,7 @@ import { notifyReplied, notifyReviewHeld, notifyReviewPosted, notifySecurityRepo
 import { replies, reports, reviewHistory, reviews, votes } from './reviews-store.js';
 import { refreshListingRating } from './stats.js';
 import { listings, publishers, versions } from './store.js';
-import { DAY_MS, isActiveListing, iso } from './util.js';
+import { DAY_MS, isActiveListing } from './util.js';
 
 const logger = createLogger('ecosystem-reviews');
 
@@ -109,7 +110,7 @@ async function verifiedUse(caller: Caller, publisher: Publisher, listing: Plugin
 
 
 export function replyView(r: PluginReviewReply, publisher: Pick<Publisher, 'displayName'>) {
-  return { bodyHtml: r.bodyHtml, publisherDisplayName: publisher.displayName, createdAt: iso(r.createdAt)!, updatedAt: iso(r.updatedAt)! };
+  return { bodyHtml: r.bodyHtml, publisherDisplayName: publisher.displayName, createdAt: isoOrNull(r.createdAt)!, updatedAt: isoOrNull(r.updatedAt)! };
 }
 
 /** The AUTHOR's view of their own review (includes the markdown, the status and a removal reason). */
@@ -125,8 +126,8 @@ export function ownReviewView(r: PluginReview, reply: PluginReviewReply | null, 
     verifiedUse: r.verifiedUse,
     helpfulCount: r.helpfulCount,
     moderationReason: r.status === 'removed' ? r.moderationReason : null,
-    createdAt: iso(r.createdAt)!,
-    updatedAt: iso(r.updatedAt)!,
+    createdAt: isoOrNull(r.createdAt)!,
+    updatedAt: isoOrNull(r.updatedAt)!,
     reply: reply ? replyView(reply, publisher) : null,
   };
 }

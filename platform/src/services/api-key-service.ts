@@ -18,6 +18,7 @@
  */
 
 import {
+  isoOrNull,
   API_KEY_TOKEN_TTL_SECONDS,
   apiKeyPrefixOf,
   createLogger,
@@ -196,7 +197,7 @@ function toView(
     ipAllowlist: doc.ipAllowlist && doc.ipAllowlist.length > 0 ? [...doc.ipAllowlist] : null,
     createdAt: (doc.createdAt instanceof Date ? doc.createdAt : new Date(doc.createdAt)).toISOString(),
     expiresAt: expiresAt.toISOString(),
-    lastUsedAt: doc.lastUsedAt ? new Date(doc.lastUsedAt).toISOString() : null,
+    lastUsedAt: isoOrNull(doc.lastUsedAt),
     createdFrom: doc.createdUserAgent ?? null,
     createdIp: doc.createdIp ?? null,
     revoked: doc.revoked,

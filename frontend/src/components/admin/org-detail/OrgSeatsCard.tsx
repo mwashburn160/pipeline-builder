@@ -64,11 +64,12 @@ export function OrgSeatsCard({
       }
       seats = n;
     }
-    const result = await form.run(() => api.setOrganizationSeatLimit(orgId, seats));
-    if (result !== null) {
-      setOpen(false);
-      onChanged();
-    }
+    await form.run(() => api.setOrganizationSeatLimit(orgId, seats), {
+      onSuccess: () => {
+        setOpen(false);
+        onChanged();
+      },
+    });
   };
 
   return (

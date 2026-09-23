@@ -108,7 +108,7 @@ describe('putPluginArtifact', () => {
     failOn.CreateBucket = new Error('ECONNREFUSED');
 
     await expect(fresh.putPluginArtifact('org/down.zip', Buffer.from('x')))
-      .rejects.toThrow('Plugins bucket unavailable');
+      .rejects.toThrow('S3 bucket "plugins" unavailable');
 
     // MinIO comes up. Without the reset the memo would hold a resolved "ready"
     // and every later upload would fail NoSuchBucket for the process lifetime.

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { BadgeColor } from '@/components/ui/Badge';
 import { useCallback, useState } from 'react';
 import { History, RotateCcw, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
@@ -33,7 +34,7 @@ interface DeletedRow {
 }
 
 /** Badge tint per sharing level — widest reach is the most prominent. */
-const VISIBILITY_BADGE_COLOR: Record<string, 'blue' | 'green' | 'gray'> = {
+const VISIBILITY_BADGE_COLOR: Record<string, BadgeColor> = {
   public: 'blue',
   org: 'green',
   private: 'gray',

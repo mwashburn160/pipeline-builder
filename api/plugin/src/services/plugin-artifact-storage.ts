@@ -16,29 +16,27 @@
  * because MinIO speaks the S3 API this uses the AWS S3 SDK, so a real-S3 swap is
  * a pure config change (drop the custom endpoint + path-style, supply IAM creds).
  *
- * Config (env) — same names the message service uses, set per-container to this
- * service's bucket + bucket-scoped creds:
- *   S3_ENDPOINT MinIO/S3 endpoint URL (e.g. http://minio:9000). Empty
- *                         ⇒ default AWS S3 (no custom endpoint).
- *   S3_REGION region (default 'us-east-1').
- *   S3_ACCESS_KEY_ID access key.
- *   S3_SECRET_ACCESS_KEY secret key.
- *   S3_BUCKET bucket name (default 'plugins').
- *   S3_FORCE_PATH_STYLE 'true' for MinIO (path-style addressing); default true.
+ * The client itself and the create-bucket-once backstop are api-core's shared
+ * `s3-client` (`@pipeline-builder/api-core/s3`) — the same ones the message
+ * service's attachment storage uses, so the connection config and the
+ * benign-race-vs-real-outage handling cannot drift between the two. This module
+ * keeps only what is plugin's own: the buckets and the key conventions.
+ *
+ * Config (env): `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY_ID` /
+ * `S3_SECRET_ACCESS_KEY` / `S3_FORCE_PATH_STYLE` are read by the shared client;
+ * `S3_BUCKET` (default 'plugins') and `PLUGIN_QUARANTINE_BUCKET` are read here.
  */
 
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import {
-  S3Client,
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
-  HeadBucketCommand,
-  CreateBucketCommand,
 } from '@aws-sdk/client-s3';
-import { createLogger, envStr, envBool } from '@pipeline-builder/api-core';
+import { createLogger, envStr } from '@pipeline-builder/api-core';
+import { ensureBucket, s3Client } from '@pipeline-builder/api-core/s3';
 
 const logger = createLogger('plugin-artifact-storage');
 
@@ -67,74 +65,12 @@ export function pluginArtifactKey(orgId: string, requestId: string): string {
   return `${orgId.toLowerCase()}/${requestId}.zip`;
 }
 
-let client: S3Client | null = null;
-
-/** Lazily build the shared S3 client from env (so tests can run without it). */
-function s3(): S3Client {
-  if (client) return client;
-  const endpoint = envStr('S3_ENDPOINT', '');
-  client = new S3Client({
-    region: envStr('S3_REGION', 'us-east-1'),
-    ...(endpoint ? { endpoint } : {}),
-    // Path-style is required by MinIO (no virtual-host bucket DNS). Harmless
-    // against real S3, but default-on here because MinIO is the default backend.
-    forcePathStyle: envBool('S3_FORCE_PATH_STYLE', true),
-    credentials: {
-      accessKeyId: envStr('S3_ACCESS_KEY_ID', 'minioadmin'),
-      secretAccessKey: envStr('S3_SECRET_ACCESS_KEY', 'minioadmin'),
-    },
-  });
-  return client;
-}
-
-const bucketsReady = new Map<string, Promise<void>>();
-
-/**
- * Ensure the plugins bucket exists (memoized). MinIO — unlike an auto-provisioned
- * S3 bucket — won't create it on first write, so we HEAD it and CREATE on
- * 404/NoSuchBucket. Idempotent + concurrency-safe (single in-flight promise); a
- * benign "already exists" race is swallowed. (minio-init also pre-creates it, so
- * this is a belt-and-braces backstop for a fresh/real-S3 target.)
- */
-async function ensureBucket(bucket: string): Promise<void> {
-  let ready = bucketsReady.get(bucket);
-  if (!ready) {
-    ready = (async () => {
-      try {
-        await s3().send(new HeadBucketCommand({ Bucket: bucket }));
-      } catch {
-        try {
-          await s3().send(new CreateBucketCommand({ Bucket: bucket }));
-          logger.info('Created plugins bucket', { bucket });
-        } catch (err) {
-          // CreateBucket failed — could be a benign race (another replica created it
-          // between our HEAD and CREATE) or a real outage (MinIO unreachable). Re-HEAD
-          // to tell them apart: if it now exists the race is benign; otherwise DON'T
-          // memoize the failure (drop the entry so a later call retries) and fail this
-          // attempt, rather than caching a permanently-broken "ready" for the process
-          // lifetime — every later upload would then fail NoSuchBucket against a MinIO
-          // that came up seconds after boot.
-          try {
-            await s3().send(new HeadBucketCommand({ Bucket: bucket }));
-            logger.warn('Plugins bucket ensure race (now exists, continuing)', { bucket, error: String(err) });
-          } catch {
-            bucketsReady.delete(bucket);
-            throw new Error(`Plugins bucket unavailable: ${String(err)}`);
-          }
-        }
-      }
-    })();
-    bucketsReady.set(bucket, ready);
-  }
-  return ready;
-}
-
 /** Upload a build-context ZIP. Throws on failure — the caller must not enqueue a
  *  build whose context never reached durable storage (a cross-pod build would
  *  then fail to materialize it). */
 export async function putPluginArtifact(key: string, body: Buffer, bucket: string = PLUGIN_ARTIFACT_BUCKET): Promise<void> {
   await ensureBucket(bucket);
-  await s3().send(new PutObjectCommand({
+  await s3Client().send(new PutObjectCommand({
     Bucket: bucket,
     Key: key,
     Body: body,
@@ -148,7 +84,7 @@ export async function putPluginArtifact(key: string, body: Buffer, bucket: strin
  * the worker treats a missing context as a hard build failure.
  */
 export async function getPluginArtifactToFile(key: string, destPath: string, bucket: string = PLUGIN_ARTIFACT_BUCKET): Promise<void> {
-  const out = await s3().send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const out = await s3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   // In Node the SDK returns a Readable; narrow the union and stream to disk.
   await pipeline(out.Body as Readable, createWriteStream(destPath));
 }
@@ -158,7 +94,7 @@ export async function getPluginArtifactToFile(key: string, destPath: string, buc
 export async function deletePluginArtifact(key: string | undefined, bucket: string = PLUGIN_ARTIFACT_BUCKET): Promise<void> {
   if (!key) return;
   try {
-    await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    await s3Client().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   } catch (err) {
     logger.warn('Plugin artifact delete failed (lifecycle rule will expire it)', { key, error: String(err) });
   }

@@ -53,7 +53,7 @@ export function createScanRoutes(): Router {
     const { scans, total } = await complianceScanService.list(filter, orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed compliance scans', { count: scans.length });
     return sendPaginatedNested(res, 'scans', scans, {
-      total, limit, offset, hasMore: offset + scans.length < total,
+      total, limit, offset,
     });
   }));
 

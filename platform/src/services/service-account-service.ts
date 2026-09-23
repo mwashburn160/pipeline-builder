@@ -31,7 +31,7 @@
  */
 
 import { BlockList, isIPv4, isIPv6 } from 'net';
-import { createLogger, TOKEN_SCOPES } from '@pipeline-builder/api-core';
+import { createLogger, isoOrNull, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { QuotaTier, TokenScope } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { apiKeyService, type AccessKeyView } from './api-key-service.js';
@@ -262,7 +262,7 @@ async function viewOf(
     createdBy: doc.createdBy ? String(doc.createdBy) : null,
     createdByEmail: doc.createdByEmail ?? null,
     createdAt: new Date(doc.createdAt).toISOString(),
-    lastUsedAt: doc.lastUsedAt ? new Date(doc.lastUsedAt).toISOString() : null,
+    lastUsedAt: isoOrNull(doc.lastUsedAt),
     keys,
     seatsConsumed: 0,
   };

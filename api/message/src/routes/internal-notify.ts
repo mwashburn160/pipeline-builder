@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireInternalService, SYSTEM_ORG_ID, MESSAGE_PRIORITIES, type MessagePriority } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireInternalService, SYSTEM_ORG_ID, MESSAGE_PRIORITIES, type MessagePriority } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, type MessageInsert } from '@pipeline-builder/pipeline-data';
@@ -77,14 +77,14 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
         subject,
         content,
         ...(body.priority ? { priority: body.priority as MessagePriority } : {}),
-        createdBy: 'system',
-        updatedBy: 'system',
+        createdBy: SYSTEM_ACTOR_ID,
+        updatedBy: SYSTEM_ACTOR_ID,
       };
       // Author as the system tenant (isSuperAdmin → enforceOrgId is a no-op), not
       // the recipient-org scope the service token carries. See the class doc.
       const message = await runWithTenantContext(
         { orgId: SYSTEM_ORG_ID, isSuperAdmin: true },
-        () => messageService.create(data, 'system'),
+        () => messageService.create(data, SYSTEM_ACTOR_ID),
       );
       incCounter('message_events_total', { action: 'created' });
 

@@ -23,6 +23,7 @@
  */
 
 import {
+  isoOrNull,
   ANONYMOUS_ACTOR_ID,
   ConflictError,
   createLogger,
@@ -57,7 +58,7 @@ import { listingUrl, statusUrl, submissionConfig } from './submission-config.js'
 import { hashEmail, statusTokenFor, submitterEmail } from './submission-guards.js';
 import { listingOwnerHash, submissions } from './submissions-store.js';
 import { dropQuarantineArtifacts, submissionNameGate } from './submissions.js';
-import { emailPurgeAt, isActiveListing, iso } from './util.js';
+import { emailPurgeAt, isActiveListing } from './util.js';
 
 const logger = createLogger('ecosystem-submission-moderation');
 
@@ -348,7 +349,7 @@ export async function submissionReviewContext(r: PluginPublishRequest) {
     version: s.version,
     newListing: !listing,
     submittedAt: new Date(s.createdAt).toISOString(),
-    verifiedAt: iso(s.verifiedAt),
+    verifiedAt: isoOrNull(s.verifiedAt),
     gateReport: report,
     heuristics: s.heuristics ?? null,
     // The quarantined build's signed SBOM and a fresh grype report (console routes, moderators only).

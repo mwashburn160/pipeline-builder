@@ -59,6 +59,10 @@ describe('AuditPage — verify integrity gating', () => {
     authGuard.isSuperAdmin = true;
     render(<AuditPage />);
     expect(await screen.findByRole('button', { name: /verify integrity/i })).toBeInTheDocument();
+    // The button renders before the list read settles; wait for the list — and
+    // for the URL-sync pass that follows it — so both land inside this test.
+    expect(await screen.findByText(/no matching audit events/i)).toBeInTheDocument();
+    await waitFor(() => expect(listAuditEvents).toHaveBeenCalledTimes(1));
   });
 
   it('hides the Verify integrity button for an org-admin', async () => {
@@ -152,6 +156,12 @@ describe('AuditPage — ecosystem / moderation quick filters', () => {
     fireEvent.click(moderation);
     expect(moderation).toHaveAttribute('aria-pressed', 'true');
     expect(denied).toHaveAttribute('aria-pressed', 'false');
+    // Each chip re-reads the list; wait for the last one so it lands here.
+    await waitFor(() => expect(routerReplace).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: expect.objectContaining({ group: 'moderation' }) }),
+      undefined,
+      { shallow: true },
+    ));
   });
 });
 

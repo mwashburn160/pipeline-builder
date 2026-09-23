@@ -4,6 +4,7 @@
 import { getAvailableProviders } from '@pipeline-builder/ai-core';
 import {
   createLogger,
+  envInt,
   errorMessage,
   handleAIError,
   initSSEStream,
@@ -171,7 +172,12 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
     ...createAuthenticatedWithOrgRoute(),
     requirePermission('pipelines:write'),
     requireFeature('ai_generation'),
-    rateLimitByOrg({ name: 'pipeline-generate', max: 20, windowMs: 60_000, message: 'Too many pipeline generation requests, please slow down.' }),
+    rateLimitByOrg({
+      name: 'pipeline-generate',
+      max: envInt('PIPELINE_GENERATE_RATE_LIMIT_PER_MIN', 20, { min: 1 }),
+      windowMs: 60_000,
+      message: 'Too many pipeline generation requests, please slow down.',
+    }),
   ];
 
   // -- GET /providers — list configured AI providers ------------------------

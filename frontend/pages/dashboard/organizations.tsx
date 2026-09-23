@@ -29,6 +29,7 @@ import { RowActionsMenu } from '@/components/organizations/RowActionsMenu';
 import { CreateOrganizationFlow } from '@/components/organizations/CreateOrganizationFlow';
 import { ChangeTierDialog } from '@/components/organizations/ChangeTierDialog';
 import api from '@/lib/api';
+import { continueAfterStepUp } from '@/lib/api/errors';
 // Every refresh below follows a write, so the shared org list the audit page,
 // quota picker, IdP roster and org pickers read from must be dropped too.
 import { invalidate } from '@/lib/api-cache';
@@ -420,14 +421,23 @@ export default function OrganizationsPage() {
             </p>
           )}
           onConfirmed={async (stepUpToken) => {
+            // Step-up gated, so this dialog IS the confirmation — there is no
+            // DeleteConfirmModal triplet for `useDelete` to fold away. The
+            // replay still matters: a refused-again token hands the refusal to
+            // the global dialog, and the list must catch up when it lands.
+            const done = () => {
+              invalidate.organizations(); list.refresh();
+              toast.success(`${pendingDeleteOrg.name} deleted`);
+            };
             try {
               const res = await api.deleteOrganization(pendingDeleteOrg.id, stepUpToken);
               if (!res.success) throw new Error(res.message || 'Delete failed');
-              invalidate.organizations(); list.refresh();
-              toast.success(`${pendingDeleteOrg.name} deleted`);
             } catch (err) {
+              if (continueAfterStepUp(err, done)) return;
               list.setError(formatError(err, 'Failed to delete organization'));
+              return;
             }
+            done();
           }}
           onClose={() => setPendingDeleteOrg(null)}
         />

@@ -85,6 +85,10 @@ beforeEach(() => {
   api.patchOwnOrgIdpConfig.mockImplementation(async (_o: string, patch: Partial<OrgIdpConfigDto>) => ({ success: true, data: { config: { ...SAML, ...patch } } }));
 });
 
+/** Every step reads from the server (SP values, verified domains). Waiting for
+ *  the spinners to go keeps those reads inside the test that triggered them. */
+const settled = () => waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
+
 /** The page's role: hold the config and hand saves back in. */
 function Harness({ initial = null as OrgIdpConfigDto | null }) {
   const [config, setConfig] = useState<OrgIdpConfigDto | null>(initial);
@@ -108,6 +112,7 @@ describe('the wizard', () => {
     // Step 3: the SAML form, pre-filled with Entra's attribute names.
     expect(screen.getByLabelText(/Email attribute/i)).toHaveValue('http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress');
     expect(screen.queryByLabelText(/^Protocol$/)).not.toBeInTheDocument();
+    await settled();
   });
 
   it('saves the details (created disabled) and moves on to the domains step', async () => {
@@ -123,6 +128,7 @@ describe('the wizard', () => {
     await waitFor(() => expect(api.putOwnOrgIdpConfig).toHaveBeenCalled());
     expect(api.putOwnOrgIdpConfig.mock.calls[0][1]).toMatchObject({ protocol: 'saml', enabled: false });
     expect(await screen.findByRole('checkbox', { name: 'acme.com' })).toBeInTheDocument();
+    await settled();
   });
 
   it('saves a domain pick through the step-up, then opens the test step', async () => {
@@ -133,24 +139,27 @@ describe('the wizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(api.patchOwnOrgIdpConfig).toHaveBeenCalledWith('org-1', { allowedEmailDomains: ['acme.com'] }, 'tok'));
     expect(await screen.findByRole('button', { name: /^Test connection$/ })).toBeInTheDocument();
+    await settled();
   });
 });
 
 describe('the wizard — keyboard and screen-reader', () => {
-  it('names itself as a region', () => {
+  it('names itself as a region', async () => {
     render(<Harness initial={SAML} />);
     expect(screen.getByRole('region', { name: /single sign-on setup/i })).toBeInTheDocument();
+    await settled();
   });
 
-  it('announces each step from a live region that was already on the page', () => {
+  it('announces each step from a live region that was already on the page', async () => {
     render(<Harness initial={SAML} />);
     const live = screen.getByRole('status');
     expect(live).toHaveTextContent('Step 1 of 6: Protocol & provider');
     fireEvent.click(screen.getByRole('button', { name: /4\s*Domains/ }));
     expect(live).toHaveTextContent('Step 4 of 6: Domains');
+    await settled();
   });
 
-  it('moves focus to the new step\'s heading — steps 3 and 4 render no Next button', () => {
+  it('moves focus to the new step\'s heading — steps 3 and 4 render no Next button', async () => {
     render(<Harness initial={SAML} />);
     // Opening the wizard must not steal focus.
     expect(document.activeElement).toBe(document.body);
@@ -158,6 +167,7 @@ describe('the wizard — keyboard and screen-reader', () => {
     expect(document.activeElement).toHaveTextContent('Step 3 of 6: Identity-provider details');
     fireEvent.click(screen.getByRole('button', { name: /4\s*Domains/ }));
     expect(document.activeElement).toHaveTextContent('Step 4 of 6: Domains');
+    await settled();
   });
 
   it('the domains step cannot be submitted twice while the save is in flight', async () => {
@@ -175,6 +185,7 @@ describe('the wizard — keyboard and screen-reader', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save and continue/ }));
     expect(api.patchOwnOrgIdpConfig).toHaveBeenCalledTimes(1);
     await act(async () => { release({ success: true, data: { config: SAML } }); });
+    await settled();
   });
 });
 
@@ -216,6 +227,7 @@ describe('test connection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /6\s*Enable/ }));
     expect(screen.getByRole('switch', { name: /Require single sign-on/ })).not.toBeDisabled();
+    await settled();
   });
 
   it('explains a failed test in prose, never the raw reason code', async () => {
@@ -230,6 +242,7 @@ describe('test connection', () => {
     expect(await screen.findByTestId('sso-test-report')).toHaveTextContent(/Test failed\./);
     expect(screen.getByTestId('sso-test-report')).not.toHaveTextContent('domain_not_verified');
     expect(screen.getByTestId('sso-test-report')).toHaveTextContent(/Verify the domain/);
+    await settled();
   });
 
   it('announces the outcome through a live region that was already on the page', async () => {
@@ -246,6 +259,7 @@ describe('test connection', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Test connection$/ })); });
     await post({ type: 'pb-sso-test', state: 'ssotest.n.sig' });
     await waitFor(() => expect(live).toHaveTextContent(/Test succeeded/));
+    await settled();
   });
 
   it('says so when pop-ups are blocked, starting nothing', async () => {
@@ -256,16 +270,18 @@ describe('test connection', () => {
     // Once in the alert, once in the live region that announces it.
     expect(screen.getAllByText(/Allow pop-ups/)).toHaveLength(2);
     expect(api.startSsoTest).not.toHaveBeenCalled();
+    await settled();
   });
 });
 
 describe('"SSO required"', () => {
-  it('is locked until the connection is enabled and a test has passed on the current protocol', () => {
+  it('is locked until the connection is enabled and a test has passed on the current protocol', async () => {
     expect(ssoRequiredBlocker(SAML)).toMatch(/Enable the connection/);
     expect(ssoRequiredBlocker({ ...SAML, enabled: true })).toMatch(/successful test/);
     expect(ssoRequiredBlocker({ ...SAML, enabled: true, lastTest: { at: 'x', ok: false, protocol: 'saml' } })).toMatch(/failed/);
     expect(ssoRequiredBlocker({ ...SAML, enabled: true, lastTest: { at: 'x', ok: true, protocol: 'oidc' } })).toMatch(/current protocol/);
     expect(ssoRequiredBlocker({ ...SAML, enabled: true, lastTest: { at: 'x', ok: true, protocol: 'saml' } })).toBeNull();
+    await settled();
   });
 
   it('switches through the strong step-up and states the owner break-glass', async () => {
@@ -276,16 +292,18 @@ describe('"SSO required"', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
     await waitFor(() => expect(api.patchOwnOrgIdpConfig).toHaveBeenCalledWith('org-1', { ssoRequired: true }, 'tok'));
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ ssoRequired: true }));
+    await settled();
   });
 
-  it('can always be switched off', () => {
+  it('can always be switched off', async () => {
     render(<SsoRequiredToggle orgId="org-1" config={{ ...SAML, ssoRequired: true }} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('switch', { name: /Require single sign-on/ })).not.toBeDisabled();
+    await settled();
   });
 });
 
 describe('the configured-org summary', () => {
-  it('shows the state and routes Edit / Change / Resume to the right wizard step', () => {
+  it('shows the state and routes Edit / Change / Resume to the right wizard step', async () => {
     const onEdit = jest.fn<AnyFn>();
     render(<SsoStatusSummary orgId="org-1" config={SAML} readOnly={false} onSaved={jest.fn<AnyFn>()} onEdit={onEdit} />);
     expect(screen.getByText('Disabled')).toBeInTheDocument();
@@ -298,11 +316,13 @@ describe('the configured-org summary', () => {
     expect(onEdit).toHaveBeenLastCalledWith(4);
     fireEvent.click(screen.getByRole('button', { name: /Resume setup/ }));
     expect(onEdit).toHaveBeenLastCalledWith(5);
+    await settled();
   });
 
-  it('resumes at the enable step once a test has passed', () => {
+  it('resumes at the enable step once a test has passed', async () => {
     expect(resumeStep({ ...SAML, lastTest: { at: 'x', ok: true, protocol: 'saml' } })).toBe(6);
     expect(resumeStep(SAML)).toBe(5);
+    await settled();
   });
 });
 
@@ -324,13 +344,14 @@ describe('SsoConnectionFlow — the one shape for an org AND a team', () => {
     );
   }
 
-  it('opens the wizard while nothing is configured', () => {
+  it('opens the wizard while nothing is configured', async () => {
     render(<FlowHarness />);
     expect(screen.getByText('Set up single sign-on')).toBeInTheDocument();
     expect(screen.queryByTestId('sso-summary')).not.toBeInTheDocument();
+    await settled();
   });
 
-  it('shows the summary for a configured org, and Edit reopens the wizard at that step', () => {
+  it('shows the summary for a configured org, and Edit reopens the wizard at that step', async () => {
     render(<FlowHarness initial={SAML} />);
     expect(screen.getByTestId('sso-summary')).toBeInTheDocument();
 
@@ -339,6 +360,7 @@ describe('SsoConnectionFlow — the one shape for an org AND a team', () => {
     expect(screen.getByText(/Step 4 of 6/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Close/ }));
     expect(screen.getByTestId('sso-summary')).toBeInTheDocument();
+    await settled();
   });
 
   it('stays in the wizard at the domains step after the FIRST save', async () => {
@@ -353,9 +375,10 @@ describe('SsoConnectionFlow — the one shape for an org AND a team', () => {
 
     expect(await screen.findByText(/Step 4 of 6/)).toBeInTheDocument();
     expect(screen.queryByTestId('sso-summary')).not.toBeInTheDocument();
+    await settled();
   });
 
-  it('returns to step 1 after a disconnect, never to a step only a saved connection has', () => {
+  it('returns to step 1 after a disconnect, never to a step only a saved connection has', async () => {
     render(<FlowHarness initial={SAML} />);
     fireEvent.click(screen.getByRole('button', { name: /Change/ }));
     expect(screen.getByText(/Step 4 of 6/)).toBeInTheDocument();
@@ -363,6 +386,7 @@ describe('SsoConnectionFlow — the one shape for an org AND a team', () => {
     fireEvent.click(screen.getByRole('button', { name: 'disconnect' }));
     expect(screen.getByText(/Step 1 of 6/)).toBeInTheDocument();
     expect(screen.getByText('Set up single sign-on')).toBeInTheDocument();
+    await settled();
   });
 
   it('passes the org it was given — a TEAM id — to every call it makes', async () => {
@@ -371,5 +395,6 @@ describe('SsoConnectionFlow — the one shape for an org AND a team', () => {
     // A step already behind the current one shows a tick instead of its number.
     fireEvent.click(screen.getByRole('button', { name: /Service-provider values/ }));
     await waitFor(() => expect(api.getOwnOrgIdpSpInfo).toHaveBeenCalledWith('team-7', expect.anything()));
+    await settled();
   });
 });

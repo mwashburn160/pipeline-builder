@@ -53,8 +53,7 @@ export function EditDiscountModal({ discount, onClose, onSaved }: EditDiscountMo
     };
     if (maxR !== undefined) body.maxRedemptions = maxR;
     if (editRedeemBy.trim()) body.redeemBy = new Date(editRedeemBy.trim()).toISOString();
-    const result = await editForm.run(() => api.updateDiscount(discount.id, body));
-    if (result !== null) onSaved();
+    await editForm.run(() => api.updateDiscount(discount.id, body), { onSuccess: () => onSaved() });
   };
 
   return (

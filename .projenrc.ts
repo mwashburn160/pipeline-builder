@@ -458,6 +458,8 @@ const apiCore = new PackageProject({
     // only when a service configures REDIS_URL/REDIS_SENTINELS, so it stays optional
     // at runtime; declared here so the require resolves in every consumer.
     'ioredis@6.0.0',
+    // @aws-sdk/client-s3: the shared S3/MinIO client behind the `./s3` subpath.
+    '@aws-sdk/client-s3@3.1136.0',
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/jsonwebtoken@9.0.10',
@@ -475,7 +477,11 @@ publishToNpm(apiCore);
 // audit provenance + the org-settings allowlist) are dependency-free and imported by the BROWSER — the frontend
 // consumes them directly instead of keeping hand-maintained mirrors. `./testing` is the test-helper entry (src/testing):
 // never part of the root barrel, and dropped from the packed package below so
-// no service image ships it. `./lib/*` stays open because tests deep-import
+// no service image ships it. `./s3` is the shared S3/MinIO client +
+// bucket-ensure: deliberately OUT of the root barrel, because only the two
+// blob-storage services (message attachments, plugin build contexts) need it
+// and the S3 SDK is a large eager import the other services must not pay for at
+// boot. `./lib/*` stays open because tests deep-import
 // internals the root barrel narrows away (e.g. `lib/services/service-keys.js`).
 apiCore.package.addField('exports', {
   '.': { types: './lib/index.d.ts', default: './lib/index.js' },
@@ -485,6 +491,7 @@ apiCore.package.addField('exports', {
   './plugin-catalog': { types: './lib/types/plugin-catalog.d.ts', default: './lib/types/plugin-catalog.js' },
   './ask-proposals': { types: './lib/types/ask-proposals.d.ts', default: './lib/types/ask-proposals.js' },
   './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
+  './s3': { types: './lib/services/s3-client.d.ts', default: './lib/services/s3-client.js' },
   './lib/*': './lib/*',
   './package.json': './package.json',
 });

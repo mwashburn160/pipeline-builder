@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
-import { formatError, formatEnvelopeError } from '@/lib/constants';
+import { formatError } from '@/lib/constants';
 import type { BulkCreateResult, BulkPipelineSpec } from '@/lib/api/domains/pipelines';
 
 /**
@@ -72,7 +72,7 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
           toast.error(`${created} created, ${failed} failed`);
         }
       } else {
-        setError(formatEnvelopeError(res, 'Bulk create failed'));
+        setError(res.message || 'Bulk create failed');
       }
     } catch (err) {
       setError(formatError(err, 'Bulk create failed'));

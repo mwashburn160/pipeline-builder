@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { BadgeColor } from '@/components/ui/Badge';
 import { PERMISSION_CATALOG, READ_ONLY_PERMISSIONS, permissionLabel } from '@pipeline-builder/api-core/permissions';
 import type { CredentialStatus } from '@/lib/api/domains/auth';
 
@@ -23,7 +24,7 @@ export const TOKEN_SCOPE_OPTIONS: ReadonlyArray<{ value: string; label: string }
 
 /** Badge tone for a credential's lifecycle status. Shared by the access-key
  *  table and the machine-token history so the two can't drift. */
-export const CREDENTIAL_STATUS_COLOR: Record<CredentialStatus, 'green' | 'gray' | 'red'> = {
+export const CREDENTIAL_STATUS_COLOR: Record<CredentialStatus, BadgeColor> = {
   active: 'green',
   expired: 'gray',
   revoked: 'red',

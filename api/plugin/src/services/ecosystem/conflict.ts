@@ -24,7 +24,7 @@ const NO_CONFLICT: Conflict = { conflict: false, reason: null };
 let membershipProbe: (orgId: string, userId: string) => Promise<boolean | undefined> = (orgId, userId) => {
   const { services } = Config.get('server');
   return fetchOrgMembership(orgId, userId, {
-    service: { host: services.platformHost, port: services.platformPort, timeout: 5_000 },
+    service: { host: services.platformHost, port: services.platformPort },
     serviceName: 'plugin',
     authOrgId: SYSTEM_ORG_ID,
   });

@@ -162,12 +162,13 @@ export default function PromotionsPage() {
         referrerValue: unit === 'percent' ? Number(referrerValue.trim()) : Math.round(Number(referrerValue.trim()) * 100),
       }),
     };
-    const result = await createForm.run(() => api.createPromotion(body));
-    if (result) {
-      toast.success('Promotion created');
-      setCreateOpen(false);
-      list.refresh();
-    }
+    await createForm.run(() => api.createPromotion(body), {
+      onSuccess: () => {
+        toast.success('Promotion created');
+        setCreateOpen(false);
+        list.refresh();
+      },
+    });
   };
 
   // ── Row actions ─────────────────────────────────────────
@@ -234,13 +235,14 @@ export default function PromotionsPage() {
   const handleGrant = async () => {
     const org = grantOrg.trim();
     if (!grantFor || !org) return;
-    const result = await grantForm.run(() => api.grantPromotion(grantFor.id, org));
-    if (result) {
-      const r = result.data?.result;
-      toast[r?.granted ? 'success' : 'info'](r?.granted ? `Granted ${formatCents(r.cents ?? 0)}` : `Not granted: ${r?.reason ?? 'unknown'}`);
-      setGrantFor(null);
-      list.refresh();
-    }
+    await grantForm.run(() => api.grantPromotion(grantFor.id, org), {
+      onSuccess: (result) => {
+        const r = result.data?.result;
+        toast[r?.granted ? 'success' : 'info'](r?.granted ? `Granted ${formatCents(r.cents ?? 0)}` : `Not granted: ${r?.reason ?? 'unknown'}`);
+        setGrantFor(null);
+        list.refresh();
+      },
+    });
   };
 
   // ── Mass grant / revoke confirmation ────────────────────

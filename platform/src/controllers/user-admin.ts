@@ -1,13 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { listPage, paginationMeta } from '../helpers/pagination.js';
+import { listPage } from '../helpers/pagination.js';
 import { formatUserResponse, toOverridesRecord, type OrgMembership, type OrgSummary } from '../helpers/user-response.js';
 import { Organization } from '../models/index.js';
 import { userAdminService } from '../services/index.js';
@@ -122,7 +122,7 @@ export const listAllUsers = withController('List users', async (req, res) => {
 
   sendSuccess(res, 200, {
     users: usersWithOrg,
-    pagination: paginationMeta(total, offset, limitNum),
+    pagination: paginationMeta({ total, offset, limit: limitNum }),
   });
 });
 

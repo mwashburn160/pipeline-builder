@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { envInt, createLogger, getServiceAuthHeader, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, envInt, createLogger, getServiceAuthHeader, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
@@ -48,7 +48,7 @@ export function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMess
   const isTimeout = /timed out|timeout/i.test(causeText);
   recordAudit({
     action: isTimeout ? 'plugin.build.timeout' : 'plugin.build.failed',
-    actorId: userId ?? 'system',
+    actorId: userId ?? SYSTEM_ACTOR_ID,
     orgId,
     targetType: 'plugin',
     details: {

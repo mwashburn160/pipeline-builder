@@ -35,9 +35,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createComplianceClient: () => ({ validatePlugin: mockValidatePlugin }),
 }));
 
+// The REAL reservation helper (its api-core calls hit this file's api-core mock).
+let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => {
   const pass = (_req: unknown, _res: unknown, next: () => void) => next();
   return stubModule('@pipeline-builder/api-server', {
+    withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
     requireOrgId: () => pass,
     withTenantContext: () => pass,
     rateLimitByOrg: () => pass,
@@ -70,6 +73,7 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ callerFromRequest: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: jest.fn() }));
 
+({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createUploadPluginRoutes } = await import('../src/routes/upload-plugin.js');
 
 const sse = { bindStreamOwner: jest.fn(async () => undefined) };

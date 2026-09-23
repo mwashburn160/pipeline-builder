@@ -84,7 +84,12 @@ function mockCatalog(rules: PublishedRuleCatalogEntry[]) {
 
 async function openCatalog() {
   render(<SubscriptionManager />);
+  // Let the subscriptions read (fired on mount) settle before switching tabs,
+  // then let the catalog read settle — otherwise one of them lands after the
+  // test body has finished.
+  await waitFor(() => expect(screen.queryByLabelText('Loading catalog')).not.toBeInTheDocument());
   fireEvent.click(await screen.findByRole('tab', { name: /browse catalog/i }));
+  await waitFor(() => expect(screen.queryByLabelText('Loading catalog')).not.toBeInTheDocument());
 }
 
 beforeEach(() => {

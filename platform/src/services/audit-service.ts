@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { paginationMeta, type PaginationMeta } from '@pipeline-builder/api-core';
 import { appendAuditEvent } from '../helpers/audit-chain.js';
-import { paginationMeta, type PaginationMeta } from '../helpers/pagination.js';
 import AuditEvent, { type AuditEventData, type StoredAuditEvent } from '../models/audit-event.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -139,7 +139,7 @@ class AuditService {
 
     return {
       events,
-      pagination: paginationMeta(total, offset, limit),
+      pagination: paginationMeta({ total, offset, limit }),
     };
   }
 

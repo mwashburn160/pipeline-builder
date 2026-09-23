@@ -9,6 +9,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useQuery } from '@/hooks/useQuery';
 import { queries } from '@/lib/api-cache';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 
 /** Rows fetched per keystroke — a picker, not a listing. */
@@ -42,27 +43,30 @@ export function useOrgNames(ids: readonly string[], enabled = true): Map<string,
   }, [res.data]);
 }
 
-/** Server-side name/slug search over every org (sysadmin). */
+/**
+ * Server-side name/slug search over every org (sysadmin).
+ *
+ * `clearDataOnError` because this is a typeahead: keeping the last good answer
+ * would leave options from a query the person has moved on from sitting next to
+ * the error that says the search failed.
+ */
 function useOrgSearch(query: string, active: boolean) {
-  const [options, setOptions] = useState<OrgRef[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!active) return;
-    const ctrl = new AbortController();
-    setLoading(true);
-    setError(null);
-    api.listOrganizations({ ...(query ? { search: query } : {}), limit: SEARCH_PAGE }, { signal: ctrl.signal })
-      .then((res) => {
-        if (ctrl.signal.aborted) return;
-        setOptions((res.data?.organizations ?? []).map((o) => ({ id: o.id, name: o.name })));
-      })
-      .catch((e) => { if (!ctrl.signal.aborted) { setOptions([]); setError(formatError(e, 'Search failed')); } })
-      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
-    return () => ctrl.abort();
-  }, [query, active]);
-  return { options, loading, error };
+  const res = useFetch(
+    async (signal) => {
+      const r = await api.listOrganizations({ ...(query ? { search: query } : {}), limit: SEARCH_PAGE }, { signal });
+      return (r.data?.organizations ?? []).map((o) => ({ id: o.id, name: o.name } as OrgRef));
+    },
+    [query, active],
+    { enabled: active, clearDataOnError: true },
+  );
+  return {
+    options: res.data ?? NO_OPTIONS,
+    loading: res.loading,
+    error: res.error ? formatError(res.error, 'Search failed') : null,
+  };
 }
+
+const NO_OPTIONS: OrgRef[] = [];
 
 interface OrgPickerProps {
   /** The selected org id, or `none.value`. */
@@ -152,7 +156,7 @@ export function OrgPicker({
             </button>
           ))}
           {search.loading && <div className="px-3 py-2 text-fg-muted" role="status">Searching…</div>}
-          {!search.loading && search.error && <div className="px-3 py-2 text-danger">{search.error}</div>}
+          {!search.loading && search.error && <div role="alert" className="px-3 py-2 text-danger">{search.error}</div>}
           {!search.loading && !search.error && search.options.length === 0 && (
             <div className="px-3 py-2 text-fg-muted">No matching organizations.</div>
           )}
@@ -250,7 +254,7 @@ export function OrgMultiPicker({ value, onChange, disabled, className = '', 'ari
             );
           })}
           {search.loading && <div className="px-3 py-2 text-fg-muted" role="status">Searching…</div>}
-          {!search.loading && search.error && <div className="px-3 py-2 text-danger">{search.error}</div>}
+          {!search.loading && search.error && <div role="alert" className="px-3 py-2 text-danger">{search.error}</div>}
         </div>
       )}
     </div>

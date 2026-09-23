@@ -156,12 +156,15 @@ export function OrgSsoSettings({
     const write = pendingWrite;
     setPendingWrite(null);
     if (!write) return;
-    const res = await form.run(() => write(stepUpToken), { successMessage: config ? 'SSO configuration saved.' : 'SSO configuration created.' });
-    const saved = res?.data?.config;
-    if (saved) {
-      setClientSecret('');
-      onSaved(saved);
-    }
+    await form.run(() => write(stepUpToken), {
+      successMessage: config ? 'SSO configuration saved.' : 'SSO configuration created.',
+      onSuccess: (res) => {
+        const saved = res?.data?.config;
+        if (!saved) return;
+        setClientSecret('');
+        onSaved(saved);
+      },
+    });
   };
 
   const body = (

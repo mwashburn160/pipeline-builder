@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, isoOrNull, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
 import { eq, sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
@@ -757,7 +757,7 @@ export class ReportingService {
     if (!row) return null;
     return {
       updatedAt: row.updatedAt.toISOString(),
-      lastEventAt: row.lastEventAt ? row.lastEventAt.toISOString() : null,
+      lastEventAt: isoOrNull(row.lastEventAt),
       forwarded: row.forwarded ?? null,
       dropped: row.dropped ?? null,
     };

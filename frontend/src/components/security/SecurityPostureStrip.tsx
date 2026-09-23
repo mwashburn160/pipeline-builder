@@ -197,9 +197,13 @@ export function SecurityPostureStrip({ user }: { user: User }) {
   // the same session list, so the page issued five requests for three answers.
   const totp = useQuery(queries.totpStatus(), { enabled: hasTotp });
   const sessions = useQuery(queries.sessions());
+  // Gated with `enabled`, not with a fetcher that returns null: a viewer who
+  // can't read the IdP config would otherwise still pay a full async round trip
+  // whose only effect is flipping `loading` back off.
   const sso = useFetch(
-    async (signal) => (canReadSso ? { config: (await api.getOwnOrgIdpConfig(orgId!, { signal })).data?.config ?? null } : null),
-    [canReadSso, orgId],
+    async (signal) => ({ config: (await api.getOwnOrgIdpConfig(orgId!, { signal })).data?.config ?? null }),
+    [orgId],
+    { enabled: canReadSso },
   );
 
   const items = derivePosture({

@@ -27,7 +27,7 @@ type Fetcher = (orgId: string) => Promise<string[]>;
 const cache = new TtlCache<ReadonlySet<string>>(MAX_ENTRIES, TTL_MS);
 
 const liveFetcher: Fetcher = async (orgId) => {
-  const client = new InternalHttpClient({ ...serviceEndpoint('plugin'), timeout: 5_000 });
+  const client = new InternalHttpClient(serviceEndpoint('plugin'));
   const res = await client.get<{ data?: { names?: unknown } }>(`/internal/plugins/public-names?orgId=${encodeURIComponent(orgId)}`, {
     headers: { Authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) },
   });

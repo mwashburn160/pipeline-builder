@@ -72,7 +72,7 @@ export function createExemptionRoutes(): Router {
     const { exemptions, total } = await complianceExemptionService.list(filter, orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed exemptions', { count: exemptions.length });
     return sendPaginatedNested(res, 'exemptions', exemptions, {
-      total, limit, offset, hasMore: offset + exemptions.length < total,
+      total, limit, offset,
     });
   }));
 

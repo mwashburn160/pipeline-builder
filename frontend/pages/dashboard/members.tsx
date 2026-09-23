@@ -122,14 +122,9 @@ export default function MembersPage() {
     refreshList();
   }, [orgId, refreshList]);
 
-  // Add member
+  // Add member — the modal owns the email, the team picker and the write; the
+  // page only says whether it is open.
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [addEmail, setAddEmail] = useState('');
-  const addForm = useFormState();
-  // Optional "also add to teams" picker shown in the Add Member modal when the
-  // active org parents teams (org → team hierarchy).
-  const [addTeamRoster, setAddTeamRoster] = useState<{ orgId: string; orgName: string }[]>([]);
-  const [addSelectedTeams, setAddSelectedTeams] = useState<Set<string>>(new Set());
 
   // Roles (org permission-set assignments). A member's access is the union of
   // their assigned Roles; the coarse owner/admin/member `role` is derived from
@@ -145,9 +140,8 @@ export default function MembersPage() {
     onRolesChanged: () => refreshRoster(),
   });
 
-  // Create organization
+  // Create team — the modal owns the name and the write.
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
-  const [newOrgName, setNewOrgName] = useState('');
   // The team just created here, if any — drives the "what now?" banner.
   const [newTeam, setNewTeam] = useState<{ orgId: string; orgName: string } | null>(null);
   // Teams nest one level: only a root org can parent a team, so the "Create
@@ -181,8 +175,6 @@ export default function MembersPage() {
   }, [user?.organizationId, canManageMembers, list.pagination.total]);
   const seatUsage = seatQ.data;
   const seatLoadWarning = !!seatQ.error;
-
-  const createOrgForm = useFormState();
 
   // Manage teams (org → team hierarchy: a member can belong to multiple teams).
   // Only meaningful when the active org is a root that parents teams.
@@ -225,43 +217,7 @@ export default function MembersPage() {
     () => list.setError('Failed to remove member'),
   );
 
-  // Open the Add Member modal, resetting form state and (for orgs that parent
-  // teams) loading the team roster so the admin can also place the new member
-  // on teams in one step.
-  const openAddModal = async () => {
-    setAddEmail('');
-    setAddSelectedTeams(new Set());
-    setAddTeamRoster([]);
-    addForm.reset();
-    setAddModalOpen(true);
-    if (canManageTeams && orgId) {
-      try {
-        const res = await api.getOrganizationTeams(orgId);
-        setAddTeamRoster(res.data?.teams ?? []);
-      } catch { /* best-effort — no team picker if it fails */ }
-    }
-  };
-
-  const handleAddMember = async () => {
-    if (!orgId || !addEmail.trim()) return;
-    const email = addEmail.trim().toLowerCase();
-    const result = await addForm.run(
-      () => api.addMemberToOrganization(orgId, { email }),
-    );
-    if (result !== null) {
-      // The user now exists in the org; optionally place them on the selected
-      // teams too (best-effort — a team failure doesn't undo the org add).
-      if (addSelectedTeams.size > 0) {
-        const res = await api.bulkAddMemberToTeams(orgId, { email, orgIds: [...addSelectedTeams], role: 'member' });
-        if (res.success) toast.success(`Added to ${addSelectedTeams.size} team${addSelectedTeams.size === 1 ? '' : 's'}`);
-        else toast.error(res.message || 'Member added, but adding to teams failed');
-      }
-      setAddEmail('');
-      setAddSelectedTeams(new Set());
-      setAddModalOpen(false);
-      refreshRoster();
-    }
-  };
+  const openAddModal = () => setAddModalOpen(true);
 
   // Deactivating a member revokes their access, so it's confirmed first;
   // reactivation is harmless and applies immediately. Both paths toast.
@@ -302,40 +258,12 @@ export default function MembersPage() {
     setDeactivateTarget(null);
   };
 
-  const handleCreateOrg = async () => {
-    const name = newOrgName.trim();
-    if (!name) return;
-    // Create Team only renders on a root org, so the new org always nests under
-    // the active (root) org as a team.
-    const parentOrgId = user?.organizationId;
-    // Teams always inherit the parent's tier server-side, so no tier is sent.
-    const result = await createOrgForm.run(
-      () => api.createOrganization({ name, parentOrgId }),
-    );
-    if (result !== null) {
-      setNewOrgName('');
-      setCreateOrgOpen(false);
-      // The new team belongs in the switcher and in every cached org list.
-      invalidate.organizations();
-      // Pulls the new org into the switcher and bumps `childOrgCount`, which
-      // reveals the Teams list + Manage-teams action (re-running the teams read).
-      await refreshTeams();
-      const created = result.data?.organization;
-      toast.success(parentOrgId ? `Team "${name}" created` : `Organization "${name}" created`);
-      // A team with no members and nothing in it is a dead end, and telling the
-      // user to "switch from the organization switcher (bottom-left)" is an
-      // instruction where a button belongs. Stage the new team so the banner
-      // below offers the two things that actually move it forward.
-      if (parentOrgId && created) setNewTeam({ orgId: created.id, orgName: created.name });
-    }
-  };
-
   // The create-team entry point: shown to a root-org admin whether or not the
   // org has any teams yet (an org with none is precisely the one that needs to
   // find it), and disabled — with the reason in view, not only in a tooltip —
   // when the root's tier can't parent teams.
   const canCreateTeamHere = activeOrgIsRoot && canOrgSettings;
-  const openCreateTeam = () => { setNewOrgName(''); createOrgForm.reset(); setCreateOrgOpen(true); };
+  const openCreateTeam = () => setCreateOrgOpen(true);
   const createTeamBlockedReason = activeOrgCanHaveTeams ? undefined : 'Teams need a Team or Enterprise plan.';
 
   const columns = useMemo(() => buildMemberColumns({
@@ -566,21 +494,14 @@ export default function MembersPage() {
       )}
 
       {/* Add member modal */}
-      <AddMemberModal
-        open={addModalOpen}
-        email={addEmail}
-        onEmailChange={setAddEmail}
-        form={addForm}
-        teamRoster={addTeamRoster}
-        selectedTeams={addSelectedTeams}
-        onToggleTeam={(teamId) => setAddSelectedTeams(prev => {
-          const next = new Set(prev);
-          if (next.has(teamId)) next.delete(teamId); else next.add(teamId);
-          return next;
-        })}
-        onSubmit={handleAddMember}
-        onClose={() => setAddModalOpen(false)}
-      />
+      {addModalOpen && orgId && (
+        <AddMemberModal
+          orgId={orgId}
+          offerTeams={canManageTeams}
+          onAdded={refreshRoster}
+          onClose={() => setAddModalOpen(false)}
+        />
+      )}
 
       {/* Manage Roles — assign/remove the org's Roles for one member. Editing
           access happens here; the coarse Role badge is derived from the result. */}
@@ -597,16 +518,26 @@ export default function MembersPage() {
         onClose={memberRoles.closeRoles}
       />
 
-      {/* Create organization modal */}
-      <CreateOrgModal
-        open={createOrgOpen}
-        orgName={newOrgName}
-        onOrgNameChange={setNewOrgName}
-        form={createOrgForm}
-        activeOrg={activeOrg}
-        onSubmit={handleCreateOrg}
-        onClose={() => setCreateOrgOpen(false)}
-      />
+      {/* Create team modal */}
+      {createOrgOpen && (
+        <CreateOrgModal
+          parentOrg={activeOrg}
+          // Create Team only renders on a root org, so the new team always nests
+          // under the active (root) org.
+          parentOrgId={user?.organizationId}
+          onCreated={(team) => {
+            // Pulls the new org into the switcher and bumps `childOrgCount`, which
+            // reveals the Teams list + Manage-teams action (re-running the teams read).
+            void refreshTeams();
+            // A team with no members and nothing in it is a dead end, and telling the
+            // user to "switch from the organization switcher (bottom-left)" is an
+            // instruction where a button belongs. Stage the new team so the banner
+            // below offers the two things that actually move it forward.
+            setNewTeam(team);
+          }}
+          onClose={() => setCreateOrgOpen(false)}
+        />
+      )}
 
       {/* Manage teams modal — a member can belong to multiple teams */}
       <ManageTeamsModal

@@ -9,7 +9,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
-import { formatEnvelopeError, formatError } from '@/lib/constants';
+import { formatError } from '@/lib/constants';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { IconButton } from '@/components/ui/IconButton';
@@ -214,7 +214,7 @@ export default function TemplatesPage() {
     async (t) => {
       const res = await api.deletePipelineTemplate(t.id);
       // Surface the real reason (permission / not found), not a generic message.
-      if (!res.success) throw new Error(formatEnvelopeError(res, 'Failed to delete template'));
+      if (!res.success) throw new Error(res.message || 'Failed to delete template');
     },
     () => { toast.success('Template deleted'); void fetchAll(); },
     (err) => toast.error(formatError(err, 'Failed to delete template')),

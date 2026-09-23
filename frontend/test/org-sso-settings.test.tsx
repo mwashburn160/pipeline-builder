@@ -89,6 +89,9 @@ describe('OrgSsoSettings', () => {
   it('creates a new connection with PUT, secret included', async () => {
     const onSaved = jest.fn<AnyFn>();
     render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={onSaved} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'cid' } });
     fireEvent.change(screen.getByLabelText(/Client Secret/), { target: { value: 's3cret' } });
     fireEvent.change(screen.getByLabelText('Discovery URL'), { target: { value: stored.discoveryUrl } });
@@ -110,12 +113,18 @@ describe('OrgSsoSettings', () => {
 
   it('refuses to create without a secret', async () => {
     render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     expect(screen.getByRole('button', { name: /Create SSO config/i })).toBeDisabled();
   });
 
   it('edits an existing connection with PATCH, sending only the changed field (no secret)', async () => {
     const onSaved = jest.fn<AnyFn>();
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={onSaved} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Enabled' }));
 
     fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
@@ -129,6 +138,9 @@ describe('OrgSsoSettings', () => {
 
   it('sends a typed secret as a rotation', async () => {
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     fireEvent.change(screen.getByLabelText(/Client Secret/), { target: { value: 'rotated' } });
     fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
@@ -138,6 +150,9 @@ describe('OrgSsoSettings', () => {
 
   it('sends nothing when nothing changed', async () => {
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     fireEvent.click(screen.getByRole('button', { name: /Save SSO settings/i }));
 
     expect(await screen.findByText(/No changes to save/i)).toBeInTheDocument();
@@ -149,6 +164,9 @@ describe('OrgSsoSettings', () => {
 
   it('shows the SERVER\'s redirect URI with a copy button', async () => {
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     expect(await screen.findByText('https://pb.public/auth/sso/org-1/callback')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /copy to clipboard/i })).toBeInTheDocument();
   });
@@ -162,6 +180,9 @@ describe('OrgSsoSettings', () => {
       ] },
     });
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'acme.com' }));
     expect(screen.queryByRole('checkbox', { name: 'pending.com' })).not.toBeInTheDocument();
     // No free-text domain field any more.
@@ -174,6 +195,9 @@ describe('OrgSsoSettings', () => {
 
   it('links to domain verification when the org has no verified domain', async () => {
     render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     // …at the "Email domains" CARD, not just the tab it is the sixth of.
     expect(await screen.findByRole('link', { name: /verify a domain/i }))
       .toHaveAttribute('href', DOMAIN_SETTINGS_HREF);
@@ -182,6 +206,9 @@ describe('OrgSsoSettings', () => {
 
   it('in the wizard: selects OIDC, creates the connection DISABLED, and leaves domains/enabling to later steps', async () => {
     render(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn<AnyFn>()} wizard={{ presetProvider: 'cognito', submitLabel: 'Save and continue' }} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     expect(screen.getByLabelText('Provider')).toHaveValue('cognito');
     expect(screen.queryByText('Enabled')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'cid' } });
@@ -196,8 +223,11 @@ describe('OrgSsoSettings', () => {
     expect(body).not.toHaveProperty('allowedEmailDomains');
   });
 
-  it('resets to the empty create form when the connection goes away', () => {
+  it('resets to the empty create form when the connection goes away', async () => {
     const { rerender } = render(<OrgSsoSettings orgId="org-1" config={stored} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
+    // The SP redirect URI and the verified-domain list are server reads; wait
+    // for them so they land inside the test rather than after it.
+    await waitFor(() => expect(screen.queryAllByLabelText('Loading')).toHaveLength(0));
     expect(screen.getByLabelText('Client ID')).toHaveValue('cid');
 
     rerender(<OrgSsoSettings orgId="org-1" config={null} readOnly={false} onSaved={jest.fn<AnyFn>()} />);
@@ -222,7 +252,7 @@ describe('SsoDisconnect', () => {
     expect(toastSuccess).toHaveBeenCalledWith('SSO disconnected');
   });
 
-  it('cancelling deletes nothing', () => {
+  it('cancelling deletes nothing', async () => {
     render(<SsoDisconnect orgId="org-1" config={stored} readOnly={false} onDisconnected={jest.fn<AnyFn>()} />);
     fireEvent.click(screen.getByRole('button', { name: /Disconnect SSO/i }));
     fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
@@ -240,7 +270,7 @@ describe('SsoDisconnect', () => {
     expect(onDisconnected).not.toHaveBeenCalled();
   });
 
-  it('is disabled for a read-only session', () => {
+  it('is disabled for a read-only session', async () => {
     render(<SsoDisconnect orgId="org-1" config={stored} readOnly onDisconnected={jest.fn<AnyFn>()} />);
     expect(screen.getByRole('button', { name: /Disconnect SSO/i })).toBeDisabled();
   });

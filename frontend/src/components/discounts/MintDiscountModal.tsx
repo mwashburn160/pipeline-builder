@@ -35,7 +35,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
       createForm.setError('Max redemptions must be 1 or more (leave blank for unlimited).');
       return;
     }
-    const result = await createForm.run(() => api.createDiscount({
+    await createForm.run(() => api.createDiscount({
       code: trimmedCode,
       ...(alias.trim() && { alias: alias.trim() }),
       ...(targetOrgId.trim() && { targetOrgId: targetOrgId.trim() }),
@@ -43,8 +43,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
       ...(maxR !== undefined && { maxRedemptions: maxR }),
       // <input type="date"> yields YYYY-MM-DD; send as an ISO instant.
       ...(redeemBy.trim() && { redeemBy: new Date(redeemBy.trim()).toISOString() }),
-    }));
-    if (result !== null) onCreated();
+    }), { onSuccess: () => onCreated() });
   };
 
   return (

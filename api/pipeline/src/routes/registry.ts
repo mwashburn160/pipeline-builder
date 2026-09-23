@@ -71,7 +71,7 @@ export function createRegistryRoutes(): Router {
     const { rows, total } = await pipelineRegistryService.list(orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed pipeline registry', { count: rows.length });
     return sendPaginatedNested(res, 'registry', rows, {
-      total, limit, offset, hasMore: offset + rows.length < total,
+      total, limit, offset,
     });
   }));
 

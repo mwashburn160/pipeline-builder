@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getParam, isSystemAdmin, sendError, sendSuccess, SYSTEM_ORG_ID, VALID_TIERS } from '@pipeline-builder/api-core';
+import { createLogger, getParam, isSystemAdmin, paginationMeta, sendError, sendSuccess, SYSTEM_ORG_ID, VALID_TIERS } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
   canAccessOrg,
@@ -11,7 +11,7 @@ import {
   withController,
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
-import { listPage, paginationMeta } from '../helpers/pagination.js';
+import { listPage } from '../helpers/pagination.js';
 import type { QuotaTier } from '../models/organization.js';
 import { organizationService, orgHierarchyService, changedAiProviderFields } from '../services/index.js';
 import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';
@@ -48,7 +48,7 @@ export const listAllOrganizations = withController('List organizations', async (
 
   sendSuccess(res, 200, {
     organizations,
-    pagination: paginationMeta(total, offset, limit),
+    pagination: paginationMeta({ total, offset, limit }),
   });
 });
 

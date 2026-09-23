@@ -188,9 +188,86 @@ export function metricsHandler() {
 // histograms — matches Prometheus best-practice.
 // ---------------------------------------------------------------------------
 
-const businessCounters = new Map<string, Counter<string>>();
-const businessHistograms = new Map<string, Histogram<string>>();
-const businessGauges = new Map<string, Gauge<string>>();
+/** The lazy business-metric helpers, bound to one registry. */
+export interface MetricHelpers {
+  incCounter(name: string, labels?: Record<string, string>, value?: number): void;
+  observe(name: string, labels: Record<string, string>, value: number): void;
+  setGauge(name: string, labels: Record<string, string>, value: number): void;
+}
+
+/**
+ * Build `incCounter` / `observe` / `setGauge` over a caller-supplied registry.
+ *
+ * THE one implementation of the lazy counter/histogram/gauge maps. api-server's
+ * own exports below are this factory over its module-level `register`; the
+ * platform service — which runs its own Express setup instead of `createApp`,
+ * and therefore owns a different registry — builds the identical helpers over
+ * its own. Without the factory the two drift: they differ today only in the
+ * histogram buckets, which is exactly the kind of difference nobody notices
+ * until a dashboard reads wrong on one service.
+ *
+ * `registry` may be a thunk, for a registry that is injected after module load
+ * (platform wires its own on app boot). The thunk is called on the FIRST use of
+ * each metric name, never at import time, so building the helpers has no side
+ * effect of its own.
+ */
+export function createMetricHelpers(registry: Registry | (() => Registry)): MetricHelpers {
+  const registryOf = (): Registry => (typeof registry === 'function' ? registry() : registry);
+  const counters = new Map<string, Counter<string>>();
+  const histograms = new Map<string, Histogram<string>>();
+  const gauges = new Map<string, Gauge<string>>();
+
+  return {
+    incCounter(name, labels = {}, value = 1) {
+      let counter = counters.get(name);
+      if (!counter) {
+        counter = new Counter({
+          name,
+          help: humanizeName(name),
+          labelNames: Object.keys(labels),
+          registers: [registryOf()],
+        });
+        counters.set(name, counter);
+      }
+      counter.inc(labels, value);
+    },
+
+    observe(name, labels, value) {
+      let hist = histograms.get(name);
+      if (!hist) {
+        hist = new Histogram({
+          name,
+          help: humanizeName(name),
+          labelNames: Object.keys(labels),
+          // Default buckets target sub-second through several-minute observations.
+          // Override by registering the histogram explicitly before first call
+          // if you need a different bucket distribution.
+          buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300],
+          registers: [registryOf()],
+        });
+        histograms.set(name, hist);
+      }
+      hist.observe(labels, value);
+    },
+
+    setGauge(name, labels, value) {
+      let gauge = gauges.get(name);
+      if (!gauge) {
+        gauge = new Gauge({
+          name,
+          help: humanizeName(name),
+          labelNames: Object.keys(labels),
+          registers: [registryOf()],
+        });
+        gauges.set(name, gauge);
+      }
+      gauge.set(labels, value);
+    },
+  };
+}
+
+/** This service's own helpers, over the shared module-level registry. */
+const businessMetrics = createMetricHelpers(register);
 
 /**
  * Increment a business counter, creating it on first use.
@@ -204,17 +281,7 @@ const businessGauges = new Map<string, Gauge<string>>();
  * ```
  */
 export function incCounter(name: string, labels: Record<string, string> = {}, value = 1): void {
-  let counter = businessCounters.get(name);
-  if (!counter) {
-    counter = new Counter({
-      name,
-      help: humanizeName(name),
-      labelNames: Object.keys(labels),
-      registers: [register],
-    });
-    businessCounters.set(name, counter);
-  }
-  counter.inc(labels, value);
+  businessMetrics.incCounter(name, labels, value);
 }
 
 /**
@@ -228,21 +295,7 @@ export function incCounter(name: string, labels: Record<string, string> = {}, va
  * ```
  */
 export function observe(name: string, labels: Record<string, string>, value: number): void {
-  let hist = businessHistograms.get(name);
-  if (!hist) {
-    hist = new Histogram({
-      name,
-      help: humanizeName(name),
-      labelNames: Object.keys(labels),
-      // Default buckets target sub-second through several-minute observations.
-      // Override by registering the histogram explicitly before first call
-      // if you need a different bucket distribution.
-      buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300],
-      registers: [register],
-    });
-    businessHistograms.set(name, hist);
-  }
-  hist.observe(labels, value);
+  businessMetrics.observe(name, labels, value);
 }
 
 /**
@@ -257,17 +310,7 @@ export function observe(name: string, labels: Record<string, string>, value: num
  * ```
  */
 export function setGauge(name: string, labels: Record<string, string>, value: number): void {
-  let gauge = businessGauges.get(name);
-  if (!gauge) {
-    gauge = new Gauge({
-      name,
-      help: humanizeName(name),
-      labelNames: Object.keys(labels),
-      registers: [register],
-    });
-    businessGauges.set(name, gauge);
-  }
-  gauge.set(labels, value);
+  businessMetrics.setGauge(name, labels, value);
 }
 
 function humanizeName(metricName: string): string {

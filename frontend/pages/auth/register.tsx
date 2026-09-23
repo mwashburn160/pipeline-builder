@@ -154,11 +154,11 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card p-8 max-w-xs text-center" role="status" aria-live="polite">
+        <Card as={motion.div} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-8 max-w-xs text-center" role="status" aria-live="polite">
           <CheckCircle className="w-10 h-10 text-success mx-auto mb-3" />
           <p className="font-bold">Account created!</p>
           <p className="text-sm text-fg-muted mt-1">Redirecting...</p>
-        </motion.div>
+        </Card>
       </div>
     );
   }

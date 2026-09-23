@@ -82,8 +82,7 @@ export function ApplyDiscountModal({ discount, onClose, onApplied }: ApplyDiscou
       applyForm.setError('Enter a target organization id.');
       return;
     }
-    const result = await applyForm.run(() => api.applyDiscountToOrg(discount.id, org));
-    if (result !== null) onApplied(org);
+    await applyForm.run(() => api.applyDiscountToOrg(discount.id, org), { onSuccess: () => onApplied(org) });
   };
 
   return (

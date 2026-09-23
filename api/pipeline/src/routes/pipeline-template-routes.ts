@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  SYSTEM_ACTOR_ID,
   getParam,
   ErrorCode,
   resolveVisibility,
@@ -219,7 +220,7 @@ export function createPipelineTemplateRoutes(): Router {
       inputs: body.inputs ?? [],
       visibility,
       // Owner is always the creator on create (client-supplied ownerId ignored).
-      ownerId: userId ?? 'system',
+      ownerId: userId ?? SYSTEM_ACTOR_ID,
       ownerType: 'user',
       ...(body.lifecycle !== undefined ? { lifecycle: body.lifecycle } : {}),
       ...(body.criticality !== undefined ? { criticality: body.criticality } : {}),

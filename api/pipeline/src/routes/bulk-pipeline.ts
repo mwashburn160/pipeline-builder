@@ -13,7 +13,7 @@ import {
   PipelineCreateSchema,
   PipelineUpdateSchema,
   isSystemAdmin,
-  checkVisibilityWriteAccess,
+  rejectForbiddenBulkRows,
   userHasPermission,
   audited,
   actorId,
@@ -23,7 +23,7 @@ import {
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
 import { buildPipelineUpdateData, createOnePipeline, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
@@ -38,29 +38,6 @@ import { pipelineService, type PipelineUpdate } from '../services/pipeline-servi
  */
 const FullUuid = z.string().uuid();
 const nonUuidIds = (ids: unknown[]): boolean => ids.some((id) => !FullUuid.safeParse(id).success);
-
-/**
- * Refuse a bulk write whose selection includes a row the caller may not modify,
- * ALL-OR-NOTHING: the selection is rejected whole rather than silently applied
- * to the subset that passes, so a user never believes a bulk action touched
- * rows it skipped. `forbidden` ids ride the 403 so the UI can name them.
- *
- * Returns true having ALREADY answered. Applies exactly the single-row rule
- * (`checkVisibilityWriteAccess`): author-only for `private`, any member for
- * `org`, `pipelines:publish` for `public`.
- */
-function rejectForbiddenRows(
-  req: Request,
-  res: Response,
-  rows: readonly { id: string; visibility?: string; createdBy?: string }[],
-  userId: string,
-  message: string,
-): boolean {
-  const forbidden = rows.filter((p) => checkVisibilityWriteAccess(req, p, userId, 'pipelines:publish') !== 'ok');
-  if (forbidden.length === 0) return false;
-  sendError(res, 403, message, ErrorCode.INSUFFICIENT_PERMISSIONS, { ids: forbidden.map((p) => p.id) });
-  return true;
-}
 
 /**
  * Register bulk operation routes for pipelines.
@@ -196,7 +173,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // for `private`, any member for `org`, `pipelines:publish` for `public`.
     if (!isSystemAdmin(req)) {
       const matched = await pipelineService.findByIds(ids, orgId);
-      if (rejectForbiddenRows(req, res, matched, userId, 'Bulk delete rejected: you cannot delete one or more of these pipelines')) return;
+      if (rejectForbiddenBulkRows(req, res, matched, userId, 'pipelines:publish', 'Bulk delete rejected: you cannot delete one or more of these pipelines')) return;
     }
 
     const deleted = await pipelineService.bulkDelete(ids, orgId, userId, {
@@ -250,7 +227,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     const matched = (!isSystemAdmin(req) || complianceRelevant) ? await pipelineService.findByIds(ids, orgId) : [];
 
     // Same per-row visibility rule as single-row update (see bulk delete above).
-    if (!isSystemAdmin(req) && rejectForbiddenRows(req, res, matched, userId, 'Bulk update rejected: you cannot modify one or more of these pipelines')) return;
+    if (!isSystemAdmin(req) && rejectForbiddenBulkRows(req, res, matched, userId, 'pipelines:publish', 'Bulk update rejected: you cannot modify one or more of these pipelines')) return;
 
     // A default is singular per (project, org). Bulk-setting `isDefault: true`
     // would fan out plain per-row updates, bypassing setDefault()'s clear-others

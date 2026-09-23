@@ -19,6 +19,7 @@ import type {
 } from '@/types/compliance-notifications';
 import { formatError } from '@/lib/constants';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { Card } from '@/components/ui/Card';
 
 interface NotificationPreferencesManagerProps {
   readOnly?: boolean;
@@ -120,7 +121,7 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card space-y-5 max-w-2xl">
+    <Card as="form" onSubmit={handleSubmit} className="space-y-5 max-w-2xl">
       <div>
         <h3 className="text-sm font-semibold text-fg">Compliance notifications</h3>
         <p className="text-xs text-fg-muted mt-1">
@@ -233,6 +234,6 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
           </Button>
         </div>
       )}
-    </form>
+    </Card>
   );
 }

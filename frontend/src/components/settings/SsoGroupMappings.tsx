@@ -16,8 +16,11 @@ import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
+import { useDelete } from '@/hooks/useDelete';
+import { useFormState } from '@/hooks/useFormState';
 import { formatError } from '@/lib/constants';
 import type { IdpGroupMappingDto, IdpProtocol, IdpProvider, OrganizationRole } from '@/types';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 /**
  * IdP group → Role mapping editor (3a), on the org SSO settings page.
@@ -52,9 +55,7 @@ export function SsoGroupMappings({
   readOnly?: boolean;
 }) {
   const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<IdpGroupMappingDto | null>(null);
+  const form = useFormState();
 
   // Draft state — `editing` holds the id of the mapping being edited, or null
   // for the "add" form. One form serves both so the two can't drift.
@@ -87,20 +88,26 @@ export function SsoGroupMappings({
 
   const resetDraft = () => { setEditing(null); setGroup(''); setRoleIds([]); };
 
-  const run = async (fn: () => Promise<unknown>, successMsg: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
-      const reloaded = await load();
-      if (reloaded) toast.success(successMsg);
+  // `useFormState.run` owns the step-up replay: a write refused pending re-auth
+  // finishes (reload + toast + draft reset) once the person confirms, instead of
+  // leaving a red error under the confirmation dialog.
+  const run = (fn: () => Promise<unknown>, successMsg: string) => form.run(fn, {
+    onSuccess: () => {
+      void load().then((reloaded) => { if (reloaded) toast.success(successMsg); });
       resetDraft();
-    } catch (e) {
-      setError(formatError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+    },
+  });
+
+  // Same for the delete — `useDelete` follows the replay through to the reload.
+  const del = useDelete<IdpGroupMappingDto>(
+    (m) => api.deleteIdpGroupMapping(orgId, m.id),
+    () => {
+      void load().then((reloaded) => { if (reloaded) toast.success('Group mapping removed'); });
+      resetDraft();
+    },
+    (e) => form.setError(formatError(e)),
+  );
+  const busy = form.loading || del.loading;
 
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -142,7 +149,7 @@ export function SsoGroupMappings({
       ) : (
         <>
           <ReadOnlyNotice show={readOnly} />
-          {(error || loadError) && <div className="mb-3"><ErrorAlert message={error ?? formatError(loadError)} /></div>}
+          {(form.error || loadError) && <div className="mb-3"><ErrorAlert message={form.error ?? formatError(loadError)} /></div>}
 
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-fg-muted py-4">
@@ -152,7 +159,7 @@ export function SsoGroupMappings({
             <>
               <div className="space-y-2 mb-4">
                 {mappings.length === 0 && (
-                  <p className="text-sm text-fg-muted">No group mappings yet.</p>
+                  <EmptyState compact title="No group mappings yet" description="Add one below to map an IdP group onto roles." />
                 )}
                 {mappings.map((m) => (
                   <div key={m.id} className="flex items-start justify-between gap-3 rounded-lg border border-default p-3">
@@ -179,7 +186,7 @@ export function SsoGroupMappings({
                         aria-label={`Delete ${m.group}`}
                         className="text-fg-muted hover:text-danger"
                         disabled={busy || readOnly}
-                        onClick={() => setPendingDelete(m)}
+                        onClick={() => del.open(m)}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -251,17 +258,13 @@ export function SsoGroupMappings({
         </>
       )}
 
-      {pendingDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete group mapping"
-          itemName={pendingDelete.group}
-          loading={busy}
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={() => {
-            const m = pendingDelete;
-            setPendingDelete(null);
-            void run(() => api.deleteIdpGroupMapping(orgId, m.id), 'Group mapping removed');
-          }}
+          itemName={del.target.group}
+          loading={del.loading}
+          onCancel={del.close}
+          onConfirm={() => void del.confirm()}
         />
       )}
     </SectionCard>

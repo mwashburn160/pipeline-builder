@@ -191,14 +191,15 @@ export default function BillingAdminPage() {
   const executeEdit = async (stepUpToken: string) => {
     const body = pendingEdit;
     if (!editSub || !body) return;
-    const result = await editForm.run(() => api.updateAdminSubscription(editSub.id, body, stepUpToken));
+    await editForm.run(() => api.updateAdminSubscription(editSub.id, body, stepUpToken), {
+      onSuccess: () => {
+        setEditSub(null);
+        list.refresh();
+        void loadSummary();
+        toast.success('Subscription updated');
+      },
+    });
     setPendingEdit(null);
-    if (result !== null) {
-      setEditSub(null);
-      list.refresh();
-      void loadSummary();
-      toast.success('Subscription updated');
-    }
   };
 
   // ── Purge an org's subscription(s) ──────────────────────

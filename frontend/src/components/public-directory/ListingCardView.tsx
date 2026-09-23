@@ -9,6 +9,7 @@ import type { ListingCard } from '@/lib/public-directory/types';
 import { HealthBadge } from './HealthBadge';
 import { Highlighted } from './Highlighted';
 import { PluginIdentity } from './PluginIcon';
+import { Card } from '@/components/ui/Card';
 
 /** `YYYY-MM-DD` in UTC — identical on the server and in the browser (no hydration drift). */
 export function formatDay(iso: string | null | undefined): string {
@@ -44,7 +45,7 @@ export function ListingCardView({ listing, headingLevel = 3 }: { listing: Listin
   const H = headingLevel === 2 ? 'h2' : 'h3';
   const href = pluginPagePath(listing.publisher.handle, listing.name);
   return (
-    <article className="card relative flex h-full flex-col gap-3 p-4 transition-shadow focus-within:ring-2 focus-within:ring-[color:var(--pb-ring)] hover:shadow-md">
+    <Card as="article" className="relative flex h-full flex-col gap-3 p-4 transition-shadow focus-within:ring-2 focus-within:ring-[color:var(--pb-ring)] hover:shadow-md">
       <div className="flex items-start gap-3">
         <PluginIdentity listing={listing} size="md" />
       </div>
@@ -70,7 +71,7 @@ export function ListingCardView({ listing, headingLevel = 3 }: { listing: Listin
           <span className="rounded-full bg-warning-bg px-2 py-0.5 font-medium text-warning-strong">Unmaintained</span>
         )}
       </div>
-    </article>
+    </Card>
   );
 }
 

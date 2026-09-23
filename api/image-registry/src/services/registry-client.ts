@@ -16,6 +16,17 @@ const logger = createLogger('registry-client');
  * connections. Override via `REGISTRY_BLOB_STREAM_TIMEOUT_MS`. */
 const BLOB_STREAM_TIMEOUT_MS = envInt('REGISTRY_BLOB_STREAM_TIMEOUT_MS', 30_000, { min: 1 });
 
+/**
+ * Request timeout (ms) for management calls against the upstream OCI registry
+ * (env: `REGISTRY_HTTP_TIMEOUT`).
+ *
+ * Deliberately LONGER than the global `HTTP_CLIENT_TIMEOUT` (5s): catalog
+ * listings, manifest reads and blob operations against the registry are slow
+ * by nature (large layers, cold object storage), so the service-to-service
+ * budget would abort healthy work.
+ */
+const REGISTRY_HTTP_TIMEOUT_MS = envInt('REGISTRY_HTTP_TIMEOUT', 30_000, { min: 1 });
+
 const protocol = config.registry.http ? 'http': 'https';
 const baseURL = `${protocol}://${config.registry.host}:${config.registry.port}`;
 
@@ -69,7 +80,7 @@ function encodeRepoName(name: string): string {
  */
 const client: AxiosInstance = axios.create({
   baseURL,
-  timeout: 30_000,
+  timeout: REGISTRY_HTTP_TIMEOUT_MS,
   // Self-signed registry support — same flag the existing api/plugin docker
   // strategies use (`IMAGE_REGISTRY_INSECURE`).
   httpsAgent: new Agent({ rejectUnauthorized: !config.registry.insecure }),
@@ -164,7 +175,7 @@ async function authedClient(scopes: RegistryScope[] = []): Promise<AxiosInstance
   const token = await mintManagementToken(scopes);
   const instance = axios.create({
     baseURL,
-    timeout: 30_000,
+    timeout: REGISTRY_HTTP_TIMEOUT_MS,
     httpsAgent: client.defaults.httpsAgent,
     headers: { Authorization: `Bearer ${token}` },
   });

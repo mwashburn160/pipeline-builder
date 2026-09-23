@@ -29,7 +29,7 @@
  */
 
 import crypto from 'crypto';
-import { createLogger, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import { canAdministerOrg, ensureAuthenticated, isOrgAdmin, withController } from '../helpers/controller-helper.js';
@@ -39,7 +39,6 @@ import { notifyOrgOfBreakglass, notifyRequesterOfDecision, notifyTeamOfAncestorI
 import { resolveEffectiveImpersonationPolicy } from '../helpers/impersonation-policy.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { paginationMeta } from '../helpers/pagination.js';
 import { publishImpersonationSessionRevocation } from '../helpers/session-revocation.js';
 import { ImpersonationRequest, User, UserOrganization, type ImpersonationApproverMode } from '../models/index.js';
 import { decideInitialApproval, impersonationService } from '../services/impersonation-service.js';
@@ -593,6 +592,6 @@ export const listImpersonationRequests = withController('List impersonation requ
   );
   sendSuccess(res, 200, {
     requests: page.requests,
-    pagination: paginationMeta(page.total, page.offset, page.limit),
+    pagination: paginationMeta({ total: page.total, offset: page.offset, limit: page.limit }),
   });
 });

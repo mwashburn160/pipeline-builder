@@ -534,11 +534,18 @@ builder, one path, no per-builder target suffixes.
 | `LIMITER_MULT_TEAM` | `25` | Team-tier rate-limit multiplier |
 | `LIMITER_MULT_ENTERPRISE` | `50` | Enterprise-tier rate-limit multiplier |
 | `LIMITER_MULT_UNLIMITED` | `100` | Unlimited-tier rate-limit multiplier (billing-disabled default tier) |
+| `ASK_RATE_LIMIT_PER_MIN` | `30` | Per-org ceiling on the Ask agent's routes. These run an LLM per request, so the cap is about model spend and latency, not abuse |
+| `PIPELINE_GENERATE_RATE_LIMIT_PER_MIN` | `20` | Per-org ceiling on AI pipeline generation (`POST /pipelines/generate`) |
+| `PLUGIN_GENERATE_RATE_LIMIT_PER_MIN` | `20` | Per-org ceiling on AI plugin generation. `POST /plugins/generate` and `/generate/stream` share ONE limiter instance, so this is the combined allowance across both, not per route |
 
 > **SCIM has no rate-limit env vars.** The `/scim/v2/*` limiter is fixed at 600
 > requests / 60 s from the `SCIM_RATE_LIMIT_MAX` / `SCIM_RATE_LIMIT_WINDOW_MS`
 > constants in `platform/src/constants/scim.ts` — changing it is a code change,
 > not configuration.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCIM_DOCUMENTATION_URL` | `https://docs.pipeline-builder.com/docs/authentication.html` | The `documentationUri` served in the SCIM `ServiceProviderConfig` — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally |
 
 > **These are not the caps a new org gets.** The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its **tier** (see `QUOTA_TIERS` below) at creation time, and enforcement reserves against those stored values. The `QUOTA_DEFAULT_*` values govern only the *fallback read* for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit.
 
@@ -837,6 +844,8 @@ All optional (defaults shown). They tune behavior that matters only under horizo
 | `HTTP_CLIENT_TIMEOUT` | `5000` | Internal HTTP client timeout — a TOTAL deadline for the whole exchange (connect, send, full body), not just socket idle |
 | `HTTP_CLIENT_MAX_RETRIES` | `2` | Internal HTTP client retries |
 | `HTTP_CLIENT_RETRY_DELAY_MS` | `200` | Internal HTTP client retry delay |
+| `REPORTING_HTTP_TIMEOUT` | `3000` | Timeout (ms) for reporting's outbound org-hierarchy lookups to platform. Deliberately TIGHTER than `HTTP_CLIENT_TIMEOUT`: a report that degrades fast beats a dashboard that hangs |
+| `REGISTRY_HTTP_TIMEOUT` | `30000` | Timeout (ms) for image-registry's management calls to the upstream OCI registry. Deliberately LONGER than `HTTP_CLIENT_TIMEOUT` because catalog, manifest and blob operations are slow |
 | `QUOTA_SERVICE_TIMEOUT` | `5000` | Quota service call timeout |
 | `BILLING_SERVICE_TIMEOUT` | `5000` | Billing service call timeout |
 | `PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS` | `30000` | Timeout (ms) for the pipeline service's calls into the plugin service — long because a plugin upload response includes build-queue results |

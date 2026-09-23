@@ -34,8 +34,10 @@
 import { createHash, randomBytes } from 'crypto';
 
 import {
+  isoOrNull,
   actorId,
   ANONYMOUS_ACTOR_ID,
+  SYSTEM_ACTOR_ID,
   assertSafeUrl,
   createLogger,
   createWebhookChannel,
@@ -217,12 +219,11 @@ export async function toApiPrefs(prefs: SecurityPrefs, canEdit: boolean) {
       ? {
         masked: maskEmail(email),
         verified: prefs.externalEmailVerifiedAt !== null,
-        pendingExpiresAt: prefs.externalEmailVerifiedAt === null && prefs.externalVerifyExpiresAt
-          ? prefs.externalVerifyExpiresAt.toISOString() : null,
+        pendingExpiresAt: prefs.externalEmailVerifiedAt === null ? isoOrNull(prefs.externalVerifyExpiresAt) : null,
       }
       : null,
     updatedBy: prefs.updatedBy,
-    updatedAt: prefs.updatedAt ? prefs.updatedAt.toISOString() : null,
+    updatedAt: isoOrNull(prefs.updatedAt),
     canEdit,
   };
 }
@@ -445,7 +446,7 @@ export async function recipientsFor(prefs: SecurityPrefs, uploaderId?: string | 
     rules.push({ kind: 'org_members', orgId, userIds: prefs.targetUsers.slice(0, MAX_TARGET_USERS) });
   } else {
     rules.push({ kind: 'org_permission', orgId, permission: 'plugins:write' });
-    if (uploaderId && uploaderId !== 'system') rules.push({ kind: 'org_members', orgId, userIds: [uploaderId] });
+    if (uploaderId && uploaderId !== SYSTEM_ACTOR_ID) rules.push({ kind: 'org_members', orgId, userIds: [uploaderId] });
   }
   const email = await verifiedExternalEmail(prefs);
   if (email) rules.push({ kind: 'address', email });

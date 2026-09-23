@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, SYSTEM_ORG_ID, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, errorMessage, SYSTEM_ORG_ID, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 import { INDEX_MEDIA_TYPES, isIndex } from './manifest.js';
 import { inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, QUARANTINE_PREFIX, repoOwnerOrgId } from './namespaces.js';
@@ -320,7 +320,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
     const affectedOrgId = repoOwnerOrgId(prefix);
     recordAudit({
       action: 'registry.gc',
-      actorId: actorId ?? 'system',
+      actorId: actorId ?? SYSTEM_ACTOR_ID,
       ...(actorEmail && { actorEmail }),
       // The org whose namespace was pruned (so its admins see the sweep).
       ...(affectedOrgId && { affectedOrgId }),
@@ -491,7 +491,7 @@ export async function runQuarantineGc(opts: { maxAgeDays?: number; dryRun?: bool
         deleted++;
         recordAudit({
           action: 'registry.gc',
-          actorId: 'system',
+          actorId: SYSTEM_ACTOR_ID,
           affectedOrgId: SYSTEM_ORG_ID,
           outcome: 'success',
           targetType: 'registry-namespace',

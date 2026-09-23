@@ -28,6 +28,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 interface AdminSummary {
   orgs: { total: number; perOrgKms: number; ssoEnabled: number };
@@ -173,9 +174,7 @@ export function SysadminHome() {
                 <Link href="/dashboard/audit" className="action-link text-xs">View all →</Link>
               </div>
               {events.length === 0 ? (
-                <div className="text-xs text-fg-muted py-3">
-                  No audit events recorded yet.
-                </div>
+                <EmptyState compact title="No audit events recorded yet" />
               ) : (
                 <ul className="divide-y divide-default">
                   {events.map((e) => (

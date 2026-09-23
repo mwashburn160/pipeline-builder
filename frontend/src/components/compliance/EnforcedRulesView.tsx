@@ -1,5 +1,6 @@
 'use client';
 
+import { Badge } from '@/components/ui/Badge';
 import { useState } from 'react';
 import { Shield } from 'lucide-react';
 import { TextEmptyState } from '@/components/ui/EmptyState';
@@ -9,7 +10,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import type { ComplianceRule, RuleTarget } from '@/types/compliance';
-import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
+import { SeverityBadge } from './SeverityBadge';
 import { InheritedBadge } from './InheritedBadge';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { StatusPill } from '@/components/ui/StatusPill';
@@ -100,7 +101,7 @@ const ENFORCED_RULE_COLUMNS: Column<ComplianceRule>[] = [
   {
     id: 'severity',
     header: 'Severity',
-    render: (rule) => <StatusPill className={SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}>{rule.severity}</StatusPill>,
+    render: (rule) => <SeverityBadge severity={rule.severity} />,
   },
   {
     id: 'field',

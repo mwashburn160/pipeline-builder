@@ -31,9 +31,13 @@ describe('CompliancePage without compliance:read', () => {
     expect(screen.queryByText('Compliance')).not.toBeInTheDocument();
   });
 
-  it('renders the page normally once the permission is held', () => {
+  it('renders the page normally once the permission is held', async () => {
     mockAuthGuard({ isReady: true, accessDenied: null, can: () => true });
     render(<CompliancePage />);
     expect(screen.queryByTestId('access-denied')).not.toBeInTheDocument();
+    // The dashboard is a dynamic import that fires its own reads on mount. Wait
+    // for it to arrive and for the audit read to report, so nothing lands after
+    // the test body has finished.
+    expect(await screen.findByText(/audit log/i)).toBeInTheDocument();
   });
 });

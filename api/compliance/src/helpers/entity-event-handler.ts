@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import type { RuleTarget } from '@pipeline-builder/pipeline-data';
 import { logComplianceCheck } from './compliance-check-log.js';
 import { withPluginImageFacts } from './plugin-image-attributes.js';
@@ -73,7 +73,7 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
 
     logComplianceCheck(
       event.orgId,
-      event.userId || 'system',
+      event.userId || SYSTEM_ACTOR_ID,
       ruleTarget,
       event.eventType,
       event.entityId,

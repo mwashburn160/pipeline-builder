@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /** Labels, limits and error copy for plugin reviews. */
+import type { BadgeColor } from '@/components/ui/Badge';
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import type {
@@ -42,7 +43,7 @@ export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
   removed: 'Removed',
 };
 
-export const REVIEW_STATUS_COLORS: Record<ReviewStatus, 'green' | 'yellow' | 'red'> = {
+export const REVIEW_STATUS_COLORS: Record<ReviewStatus, BadgeColor> = {
   published: 'green',
   held: 'yellow',
   removed: 'red',

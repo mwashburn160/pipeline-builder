@@ -13,6 +13,7 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 import { formatError } from '@/lib/constants';
 import type { VALUELESS_RULE_OPERATORS } from '@pipeline-builder/api-core';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 /** Exhaustive over the wire vocabulary: a new operator is a compile error here, not an editor that can't show it. */
 const OPERATOR_LABELS: Record<RuleOperator, string> = {
@@ -408,7 +409,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                 </Button>
               </div>
               {form.conditions.length === 0 && (
-                <div className="text-center py-4 text-sm text-fg-subtle">No conditions yet. Click &quot;Add Condition&quot; to start.</div>
+                <EmptyState compact title="No conditions yet" description={'Click "Add Condition" to start.'} />
               )}
               {form.conditions.map((cond, idx) => (
                 <div key={condIds[idx]} className="flex items-center gap-2 p-2 rounded-lg bg-surface-muted">

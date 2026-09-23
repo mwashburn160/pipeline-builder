@@ -7,6 +7,7 @@
  * dashboard/quotas.tsx, dashboard/billing.tsx, and admin/orgs/[orgId].tsx.
  * Adding a new tier here updates every UI surface in one place.
  */
+import type { BadgeColor } from '@/components/ui/Badge';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 
 /** The quota tiers, straight from the backend's own enum — never a local copy,
@@ -25,7 +26,7 @@ export interface TierMeta {
   readonly dotClass: string;
   /** `<Badge color>` for this tier, so a tier pill in a table can't fall back
    *  to developer's colour for a tier the call site forgot about. */
-  readonly badgeColor: 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
+  readonly badgeColor: BadgeColor;
   /** Stable display order: developer < pro < team < enterprise. */
   readonly sort: number;
 }

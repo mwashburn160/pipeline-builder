@@ -75,20 +75,18 @@ const PROVIDER_LABELS: Record<string, string> = {
 /** Human label for a provider id, capitalizing an unknown one. */
 export const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).toUpperCase() + p.slice(1));
 
-/** Extract a human-readable message from an unknown caught error. */
+/**
+ * Extract a human-readable message from an unknown caught error.
+ *
+ * NOT for an unsuccessful API envelope (`{ success: false, message }`): an
+ * envelope is not an `Error`, so this would always return the fallback and hide
+ * the server's reason. Read the envelope's own field — `res.message || '…'` —
+ * which is what the ~100 envelope sites in this codebase do.
+ */
 export function formatError(err: unknown, fallback = 'An error occurred'): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
   return fallback;
-}
-
-/**
- * The message of an unsuccessful API envelope (`{ success: false, message }`),
- * or `fallback`. An envelope is not an `Error`, so {@link formatError} would
- * always return the fallback and hide the server's reason.
- */
-export function formatEnvelopeError(res: { message?: string } | null | undefined, fallback: string): string {
-  return res?.message || fallback;
 }
 
 /** Default toast notification display duration in ms (success / info). */

@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { continueAfterStepUp } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import type { ReservedName } from '@/types/ecosystem';
 import { EcosystemActionDialog } from './EcosystemActionDialog';
@@ -82,11 +83,25 @@ export function ReservedNamesPanel({ can }: Props) {
     }
   };
 
+  // NOT `useDelete`: `EcosystemActionDialog` already owns the confirm/busy/error
+  // triplet and expects `onSubmit` to THROW to stay open with the message. What
+  // was missing is the step-up replay — handled here, where the post-write work
+  // lives. Returning normally closes this dialog, so the global step-up dialog
+  // never stacks on top of it.
   const remove = async () => {
     if (!removing) return;
-    await api.deleteReservedName(removing.name);
-    toast.success(`${removing.name} is no longer reserved`);
-    void namesQ.refetch();
+    const reserved = removing.name;
+    const done = () => {
+      toast.success(`${reserved} is no longer reserved`);
+      void namesQ.refetch();
+    };
+    try {
+      await api.deleteReservedName(reserved);
+    } catch (err) {
+      if (continueAfterStepUp(err, done)) return;
+      throw err;
+    }
+    done();
   };
 
   return (

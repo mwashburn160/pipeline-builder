@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/Input';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { useFetch } from '@/hooks/useFetch';
+import { usePagination } from '@/hooks/usePagination';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { StatCard } from '@/components/ui/StatCard';
 import { formatCents as money, formatMonthYear } from '@/lib/format';
@@ -14,6 +15,7 @@ import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib
 
 type AllocationRow = BillingAllocation['rows'][number];
 
+/** Invoices are a card-height grid of periods, so 24 (not the shared default). */
 const INVOICE_PAGE_SIZE = 24;
 
 const STATUS_COLOR: Record<string, string> = {
@@ -47,7 +49,7 @@ export function BillingDashboard() {
   // Applied historical range (ISO `yyyy-mm-dd`); empty string = unbounded on that side.
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [invoicePage, setInvoicePage] = useState({ offset: 0, limit: INVOICE_PAGE_SIZE });
+  const invoicePage = usePagination(INVOICE_PAGE_SIZE);
   const range = { ...(from ? { from } : {}), ...(to ? { to } : {}) };
 
   // Summary + cost-by-team for the range. useFetch drops a superseded range's
@@ -69,7 +71,7 @@ export function BillingDashboard() {
 
   // Invoices page through the server (the range can hold years of periods).
   const { data: invoicePageData } = useFetch(async (signal) => {
-    const res = await api.listBillingInvoices({ ...range, ...invoicePage }, { signal }).catch(() => null);
+    const res = await api.listBillingInvoices({ ...range, offset: invoicePage.offset, limit: invoicePage.limit }, { signal }).catch(() => null);
     return { invoices: res?.data?.invoices ?? [], total: res?.data?.pagination?.total ?? 0 };
   }, [from, to, invoicePage.offset, invoicePage.limit]);
   const invoices: BillingInvoiceRow[] = invoicePageData?.invoices ?? [];
@@ -79,9 +81,10 @@ export function BillingDashboard() {
     if ((summary?.invoiceCount ?? 0) > 0) setHasHistory(true);
   }, [summary]);
   // A new range starts the invoice table from its first page.
+  const { reset: resetInvoicePage } = invoicePage;
   useEffect(() => {
-    setInvoicePage((p) => (p.offset === 0 ? p : { ...p, offset: 0 }));
-  }, [from, to]);
+    resetInvoicePage();
+  }, [resetInvoicePage, from, to]);
 
   // Hide entirely until this account has had billing history at least once.
   if (!hasHistory && (loading || !summary || summary.invoiceCount === 0)) return null;
@@ -198,9 +201,9 @@ export function BillingDashboard() {
         />
         {invoiceTotal > invoicePage.limit && (
           <Pagination
-            pagination={{ ...invoicePage, total: invoiceTotal }}
-            onPageChange={(offset) => setInvoicePage((p) => ({ ...p, offset }))}
-            onPageSizeChange={(limit) => setInvoicePage({ offset: 0, limit })}
+            pagination={invoicePage.withTotal(invoiceTotal)}
+            onPageChange={invoicePage.setOffset}
+            onPageSizeChange={invoicePage.setLimit}
             pageSizeOptions={[12, 24, 48, 96]}
           />
         )}

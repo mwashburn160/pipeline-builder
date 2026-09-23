@@ -72,7 +72,7 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordShortfall: async () => null,
 }));
 
-const { createAccessKey, generateToken, revokeAllTokens } = await import('../src/controllers/user-profile.js');
+const { createAccessKey, generateToken, revokeAllTokens } = await import('../src/controllers/user-credentials.js');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function mockRes() {

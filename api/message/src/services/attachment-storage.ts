@@ -8,28 +8,28 @@
  * because MinIO speaks the S3 API, this uses the AWS S3 SDK so a real-S3 swap is
  * a pure config change (drop the custom endpoint + path-style, supply IAM creds).
  *
- * Config (env):
- *   S3_ENDPOINT           MinIO/S3 endpoint URL (e.g. http://minio:9000). Empty
- *                         ⇒ default AWS S3 (no custom endpoint).
- *   S3_REGION             region (default 'us-east-1').
- *   S3_ACCESS_KEY_ID      access key.
- *   S3_SECRET_ACCESS_KEY  secret key.
- *   S3_BUCKET             bucket name (default 'message-attachments').
- *   S3_FORCE_PATH_STYLE   'true' for MinIO (path-style addressing); default true.
+ * The client itself and the create-bucket-once backstop are api-core's shared
+ * `s3-client` (`@pipeline-builder/api-core/s3`) — the same ones the plugin
+ * service's build-context storage uses, so the connection config and the
+ * benign-race-vs-real-outage handling cannot drift between the two. This module
+ * keeps only what is message's own: the bucket, the key convention and
+ * thumbnailing.
+ *
+ * Config (env): `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY_ID` /
+ * `S3_SECRET_ACCESS_KEY` / `S3_FORCE_PATH_STYLE` are read by the shared client;
+ * `S3_BUCKET` (default 'message-attachments') is read here.
  */
 
 import { Readable } from 'node:stream';
 import {
-  S3Client,
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
-  HeadBucketCommand,
-  CreateBucketCommand,
 } from '@aws-sdk/client-s3';
-import { createLogger, emitCounter, envStr, envBool, envInt } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter, envStr, envInt } from '@pipeline-builder/api-core';
+import { ensureBucket, s3Client } from '@pipeline-builder/api-core/s3';
 import { Jimp } from 'jimp';
 
 const logger = createLogger('attachment-storage');
@@ -60,67 +60,10 @@ export function thumbnailContentType(originalContentType: string): string {
   return originalContentType === 'image/png' ? 'image/png' : 'image/jpeg';
 }
 
-let client: S3Client | null = null;
-
-/** Lazily build the shared S3 client from env (so tests can run without it). */
-function s3(): S3Client {
-  if (client) return client;
-  const endpoint = envStr('S3_ENDPOINT', '');
-  client = new S3Client({
-    region: envStr('S3_REGION', 'us-east-1'),
-    ...(endpoint ? { endpoint } : {}),
-    // Path-style is required by MinIO (no virtual-host bucket DNS). Harmless
-    // against real S3, but default-on here because MinIO is the default backend.
-    forcePathStyle: envBool('S3_FORCE_PATH_STYLE', true),
-    credentials: {
-      accessKeyId: envStr('S3_ACCESS_KEY_ID', 'minioadmin'),
-      secretAccessKey: envStr('S3_SECRET_ACCESS_KEY', 'minioadmin'),
-    },
-  });
-  return client;
-}
-
-let bucketReady: Promise<void> | null = null;
-
-/**
- * Ensure the attachments bucket exists (memoized). MinIO — unlike an
- * auto-provisioned S3 bucket — won't create it on first write, so we HEAD it and
- * CREATE on 404/NoSuchBucket. Idempotent + concurrency-safe (single in-flight
- * promise); a benign "already exists" race is swallowed.
- */
-async function ensureBucket(): Promise<void> {
-  if (!bucketReady) {
-    bucketReady = (async () => {
-      try {
-        await s3().send(new HeadBucketCommand({ Bucket: ATTACHMENT_BUCKET }));
-      } catch {
-        try {
-          await s3().send(new CreateBucketCommand({ Bucket: ATTACHMENT_BUCKET }));
-          logger.info('Created attachments bucket', { bucket: ATTACHMENT_BUCKET });
-        } catch (err) {
-          // CreateBucket failed — could be a benign race (another replica created it
-          // between our HEAD and CREATE) or a real outage (MinIO unreachable). Re-HEAD
-          // to tell them apart: if it now exists the race is benign; otherwise DON'T
-          // memoize the failure (reset so a later call retries) and fail this attempt,
-          // rather than caching a permanently-broken "ready" for the process lifetime.
-          try {
-            await s3().send(new HeadBucketCommand({ Bucket: ATTACHMENT_BUCKET }));
-            logger.warn('Attachments bucket ensure race (now exists, continuing)', { error: String(err) });
-          } catch {
-            bucketReady = null;
-            throw new Error(`Attachments bucket unavailable: ${String(err)}`);
-          }
-        }
-      }
-    })();
-  }
-  return bucketReady;
-}
-
 /** Store a blob. Key convention: `<orgId>/<attachmentId>/<filename>`. */
 export async function putAttachment(key: string, body: Buffer, contentType: string): Promise<void> {
-  await ensureBucket();
-  await s3().send(new PutObjectCommand({
+  await ensureBucket(ATTACHMENT_BUCKET);
+  await s3Client().send(new PutObjectCommand({
     Bucket: ATTACHMENT_BUCKET,
     Key: key,
     Body: body,
@@ -130,7 +73,7 @@ export async function putAttachment(key: string, body: Buffer, contentType: stri
 
 /** Fetch a blob as a Node stream (for piping to the HTTP response). */
 export async function getAttachmentStream(key: string): Promise<Readable> {
-  const out = await s3().send(new GetObjectCommand({ Bucket: ATTACHMENT_BUCKET, Key: key }));
+  const out = await s3Client().send(new GetObjectCommand({ Bucket: ATTACHMENT_BUCKET, Key: key }));
   // In Node the SDK returns a Readable; narrow the union.
   return out.Body as Readable;
 }
@@ -172,7 +115,7 @@ export async function generateThumbnail(buffer: Buffer, contentType: string): Pr
 /** Best-effort single-object delete — never throws (blob cleanup is housekeeping). */
 export async function deleteAttachment(key: string): Promise<void> {
   try {
-    await s3().send(new DeleteObjectCommand({ Bucket: ATTACHMENT_BUCKET, Key: key }));
+    await s3Client().send(new DeleteObjectCommand({ Bucket: ATTACHMENT_BUCKET, Key: key }));
   } catch (err) {
     logger.warn('Attachment blob delete failed (leaving orphan)', { key, error: String(err) });
   }
@@ -195,7 +138,7 @@ async function deleteKeysOnce(keys: string[]): Promise<string[]> {
   for (let i = 0; i < keys.length; i += DELETE_OBJECTS_MAX_KEYS) {
     const batch = keys.slice(i, i + DELETE_OBJECTS_MAX_KEYS);
     try {
-      const out = await s3().send(new DeleteObjectsCommand({
+      const out = await s3Client().send(new DeleteObjectsCommand({
         Bucket: ATTACHMENT_BUCKET,
         Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
       }));
@@ -262,7 +205,7 @@ export async function deleteAttachmentsByOrgPrefix(orgId: string): Promise<numbe
   let continuationToken: string | undefined;
 
   do {
-    const listed = await s3().send(new ListObjectsV2Command({
+    const listed = await s3Client().send(new ListObjectsV2Command({
       Bucket: ATTACHMENT_BUCKET,
       Prefix: prefix,
       ContinuationToken: continuationToken,
@@ -273,7 +216,7 @@ export async function deleteAttachmentsByOrgPrefix(orgId: string): Promise<numbe
     if (objects.length > 0) {
       // ListObjectsV2 pages are ≤1000 keys, but DeleteObjects still reports
       // per-key failures in `Errors` on a 200 — count those as a failed page.
-      const out = await s3().send(new DeleteObjectsCommand({
+      const out = await s3Client().send(new DeleteObjectsCommand({
         Bucket: ATTACHMENT_BUCKET,
         Delete: { Objects: objects.map((Key) => ({ Key })), Quiet: true },
       }));

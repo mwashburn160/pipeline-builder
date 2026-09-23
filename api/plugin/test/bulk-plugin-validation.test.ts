@@ -359,7 +359,9 @@ describe('PUT /plugins/bulk/update — exact ids, visibility ladder, singular de
     const { res, status, json } = makeRes();
     await getUpdateHandler()({ body: { ids: [P1, P2], data: { isActive: false } }, user: { permissions: [] } }, res);
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ ids: [P2] }));
+    // The shared `rejectForbiddenBulkRows` answers through api-core's REAL
+    // `sendError`, which nests the offending ids under `details`.
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ details: { ids: [P2] } }));
     expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 

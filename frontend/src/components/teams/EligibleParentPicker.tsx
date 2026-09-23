@@ -6,6 +6,7 @@ import { Building2, X } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { useCombobox } from '@/hooks/useCombobox';
 import { useDebounce } from '@/hooks/useDebounce';
+import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
@@ -49,6 +50,9 @@ async function searchEligibleParents(
  * clearing it re-opens the search. Only eligible roots are ever offered, so a
  * pick can't be refused for tier or nesting depth.
  */
+
+const NO_OPTIONS: ParentOrgOption[] = [];
+
 export function EligibleParentPicker({
   value,
   onChange,
@@ -66,21 +70,17 @@ export function EligibleParentPicker({
   const [text, setText] = useState('');
   const box = useCombobox(setText);
   const query = useDebounce(text.trim(), 250);
-  const [options, setOptions] = useState<ParentOrgOption[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!box.open || value) return;
-    const ctrl = new AbortController();
-    setLoading(true);
-    setError(null);
-    searchEligibleParents(query, { excludeOrgId, signal: ctrl.signal })
-      .then((rows) => { if (!ctrl.signal.aborted) setOptions(rows); })
-      .catch((e) => { if (!ctrl.signal.aborted) { setOptions([]); setError(formatError(e, 'Search failed')); } })
-      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
-    return () => ctrl.abort();
-  }, [box.open, query, excludeOrgId, value]);
+  // `clearDataOnError` because this is a typeahead: keeping the last good answer
+  // would leave options from a query the person has moved on from sitting next
+  // to the error that says the search failed.
+  const search = useFetch(
+    (signal) => searchEligibleParents(query, { excludeOrgId, signal }),
+    [box.open, query, excludeOrgId, value],
+    { enabled: box.open && !value, clearDataOnError: true },
+  );
+  const options = search.data ?? NO_OPTIONS;
+  const loading = search.loading;
+  const error = search.error ? formatError(search.error, 'Search failed') : null;
 
   const select = (o: ParentOrgOption) => {
     onChange(o);
@@ -132,7 +132,7 @@ export function EligibleParentPicker({
           {loading ? (
             <div className="px-3 py-2 text-fg-muted" role="status">Searching…</div>
           ) : error ? (
-            <div className="px-3 py-2 text-danger">{error}</div>
+            <div role="alert" className="px-3 py-2 text-danger">{error}</div>
           ) : options.length === 0 ? (
             <div className="px-3 py-2 text-fg-muted">
               No matching top-level organizations on the Team or Enterprise plan.

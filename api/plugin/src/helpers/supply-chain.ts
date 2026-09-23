@@ -38,7 +38,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, extractPredicate, getServiceAuthHeader, InternalHttpClient, SPDX_PREDICATE_TYPE, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 import { run } from './build-process.js';
@@ -49,7 +49,6 @@ import type { RegistryInfo } from './registry-auth.js';
 const logger = createLogger('supply-chain');
 
 /** SPDX predicate type cosign records for `--type spdxjson`. */
-const SPDX_PREDICATE_TYPE = 'https://spdx.dev/Document';
 /** `sha256:` + 64 lowercase hex — the only digest shape the platform stores. */
 export const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 
@@ -395,31 +394,15 @@ export async function fetchPublicImageSbom(
 }
 
 /**
- * `cosign verify-attestation` prints one DSSE envelope per verified attestation,
- * one per line: `{ payloadType, payload: base64(in-toto statement), signatures }`.
- * Return the SPDX predicate of the LAST one (a rebuild re-attests the same
- * digest, and cosign lists attestations oldest-first).
+ * The SPDX predicate of the LAST verified attestation in cosign's output.
+ *
+ * The parse itself is api-core's shared `extractPredicate` (one implementation
+ * for both services that read cosign attestations). Only the NOT-FOUND POLICY
+ * is plugin's own: a missing SBOM is an image-verification FAILURE here, so
+ * this throws rather than returning null.
  */
 export function extractSpdxPredicate(stdout: string, pluginName: string): Record<string, unknown> {
-  let predicate: Record<string, unknown> | undefined;
-  for (const line of stdout.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('{')) continue;
-    try {
-      const envelope = JSON.parse(trimmed) as { payload?: string };
-      if (!envelope.payload) continue;
-      const statement = JSON.parse(Buffer.from(envelope.payload, 'base64').toString('utf-8')) as {
-        predicateType?: string;
-        predicate?: unknown;
-      };
-      if (statement.predicateType === SPDX_PREDICATE_TYPE && statement.predicate && typeof statement.predicate === 'object') {
-        predicate = statement.predicate as Record<string, unknown>;
-      }
-    } catch {
-      // Not an envelope line — cosign prints nothing else on stdout, but be strict
-      // about what counts rather than fail on stray output.
-    }
-  }
+  const predicate = extractPredicate(stdout, SPDX_PREDICATE_TYPE);
   if (!predicate) throw new ImageVerificationError(`Plugin "${pluginName}" has no SPDX SBOM attestation`);
   return predicate;
 }

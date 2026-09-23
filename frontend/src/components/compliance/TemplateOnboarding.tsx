@@ -1,5 +1,6 @@
 'use client';
 
+import type { BadgeColor } from '@/components/ui/Badge';
 import { useState, useEffect } from 'react';
 import { Sparkles, Check } from 'lucide-react';
 import api from '@/lib/api';
@@ -10,7 +11,6 @@ import { Callout } from '@/components/ui/Callout';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 
-type BadgeColor = 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
 
 const CATEGORY_COLORS: Record<string, BadgeColor> = {
   security: 'red',

@@ -41,7 +41,9 @@ describe('eligibility (Verified application facts)', () => {
     get.mockResolvedValue(ok({ verifiedDomains: ['acme.com', 7, 'acme.io'], owners: 2, ownersWithMfa: 1 }));
     await expect(httpPlatformReads.eligibility('org/1')).resolves.toEqual({ verifiedDomains: ['acme.com', 'acme.io'], owners: 2, ownersWithMfa: 1 });
     expect(get).toHaveBeenCalledWith('/internal/ecosystem/publisher-eligibility/org%2F1', { headers: { Authorization: 'Bearer svc' } });
-    expect(ctorArgs[0]).toMatchObject({ host: 'platform', port: 3000, timeout: 5_000 });
+    // No per-client `timeout`: this call site inherits the shared client default
+    // (`HTTP_CLIENT_TIMEOUT`), which a pinned literal here would have overridden.
+    expect(ctorArgs[0]).toEqual({ host: 'platform', port: 3000 });
   });
 
   it.each([

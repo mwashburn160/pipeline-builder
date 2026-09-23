@@ -24,6 +24,7 @@ import { directorySeo, parseDirectoryQuery, toSearchString, withParam, type Dire
 import { cachePublicly, markUnavailable } from '@/lib/public-directory/server';
 import { categoryDocUrl, categoryPagePath } from '@/lib/public-directory/links';
 import type { SearchResult } from '@/lib/public-directory/types';
+import { Card } from '@/components/ui/Card';
 
 const PAGE_SIZE = 48;
 
@@ -99,7 +100,7 @@ export default function CategoryPage({ siteUrl, category, query, results }: Cate
               <SortBar query={query} hrefFor={hrefFor} />
             </div>
             {results.items.length === 0
-              ? <p className="card p-6 text-sm text-fg-muted">No {name} plugins match these filters.</p>
+              ? <Card as="p" className="p-6 text-sm text-fg-muted">No {name} plugins match these filters.</Card>
               : <ListingGrid items={results.items} />}
             {(results.nextCursor || query.cursor) && (
               <nav aria-label="Pages" className="flex justify-between pt-2 text-sm">

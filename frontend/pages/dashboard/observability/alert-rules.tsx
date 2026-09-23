@@ -7,6 +7,7 @@ import { Plus, Trash2, Edit2, Activity, FileCode } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
+import { usePagination } from '@/hooks/usePagination';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -51,9 +52,6 @@ import { formatError } from '@/lib/constants';
  * read-only preview of the materialized `rule_files` YAML — the exact document
  * Prometheus loads, across every org (hence sysadmin-only, like its route).
  */
-/** Smallest page-size option — the pager only appears once there's more than this. */
-const PAGE_SIZES = [10, 25, 50, 100];
-
 export default function AlertRulesPage() {
   // View on `observability:read` (page-access, from the route declaration);
   // write controls gated on `observability:write`.
@@ -66,27 +64,21 @@ export default function AlertRulesPage() {
   const [deleting, setDeleting] = useState<AlertRule | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [previewing, setPreviewing] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [limit, setLimit] = useState(25);
+  const page = usePagination();
 
   const { data, loading, error, refetch } = useFetch(
     async (signal) => {
       if (!ready) return null;
-      return (await api.listAlertRules({ offset, limit }, { signal })).data ?? null;
+      return (await api.listAlertRules({ offset: page.offset, limit: page.limit }, { signal })).data ?? null;
     },
-    [ready, offset, limit],
+    [ready, page.offset, page.limit],
   );
   const rules: AlertRule[] = data?.rules ?? [];
-  const total = data?.pagination.total ?? 0;
+  // A delete can empty the last page; `withTotal` applies THE clamp rule, so the
+  // list steps back to the new last page instead of rendering empty.
+  const pagination = page.withTotal(data?.pagination.total ?? 0);
+  const total = pagination.total;
   const refresh = async () => { void refetch(); };
-
-  // A delete can empty the last page — step back to the new last page rather
-  // than render an empty list on a stale offset.
-  useEffect(() => {
-    if (data && offset > 0 && offset >= total) {
-      setOffset(total === 0 ? 0 : Math.floor((total - 1) / limit) * limit);
-    }
-  }, [data, offset, total, limit]);
 
   const onDelete = async () => {
     if (!deleting) return;
@@ -206,12 +198,11 @@ export default function AlertRulesPage() {
             </div>
           ))}
         </div>
-        {total > PAGE_SIZES[0] && (
+        {total > page.limit && (
           <Pagination
-            pagination={{ offset, limit, total }}
-            onPageChange={setOffset}
-            onPageSizeChange={(size) => { setLimit(size); setOffset(0); }}
-            pageSizeOptions={PAGE_SIZES}
+            pagination={pagination}
+            onPageChange={page.setOffset}
+            onPageSizeChange={page.setLimit}
           />
         )}
         </>

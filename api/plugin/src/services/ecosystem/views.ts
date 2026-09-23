@@ -6,7 +6,7 @@
  * and CLI read). Pure.
  */
 
-import { REQUEST_SLA_HOURS } from '@pipeline-builder/api-core';
+import { isoOrNull, REQUEST_SLA_HOURS } from '@pipeline-builder/api-core';
 import type {
   EcosystemAutoApprovalRule,
   PluginListing,
@@ -17,7 +17,7 @@ import type {
 } from '@pipeline-builder/pipeline-data';
 
 import { decisionNeedsStepUp, needsTwoPerson, requiredDecisionPermission } from './policy.js';
-import { iso, roundTo } from './util.js';
+import { roundTo } from './util.js';
 
 
 export function publisherView(p: Publisher) {
@@ -28,17 +28,17 @@ export function publisherView(p: Publisher) {
     description: p.description,
     homepageUrl: p.homepageUrl,
     tier: p.tier,
-    verifiedAt: iso(p.verifiedAt),
-    verifiedGraceUntil: iso(p.verifiedGraceUntil),
+    verifiedAt: isoOrNull(p.verifiedAt),
+    verifiedGraceUntil: isoOrNull(p.verifiedGraceUntil),
     termsVersion: p.termsVersion,
-    termsAcceptedAt: iso(p.termsAcceptedAt),
-    suspendedAt: iso(p.suspendedAt),
+    termsAcceptedAt: isoOrNull(p.termsAcceptedAt),
+    suspendedAt: isoOrNull(p.suspendedAt),
     suspendReason: p.suspendReason,
     ownerOrgId: p.ownerOrgId,
     healthScore: p.healthScore ?? null,
     successRate30d: p.successRate30d ?? null,
-    createdAt: iso(p.createdAt)!,
-    updatedAt: iso(p.updatedAt)!,
+    createdAt: isoOrNull(p.createdAt)!,
+    updatedAt: isoOrNull(p.updatedAt)!,
   };
 }
 
@@ -49,20 +49,20 @@ export function versionView(v: PluginListingVersion) {
     imageDigest: v.imageDigest,
     imageRepository: v.imageRepository,
     breaking: v.breaking,
-    pausedAt: iso(v.pausedAt),
-    yankedAt: iso(v.yankedAt),
+    pausedAt: isoOrNull(v.pausedAt),
+    yankedAt: isoOrNull(v.yankedAt),
     yankReason: v.yankReason,
-    deprecatedAt: iso(v.deprecatedAt),
+    deprecatedAt: isoOrNull(v.deprecatedAt),
     deprecationMessage: v.deprecationMessage,
     vulnCritical: v.vulnCritical,
     vulnHigh: v.vulnHigh,
     vulnCriticalFixable: v.vulnCriticalFixable,
     vulnHighFixable: v.vulnHighFixable,
-    scannedAt: iso(v.scannedAt),
-    scanFlaggedAt: iso(v.scanFlaggedAt),
+    scannedAt: isoOrNull(v.scannedAt),
+    scanFlaggedAt: isoOrNull(v.scanFlaggedAt),
     scanFlag: v.scanFlag,
-    baseImageCreatedAt: iso(v.baseImageCreatedAt),
-    publishedAt: iso(v.publishedAt)!,
+    baseImageCreatedAt: isoOrNull(v.baseImageCreatedAt),
+    publishedAt: isoOrNull(v.publishedAt)!,
     changelog: v.changelog,
   };
 }
@@ -91,11 +91,11 @@ export function listingView(
     icon: l.icon ?? null,
     keywords: l.keywords ?? [],
     state: l.state,
-    pausedAt: iso(l.pausedAt),
+    pausedAt: isoOrNull(l.pausedAt),
     featured: l.featured,
     latestVersion: l.latestVersion,
-    createdAt: iso(l.createdAt)!,
-    updatedAt: iso(l.updatedAt)!,
+    createdAt: isoOrNull(l.createdAt)!,
+    updatedAt: isoOrNull(l.updatedAt)!,
     ...(extra.versions ? { versions: extra.versions.map(versionView) } : {}),
     ...(extra.openRequests !== undefined ? { openRequests: extra.openRequests } : {}),
     ...(extra.stats !== undefined ? {
@@ -133,11 +133,11 @@ export function requestView(
     payload: publicPayload(r.payload),
     submittedBy: r.submittedBy,
     submittedOrgId: r.submittedOrgId,
-    submittedAt: iso(r.createdAt)!,
+    submittedAt: isoOrNull(r.createdAt)!,
     firstApprovedBy: r.firstApprovedBy,
     secondApprovedBy: r.secondApprovedBy,
     decidedBy: r.decidedBy,
-    decidedAt: iso(r.decidedAt),
+    decidedAt: isoOrNull(r.decidedAt),
     reason: r.reason,
     autoRuleId: r.autoRuleId,
     securityFixAdvisoryId: r.securityFixAdvisoryId,
@@ -178,8 +178,8 @@ export function ruleView(r: EcosystemAutoApprovalRule, extra: { approvedToday: n
     conditions,
     createdBy: r.createdBy,
     approvedBy: r.approvedBy,
-    createdAt: iso(r.createdAt)!,
-    updatedAt: iso(r.updatedAt)!,
+    createdAt: isoOrNull(r.createdAt)!,
+    updatedAt: isoOrNull(r.updatedAt)!,
     pendingChange: r.pendingChange ?? null,
     seeded: typeof conditions.seeded === 'string',
     approvedToday: extra.approvedToday,

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createCacheService } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createCacheService } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, schema, withTenantTx, buildMessageConditions, currentViewerUserId, withViewerContext, type CrudTx, type MessageFilter, type PaginatedResult, type QueryOptions } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, sql, inArray } from 'drizzle-orm';
@@ -513,9 +513,9 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       .set({
         isActive: false,
         updatedAt: now,
-        updatedBy: userId || 'system',
+        updatedBy: userId || SYSTEM_ACTOR_ID,
         deletedAt: now,
-        deletedBy: userId || 'system',
+        deletedBy: userId || SYSTEM_ACTOR_ID,
         // Stamp the purge deadline so sysadmin-moderated tombstones are collected
         // by the retention sweep (parity with the base delete).
         ...this.purgeAfterStamp(now),

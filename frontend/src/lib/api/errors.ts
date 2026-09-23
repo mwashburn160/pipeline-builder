@@ -111,10 +111,20 @@ export async function withStepUpResume<T>(run: () => Promise<T>): Promise<T> {
  * (the dialog reports the outcome); `onResumed` runs with the replay's result
  * once the person confirms, so the caller can refresh what it shows. `false`
  * for anything else, which the caller handles as it always did.
+ *
+ * `onAbandoned` runs instead when the person dismisses the dialog (or the replay
+ * itself fails). Callers whose own UI is already gone by then — a delete
+ * confirmation that closed — leave it out and let the dialog have the last word;
+ * a caller still on screen, like an open form, uses it to say the write did not
+ * happen rather than sit there looking inert.
  */
-export function continueAfterStepUp<T = unknown>(err: unknown, onResumed: (result: T) => void): boolean {
+export function continueAfterStepUp<T = unknown>(
+  err: unknown,
+  onResumed: (result: T) => void,
+  onAbandoned?: (reason: unknown) => void,
+): boolean {
   if (!(err instanceof StepUpRequiredError) || !err.resume) return false;
-  followResume<T>(err).then(onResumed, () => undefined);
+  followResume<T>(err).then(onResumed, (reason) => onAbandoned?.(reason));
   return true;
 }
 

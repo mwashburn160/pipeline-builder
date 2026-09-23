@@ -62,6 +62,7 @@ import type { TokenHistoryEntry } from '@/lib/api/domains/auth';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 import { redactString, redactDetails } from '@/lib/redact';
 import { SECURITY_HASH_TABS, SECURITY_TABS, SECURITY_TAB_IDS, type SecurityTab } from '@/lib/security-links';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 /** An anchored section: `#passkeys` and friends land (and focus) here. */
 function Anchor({ id, children }: { id: string; children: React.ReactNode }) {
@@ -197,15 +198,17 @@ function PasswordSection({ readOnly, username }: { readOnly: boolean; username?:
 
   const execute = async (stepUpToken: string) => {
     setConfirming(false);
-    const result = await form.run(
+    await form.run(
       () => api.changePassword(currentPassword, newPassword, stepUpToken),
-      { successMessage: 'Password changed successfully' },
+      {
+        successMessage: 'Password changed successfully',
+        onSuccess: () => {
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+        },
+      },
     );
-    if (result !== null) {
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    }
   };
 
   return (
@@ -404,40 +407,28 @@ function TokenHistorySection() {
     return () => window.removeEventListener(TOKEN_ISSUED_EVENT, refetch);
   }, [refetch]);
 
+  const tokenColumns: Column<NonNullable<typeof data>[number]>[] = [
+    { id: 'issued', header: 'Issued', render: (t) => formatDateTime(t.createdAt) },
+    { id: 'expires', header: 'Expires', render: (t) => formatDateTime(t.expiresAt) },
+    { id: 'status', header: 'Status', render: (t) => <Badge color={CREDENTIAL_STATUS_COLOR[t.status]}>{t.status}</Badge> },
+  ];
+
   return (
     <SectionCard
       icon={History}
       title="Token history"
       description="Tokens issued to this account, newest first. Revoked ones were cut off by a sign-out everywhere."
     >
-      {error ? (
-        <RetryError message={error.message || 'Failed to load token history'} onRetry={refetch} />
-      ) : loading && !data ? (
-        <LoadingSpinner />
-      ) : !data || data.length === 0 ? (
-        <EmptyState icon={History} title="No tokens issued yet" description="Machine tokens you generate above are listed here." />
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-fg-muted">
-                <th className="py-2 pr-4 font-medium">Issued</th>
-                <th className="py-2 pr-4 font-medium">Expires</th>
-                <th className="py-2 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-default">
-              {data.map((t) => (
-                <tr key={t.id}>
-                  <td className="py-2 pr-4">{formatDateTime(t.createdAt)}</td>
-                  <td className="py-2 pr-4">{formatDateTime(t.expiresAt)}</td>
-                  <td className="py-2"><Badge color={CREDENTIAL_STATUS_COLOR[t.status]}>{t.status}</Badge></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        data={data ?? []}
+        columns={tokenColumns}
+        isLoading={loading && !data}
+        animated={false}
+        getRowKey={(t) => t.id}
+        loadFailed={!!error}
+        onRetry={refetch}
+        emptyState={{ icon: History, title: 'No tokens issued yet', description: 'Machine tokens you generate above are listed here.' }}
+      />
     </SectionCard>
   );
 }

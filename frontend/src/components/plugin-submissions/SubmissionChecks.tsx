@@ -5,12 +5,13 @@ import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Callout } from '@/components/ui/Callout';
 import type { HeuristicFinding, SubmissionGate, SubmissionLintIssue } from '@/types/plugin-submissions';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 const SEVERITY_COLOR = { high: 'red', medium: 'yellow', low: 'gray' } as const;
 
 /** The automated gates, pass or fail, with their short messages. */
 export function SubmissionGateList({ gates, testId = 'submission-gates' }: { gates: SubmissionGate[]; testId?: string }) {
-  if (gates.length === 0) return <p className="text-xs text-fg-muted">No checks have run yet.</p>;
+  if (gates.length === 0) return <EmptyState compact title="No checks have run yet" />;
   return (
     <ul className="space-y-1" data-testid={testId}>
       {gates.map((g) => (

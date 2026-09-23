@@ -29,10 +29,12 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
 import api from '@/lib/api';
+import { continueAfterStepUp } from '@/lib/api/errors';
 import { invalidate } from '@/lib/api-cache';
 import { decodeJwt } from '@/lib/jwt';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { SESSIONS_HREF } from '@/lib/security-links';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 // Account settings: who you are, and what your organization is configured to do.
 // Each tab is deep-linkable via `?tab=`.
@@ -131,20 +133,26 @@ export default function SettingsPage() {
       return;
     }
 
-    const result = await profile.run(
+    await profile.run(
       () => api.updateProfile(updates),
-      { successMessage: 'Profile updated successfully' },
+      { successMessage: 'Profile updated successfully', onSuccess: () => { void refreshUser(); } },
     );
-    if (result !== null) await refreshUser();
   };
 
+  // Step-up gated, so StepUpModal IS the confirmation — there is no
+  // DeleteConfirmModal triplet for `useDelete` to fold away. The replay still
+  // matters: a refused-again token hands the refusal to the global dialog, and
+  // the sign-out must follow the replay rather than an error the form shows.
   const executeDelete = async (stepUpToken: string) => {
+    const done = () => { window.location.href = '/'; };
     try {
       await api.deleteAccount(stepUpToken);
-      window.location.href = '/';
     } catch (err) {
+      if (continueAfterStepUp(err, done)) return;
       profile.setError(formatError(err, 'Failed to delete account'));
+      return;
     }
+    done();
   };
 
   if (!isReady || !user) return <LoadingPage />;
@@ -195,9 +203,9 @@ export default function SettingsPage() {
               </div>
             </Callout>
           )}
-          {verify.error && <p className="text-xs text-danger">{verify.error}</p>}
+          <ErrorAlert message={verify.error} />
           {verify.success && <p className="text-xs text-success">{verify.success}</p>}
-          {markVerify.error && <p className="text-xs text-danger">{markVerify.error}</p>}
+          <ErrorAlert message={markVerify.error} />
           {markVerify.success && <p className="text-xs text-success">{markVerify.success}</p>}
 
           <SessionStartedRow />
@@ -365,22 +373,24 @@ function OrgIdentitySettings({ onSaved, readOnly = false }: { onSaved: () => Pro
       return;
     }
 
-    const result = await form.run(
+    await form.run(
       () => api.updateOrganizationIdentity(orgId, updates),
-      { successMessage: 'Organization updated successfully' },
+      {
+        successMessage: 'Organization updated successfully',
+        onSuccess: (result) => {
+          const saved = result.data?.organization;
+          if (saved) {
+            setName(saved.name);
+            setSlug(saved.slug);
+            setInitial({ name: saved.name, slug: saved.slug });
+          }
+          // The org switcher and every org list read the name through the shared
+          // cache, so they keep the old one until it is dropped.
+          invalidate.organizations();
+          void onSaved();
+        },
+      },
     );
-    if (result !== null) {
-      const saved = result.data?.organization;
-      if (saved) {
-        setName(saved.name);
-        setSlug(saved.slug);
-        setInitial({ name: saved.name, slug: saved.slug });
-      }
-      // The org switcher and every org list read the name through the shared
-      // cache, so they keep the old one until it is dropped.
-      invalidate.organizations();
-      await onSaved();
-    }
   };
 
   if (org.error) {

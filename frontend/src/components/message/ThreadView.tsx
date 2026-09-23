@@ -7,10 +7,12 @@ import { MessageAttachments } from '@/components/message/MessageAttachments';
 import { useAuth } from '@/hooks/useAuth';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import type { Message, MessageAttachment } from '@/types';
 import { scrollBehavior } from '@/lib/motion';
 import { formatError } from '@/lib/constants';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 /**
  * A thread bubble that may be an OPTIMISTIC local reply not yet confirmed by the
@@ -114,23 +116,20 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   // #4 — resolve a direct-message TARGET user id to a display name (best-effort).
   // The target lives in rootMessage.recipientOrgId; a single members lookup maps
   // its id → username. Fails soft (leaves the id/"Direct" as-is).
-  const [targetUserName, setTargetUserName] = useState<string>('');
-  useEffect(() => {
-    setTargetUserName('');
-    const targetId = rootMessage.recipientUserId;
-    if (!targetId || !fetchMembers || rootMessage.recipientOrgId === '*') return;
-    let ignore = false;
-    fetchMembers(rootMessage.recipientOrgId, '')
-      .then((rows) => {
-        if (ignore) return;
-        const hit = rows.find((m) => m.id === targetId);
-        if (hit) setTargetUserName(hit.username);
-      })
-      .catch(() => { /* best-effort */ });
-    return () => { ignore = true; };
-  }, [rootMessage.recipientUserId, rootMessage.recipientOrgId, fetchMembers]);
+  const targetLookup = useFetch(
+    async () => {
+      const rows = await fetchMembers!(rootMessage.recipientOrgId, '');
+      return rows.find((m) => m.id === rootMessage.recipientUserId)?.username ?? '';
+    },
+    [rootMessage.recipientUserId, rootMessage.recipientOrgId, fetchMembers],
+    {
+      enabled: !!rootMessage.recipientUserId && !!fetchMembers && rootMessage.recipientOrgId !== '*',
+      // Best-effort: a failed lookup leaves the id / "Direct" label as it was.
+      clearDataOnError: true,
+    },
+  );
+  const targetUserName = targetLookup.data ?? '';
   const [thread, setThread] = useState<ThreadItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [replyContent, setReplyContent] = useState('');
   // Inline content-edit state (author-only). `editingId` is the message being
   // edited; `editText` its working copy; `editError` a failed-save message.
@@ -149,28 +148,22 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   const onThreadReadRef = useRef(onThreadRead);
   onThreadReadRef.current = onThreadRead;
 
+  // `useFetch` owns the stale-response guard: fast thread switching can resolve
+  // an older read after a newer one, and it drops the superseded write.
+  const threadQ = useFetch(
+    async (signal) => (await api.getThread(rootMessage.id, { signal })).data?.messages || [],
+    [rootMessage.id],
+    {
+      // The local copy is what the optimistic reply bubbles are appended to.
+      onSuccess: (messages) => setThread(messages),
+      // A failed read still shows the message that opened the thread.
+      onError: () => setThread([rootMessage]),
+    },
+  );
+  const loading = threadQ.loading;
   useEffect(() => {
-    // Guard against stale responses: fast thread switching can resolve an older
-    // fetch after a newer one, rendering the wrong thread. Skip setState if this
-    // effect has been superseded (id changed) or the component unmounted.
-    let cancelled = false;
-    const fetchThread = async () => {
-      try {
-        setLoading(true);
-        const result = await api.getThread(rootMessage.id);
-        if (cancelled) return;
-        setThread(result.data?.messages || []);
-      } catch {
-        if (cancelled) return;
-        setThread([rootMessage]);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    void fetchThread();
-    // Mark thread as read when viewing
+    // Mark thread as read when viewing.
     onThreadReadRef.current(rootMessage.id);
-    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fetch only on thread id change; rootMessage is the fallback body.
   }, [rootMessage.id]);
 
@@ -478,7 +471,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             ))}
           </ul>
         )}
-        {uploadError && <p className="mb-2 text-xs text-danger">{uploadError}</p>}
+        <ErrorAlert message={uploadError} className="mb-2" />
         {!canWrite && (
           <p className="mb-2 text-xs text-fg-muted">
             You can read this conversation, but replying and attaching files need the

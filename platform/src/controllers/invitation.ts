@@ -1,11 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
-import { listPage, paginationMeta } from '../helpers/pagination.js';
+import { listPage } from '../helpers/pagination.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { auditService, invitationService } from '../services/index.js';
 import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from '../services/invitation-errors.js';
@@ -200,7 +200,7 @@ export const listInvitations = withController('List invitations', async (req, re
   if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
     return sendSuccess(res, 200, {
       invitations: [],
-      pagination: paginationMeta(0, 0, 25),
+      pagination: paginationMeta({ total: 0, offset: 0, limit: 25 }),
     });
   }
 
@@ -220,7 +220,7 @@ export const listInvitations = withController('List invitations', async (req, re
 
   sendSuccess(res, 200, {
     invitations,
-    pagination: paginationMeta(total, offset, limitNum),
+    pagination: paginationMeta({ total, offset, limit: limitNum }),
   });
 });
 

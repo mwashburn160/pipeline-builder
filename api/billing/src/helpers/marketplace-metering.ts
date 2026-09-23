@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createScheduler, type Scheduler, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, createScheduler, type Scheduler, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
@@ -172,7 +172,7 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
       // Mirror to the central audit trail (system-initiated; no request actor).
       recordAudit({
         action: 'billing.credit.consumed',
-        actorId: 'system',
+        actorId: SYSTEM_ACTOR_ID,
         orgId,
         targetId: subId,
         details: { consumedCents: acceptedConsumedCents, dimensions: acceptedLines.length, subscriptionId: subId },
@@ -182,7 +182,7 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
         await createBillingEvent(orgId, 'credit_exhausted', { previousCents: balance }, subId);
         recordAudit({
           action: 'billing.credit.exhausted',
-          actorId: 'system',
+          actorId: SYSTEM_ACTOR_ID,
           orgId,
           targetId: subId,
           details: { previousCents: balance, subscriptionId: subId },

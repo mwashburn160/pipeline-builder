@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
 import type { AppError, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -247,7 +247,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
           eventCategory: 'plugin-build',
           action: 'plugin.build.completed',
           event: 'completed',
-          actorId: userId ?? 'system',
+          actorId: userId ?? SYSTEM_ACTOR_ID,
           orgId,
           targetType: 'plugin',
           targetId: result.id,
@@ -259,7 +259,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
         recordAudit({
           action: 'plugin.build.completed',
-          actorId: userId ?? 'system',
+          actorId: userId ?? SYSTEM_ACTOR_ID,
           orgId,
           targetType: 'plugin',
           targetId: result.id,
@@ -285,7 +285,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         if (skippedScan && image) {
           recordAudit({
             action: 'plugin.scan.skipped',
-            actorId: userId ?? 'system',
+            actorId: userId ?? SYSTEM_ACTOR_ID,
             orgId,
             targetType: 'plugin',
             targetId: result.id,

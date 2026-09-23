@@ -15,13 +15,14 @@
  * until a moderator acts.
  */
 
+import { isoOrNull } from '@pipeline-builder/api-core';
 import type { PluginReview, PluginReviewReport, PluginStats, Publisher } from '@pipeline-builder/pipeline-data';
 
 import { advisoryStore } from './advisories-store.js';
 import type { Caller } from './context.js';
 import { listingStats, reports, reviews } from './reviews-store.js';
 import { listings, publishers } from './store.js';
-import { iso, roundTo } from './util.js';
+import { roundTo } from './util.js';
 
 /** Adoption counts below this are shown as "<5". */
 export const K_ANONYMITY = 5;
@@ -132,7 +133,7 @@ export async function publisherInsights(caller: Caller, now: Date = new Date()) 
         ratingTrend: monthlyRatingTrend(published, now),
         openReviewReports: openReports.get(l.id) ?? 0,
         openAdvisories: advisories.filter((a) => a.listingId === l.id).length,
-        statsUpdatedAt: iso(s?.updatedAt),
+        statsUpdatedAt: isoOrNull(s?.updatedAt),
       };
     }),
   };

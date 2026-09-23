@@ -10,6 +10,7 @@ import { ReviewsSection } from '@/components/reviews/ReviewsSection';
 import { formatDay } from './ListingCardView';
 import { VersionAdvisoryMarker } from './AdvisoryBanner';
 import { VulnSummary } from '@/components/plugin/VulnSummary';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 export const LISTING_TABS = ['overview', 'versions', 'configuration', 'supply-chain', 'reviews'] as const;
 export type ListingTab = typeof LISTING_TABS[number];
@@ -194,7 +195,7 @@ export function ReviewsPanel({ listing, initialReviews }: { listing: ListingDeta
             <span className="text-2xl font-semibold">{listing.rating.score.toFixed(1)}</span> out of 5 · {listing.rating.count} ratings
           </p>
         ) : (
-          <p className="text-sm text-fg-muted">No ratings yet.</p>
+          <EmptyState compact title="No ratings yet" description="Be the first to review this listing." />
         )}
         {listing.recentRating != null && (
           <p className="text-xs text-fg-muted" data-testid="recent-rating">Recent versions: {listing.recentRating.toFixed(1)}</p>

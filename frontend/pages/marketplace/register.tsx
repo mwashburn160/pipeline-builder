@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import { stashMarketplaceRef, readMarketplaceRef, clearMarketplaceRef } from '@/hooks/usePendingMarketplaceClaim';
 
@@ -64,27 +65,30 @@ export default function MarketplaceRegisterPage({ token }: Props) {
   const [planName, setPlanName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Resolve the AWS token (or pick up a ref stashed before an auth hop).
+  // No fresh token — maybe we returned from an auth hop with a stashed ref.
+  // Local, so it runs without a read; the token path below is the one that
+  // goes to the server.
   useEffect(() => {
-    let cancelled = false;
-
-    if (!token) {
-      // No fresh token — maybe we returned from an auth hop with a stashed ref.
-      const stashed = readMarketplaceRef();
-      if (stashed) {
-        setRegistrationRef(stashed.registrationRef);
-        setPlanName(stashed.planName);
-        setPhase('pending');
-      } else {
-        setPhase('error');
-        setError('No AWS Marketplace registration token was provided. Start from your AWS Marketplace subscription.');
-      }
-      return;
+    if (token) return;
+    const stashed = readMarketplaceRef();
+    if (stashed) {
+      setRegistrationRef(stashed.registrationRef);
+      setPlanName(stashed.planName);
+      setPhase('pending');
+    } else {
+      setPhase('error');
+      setError('No AWS Marketplace registration token was provided. Start from your AWS Marketplace subscription.');
     }
+  }, [token]);
 
-    api.resolveMarketplace(token)
-      .then((res) => {
-        if (cancelled) return;
+  // Resolve the AWS token. `useFetch` owns the cancellation, so an answer to a
+  // token the page has already moved off never sets a phase.
+  useFetch(
+    (signal) => api.resolveMarketplace(token!, { signal }),
+    [token],
+    {
+      enabled: !!token,
+      onSuccess: (res) => {
         if (!res.success || !res.data) { setPhase('error'); setError(res.message || 'Could not resolve your AWS Marketplace subscription.'); return; }
         if (res.data.alreadyRegistered) { setPhase('already'); return; }
         const ref = res.data.registrationRef ?? null;
@@ -102,11 +106,10 @@ export default function MarketplaceRegisterPage({ token }: Props) {
         // so a storage-blocked browser doesn't lose the linkage silently).
         stashMarketplaceRef(ref, name);
         setPhase('pending');
-      })
-      .catch((e) => { if (!cancelled) { setPhase('error'); setError(formatError(e)); } });
-
-    return () => { cancelled = true; };
-  }, [token]);
+      },
+      onError: (e) => { setPhase('error'); setError(formatError(e)); },
+    },
+  );
 
   const claim = useCallback(async () => {
     if (!registrationRef) return;

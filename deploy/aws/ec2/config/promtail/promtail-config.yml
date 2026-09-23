@@ -128,6 +128,14 @@ scrape_configs:
       - replace:
           expression: '\bgh[pousr]_[A-Za-z0-9]{20,}\b'
           replace: '[REDACTED]'
+      # github_fine_grained_pat
+      - replace:
+          expression: '\bgithub_pat_[A-Za-z0-9_]{20,}\b'
+          replace: '[REDACTED]'
+      # gitlab_token
+      - replace:
+          expression: '\bglpat-[A-Za-z0-9_-]{20,}\b'
+          replace: '[REDACTED]'
       # slack_token
       - replace:
           expression: '\bxox[abprs]-[A-Za-z0-9-]{10,}\b'

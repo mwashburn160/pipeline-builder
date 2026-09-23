@@ -49,6 +49,17 @@ if (typeof url.createObjectURL !== 'function') {
   url.revokeObjectURL = () => {};
 }
 
+// jsdom implements no layout, so it ships no `scrollIntoView` at all — and a
+// deep link that names a section scrolls to it (useUrlTab, on an animation
+// frame). Without this, any test that stays alive long enough for that frame
+// dies with "el.scrollIntoView is not a function" in a hook, which reads as a
+// component bug rather than a missing browser API.
+// (Guarded on `Element` itself: a few suites declare the `node` environment,
+// where there is no DOM at all.)
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !== 'function') {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+}
+
 // jsdom's window has no TextEncoder, which every browser ships; the shared
 // template tokenizer uses it to measure fields in UTF-8 bytes.
 if (typeof globalThis.TextEncoder === 'undefined') {

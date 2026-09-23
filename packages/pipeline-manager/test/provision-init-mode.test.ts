@@ -11,7 +11,7 @@ jest.mock('child_process', () => ({
   }),
 }));
 
-import { resolveInitMode } from '../src/commands/provision.js';
+import { resolveInitMode } from '../src/commands/provision-steps.js';
 
 describe('resolveInitMode', () => {
   it('defaults to auto when nothing is passed', () => {

@@ -22,7 +22,7 @@ jest.mock('@/lib/api', () => ({
 
 const page = (entries: { id: string }[], offset = 0, total = 100) => ({
   success: true,
-  data: { entries, pagination: { limit: 20, offset, total } },
+  data: { entries, pagination: { limit: 25, offset, total } },
 });
 
 beforeEach(() => {
@@ -33,7 +33,7 @@ describe('useComplianceAudit', () => {
   it('loads the first page on mount', async () => {
     const { result } = renderHook(() => useComplianceAudit());
     await waitFor(() => expect(result.current.entries).toHaveLength(1));
-    expect(getComplianceAuditLog).toHaveBeenCalledWith({ limit: 20, offset: 0 });
+    expect(getComplianceAuditLog).toHaveBeenCalledWith({ limit: 25, offset: 0 });
   });
 
   it('sends each filter and returns to page 1 explicitly', async () => {
@@ -41,9 +41,9 @@ describe('useComplianceAudit', () => {
     await waitFor(() => expect(result.current.entries).toHaveLength(1));
 
     // Move off page 1 first, so a refetch at the stale offset would be visible.
-    getComplianceAuditLog.mockResolvedValue(page([{ id: 'e2' }], 20));
-    act(() => result.current.handlePageChange(20));
-    await waitFor(() => expect(result.current.pagination.offset).toBe(20));
+    getComplianceAuditLog.mockResolvedValue(page([{ id: 'e2' }], 25));
+    act(() => result.current.handlePageChange(25));
+    await waitFor(() => expect(result.current.pagination.offset).toBe(25));
 
     getComplianceAuditLog.mockResolvedValue(page([{ id: 'e3' }]));
     act(() => result.current.setResult('block'));

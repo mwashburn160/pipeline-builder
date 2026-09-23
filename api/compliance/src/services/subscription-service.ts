@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { COMPLIANCE_CONTENT_SETS, createLogger, ForbiddenError, isSystemOrgId, ValidationError } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, COMPLIANCE_CONTENT_SETS, createLogger, ForbiddenError, isSystemOrgId, ValidationError } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, drizzleCount, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import type { RuleScope } from '@pipeline-builder/pipeline-data';
 import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
@@ -264,7 +264,7 @@ export class ComplianceRuleSubscriptionService {
    * Called during org onboarding so new orgs see the full catalog in their subscriptions.
    * Skips rules the org is already subscribed to.
    */
-  async autoSubscribeToPublished(orgId: string, userId: string = 'system'): Promise<number> {
+  async autoSubscribeToPublished(orgId: string, userId: string = SYSTEM_ACTOR_ID): Promise<number> {
     if (isSystemOrgId(orgId)) return 0;
 
     // Fetch all active published rules (scope='published' is only allowed for system org)
@@ -530,7 +530,7 @@ export class ComplianceRuleSubscriptionService {
   async syncEntitledSets(
     orgId: string,
     sets: string[],
-    userId: string = 'system',
+    userId: string = SYSTEM_ACTOR_ID,
     opts: { occurredAt?: Date } = {},
   ): Promise<{ skipped: boolean; activated: string[]; deactivated: string[] }> {
     // System org is not a tenant — it OWNS the library, never subscribes to it.

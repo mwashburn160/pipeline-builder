@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useDelete } from '@/hooks/useDelete';
 import { Cloud, RefreshCw, X } from 'lucide-react';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { Modal } from '@/components/ui/Modal';
@@ -7,6 +8,7 @@ import api from '@/lib/api';
 import { formatRelativeTime } from '@/lib/relative-time';
 import { formatDateTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
+import { IconButton } from '@/components/ui/IconButton';
 
 /** Registry rows fetched per page. */
 const REGISTRY_PAGE = 50;
@@ -40,11 +42,6 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [removing, setRemoving] = useState<string | null>(null);
-  // The remove modal needs more nuance than DeleteConfirmModal provides —
-  // the action removes only the platform's record (not the AWS stack), and
-  // that distinction is the whole point of the confirm.
-  const [confirmTarget, setConfirmTarget] = useState<RegistryRow | null>(null);
   // The server's total, so the badge and the list cover every deployment,
   // not just the first page.
   const [total, setTotal] = useState(0);
@@ -95,24 +92,24 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
     if (open && !loaded) void fetchRegistry();
   }, [open, loaded, fetchRegistry]);
 
-  const performRemove = async (row: RegistryRow) => {
-    setRemoving(row.id);
-    setError(null);
-    setConfirmTarget(null);
-    try {
+  // The remove modal needs more nuance than DeleteConfirmModal provides — the
+  // action clears only the platform's record (not the AWS stack), and that
+  // distinction is the whole point of the confirm — but the state behind it is
+  // the ordinary delete triplet, and `useDelete` owns the step-up replay with
+  // it: a removal refused pending re-auth lands once the person confirms.
+  const del = useDelete<RegistryRow>(
+    async (row) => {
+      setError(null);
       const res = await api.deletePipelineRegistry(row.id);
-      if (res.success) {
-        setRows((prev) => prev.filter((r) => r.id !== row.id));
-        setTotal((t) => Math.max(0, t - 1));
-      } else {
-        setError('Failed to remove registry entry');
-      }
-    } catch (err) {
-      setError(formatError(err, 'Failed to remove registry entry'));
-    } finally {
-      setRemoving(null);
-    }
-  };
+      if (!res.success) throw new Error('Failed to remove registry entry');
+    },
+    (row) => {
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+      setTotal((t) => Math.max(0, t - 1));
+    },
+    (err) => setError(formatError(err, 'Failed to remove registry entry')),
+  );
+  const removing = del.loading ? del.target?.id ?? null : null;
 
   return (
     <>
@@ -130,15 +127,15 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
             {/* Always-visible purpose hint so the collapsed panel isn't a mystery. */}
             <span className="ml-2 text-xs font-normal text-fg-subtle hidden sm:inline">pipelines registered to a live deploy target</span>
             {open && (
-              <button
+              <IconButton
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); void fetchRegistry(); }}
                 disabled={loading}
                 title="Refresh"
                 aria-label="Refresh deployed pipelines"
-                className="ml-auto p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-fg-muted disabled:opacity-50"
+                className="ml-auto disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              </button>
+              </IconButton>
             )}
           </>
         }
@@ -179,7 +176,7 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
                   </div>
                   {canWrite && (
                     <button
-                      onClick={() => setConfirmTarget(row)}
+                      onClick={() => del.open(row)}
                       disabled={removing === row.id}
                       className="p-1 rounded hover:bg-danger-bg text-fg-subtle hover:text-danger disabled:opacity-40 disabled:cursor-wait shrink-0"
                       title="Remove from registry (does not delete the AWS stack)"
@@ -207,33 +204,33 @@ export function DeployedPipelinesPanel({ canWrite = false }: { canWrite?: boolea
           )}
         </ResourceList>
       </Disclosure>
-      {confirmTarget && (
+      {del.target && (
         <Modal
           title="Remove from registry"
-          onClose={() => removing ? undefined : setConfirmTarget(null)}
+          onClose={() => removing ? undefined : del.close()}
           maxWidth="max-w-md"
         >
           <div className="space-y-3 text-sm">
             <p className="text-fg-muted">
-              Remove <strong className="font-mono">{confirmTarget.pipelineName}</strong> from the deployed-pipelines registry?
+              Remove <strong className="font-mono">{del.target.pipelineName}</strong> from the deployed-pipelines registry?
             </p>
             <div className="p-3 rounded border border-warning-border bg-warning-bg text-warning-strong text-xs">
               This only removes the platform&apos;s record. It does NOT delete the CloudFormation stack or pipeline. Use this to reconcile drift when the AWS stack was already deleted out-of-band.
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
-                onClick={() => setConfirmTarget(null)}
+                onClick={del.close}
                 disabled={!!removing}
                 className="px-4 py-1.5 text-sm border border-default rounded-md text-fg-muted hover:bg-surface-muted"
               >
                 Cancel
               </button>
               <button
-                onClick={() => performRemove(confirmTarget)}
+                onClick={() => void del.confirm()}
                 disabled={!!removing}
                 className="px-4 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
               >
-                {removing === confirmTarget.id ? 'Removing…' : 'Remove record'}
+                {del.loading ? 'Removing…' : 'Remove record'}
               </button>
             </div>
           </div>

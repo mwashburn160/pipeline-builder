@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
+import { useFetch } from '@/hooks/useFetch';
 import { isAbortError } from '@/lib/abort';
 import { formatError } from '@/lib/constants';
 import type { PluginCatalogEdits, PluginInspectResult } from '@/types';
@@ -28,24 +29,17 @@ interface CatalogDetailsStepProps {
  * else is accepted as detected, so an inspect failure never blocks the upload.
  */
 export function CatalogDetailsStep({ file, edits, onEditsChange, disabled = false }: CatalogDetailsStepProps) {
-  const [result, setResult] = useState<PluginInspectResult | null>(null);
-  const [inspecting, setInspecting] = useState(true);
-  const [inspectError, setInspectError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setInspecting(true);
-    setInspectError(null);
-    setResult(null);
-    api.inspectPlugin(file, { signal: controller.signal })
-      .then((r) => { if (!controller.signal.aborted) setResult(r); })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted || isAbortError(err)) return;
-        setInspectError(formatError(err, 'Could not read the plugin package'));
-      })
-      .finally(() => { if (!controller.signal.aborted) setInspecting(false); });
-    return () => controller.abort();
-  }, [file]);
+  // `clearDataOnError`: the fields belong to the package that was inspected, so
+  // a failed re-inspect of a DIFFERENT file must not leave the old one's fields
+  // on screen under the error.
+  const inspect = useFetch<PluginInspectResult>(
+    (signal) => api.inspectPlugin(file, { signal }),
+    [file],
+    { clearDataOnError: true },
+  );
+  const result = inspect.data;
+  const inspecting = inspect.loading;
+  const inspectError = inspect.error ? formatError(inspect.error, 'Could not read the plugin package') : null;
 
   const editCount = Object.keys(edits).length;
 

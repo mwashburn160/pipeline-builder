@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { continueAfterStepUp } from '@/lib/api/errors';
 import type { MessageListFilters } from '@/lib/api/domains/messages';
 import type { Message, MessageType, MessagePriority } from '@/types';
 import { acquireLiveUnreadSource, setUnreadCount, useUnreadCount } from '@/lib/unread-count-store';
@@ -287,22 +288,25 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     }
   }, [fetchUnreadCount]);
 
-  const { execute: deleteRaw } = useAsyncCallback(async (id: string) => {
-    await api.deleteMessage(id);
-    return id;
-  });
+  const applyDeleted = useCallback((id: string) => {
+    setMessages(prev => prev.filter(m => m.id !== id));
+    // Keep the view's count honest without a refetch — the row is gone from
+    // the server's total too.
+    setTotal(prev => (prev == null ? prev : Math.max(0, prev - 1)));
+  }, []);
 
   const deleteMessage = useCallback(async (id: string) => {
-    const deletedId = await deleteRaw(id);
-    if (deletedId) {
-      setMessages(prev => prev.filter(m => m.id !== deletedId));
-      // Keep the view's count honest without a refetch — the row is gone from
-      // the server's total too.
-      setTotal(prev => (prev == null ? prev : Math.max(0, prev - 1)));
-    } else {
-      setError('Failed to delete message');
+    try {
+      await api.deleteMessage(id);
+    } catch (err) {
+      // Refused for step-up and taken over by the global dialog: that dialog
+      // reports the outcome, and the row leaves the list once the replay lands.
+      if (continueAfterStepUp(err, () => applyDeleted(id))) return;
+      setError(formatError(err, 'Failed to delete message'));
+      return;
     }
-  }, [deleteRaw]);
+    applyDeleted(id);
+  }, [applyDeleted]);
 
   // Fetch messages on mount AND whenever the (debounced) search term, the
   // active view or the filters change — fetchMessages is stable and reads all

@@ -3,16 +3,16 @@
 
 import * as fs from 'fs';
 
-import { ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, type SSEManager } from '@pipeline-builder/api-server';
+import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, withQuotaReservation, type QuotaSlot, type SSEManager } from '@pipeline-builder/api-server';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request, type Response, type RequestHandler, type ErrorRequestHandler } from 'express';
 import multer from 'multer';
 
 import { getBuildStrategy } from '../helpers/build-strategy.js';
-import { compliancePreflight, queuePluginBuild, reservePluginSlot, type PluginSlot } from '../helpers/build-submission.js';
+import { compliancePreflight, queuePluginBuild } from '../helpers/build-submission.js';
 import { catalogColumns } from '../helpers/catalog-metadata.js';
 import { DEFAULT_PLUGIN_VERSION } from '../helpers/default-version.js';
 import { createBuildJobData, toPluginInsert } from '../helpers/plugin-helpers.js';
@@ -146,11 +146,14 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
       // service-to-service authorization checks; mint a service token instead.
       const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
 
-      let slot: PluginSlot | null = null;
       const logWarn = ctx.log.bind(null, 'WARN');
 
       try {
-        if (!req.file) {
+        // Pinned to a const: the narrowing from this guard does not survive
+        // into the reservation callback below (TS widens property accesses read
+        // inside a closure).
+        const uploadedFile = req.file;
+        if (!uploadedFile) {
           return sendBadRequest(res, 'No plugin file uploaded', ErrorCode.MISSING_REQUIRED_FIELD);
         }
 
@@ -185,226 +188,227 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // Reserve the plugins quota slot. Done AFTER multer + body validation
         // so a bad-request never consumes quota. The quota service's atomic
         // reserve means two concurrent uploads at the limit can't both pass.
-        const reserved = await reservePluginSlot(quotaService, orgId, authHeader, logWarn);
-        if (!reserved.slot) {
-          const { reservation } = reserved;
+        //
+        // The shared guard owns the slot for the whole body: an unexpected
+        // throw (parsePluginZip, deployVersion, …) refunds it automatically,
+        // and `markConsumed()` at the hand-off point stops that refund once
+        // the queued build job owns the slot instead.
+        const outcome = await withQuotaReservation(
+          { quotaService, orgId, type: 'plugins', serviceName: 'plugin', logWarn },
+          async (slot: QuotaSlot) => {
+            const zipPath = uploadedFile.path;
+            ctx.log('INFO', 'Upload received', {
+              originalName: uploadedFile.originalname,
+              sizeBytes: uploadedFile.size,
+              visibility,
+            });
+
+            // -- Parse & validate ZIP ---------------------------------------------
+            const plugin = await parsePluginZip(zipPath);
+            validateBuildArgs(plugin.pluginSpec.buildArgs);
+            const catalog = catalogColumns(resolveCatalogMetadata(detectCatalogMetadata(catalogInputs(plugin)), edits.value));
+            const s = plugin.pluginSpec;
+            const version = s.version || DEFAULT_PLUGIN_VERSION;
+
+            ctx.log('INFO', 'Spec validated', { pluginName: s.name, version });
+
+            // Refuse up front (before compliance, S3 staging and an image build) a
+            // re-upload that would overwrite a version the caller can't write or
+            // un-delete a tombstone. Throws a typed 403/409; the catch below refunds
+            // the slot. deployVersion re-checks under its lock.
+            const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
+            await pluginService.assertDeployable(orgId, s.name, version, userId || SYSTEM_ACTOR_ID, access);
+
+            // -- Compliance check (fail-closed) -----------------------------------
+            const preflight = await compliancePreflight(orgId, authHeader, {
+              attributes: {
+                name: s.name,
+                version: s.version,
+                pluginType: s.pluginType,
+                computeType: s.computeType,
+                timeout: s.timeout,
+                failureBehavior: s.failureBehavior,
+                env: s.env,
+                buildArgs: s.buildArgs,
+                installCommands: s.installCommands,
+                commands: s.commands,
+                visibility,
+                secrets: s.secrets,
+                metadata: s.metadata,
+              },
+              buildType: plugin.buildType,
+              pluginType: s.pluginType ?? 'CodeBuildStep',
+              keywords: catalog.keywords,
+              action: 'upload',
+            });
+            if (preflight.status === 'blocked') {
+              ctx.log('WARN', 'Plugin upload blocked by compliance', { pluginName: s.name, violations: preflight.violations.length });
+              slot.refund();
+              return sendError(res, 403, 'Plugin upload blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+                violations: preflight.violations,
+              });
+            }
+            if (preflight.status === 'unavailable') {
+              ctx.log('ERROR', 'Compliance service unavailable', { error: preflight.error });
+              slot.refund();
+              return sendError(res, 503, 'Compliance service unavailable  plugin upload rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+            }
+            if (preflight.warnings > 0) {
+              ctx.log('WARN', 'Compliance warnings on plugin upload', { pluginName: s.name, warnings: preflight.warnings });
+            }
+
+            // -- Build plugin record --------------------------------------------------
+            const pluginRecord = {
+              orgId,
+              name: s.name,
+              version,
+              metadata: (s.metadata || {}) as Record<string, string | number | boolean>,
+              pluginType: s.pluginType || 'CodeBuildStep',
+              computeType: s.computeType || 'SMALL',
+              primaryOutputDirectory: s.primaryOutputDirectory || null,
+              dockerfile: plugin.dockerfileContent,
+              env: s.env || {},
+              buildArgs: s.buildArgs || {},
+              installCommands: s.installCommands || [],
+              commands: s.commands || [],
+              visibility,
+              timeout: s.timeout ?? null,
+              failureBehavior: s.failureBehavior || 'fail',
+              secrets: s.secrets || [],
+              buildType: plugin.buildType,
+              // Execution contract: spec-only, persisted, never editable.
+              ...specContractFields(s),
+              // Catalog metadata: detected, then accepted or edited, with
+              // per-field provenance.
+              ...catalog,
+              // The quota period this upload's slot was charged to, so a later
+              // delete/purge can refund it conditionally (never into a new period).
+              quotaResetAt: slot.reservation.quota.resetAt ?? null,
+            };
+
+            // -- No image to build (metadata_only): deploy directly ----------------
+            if (!getBuildStrategy(plugin.buildType).producesImage) {
+              const result = await pluginService.deployVersion(toPluginInsert(pluginRecord), userId || SYSTEM_ACTOR_ID, access);
+
+              ctx.log('INFO', 'Metadata-only plugin deployed', {
+                pluginName: s.name,
+                pluginId: result.id,
+              });
+              const publishOutcome = publish ? await submitAfterBuild(publish.caller, result.id) : undefined;
+
+              // Best-effort attributed audit — the source upload landed (deployed
+              // directly, no image build), so we have the persisted plugin id.
+              recordAudit({
+                action: 'plugin.upload',
+                actorId: actorId({ userId }),
+                orgId,
+                targetType: 'plugin',
+                targetId: result.id,
+                details: {
+                  pluginName: s.name,
+                  version: s.version,
+                  visibility,
+                  buildType: 'metadata_only',
+                },
+              });
+
+              return sendSuccess(res, 201, {
+                requestId: ctx.requestId,
+                pluginId: result.id,
+                pluginName: s.name,
+                version: s.version,
+                buildType: 'metadata_only',
+                ...(publishOutcome ? { publishRequest: publishOutcome } : {}),
+              });
+            }
+
+            // -- Stage the build context in object storage ------------------------
+            // The upload + build workers run on every replica and BullMQ may route
+            // the build to a DIFFERENT replica than this one; `contextDir` is per-pod
+            // local scratch, so stage the raw ZIP in S3 (MinIO) FIRST. A worker
+            // elsewhere re-materializes the context from this key; the local
+            // extractDir remains the same-replica fast path. Fail the upload if
+            // staging fails — a build we can't reconstruct must never be queued.
+            const s3Key = pluginArtifactKey(orgId, ctx.requestId);
+            try {
+              await putPluginArtifact(s3Key, await fs.promises.readFile(zipPath));
+            } catch (s3Err) {
+              ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
+              slot.refund();
+              return sendError(res, 503, 'Object storage unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
+            }
+
+            // -- Queue build job (returns immediately) ----------------------------
+            const jobData = createBuildJobData({
+              requestId: ctx.requestId,
+              orgId,
+              userId: userId || SYSTEM_ACTOR_ID,
+              access,
+              // Period snapshot for the reserved slot so a DLQ retry spanning a
+              // quota reset refunds the correct period (see releasePluginQuota).
+              reservedResetAt: slot.reservation.quota.resetAt,
+              ...(publish ? { publish } : {}),
+              buildRequest: {
+                contextDir: plugin.extractDir,
+                s3Key,
+                dockerfile: plugin.dockerfile,
+                name: s.name,
+                version,
+                orgId,
+                registry,
+                buildArgs: s.buildArgs || {},
+                buildType: plugin.buildType,
+              },
+              pluginRecord,
+            });
+
+            try {
+              await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `${s.name}:${version}`, jobData, logWarn });
+            } catch (queueErr) {
+              ctx.log('ERROR', 'Failed to enqueue build job', {
+                error: errorMessage(queueErr),
+              });
+              slot.refund();
+              // The build won't run — drop the staged context so it doesn't orphan
+              // (best-effort; the bucket's expiry lifecycle is the backstop).
+              await deletePluginArtifact(s3Key);
+              return sendError(res, 503, 'Build queue unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
+            }
+            // Queued: the build worker owns the slot now (it refunds on permanent failure).
+            slot.markConsumed();
+
+            ctx.log('INFO', 'Build queued', { pluginName: s.name, version });
+
+            // Best-effort attributed audit — the source upload was accepted and the
+            // build queued. No plugin id exists yet (the worker persists the record
+            // on build completion, where plugin.build.completed carries the id), so
+            // `targetId` is omitted here; name/version identify the artifact.
+            recordAudit({
+              action: 'plugin.upload',
+              actorId: actorId({ userId }),
+              orgId,
+              targetType: 'plugin',
+              details: {
+                pluginName: s.name,
+                version,
+                visibility,
+                buildType: plugin.buildType,
+              },
+            });
+
+            return sendSuccess(res, 202, {
+              requestId: ctx.requestId,
+              pluginName: s.name,
+              version,
+            }, 'Plugin build queued');
+          },
+        );
+        if (outcome.status === 'denied') {
+          const { reservation } = outcome;
           ctx.log('WARN', reservation.unavailable ? 'Plugin quota unconfirmable (quota service unavailable)' : 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
           // 503 + Retry-After when the quota service couldn't confirm; 429 when over limit.
           return sendQuotaReserveDenied(res, 'plugins', reservation);
         }
-        slot = reserved.slot;
-
-        const zipPath = req.file.path;
-        ctx.log('INFO', 'Upload received', {
-          originalName: req.file.originalname,
-          sizeBytes: req.file.size,
-          visibility,
-        });
-
-        // -- Parse & validate ZIP ---------------------------------------------
-        const plugin = await parsePluginZip(zipPath);
-        validateBuildArgs(plugin.pluginSpec.buildArgs);
-        const catalog = catalogColumns(resolveCatalogMetadata(detectCatalogMetadata(catalogInputs(plugin)), edits.value));
-        const s = plugin.pluginSpec;
-        const version = s.version || DEFAULT_PLUGIN_VERSION;
-
-        ctx.log('INFO', 'Spec validated', { pluginName: s.name, version });
-
-        // Refuse up front (before compliance, S3 staging and an image build) a
-        // re-upload that would overwrite a version the caller can't write or
-        // un-delete a tombstone. Throws a typed 403/409; the catch below refunds
-        // the slot. deployVersion re-checks under its lock.
-        const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
-        await pluginService.assertDeployable(orgId, s.name, version, userId || 'system', access);
-
-        // -- Compliance check (fail-closed) -----------------------------------
-        const preflight = await compliancePreflight(orgId, authHeader, {
-          attributes: {
-            name: s.name,
-            version: s.version,
-            pluginType: s.pluginType,
-            computeType: s.computeType,
-            timeout: s.timeout,
-            failureBehavior: s.failureBehavior,
-            env: s.env,
-            buildArgs: s.buildArgs,
-            installCommands: s.installCommands,
-            commands: s.commands,
-            visibility,
-            secrets: s.secrets,
-            metadata: s.metadata,
-          },
-          buildType: plugin.buildType,
-          pluginType: s.pluginType ?? 'CodeBuildStep',
-          keywords: catalog.keywords,
-          action: 'upload',
-        });
-        if (preflight.status === 'blocked') {
-          ctx.log('WARN', 'Plugin upload blocked by compliance', { pluginName: s.name, violations: preflight.violations.length });
-          slot.release();
-          return sendError(res, 403, 'Plugin upload blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
-            violations: preflight.violations,
-          });
-        }
-        if (preflight.status === 'unavailable') {
-          ctx.log('ERROR', 'Compliance service unavailable', { error: preflight.error });
-          slot.release();
-          return sendError(res, 503, 'Compliance service unavailable  plugin upload rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
-        }
-        if (preflight.warnings > 0) {
-          ctx.log('WARN', 'Compliance warnings on plugin upload', { pluginName: s.name, warnings: preflight.warnings });
-        }
-
-        // -- Build plugin record --------------------------------------------------
-        const pluginRecord = {
-          orgId,
-          name: s.name,
-          version,
-          metadata: (s.metadata || {}) as Record<string, string | number | boolean>,
-          pluginType: s.pluginType || 'CodeBuildStep',
-          computeType: s.computeType || 'SMALL',
-          primaryOutputDirectory: s.primaryOutputDirectory || null,
-          dockerfile: plugin.dockerfileContent,
-          env: s.env || {},
-          buildArgs: s.buildArgs || {},
-          installCommands: s.installCommands || [],
-          commands: s.commands || [],
-          visibility,
-          timeout: s.timeout ?? null,
-          failureBehavior: s.failureBehavior || 'fail',
-          secrets: s.secrets || [],
-          buildType: plugin.buildType,
-          // Execution contract: spec-only, persisted, never editable.
-          ...specContractFields(s),
-          // Catalog metadata: detected, then accepted or edited, with
-          // per-field provenance.
-          ...catalog,
-          // The quota period this upload's slot was charged to, so a later
-          // delete/purge can refund it conditionally (never into a new period).
-          quotaResetAt: slot.resetAt ?? null,
-        };
-
-        // -- No image to build (metadata_only): deploy directly ----------------
-        if (!getBuildStrategy(plugin.buildType).producesImage) {
-          const result = await pluginService.deployVersion(toPluginInsert(pluginRecord), userId || 'system', access);
-
-          ctx.log('INFO', 'Metadata-only plugin deployed', {
-            pluginName: s.name,
-            pluginId: result.id,
-          });
-          const publishOutcome = publish ? await submitAfterBuild(publish.caller, result.id) : undefined;
-
-          // Best-effort attributed audit — the source upload landed (deployed
-          // directly, no image build), so we have the persisted plugin id.
-          recordAudit({
-            action: 'plugin.upload',
-            actorId: actorId({ userId }),
-            orgId,
-            targetType: 'plugin',
-            targetId: result.id,
-            details: {
-              pluginName: s.name,
-              version: s.version,
-              visibility,
-              buildType: 'metadata_only',
-            },
-          });
-
-          return sendSuccess(res, 201, {
-            requestId: ctx.requestId,
-            pluginId: result.id,
-            pluginName: s.name,
-            version: s.version,
-            buildType: 'metadata_only',
-            ...(publishOutcome ? { publishRequest: publishOutcome } : {}),
-          });
-        }
-
-        // -- Stage the build context in object storage ------------------------
-        // The upload + build workers run on every replica and BullMQ may route
-        // the build to a DIFFERENT replica than this one; `contextDir` is per-pod
-        // local scratch, so stage the raw ZIP in S3 (MinIO) FIRST. A worker
-        // elsewhere re-materializes the context from this key; the local
-        // extractDir remains the same-replica fast path. Fail the upload if
-        // staging fails — a build we can't reconstruct must never be queued.
-        const s3Key = pluginArtifactKey(orgId, ctx.requestId);
-        try {
-          await putPluginArtifact(s3Key, await fs.promises.readFile(zipPath));
-        } catch (s3Err) {
-          ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
-          slot.release();
-          return sendError(res, 503, 'Object storage unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
-        }
-
-        // -- Queue build job (returns immediately) ----------------------------
-        const jobData = createBuildJobData({
-          requestId: ctx.requestId,
-          orgId,
-          userId: userId || 'system',
-          access,
-          // Period snapshot for the reserved slot so a DLQ retry spanning a
-          // quota reset refunds the correct period (see releasePluginQuota).
-          reservedResetAt: slot.resetAt,
-          ...(publish ? { publish } : {}),
-          buildRequest: {
-            contextDir: plugin.extractDir,
-            s3Key,
-            dockerfile: plugin.dockerfile,
-            name: s.name,
-            version,
-            orgId,
-            registry,
-            buildArgs: s.buildArgs || {},
-            buildType: plugin.buildType,
-          },
-          pluginRecord,
-        });
-
-        try {
-          await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `${s.name}:${version}`, jobData, logWarn });
-        } catch (queueErr) {
-          ctx.log('ERROR', 'Failed to enqueue build job', {
-            error: errorMessage(queueErr),
-          });
-          slot.release();
-          // The build won't run — drop the staged context so it doesn't orphan
-          // (best-effort; the bucket's expiry lifecycle is the backstop).
-          await deletePluginArtifact(s3Key);
-          return sendError(res, 503, 'Build queue unavailable  please retry', ErrorCode.SERVICE_UNAVAILABLE);
-        }
-        // Queued: the build worker owns the slot now (it refunds on permanent failure).
-        slot = null;
-
-        ctx.log('INFO', 'Build queued', { pluginName: s.name, version });
-
-        // Best-effort attributed audit — the source upload was accepted and the
-        // build queued. No plugin id exists yet (the worker persists the record
-        // on build completion, where plugin.build.completed carries the id), so
-        // `targetId` is omitted here; name/version identify the artifact.
-        recordAudit({
-          action: 'plugin.upload',
-          actorId: actorId({ userId }),
-          orgId,
-          targetType: 'plugin',
-          details: {
-            pluginName: s.name,
-            version,
-            visibility,
-            buildType: plugin.buildType,
-          },
-        });
-
-        return sendSuccess(res, 202, {
-          requestId: ctx.requestId,
-          pluginName: s.name,
-          version,
-        }, 'Plugin build queued');
-      } catch (err) {
-        // Any unexpected throw (e.g. parsePluginZip, deployVersion) — roll
-        // back the reserved slot before propagating, otherwise the slot
-        // sticks until period reset.
-        slot?.release();
-        throw err;
       } finally {
         // Remove the uploaded temp ZIP on EVERY outcome — early returns (bad
         // body, quota denied, compliance block) included, not only once the

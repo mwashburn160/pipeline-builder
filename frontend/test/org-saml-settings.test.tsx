@@ -99,6 +99,9 @@ const noop = () => undefined;
 describe('OrgSamlSettings', () => {
   it('shows the SERVER\'s service-provider values, with copy buttons, before any config exists', async () => {
     render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     // From sp-info (the deployment's public URL) — never window.location, which
     // differs whenever the dashboard is reached through another hostname.
     expect(await screen.findByText(SP.acsUrl)).toBeInTheDocument();
@@ -115,6 +118,9 @@ describe('OrgSamlSettings', () => {
       data: { metadata: { entityId: 'https://idp.new/entity', ssoUrl: 'https://idp.new/sso', sloUrl: 'https://idp.new/slo', certificates: [CERT_B], wantsSignedRequests: true } },
     });
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.change(screen.getByLabelText('Metadata URL'), { target: { value: 'https://idp.new/metadata' } });
     fireEvent.click(screen.getByRole('button', { name: /Import metadata/i }));
 
@@ -140,6 +146,9 @@ describe('OrgSamlSettings', () => {
 
   it('sends the encrypted-assertions switch', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.click(screen.getByRole('checkbox', { name: /encrypts assertions/i }));
     fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
@@ -149,6 +158,9 @@ describe('OrgSamlSettings', () => {
 
   it('in the wizard: no protocol selector, SAML selected, a new connection created DISABLED', async () => {
     render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} onSaved={noop} wizard={{ presetAttributes: { email: 'mail' }, submitLabel: 'Save and continue' }} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     expect(screen.queryByLabelText(/^Protocol$/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/Email attribute/i)).toHaveValue('mail');
     fireEvent.change(screen.getByLabelText(/Identity provider entity ID/i), { target: { value: 'https://idp.example.com/saml/metadata' } });
@@ -160,13 +172,19 @@ describe('OrgSamlSettings', () => {
     expect(putOwnOrgIdpConfig.mock.calls[0][1]).toMatchObject({ protocol: 'saml', enabled: false });
   });
 
-  it('says the SAML fields are unused while the org is on OIDC', () => {
+  it('says the SAML fields are unused while the org is on OIDC', async () => {
     render(<OrgSamlSettings orgId="org-1" config={{ ...samlConfig, protocol: 'oidc' }} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     expect(screen.getByText(/signs in over OIDC/i)).toBeInTheDocument();
   });
 
-  it('mirrors a stored SAML config into the form', () => {
+  it('mirrors a stored SAML config into the form', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     expect(screen.getByLabelText(/Identity provider entity ID/i)).toHaveValue('https://idp.example.com/saml/metadata');
     expect(screen.getByLabelText(/Identity provider SSO URL/i)).toHaveValue('https://idp.example.com/sso/saml');
     expect(screen.getByLabelText(/Email attribute/i)).toHaveValue('email');
@@ -175,6 +193,9 @@ describe('OrgSamlSettings', () => {
   it('creates a new connection with PUT: the protocol and the SAML fields, never the OIDC ones', async () => {
     const onSaved = jest.fn<AnyFn>();
     render(<OrgSamlSettings orgId="org-1" config={null} readOnly={false} onSaved={onSaved} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.change(screen.getByLabelText(/Protocol/i), { target: { value: 'saml' } });
     fireEvent.change(screen.getByLabelText(/Identity provider entity ID/i), { target: { value: 'https://idp.example.com/saml/metadata' } });
     fireEvent.change(screen.getByLabelText(/Identity provider SSO URL/i), { target: { value: 'https://idp.example.com/sso/saml' } });
@@ -198,6 +219,9 @@ describe('OrgSamlSettings', () => {
 
   it('edits an existing connection with PATCH, sending only what changed', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.change(screen.getByLabelText(/Name attribute/i), { target: { value: 'displayName' } });
 
     fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
@@ -212,6 +236,9 @@ describe('OrgSamlSettings', () => {
 
   it('sends nothing when nothing changed', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
 
     expect(await screen.findByText(/No changes to save/i)).toBeInTheDocument();
@@ -221,6 +248,9 @@ describe('OrgSamlSettings', () => {
 
   it('splits a pasted blob into two certificates and warns that a rotation window is open', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.change(screen.getByLabelText(/Signing certificate/i), {
       target: { value: `${CERT_B}\n\n${CERT_A}` },
     });
@@ -237,6 +267,9 @@ describe('OrgSamlSettings', () => {
 
   it('refuses to save a SAML config with no certificate', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.change(screen.getByLabelText(/Signing certificate/i), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
 
@@ -247,6 +280,9 @@ describe('OrgSamlSettings', () => {
 
   it('refuses an SSO URL that is not https', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.change(screen.getByLabelText(/Identity provider SSO URL/i), {
       target: { value: 'http://idp.example.com/sso/saml' },
     });
@@ -260,14 +296,20 @@ describe('OrgSamlSettings', () => {
 
   it('refuses a non-https single-logout URL', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly={false} onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     fireEvent.change(screen.getByLabelText(/single-logout URL/i), { target: { value: 'http://idp.example.com/slo' } });
     fireEvent.click(screen.getByRole('button', { name: /Save SAML settings/i }));
     expect(await screen.findByText(/^The single-logout URL must use https$/i)).toBeInTheDocument();
     expect(patchOwnOrgIdpConfig).not.toHaveBeenCalled();
   });
 
-  it('disables every control for a read-only (impersonated) session', () => {
+  it('disables every control for a read-only (impersonated) session', async () => {
     render(<OrgSamlSettings orgId="org-1" config={samlConfig} readOnly onSaved={noop} />);
+    // The SP values come from the server; wait for them so that read lands
+    // inside the test rather than after it.
+    await screen.findByTestId('sp-values');
     expect(screen.getByLabelText(/Identity provider entity ID/i)).toBeDisabled();
     expect(screen.getByRole('button', { name: /Save SAML settings/i })).toBeDisabled();
   });

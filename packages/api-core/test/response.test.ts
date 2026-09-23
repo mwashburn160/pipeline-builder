@@ -9,6 +9,7 @@ import {
   sendError,
   sendQuotaExceeded,
   sendPaginatedNested,
+  paginationMeta,
   extractDbError,
   errorMessage,
   sendBadRequest,
@@ -172,6 +173,71 @@ describe('sendPaginatedNested', () => {
     const res = mockRes();
     sendPaginatedNested(res, 'rows', [], { limit: 10, offset: 0, hasMore: false, statusCode: 206 });
     expect(res.statusCode).toBe(206);
+  });
+
+  it('derives hasMore from the row count when the caller omits it', () => {
+    // `offset + rows.length < total` was the single most-repeated expression in
+    // the API; deriving it here is what stops one route spelling it wrong.
+    const res = mockRes();
+    sendPaginatedNested(res, 'rows', [{ id: '1' }, { id: '2' }], { total: 50, limit: 2, offset: 0 });
+    expect(res.body.data.pagination).toEqual({ total: 50, limit: 2, offset: 0, hasMore: true });
+  });
+
+  it('derives hasMore=false on the last page', () => {
+    const res = mockRes();
+    sendPaginatedNested(res, 'rows', [{ id: '49' }, { id: '50' }], { total: 50, limit: 25, offset: 48 });
+    expect(res.body.data.pagination.hasMore).toBe(false);
+  });
+
+  it('derives hasMore=false for an empty page past the end', () => {
+    const res = mockRes();
+    sendPaginatedNested(res, 'rows', [], { total: 50, limit: 25, offset: 50 });
+    expect(res.body.data.pagination.hasMore).toBe(false);
+  });
+
+  it('keeps an explicit hasMore=false rather than re-deriving it', () => {
+    // `??` must not treat `false` as "unset" — a limit+1 peek-ahead route knows
+    // better than the row count does.
+    const res = mockRes();
+    sendPaginatedNested(res, 'rows', [{ id: '1' }], { total: 50, limit: 25, offset: 0, hasMore: false });
+    expect(res.body.data.pagination.hasMore).toBe(false);
+  });
+
+  it('falls back to "a cursor was issued" when there is no total', () => {
+    const withCursor = mockRes();
+    sendPaginatedNested(withCursor, 'rows', [{ id: '1' }], { limit: 10, offset: 0, nextCursor: 'abc123' });
+    expect(withCursor.body.data.pagination.hasMore).toBe(true);
+
+    const last = mockRes();
+    sendPaginatedNested(last, 'rows', [{ id: '1' }], { limit: 10, offset: 0 });
+    expect(last.body.data.pagination.hasMore).toBe(false);
+  });
+});
+
+describe('paginationMeta', () => {
+  it('builds the envelope and derives hasMore from a full page', () => {
+    expect(paginationMeta({ total: 50, offset: 0, limit: 10 }))
+      .toEqual({ total: 50, offset: 0, limit: 10, hasMore: true });
+  });
+
+  it('reports no more once the window reaches the total', () => {
+    expect(paginationMeta({ total: 50, offset: 40, limit: 10 }).hasMore).toBe(false);
+    expect(paginationMeta({ total: 50, offset: 45, limit: 10 }).hasMore).toBe(false);
+  });
+
+  it('honours `returned` for a short page', () => {
+    // A route whose page can be shorter than its limit (filtered after the
+    // query) would otherwise claim the window covered rows it never returned.
+    expect(paginationMeta({ total: 50, offset: 0, limit: 25, returned: 3 }).hasMore).toBe(true);
+    expect(paginationMeta({ total: 3, offset: 0, limit: 25, returned: 3 }).hasMore).toBe(false);
+  });
+
+  it('reports no more for an unpaged "everything" answer', () => {
+    expect(paginationMeta({ total: 7, offset: 0, limit: 7 }).hasMore).toBe(false);
+  });
+
+  it('reports no more for an empty result set', () => {
+    expect(paginationMeta({ total: 0, offset: 0, limit: 10 })).toEqual({ total: 0, offset: 0, limit: 10, hasMore: false });
   });
 });
 

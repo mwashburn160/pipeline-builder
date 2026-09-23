@@ -12,6 +12,13 @@ set -euo pipefail
 #
 # To WIPE the cluster instead: sudo -u minikube minikube delete --profile=pipeline-builder
 # (the EC2 instance itself is torn down by deleting the CloudFormation stack).
+#
+# TWO CALLERS, ONE PATH. An operator runs this directly, AND it is the ExecStop of
+# pipeline-minikube-shutdown.service (installed by bootstrap.sh Phase 12), so an
+# `aws ec2 stop-instances`, an ASG terminate or a `shutdown -h now` stops the
+# cluster cleanly instead of letting docker SIGKILL the node container mid-write.
+# Keep it non-interactive and bounded: it runs inside the halt sequence, where
+# anything that blocks costs the instance its remaining shutdown window.
 # =============================================================================
 
 PROFILE="pipeline-builder"
@@ -19,6 +26,23 @@ PROFILE="pipeline-builder"
 [ "$(id -u)" = "0" ] || { echo "ERROR: run as root (sudo)" >&2; exit 1; }
 
 echo "=== Pipeline Builder EC2 Shutdown ==="
+
+# Nothing to do if the node VM was never started (or is already stopped). Matters
+# most on the systemd path: every boot activates the unit, so a host stopped
+# before anyone ran startup.sh would otherwise pay the full teardown —
+# `minikube ip`, iptables edits, `minikube stop` — for a cluster that isn't there.
+#
+# Gate on the HOST field, not on `minikube status`'s exit code: that exit code is
+# non-zero whenever ANY component is unhealthy, including a running node whose
+# apiserver is merely wedged. Skipping the stop in that state is precisely the
+# case this hook exists to prevent — the container is alive and would be
+# SIGKILLed with the disk mid-write. Only "not running at all" is a safe skip.
+MK_HOST=$(sudo -u minikube minikube status --profile="$PROFILE" --format='{{.Host}}' 2>/dev/null || true)
+MK_HOST="$(printf '%s' "$MK_HOST" | tr -d '[:space:]')"
+if [ "$MK_HOST" != "Running" ]; then
+  echo "  Node VM for '$PROFILE' is not running (host: ${MK_HOST:-unknown}) — nothing to stop."
+  exit 0
+fi
 
 # -- Remove iptables rules ---------------------------------------------------
 

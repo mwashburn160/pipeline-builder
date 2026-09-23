@@ -47,6 +47,10 @@ jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }))
 const generateNewToken = jest.fn<AnyFn>();
 const listTokenHistory = jest.fn<AnyFn>();
 const getOwnPasswordPolicy = jest.fn<AnyFn>();
+// The posture strip at the top of every tab reads sessions on mount. Stubbed so
+// it SETTLES within each test rather than throwing on a missing method and
+// landing its error state after the test body has finished.
+const listSessions = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -54,6 +58,7 @@ jest.mock('@/lib/api', () => ({
     generateNewToken: (...a: unknown[]) => generateNewToken(...a),
     listTokenHistory: (...a: unknown[]) => listTokenHistory(...a),
     getOwnPasswordPolicy: (...a: unknown[]) => getOwnPasswordPolicy(...a),
+    listSessions: (...a: unknown[]) => listSessions(...a),
   },
 }));
 
@@ -63,37 +68,50 @@ jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() =>
 
 import SecurityPage from '../pages/dashboard/security';
 
+/** The posture strip's session read lands after the first paint. Waiting for
+ *  the item it produces keeps that update inside the test. */
+const postureSettled = () => screen.findByTestId('posture-sessions');
+
 beforeEach(() => {
   jest.clearAllMocks();
   query = {};
   window.location.hash = '';
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' } });
   listTokenHistory.mockResolvedValue({ success: true, data: { tokens: [] } });
+  listSessions.mockResolvedValue({ success: true, data: { sessions: [], machineSessions: [] } });
   getOwnPasswordPolicy.mockResolvedValue({ success: true, data: { minLength: 8, maxLength: 128 } });
 });
 
 afterEach(() => { window.location.hash = ''; });
 
 describe('Security — one page, four answers', () => {
-  it('opens on the factors a person signs in with', () => {
+  it('opens on the factors a person signs in with', async () => {
     render(<SecurityPage />);
     expect(screen.getByText('passkey-section')).toBeInTheDocument();
     expect(screen.getByText('totp-section')).toBeInTheDocument();
-    // The password form is here too — it is a sign-in credential, not a profile field.
-    expect(screen.getByRole('button', { name: /change password/i })).toBeInTheDocument();
+    // The password form is here too — it is a sign-in credential, not a profile
+    // field. Awaited, because the form's policy read settles after first paint
+    // and the button must still be there once it has.
+    expect(await screen.findByRole('button', { name: /change password/i })).toBeInTheDocument();
+    await waitFor(() => expect(getOwnPasswordPolicy).toHaveBeenCalled());
+    await postureSettled();
   });
 
-  it('shows exactly one sessions view, on the sessions tab', () => {
+  it('shows exactly one sessions view, on the sessions tab', async () => {
     query = { tab: 'sessions' };
     render(<SecurityPage />);
-    expect(screen.getAllByText('sessions-section')).toHaveLength(1);
+    await waitFor(() => expect(screen.getAllByText('sessions-section')).toHaveLength(1));
+    await postureSettled();
   });
 
-  it('puts access keys and the machine-token mint on the keys tab', () => {
+  it('puts access keys and the machine-token mint on the keys tab', async () => {
     query = { tab: 'keys' };
     render(<SecurityPage />);
     expect(screen.getByText('access-keys-section')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /generate token/i })).toBeInTheDocument();
+    // The tab's token-history read settles after first paint.
+    expect(await screen.findByText('No tokens issued yet')).toBeInTheDocument();
+    await postureSettled();
   });
 
   it('mints a machine token with the chosen lifetime and capability scope', async () => {
@@ -109,6 +127,7 @@ describe('Security — one page, four answers', () => {
     expect(await screen.findByText(/Valid for 7 days/)).toBeInTheDocument();
     // The history re-reads so the new issuance shows up.
     await waitFor(() => expect(listTokenHistory).toHaveBeenCalledTimes(2));
+    await postureSettled();
   });
 
   it('sends no scope and no subset for a FULL-access token, only the lifetime', async () => {
@@ -118,6 +137,7 @@ describe('Security — one page, four answers', () => {
     fireEvent.click(screen.getByRole('button', { name: /full access/i }));
     fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
     await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 30 * 86400 }));
+    await postureSettled();
   });
 
   it('defaults to SELECTED permissions, seeded with the read-only permissions the person holds', async () => {
@@ -130,14 +150,17 @@ describe('Security — one page, four answers', () => {
       expiresIn: 30 * 86400, permissions: ['pipelines:read', 'plugins:read'],
     }));
     expect(await screen.findByText(/2 selected permissions/)).toBeInTheDocument();
+    await postureSettled();
   });
 
-  it('offers only lifetimes the API accepts (1–365 days)', () => {
+  it('offers only lifetimes the API accepts (1–365 days)', async () => {
     query = { tab: 'keys' };
     render(<SecurityPage />);
     const values = Array.from((screen.getByLabelText('Expires after') as HTMLSelectElement).options).map((o) => Number(o.value));
     expect(Math.min(...values)).toBeGreaterThanOrEqual(1);
     expect(Math.max(...values)).toBeLessThanOrEqual(365);
+    expect(await screen.findByText('No tokens issued yet')).toBeInTheDocument();
+    await postureSettled();
   });
 
   it('lists the token history with each token\'s status', async () => {
@@ -152,39 +175,45 @@ describe('Security — one page, four answers', () => {
     render(<SecurityPage />);
     expect(await screen.findByText('active')).toBeInTheDocument();
     expect(screen.getByText('revoked')).toBeInTheDocument();
+    await postureSettled();
   });
 
   it('says so when no token has been issued, and offers a retry on failure', async () => {
     query = { tab: 'keys' };
     const { unmount } = render(<SecurityPage />);
     expect(await screen.findByText('No tokens issued yet')).toBeInTheDocument();
+    await postureSettled();
     unmount();
 
     listTokenHistory.mockRejectedValue(new Error('boom'));
     render(<SecurityPage />);
     expect(await screen.findByRole('button', { name: /retry/i })).toBeInTheDocument();
+    await postureSettled();
   });
 
-  it('hides the org service accounts from someone who cannot manage them', () => {
+  it('hides the org service accounts from someone who cannot manage them', async () => {
     query = { tab: 'service-accounts' };
     render(<SecurityPage />);
     expect(screen.queryByText('service-accounts-section')).not.toBeInTheDocument();
-    expect(screen.getByText(/managed by an administrator/i)).toBeInTheDocument();
-    // …and the tab isn't advertised either.
-    expect(screen.queryByRole('button', { name: 'Service accounts' })).not.toBeInTheDocument();
+    expect(await screen.findByText(/managed by an administrator/i)).toBeInTheDocument();
+    // …and the tab isn't advertised either — still not, once the posture
+    // strip's reads have landed.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Service accounts' })).not.toBeInTheDocument());
+    await postureSettled();
   });
 
-  it('shows them to someone who holds service_accounts:manage', () => {
+  it('shows them to someone who holds service_accounts:manage', async () => {
     mockAuthGuard({
       user: { id: 'u1', organizationId: 'org-1' },
       can: (p: string) => p === 'service_accounts:manage',
     });
     query = { tab: 'service-accounts' };
     render(<SecurityPage />);
-    expect(screen.getByText('service-accounts-section')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('service-accounts-section')).toBeInTheDocument());
+    await postureSettled();
   });
 
-  it('discloses a read-only impersonation on every tab (service accounts included)', () => {
+  it('discloses a read-only impersonation on every tab (service accounts included)', async () => {
     mockAuthGuard({
       user: { id: 'u1', organizationId: 'org-1' },
       isReadOnly: true,
@@ -192,7 +221,8 @@ describe('Security — one page, four answers', () => {
     });
     query = { tab: 'service-accounts' };
     render(<SecurityPage />);
-    expect(screen.getByText(/read-only session/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/read-only session/i)).toBeInTheDocument());
+    await postureSettled();
   });
 });
 
@@ -212,7 +242,7 @@ describe('enrolment deep links land', () => {
     expect(SECURITY_HASH_TABS.totp).toBe('factors');
   });
 
-  it('renders the section a deep-linked fragment names, with an anchor to scroll to', () => {
+  it('renders the section a deep-linked fragment names, with an anchor to scroll to', async () => {
     query = { tab: 'factors' };
     window.location.hash = '#passkeys';
     const { container } = render(<SecurityPage />);
@@ -221,12 +251,15 @@ describe('enrolment deep links land', () => {
     expect(anchor).toHaveTextContent('passkey-section');
     // Focusable, so a keyboard user lands on the section and not just the viewport.
     expect(anchor).toHaveAttribute('tabindex', '-1');
+    await waitFor(() => expect(getOwnPasswordPolicy).toHaveBeenCalled());
+    await postureSettled();
   });
 
-  it('opens the Factors tab for a bare #passkeys, with no ?tab= at all', () => {
+  it('opens the Factors tab for a bare #passkeys, with no ?tab= at all', async () => {
     window.location.hash = '#passkeys';
     render(<SecurityPage />);
-    expect(screen.getByText('passkey-section')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('passkey-section')).toBeInTheDocument());
+    await postureSettled();
   });
 });
 
@@ -256,12 +289,14 @@ describe('Security — the password form', () => {
     fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'tenletters' } });
     fireEvent.click(screen.getByRole('button', { name: /change password/i }));
     expect(await screen.findByText('New password must be at least 14 characters')).toBeInTheDocument();
+    await postureSettled();
   });
 
-  it('is not offered to an account with no password (OAuth / SSO only)', () => {
+  it('is not offered to an account with no password (OAuth / SSO only)', async () => {
     mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1', authFactors: { hasPassword: false, passkeyCount: 0, hasTotp: false, providers: ['google'] } } });
     render(<SecurityPage />);
     expect(screen.queryByRole('button', { name: /change password/i })).not.toBeInTheDocument();
     expect(screen.getByText('passkey-section')).toBeInTheDocument();
+    await postureSettled();
   });
 });

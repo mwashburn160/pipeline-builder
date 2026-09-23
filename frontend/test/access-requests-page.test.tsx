@@ -285,15 +285,15 @@ describe('AccessRequestsPage — your requests', () => {
 
 describe('AccessRequestsPage — paging', () => {
   it('asks each list for one page, and pages on demand', async () => {
-    serve({ toDecide: [pending()] }, { 'to-decide': 23 });
+    serve({ toDecide: [pending()] }, { 'to-decide': 43 });
     render(<AccessRequestsPage />);
 
     // The pending count is the server's total, not the page length.
-    expect(await screen.findByText('23 pending')).toBeInTheDocument();
-    expect(listImpersonationRequests).toHaveBeenCalledWith('to-decide', { limit: 10, offset: 0 }, expect.anything());
+    expect(await screen.findByText('43 pending')).toBeInTheDocument();
+    expect(listImpersonationRequests).toHaveBeenCalledWith('to-decide', { limit: 25, offset: 0 }, expect.anything());
 
     fireEvent.click(screen.getByRole('button', { name: 'Page 2' }));
-    await waitFor(() => expect(listImpersonationRequests).toHaveBeenCalledWith('to-decide', { limit: 10, offset: 10 }, expect.anything()));
+    await waitFor(() => expect(listImpersonationRequests).toHaveBeenCalledWith('to-decide', { limit: 25, offset: 25 }, expect.anything()));
   });
 
   it('shows no pager when everything fits on one page', async () => {

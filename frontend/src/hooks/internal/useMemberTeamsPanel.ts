@@ -87,17 +87,19 @@ export function useMemberTeamsPanel({
     if (!orgId || !addToTeam) return;
     const email = teamMemberEmail.trim().toLowerCase();
     if (!email) return;
-    const result = await teamAddForm.run(
+    await teamAddForm.run(
       () => api.bulkAddMemberToTeams(orgId, { email, orgIds: [addToTeam.orgId], role: 'member' }),
+      {
+        onSuccess: (result) => {
+          const status = result.data?.results?.[0]?.status;
+          toast.success(status === 'already_member'
+            ? `${email} is already a member of ${addToTeam.orgName}`
+            : `Added ${email} to ${addToTeam.orgName}`);
+          setAddToTeam(null);
+          setTeamMemberEmail('');
+        },
+      },
     );
-    if (result !== null) {
-      const status = result.data?.results?.[0]?.status;
-      toast.success(status === 'already_member'
-        ? `${email} is already a member of ${addToTeam.orgName}`
-        : `Added ${email} to ${addToTeam.orgName}`);
-      setAddToTeam(null);
-      setTeamMemberEmail('');
-    }
   };
 
   const teams = teamsQ.data ?? [];

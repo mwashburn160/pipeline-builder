@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, getParam, ErrorCode, requireStepUp, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, actorId, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, audited, getParam, ErrorCode, requireStepUp, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, actorId, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
@@ -57,7 +57,7 @@ export function createDeletePluginRoutes(quotaService: QuotaService): Router {
     // Throws a typed 409 (frozen / in use / listed) the error middleware maps.
     // The delete is pinned to the caller's org, so a public/system-org sample the
     // read surfaced matches zero rows → null: no 200, no audit, no refund.
-    const { deleted, inUse, listed, promoted } = await pluginService.deleteVersion(existing, orgId, userId || 'system', { force });
+    const { deleted, inUse, listed, promoted } = await pluginService.deleteVersion(existing, orgId, userId || SYSTEM_ACTOR_ID, { force });
     if (!deleted) return sendEntityNotFound(res, 'Plugin');
 
     const refunded = refundPluginSlot(quotaService, existing, ctx.log.bind(null, 'WARN'));

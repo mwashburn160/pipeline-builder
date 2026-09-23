@@ -19,7 +19,7 @@
 
 import {
   ErrorCode, actorId, audited, getParam, requireVisibilityWriteAccess, sendBadRequest, sendEntityNotFound, sendSuccess, validateBody,
-  recordAudit,
+  recordAudit, SYSTEM_ACTOR_ID,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -53,7 +53,7 @@ export function createVersionLifecycleRoutes(): Router {
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     const wasDeprecated = existing.deprecatedAt !== null && existing.deprecatedAt !== undefined;
-    const updated = await pluginService.setDeprecated(existing, orgId, userId || 'system', {
+    const updated = await pluginService.setDeprecated(existing, orgId, userId || SYSTEM_ACTOR_ID, {
       deprecated,
       message: deprecated ? body.value.message ?? null : null,
     });
@@ -85,7 +85,7 @@ export function createVersionLifecycleRoutes(): Router {
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     // Throws 409 PLUGIN_VERSION_FROZEN for a version published to the ecosystem.
-    const { yanked, promoted } = await pluginService.yankVersion(existing, orgId, userId || 'system', body.value.reason);
+    const { yanked, promoted } = await pluginService.yankVersion(existing, orgId, userId || SYSTEM_ACTOR_ID, body.value.reason);
     if (!yanked) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Plugin version yanked', { id, name: yanked.name, promotedId: promoted?.id });

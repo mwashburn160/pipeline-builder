@@ -9,6 +9,7 @@ import { Edit2, Copy, Trash2, LayoutDashboard } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
+import { useDelete } from '@/hooks/useDelete';
 import { useToast } from '@/components/ui/Toast';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -203,9 +204,7 @@ export default function DashboardPage() {
   // Measure container width for the grid driver (ResizeObserver via a callback
   // ref — see useElementWidth for why a mount-only effect stuck it at 960px).
   const [gridContainerRef, gridWidth] = useElementWidth(960);
-  // Delete confirmation, shown as an in-app modal.
-  const [pendingDelete, setPendingDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  // Delete confirmation, shown as an in-app modal (see `del` below).
 
   const { data: dashboard, loading, error, refetch } = useFetch<DashboardWithPanels | null>(
     async (signal) => (ready ? (await api.getDashboard(id, { signal })).data?.dashboard ?? null : null),
@@ -230,19 +229,17 @@ export default function DashboardPage() {
     }
   };
 
-  const executeDelete = async () => {
-    if (!dashboard) return;
-    setDeleting(true);
-    try {
-      await api.deleteDashboard(dashboard.id);
+  // `useDelete` owns the step-up replay: a delete refused pending re-auth
+  // navigates away once the person confirms in the global dialog, instead of
+  // toasting an error over a dashboard the server did delete.
+  const del = useDelete<DashboardWithPanels>(
+    (d) => api.deleteDashboard(d.id),
+    () => {
       toast.success('Dashboard deleted');
       void router.push('/dashboard/observability');
-    } catch (err) {
-      toast.error(formatError(err));
-      setDeleting(false);
-      setPendingDelete(false);
-    }
-  };
+    },
+    (err) => toast.error(formatError(err)),
+  );
 
   // `!id` keeps the "Dashboard not found" branch from flashing on first client
   // render, before `router.query.id` has hydrated (the fetcher no-ops to null
@@ -316,7 +313,7 @@ export default function DashboardPage() {
             <Button
               variant="danger-outline"
               size="xs"
-              onClick={() => setPendingDelete(true)}
+              onClick={() => dashboard && del.open(dashboard)}
               className="gap-1"
             >
               <Trash2 className="w-3.5 h-3.5" /> Delete
@@ -373,13 +370,13 @@ export default function DashboardPage() {
         </ObservabilityHealthProvider>
       )}
 
-      {pendingDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete dashboard"
-          itemName={dashboard.name}
-          loading={deleting}
-          onConfirm={() => void executeDelete()}
-          onCancel={() => setPendingDelete(false)}
+          itemName={del.target.name}
+          loading={del.loading}
+          onConfirm={() => void del.confirm()}
+          onCancel={del.close}
         />
       )}
     </DashboardLayout>

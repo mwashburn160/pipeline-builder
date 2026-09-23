@@ -404,7 +404,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                         </div>
                       )}
                       {m.proposalStatus === 'error' && (
-                        <p className="mt-1 text-xs text-danger">{m.proposalError}</p>
+                        <p role="alert" className="mt-1 text-xs text-danger">{m.proposalError}</p>
                       )}
                       {/* Refused, not failed: the live state moved after the draft was
                           reviewed, so the approved diff is no longer the diff that

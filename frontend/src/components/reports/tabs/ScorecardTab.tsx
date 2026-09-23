@@ -9,6 +9,8 @@ import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
 import type { TabDataStatus } from '../useReportData';
 import api from '@/lib/api';
 import type { ScorecardRollup, ScorecardLeaderboardEntry } from '@/types';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 interface ScorecardTabProps {
   /** Whether `advanced_reporting` is entitled — non-entitled renders an upsell. */
@@ -32,12 +34,12 @@ function Band({ level }: { level: ScorecardLeaderboardEntry['dora']['deploymentF
 export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
   const { data, loading, error, refetch } = useFetch<ScorecardRollup | null>(
     async () => {
-      if (!enabled) return null;
       const res = await api.getOrgScorecardRollup();
       if (res.success && res.data) return res.data.rollup;
       throw new Error('Failed to load scorecard roll-up');
     },
     [enabled],
+    { enabled },
   );
 
   // TabDataStatus.error is a string; useFetch surfaces an Error — stringify it.
@@ -59,7 +61,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
   }
 
   if (loading && !data) return <Card><p className="text-sm text-fg-subtle">Computing org-wide scorecard…</p></Card>;
-  if (error) return <Card><p className="text-sm text-danger">Could not load the scorecard roll-up.</p></Card>;
+  if (error) return <Card><ErrorAlert message="Could not load the scorecard roll-up." onRetry={refetch} /></Card>;
   if (!data || data.pipelineCount === 0) {
     return (
       <Card>
@@ -67,7 +69,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
           <Trophy className="w-5 h-5 text-fg-subtle" />
           <h3 className="h3">Software-health leaderboard</h3>
         </div>
-        <p className="text-sm text-fg-muted">No pipelines to score yet. Create a pipeline and record deploys to build a leaderboard.</p>
+        <EmptyState compact title="No pipelines to score yet" description="Create a pipeline and record deploys to build a leaderboard." />
       </Card>
     );
   }

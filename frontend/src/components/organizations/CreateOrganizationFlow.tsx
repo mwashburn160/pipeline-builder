@@ -87,16 +87,17 @@ function CreateOrganizationModal({ onClose, onCreated }: {
       return;
     }
     // A team inherits its parent's tier, so none is sent for one.
-    const result = await createForm.run(() => api.createOrganization({
+    await createForm.run(() => api.createOrganization({
       name,
       ...(createAsSubOrg && parentOrgId ? { parentOrgId } : { tier: newOrgTier }),
-    }));
-    if (result !== null) {
-      // Every cached org list (audit page, quota picker, IdP roster, this very
-      // parent picker) is now missing the new org.
-      invalidate.organizations();
-      onCreated({ name, tier: newOrgTier, asTeam: createAsSubOrg });
-    }
+    }), {
+      onSuccess: () => {
+        // Every cached org list (audit page, quota picker, IdP roster, this very
+        // parent picker) is now missing the new org.
+        invalidate.organizations();
+        onCreated({ name, tier: newOrgTier, asTeam: createAsSubOrg });
+      },
+    });
   };
 
   return (

@@ -9,6 +9,7 @@ import { useFetch } from '@/hooks/useFetch';
 import type { AuditLogEvent } from '@/types/audit';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 /**
  * Inline timeline of platform-admin grant/revoke events for a user. Queries
@@ -49,7 +50,7 @@ export function SysadminGrantHistory({ userId, isSuperAdmin }: { userId: string;
       {expanded && (
         <div className="mt-2">
           {loading && <LoadingSpinner size="sm" />}
-          {error && <p className="text-xs text-danger">{error}</p>}
+          <ErrorAlert message={error} />
           {!loading && events.length === 0 && (
             <p className="text-xs text-fg-muted">No grant events on file.</p>
           )}

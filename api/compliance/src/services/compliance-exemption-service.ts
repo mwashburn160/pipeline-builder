@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { ComplianceExemptionRequest } from '@pipeline-builder/api-core';
 import { buildComplianceExemptionConditions, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 import { paginatedList } from './paginated-list.js';
@@ -17,14 +18,9 @@ export interface ComplianceExemptionFilter {
   status?: 'pending' | 'approved' | 'rejected' | 'expired';
 }
 
-interface ExemptionInsert {
-  ruleId: string;
-  entityType: 'plugin' | 'pipeline';
-  entityId: string;
-  entityName?: string;
-  reason: string;
-  expiresAt?: string;
-}
+/** The insert shape IS the `POST /compliance/exemptions` wire contract; it is
+ *  shared with the Ask agent's proposal so the two cannot drift. */
+type ExemptionInsert = ComplianceExemptionRequest;
 
 class ComplianceExemptionService {
   /**

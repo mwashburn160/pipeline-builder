@@ -19,7 +19,7 @@
  * in pipeline-data; this module applies it for the plugin service's routes.
  */
 
-import { actorId, ConflictError, ErrorCode, type Permission, parsePage } from '@pipeline-builder/api-core';
+import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage } from '@pipeline-builder/api-core';
 import {
   isUniqueViolation,
   applyPolicyUpdate,
@@ -52,7 +52,7 @@ import { orgApprovers } from './install-notify.js';
 import { installRows, listingSource, ownPluginsNamed, policyRows } from './installs-store.js';
 import { catalogEntry, installView, isStable, needsApproval, NO_STATS, statsFor } from './installs-views.js';
 import { sendNotice, userRecipient } from './notify.js';
-import { iso, optionalText } from './util.js';
+import { optionalText } from './util.js';
 
 
 /** The resolution scope of a caller: its org, and (for a team) the root org. */
@@ -123,10 +123,7 @@ export async function catalog(caller: Caller, query: Record<string, unknown>) {
       ...catalogEntry(caller, s, ctx.policy, s.publisher.handle === OFFICIAL_PUBLISHER_HANDLE ? shadows.get(s.listing.name) ?? [] : []),
       ...(stats.get(s.listing.id) ?? NO_STATS),
     })),
-    total,
-    limit,
-    offset,
-    hasMore: offset + states.length < total,
+    ...paginationMeta({ total, offset, limit, returned: states.length }),
   };
 }
 
@@ -154,13 +151,13 @@ export async function installState(caller: Caller, handle: string, name: string)
       yanked: v.yankedAt !== null,
       paused: v.pausedAt !== null,
       deprecated: v.deprecatedAt !== null,
-      publishedAt: iso(v.publishedAt)!,
+      publishedAt: isoOrNull(v.publishedAt)!,
       changelog: v.changelog,
       vulnCritical: v.vulnCritical,
       vulnHigh: v.vulnHigh,
       vulnCriticalFixable: v.vulnCriticalFixable,
       vulnHighFixable: v.vulnHighFixable,
-      scanFlaggedAt: iso(v.scanFlaggedAt),
+      scanFlaggedAt: isoOrNull(v.scanFlaggedAt),
       scanFlag: v.scanFlag,
     })),
     canInstall: can(caller, 'plugins:install'),
@@ -583,7 +580,7 @@ export async function getPolicy(caller: Caller) {
     effective: effectiveConsumptionPolicy(rows, orgIds[0]!, orgIds[1]),
     inheritsFromRoot: orgIds.length > 1,
     updatedBy: own?.updatedBy ?? null,
-    updatedAt: iso(own?.updatedAt),
+    updatedAt: isoOrNull(own?.updatedAt),
     canEdit: can(caller, 'plugin_installs:manage'),
   };
 }

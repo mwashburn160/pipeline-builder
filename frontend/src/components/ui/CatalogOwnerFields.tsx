@@ -91,13 +91,12 @@ export function CatalogOwnerFields({
   // flat org) issues no request at all. Best-effort: a failed read just leaves
   // the team options out.
   const teamsQ = useFetch<Array<{ orgId: string; orgName: string }>>(async (signal) => {
-    if (!orgId || !hasChildOrgs || isChildOrg) return [];
     try {
-      return (await api.getOrganizationTeams(orgId, { signal })).data?.teams ?? [];
+      return (await api.getOrganizationTeams(orgId!, { signal })).data?.teams ?? [];
     } catch {
       return [];
     }
-  }, [orgId, hasChildOrgs, isChildOrg]);
+  }, [orgId, hasChildOrgs, isChildOrg], { enabled: !!orgId && hasChildOrgs && !isChildOrg });
   const teams = teamsQ.data ?? [];
 
   const selected = useMemo(() => {

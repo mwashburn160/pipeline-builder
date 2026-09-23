@@ -46,6 +46,7 @@ import { Pagination, type PaginationState } from './Pagination';
 import { Skeleton } from './Skeleton';
 import { EmptyState } from './EmptyState';
 import { formatError } from '@/lib/constants';
+import { IconButton } from './IconButton';
 
 export interface ResourceListProps<T> {
   // ── Required state ──
@@ -237,15 +238,15 @@ export function ResourceList<T>({
           )}
           {headerEnd}
           {!hideRefresh && (
-            <button
+            <IconButton
               onClick={onRefresh}
               disabled={loading}
               title="Refresh"
               aria-label="Refresh"
-              className="p-1.5 text-fg-muted hover:text-fg disabled:opacity-50"
+              className="disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+            </IconButton>
           )}
         </div>
       )}

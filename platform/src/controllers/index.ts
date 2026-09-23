@@ -5,6 +5,7 @@ export * from './auth.js';
 export * from './token-exchange.js';
 export * from './oauth.js';
 export * from './user-profile.js';
+export * from './user-credentials.js';
 export * from './mfa-nudge.js';
 export * from './user-admin.js';
 export * from './organization.js';

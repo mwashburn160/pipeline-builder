@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /** Labels and wording for anonymous plugin submissions. */
+import type { BadgeColor } from '@/components/ui/Badge';
 import { PROJECT_REPO_URL } from '@/lib/public-directory/links';
 import type { SubmissionStatus } from '@/types/plugin-submissions';
 
-type BadgeColor = 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
 
 /** The docs section a submitter should read (terms, what's checked, claiming). */
 export const SUBMISSION_DOCS_URL = `${PROJECT_REPO_URL}/blob/main/docs/plugin-publishing.md#submitting-without-an-account`;

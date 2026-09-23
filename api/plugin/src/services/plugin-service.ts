@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError, ErrorCode, ForbiddenError, NotFoundError, entityEvents, createCacheService, createLogger, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, NotFoundError, entityEvents, createCacheService, createLogger, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
+import type { WriteAccess } from '@pipeline-builder/api-core';
 import { CoreConstants, ComputeType, PluginType, pluginImageRepository } from '@pipeline-builder/pipeline-core';
 import {
   CrudService, buildPluginConditions, executeRows, getTenantContext, parseSemver, pluginResolutionOrderBy, runWithTenantContext,
@@ -40,20 +41,16 @@ export interface VersionUsageRef {
 }
 
 /**
- * The deploying caller's authority on the visibility ladder, captured from the
- * request (`isSystemAdmin(req)`, `userHasPermission(req, 'plugins:publish')`) —
- * the same shape `CrudService.bulkDelete` takes. Plain data so it survives the
- * trip through a BullMQ build job to the worker that performs the deploy.
- */
-export interface WriteAccess {
-  isSystemAdmin: boolean;
-  canPublish: boolean;
-}
-
-/**
  * Refuse to let a deploy's ON CONFLICT branch overwrite a plugin version the
  * caller could not modify through PUT/DELETE, or resurrect a tombstone without
- * restore's step-up. Mirrors `checkVisibilityWriteAccess` rung for rung.
+ * restore's step-up.
+ *
+ * The RULE is api-core's `checkWriteAccess` — the same one
+ * `requireVisibilityWriteAccess` applies on PUT/DELETE, so this JOB-path gate
+ * (a BullMQ worker deploying long after the request is gone) can never drift
+ * from the request-path gate. This function adds only what is plugin's own: the
+ * tombstone check (which precedes the gate, so not even a system admin
+ * resurrects one implicitly) and the per-verdict message.
  */
 export function assertMayOverwritePlugin(
   existing: { visibility: string | null; createdBy: string | null; deletedAt: Date | null },
@@ -67,15 +64,14 @@ export function assertMayOverwritePlugin(
       'A deleted plugin with this name and version exists. Restore it or purge it before uploading it again.',
     );
   }
-  if (access.isSystemAdmin) return;
-  if (existing.visibility === 'public' && !access.canPublish) {
-    throw new ForbiddenError('You lack permission to modify this public resource.');
-  }
-  // Fail closed on an absent caller — an empty userId must never match an empty author.
-  if (existing.visibility === 'private' && (!userId || existing.createdBy !== userId)) {
-    throw new ConflictError(target === 'default'
-      ? 'The current default version of this plugin belongs to another author.'
-      : 'A plugin with this name and version already exists and belongs to another author.');
+  switch (checkWriteAccess(existing, userId, access)) {
+    case 'needs-publish':
+      throw new ForbiddenError('You lack permission to modify this public resource.');
+    case 'not-author':
+      throw new ConflictError(target === 'default'
+        ? 'The current default version of this plugin belongs to another author.'
+        : 'A plugin with this name and version already exists and belongs to another author.');
+    case 'ok':
   }
 }
 
@@ -253,7 +249,7 @@ export class PluginService extends CrudService<
     ];
     const { orgId: _ignoredOrgId, ...safeData } = data;
     const now = new Date();
-    const actor = userId || 'system';
+    const actor = userId || SYSTEM_ACTOR_ID;
     let demotedIds: string[] = [];
 
     const updated = await withTenantTx(async (tx) => {

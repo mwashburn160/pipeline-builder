@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
-import { formatError, formatEnvelopeError } from '@/lib/constants';
+import { formatError } from '@/lib/constants';
 import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 
@@ -55,7 +55,7 @@ export function RegisterDeploymentModal({
       if (res.success && res.data) {
         onRegistered(res.data.registry);
       } else {
-        setErr(formatEnvelopeError(res, 'Failed to register deployment'));
+        setErr(res.message || 'Failed to register deployment');
       }
     } catch (e) {
       setErr(formatError(e, 'Failed to register deployment'));

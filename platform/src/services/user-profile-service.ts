@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES } from '@pipeline-builder/api-core';
+import { isoOrNull, createLogger, ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { apiKeyService } from './api-key-service.js';
 import { authService } from './auth-service.js';
@@ -381,7 +381,7 @@ class UserProfileService {
       // last refresh / org switch.
       lastUsedAt: new Date(slot.lastUsedAt).toISOString(),
       // A machine credential's fixed end (null = ends with its refresh token).
-      expiresAt: slot.expiresAt ? new Date(slot.expiresAt).toISOString() : null,
+      expiresAt: isoOrNull(slot.expiresAt),
       signedInAt: new Date(slot.authTime).toISOString(),
       userAgent: slot.userAgent ?? null,
       lastIp: slot.lastIp ?? null,

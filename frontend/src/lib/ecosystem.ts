@@ -7,6 +7,7 @@
  * card-preview builder the publish form uses.
  */
 
+import type { BadgeColor } from '@/components/ui/Badge';
 import { PLUGIN_ICONS } from '@/generated/plugin-icons';
 import { PROJECT_REPO_URL } from '@/lib/public-directory/links';
 import type { ListingCard } from '@/lib/public-directory/types';
@@ -15,7 +16,6 @@ import type {
   ListingState, ListingsQuota, PublisherTier, PublishRequestKind, PublishRequestStatus,
 } from '@/types/ecosystem';
 
-type BadgeColor = 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
 
 /** Staff runbook for moderation (repo docs; runbooks are not on the in-app help site). */
 export const ECOSYSTEM_RUNBOOK_URL = `${PROJECT_REPO_URL}/blob/main/docs/runbooks/ecosystem-moderation.md`;

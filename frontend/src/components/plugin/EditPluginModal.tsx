@@ -17,7 +17,7 @@ import { WarningAlert } from '@/components/ui/WarningAlert';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
-import { formatError, formatEnvelopeError } from '@/lib/constants';
+import { formatError } from '@/lib/constants';
 import { CATEGORY_DISPLAY_NAMES, PLUGIN_CATEGORIES } from '@/lib/plugin-categories';
 import {
   CATALOG_FIELD_EDITOR, CATALOG_FIELD_HINTS, CATALOG_FIELD_LABELS, CATALOG_SOURCE_LABELS,
@@ -99,7 +99,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   // overwrite in-progress user edits.
   const fetchPlugin = useCallback(async (id: string): Promise<Plugin> => {
     const response = await api.getPluginById(id);
-    if (!response.data?.plugin) throw new Error(formatEnvelopeError(response, 'Failed to load plugin'));
+    if (!response.data?.plugin) throw new Error(response.message || 'Failed to load plugin');
     return response.data.plugin;
   }, []);
   const { entity: fullPlugin, fetching, error: fetchError } = useEntityFetch<Plugin>(plugin.id, fetchPlugin);
@@ -188,7 +188,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
         onSaved();
         autoClose.schedule(onClose, 1500);
       } else {
-        setSaveError(formatEnvelopeError(response, 'Failed to update plugin'));
+        setSaveError(response.message || 'Failed to update plugin');
       }
     } catch (err) {
       if (unmountedRef.current) return;

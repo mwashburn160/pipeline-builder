@@ -113,7 +113,7 @@ export default function StagesSection({
               </div>
 
               {errors[`stages.${stageIdx}.steps`] && (
-                <p className="text-xs text-danger">{errors[`stages.${stageIdx}.steps`]}</p>
+                <p role="alert" className="text-xs text-danger">{errors[`stages.${stageIdx}.steps`]}</p>
               )}
 
               <div className="space-y-3">

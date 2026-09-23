@@ -30,6 +30,22 @@ export interface UseFetchOptions<T> {
   onSuccess?: (value: T) => void;
   /** Called with a failed load's error (e.g. to toast it). Prior `data` is kept. */
   onError?: (err: Error) => void;
+  /**
+   * Drop `data` when a read fails, instead of keeping the last good value.
+   *
+   * For a TYPEAHEAD, where the old answer belongs to a query the person has
+   * already moved on from: keeping it leaves stale options sitting next to the
+   * error that says the search failed, and picking one acts on a result the
+   * search never returned.
+   */
+  clearDataOnError?: boolean;
+  /**
+   * When false, no read fires and `loading` is false — for a fetcher that could
+   * only answer "nothing" (a permission this viewer lacks, an id not chosen
+   * yet). The alternative, a fetcher that returns `null`, still schedules a full
+   * async round trip whose ONLY effect is setting `loading` back to false.
+   */
+  enabled?: boolean;
 }
 
 export function useFetch<T>(
@@ -43,8 +59,9 @@ export function useFetch<T>(
   /** Re-run the fetcher; resolves once that run has settled — `true` when it succeeded. */
   refetch: () => Promise<boolean>;
 } {
+  const { enabled = true, clearDataOnError = false } = options;
   const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<Error | null>(null);
   const [tick, setTick] = useState(0);
   const fetcherRef = useRef(fetcher);
@@ -57,6 +74,7 @@ export function useFetch<T>(
   const waitersRef = useRef<Array<(ok: boolean) => void>>([]);
 
   useEffect(() => {
+    if (!enabled) { setLoading(false); return; }
     let ok = false;
     return runCancellableFetch((signal) => fetcherRef.current(signal), {
       onStart: () => {
@@ -70,6 +88,7 @@ export function useFetch<T>(
       },
       onError: (err) => {
         setError(err);
+        if (clearDataOnError) setData(null);
         onErrorRef.current?.(err);
       },
       onSettled: () => {
@@ -80,7 +99,7 @@ export function useFetch<T>(
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the caller's `deps` are spread in, so the list size is not statically known
-  }, [...deps, tick]);
+  }, [...deps, tick, enabled, clearDataOnError]);
 
   const refetch = useCallback(() => new Promise<boolean>((resolve) => {
     waitersRef.current.push(resolve);

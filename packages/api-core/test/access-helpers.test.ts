@@ -4,7 +4,14 @@
 import { describe, it, expect } from '@jest/globals';
 
 import type { Request, Response } from 'express';
-import { requireVisibilityWriteAccess, resolveVisibility } from '../src/helpers/access-helpers.js';
+import {
+  checkVisibilityWriteAccess,
+  checkWriteAccess,
+  rejectForbiddenBulkRows,
+  requireVisibilityWriteAccess,
+  resolveVisibility,
+  type WriteAccess,
+} from '../src/helpers/access-helpers.js';
 
 function createMockReq(user?: Partial<Request['user']>): Request {
   return { user: user as Request['user'] } as unknown as Request;
@@ -81,6 +88,91 @@ describe('requireVisibilityWriteAccess', () => {
       expect(requireVisibilityWriteAccess(ADMIN, res, { visibility, createdBy: 'user-2' }, 'admin-1', 'pipelines:publish')).toBe(true);
       expect(res._status).toBe(0);
     }
+  });
+});
+
+describe('checkWriteAccess (the request-free, job-path gate)', () => {
+  const MEMBER: WriteAccess = { isSystemAdmin: false, canPublish: false };
+  const PUBLISHES: WriteAccess = { isSystemAdmin: false, canPublish: true };
+  const SYSADMIN: WriteAccess = { isSystemAdmin: true, canPublish: false };
+
+  it.each([
+    ['org row, any member', { visibility: 'org', createdBy: 'user-2' }, 'user-1', MEMBER, 'ok'],
+    ['own private draft', { visibility: 'private', createdBy: 'user-1' }, 'user-1', MEMBER, 'ok'],
+    ["someone else's private draft", { visibility: 'private', createdBy: 'user-2' }, 'user-1', MEMBER, 'not-author'],
+    ['empty userId vs empty author (fails closed)', { visibility: 'private', createdBy: '' }, '', MEMBER, 'not-author'],
+    ['null author vs empty userId (fails closed)', { visibility: 'private', createdBy: null }, '', MEMBER, 'not-author'],
+    ['public row without publish', { visibility: 'public', createdBy: 'user-1' }, 'user-1', MEMBER, 'needs-publish'],
+    ['public row with publish', { visibility: 'public', createdBy: 'user-2' }, 'user-1', PUBLISHES, 'ok'],
+    ['private row, sysadmin', { visibility: 'private', createdBy: 'user-2' }, 'admin-1', SYSADMIN, 'ok'],
+    ['public row, sysadmin without publish', { visibility: 'public', createdBy: 'user-2' }, 'admin-1', SYSADMIN, 'ok'],
+    ['null visibility falls through to ok', { visibility: null, createdBy: 'user-2' }, 'user-1', MEMBER, 'ok'],
+  ])('%s', (_label, resource, userId, access, expected) => {
+    expect(checkWriteAccess(resource, userId as string, access as WriteAccess)).toBe(expected);
+  });
+
+  it('agrees rung for rung with the request-bound gate', () => {
+    // The whole point of the shared implementation: the job path (a BullMQ
+    // deploy worker) and the request path must never disagree, because a
+    // divergence is a tenancy bug.
+    const rows = [
+      { visibility: 'private', createdBy: 'user-1' },
+      { visibility: 'private', createdBy: 'user-2' },
+      { visibility: 'org', createdBy: 'user-2' },
+      { visibility: 'public', createdBy: 'user-2' },
+    ];
+    for (const [req, access] of [
+      [AUTHOR, { isSystemAdmin: false, canPublish: false }],
+      [PUBLISHER, { isSystemAdmin: false, canPublish: true }],
+      [ADMIN, { isSystemAdmin: true, canPublish: true }],
+    ] as const) {
+      for (const row of rows) {
+        expect(checkWriteAccess(row, 'user-1', access))
+          .toBe(checkVisibilityWriteAccess(req, row, 'user-1', 'pipelines:publish'));
+      }
+    }
+  });
+});
+
+describe('rejectForbiddenBulkRows', () => {
+  it('lets a batch of writable rows through without touching the response', () => {
+    const res = createMockRes();
+    const rows = [
+      { id: 'a', visibility: 'org', createdBy: 'user-2' },
+      { id: 'b', visibility: 'private', createdBy: 'user-1' },
+    ];
+    expect(rejectForbiddenBulkRows(AUTHOR, res, rows, 'user-1', 'pipelines:publish', 'nope')).toBe(false);
+    expect(res._status).toBe(0);
+  });
+
+  it('403s the WHOLE batch and names every offending id', () => {
+    // All-or-nothing: a partially applied bulk write is unreasonable for a
+    // client to recover from, so the ids come back for a narrowed retry.
+    const res = createMockRes();
+    const rows = [
+      { id: 'a', visibility: 'org', createdBy: 'user-2' },
+      { id: 'b', visibility: 'private', createdBy: 'user-2' },
+      { id: 'c', visibility: 'public', createdBy: 'user-1' },
+    ];
+    expect(rejectForbiddenBulkRows(AUTHOR, res, rows, 'user-1', 'pipelines:publish', 'Bulk delete rejected')).toBe(true);
+    expect(res._status).toBe(403);
+    expect(res._json).toMatchObject({ message: 'Bulk delete rejected', details: { ids: ['b', 'c'] } });
+  });
+
+  it('passes an empty batch', () => {
+    const res = createMockRes();
+    expect(rejectForbiddenBulkRows(AUTHOR, res, [], 'user-1', 'pipelines:publish', 'nope')).toBe(false);
+    expect(res._status).toBe(0);
+  });
+
+  it('lets a sysadmin through every rung', () => {
+    const res = createMockRes();
+    const rows = [
+      { id: 'a', visibility: 'private', createdBy: 'user-2' },
+      { id: 'b', visibility: 'public', createdBy: 'user-2' },
+    ];
+    expect(rejectForbiddenBulkRows(ADMIN, res, rows, 'admin-1', 'pipelines:publish', 'nope')).toBe(false);
+    expect(res._status).toBe(0);
   });
 });
 

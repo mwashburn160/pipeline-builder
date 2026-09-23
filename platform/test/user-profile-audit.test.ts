@@ -95,7 +95,8 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordPolicyForPerson: (...a: unknown[]) => mockPasswordPolicyForPerson(...a),
 }));
 
-const { changePassword, generateToken, updateUser, getOwnPasswordPolicy } = await import('../src/controllers/user-profile.js');
+const { changePassword, updateUser, getOwnPasswordPolicy } = await import('../src/controllers/user-profile.js');
+const { generateToken } = await import('../src/controllers/user-credentials.js');
 
 
 function mockRes() {

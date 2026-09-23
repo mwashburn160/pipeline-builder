@@ -31,10 +31,12 @@
  */
 
 import {
+  isoOrNull,
   actorId,
   createLogger,
   ErrorCode,
   errorMessage,
+  ADVISORY_SEVERITIES,
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
@@ -62,11 +64,10 @@ import { moderators, publisherManagers, sendNotice } from './notify.js';
 import { listingWithPublisher } from './publishers.js';
 import { listings, OPEN_STATUSES, publishers, requests, versions } from './store.js';
 import { enqueueEcosystemNotification } from '../ecosystem-notifications.js';
-import { isActiveListing, iso, normalizeVulnId, requiredText } from './util.js';
+import { isActiveListing, normalizeVulnId, requiredText } from './util.js';
 
 const logger = createLogger('ecosystem-advisories');
 
-export const ADVISORY_SEVERITIES: readonly AdvisorySeverity[] = ['critical', 'high', 'medium', 'low'];
 export const ADVISORY_SUMMARY_MAX = 300;
 /** Details markdown cap (bytes, UTF-8). */
 export const ADVISORY_DETAILS_MAX_BYTES = 32 * 1024;
@@ -196,10 +197,10 @@ export function advisoryView(
     state: a.state,
     source: a.source,
     createdBy: a.createdBy,
-    publishedAt: iso(a.publishedAt),
-    withdrawnAt: iso(a.withdrawnAt),
-    createdAt: iso(a.createdAt)!,
-    updatedAt: iso(a.updatedAt)!,
+    publishedAt: isoOrNull(a.publishedAt),
+    withdrawnAt: isoOrNull(a.withdrawnAt),
+    createdAt: isoOrNull(a.createdAt)!,
+    updatedAt: isoOrNull(a.updatedAt)!,
     requestId: ctx.requestId,
     affectedVersions: ctx.listedVersions.filter((v) => advisoryRangeCovers(a.affectedRange, v)),
   };

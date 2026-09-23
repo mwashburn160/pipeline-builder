@@ -2,23 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Business-metric helpers for the platform service. Mirrors api-server's
- * `incCounter` / `observe` / `setGauge` API so call sites look identical
- * across services — but writes to platform's own registry (defined in
- * `index.ts`) so the `/metrics` endpoint exposes them.
+ * Business-metric helpers for the platform service.
  *
- * The platform service runs its own Express setup (not api-server's
- * createApp), which is why we duplicate the helpers here. If platform
- * ever migrates to createApp, this file can be deleted in favor of the
- * api-server exports.
+ * The lazy counter/histogram/gauge maps are api-server's shared
+ * `createMetricHelpers` factory — the SAME implementation (and the same
+ * histogram buckets) its own `incCounter`/`observe`/`setGauge` are built from,
+ * so a metric emitted by platform and one emitted by any other service can
+ * never disagree about its shape.
+ *
+ * What stays here is the one thing that differs: the registry. Platform runs
+ * its own Express setup rather than api-server's `createApp`, so it owns the
+ * registry its `/metrics` endpoint serves and injects it on app boot
+ * (`setMetricsRegistry`, called from `index.ts`). The factory takes a THUNK for
+ * exactly that reason — the registry does not exist at import time.
  */
 
-import { Counter, Gauge, Histogram, Registry } from 'prom-client';
+import { createMetricHelpers, type MetricHelpers } from '@pipeline-builder/api-server';
+import type { Registry } from 'prom-client';
 
 let registry: Registry | null = null;
-const counters = new Map<string, Counter<string>>();
-const histograms = new Map<string, Histogram<string>>();
-const gauges = new Map<string, Gauge<string>>();
+let helpers: MetricHelpers | null = null;
 
 /** Wire the registry from index.ts on app boot — exactly once. */
 export function setMetricsRegistry(r: Registry): void {
@@ -32,39 +35,24 @@ function ensureRegistry(): Registry {
   return registry;
 }
 
-function humanize(name: string): string {
-  return name.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+/**
+ * The helpers, built on first emission (never at import time) so a module that
+ * merely imports this file does not need a registry — and neither does a test
+ * that loads one.
+ */
+function metrics(): MetricHelpers {
+  helpers ??= createMetricHelpers(ensureRegistry);
+  return helpers;
 }
 
 export function incCounter(name: string, labels: Record<string, string> = {}, value = 1): void {
-  let c = counters.get(name);
-  if (!c) {
-    c = new Counter({ name, help: humanize(name), labelNames: Object.keys(labels), registers: [ensureRegistry()] });
-    counters.set(name, c);
-  }
-  c.inc(labels, value);
+  metrics().incCounter(name, labels, value);
 }
 
 export function observe(name: string, labels: Record<string, string>, value: number): void {
-  let h = histograms.get(name);
-  if (!h) {
-    h = new Histogram({
-      name,
-      help: humanize(name),
-      labelNames: Object.keys(labels),
-      buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300],
-      registers: [ensureRegistry()],
-    });
-    histograms.set(name, h);
-  }
-  h.observe(labels, value);
+  metrics().observe(name, labels, value);
 }
 
 export function setGauge(name: string, labels: Record<string, string>, value: number): void {
-  let g = gauges.get(name);
-  if (!g) {
-    g = new Gauge({ name, help: humanize(name), labelNames: Object.keys(labels), registers: [ensureRegistry()] });
-    gauges.set(name, g);
-  }
-  g.set(labels, value);
+  metrics().setGauge(name, labels, value);
 }

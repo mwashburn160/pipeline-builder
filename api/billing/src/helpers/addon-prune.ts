@@ -6,7 +6,7 @@
  * prune, the provider line-item leg (with its durable retry marker), the prune
  * finalizer, and the plan-change side-effect runner.
  */
-import { createLogger, errorMessage, TIER_FEATURES, type QuotaTier, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, errorMessage, TIER_FEATURES, type QuotaTier, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { BundleConfig } from '../config/billing-types.js';
 import { cascadeRemoveDependents } from './addon-catalog.js';
@@ -264,7 +264,7 @@ export async function finalizePrunedAddons(
     // no card/payment secret or AWS account id can leak. Fire-and-forget.
     recordAudit({
       action: 'billing.addon.prune',
-      actorId: ctx.actorId ?? 'system',
+      actorId: ctx.actorId ?? SYSTEM_ACTOR_ID,
       orgId: ctx.orgId,
       targetId: p.bundleId,
       details: { reason: 'addon_pruned', bundleId: p.bundleId, features: p.features, subscriptionId: ctx.subscriptionId },

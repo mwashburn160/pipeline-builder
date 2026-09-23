@@ -3,6 +3,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useFetch } from '@/hooks/useFetch';
+import { usePagination } from '@/hooks/usePagination';
+import { useDelete } from '@/hooks/useDelete';
 import { useQuery } from '@/hooks/useQuery';
 import Link from 'next/link';
 import { Cloud, Plus, X, AlertTriangle, Search } from 'lucide-react';
@@ -79,7 +81,6 @@ const SORT_ACCESSORS: Record<string, (r: DeploymentRow) => string | number> = {
   lastDeployed: (r) => (r.lastDeployed ? new Date(r.lastDeployed).getTime() : 0),
 };
 
-const PAGE_SIZE_DEFAULT = 25;
 
 /**
  * Deployed-pipelines registry page.
@@ -103,8 +104,6 @@ export default function DeploymentsPage() {
   const canWrite = can('pipelines:write');
 
   const [actionError, setActionError] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
-  const [confirmTarget, setConfirmTarget] = useState<DeploymentRow | null>(null);
 
   // Drain ALL registry rows (the endpoint is page-limited). Looping until
   // `hasMore` is false avoids a silent one-page cap; the max-pages bound is a
@@ -176,11 +175,13 @@ export default function DeploymentsPage() {
   // ── Sort (client-side, external state so it applies BEFORE pagination) ──
   const [sort, setSort] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'lastDeployed', dir: 'desc' });
   // ── Pagination (client-side over the filtered+sorted set) ──
-  const [pageOffset, setPageOffset] = useState(0);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT);
+  // Client-side, but the page triple, the default size and THE clamp rule are
+  // the shared ones — there is one pagination convention, not one per surface.
+  const page = usePagination();
+  const { reset: resetPage } = page;
 
   // Any change to what's shown resets to the first page.
-  useEffect(() => { setPageOffset(0); }, [search, driftFilter, sort]);
+  useEffect(() => { resetPage(); }, [resetPage, search, driftFilter, sort]);
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -206,14 +207,15 @@ export default function DeploymentsPage() {
     return arr;
   }, [filteredRows, sort]);
 
-  // Clamp the offset so a filter that shrank the set doesn't strand an empty page.
+  // `withTotal` clamps the offset, so a filter that shrank the set can't strand
+  // an empty page.
   const total = sortedRows.length;
-  const clampedOffset = total === 0 ? 0 : Math.min(pageOffset, Math.floor((total - 1) / pageSize) * pageSize);
+  const pagination = page.withTotal(total);
+  const { offset: clampedOffset, limit: pageSize } = pagination;
   const pageRows = useMemo(
     () => sortedRows.slice(clampedOffset, clampedOffset + pageSize),
     [sortedRows, clampedOffset, pageSize],
   );
-  const pagination = { limit: pageSize, offset: clampedOffset, total };
 
   const hasActiveFilters = !!search.trim() || driftFilter !== 'all';
   const summary = useMemo(
@@ -225,24 +227,19 @@ export default function DeploymentsPage() {
     [pageRows, total, loading],
   );
 
-  const performRemove = async (row: DeploymentRow) => {
-    setRemoving(row.id);
-    setActionError(null);
-    setConfirmTarget(null);
-    try {
+  // `useDelete` owns the step-up replay: a deregister refused pending re-auth
+  // completes and refreshes once the person confirms in the global dialog,
+  // instead of leaving an error banner over a row the server did remove.
+  const del = useDelete<DeploymentRow>(
+    async (row) => {
+      setActionError(null);
       const res = await api.deregisterPipelineDeployment(row.id);
-      if (res.success) {
-        void refetchRegistry();
-        toast.success('Deployment deregistered');
-      } else {
-        setActionError('Failed to deregister deployment');
-      }
-    } catch (err) {
-      setActionError(formatError(err, 'Failed to deregister deployment'));
-    } finally {
-      setRemoving(null);
-    }
-  };
+      if (!res.success) throw new Error('Failed to deregister deployment');
+    },
+    () => { void refetchRegistry(); toast.success('Deployment deregistered'); },
+    (err) => setActionError(formatError(err, 'Failed to deregister deployment')),
+  );
+  const removing = del.loading ? del.target?.id ?? null : null;
 
   // ── Register ──
   const [showRegister, setShowRegister] = useState(false);
@@ -332,7 +329,7 @@ export default function DeploymentsPage() {
       header: 'Actions',
       render: (r: DeploymentRow) => (
         <button
-          onClick={() => setConfirmTarget(r)}
+          onClick={() => del.open(r)}
           disabled={removing === r.id}
           className="p-1 rounded hover:bg-danger-bg text-fg-subtle hover:text-danger disabled:opacity-40 disabled:cursor-wait"
           title="Deregister (does not delete the AWS stack)"
@@ -342,7 +339,7 @@ export default function DeploymentsPage() {
         </button>
       ),
     } as Column<DeploymentRow>] : []),
-  ], [canWrite, removing]);
+  ], [canWrite, removing, del]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;
@@ -412,8 +409,8 @@ export default function DeploymentsPage() {
           onRefresh={fetchAll}
           isEmpty={deploymentRows.length === 0}
           pagination={pagination}
-          onPageChange={setPageOffset}
-          onPageSizeChange={(n) => { setPageSize(n); setPageOffset(0); }}
+          onPageChange={page.setOffset}
+          onPageSizeChange={page.setLimit}
           errorTitle="Failed to load deployments"
           emptyState={{
             icon: Cloud,
@@ -449,19 +446,19 @@ export default function DeploymentsPage() {
         </ResourceList>
       </div>
 
-      {confirmTarget && (
-        <Modal title="Deregister deployment" onClose={() => removing ? undefined : setConfirmTarget(null)} maxWidth="max-w-md">
+      {del.target && (
+        <Modal title="Deregister deployment" onClose={() => removing ? undefined : del.close()} maxWidth="max-w-md">
           <div className="space-y-3 text-sm">
             <p className="text-fg-muted">
-              Deregister <strong className="font-mono">{confirmTarget.pipelineName}</strong> from the deployments registry?
+              Deregister <strong className="font-mono">{del.target.pipelineName}</strong> from the deployments registry?
             </p>
             <div className="p-3 rounded border border-warning-border bg-warning-bg text-warning-strong text-xs">
               This only removes the platform&apos;s record. It does NOT delete the CloudFormation stack or pipeline. Use this to reconcile drift when the AWS stack was already deleted out-of-band.
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="secondary" onClick={() => setConfirmTarget(null)} disabled={!!removing}>Cancel</Button>
-              <Button variant="danger" onClick={() => performRemove(confirmTarget)} disabled={!!removing}>
-                {removing === confirmTarget.id ? 'Removing…' : 'Deregister'}
+              <Button variant="secondary" onClick={del.close} disabled={!!removing}>Cancel</Button>
+              <Button variant="danger" onClick={() => void del.confirm()} disabled={!!removing}>
+                {del.loading ? 'Removing…' : 'Deregister'}
               </Button>
             </div>
           </div>

@@ -1,11 +1,27 @@
 import type { ReactNode } from 'react';
 
+/**
+ * THE status→colour vocabulary. One token set, declared once.
+ *
+ * Every status map in the app resolves to one of these — the `src/lib/*` maps
+ * (ecosystem, advisories, plugin-reviews, plugin-submissions, compliance) and
+ * the per-surface ones alike. Before this it was re-declared verbatim in five
+ * files and bypassed by raw Tailwind pairs in a sixth, and the drift was
+ * user-visible: `pending` was blue on one page and yellow on another.
+ *
+ * Conventions, so a new status picks itself: `green` = done/healthy,
+ * `red` = failed/blocked, `yellow` = waiting on someone, `blue` = informational,
+ * `gray` = inert (expired, withdrawn, cancelled), `purple`/`indigo` = elevated
+ * or second-stage states with no semantic token of their own.
+ */
+export type BadgeColor = 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
+
 /** Props for the Badge component. */
 interface BadgeProps {
   /** Badge label content */
   children: ReactNode;
   /** Color variant controlling background and text styling */
-  color: 'green' | 'red' | 'gray' | 'blue' | 'purple' | 'yellow' | 'indigo';
+  color: BadgeColor;
   /** Additional CSS classes */
   className?: string;
 }

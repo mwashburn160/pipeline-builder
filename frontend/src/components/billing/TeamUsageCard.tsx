@@ -48,10 +48,9 @@ export function TeamUsageCard() {
   const { hasChildOrgs } = useOrgHierarchy();
   const entitled = gate.isLoaded && gate.entitled;
   const { data, loading, error, refetch } = useFetch(
-    async (signal) => (entitled && hasChildOrgs
-      ? (await api.getTeamUsage({ includeDescendants: true }, { signal })).data?.teams ?? []
-      : null),
+    async (signal) => (await api.getTeamUsage({ includeDescendants: true }, { signal })).data?.teams ?? [],
     [entitled, hasChildOrgs],
+    { enabled: entitled && hasChildOrgs },
   );
   const teams = data ?? [];
 

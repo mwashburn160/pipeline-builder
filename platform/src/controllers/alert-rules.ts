@@ -18,10 +18,10 @@
  * pulls to pick up operator-authored rules at runtime.
  */
 
-import { createLogger, getParam, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, getParam, paginationMeta, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
-import { listPage, paginationMeta } from '../helpers/pagination.js';
+import { listPage } from '../helpers/pagination.js';
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { alertRuleService, prepareRuleExpr, renderRulesYaml, validateRule } from '../services/alert-rule-service.js';
 import { PromQLRewriteError } from '../services/promql-rewriter.js';
@@ -44,7 +44,7 @@ export const listAlertRules = withController('List alert rules', async (req, res
   const { rules, total } = await alertRuleService.listForOrg(orgId, { offset, limit });
   sendSuccess(res, 200, {
     rules,
-    pagination: paginationMeta(total, offset, limit),
+    pagination: paginationMeta({ total, offset, limit }),
   });
 });
 

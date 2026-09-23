@@ -49,7 +49,7 @@ export function createScanScheduleRoutes(): Router {
     const { schedules, total } = await complianceScanScheduleService.list(orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed scan schedules', { count: schedules.length });
     return sendPaginatedNested(res, 'schedules', schedules, {
-      total, limit, offset, hasMore: offset + schedules.length < total,
+      total, limit, offset,
     });
   }));
 

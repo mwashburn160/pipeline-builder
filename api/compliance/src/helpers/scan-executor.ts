@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, envInt, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { eq, and, gt, lt, asc } from 'drizzle-orm';
@@ -298,7 +298,7 @@ async function evaluateBatch(
     if (!isDryRun) {
       logComplianceCheck(
         scan.orgId,
-        scan.userId ?? 'system',
+        scan.userId ?? SYSTEM_ACTOR_ID,
         target,
         'scan',
         entity.id,

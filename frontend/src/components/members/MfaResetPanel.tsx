@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { BadgeColor } from '@/components/ui/Badge';
 import { useState } from 'react';
 import { KeyRound } from 'lucide-react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
@@ -17,7 +18,7 @@ import { MfaRequiredError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import type { MfaResetRequest } from '@/types';
 
-const STATUS_COLOR: Record<MfaResetRequest['status'], 'yellow' | 'green' | 'red' | 'gray'> = {
+const STATUS_COLOR: Record<MfaResetRequest['status'], BadgeColor> = {
   pending: 'yellow',
   approved: 'green',
   denied: 'red',

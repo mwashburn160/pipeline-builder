@@ -4,6 +4,7 @@
 import {
   createLogger,
   decrementQuota,
+  envInt,
   errorMessage,
   getServiceAuthHeader,
   handleAIError,
@@ -28,6 +29,27 @@ import {
 import { findSimilarPlugins } from '../services/similar-plugin-lookup.js';
 
 const logger = createLogger('generate-plugin');
+
+/**
+ * Per-org burst cap on the expensive LLM generation routes
+ * (env: `PLUGIN_GENERATE_RATE_LIMIT_PER_MIN`).
+ *
+ * ONE limiter instance, mounted on BOTH `/generate` and `/generate/stream`.
+ * Two instances sharing the `plugin-generate` name agree only when a Redis
+ * store backs them (they then address one namespaced bucket); with no Redis,
+ * `createSharedRateLimitStore` returns undefined and each instance gets its own
+ * in-memory store — two buckets, so twice the intended allowance. Sharing the
+ * instance makes the ceiling identical with or without Redis, which is why this
+ * is not a retune: against a configured Redis, behaviour is unchanged.
+ *
+ * To actually raise the ceiling, set the env var — never rely on the split.
+ */
+const generateRateLimit = rateLimitByOrg({
+  name: 'plugin-generate',
+  max: envInt('PLUGIN_GENERATE_RATE_LIMIT_PER_MIN', 20, { min: 1 }),
+  windowMs: 60_000,
+  message: 'Too many plugin generation requests, please slow down.',
+});
 
 /** The caller's parent-org id (org→team hierarchy), carried in the JWT; absent for root orgs. */
 function parentOrgIdOf(req: Request): string | undefined {
@@ -66,7 +88,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /generate generate plugin config from natural language ----------
-  router.post('/generate', requireFeature('ai_generation'), requirePermission('plugins:write'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate', requireFeature('ai_generation'), requirePermission('plugins:write'), generateRateLimit, withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);
@@ -126,7 +148,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /generate/stream stream plugin config as SSE events -------------
-  router.post('/generate/stream', requireFeature('ai_generation'), requirePermission('plugins:write'), rateLimitByOrg({ name: 'plugin-generate', max: 20, windowMs: 60_000, message: 'Too many plugin generation requests, please slow down.' }), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate/stream', requireFeature('ai_generation'), requirePermission('plugins:write'), generateRateLimit, withRoute(async ({ req, res, ctx, orgId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);

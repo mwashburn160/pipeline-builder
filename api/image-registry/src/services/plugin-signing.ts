@@ -23,7 +23,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, extractPredicate, SPDX_PREDICATE_TYPE } from '@pipeline-builder/api-core';
 
 import { isPluginRepository, isPublicRepository, isSha256Digest } from './namespaces.js';
 import {
@@ -41,7 +41,6 @@ const MAX_STDERR_BYTES = 1024 * 1024;
 const MAX_STDOUT_BYTES = 96 * 1024 * 1024;
 
 /** SPDX predicate type cosign records for `--type spdxjson`. */
-const SPDX_PREDICATE_TYPE = 'https://spdx.dev/Document';
 
 /**
  * cosign v3 changed three signing defaults; all three have to be pinned back or
@@ -364,30 +363,16 @@ export async function readSignedSbom(repository: string, digest: string): Promis
 }
 
 /**
- * `cosign verify-attestation` prints one DSSE envelope per verified attestation,
- * one per line. Return the SPDX predicate of the LAST one (a rebuild re-attests
- * the same digest; cosign lists attestations oldest-first), or null.
+ * The SPDX predicate of the LAST verified attestation in cosign's output, or
+ * null when none verifies.
+ *
+ * The parse itself is api-core's shared `extractPredicate` (one implementation
+ * for both services that read cosign attestations). Only the NOT-FOUND POLICY
+ * is image-registry's own: the caller decides what "no SBOM" means, so this
+ * returns null rather than throwing.
  */
 export function extractSpdxPredicate(stdout: string): Record<string, unknown> | null {
-  let predicate: Record<string, unknown> | null = null;
-  for (const line of stdout.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('{')) continue;
-    try {
-      const envelope = JSON.parse(trimmed) as { payload?: string };
-      if (!envelope.payload) continue;
-      const statement = JSON.parse(Buffer.from(envelope.payload, 'base64').toString('utf-8')) as {
-        predicateType?: string;
-        predicate?: unknown;
-      };
-      if (statement.predicateType === SPDX_PREDICATE_TYPE && statement.predicate && typeof statement.predicate === 'object') {
-        predicate = statement.predicate as Record<string, unknown>;
-      }
-    } catch {
-      // Not an envelope line — ignore rather than fail on stray output.
-    }
-  }
-  return predicate;
+  return extractPredicate(stdout, SPDX_PREDICATE_TYPE);
 }
 
 /** One verified cosign simple-signing payload, reduced to what callers use. */

@@ -20,6 +20,7 @@ import { Callout } from '@/components/ui/Callout';
 import { ApiError } from '@/lib/api/errors';
 import { confirmPluginSecurityEmail } from '@/lib/api/domains/plugin-security';
 import { tokenFromQuery } from '@/lib/plugin-submissions/status';
+import { Card } from '@/components/ui/Card';
 
 function confirmErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
@@ -70,7 +71,7 @@ export default function ConfirmNotificationAddressPage() {
         )}
 
         {token && !done && (
-          <div className="card space-y-3 p-6" data-testid="confirm-prompt">
+          <Card className="space-y-3 p-6" data-testid="confirm-prompt">
             <p className="text-sm text-fg">
               An organization on Pipeline Builder asked to send plugin security notices to this address: plugin versions
               blocked for vulnerabilities, and new Critical or High findings in plugins it uses. Confirm only if you
@@ -80,7 +81,7 @@ export default function ConfirmNotificationAddressPage() {
             <Button onClick={confirm} loading={busy}>
               <MailCheck className="mr-1.5 h-4 w-4" aria-hidden />Confirm address
             </Button>
-          </div>
+          </Card>
         )}
 
         {done && (

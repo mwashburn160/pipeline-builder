@@ -149,7 +149,7 @@ export default function PluginNameCombobox({
         )}
       </div>
       {shadowed && <ShadowingNotice name={shadowed.name} publisher={shadowed.publisherHandle} compact />}
-      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+      {error && <p role="alert" className="mt-1 text-xs text-danger">{error}</p>}
     </div>
   );
 }

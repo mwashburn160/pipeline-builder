@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { checkWriteAccess, ConflictError, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
+import type { WriteAccess } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPipelineConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type CrudTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
@@ -9,19 +10,15 @@ import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 
 /**
- * The caller's authority on the visibility ladder, captured from the request
- * (`isSystemAdmin(req)`, `userHasPermission(req, 'pipelines:publish')`) — the
- * same shape `CrudService.bulkDelete` takes.
- */
-export interface WriteAccess {
-  isSystemAdmin: boolean;
-  canPublish: boolean;
-}
-
-/**
  * Refuse to let a create's ON CONFLICT branch overwrite a row the caller could
  * not modify through PUT/DELETE, or resurrect a tombstone without restore's
- * step-up. Mirrors `checkVisibilityWriteAccess` rung for rung.
+ * step-up.
+ *
+ * The RULE is api-core's `checkWriteAccess` — the same one
+ * `requireVisibilityWriteAccess` applies on PUT/DELETE, so the create path can
+ * never drift from it. This function adds only what is pipeline's own: the
+ * tombstone check (which precedes the gate, so not even a system admin
+ * resurrects one implicitly) and the per-verdict message.
  */
 function assertMayOverwrite(
   existing: { visibility: string | null; createdBy: string | null; deletedAt: Date | null },
@@ -33,13 +30,12 @@ function assertMayOverwrite(
       'A deleted pipeline already occupies this project/organization. Restore it or purge it before creating a new one.',
     );
   }
-  if (access.isSystemAdmin) return;
-  if (existing.visibility === 'public' && !access.canPublish) {
-    throw new ForbiddenError('You lack permission to modify this public resource.');
-  }
-  // Fail closed on an absent caller — an empty userId must never match an empty author.
-  if (existing.visibility === 'private' && (!userId || existing.createdBy !== userId)) {
-    throw new ConflictError('A pipeline for this project/organization already exists and belongs to another author.');
+  switch (checkWriteAccess(existing, userId, access)) {
+    case 'needs-publish':
+      throw new ForbiddenError('You lack permission to modify this public resource.');
+    case 'not-author':
+      throw new ConflictError('A pipeline for this project/organization already exists and belongs to another author.');
+    case 'ok':
   }
 }
 

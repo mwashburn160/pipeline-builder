@@ -5,7 +5,13 @@ export * from './crud-helpers.js';
 export {
   requireVisibilityWriteAccess,
   checkVisibilityWriteAccess,
+  checkWriteAccess,
+  rejectForbiddenBulkRows,
   resolveVisibility,
+  type VisibilityWriteTarget,
+  type VisibilityWriteVerdict,
+  type WriteAccess,
+  type BulkWriteRow,
 } from './access-helpers.js';
 export {
   loadAndRestore,

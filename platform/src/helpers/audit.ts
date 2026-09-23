@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
-import { auditSpoolKey, createEnvRedisAuditSpool, createLogger, emitCounter, errorMessage, type AuditSpool, type RemoteAuditEvent } from '@pipeline-builder/api-core';
+import { ANONYMOUS_ACTOR_ID, auditSpoolKey, createEnvRedisAuditSpool, createLogger, emitCounter, errorMessage, type AuditSpool, type RemoteAuditEvent } from '@pipeline-builder/api-core';
 import { currentTraceId } from '@pipeline-builder/api-server';
 import type { Request } from 'express';
 import { appendAuditEvent } from './audit-chain.js';
@@ -78,7 +78,7 @@ export function audit(
 
   const event = {
     action,
-    actorId: req.user?.sub || 'anonymous',
+    actorId: req.user?.sub || ANONYMOUS_ACTOR_ID,
     actorEmail: req.user?.email,
     actorRole: req.user?.role,
     orgId: actorOrgId,

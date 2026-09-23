@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import {
+  SYSTEM_ACTOR_ID,
   audited,
   isSystemAdmin,
   requirePermission,
@@ -25,14 +26,14 @@ import {
   withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { getIdempotencyStore, withRoute, type SSEManager } from '@pipeline-builder/api-server';
+import { getIdempotencyStore, withRoute, withQuotaReservation, type QuotaSlot, type SSEManager } from '@pipeline-builder/api-server';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import AdmZip from 'adm-zip';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
-import { compliancePreflight, queuePluginBuild, reservePluginSlot } from '../helpers/build-submission.js';
+import { compliancePreflight, queuePluginBuild } from '../helpers/build-submission.js';
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
@@ -96,7 +97,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       // the idempotency claim, quota and the image build. The worker's
       // deployVersion re-checks under its lock with the same snapshot.
       const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
-      await pluginService.assertDeployable(orgId, name, version, userId || 'system', access);
+      await pluginService.assertDeployable(orgId, name, version, userId || SYSTEM_ACTOR_ID, access);
 
       // -- Idempotency guard (Redis IdempotencyStore) -----------------------
       // The auto-plugin-creation path sends `Idempotency-Key: <requestId>:<name>`
@@ -157,183 +158,192 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       // Reserve the plugins quota slot atomically. Worker decrements on
       // permanent failure; success keeps the reservation. An unreachable quota
       // service does NOT throw — it comes back as an `unavailable` reservation
-      // (503 below). The try only guards an unexpected throw so it can't strand
-      // the idempotency claim for its TTL (a false 202 + no build on retry).
+      // (503 below).
+      //
+      // The shared guard owns the slot for the whole body: it refunds on an
+      // unexpected throw, and `markConsumed()` after a successful enqueue hands
+      // ownership to the build job (which refunds on permanent failure). The
+      // outer try only guards a throw out of the guard itself, so it can never
+      // strand the idempotency claim for its TTL (a false 202 + no build on retry).
       const logWarn = ctx.log.bind(null, 'WARN');
-      let reserved: Awaited<ReturnType<typeof reservePluginSlot>>;
+      let outcome;
       try {
-        reserved = await reservePluginSlot(quotaService, orgId, authHeader, logWarn);
+        outcome = await withQuotaReservation(
+          { quotaService, orgId, type: 'plugins', serviceName: 'plugin', logWarn },
+          async (slot: QuotaSlot) => {
+            // -- Compliance check (fail-closed) -----------------------------------
+            // AI-generated plugins satisfy the same org compliance rules as uploaded
+            // ones, with the same deferred image facts (evaluated post-build).
+            const preflight = await compliancePreflight(orgId, authHeader, {
+              attributes: {
+                name,
+                version,
+                pluginType: pluginType || 'CodeBuildStep',
+                computeType: computeType || 'MEDIUM',
+                env: env || {},
+                buildArgs: buildArgs || {},
+                installCommands: installCommands || [],
+                commands,
+                visibility,
+              },
+              buildType: 'build_image',
+              pluginType: pluginType || 'CodeBuildStep',
+              keywords: keywords || [],
+              action: 'deploy-generated',
+            });
+            if (preflight.status === 'blocked') {
+              ctx.log('WARN', 'AI-generated plugin blocked by compliance', { pluginName: name, violations: preflight.violations.length });
+              slot.refund();
+              releaseIdem();
+              return sendError(res, 403, 'Plugin deploy blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
+                violations: preflight.violations,
+              });
+            }
+            if (preflight.status === 'unavailable') {
+              // Fail-closed: compliance unreachable → reject the deploy and release the slot.
+              ctx.log('ERROR', 'Compliance service unavailable', { error: preflight.error });
+              slot.refund();
+              releaseIdem();
+              return sendError(res, 503, 'Compliance service unavailable — plugin deploy rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+            }
+            if (preflight.warnings > 0) {
+              ctx.log('WARN', 'Compliance warnings on AI-generated plugin', { pluginName: name, warnings: preflight.warnings });
+            }
+
+            ctx.log('INFO', 'Deploying AI-generated plugin', {
+              pluginName: name,
+              version,
+              visibility,
+            });
+
+            // Local scratch context (same-replica fast path) — created inside the try
+            // below so a failure after it can clean it up.
+            let tempDir: string | undefined;
+            let s3Key: string | undefined;
+            try {
+              tempDir = path.join(BUILD_TEMP_ROOT, uuid());
+              fs.mkdirSync(tempDir, { recursive: true });
+              fs.writeFileSync(path.join(tempDir, 'Dockerfile'), dockerfile, 'utf-8');
+
+              // -- Stage the build context in object storage ----------------------
+              // The build worker runs on EVERY replica and BullMQ may hand this job to
+              // a different one; `tempDir` is per-pod scratch, so a build elsewhere
+              // would find no context. Stage the context as a ZIP first (exactly like
+              // upload-plugin.ts) so any replica can re-materialize it; never queue a
+              // build whose context can't be reconstructed.
+              const stagedKey = pluginArtifactKey(orgId, ctx.requestId);
+              const contextZip = new AdmZip();
+              contextZip.addFile('Dockerfile', Buffer.from(dockerfile, 'utf-8'));
+              try {
+                await putPluginArtifact(stagedKey, contextZip.toBuffer());
+              } catch (s3Err) {
+                ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
+                slot.refund();
+                releaseIdem();
+                removeScratchDir(tempDir);
+                return sendError(res, 503, 'Object storage unavailable — please retry', ErrorCode.SERVICE_UNAVAILABLE);
+              }
+              s3Key = stagedKey;
+
+              // Queue build job (returns immediately)
+              const jobData = createBuildJobData({
+                requestId: ctx.requestId,
+                orgId,
+                userId: userId || SYSTEM_ACTOR_ID,
+                access,
+                // Period snapshot for the reserved slot so a DLQ retry spanning a
+                // quota reset refunds the correct period (see releasePluginQuota).
+                reservedResetAt: slot.reservation.quota.resetAt,
+                buildRequest: {
+                  contextDir: tempDir,
+                  s3Key,
+                  dockerfile: 'Dockerfile',
+                  name,
+                  version,
+                  orgId,
+                  registry,
+                  buildArgs: buildArgs || {},
+                  buildType: 'build_image',
+                },
+                pluginRecord: {
+                  orgId,
+                  name,
+                  description: description || null,
+                  version,
+                  pluginType: pluginType || 'CodeBuildStep',
+                  computeType: computeType || 'MEDIUM',
+                  primaryOutputDirectory: primaryOutputDirectory || null,
+                  dockerfile,
+                  env: env || {},
+                  buildArgs: buildArgs || {},
+                  keywords: keywords || [],
+                  installCommands: installCommands || [],
+                  commands,
+                  visibility,
+                  buildType: 'build_image',
+                  // The period this deploy's `plugins` slot was charged to (refunded on delete).
+                  quotaResetAt: slot.reservation.quota.resetAt ?? null,
+                },
+              });
+
+              await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `deploy-generated-${name}-${version}`, jobData, logWarn });
+              // Queued: the build job owns the slot now (it refunds on permanent
+              // failure), so a later throw in this handler must NOT refund it too.
+              slot.markConsumed();
+
+              ctx.log('INFO', 'Build queued', {
+                pluginName: name,
+                version,
+              });
+
+              // Best-effort attributed audit — the deploy action was accepted and the
+              // build queued. No plugin id exists yet (the worker persists the record
+              // on build completion, where plugin.build.completed carries the id), so
+              // `targetId` is omitted here; name/version identify the plugin.
+              recordAudit({
+                action: 'plugin.deploy',
+                actorId: actorId({ userId }),
+                orgId,
+                targetType: 'plugin',
+                // The handler's details stay authoritative; `proposedBy: 'ask-agent'`
+                // is added only when the request carried the provenance header — this
+                // is the plugin the Ask panel's generate/confirm path deploys.
+                details: withProposalProvenance(req.headers, {
+                  pluginName: name,
+                  version,
+                  visibility,
+                  buildType: 'build_image',
+                }),
+              });
+
+              return sendSuccess(res, 202, {
+                requestId: ctx.requestId,
+                pluginName: name,
+                version,
+              }, 'Plugin build queued');
+            } catch (err) {
+              // Roll back the reserved slot if anything between reserve and the
+              // successful queue.add throws (fs operations, queue down). Release the
+              // idempotency key too so the client's retry isn't wrongly suppressed —
+              // the build was never queued — and drop the staged context so it
+              // doesn't orphan (best-effort; the bucket's expiry rule is the backstop).
+              releaseIdem();
+              await deletePluginArtifact(s3Key);
+              removeScratchDir(tempDir);
+              throw err;
+            }
+          },
+        );
       } catch (err) {
         releaseIdem();
         throw err;
       }
-      const slot = reserved.slot;
-      if (!slot) {
-        const { reservation } = reserved;
+      if (outcome.status === 'denied') {
+        const { reservation } = outcome;
         ctx.log('WARN', reservation.unavailable ? 'Plugin quota unconfirmable (quota service unavailable)' : 'Plugin quota exceeded', { orgId, used: reservation.quota.used, limit: reservation.quota.limit });
         releaseIdem();
         // 503 + Retry-After when the quota service couldn't confirm; 429 when over limit.
         return sendQuotaReserveDenied(res, 'plugins', reservation);
-      }
-
-      // -- Compliance check (fail-closed) -----------------------------------
-      // AI-generated plugins satisfy the same org compliance rules as uploaded
-      // ones, with the same deferred image facts (evaluated post-build).
-      const preflight = await compliancePreflight(orgId, authHeader, {
-        attributes: {
-          name,
-          version,
-          pluginType: pluginType || 'CodeBuildStep',
-          computeType: computeType || 'MEDIUM',
-          env: env || {},
-          buildArgs: buildArgs || {},
-          installCommands: installCommands || [],
-          commands,
-          visibility,
-        },
-        buildType: 'build_image',
-        pluginType: pluginType || 'CodeBuildStep',
-        keywords: keywords || [],
-        action: 'deploy-generated',
-      });
-      if (preflight.status === 'blocked') {
-        ctx.log('WARN', 'AI-generated plugin blocked by compliance', { pluginName: name, violations: preflight.violations.length });
-        slot.release();
-        releaseIdem();
-        return sendError(res, 403, 'Plugin deploy blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
-          violations: preflight.violations,
-        });
-      }
-      if (preflight.status === 'unavailable') {
-        // Fail-closed: compliance unreachable → reject the deploy and release the slot.
-        ctx.log('ERROR', 'Compliance service unavailable', { error: preflight.error });
-        slot.release();
-        releaseIdem();
-        return sendError(res, 503, 'Compliance service unavailable — plugin deploy rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
-      }
-      if (preflight.warnings > 0) {
-        ctx.log('WARN', 'Compliance warnings on AI-generated plugin', { pluginName: name, warnings: preflight.warnings });
-      }
-
-      ctx.log('INFO', 'Deploying AI-generated plugin', {
-        pluginName: name,
-        version,
-        visibility,
-      });
-
-      // Local scratch context (same-replica fast path) — created inside the try
-      // below so a failure after it can clean it up.
-      let tempDir: string | undefined;
-      let s3Key: string | undefined;
-      try {
-        tempDir = path.join(BUILD_TEMP_ROOT, uuid());
-        fs.mkdirSync(tempDir, { recursive: true });
-        fs.writeFileSync(path.join(tempDir, 'Dockerfile'), dockerfile, 'utf-8');
-
-        // -- Stage the build context in object storage ----------------------
-        // The build worker runs on EVERY replica and BullMQ may hand this job to
-        // a different one; `tempDir` is per-pod scratch, so a build elsewhere
-        // would find no context. Stage the context as a ZIP first (exactly like
-        // upload-plugin.ts) so any replica can re-materialize it; never queue a
-        // build whose context can't be reconstructed.
-        const stagedKey = pluginArtifactKey(orgId, ctx.requestId);
-        const contextZip = new AdmZip();
-        contextZip.addFile('Dockerfile', Buffer.from(dockerfile, 'utf-8'));
-        try {
-          await putPluginArtifact(stagedKey, contextZip.toBuffer());
-        } catch (s3Err) {
-          ctx.log('ERROR', 'Failed to stage build context in object storage', { error: errorMessage(s3Err) });
-          slot.release();
-          releaseIdem();
-          removeScratchDir(tempDir);
-          return sendError(res, 503, 'Object storage unavailable — please retry', ErrorCode.SERVICE_UNAVAILABLE);
-        }
-        s3Key = stagedKey;
-
-        // Queue build job (returns immediately)
-        const jobData = createBuildJobData({
-          requestId: ctx.requestId,
-          orgId,
-          userId: userId || 'system',
-          access,
-          // Period snapshot for the reserved slot so a DLQ retry spanning a
-          // quota reset refunds the correct period (see releasePluginQuota).
-          reservedResetAt: slot.resetAt,
-          buildRequest: {
-            contextDir: tempDir,
-            s3Key,
-            dockerfile: 'Dockerfile',
-            name,
-            version,
-            orgId,
-            registry,
-            buildArgs: buildArgs || {},
-            buildType: 'build_image',
-          },
-          pluginRecord: {
-            orgId,
-            name,
-            description: description || null,
-            version,
-            pluginType: pluginType || 'CodeBuildStep',
-            computeType: computeType || 'MEDIUM',
-            primaryOutputDirectory: primaryOutputDirectory || null,
-            dockerfile,
-            env: env || {},
-            buildArgs: buildArgs || {},
-            keywords: keywords || [],
-            installCommands: installCommands || [],
-            commands,
-            visibility,
-            buildType: 'build_image',
-            // The period this deploy's `plugins` slot was charged to (refunded on delete).
-            quotaResetAt: slot.resetAt ?? null,
-          },
-        });
-
-        await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `deploy-generated-${name}-${version}`, jobData, logWarn });
-
-        ctx.log('INFO', 'Build queued', {
-          pluginName: name,
-          version,
-        });
-
-        // Best-effort attributed audit — the deploy action was accepted and the
-        // build queued. No plugin id exists yet (the worker persists the record
-        // on build completion, where plugin.build.completed carries the id), so
-        // `targetId` is omitted here; name/version identify the plugin.
-        recordAudit({
-          action: 'plugin.deploy',
-          actorId: actorId({ userId }),
-          orgId,
-          targetType: 'plugin',
-          // The handler's details stay authoritative; `proposedBy: 'ask-agent'`
-          // is added only when the request carried the provenance header — this
-          // is the plugin the Ask panel's generate/confirm path deploys.
-          details: withProposalProvenance(req.headers, {
-            pluginName: name,
-            version,
-            visibility,
-            buildType: 'build_image',
-          }),
-        });
-
-        return sendSuccess(res, 202, {
-          requestId: ctx.requestId,
-          pluginName: name,
-          version,
-        }, 'Plugin build queued');
-      } catch (err) {
-        // Roll back the reserved slot if anything between reserve and the
-        // successful queue.add throws (fs operations, queue down). Release the
-        // idempotency key too so the client's retry isn't wrongly suppressed —
-        // the build was never queued — and drop the staged context so it
-        // doesn't orphan (best-effort; the bucket's expiry rule is the backstop).
-        slot.release();
-        releaseIdem();
-        await deletePluginArtifact(s3Key);
-        removeScratchDir(tempDir);
-        throw err;
       }
     }),
   );

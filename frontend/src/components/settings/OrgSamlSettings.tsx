@@ -188,9 +188,13 @@ export function OrgSamlSettings({
     const write = pendingWrite;
     setPendingWrite(null);
     if (!write) return;
-    const res = await form.run(() => write(stepUpToken), { successMessage: 'SAML configuration saved.' });
-    const saved = res?.data?.config;
-    if (saved) onSaved(saved);
+    await form.run(() => write(stepUpToken), {
+      successMessage: 'SAML configuration saved.',
+      onSuccess: (res) => {
+        const saved = res?.data?.config;
+        if (saved) onSaved(saved);
+      },
+    });
   };
 
   const body = (

@@ -27,6 +27,8 @@ describe('maskLine', () => {
     ['AWS access key id', 'assumed role using AKIAIOSFODNN7EXAMPLE'],
     ['Stripe live key', 'charge failed for sk_live_51H8xQ2abcdefGHIJ'],
     ['GitHub token', 'clone failed: ghp_16CharactersAndThenSomeMore123'],
+    ['GitHub fine-grained PAT', 'clone failed: github_pat_11ABCDEFG0abcdefghijkl_AbCdEf0123456789ghIJklMNop'],
+    ['GitLab PAT', 'clone failed: glpat-abcdefghij0123456789'],
     ['Slack token', 'notify failed xoxb-123456789012-abcdefghij'],
     ['postgres URL credentials', 'connect postgres://appuser:hunter2@db:5432/pb'],
     ['mongodb+srv URL credentials', 'connect mongodb+srv://svc:p%40ss@cluster0.mongodb.net'],
@@ -84,6 +86,10 @@ describe('looksSensitive', () => {
     // pointless if a user can confirm a guess from whether it matched.
     expect(looksSensitive('sk_live_51H8xQ2abcdefGHIJ')).toBe(true);
     expect(looksSensitive('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.zzz')).toBe(true);
+    // Fine-grained GitHub and GitLab PATs: the search-oracle half of the
+    // defence, and the half that was missing until the prefixes were added.
+    expect(looksSensitive('github_pat_11ABCDEFG0abcdefghijkl_AbCdEf0123456789ghIJklMNop')).toBe(true);
+    expect(looksSensitive('glpat-abcdefghij0123456789')).toBe(true);
   });
 
   it('allows an ordinary search term', () => {
@@ -105,7 +111,10 @@ describe('promtail portability', () => {
 
   it('exposes at least one ingest-maskable pattern per high-risk credential class', () => {
     const named = new Set(SENSITIVE_VALUE_PATTERNS.filter((p) => p.re2 !== null).map((p) => p.name));
-    for (const required of ['jwt', 'bearer_token', 'aws_access_key_id', 'url_credentials', 'url_secret_param']) {
+    for (const required of [
+      'jwt', 'bearer_token', 'aws_access_key_id', 'url_credentials', 'url_secret_param',
+      'github_token', 'github_fine_grained_pat', 'gitlab_token', 'stripe_key', 'slack_token',
+    ]) {
       expect(named).toContain(required);
     }
   });

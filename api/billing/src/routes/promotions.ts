@@ -16,6 +16,7 @@ import {
   parseQueryString,
   actorId,
   recordAudit,
+  SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -221,8 +222,12 @@ export function createPromotionRoutes(): Router {
     recordAudit({
       action: 'billing.promotion.activate',
       actorId: actorId({ userId }),
-      // Fleet-wide batch action — not scoped to one org; use the system sentinel.
-      orgId: 'system',
+      // Fleet-wide batch action — not scoped to one org, so it is recorded against
+      // the system tenant. This MUST be the canonical id (an ObjectId), not the
+      // slug 'system': audit queries match `orgId`/`affectedOrgId` exactly, so the
+      // slug matches no org at all and orphans the event from every view,
+      // including the system org's own.
+      orgId: SYSTEM_ORG_ID,
       targetId: id,
       details: { promotionId: id, granted: result.granted, spentCents: result.spentCents, skippedBudget: result.skippedBudget },
     });

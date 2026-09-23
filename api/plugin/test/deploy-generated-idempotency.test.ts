@@ -98,7 +98,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   PluginDeployGeneratedSchema: {},
 }));
 
+// The REAL reservation helper (its api-core calls hit this file's api-core mock).
+let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = req.context;
     await handler({ req, res, ctx, orgId: ctx.identity.orgId?.toLowerCase() || '', userId: ctx.identity.userId || '' });
@@ -120,6 +123,7 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: m
 const mockAssertDeployable = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: { assertDeployable: mockAssertDeployable } }));
 
+({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createDeployGeneratedPluginRoutes } = await import('../src/routes/deploy-generated-plugin.js');
 
 // -- Helpers ------------------------------------------------------------------

@@ -42,7 +42,7 @@ export function createAuditRoutes(): Router {
     const { entries, total } = await complianceAuditService.list(filter, orgId, limit, offset);
     ctx.log('COMPLETED', 'Listed compliance audit log', { count: entries.length });
     return sendPaginatedNested(res, 'entries', entries, {
-      total, limit, offset, hasMore: offset + entries.length < total,
+      total, limit, offset,
     });
   }));
 

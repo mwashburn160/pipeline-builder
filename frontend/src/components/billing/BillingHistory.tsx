@@ -12,10 +12,9 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Pagination } from '@/components/ui/Pagination';
 import { RetryError } from '@/components/ui/RetryError';
 import { useFetch } from '@/hooks/useFetch';
+import { usePagination } from '@/hooks/usePagination';
 import { formatError } from '@/lib/constants';
 import type { BillingEvent } from '@/types';
-
-const DEFAULT_PAGE_SIZE = 25;
 
 interface BillingHistoryProps {
   isSuperAdmin: boolean;
@@ -27,13 +26,14 @@ interface BillingHistoryProps {
  *  Loaded on demand ("View events"), since most visits never open it. */
 export function BillingHistory({ isSuperAdmin }: BillingHistoryProps) {
   const [open, setOpen] = useState(false);
-  const [page, setPage] = useState({ offset: 0, limit: DEFAULT_PAGE_SIZE });
+  const page = usePagination();
 
   const { data, loading, error, refetch } = useFetch(async (signal) => {
     if (!open) return null;
+    const query = { offset: page.offset, limit: page.limit };
     const res = isSuperAdmin
-      ? await api.listBillingEvents(page, { signal })
-      : await api.listOwnBillingEvents(page, { signal });
+      ? await api.listBillingEvents(query, { signal })
+      : await api.listOwnBillingEvents(query, { signal });
     return { events: res.data?.events ?? [], total: res.data?.total ?? 0 };
   }, [open, isSuperAdmin, page.offset, page.limit]);
 
@@ -77,9 +77,9 @@ export function BillingHistory({ isSuperAdmin }: BillingHistoryProps) {
           </Card>
           {!!data && data.total > page.limit && (
             <Pagination
-              pagination={{ ...page, total: data.total }}
-              onPageChange={(offset) => setPage((p) => ({ ...p, offset }))}
-              onPageSizeChange={(limit) => setPage({ offset: 0, limit })}
+              pagination={page.withTotal(data.total)}
+              onPageChange={page.setOffset}
+              onPageSizeChange={page.setLimit}
             />
           )}
         </>

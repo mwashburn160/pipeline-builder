@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 const lookupPlugin = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
@@ -185,7 +185,11 @@ describe('PluginResolutionWarnings (pipeline editor)', () => {
   it('stays silent for other refusals, and makes no call without a name', async () => {
     lookupPlugin.mockRejectedValue(new ApiError('Plugin not found', 404, 'NOT_FOUND'));
     const { container, rerender } = render(<PluginResolutionWarnings name="nope" />);
-    await new Promise((r) => setTimeout(r, 0));
+    // Let the debounced lookup fire and its 404 land before asserting, so the
+    // refusal's state update belongs to this test rather than to whatever runs
+    // after it.
+    await waitFor(() => expect(lookupPlugin).toHaveBeenCalledWith({ name: 'nope' }, expect.anything()));
+    await act(async () => { await Promise.resolve(); });
     expect(container).toBeEmptyDOMElement();
     lookupPlugin.mockClear();
     rerender(<PluginResolutionWarnings name="" />);

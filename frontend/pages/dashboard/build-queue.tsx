@@ -29,8 +29,6 @@ import type { QueuePagination } from '@/lib/api/domains/plugins';
 
 const POLL_INTERVAL = 10_000;
 
-/** Rows per server page in the failed-build and DLQ tables. */
-const JOBS_PAGE_SIZE = 25;
 
 /**
  * Normalize a queue page for `useServerPagination`. The server's `total` is
@@ -136,7 +134,6 @@ export default function BuildQueuePage() {
       return toServerPage(res.data?.jobs, res.data?.pagination, offset, limit);
     },
     { visible: showFailed },
-    JOBS_PAGE_SIZE,
   );
   const dlq = useServerPagination<DlqJob, { visible: boolean }>(
     async ({ offset, limit, filters, signal }) => {
@@ -145,7 +142,6 @@ export default function BuildQueuePage() {
       return toServerPage(res.data?.jobs, res.data?.pagination, offset, limit);
     },
     { visible: showDlq },
-    JOBS_PAGE_SIZE,
   );
   const { refetch: refetchFailed } = failed;
   const { refetch: refetchDlq } = dlq;

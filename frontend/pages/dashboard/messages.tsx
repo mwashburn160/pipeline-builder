@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { Plus, MessageCircle, Search, X } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useMessages, type MessageView, type MessageFilters } from '@/hooks/useM
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { useDelete } from '@/hooks/useDelete';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
@@ -220,36 +221,36 @@ export default function MessagesPage() {
   const rawLinked = router.query[MESSAGE_QUERY_KEY];
   const linkedId = router.isReady ? (Array.isArray(rawLinked) ? rawLinked[0] : rawLinked) : undefined;
   const selectedId = selectedMessage?.id;
-  useEffect(() => {
-    if (!isReady || !linkedId || linkedId === selectedId) return;
-    const controller = new AbortController();
-    api.getMessage(linkedId, { signal: controller.signal })
-      .then((res) => {
-        if (controller.signal.aborted) return;
-        if (res.success && res.data?.message) openMessage(res.data.message);
-        else setDeepLinkError('That message could not be found — it may have been deleted, or it isn’t addressed to you.');
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) return;
-        setDeepLinkError(formatError(err, 'Failed to open the linked message'));
-      });
-    return () => controller.abort();
-    // `openMessage` is stable per org; the id pair is what drives a (re)load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `openMessage` is stable per org; the id pair is what drives a (re)load
-  }, [isReady, linkedId, selectedId]);
+  const openMessageRef = useRef(openMessage);
+  openMessageRef.current = openMessage;
+  useFetch(
+    async (signal) => {
+      const res = await api.getMessage(linkedId!, { signal });
+      if (!res.success || !res.data?.message) {
+        throw new Error('That message could not be found — it may have been deleted, or it isn’t addressed to you.');
+      }
+      return res.data.message;
+    },
+    [isReady, linkedId, selectedId],
+    {
+      enabled: isReady && !!linkedId && linkedId !== selectedId,
+      onSuccess: (message) => openMessageRef.current(message),
+      onError: (err) => setDeepLinkError(formatError(err, 'Failed to open the linked message')),
+    },
+  );
 
   // Deleting has no undo, so both the row and the thread trash icon stage the
-  // id and confirm here.
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const pendingSubject = messages.find((m) => m.id === pendingDelete)?.subject;
-
+  // id and confirm here. `useDelete` owns the confirm triplet; `deleteMessage`
+  // owns the step-up replay (it is what holds the list state the replay updates).
   const handleDelete = useCallback(async (id: string) => {
     await deleteMessage(id);
     if (selectedMessage?.id === id) {
       setSelectedMessage(null);
     }
   }, [deleteMessage, selectedMessage]);
+
+  const del = useDelete<string>(handleDelete);
+  const pendingSubject = messages.find((m) => m.id === del.target)?.subject;
 
   const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]): Promise<boolean> => {
     const result = await sendMessage(data);
@@ -441,7 +442,7 @@ export default function MessagesPage() {
                 selectedId={selectedMessage?.id}
                 currentOrgId={currentOrgId}
                 resolveOrgName={resolveOrgName}
-                onDelete={canWrite ? ((id: string) => setPendingDelete(id)) : undefined}
+                onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
                 hasMore={hasMore}
                 loadingMore={loadingMore}
                 onLoadMore={loadMore}
@@ -471,7 +472,7 @@ export default function MessagesPage() {
                 fetchMembers={fetchMembers}
                 onBack={handleBack}
                 onThreadRead={markThreadAsRead}
-                onDelete={canWrite ? ((id: string) => setPendingDelete(id)) : undefined}
+                onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
                 canWrite={canWrite}
               />
             ) : (
@@ -512,16 +513,13 @@ export default function MessagesPage() {
       />
       )}
 
-      {pendingDelete && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete message"
           itemName={pendingSubject || 'this message'}
-          loading={deleting}
-          onCancel={() => setPendingDelete(null)}
-          onConfirm={async () => {
-            setDeleting(true);
-            try { await handleDelete(pendingDelete); } finally { setDeleting(false); setPendingDelete(null); }
-          }}
+          loading={del.loading}
+          onCancel={del.close}
+          onConfirm={() => void del.confirm()}
         />
       )}
     </DashboardLayout>

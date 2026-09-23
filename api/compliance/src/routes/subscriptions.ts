@@ -120,7 +120,7 @@ export function createPublishedRulesCatalogRoutes(): Router {
 
     ctx.log('COMPLETED', 'Listed published rules catalog', { count: catalog.length });
     return sendPaginatedNested(res, 'rules', catalog, {
-      total, limit, offset, hasMore: offset + rules.length < total,
+      total, limit, offset,
     });
   }));
 
@@ -152,7 +152,7 @@ export function createSubscriptionRoutes(): Router {
 
     ctx.log('COMPLETED', 'Listed rule subscriptions', { count: result.length });
     return sendPaginatedNested(res, 'subscriptions', result, {
-      total, limit, offset, hasMore: offset + subscriptions.length < total,
+      total, limit, offset,
     });
   }));
 

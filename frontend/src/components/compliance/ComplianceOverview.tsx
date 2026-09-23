@@ -1,5 +1,6 @@
 'use client';
 
+import { Badge } from '@/components/ui/Badge';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Shield, ShieldCheck, CheckCircle, AlertTriangle, XCircle, Clock, Filter, ChevronDown, History } from 'lucide-react';
@@ -18,6 +19,7 @@ import { RESULT_STYLES } from '@/lib/compliance-styles';
 import { formatDateTime } from '@/lib/format';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { useComplianceAudit } from './useComplianceAudit';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 /**
  * The compliance Overview tab: the posture headline, the four clickable stat
@@ -87,7 +89,7 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
   if (error) return <RetryError message={error} onRetry={onRetry} />;
   if (changes === null) return <div className="flex justify-center py-12"><LoadingSpinner label="Loading recent changes" /></div>;
   if (changes.length === 0) {
-    return <div className="text-center py-6 text-sm text-fg-subtle">No compliance changes recorded yet.</div>;
+    return <EmptyState compact title="No compliance changes recorded yet" />;
   }
   return (
     <ul className="divide-y divide-default">
@@ -97,7 +99,7 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
         return (
           <li key={e.id} className="py-2 flex items-baseline justify-between gap-2 text-sm">
             <div className="min-w-0 flex items-baseline gap-2">
-              <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
+              <Badge color={r.color}>{r.label}</Badge>
               <span className="text-fg truncate">
                 <code className="text-xs">{e.action}</code>
                 {e.entityName && <span className="text-fg-muted"> on {e.entityName}</span>}
@@ -350,7 +352,7 @@ export function ComplianceOverview({ stats, onGoToRules }: OverviewProps) {
                     >
                       <div className="flex items-center gap-2 min-w-0">
                         <ChevronDown className={`h-3.5 w-3.5 text-fg-subtle shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`} />
-                        <StatusPill className={`${r.bg} ${r.text}`}>{r.label}</StatusPill>
+                        <Badge color={r.color}>{r.label}</Badge>
                         <span className="text-2xs font-medium text-fg-subtle shrink-0">{entry.action}</span>
                         <span className="text-sm text-fg truncate">{entry.entityName || entry.entityId || 'Unknown'}</span>
                         <span className="text-2xs uppercase tracking-wide text-fg-subtle border border-default rounded px-1.5 py-0.5 shrink-0">{entry.target}</span>

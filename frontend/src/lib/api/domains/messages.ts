@@ -110,9 +110,10 @@ export function messagesApi(core: ApiCore) {
       return core.request<ApiResponse<{ orgs: RecipientOrg[] }>>('/api/messages/recipients/orgs');
     },
 
-        /** Get all messages in a thread */
-    getThread: async (id: string) => {
-      return core.request<ApiResponse<{ messages: Message[] }>>(`/api/messages/${id}/thread`);
+    /** Get all messages in a thread. Pass `signal` so a superseded thread
+     *  switch stops the abandoned read on the wire. */
+    getThread: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ messages: Message[] }>>(`/api/messages/${id}/thread`, opts);
     },
 
     /** Send a new message (announcement or conversation) */

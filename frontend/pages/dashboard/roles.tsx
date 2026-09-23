@@ -1,7 +1,10 @@
+import type { BadgeColor } from '@/components/ui/Badge';
 import { useState, useId } from 'react';
 import { ShieldCheck, ShieldAlert, Users, UserPlus, UserMinus, Crown, AlertTriangle, Plus, Pencil, Trash2, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
+import { usePagination } from '@/hooks/usePagination';
+import { useDelete } from '@/hooks/useDelete';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFormState } from '@/hooks/useFormState';
 import { useToast } from '@/components/ui/Toast';
@@ -30,7 +33,7 @@ import type { OrganizationRole, RoleGrant } from '@/types';
 import { formatError } from '@/lib/constants';
 
 /** Badge colour per coarse role a Role grants — superadmin is the loudest. */
-const ROLE_BADGE: Record<RoleGrant, 'red' | 'purple' | 'gray'> = {
+const ROLE_BADGE: Record<RoleGrant, BadgeColor> = {
   superadmin: 'red',
   admin: 'purple',
   member: 'gray',
@@ -75,19 +78,19 @@ export default function RolesPage() {
   const orgId = user?.organizationId;
 
   // Roles are paged server-side; each role carries its full member list.
-  const [limit, setLimit] = useState(20);
-  const [offset, setOffset] = useState(0);
+  const page = usePagination();
   const rolesQ = useFetch(
     async (signal) => {
       if (!isReady || !orgId) return null;
-      const res = await api.getOrganizationRoles(orgId, { limit, offset }, { signal });
+      const res = await api.getOrganizationRoles(orgId, { limit: page.limit, offset: page.offset }, { signal });
       if (!res.success || !res.data) throw new Error(res.message || 'Failed to load roles');
       return res.data;
     },
-    [isReady, orgId, limit, offset],
+    [isReady, orgId, page.limit, page.offset],
   );
   const roles: OrganizationRole[] = rolesQ.data?.roles ?? [];
-  const total = rolesQ.data?.pagination.total ?? 0;
+  const pagination = page.withTotal(rolesQ.data?.pagination.total ?? 0);
+  const total = pagination.total;
   const fetchRoles = rolesQ.refetch;
 
   // Roles whose full permission chip list is expanded (collapsed by default —
@@ -140,13 +143,14 @@ export default function RolesPage() {
   const handleAdd = async () => {
     if (!orgId || !addToRole || !addEmail.trim()) return;
     const email = addEmail.trim().toLowerCase();
-    const result = await addForm.run(() => api.addRoleMember(orgId, addToRole.id, { email }));
-    if (result !== null) {
-      toast.success(`Added ${email} to ${addToRole.name}`);
-      setAddToRole(null);
-      setAddEmail('');
-      void fetchRoles();
-    }
+    await addForm.run(() => api.addRoleMember(orgId, addToRole.id, { email }), {
+      onSuccess: () => {
+        toast.success(`Added ${email} to ${addToRole.name}`);
+        setAddToRole(null);
+        setAddEmail('');
+        void fetchRoles();
+      },
+    });
   };
 
   const handleRemove = async () => {
@@ -174,8 +178,15 @@ export default function RolesPage() {
   const [roleDesc, setRoleDesc] = useState('');
   const [rolePerms, setRolePerms] = useState<Set<string>>(new Set());
   const editorForm = useFormState();
-  const [deleteTarget, setDeleteTarget] = useState<OrganizationRole | null>(null);
-  const del = useFormState();
+  // `useDelete` owns the step-up replay: a delete refused pending re-auth lands
+  // (and refreshes the list) once the person confirms in the global dialog. Its
+  // `onError` also gives the failure a surface — the old `useFormState` error
+  // was never rendered here, so a failed delete just closed the dialog silently.
+  const del = useDelete<OrganizationRole>(
+    (role) => api.deleteRole(orgId!, role.id),
+    (role) => { toast.success(`Deleted ${role.name}`); void fetchRoles(); },
+    (err) => toast.error(formatError(err, 'Failed to delete role')),
+  );
 
   const openCreate = () => {
     setEditorRole(null);
@@ -210,24 +221,15 @@ export default function RolesPage() {
       description: roleDesc.trim() || undefined,
       permissions: [...rolePerms],
     };
-    const result = await editorForm.run(() => editorRole
+    await editorForm.run(() => editorRole
       ? api.updateRole(orgId, editorRole.id, payload)
-      : api.createRole(orgId, payload));
-    if (result !== null) {
-      toast.success(editorRole ? `Updated ${payload.name}` : `Created ${payload.name}`);
-      setEditorOpen(false);
-      void fetchRoles();
-    }
-  };
-
-  const handleDeleteRole = async () => {
-    if (!orgId || !deleteTarget) return;
-    const result = await del.run(() => api.deleteRole(orgId, deleteTarget.id));
-    if (result !== null) {
-      toast.success(`Deleted ${deleteTarget.name}`);
-      setDeleteTarget(null);
-      void fetchRoles();
-    }
+      : api.createRole(orgId, payload), {
+      onSuccess: () => {
+        toast.success(editorRole ? `Updated ${payload.name}` : `Created ${payload.name}`);
+        setEditorOpen(false);
+        void fetchRoles();
+      },
+    });
   };
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
@@ -292,7 +294,7 @@ export default function RolesPage() {
                         <IconButton tone="primary" onClick={() => openEdit(r)} title={`Edit ${r.name}`} aria-label={`Edit ${r.name}`}>
                           <Pencil className="w-4 h-4" />
                         </IconButton>
-                        <IconButton tone="danger" onClick={() => setDeleteTarget(r)} title={`Delete ${r.name}`} aria-label={`Delete ${r.name}`}>
+                        <IconButton tone="danger" onClick={() => del.open(r)} title={`Delete ${r.name}`} aria-label={`Delete ${r.name}`}>
                           <Trash2 className="w-4 h-4" />
                         </IconButton>
                       </>
@@ -393,12 +395,11 @@ export default function RolesPage() {
               </SectionCard>
             );
           })}
-          {total > limit && (
+          {total > page.limit && (
             <Pagination
-              pagination={{ limit, offset, total }}
-              onPageChange={setOffset}
-              onPageSizeChange={(next) => { setLimit(next); setOffset(0); }}
-              pageSizeOptions={[10, 20, 50, 100]}
+              pagination={pagination}
+              onPageChange={page.setOffset}
+              onPageSizeChange={page.setLimit}
             />
           )}
         </div>
@@ -555,13 +556,13 @@ export default function RolesPage() {
         </Modal>
       )}
 
-      {deleteTarget && (
+      {del.target && (
         <DeleteConfirmModal
           title="Delete role"
-          itemName={deleteTarget.name}
+          itemName={del.target.name}
           loading={del.loading}
-          onConfirm={handleDeleteRole}
-          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => void del.confirm()}
+          onCancel={del.close}
         />
       )}
     </DashboardLayout>

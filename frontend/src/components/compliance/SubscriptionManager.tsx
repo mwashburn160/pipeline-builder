@@ -5,7 +5,8 @@ import { Select } from '@/components/ui/Select';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Eye, CheckCircle, XCircle, AlertTriangle, Lock } from 'lucide-react';
 import api from '@/lib/api';
-import { Pagination, type PaginationState } from '@/components/ui/Pagination';
+import { Pagination } from '@/components/ui/Pagination';
+import { usePagination } from '@/hooks/usePagination';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
@@ -17,7 +18,7 @@ import { useUrlTab } from '@/hooks/useUrlTab';
 import type { ComplianceSetFlag } from '@/lib/feature-flags';
 import { formatError } from '@/lib/constants';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
-import { SEVERITY_BADGE as SEVERITY_COLORS } from '@/lib/compliance-styles';
+import { SeverityBadge } from './SeverityBadge';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { StatusPill } from '@/components/ui/StatusPill';
 
@@ -86,10 +87,11 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Pagination
-  const DEFAULT_PAGE_SIZE = 10;
-  const [subsPagination, setSubsPagination] = useState<PaginationState>({ limit: DEFAULT_PAGE_SIZE, offset: 0, total: 0 });
-  const [catalogPagination, setCatalogPagination] = useState<PaginationState>({ limit: DEFAULT_PAGE_SIZE, offset: 0, total: 0 });
+  // Pagination — the shared convention (page triple, default size, clamp rule).
+  const subsPage = usePagination();
+  const [subsTotal, setSubsTotal] = useState(0);
+  const catalogPage = usePagination();
+  const [catalogTotal, setCatalogTotal] = useState(0);
 
   // Catalog filters
   const [catalogTarget, setCatalogTarget] = useState<RuleTarget | ''>('');
@@ -101,40 +103,36 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   // generation number and skips setState if it's no longer the latest.
   const reqRef = useRef(0);
 
-  const fetchSubscriptions = useCallback(async (offset = subsPagination.offset, limit = subsPagination.limit) => {
+  const fetchSubscriptions = useCallback(async () => {
     const gen = ++reqRef.current;
     setLoading(true);
     try {
-      const res = await api.getComplianceSubscriptions({ limit, offset });
+      const res = await api.getComplianceSubscriptions({ limit: subsPage.limit, offset: subsPage.offset });
       if (gen !== reqRef.current) return;
       if (res.success && res.data) {
         setSubscriptions(res.data.subscriptions);
-        if (res.data.pagination) {
-          setSubsPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
-        }
+        if (res.data.pagination) setSubsTotal(res.data.pagination.total);
       }
     } catch { /* handled by loading state */ }
     if (gen === reqRef.current) setLoading(false);
-  }, [subsPagination.offset, subsPagination.limit]);
+  }, [subsPage.offset, subsPage.limit]);
 
-  const fetchCatalog = useCallback(async (offset = catalogPagination.offset, limit = catalogPagination.limit) => {
+  const fetchCatalog = useCallback(async () => {
     const gen = ++reqRef.current;
     setLoading(true);
     try {
-      const params: Record<string, string | number> = { limit, offset };
+      const params: Record<string, string | number> = { limit: catalogPage.limit, offset: catalogPage.offset };
       if (catalogTarget) params.target = catalogTarget;
       if (catalogSeverity) params.severity = catalogSeverity;
       const res = await api.getPublishedRules(params);
       if (gen !== reqRef.current) return;
       if (res.success && res.data) {
         setCatalog(res.data.rules);
-        if (res.data.pagination) {
-          setCatalogPagination({ limit: res.data.pagination.limit, offset: res.data.pagination.offset, total: res.data.pagination.total });
-        }
+        if (res.data.pagination) setCatalogTotal(res.data.pagination.total);
       }
     } catch { /* handled by loading state */ }
     if (gen === reqRef.current) setLoading(false);
-  }, [catalogPagination.offset, catalogPagination.limit, catalogTarget, catalogSeverity]);
+  }, [catalogPage.offset, catalogPage.limit, catalogTarget, catalogSeverity]);
 
   useEffect(() => {
     if (tab === 'subscriptions') void fetchSubscriptions();
@@ -146,14 +144,10 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   }, [tab, fetchSubscriptions, fetchCatalog]);
 
   // Reset catalog offset when filters change
+  const { reset: resetCatalogPage } = catalogPage;
   useEffect(() => {
-    setCatalogPagination(prev => ({ ...prev, offset: 0 }));
-  }, [catalogTarget, catalogSeverity]);
-
-  const handleSubsPageChange = (offset: number) => { void fetchSubscriptions(offset, subsPagination.limit); };
-  const handleSubsPageSizeChange = (limit: number) => { void fetchSubscriptions(0, limit); };
-  const handleCatalogPageChange = (offset: number) => { void fetchCatalog(offset, catalogPagination.limit); };
-  const handleCatalogPageSizeChange = (limit: number) => { void fetchCatalog(0, limit); };
+    resetCatalogPage();
+  }, [resetCatalogPage, catalogTarget, catalogSeverity]);
 
   // Route mutation failures to a toast — without this a rejected promise is
   // unhandled and the user sees nothing happen.
@@ -288,9 +282,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                         )}
                       </div>
                       {sub.rule && (
-                        <StatusPill className={SEVERITY_COLORS[sub.rule.severity] || SEVERITY_COLORS.warning}>
-                          {sub.rule.severity}
-                        </StatusPill>
+                        <SeverityBadge severity={sub.rule.severity} />
                       )}
                       {sub.pinnedVersion && (
                         <StatusPill className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400">pinned</StatusPill>
@@ -389,11 +381,11 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                   )}
                 </div>
               ))}
-              {subsPagination.total > subsPagination.limit && (
+              {subsTotal > subsPage.limit && (
                 <Pagination
-                  pagination={subsPagination}
-                  onPageChange={handleSubsPageChange}
-                  onPageSizeChange={handleSubsPageSizeChange}
+                  pagination={subsPage.withTotal(subsTotal)}
+                  onPageChange={subsPage.setOffset}
+                  onPageSizeChange={subsPage.setLimit}
                 />
               )}
             </div>
@@ -445,7 +437,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                         <div className="text-sm font-medium text-fg">{rule.name}</div>
                         {rule.description && <div className="text-xs text-fg-muted truncate max-w-md">{rule.description}</div>}
                       </div>
-                      <StatusPill className={SEVERITY_COLORS[rule.severity] || SEVERITY_COLORS.warning}>{rule.severity}</StatusPill>
+                      <SeverityBadge severity={rule.severity} />
                       <StatusPill className="bg-surface-muted text-fg-muted">{rule.target}</StatusPill>
                       {setMeta && (
                         <span className="inline-flex items-center gap-1 text-xs font-medium rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5">
@@ -471,11 +463,11 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                   </div>
                 );
               })}
-              {catalogPagination.total > catalogPagination.limit && (
+              {catalogTotal > catalogPage.limit && (
                 <Pagination
-                  pagination={catalogPagination}
-                  onPageChange={handleCatalogPageChange}
-                  onPageSizeChange={handleCatalogPageSizeChange}
+                  pagination={catalogPage.withTotal(catalogTotal)}
+                  onPageChange={catalogPage.setOffset}
+                  onPageSizeChange={catalogPage.setLimit}
                 />
               )}
             </>

@@ -12,6 +12,7 @@
  * filtered out of the org-wide aggregate).
  */
 
+import type { BadgeColor } from '@/components/ui/Badge';
 import { useCallback, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
@@ -67,7 +68,7 @@ interface PipelineExecution {
 }
 
 /** Map a rolled-up execution status to a Badge color. */
-function statusColor(status: string): 'green' | 'red' | 'gray' | 'yellow' {
+function statusColor(status: string): BadgeColor {
   if (status === 'succeeded') return 'green';
   if (status === 'failed') return 'red';
   if (status === 'in-progress') return 'yellow';

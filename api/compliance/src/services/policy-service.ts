@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ConflictError } from '@pipeline-builder/api-core';
 import { CrudService, buildCompliancePolicyConditions, schema, withTenantTx, type CompliancePolicyFilter } from '@pipeline-builder/pipeline-data';
 import { SQL, and, eq, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -59,7 +59,7 @@ export class CompliancePolicyService extends CrudService<
    */
   async createWithRules(data: CompliancePolicyInsert, ruleNames: string[] | undefined, userId: string): Promise<CompliancePolicy> {
     const safeData = this.enforceOrgId(data, /* isCreate */ true);
-    const actor = userId || 'system';
+    const actor = userId || SYSTEM_ACTOR_ID;
     return withTenantTx(async (tx) => {
       const [created] = await tx
         .insert(schema.compliancePolicy)

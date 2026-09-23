@@ -3,6 +3,7 @@
 
 /** The views of the in-app catalog and an org's installs: install state, upgrades, notes, the catalog entry. */
 
+import { isoOrNull } from '@pipeline-builder/api-core';
 import {
   advisoriesCovering,
   compareSemver,
@@ -23,7 +24,7 @@ import {
 import { can, type Caller } from './context.js';
 import { vulnDelta } from './policy.js';
 import { listingStats } from './reviews-store.js';
-import { iso, roundTo } from './util.js';
+import { roundTo } from './util.js';
 
 // -----------------------------------------------------------------------------
 // Views
@@ -88,8 +89,8 @@ export function installView(state: OrgListingState, ownOrgId: string) {
     inherited: !!row && row.orgId.toLowerCase() !== ownOrgId.toLowerCase(),
     installedBy: row?.installedBy ?? null,
     approvedBy: row?.approvedBy ?? null,
-    createdAt: iso(row?.createdAt),
-    decidedAt: iso(row?.decidedAt),
+    createdAt: isoOrNull(row?.createdAt),
+    decidedAt: isoOrNull(row?.decidedAt),
     /** The member's pending, approval-gated change (target version + policy), or null. */
     pendingChange: row?.pendingChange ?? null,
     upgrade: upgradeOf(state),

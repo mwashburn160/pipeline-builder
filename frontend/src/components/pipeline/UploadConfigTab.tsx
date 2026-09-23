@@ -1,6 +1,7 @@
 import { useState, useImperativeHandle, useRef, forwardRef, useId } from 'react';
 import { Upload } from 'lucide-react';
 import { BuilderProps } from '@/types';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
 /**
  * Wrapper-only fields on the pipeline upload JSON that must be stripped
@@ -179,9 +180,7 @@ const UploadConfigTab = forwardRef<UploadConfigTabRef, UploadConfigTabProps>(
           disabled={disabled}
         />
 
-        {propsError && (
-          <p className="mt-2 text-sm text-danger">{propsError}</p>
-        )}
+        <ErrorAlert message={propsError} className="mt-2" />
 
         <p className="mt-2 text-xs text-fg-muted">
           Required: project, organization. Full BuilderProps schema supported.

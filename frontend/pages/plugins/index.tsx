@@ -29,6 +29,7 @@ import {
 import { cachePublicly, markUnavailable } from '@/lib/public-directory/server';
 import { categoryPagePath, loginHref } from '@/lib/public-directory/links';
 import type { CategorySummary, ListingCard, SearchResult } from '@/lib/public-directory/types';
+import { Card } from '@/components/ui/Card';
 
 const HOME_SECTION_SIZE = 6;
 const RESULTS_PAGE_SIZE = 24;
@@ -52,7 +53,7 @@ function Unavailable() {
 function NoResults({ query }: { query: DirectoryQuery }) {
   const router = useRouter();
   return (
-    <div className="card flex flex-col items-center gap-4 p-8 text-center">
+    <Card className="flex flex-col items-center gap-4 p-8 text-center">
       <SearchX className="h-8 w-8 text-fg-subtle" aria-hidden="true" />
       <div>
         <h2 className="text-lg font-semibold text-fg">No plugins match{query.q ? <> “{query.q}”</> : ' these filters'}</h2>
@@ -74,7 +75,7 @@ function NoResults({ query }: { query: DirectoryQuery }) {
         {' '}or{' '}
         <Link href={loginHref(router.asPath)} className="action-link">sign in</Link> to publish from your organization.
       </p>
-    </div>
+    </Card>
   );
 }
 

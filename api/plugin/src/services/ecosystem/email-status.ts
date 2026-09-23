@@ -22,7 +22,7 @@ type Probe = () => Promise<boolean>;
 
 const httpProbe: Probe = async () => {
   const { services } = Config.get('server');
-  const client = new InternalHttpClient({ host: services.platformHost, port: services.platformPort, timeout: 5_000 });
+  const client = new InternalHttpClient({ host: services.platformHost, port: services.platformPort });
   const res = await client.get<{ data?: { enabled?: unknown }; enabled?: unknown }>('/internal/notify-email/status', {
     headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId: SYSTEM_ORG_ID, role: 'member' }) },
     maxRetries: 0,

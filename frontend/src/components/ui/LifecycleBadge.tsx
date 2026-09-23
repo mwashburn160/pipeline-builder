@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { BadgeColor } from '@/components/ui/Badge';
 import { Badge } from './Badge';
 import type { Lifecycle } from '@/types';
 
 /** Lifecycle → Badge color. */
-const LIFECYCLE_COLOR: Record<Lifecycle, 'green' | 'yellow' | 'gray'> = {
+const LIFECYCLE_COLOR: Record<Lifecycle, BadgeColor> = {
   production: 'green',
   experimental: 'yellow',
   deprecated: 'gray',

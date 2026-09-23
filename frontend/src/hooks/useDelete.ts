@@ -22,7 +22,8 @@ export interface UseDeleteResult<T> {
  * Pair with <DeleteConfirmModal> for a complete delete flow.
  *
  * @param deleteFn - Async function that performs the deletion.
- * @param onSuccess - Callback after successful deletion (e.g. refresh list).
+ * @param onSuccess - Callback after successful deletion (e.g. refresh list),
+ *   given the item that was deleted — including after a step-up replay.
  * @param onError - Optional error handler (defaults to re-throwing).
  *
  * @example
@@ -47,7 +48,7 @@ export interface UseDeleteResult<T> {
  */
 export function useDelete<T>(
   deleteFn: (item: T) => Promise<unknown>,
-  onSuccess?: () => void,
+  onSuccess?: (item: T) => void,
   onError?: (err: unknown) => void,
 ): UseDeleteResult<T> {
   const [target, setTarget] = useState<T | null>(null);
@@ -70,7 +71,7 @@ export function useDelete<T>(
     let caught: unknown = null;
     try {
       await deleteFn(current);
-      onSuccess?.();
+      onSuccess?.(current);
     } catch (err) {
       caught = err;
     } finally {
@@ -84,7 +85,7 @@ export function useDelete<T>(
       // Refused for step-up and taken over by the global dialog: that dialog
       // reports the outcome, so this is not an error here — and once the
       // person confirms and the replay lands, refresh like any other success.
-      if (continueAfterStepUp(caught, () => onSuccess?.())) return;
+      if (continueAfterStepUp(caught, () => onSuccess?.(current))) return;
       if (onError) onError(caught);
       else throw caught;
     }

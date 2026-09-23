@@ -46,6 +46,9 @@ jest.mock('@/lib/api', () => ({
   default: {
     getAccessToken: () => accessToken,
     ensureFreshToken: (...a: unknown[]) => ensureFreshToken(...a),
+    // The re-auth dialog reads the account's factors on mount to decide which
+    // route to offer; stubbed so that read SETTLES inside the test.
+    getProfile: () => Promise.resolve({ success: true, data: { user: { authFactors: null } } }),
   },
   // lib/jwt decodes through it.
   base64UrlDecode: (str: string) => jest.requireActual<typeof import('../src/lib/api/util')>('../src/lib/api/util').base64UrlDecode(str),
@@ -142,7 +145,7 @@ describe('AdminConsoleLinks', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('asks a single-factor session to sign in again with a second factor, and sets nothing', () => {
+  it('asks a single-factor session to sign in again with a second factor, and sets nothing', async () => {
     accessToken = admin({ aal: 1 });
     const open = jest.spyOn(window, 'open').mockReturnValue(null);
     render(<AdminConsoleLinks user={sysadmin} />);
@@ -150,6 +153,8 @@ describe('AdminConsoleLinks', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(open).not.toHaveBeenCalled();
     expect(cookieIsSet()).toBe(false);
+    // The dialog's factors read settles after the click; let it land here.
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
   });
 
   it('sets the cookie for a fresh token, then opens the console', async () => {
