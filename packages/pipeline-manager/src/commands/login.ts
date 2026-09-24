@@ -46,8 +46,21 @@ export function login(program: Command): void {
     .option('--no-browser', 'Never open a browser — print the verification URL instead')
     .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443'))
     .option('--quiet', 'Only print the export statement (useful for eval)')
-    .action(async (options) => {
-      const quiet = options.quiet ?? false;
+    .option('--token', 'Print ONLY the access token, for `export PLATFORM_TOKEN=$(…)`')
+    .action(async (options, command: Command) => {
+      // `--quiet` is ALSO a program-level option, and Commander binds a trailing
+      // `--quiet` to the program rather than to this subcommand — so
+      // `options.quiet` here is never set and the documented
+      // `eval $(pipeline-manager auth login --quiet)` could not work. Read the
+      // value that actually lands: this command's own flag if Commander ever
+      // gives it to us, else the root program's.
+      const rootQuiet = (command?.parent?.parent as Command | undefined)?.opts?.().quiet;
+      // `--token` prints the bare token for `$(…)` capture, so it silences the
+      // same chrome `--quiet` does. Read from argv as well: the banner is
+      // decided from argv before Commander parses (see cli.ts's entry), so the
+      // two have to agree or the banner lands on stdout and poisons the capture.
+      const tokenOnly = (options.token ?? process.argv.includes('--token')) as boolean;
+      const quiet = (options.quiet ?? rootQuiet ?? false) as boolean || tokenOnly;
       const executionId = printCommandHeader('Login', 'Platform Authentication', { quiet });
 
       // SECURITY: the poll returns session tokens — bearer credentials. Never
@@ -111,6 +124,11 @@ export function login(program: Command): void {
           ...(options.org ? { organizationId: options.org } : {}),
         });
 
+        if (tokenOnly) {
+          // The token and NOTHING else — the caller writes the export.
+          console.log(accessToken);
+          return;
+        }
         if (quiet) {
           console.log(`export PLATFORM_TOKEN=${accessToken}`);
           return;
@@ -124,7 +142,7 @@ export function login(program: Command): void {
         });
         console.log('');
         printInfo('Tip: to export it into this shell instead:');
-        console.log(green(`  eval $(pipeline-manager auth login${options.org ? ` --org ${options.org}` : ''} --quiet)`));
+        console.log(green(`  export PLATFORM_TOKEN=$(pipeline-manager auth login${options.org ? ` --org ${options.org}` : ''} --token)`));
         console.log('');
         printInfo('Sign this device out again from Settings → Sessions and devices.');
       } catch (error) {

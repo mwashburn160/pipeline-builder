@@ -582,7 +582,10 @@ if (isMainModule) {
   // Parse CLI options from environment or command line
   const options: CliOptions = {
     debug: process.env.DEBUG === 'true',
-    quiet: process.argv.includes('--quiet'),
+    // `--token` prints a bare token for `$(…)` capture, so the banner and the
+    // startup chrome must not reach stdout either. Scanned from argv like
+    // `--quiet` is, because this runs BEFORE Commander parses.
+    quiet: process.argv.includes('--quiet') || process.argv.includes('--token'),
     verbose: process.argv.includes('--verbose'),
     noColor: process.argv.includes('--no-color') || process.env.NO_COLOR === '1',
   };
