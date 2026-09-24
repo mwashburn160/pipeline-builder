@@ -86,6 +86,10 @@ image ships these tools (see
 # Sign in — prints a code, opens your browser to approve it, stores the session
 pipeline-manager auth login --url https://platform.example.com
 
+# Or capture just the token for this shell (CI, or a one-off scripted run).
+# PLATFORM_TOKEN takes precedence over the stored session everywhere in the CLI.
+export PLATFORM_TOKEN=$(pipeline-manager auth login --token)
+
 # Bootstrap a new pipeline project in the current directory
 pipeline-manager infra bootstrap
 
@@ -181,7 +185,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 
 | Command | Purpose |
 | --- | --- |
-| `auth login` | Sign in through your **browser** using the OAuth 2.0 device authorization grant (RFC 8628): the CLI prints a short code, you approve it in the browser (where SSO and step-up already apply), and the session is stored in `~/.pipeline-manager/credentials.json`. `--org <orgId>` switches organization afterwards; `--no-browser` prints the URL instead of opening it. There is **no password flag and no way to pass a refresh token** |
+| `auth login` | Sign in through your **browser** using the OAuth 2.0 device authorization grant (RFC 8628): the CLI prints a short code, you approve it in the browser (where SSO and step-up already apply), and the session is stored in `~/.pipeline-manager/credentials.json`. `--org <orgId>` switches organization afterwards; `--no-browser` prints the URL instead of opening it. `--token` prints the access token and nothing else, for `export PLATFORM_TOKEN=$(pipeline-manager auth login --token)` — everything else, including the approval code, goes to stderr so the capture stays clean. There is **no password flag and no way to pass a refresh token** |
 | `auth pat` | Create a named access key (`pb_pat_…`) for CI. Uses the same browser sign-in, and the approval doubles as the step-up the platform requires to create a key — so no password is typed here either. The key is printed **once** |
 | `infra store-token` | Provision the org's machine identity — a **service account** plus one `pb_sa_…` key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the plugin-lookup Lambda, the events Lambda and `--store-tokens`). Add `--schedule` to also deploy a daily **key-rotation** stack (rotate → store → revoke) so the key never lapses. Re-run per scope (`--scope reporting:ingest`, `--scope registry:push`) — each is its own least-privilege account. Needs `PLATFORM_PASSWORD`: both writes are step-up gated |
 | `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service. Add **`--with-dora`** to also resolve source commit timestamps in-account for **measured** commit→deploy lead time — off by default (**why:** it adds an SCM call + a `github-token`-secret read per deploy event, so only worthwhile for orgs on the `advanced_reporting` add-on; the other DORA metrics work without it and lead time simply reports `unknown`). Re-run to toggle. |

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1f598c1b4ef770ca2fcda03c9646aa34190e74e5602a9a211bfc7a1e476ac377
+// SOURCE-SHA256: 0ebd24d812ea7e785ff51bc6ef141a11fde98fc20998a132bb912e1183304955
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -127,7 +127,7 @@ export const cliReferenceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "pipeline-manager auth login --url https://platform.example.com\n\npipeline-manager infra bootstrap\n\npipeline-manager pipeline synth\n\npipeline-manager pipeline deploy",
+          "content": "pipeline-manager auth login --url https://platform.example.com\n\nexport PLATFORM_TOKEN=$(pipeline-manager auth login --token)\n\npipeline-manager infra bootstrap\n\npipeline-manager pipeline synth\n\npipeline-manager pipeline deploy",
           "language": "bash"
         }
       ]
@@ -303,7 +303,7 @@ export const cliReferenceTopic: HelpTopic = {
           "rows": [
             [
               "auth login",
-              "Sign in through your browser using the OAuth 2.0 device authorization grant (RFC 8628): the CLI prints a short code, you approve it in the browser (where SSO and step-up already apply), and the session is stored in ~/.pipeline-manager/credentials.json. --org <orgId> switches organization afterwards; --no-browser prints the URL instead of opening it. There is no password flag and no way to pass a refresh token"
+              "Sign in through your browser using the OAuth 2.0 device authorization grant (RFC 8628): the CLI prints a short code, you approve it in the browser (where SSO and step-up already apply), and the session is stored in ~/.pipeline-manager/credentials.json. --org <orgId> switches organization afterwards; --no-browser prints the URL instead of opening it. --token prints the access token and nothing else, for export PLATFORM_TOKEN=$(pipeline-manager auth login --token) — everything else, including the approval code, goes to stderr so the capture stays clean. There is no password flag and no way to pass a refresh token"
             ],
             [
               "auth pat",
