@@ -24,6 +24,13 @@ storage:
     forcepathstyle: true
     secure: false
     rootdirectory: /
+  # Stream blobs THROUGH the registry rather than 302-redirecting to the S3
+  # (MinIO) endpoint — matching ec2/eks. A container runtime follows that
+  # redirect fine, which is why it looked unnecessary locally, but the Registry
+  # browser is not a pull: image-registry fetches the CONFIG blob itself to
+  # render a tag, and the redirected read resets ("Config blob unavailable").
+  redirect:
+    disable: true
 http:
   addr: 0.0.0.0:5000
   debug:

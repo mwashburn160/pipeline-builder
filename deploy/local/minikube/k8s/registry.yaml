@@ -199,6 +199,17 @@ data:
         forcepathstyle: true
         secure: false
         rootdirectory: /
+      # Stream blobs THROUGH the registry instead of redirecting clients to the
+      # S3 (MinIO) endpoint — the same setting ec2/eks carry, for a reason that
+      # applies here too. The S3 driver's default 302-redirects blob and CONFIG
+      # GETs to `regionendpoint`; a container runtime pulling in-cluster follows
+      # that fine, which is why this was thought unnecessary locally. But the
+      # Registry browser is not a pull: image-registry fetches the config blob
+      # itself to render a tag, follows the 302, and the read resets — the page
+      # shows "Config blob unavailable: Internal server error. Showing raw JSON."
+      # while the manifest (not blob-stored) renders normally.
+      redirect:
+        disable: true
     http:
       addr: 0.0.0.0:5000
       debug:
