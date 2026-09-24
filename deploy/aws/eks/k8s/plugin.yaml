@@ -379,11 +379,21 @@ spec:
         - name: scratch-tmp
           emptyDir:
             sizeLimit: 1Gi
-        # grype vulnerability DB: re-downloaded after a pod restart (hundreds of
-        # MB, refreshed hourly at most and forced before each nightly rescan).
+        # grype vulnerability DB: re-downloaded after a pod restart, refreshed
+        # hourly at most and forced before each nightly rescan.
+        #
+        # 5Gi, not 2Gi. The DB is no longer "hundreds of MB" — it measured 2.1G
+        # on a pod minutes old — and grype needs roughly DOUBLE it transiently,
+        # since it downloads an archive and extracts alongside it. At 2Gi the
+        # kubelet EVICTED the pod ("Usage of EmptyDir volume grype-db exceeds
+        # the limit"), which killed the build worker mid-job; BullMQ then
+        # reported the abandoned builds as "job stalled more than allowable
+        # limit", so the visible symptom named the queue rather than the disk.
+        # Each new pod re-downloaded and was evicted again — twelve pods in
+        # under two hours.
         - name: grype-db
           emptyDir:
-            sizeLimit: 2Gi
+            sizeLimit: 5Gi
         - name: buildkitd-config
           configMap:
             name: buildkitd-config
