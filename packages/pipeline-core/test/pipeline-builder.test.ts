@@ -139,6 +139,41 @@ describe('PipelineBuilder', () => {
       expect(tags.some((t: { Key: string }) => t.Key === 'PIPELINE_EVENT_ID')).toBe(false);
     });
 
+    it('grants the synth role read on the org PLATFORM secret it is told to fetch', () => {
+      // PLATFORM_SECRET_NAME is injected into the build environment, but the
+      // synth process fetches that secret ITSELF with the AWS SDK — so the role
+      // needs an explicit grant. Nothing granted it: the REGISTRY secret works
+      // only because LinuxBuildImage.fromDockerRegistry({ secretsManagerCredentials })
+      // makes CDK grant that one internally, which does not generalise. Every
+      // synth then failed AccessDenied on GetSecretValue and the role had to be
+      // patched by hand per account.
+      const { template } = build(baseProps({ orgId: 'org-42', pipelineId: 'pl-99' }));
+
+      template.hasResourceProperties('AWS::IAM::Policy', {
+        PolicyDocument: Match.objectLike({
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Effect: 'Allow',
+              Action: 'secretsmanager:GetSecretValue',
+              // The `-*` suffix matters: Secrets Manager appends six random
+              // characters to every ARN, so an exact-name resource never matches.
+              Resource: Match.stringLikeRegexp('secret:pipeline-builder/org-42/platform-\\*$'),
+            }),
+          ]),
+        }),
+      });
+    });
+
+    it('grants no platform-secret read when there is no org to scope it to', () => {
+      // Without an orgId there is no per-org secret path, so a grant would have
+      // to be wildcarded across every org's secret — refuse rather than widen.
+      const { template } = build(baseProps());
+      const policies = Object.values(template.findResources('AWS::IAM::Policy')) as any[];
+      const statements = policies.flatMap((p) => p.Properties.PolicyDocument.Statement as any[]);
+      expect(statements.some((st) => String(st.Action).includes('secretsmanager:GetSecretValue')
+        && String(JSON.stringify(st.Resource)).includes('/platform-'))).toBe(false);
+    });
+
     it('does not emit an OrgId tag when orgId is omitted', () => {
       const { template } = build(baseProps());
       const pipelines = template.findResources('AWS::CodePipeline::Pipeline');

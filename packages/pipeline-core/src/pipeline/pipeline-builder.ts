@@ -7,6 +7,7 @@ import { Duration, RemovalPolicy, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { PipelineNotificationEvents, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import * as events from 'aws-cdk-lib/aws-events';
+import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -482,6 +483,28 @@ export class PipelineBuilder extends Construct {
 
       // Build the internal pipeline before accessing its properties
       this.pipeline.buildPipeline();
+
+      // PLATFORM_SECRET_NAME is injected into the CodeBuild environment above,
+      // but the synth process reads that secret itself with the AWS SDK
+      // (handlers/platform-credential.ts GetSecretValue) — so the role needs an
+      // explicit grant. Nothing was granting it: the REGISTRY secret works only
+      // because `LinuxBuildImage.fromDockerRegistry({ secretsManagerCredentials })`
+      // makes CDK grant that one internally, which does not generalise to a
+      // secret the build reads for itself. Without this every synth fails with
+      // AccessDeniedException on GetSecretValue, and the pipeline role has to be
+      // patched by hand in each account.
+      //
+      // Scoped to this org's platform secret and mirroring the plugin-lookup
+      // Lambda's grant (pipeline/plugin-lookup.ts), including the `-*` suffix —
+      // Secrets Manager appends six random characters to every ARN.
+      if (platformSecretName) {
+        this.pipeline.synthProject.addToRolePolicy(new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ['secretsmanager:GetSecretValue'],
+          resources: [`arn:aws:secretsmanager:*:*:secret:${platformSecretName}-*`],
+        }));
+      }
+
       const cdkPipeline = this.pipeline.pipeline;
       this.stepManifest = stepManifest.entries(cdkPipeline);
       const meta = this.config.metadata.merged;
