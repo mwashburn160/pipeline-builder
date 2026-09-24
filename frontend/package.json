@@ -83,7 +83,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.1.29",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
@@ -162,15 +162,23 @@
       "!src/components/users/types.ts",
       "!src/lib/feature-flags.ts",
       "!src/lib/help/types.ts",
+      "!src/types/api.ts",
       "!src/types/audit.ts",
+      "!src/types/billing.ts",
       "!src/types/compliance-notifications.ts",
       "!src/types/compliance.ts",
       "!src/types/ecosystem.ts",
+      "!src/types/identity.ts",
+      "!src/types/index.ts",
+      "!src/types/message.ts",
       "!src/types/observability.ts",
       "!src/types/plugin-installs.ts",
       "!src/types/plugin-reviews.ts",
       "!src/types/plugin-security-notifications.ts",
-      "!src/types/plugin-submissions.ts"
+      "!src/types/plugin-submissions.ts",
+      "!src/types/plugin.ts",
+      "!src/types/registry.ts",
+      "!src/types/sso.ts"
     ],
     "coverageThreshold": {
       "global": {

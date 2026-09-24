@@ -84,6 +84,11 @@
       "type": "runtime"
     },
     {
+      "name": "@aws-sdk/client-s3",
+      "version": "3.1136.0",
+      "type": "runtime"
+    },
+    {
       "name": "@aws-sdk/client-sts",
       "version": "3.1136.0",
       "type": "runtime"
