@@ -3,8 +3,8 @@
 # Supports App Engine, Cloud Run, GKE, and Compute Engine deployments
 # Includes gcloud SDK, kubectl, and Terraform for infrastructure management
 
-ARG KUBECTL_VERSION=1.37.0
-ARG TERRAFORM_VERSION=1.16.3
+ARG KUBECTL_VERSION=1.37.1
+ARG TERRAFORM_VERSION=1.16.4
 
 FROM pipeline-plugin-base:24.04
 
@@ -27,8 +27,8 @@ RUN fetch-apt-key https://packages.cloud.google.com/apt/doc/apt-key.gpg /usr/sha
 # ─── kubectl ───
 # Pinned version + pinned digest (dl.k8s.io's published kubectl.sha256 for
 # this release), matching kubectl-deploy/helm-deploy.
-ARG KUBECTL_SHA256_AMD64=6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
-ARG KUBECTL_SHA256_ARM64=922df28df248cc00a9e025f947704f1d1482de64ece54cfe57e61f19eaf1eef3
+ARG KUBECTL_SHA256_AMD64=65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+ARG KUBECTL_SHA256_ARM64=ff749f4b78d9c4f1ec87307df9b50119ed819e2094aa9810cb9acffc3286c8c7
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${KUBECTL_SHA256_AMD64}" ;; \
@@ -41,8 +41,8 @@ RUN set -eux; \
 # ─── Terraform ───
 # Pinned version + pinned digest (HashiCorp's published SHA256SUMS for this
 # release). Bumping = change TERRAFORM_VERSION and both digests together.
-ARG TERRAFORM_SHA256_AMD64=093b6ae9a2228af5029c41606bc96eb583553528aad1bfe7e0b4d62fc91e25d8
-ARG TERRAFORM_SHA256_ARM64=b6b293550af7a6a7ffd867a04900ce161db86ec9407b234a636c2adbae2ca9f0
+ARG TERRAFORM_SHA256_AMD64=dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
+ARG TERRAFORM_SHA256_ARM64=8263f301cb1a24489a4adeed147bf28504053f77237b3ea97a0ef2972659de30
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${TERRAFORM_SHA256_AMD64}" ;; \

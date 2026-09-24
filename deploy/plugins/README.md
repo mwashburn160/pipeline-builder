@@ -357,24 +357,34 @@ needs a focused session to do safely.
   contracts.
 - **ARM (aarch64) gaps** — every download now carries per-arch digests, but three
   vendors publish no linux-arm64 build at the pinned version, so those plugins
-  fail loudly on arm64: `deploy/flyway` (10.22.0), `security/fortify` (fcli
-  2.12.0) and `security/veracode` (CLI is x86_64-only). Bump to a release that
-  ships arm64 when one exists.
+  fail loudly on arm64: `deploy/flyway` (13.7.0), `security/fortify` (fcli
+  3.26.1 publishes only `fcli-linux.tgz`) and `security/veracode` (CLI is
+  x86_64-only). Bump to a release that ships arm64 when one exists.
 ### Tool-version freshness
 
-All plugin tool pins were refreshed to current upstream on 2026-09-21 (Go base →
-1.27.1, kubectl 1.37, Helm 4.3, Terraform 1.16, AWS CDK 2.1142, Checkstyle 14,
-dependency-check 13, golangci-lint v2, …). Every `fetch-verified` digest was
+Every pin in this tree was re-verified against current upstream on 2026-09-23
+and bumped where it had fallen behind. Every `fetch-verified` digest was
 re-derived by download and cross-checked against the vendor's published
 checksum (or GitHub's asset digest where the vendor publishes none).
+
+Runtime bases that crossed a major line in that pass:
+- **Ruby 3.4 → 4.0.7** (`_ruby-base`) — which also takes Bundler 2.7.2 → 4.0.21
+  in `language/ruby` (Bundler 4 is the line that ships with Ruby 4).
+- **PHP 8.4 → 8.5** (`_php-base`) — sury publishes the full extension set we
+  install for noble.
+- **Corretto 21 → 25** (`_jvm-base`) — aligns the shared base with
+  `language/java` (Temurin 25) and `language/java-oracle` (GraalVM 25).
+  The `sonarcloud-*` plugins that `COPY` a JRE out of the upstream
+  sonar-scanner-cli image still take ITS Corretto 21 — that path is pinned by
+  the scanner image, not by this base.
 
 Held back deliberately (latest line NOT taken):
 - **Serverless Framework 3.x** — v4 requires a Serverless account login and a
   paid license above a revenue threshold; a product change, not an upgrade.
 - **TypeScript 6.x** — TS 7 (native compiler) drops the JS compiler API that
   `ts-node` needs (cdk-deploy*, cdk-synth) and removes options TS 6 deprecated.
-- **Bundler 2.x** — matches the Ruby 3.4 base (Bundler 4 ships with Ruby 4).
-- **KICS 2.1.x** — 2.2.0 has a GitHub release but no published Docker image.
+- **KICS 2.1.x** — 2.2.0 has a GitHub release but still no published Docker
+  image (re-checked 2026-09-23).
 
 `_PREV` pins (multi-version plugins) track the newest release of the previous
 minor line, or of the previous major when the default crossed a major.

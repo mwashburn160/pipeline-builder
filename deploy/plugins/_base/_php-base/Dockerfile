@@ -11,9 +11,9 @@ USER root
 
 RUN apt-retry-install software-properties-common
 
-# Single PHP from packages.sury.org (Ondřej Surý's repo — has 8.4 for noble).
+# Single PHP from packages.sury.org (Ondřej Surý's repo — has 8.5 for noble).
 # The repo signing key is pinned by fingerprint (fetch-apt-key).
-ARG PHP_VERSION=8.4
+ARG PHP_VERSION=8.5
 RUN set -eux; \
     fetch-apt-key https://packages.sury.org/php/apt.gpg /etc/apt/keyrings/sury-php.gpg \
       15058500A0235D97F5D10063B188E2B695BD4743; \

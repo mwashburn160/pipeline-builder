@@ -33,9 +33,9 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin"
 # Pinned release tarball + pinned digest (Pulumi's published
 # pulumi-${PULUMI_VERSION}-checksums.txt) instead of `get.pulumi.com | bash`
 # (which always installed latest).
-ARG PULUMI_VERSION=3.263.0
-ARG PULUMI_SHA256_AMD64=f6f5ac7e9422c8495a55185d913dc222605d2dd870394ca1a975e6cf16b3df90
-ARG PULUMI_SHA256_ARM64=586935d9895b0d766cb65ebf1190c36498875bf245e88b72d7a151f27186e1c5
+ARG PULUMI_VERSION=3.264.0
+ARG PULUMI_SHA256_AMD64=0217cd1624a07e4078830b4596901553373822b603e9189db76b542f7d2d4841
+ARG PULUMI_SHA256_ARM64=e51304b770be7e04bbb0c5c4f90a1a0f54f855ce4a85b0664756484133500e88
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=x64;   sum="${PULUMI_SHA256_AMD64}" ;; \

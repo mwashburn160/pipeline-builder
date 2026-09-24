@@ -34,10 +34,10 @@ RUN apt-retry-install build-essential libssl-dev zlib1g-dev libbz2-dev \
 # SHA256SUMS. PYTHON_HOME is owned by the plugin user so `pip install` into
 # site-packages works non-root.
 ARG PYTHON_VERSION=3.12
-ARG PYTHON_BUILD=3.12.13
-ARG PBS_RELEASE=20260510
-ARG PBS_SHA256_AMD64=e7332b4b4bb85006deb48d251c786a04c14de104c9b3a006b33457a4a604b8bc
-ARG PBS_SHA256_ARM64=87097de12bc212e41ea8409efd0083fe06465d725e35d130e4007a4bf7e4f1c8
+ARG PYTHON_BUILD=3.12.14
+ARG PBS_RELEASE=20260901
+ARG PBS_SHA256_AMD64=936c246dfdbbfa7cb22dd01814a21f582a892689fae96b06071a5e433baffa22
+ARG PBS_SHA256_ARM64=b61b856c3e1a4fc65b8f6e6b0495ef975dd0924f90c59f3ea61b38a079173b84
 ARG PBS_BASE=https://github.com/astral-sh/python-build-standalone/releases/download
 ENV PYTHON_HOME=/opt/python
 RUN set -eux; \

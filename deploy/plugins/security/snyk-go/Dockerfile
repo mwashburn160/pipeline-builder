@@ -17,9 +17,9 @@ USER root
 
 # TODO(confirm): confirm the intended pinned Snyk CLI version at build time.
 # Digests are Snyk's published <binary>.sha256 files for this version.
-ARG SNYK_VERSION=1.1307.3
-ARG SNYK_SHA256_AMD64=36fd42eab22ca275bddd2a67c83b51efc358dc2c29dcf53f7a98d3797c93c621
-ARG SNYK_SHA256_ARM64=4f91cfc09204403f2cfa05e9ee5dfa044c24ce78b75220437f86243a32e5317e
+ARG SNYK_VERSION=1.1307.4
+ARG SNYK_SHA256_AMD64=b0baee4fa4d7d11b7df927a1046cf8137a8a89fafac8101a45c3c0e0777ddc35
+ARG SNYK_SHA256_ARM64=694c014c1d0db25b481092fd7df6edf6e01449d5ab7b043843a6fb41c141ba08
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) snyk_bin=snyk-linux;       sum="${SNYK_SHA256_AMD64}" ;; \

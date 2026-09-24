@@ -15,7 +15,7 @@ Python plugin for building and testing Python applications using pip, Poetry, or
 
 ## Requirements
 
-- Python 3.14
+- Python 3.12.14
 
 ## Configuration
 

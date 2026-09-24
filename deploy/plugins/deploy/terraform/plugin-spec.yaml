@@ -92,7 +92,7 @@ commands:
     esac
   - "echo \"Terraform ${TF_ACTION} complete. Output available in tf-output/\""
 env:
-  TF_VERSION: "1.16.3"
+  TF_VERSION: "1.16.4"
   TF_WORKING_DIR: "."
   TF_ACTION: plan
   TF_VAR_FILE: ""

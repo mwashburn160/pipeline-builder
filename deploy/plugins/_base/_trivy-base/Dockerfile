@@ -8,8 +8,8 @@
 # `FROM pipeline-trivy-base:1.0` + WORKDIR/CMD.
 # Bundles two pinned trivy versions for runtime selection.
 
-ARG TRIVY_VERSION=0.69.3
-ARG TRIVY_PREV_VERSION=0.68.2
+ARG TRIVY_VERSION=0.74.0
+ARG TRIVY_PREV_VERSION=0.73.0
 
 FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-default
 FROM aquasec/trivy:${TRIVY_PREV_VERSION} AS trivy-prev

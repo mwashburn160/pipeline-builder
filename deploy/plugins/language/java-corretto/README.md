@@ -15,7 +15,7 @@ Java and Kotlin plugin using Amazon Corretto JDK for building and testing JVM ap
 
 ## Requirements
 
-- Amazon Corretto JDK 21
+- Amazon Corretto JDK 25
 
 ## Configuration
 

@@ -40,8 +40,8 @@ RUN set -eux; \
     rm -f /tmp/jdk.tar.gz
 
 # ─── Maven / Gradle / Kotlin ───
-# Same pinned versions + digests as pipeline-jvm-base (Maven 3.9.9, Gradle
-# 9.6.0, Kotlin 2.2.21) — copied, not re-downloaded.
+# Same pinned versions + digests as pipeline-jvm-base (Maven 3.9.16, Gradle
+# 9.7.1, Kotlin 2.4.20) — copied, not re-downloaded.
 COPY --from=pipeline-jvm-base:1.0 /opt/maven /opt/maven
 COPY --from=pipeline-jvm-base:1.0 /opt/gradle /opt/gradle
 COPY --from=pipeline-jvm-base:1.0 /opt/kotlin /opt/kotlin

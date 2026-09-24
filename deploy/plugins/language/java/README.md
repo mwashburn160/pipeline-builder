@@ -15,7 +15,7 @@ Java and Kotlin plugin for building and testing JVM applications using Maven or 
 
 ## Requirements
 
-- Java 21.0.10-tem
+- Eclipse Temurin JDK 25.0.4.1
 
 ## Configuration
 

@@ -15,7 +15,7 @@ Java and Kotlin plugin using Oracle GraalVM JDK for building and testing JVM app
 
 ## Requirements
 
-- Java 21.0.10-graal
+- Oracle GraalVM JDK 25.0.4
 
 ## Configuration
 

@@ -15,7 +15,7 @@ Ruby plugin for building and testing Ruby applications using Bundler with AWS CD
 
 ## Requirements
 
-- Ruby 4.0.1
+- Ruby 4.0.7
 
 ## Output
 

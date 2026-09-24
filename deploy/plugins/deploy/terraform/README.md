@@ -16,13 +16,13 @@ Terraform infrastructure provisioning plugin with multi-version support, linting
 ## Requirements
 
 - AWS CLI configured with appropriate permissions
-- Terraform 1.16.3
+- Terraform 1.16.4
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TF_VERSION` | `1.16.3` | Terraform version to install |
+| `TF_VERSION` | `1.16.4` | Terraform version to install |
 | `TF_WORKING_DIR` | `.` | Directory containing Terraform files |
 | `TF_ACTION` | `plan` | Terraform action: plan, apply, or destroy |
 | `TF_VAR_FILE` | _none_ | Path to Terraform variables file |
@@ -42,7 +42,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "name": "terraform",
   "plugin": "terraform",
   "env": {
-    "TF_VERSION": "1.16.3",
+    "TF_VERSION": "1.16.4",
     "TF_WORKING_DIR": ".",
     "TF_ACTION": "plan",
     "TF_VAR_FILE": "<your-tf_var_file>",

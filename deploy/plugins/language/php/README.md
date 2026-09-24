@@ -15,7 +15,7 @@ PHP plugin for building and testing PHP applications using Composer with AWS CDK
 
 ## Requirements
 
-- PHP 8.4
+- PHP 8.5
 
 ## Configuration
 

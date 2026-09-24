@@ -28,7 +28,7 @@ None.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TRIVY_VERSION` | `0.69.3` | Trivy build to use. Only pinned, checksum-verified builds are in the image; any other value fails with the list of available ones. |
+| `TRIVY_VERSION` | `0.74.0` | Trivy build to use. Only pinned, checksum-verified builds are in the image; any other value fails with the list of available ones. |
 | `TRIVY_SEVERITY` | `HIGH,CRITICAL` | Severities that are reported and fail the scan. |
 | `TRIVY_FORMAT` | `json` | Report format (`json`, `table`, `sarif`, …). |
 

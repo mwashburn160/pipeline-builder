@@ -47,7 +47,7 @@ RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings
 # AWS CLI v2 — inherited from pipeline-aws-cli-base.
 
 # AWS CDK + TS toolchain. Versions pinned for reproducibility.
-RUN npm install -g aws-cdk@2.1142.0 typescript@6.0.3 ts-node@10.9.2
+RUN npm install -g aws-cdk@2.1143.0 typescript@6.0.3 ts-node@10.9.2
 
 # Runtime `npm install -g` (the spec installs yarn/pnpm for projects that use
 # them) goes to a prefix the plugin user owns: the Node install under

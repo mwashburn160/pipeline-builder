@@ -6,7 +6,7 @@
 # ─── Tool versions (override with --build-arg) ───
 ARG GITLEAKS_VERSION=8.30.1
 ARG GITLEAKS_PREV_VERSION=8.29.1
-ARG TRUFFLEHOG_VERSION=3.97.5
+ARG TRUFFLEHOG_VERSION=3.97.8
 
 FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-default
 FROM zricethezav/gitleaks:v${GITLEAKS_PREV_VERSION} AS gitleaks-prev

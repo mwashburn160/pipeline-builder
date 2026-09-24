@@ -17,8 +17,8 @@ RUN apt-retry-install build-essential cmake clang ninja-build pkg-config \
 
 # Conan (deps) + Meson (build), pinned. --break-system-packages: Ubuntu 24.04's
 # python3 is PEP-668 externally-managed; these are the image's own tools.
-ARG CONAN_VERSION=2.9.2
-ARG MESON_VERSION=1.6.1
+ARG CONAN_VERSION=2.32.0
+ARG MESON_VERSION=1.12.1
 RUN pip3 install --no-cache-dir --break-system-packages \
     "conan==${CONAN_VERSION}" "meson==${MESON_VERSION}"
 

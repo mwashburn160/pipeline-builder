@@ -17,7 +17,7 @@
 # image keeps ruby/gem/bundle/openssl working exactly as built; we pull only the
 # shared plugin helpers (run-logged, apt-retry-install) over from the plugin base.
 
-ARG RUBY_VERSION=3.4.10
+ARG RUBY_VERSION=4.0.7
 FROM ruby:${RUBY_VERSION}
 
 # Shared plugin helpers (portable POSIX-sh scripts) so Ruby plugins get the same

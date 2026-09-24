@@ -31,7 +31,7 @@ commands:
   - trivy config --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-config-results.json .
   - "echo \"Trivy scan complete. Reports available in trivy-reports/\""
 env:
-  TRIVY_VERSION: "0.69.3"
+  TRIVY_VERSION: "0.74.0"
   TRIVY_SEVERITY: HIGH,CRITICAL
   TRIVY_FORMAT: json
 

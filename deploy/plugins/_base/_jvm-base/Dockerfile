@@ -16,7 +16,7 @@ RUN apt-retry-install build-essential
 
 # Single Amazon Corretto JDK from the vendor apt repo. The repo signing key is
 # pinned by fingerprint (fetch-apt-key); apt then verifies every package.
-ARG JAVA_VERSION=21
+ARG JAVA_VERSION=25
 RUN fetch-apt-key https://apt.corretto.aws/corretto.key /usr/share/keyrings/corretto-keyring.gpg \
        6DC3636DAE534049C8B94623A122542AB04F24E3 \
     && echo "deb [signed-by=/usr/share/keyrings/corretto-keyring.gpg] https://apt.corretto.aws stable main" \
@@ -31,12 +31,12 @@ ENV JAVA_VERSION=${JAVA_VERSION}
 # (Maven .sha512, Gradle .sha256, Kotlin .sha256). No SDKMAN: its installer is
 # an unpinned `curl | bash`. All three are JVM jars, so one download serves
 # every architecture.
-ARG MAVEN_VERSION=3.9.9
-ARG MAVEN_SHA512=a555254d6b53d267965a3404ecb14e53c3827c09c3b94b5678835887ab404556bfaf78dcfe03ba76fa2508649dca8531c74bca4d5846513522404d48e8c4ac8b
-ARG GRADLE_VERSION=9.6.0
-ARG GRADLE_SHA256=bbaeb2fef8710818cf0e261201dab964c572f92b942812df0c3620d62a529a01
-ARG KOTLIN_VERSION=2.2.21
-ARG KOTLIN_SHA256=a623871f1cd9c938946948b70ef9170879f0758043885bbd30c32f024e511714
+ARG MAVEN_VERSION=3.9.16
+ARG MAVEN_SHA512=831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6
+ARG GRADLE_VERSION=9.7.1
+ARG GRADLE_SHA256=acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a
+ARG KOTLIN_VERSION=2.4.20
+ARG KOTLIN_SHA256=59e9ca74c7904ef2c122b12114937673ccce68de820a663f0ed66ccf8799e0b7
 RUN set -eux; \
     fetch-verified "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" "${MAVEN_SHA512}" /tmp/maven.tar.gz; \
     mkdir -p /opt/maven && tar -xzf /tmp/maven.tar.gz -C /opt/maven --strip-components=1; \

@@ -19,9 +19,9 @@ RUN apt-retry-install build-essential
 # NODE_HOME is owned by the plugin user so `npm install -g` (e.g. a pipeline
 # installing pnpm/yarn) works non-root.
 ARG NODE_VERSION=24
-ARG NODE_BUILD=24.10.0
-ARG NODE_SHA256_AMD64=2642f4428869aca32443660fd71b3918e2be1277a899bdcaeb64c93b54b5af17
-ARG NODE_SHA256_ARM64=07f0558316ebb8977dd6fb29b4de8d369a639d3d8cef544293852a6f5eea6af8
+ARG NODE_BUILD=24.21.0
+ARG NODE_SHA256_AMD64=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
+ARG NODE_SHA256_ARM64=6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2
 ENV NODE_HOME=/opt/node
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
