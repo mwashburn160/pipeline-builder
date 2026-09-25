@@ -289,7 +289,7 @@ _pb_send_slack_test() {
 
 pb_gen_env_secrets() {
   local env_file="$1" ghcr_user="${2:-mwashburn160}"
-  local pg pgapp pgreader mongo me pgadmin registry seckey minioroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
+  local pg pgapp pgreader mongo me pgadmin registry seckey rustfsroot s3msg s3reg s3loki s3thanos s3plugin grafana kiali alerttoken
   local powsecret emailhash auditkey reghttp auditheads
   # No token secret is generated here any more: every token is asymmetrically
   # signed and its private key is a FILE, never an env value — the user-token key
@@ -315,11 +315,12 @@ pb_gen_env_secrets() {
   me=$(openssl rand -base64 16 | tr -d '=+/')
   pgadmin=$(openssl rand -base64 16 | tr -d '=+/')
   registry=$(openssl rand -base64 24 | tr -d '=+/')
-  # MinIO: the server root password plus one distinct secret per bucket-scoped
-  # service key. These back the `minio-secret` Secret that bin/k8s-resources.sh
-  # builds from .env — never a literal in k8s/minio.yaml, which would make these
-  # values inert and ship the same credentials to every install.
-  minioroot=$(openssl rand -base64 24 | tr -d '=+/')
+  # RustFS: the server root password plus one distinct secret per
+  # bucket-scoped service key. These back the `rustfs-secret` Secret that
+  # bin/k8s-resources.sh builds from .env — never a literal in
+  # k8s/rustfs.yaml, which would make these values inert and ship the same
+  # credentials to every install.
+  rustfsroot=$(openssl rand -base64 24 | tr -d '=+/')
   s3msg=$(openssl rand -base64 24 | tr -d '=+/')
   s3reg=$(openssl rand -base64 24 | tr -d '=+/')
   s3loki=$(openssl rand -base64 24 | tr -d '=+/')
@@ -339,7 +340,7 @@ pb_gen_env_secrets() {
   auditkey=$(openssl rand -base64 48 | tr -d '=+/')
   # Registry upload-session signing secret, shared by every registry replica.
   reghttp=$(openssl rand -base64 32 | tr -d '=+/')
-  # The audit-heads MinIO user (bucket-scoped Put/Get on the Object-Lock bucket).
+  # The audit-heads RustFS user (bucket-scoped Put/Get on the Object-Lock bucket).
   auditheads=$(openssl rand -base64 24 | tr -d '=+/')
   powsecret=$(openssl rand -base64 32 | tr -d '=+/')
   emailhash=$(openssl rand -base64 32 | tr -d '=+/')
@@ -354,7 +355,7 @@ pb_gen_env_secrets() {
     -e "s|ME_CONFIG_BASICAUTH_PASSWORD=CHANGE_ME|ME_CONFIG_BASICAUTH_PASSWORD=${me}|" \
     -e "s|PGADMIN_DEFAULT_PASSWORD=CHANGE_ME|PGADMIN_DEFAULT_PASSWORD=${pgadmin}|" \
     -e "s|IMAGE_REGISTRY_TOKEN=CHANGE_ME|IMAGE_REGISTRY_TOKEN=${registry}|" \
-    -e "s|MINIO_ROOT_PASSWORD=CHANGE_ME|MINIO_ROOT_PASSWORD=${minioroot}|" \
+    -e "s|RUSTFS_ROOT_SECRET_KEY=CHANGE_ME|RUSTFS_ROOT_SECRET_KEY=${rustfsroot}|" \
     -e "s|MESSAGE_S3_SECRET_KEY=CHANGE_ME|MESSAGE_S3_SECRET_KEY=${s3msg}|" \
     -e "s|REGISTRY_S3_SECRET_KEY=CHANGE_ME|REGISTRY_S3_SECRET_KEY=${s3reg}|" \
     -e "s|LOKI_S3_SECRET_KEY=CHANGE_ME|LOKI_S3_SECRET_KEY=${s3loki}|" \
@@ -376,7 +377,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|MINIO_ROOT_PASSWORD|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|AUDIT_CHAIN_HMAC_KEY|AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY|REGISTRY_HTTP_SECRET|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|RUSTFS_ROOT_SECRET_KEY|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|AUDIT_CHAIN_HMAC_KEY|AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY|REGISTRY_HTTP_SECRET|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

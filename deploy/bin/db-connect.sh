@@ -8,11 +8,11 @@
 #
 # Tunables (env): PB_NAMESPACE (default pipeline-builder), PB_KUBE_CONTEXT
 # (default: current context), PG_LOCAL_PORT (15432), MONGO_LOCAL_PORT (27018),
-# MINIO_LOCAL_PORT (19000).
+# OBJECTSTORE_LOCAL_PORT (19000).
 #
-# After pb_pf_up_db / pb_pf_up_minio the connection env points at the tunnels:
-# POSTGRES_HOST=127.0.0.1 + PGPORT, MONGODB_URI rewritten, MINIO_ENDPOINT
-# rewritten. The caller's EXIT trap must call pb_pf_down.
+# After pb_pf_up_db / pb_pf_up_objectstore the connection env points at the
+# tunnels: POSTGRES_HOST=127.0.0.1 + PGPORT, MONGODB_URI rewritten,
+# S3_ENDPOINT rewritten. The caller's EXIT trap must call pb_pf_down.
 
 PB_PF_PIDS=()
 
@@ -76,14 +76,29 @@ pb_pf_up_db() {
   MONGODB_URI="$(pb_rewrite_mongo_uri "${MONGODB_URI:-}" "127.0.0.1:${_mongo}")"
 }
 
-# Forward minio and repoint MINIO_ENDPOINT at the tunnel.
-pb_pf_up_minio() {
-  local _minio="${MINIO_LOCAL_PORT:-19000}"
+# _pb_objectstore_svc <endpoint> — pull the k8s Service name out of an
+# in-cluster S3_ENDPOINT like http://rustfs:9000. Every k8s target's
+# S3_ENDPOINT already names the right Service, so deriving it here means this
+# shared file never needs it hardcoded separately.
+_pb_objectstore_svc() {
+  local _ep="$1" _rest
+  case "$_ep" in
+    http://*) _rest="${_ep#http://}" ;;
+    https://*) _rest="${_ep#https://}" ;;
+    *) echo "ERROR: S3_ENDPOINT must start with http:// or https:// (got '${_ep}')" >&2; return 1 ;;
+  esac
+  echo "${_rest%%:*}"
+}
+
+# Forward the object store and repoint S3_ENDPOINT at the tunnel.
+pb_pf_up_objectstore() {
+  local _port="${OBJECTSTORE_LOCAL_PORT:-19000}" _svc
   preflight kubectl || return 1
-  echo "=== port-forward → minio 127.0.0.1:${_minio} ==="
-  _pb_pf_start minio "$_minio" 9000
-  _pb_pf_wait "$_minio" minio || return 1
-  export MINIO_ENDPOINT="http://127.0.0.1:${_minio}"
+  _svc="$(_pb_objectstore_svc "${S3_ENDPOINT:-}")" || return 1
+  echo "=== port-forward → ${_svc} 127.0.0.1:${_port} ==="
+  _pb_pf_start "$_svc" "$_port" 9000
+  _pb_pf_wait "$_port" "$_svc" || return 1
+  export S3_ENDPOINT="http://127.0.0.1:${_port}"
 }
 
 pb_pf_down() {

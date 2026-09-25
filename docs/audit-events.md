@@ -64,7 +64,7 @@ Every event is linked into a **per-tenant HMAC hash chain** (chain key =
 - **Published heads (write-once).** Every `AUDIT_HEAD_EXPORT_INTERVAL_MS`
   (default 5 min) one platform replica publishes each advanced chain head —
   `{ chainKey, seq, hash, headCreatedAt, exportedAt }`, signed with the same key —
-  to an S3/MinIO bucket created **with Object Lock**:
+  to an S3-compatible bucket created **with Object Lock**:
   `<prefix>/<chainKey>/<seq>.json` plus `<prefix>/<chainKey>/latest.json`, each
   PUT carrying `x-amz-object-lock-mode` (`AUDIT_HEAD_EXPORT_LOCK_MODE`,
   default `COMPLIANCE`) and a retain-until date `AUDIT_HEAD_EXPORT_RETENTION_DAYS`
@@ -75,8 +75,8 @@ Every event is linked into a **per-tenant HMAC hash chain** (chain key =
 | Env var | Meaning |
 |---|---|
 | `AUDIT_CHAIN_HMAC_KEY` | Chain HMAC key (required in production; never in the DB) |
-| `AUDIT_HEAD_EXPORT_S3_ENDPOINT` | e.g. `http://minio:9000`; export disabled when unset |
-| `AUDIT_HEAD_EXPORT_S3_BUCKET` | default `audit-heads` — create it with Object Lock (`mc mb --with-lock`) |
+| `AUDIT_HEAD_EXPORT_S3_ENDPOINT` | e.g. `http://rustfs:9000`; export disabled when unset |
+| `AUDIT_HEAD_EXPORT_S3_BUCKET` | default `audit-heads` — created with Object Lock by the bootstrap Job, verified live at bootstrap by a WORM smoke test |
 | `AUDIT_HEAD_EXPORT_S3_REGION` | default `us-east-1` |
 | `AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | bucket-scoped credentials (PutObject + GetObject only) |
 | `AUDIT_HEAD_EXPORT_PREFIX` | default `audit-heads` |

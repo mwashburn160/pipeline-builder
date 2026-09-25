@@ -71,9 +71,9 @@ spec:
             - "-config.expand-env=true"
           env:
             - name: LOKI_S3_ACCESS_KEY
-              valueFrom: { secretKeyRef: { name: minio-secret, key: loki-access-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: loki-access-key } }
             - name: LOKI_S3_SECRET_KEY
-              valueFrom: { secretKeyRef: { name: minio-secret, key: loki-secret-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: loki-secret-key } }
           ports:
             - containerPort: 3100
               name: http
@@ -92,12 +92,12 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
-          # Loki's /ready stays red until it can reach its S3 (MinIO) backend,
-          # which the minio-init Job provisions AFTER Loki starts. Gate liveness
-          # behind a generous startup window so a cold MinIO doesn't trigger a
+          # Loki's /ready stays red until it can reach its S3 (RustFS) backend,
+          # which the rustfs-init Job provisions AFTER Loki starts. Gate liveness
+          # behind a generous startup window so a cold RustFS doesn't trigger a
           # liveness-kill loop on a fresh provision (~6 restarts before the
           # bucket/user exists). While startupProbe runs, liveness
-          # and readiness are suspended; up to 10*30 = 300s for MinIO.
+          # and readiness are suspended; up to 10*30 = 300s for RustFS.
           startupProbe:
             httpGet:
               path: /ready

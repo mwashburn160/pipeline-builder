@@ -29,7 +29,7 @@ metadata:
 spec:
   replicas: 1
   revisionHistoryLimit: 3
-  # Stateless — blobs live in MinIO (S3 driver), not a local volume. Recreate is
+  # Stateless — blobs live in RustFS (S3 driver), not a local volume. Recreate is
   # retained conservatively (single replica); RollingUpdate is now safe too.
   strategy:
     type: Recreate
@@ -53,7 +53,7 @@ spec:
           ports:
             - containerPort: 5000
               name: registry
-          # Stateless: blobs live in MinIO (S3 driver, see registry-config).
+          # Stateless: blobs live in RustFS (S3 driver, see registry-config).
           # The only writable path is a small /tmp emptyDir scratch; TLS/JWT
           # come from mounted Secrets — all compatible with a read-only root FS.
           securityContext:
@@ -104,17 +104,17 @@ spec:
             # for external clients.
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
-            # S3 (MinIO) credentials — per-service, bucket-scoped key. Driver +
+            # S3 (RustFS) credentials — per-service, bucket-scoped key. Driver +
             # endpoint + bucket come from the mounted config.yml.
             - name: REGISTRY_STORAGE_S3_ACCESSKEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-secret
+                  name: rustfs-secret
                   key: registry-access-key
             - name: REGISTRY_STORAGE_S3_SECRETKEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-secret
+                  name: rustfs-secret
                   key: registry-secret-key
           resources:
             limits:
@@ -147,7 +147,7 @@ spec:
               mountPath: /etc/registry/jwt-public.pem
               subPath: jwt-public.pem
               readOnly: true
-            # Custom config.yml selects the S3 (MinIO) storage driver.
+            # Custom config.yml selects the S3 (RustFS) storage driver.
             - name: registry-config
               mountPath: /etc/distribution/config.yml
               subPath: config.yml
@@ -172,9 +172,9 @@ spec:
                 path: jwt-public.pem
 ---
 # =============================================================================
-# Registry storage config — S3 driver pointed at MinIO (replaces the image's
+# Registry storage config — S3 driver pointed at RustFS (replaces the image's
 # filesystem default). Auth (token) + delete flag stay ENV-driven; only the S3
-# credentials come from the minio-secret.
+# credentials come from the rustfs-secret.
 # =============================================================================
 apiVersion: v1
 kind: ConfigMap
@@ -194,13 +194,13 @@ data:
         blobdescriptor: inmemory
       s3:
         region: us-east-1
-        regionendpoint: http://minio:9000
+        regionendpoint: http://rustfs:9000
         bucket: registry
         forcepathstyle: true
         secure: false
         rootdirectory: /
       # Stream blobs THROUGH the registry instead of redirecting clients to the
-      # S3 (MinIO) endpoint — the same setting ec2/eks carry, for a reason that
+      # S3 (RustFS) endpoint — the same setting ec2/eks carry, for a reason that
       # applies here too. The S3 driver's default 302-redirects blob and CONFIG
       # GETs to `regionendpoint`; a container runtime pulling in-cluster follows
       # that fine, which is why this was thought unnecessary locally. But the

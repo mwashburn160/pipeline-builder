@@ -164,9 +164,13 @@ ensure_istioctl "$ISTIO_VERSION"
 # -- Data directories ---------------------------------------------------------
 
 # Pre-seed the hostPath dirs the manifests mount (all DirectoryOrCreate, so this
-# is a convenience). alertmanager IS mounted; minio runs a 4-drive erasure-set.
+# is a convenience). alertmanager IS mounted; rustfs is a single directory —
+# MinIO's 4-drive erasure-set (bit-rot detection/healing across 4 paths on the
+# SAME EBS volume) has no drop-in RustFS equivalent at the volume-server
+# level, and durability here was always the EBS volume + DLM snapshots, not the
+# drive count (see template.yaml's DataVolume comment).
 # (No db-data/loki — Loki uses object storage + an in-pod emptyDir WAL.)
-mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager,grafana},minio-data/{1,2,3,4},pgadmin-data,tmp} 2>/dev/null || true
+mkdir -p "$DATA_DIR"/{db-data/{postgres,mongodb,prometheus,alertmanager,grafana},rustfs-data,pgadmin-data,tmp} 2>/dev/null || true
 export DOCKER_BUILD_TEMP_ROOT="${DOCKER_BUILD_TEMP_ROOT:-$DATA_DIR/plugins-data}"
 
 # -- Start Minikube -----------------------------------------------------------
@@ -195,7 +199,7 @@ MK_MEM=$(( MK_MEM_BY_RATIO > MK_MEM_BY_RESERVE ? MK_MEM_BY_RATIO : MK_MEM_BY_RES
 echo "  System: ${TOTAL_CPU} CPUs, ${TOTAL_MEM}M RAM → Minikube: ${MK_CPUS} CPUs, ${MK_MEM}M"
 
 # The host-data MOUNT must be re-established on EVERY start (it's how the node sees
-# the EC2 host's $DATA_DIR, where all DB/minio data lives); the sizing flags are
+# the EC2 host's $DATA_DIR, where all DB/rustfs data lives); the sizing flags are
 # CREATE-ONLY.
 MK_MOUNT_ARGS=(--mount --mount-string="$DATA_DIR:$DATA_DIR")
 # --kubernetes-version is CREATE-ONLY too, and pins the cluster to the same
@@ -409,7 +413,7 @@ bash "$BIN_DIR/verify-image-signatures.sh"
 pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" "$LEAN" ask-model
 
 log "Post-deploy fixups"
-mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/minio-data"
+mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/rustfs-data"
 pb_registry_hosts_fixup "$PROFILE"
 
 # -- Wait for pods ------------------------------------------------------------
@@ -423,7 +427,7 @@ mk kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --time
 #     `ollama list` shows the model, and the first provision pulls ~4.7GB (the
 #     7B) — far longer than any timeout worth blocking a deploy on.
 #   - Succeeded pods: `-l app` is an EXISTENCE selector, so it also matches
-#     one-shot Job pods (minio-init carries `app: minio-init`), whose Ready
+#     one-shot Job pods (rustfs-init carries `app: rustfs-init`), whose Ready
 #     condition stays False/PodCompleted forever.
 # Mirrors the same wait in local/minikube/bin/setup.sh.
 mk kubectl wait --for=condition=Ready pod -l 'app,app!=ask-model' -n "$NAMESPACE" \

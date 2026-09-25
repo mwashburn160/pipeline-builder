@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Pipeline Builder — Postgres + MongoDB (+ MinIO) backup to S3
+# Pipeline Builder — Postgres + MongoDB (+ object storage) backup to S3
 # ============================================================================
 # One implementation for every deploy target; each target's bin/backup.sh is a
 # thin wrapper that picks the connection mode:
@@ -8,13 +8,13 @@
 #   --connect k8s     (minikube / ec2 / eks) the datastores run INSIDE the
 #                     cluster, so their service names aren't resolvable from the
 #                     host. Stands up short-lived `kubectl port-forward`s to
-#                     postgres/mongodb (+minio when enabled), rewrites the
-#                     connection env to the local tunnels, and tears them down on
-#                     exit. The dump is LOGICAL (over the network), so it captures
-#                     the real data wherever it physically lives (e.g. the
-#                     minikube VM disk) — never a copy of an empty host folder.
+#                     postgres/mongodb (+ the object store when enabled), rewrites
+#                     the connection env to the local tunnels, and tears them
+#                     down on exit. The dump is LOGICAL (over the network), so it
+#                     captures the real data wherever it physically lives (e.g.
+#                     the minikube VM disk) — never a copy of an empty host folder.
 #   --connect direct  (docker) connect to POSTGRES_HOST / MONGODB_URI /
-#                     MINIO_ENDPOINT as given.
+#                     S3_ENDPOINT as given.
 #
 # Cron-friendly: writes timestamped dumps to s3://${BACKUP_BUCKET}/<env>/<date>/.
 #
@@ -34,20 +34,21 @@
 #
 # Port-forward tunables (--connect k8s):
 #   PB_NAMESPACE (default pipeline-builder), PB_KUBE_CONTEXT (default current),
-#   PG_LOCAL_PORT (15432), MONGO_LOCAL_PORT (27018), MINIO_LOCAL_PORT (19000).
+#   PG_LOCAL_PORT (15432), MONGO_LOCAL_PORT (27018), OBJECTSTORE_LOCAL_PORT (19000).
 #
-# Optional — MinIO object-storage backup:
-#   Enabled when MINIO_ENDPOINT is set. Mirrors each MinIO bucket to a durable
-#   backup target with `mc mirror` (additive: copies new/changed objects, never
-#   deletes from the backup). Requires the `mc` (MinIO client) binary.
-#   MINIO_ENDPOINT               source MinIO URL (k8s: in-cluster is fine — rewritten)
-#   MINIO_ROOT_USER              source MinIO access key
-#   MINIO_ROOT_PASSWORD          source MinIO secret key
-#   MINIO_BACKUP_TARGET_URL      destination S3/MinIO URL (e.g. https://s3.us-east-1.amazonaws.com)
-#   MINIO_BACKUP_TARGET_ACCESS_KEY / _SECRET_KEY   destination credentials
-#   MINIO_BACKUP_TARGET_BUCKET   destination bucket that receives the mirror (default: ${BACKUP_BUCKET})
-#   MINIO_BUCKETS                space-separated source buckets (default: PB_MINIO_BUCKETS
-#                                in common.sh — every bucket minio-init creates)
+# Optional — object-storage backup:
+#   Enabled when S3_BACKUP_TARGET_URL is set (the SOURCE side, S3_ENDPOINT +
+#   RUSTFS_ROOT_ACCESS_KEY/SECRET_KEY, is already in every target's .env — only
+#   the destination is opt-in). Mirrors each bucket to a durable backup target
+#   with `rclone copy` (additive: copies new/changed objects, never deletes from
+#   the backup — NOT `rclone sync`, which would delete from the backup whatever
+#   a source deletion removed, defeating the point of a backup; verified live).
+#   Requires the `rclone` binary.
+#   S3_BACKUP_TARGET_URL          destination S3-compatible URL (e.g. https://s3.us-east-1.amazonaws.com)
+#   S3_BACKUP_TARGET_ACCESS_KEY / _SECRET_KEY   destination credentials
+#   S3_BACKUP_TARGET_BUCKET       destination bucket that receives the mirror (default: ${BACKUP_BUCKET})
+#   OBJECTSTORE_BUCKETS           space-separated source buckets (default: PB_OBJECTSTORE_BUCKETS
+#                                  in common.sh — every bucket the bootstrap Job creates)
 #
 # Usage:
 #   deploy/<target>/bin/backup.sh               # dump + upload + prune
@@ -87,18 +88,18 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 POSTGRES_DB="${POSTGRES_DB:-pipeline_builder}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
 DRY_RUN="${DRY_RUN:-0}"
-MINIO_BUCKETS="${MINIO_BUCKETS:-$PB_MINIO_BUCKETS}"
-WANT_MINIO=0
-[ -n "${MINIO_ENDPOINT:-}" ] && WANT_MINIO=1
+OBJECTSTORE_BUCKETS="${OBJECTSTORE_BUCKETS:-$PB_OBJECTSTORE_BUCKETS}"
+WANT_OBJECTSTORE=0
+[ -n "${S3_BACKUP_TARGET_URL:-}" ] && WANT_OBJECTSTORE=1
 
-# Validate the MinIO half of the configuration HERE, not at step [4/5]. Checked
-# there, a missing MINIO_BACKUP_TARGET_* or an absent `mc` only surfaced after a
-# full postgres + mongo dump and upload had already run — a slow, expensive way
-# to learn the run was never going to complete.
-if [ "$WANT_MINIO" = "1" ]; then
-  require_env MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
-             MINIO_BACKUP_TARGET_URL MINIO_BACKUP_TARGET_ACCESS_KEY MINIO_BACKUP_TARGET_SECRET_KEY
-  command -v mc >/dev/null 2>&1 || { echo "ERROR: MINIO_ENDPOINT set but 'mc' (MinIO client) not found" >&2; exit 2; }
+# Validate the object-store half of the configuration HERE, not at step [4/5].
+# Checked there, a missing S3_BACKUP_TARGET_* or an absent `rclone` only
+# surfaced after a full postgres + mongo dump and upload had already run — a
+# slow, expensive way to learn the run was never going to complete.
+if [ "$WANT_OBJECTSTORE" = "1" ]; then
+  require_env S3_ENDPOINT RUSTFS_ROOT_ACCESS_KEY RUSTFS_ROOT_SECRET_KEY \
+             S3_BACKUP_TARGET_URL S3_BACKUP_TARGET_ACCESS_KEY S3_BACKUP_TARGET_SECRET_KEY
+  command -v rclone >/dev/null 2>&1 || { echo "ERROR: S3_BACKUP_TARGET_URL set but 'rclone' not found" >&2; exit 2; }
 fi
 
 # One EXIT trap for BOTH the temp workdir and any port-forwards.
@@ -113,7 +114,7 @@ trap cleanup EXIT INT TERM
 # connects then, so no cluster/kubectl is required).
 if [ "$CONNECT" = k8s ] && [ "$DRY_RUN" != "1" ]; then
   pb_pf_up_db
-  [ "$WANT_MINIO" = "1" ] && pb_pf_up_minio
+  [ "$WANT_OBJECTSTORE" = "1" ] && pb_pf_up_objectstore
 fi
 
 TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
@@ -180,32 +181,40 @@ run aws s3 cp "${PG_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
 run aws s3 cp "${MONGO_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
   || { echo "ERROR: s3 cp mongo failed" >&2; exit 2; }
 
-# --- MinIO object storage (optional) ----------------------------------------
-# `mc mirror` is additive (copies new/changed objects; never deletes from the
-# backup), so a delete in the source can't wipe the backup — pair the target
-# with bucket versioning for point-in-time recovery. A FAILURE here fails the
-# run (exit 2): a backup that silently skips object storage is a false green,
-# and so is a missing `mc` once MINIO_ENDPOINT asks for it.
-if [ "$WANT_MINIO" = "1" ]; then
-  echo "[4/5] Mirroring MinIO buckets → ${MINIO_BACKUP_TARGET_URL:-<unset>}"
-  # (env + `mc` were validated up front, before the dumps)
-  MINIO_BACKUP_TARGET_BUCKET="${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
-  # Isolate mc config to this run (don't touch the invoker's ~/.mc).
-  MC_CONFIG_DIR="${WORKDIR}/.mc"
+# --- Object storage (optional) ----------------------------------------------
+# `rclone copy` is additive (copies new/changed objects; never deletes from the
+# backup — unlike `rclone sync`, which deletes from the DESTINATION whatever
+# vanished from the source, verified live before using it here), so a delete in
+# the source can't wipe the backup — pair the target with bucket versioning for
+# point-in-time recovery. A FAILURE here fails the run (exit 2): a backup that
+# silently skips object storage is a false green, and so is a missing `rclone`
+# once S3_BACKUP_TARGET_URL asks for it.
+#
+# Destination path keeps the literal `/minio/` segment (not `/objectstore/`)
+# deliberately: it is durable S3 key history, not code, and any backups already
+# sitting in a live bucket from before this migration used that prefix —
+# renaming it here would silently split backup continuity into two prefixes
+# with no code left that knows about the old one.
+if [ "$WANT_OBJECTSTORE" = "1" ]; then
+  echo "[4/5] Mirroring object-store buckets → ${S3_BACKUP_TARGET_URL:-<unset>}"
+  # (env + `rclone` were validated up front, before the dumps)
+  S3_BACKUP_TARGET_BUCKET="${S3_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
+  # Isolate rclone's config to this run (don't touch the invoker's own config).
+  RCLONE_CONFIG_FILE="${WORKDIR}/rclone.conf"
 
   if [ "$DRY_RUN" != "1" ]; then
-    mc_setup_aliases
-    for b in ${MINIO_BUCKETS}; do
-      echo "  mirroring ${b} → ${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
-      mc --config-dir "$MC_CONFIG_DIR" mirror --overwrite --quiet \
-        "pbsrc/${b}" "pbdst/${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}" \
-        || { echo "ERROR: mc mirror of bucket ${b} failed" >&2; exit 2; }
+    rclone_setup_config "$RCLONE_CONFIG_FILE"
+    for b in ${OBJECTSTORE_BUCKETS}; do
+      echo "  mirroring ${b} → ${S3_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
+      rclone --config "$RCLONE_CONFIG_FILE" copy --quiet \
+        "pbsrc:${b}" "pbdst:${S3_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}" \
+        || { echo "ERROR: rclone copy of bucket ${b} failed" >&2; exit 2; }
     done
   else
-    echo "  [dry-run] would mc mirror [${MINIO_BUCKETS}] → pbdst/${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/"
+    echo "  [dry-run] would rclone copy [${OBJECTSTORE_BUCKETS}] → pbdst:${S3_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/"
   fi
 else
-  echo "[4/5] MinIO backup disabled (MINIO_ENDPOINT unset); skipping object-storage mirror"
+  echo "[4/5] Object-store backup disabled (S3_BACKUP_TARGET_URL unset); skipping object-storage mirror"
 fi
 
 # --- Retention -------------------------------------------------------------
@@ -248,6 +257,6 @@ echo ""
 echo "=== Backup complete ==="
 echo "  postgres: ${S3_PREFIX}/$(basename "${PG_FILE}")"
 echo "  mongo:    ${S3_PREFIX}/$(basename "${MONGO_FILE}")"
-if [ "$WANT_MINIO" = "1" ]; then
-  echo "  minio:    ${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}/minio/${ENV_NAME}/ (mirrored: ${MINIO_BUCKETS})"
+if [ "$WANT_OBJECTSTORE" = "1" ]; then
+  echo "  objects:  ${S3_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}/minio/${ENV_NAME}/ (mirrored: ${OBJECTSTORE_BUCKETS})"
 fi

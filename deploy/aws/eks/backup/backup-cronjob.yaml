@@ -13,16 +13,17 @@
 #      Pod Identity / IRSA. NOTE: the eks setup role currently grants only SES +
 #      CodePipeline, so this grant must be ADDED.
 #   3. Build/point `image:` at a small image that has `pg_dump` (postgres client),
-#      `mongodump` (mongo database tools), the `aws` CLI, AND `mc` (MinIO client,
-#      for the object-storage mirror below).
+#      `mongodump` (mongo database tools), the `aws` CLI, AND `rclone` (for the
+#      object-storage mirror below).
 #   4. Set BACKUP_BUCKET below, then apply into the namespace.
-#   5. (MinIO object storage) point MINIO_BACKUP_TARGET_URL at a durable S3/MinIO
-#      and create the `minio-backup-target` Secret (access-key/secret-key) — or
-#      unset MINIO_ENDPOINT to skip the object-storage mirror. Restore with
-#      `deploy/aws/eks/bin/restore.sh --minio --confirm-destructive`.
+#   5. (object storage) point S3_BACKUP_TARGET_URL at a durable S3-compatible
+#      target and create the `objectstore-backup-target` Secret (access-key/
+#      secret-key) — or unset S3_BACKUP_TARGET_URL to skip the object-storage
+#      mirror. Restore with
+#      `deploy/aws/eks/bin/restore.sh --object-store --confirm-destructive`.
 #   6. TEST A RESTORE into a scratch namespace (`deploy/aws/eks/bin/restore.sh
-#      --confirm-destructive`, and `--minio` for object storage) — an untested
-#      backup is not a backup.
+#      --confirm-destructive`, and `--object-store` for object storage) — an
+#      untested backup is not a backup.
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -89,19 +90,45 @@ spec:
                     | gzip | aws s3 cp - "$prefix/postgres-$ts.sql.gz" --sse aws:kms
                   mongodump --uri "$MONGODB_URI" --archive --gzip \
                     | aws s3 cp - "$prefix/mongo-$ts.archive.gz" --sse aws:kms
-                  # MinIO object storage (attachments/registry/loki/thanos blobs).
-                  # `mc mirror` is additive — copies new/changed objects, never
-                  # deletes from the backup — so it goes to a STABLE prefix (not
-                  # the dated one); pair the backup bucket with versioning for
-                  # point-in-time recovery. A failure fails the job (set -e).
-                  # Requires the image to ship `mc`; creds come from minio-secret.
-                  if [ -n "${MINIO_ENDPOINT:-}" ]; then
-                    mc alias set pbsrc "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-                    mc alias set pbdst "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY"
-                    for b in ${MINIO_BUCKETS:-message-attachments registry loki thanos plugins plugin-quarantine audit-heads}; do
+                  # Object storage (attachments/registry/loki/thanos blobs).
+                  # `rclone copy` (NOT `sync`) is additive — copies new/changed
+                  # objects, never deletes from the backup, verified live before
+                  # using it here (`sync` deletes from the DESTINATION whatever a
+                  # source deletion removed, defeating the point of a backup) — so
+                  # it goes to a STABLE prefix (not the dated one); pair the backup
+                  # bucket with versioning for point-in-time recovery. A failure
+                  # fails the job (set -e). Requires the image to ship `rclone`;
+                  # source creds come from rustfs-secret (the same Secret every
+                  # k8s target's object-store consumers read).
+                  #
+                  # Written to a real config FILE, not rclone's inline "on the fly"
+                  # remote syntax: that syntax splits on `:`, which an http://
+                  # endpoint's own colons collide with (verified live — see
+                  # deploy/bin/common.sh's rclone_setup_config for the full story).
+                  if [ -n "${S3_BACKUP_TARGET_URL:-}" ]; then
+                    RCLONE_CONF="$(mktemp)"
+                    cat > "$RCLONE_CONF" <<RCLONECONF
+                  [pbsrc]
+                  type = s3
+                  provider = Other
+                  env_auth = false
+                  access_key_id = $RUSTFS_ROOT_ACCESS_KEY
+                  secret_access_key = $RUSTFS_ROOT_SECRET_KEY
+                  endpoint = $S3_ENDPOINT
+
+                  [pbdst]
+                  type = s3
+                  provider = Other
+                  env_auth = false
+                  access_key_id = $S3_BACKUP_TARGET_ACCESS_KEY
+                  secret_access_key = $S3_BACKUP_TARGET_SECRET_KEY
+                  endpoint = $S3_BACKUP_TARGET_URL
+                  RCLONECONF
+                    for b in ${OBJECTSTORE_BUCKETS:-message-attachments registry loki thanos plugins plugin-quarantine audit-heads}; do
                       echo "mirror $b"
-                      mc mirror --overwrite --quiet "pbsrc/$b" "pbdst/${MINIO_BACKUP_TARGET_BUCKET:-$BACKUP_BUCKET}/minio/$ENV_NAME/$b"
+                      rclone --config "$RCLONE_CONF" copy --quiet "pbsrc:$b" "pbdst:${S3_BACKUP_TARGET_BUCKET:-$BACKUP_BUCKET}/minio/$ENV_NAME/$b"
                     done
+                    rm -f "$RCLONE_CONF"
                   fi
                   echo "backup ok $ts"
               envFrom:
@@ -113,20 +140,22 @@ spec:
                   value: "REPLACE_ME"
                 - name: ENV_NAME              # environment label in the S3 path; must
                   value: "prod"              # match ENV_NAME used by backup.sh/restore.sh
-                # --- MinIO object-storage mirror (optional) ---
-                # Unset MINIO_ENDPOINT to skip the object-storage step entirely.
-                # Root creds from minio-secret (MINIO_ROOT_USER/PASSWORD); the
-                # backup target is a durable S3/MinIO the mc image can reach.
-                - name: MINIO_ENDPOINT
-                  value: "http://minio:9000"
-                - { name: MINIO_ROOT_USER,     valueFrom: { secretKeyRef: { name: minio-secret, key: root-user } } }
-                - { name: MINIO_ROOT_PASSWORD, valueFrom: { secretKeyRef: { name: minio-secret, key: root-password } } }
-                - name: MINIO_BACKUP_TARGET_URL
+                # --- Object-storage mirror (optional) ---
+                # Unset S3_BACKUP_TARGET_URL to skip the object-storage step
+                # entirely. Source creds from rustfs-secret (the same Secret every
+                # k8s target's object-store consumers read, see k8s/rustfs.yaml);
+                # the backup target is a durable S3-compatible endpoint the
+                # rclone image can reach.
+                - name: S3_ENDPOINT
+                  value: "http://rustfs:9000"
+                - { name: RUSTFS_ROOT_ACCESS_KEY,  valueFrom: { secretKeyRef: { name: rustfs-secret, key: root-user } } }
+                - { name: RUSTFS_ROOT_SECRET_KEY,  valueFrom: { secretKeyRef: { name: rustfs-secret, key: root-password } } }
+                - name: S3_BACKUP_TARGET_URL
                   value: "REPLACE_ME"        # e.g. https://s3.us-east-1.amazonaws.com
-                - name: MINIO_BACKUP_TARGET_BUCKET
+                - name: S3_BACKUP_TARGET_BUCKET
                   value: ""                  # defaults to BACKUP_BUCKET when empty
-                - { name: MINIO_BACKUP_TARGET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: minio-backup-target, key: access-key, optional: true } } }
-                - { name: MINIO_BACKUP_TARGET_SECRET_KEY, valueFrom: { secretKeyRef: { name: minio-backup-target, key: secret-key, optional: true } } }
+                - { name: S3_BACKUP_TARGET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: objectstore-backup-target, key: access-key, optional: true } } }
+                - { name: S3_BACKUP_TARGET_SECRET_KEY, valueFrom: { secretKeyRef: { name: objectstore-backup-target, key: secret-key, optional: true } } }
               resources:
                 requests: { cpu: "100m", memory: "128Mi" }
                 limits: { cpu: "500m", memory: "512Mi" }

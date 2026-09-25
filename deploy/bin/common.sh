@@ -33,8 +33,8 @@
 #   paths + shell setup   SCRIPT_DIR, DEPLOY_DIR, PLATFORM_BASE_URL,
 #                         DEPLOY_TARGET, the `cd /tmp` caller contract
 #   colours + logging     RED…NC, log_pass/log_fail/log_warn/log_info
-#   constants             PB_MINIO_BUCKETS (THE bucket list), PB_K8S_VERSION
-#   MinIO client          mc_setup_aliases, _mc_host_url, _urlencode
+#   constants             PB_OBJECTSTORE_BUCKETS (THE bucket list), PB_K8S_VERSION
+#   rclone config         rclone_setup_config
 #   token-signing KMS     pb_preflight_token_signing_kms, pb_env_value,
 #                         pb_ensure_token_signing_kms_key, _pb_kms_key_howto
 #   tool install + pins   tool-pins.sh (sourced: the shared version/checksum
@@ -106,12 +106,13 @@ log_fail() { echo -e "  ${RED}FAIL${NC} $1"; FAILED=$((FAILED + 1)); ERRORS+=("$
 log_warn() { echo -e "  ${YELLOW}WARN${NC} $1"; }
 log_info() { echo -e "${BLUE}==>${NC} $1"; }
 
-# Every MinIO bucket the stack creates — THE canonical list. backup.sh/restore.sh
-# mirror these by default, and each target's minio-init (compose + the k8s
-# minio.yaml files) plus the eks backup CronJob must create/mirror the same set
-# (deploy contract test). A bucket missing here is silently left out of backups.
+# Every object-store bucket the stack creates — THE canonical list.
+# backup.sh/restore.sh mirror these by default, and each target's bootstrap Job
+# (rustfs-init — compose + the k8s rustfs.yaml files) plus the eks backup
+# CronJob must create/mirror the same set (deploy contract test). A bucket
+# missing here is silently left out of backups.
 # shellcheck disable=SC2034
-PB_MINIO_BUCKETS="message-attachments registry loki thanos plugins plugin-quarantine audit-heads"
+PB_OBJECTSTORE_BUCKETS="message-attachments registry loki thanos plugins plugin-quarantine audit-heads"
 
 # THE Kubernetes version for the minikube-backed targets (local/minikube and
 # aws/ec2). Both the cluster (`minikube start --kubernetes-version`) and the
@@ -129,47 +130,64 @@ PB_MINIO_BUCKETS="message-attachments registry loki thanos plugins plugin-quaran
 PB_K8S_VERSION="${PB_K8S_VERSION:-v1.35.1}"
 
 # ---------------------------------------------------------------------------
-# mc_setup_aliases — configure the two MinIO client aliases used by backup/restore:
-#   pbsrc = this deploy's MinIO (MINIO_ENDPOINT + root creds)
-#   pbdst = the backup target    (MINIO_BACKUP_TARGET_URL + its creds)
-# Takes no arguments: the aliases are EXPORTED as MC_HOST_<alias> for the mc
-# calls that follow, so there is no config to write. Callers still pass
-# --config-dir to those calls, which isolates mc's own state from ~/.mc.
+# rclone_setup_config <config_file> — write an rclone config with the two
+# remotes backup/restore use:
+#   pbsrc = this deploy's object store (S3_ENDPOINT + root creds)
+#   pbdst = the backup target           (S3_BACKUP_TARGET_URL + its creds)
+#
+# Written to a FILE, not inline "on the fly" remote syntax (`:s3,key=val,...`):
+# tried that first, and rclone's connection-string parser splits on `:`, which
+# an http:// endpoint's OWN colons collide with — `endpoint=http://host:9000`
+# truncates to `endpoint=http` and every call fails with "not a valid URI"
+# (verified live, not assumed from the docs). A real config file has no such
+# ambiguity, since each `key = value` is its own line.
+#
+# `provider = Other` + an explicit `endpoint` is used for BOTH remotes rather
+# than a provider-specific preset: it is the one setting guaranteed to work
+# regardless of which backend (RustFS on every target, or real AWS S3 as a
+# backup target) is on the other end.
+#
+# Written mode 600 into the caller's WORKDIR (removed by its EXIT trap) — like
+# mc's old --config-dir isolation, this never touches the invoking user's own
+# rclone config, and the credentials never appear in argv (readable via `ps`)
+# the way an inline connection string would.
 # Exits 2 on failure (sourced, so the exit propagates to the caller).
 # ---------------------------------------------------------------------------
-mc_setup_aliases() {
-  export MC_HOST_pbsrc MC_HOST_pbdst
-  MC_HOST_pbsrc="$(_mc_host_url "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" source)" || exit 2
-  MC_HOST_pbdst="$(_mc_host_url "$MINIO_BACKUP_TARGET_URL" "$MINIO_BACKUP_TARGET_ACCESS_KEY" "$MINIO_BACKUP_TARGET_SECRET_KEY" target)" || exit 2
-}
-
-# `MC_HOST_<alias>=<scheme>://<key>:<secret>@<host>` is mc's own env-var form of
-# an alias, and it is why `mc alias set` is not used: that call put the MinIO
-# ROOT credentials and the backup target's credentials in the process argv,
-# readable by any local user via `ps` for the life of the call. The environment
-# is not world-readable, so the same alias arrives without that exposure.
-#
-# The credentials are URL-ENCODED: ours are alphanumeric (gen-env-secrets.sh
-# strips `=+/`), but MINIO_BACKUP_TARGET_* are operator-supplied and a `/` or `@`
-# in a secret would otherwise silently truncate the authority and authenticate
-# as the wrong principal.
-_mc_host_url() {
-  local _endpoint="$1" _key="$2" _secret="$3" _what="$4"
-  case "$_endpoint" in
+rclone_setup_config() {
+  local _cfg="$1"
+  case "${S3_ENDPOINT:-}" in
     http://*|https://*) ;;
-    *) echo "ERROR: MinIO $_what endpoint must start with http:// or https:// (got '${_endpoint}')" >&2; return 1 ;;
+    *) echo "ERROR: object store source endpoint (S3_ENDPOINT) must start with http:// or https:// (got '${S3_ENDPOINT:-}')" >&2; return 2 ;;
   esac
-  if [ -z "$_key" ] || [ -z "$_secret" ]; then
-    echo "ERROR: MinIO $_what credentials are empty" >&2; return 1
+  case "${S3_BACKUP_TARGET_URL:-}" in
+    http://*|https://*) ;;
+    *) echo "ERROR: object store backup target (S3_BACKUP_TARGET_URL) must start with http:// or https:// (got '${S3_BACKUP_TARGET_URL:-}')" >&2; return 2 ;;
+  esac
+  if [ -z "${RUSTFS_ROOT_ACCESS_KEY:-}" ] || [ -z "${RUSTFS_ROOT_SECRET_KEY:-}" ]; then
+    echo "ERROR: object store source credentials (RUSTFS_ROOT_ACCESS_KEY/SECRET_KEY) are empty" >&2; return 2
   fi
-  printf '%s://%s:%s@%s' \
-    "${_endpoint%%://*}" "$(_urlencode "$_key")" "$(_urlencode "$_secret")" "${_endpoint#*://}"
+  if [ -z "${S3_BACKUP_TARGET_ACCESS_KEY:-}" ] || [ -z "${S3_BACKUP_TARGET_SECRET_KEY:-}" ]; then
+    echo "ERROR: object store backup target credentials (S3_BACKUP_TARGET_ACCESS_KEY/SECRET_KEY) are empty" >&2; return 2
+  fi
+  : > "$_cfg"; chmod 600 "$_cfg"
+  {
+    echo "[pbsrc]"
+    echo "type = s3"
+    echo "provider = Other"
+    echo "env_auth = false"
+    echo "access_key_id = ${RUSTFS_ROOT_ACCESS_KEY}"
+    echo "secret_access_key = ${RUSTFS_ROOT_SECRET_KEY}"
+    echo "endpoint = ${S3_ENDPOINT}"
+    echo ""
+    echo "[pbdst]"
+    echo "type = s3"
+    echo "provider = Other"
+    echo "env_auth = false"
+    echo "access_key_id = ${S3_BACKUP_TARGET_ACCESS_KEY}"
+    echo "secret_access_key = ${S3_BACKUP_TARGET_SECRET_KEY}"
+    echo "endpoint = ${S3_BACKUP_TARGET_URL}"
+  } > "$_cfg"
 }
-
-# Percent-encode a string for use in a URL's userinfo. `jq -Rr @uri` rather than
-# a shell loop: jq is already a hard preflight requirement for every script that
-# reaches here, and a pure-bash encoder would have to special-case the locale.
-_urlencode() { printf '%s' "$1" | jq -Rr '@uri'; }
 
 # ---------------------------------------------------------------------------
 # pb_preflight_token_signing_kms — prove the KMS signing key is USABLE, before
@@ -414,6 +432,48 @@ ensure_eksctl() {
   rm -rf "$_tmp"
   case ":$PATH:" in *":$_bindir:"*) ;; *) PATH="$_bindir:$PATH"; export PATH ;; esac
   echo "  installed eksctl ${EKSCTL_VERSION} to $_bindir"
+}
+
+# ---------------------------------------------------------------------------
+# ensure_rclone — install the pinned rclone if none is on PATH. Used by
+# deploy/aws/ec2/bin/bootstrap.sh for the optional object-storage mirror in
+# backup.sh/restore.sh, replacing the MinIO `mc` client those scripts used
+# until MinIO Inc. locked down every free distribution channel for it
+# (including dl.min.io's binary download, which this exact install step used
+# to hit — now a 410 Gone). Unlike mc, rclone talks to TWO independently
+# configured S3-compatible remotes (source + backup target) in one `rclone
+# sync` — aws-cli's `s3 sync`/`s3 cp` only ever address one endpoint, so it
+# cannot replace mc here the way it replaces mc for rustfs-init's
+# single-endpoint bucket bootstrap.
+#
+# Extracted with `python3 -m zipfile` rather than requiring `unzip`: python3
+# ships by default on Amazon Linux 2023 (dnf itself is written in it) and on
+# macOS, so this adds no new system package dependency.
+# ---------------------------------------------------------------------------
+ensure_rclone() {
+  command -v rclone >/dev/null 2>&1 && return 0
+  local _os _archos _sum _bindir _tmp
+  _pb_platform
+  case "${_pb_os}-${_pb_arch}" in
+    linux-amd64)  _archos=linux _sum="$RCLONE_SHA256_LINUX_AMD64" ;;
+    linux-arm64)  _archos=linux _sum="$RCLONE_SHA256_LINUX_ARM64" ;;
+    darwin-amd64) _archos=osx   _sum="$RCLONE_SHA256_DARWIN_AMD64" ;;
+    darwin-arm64) _archos=osx   _sum="$RCLONE_SHA256_DARWIN_ARM64" ;;
+    *) echo "ERROR: no pinned rclone for ${_pb_os}-${_pb_arch} — install rclone manually." >&2; return 1 ;;
+  esac
+  echo "  rclone not found — installing ${RCLONE_VERSION}..."
+  _bindir=/usr/local/bin; [ -w "$_bindir" ] || _bindir="$HOME/.local/bin"; mkdir -p "$_bindir"
+  _tmp="$(mktemp -d)"
+  _os="${_archos}-${_pb_arch}"
+  if ! fetch_verified "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-${_os}.zip" \
+         "$_sum" "$_tmp/rclone.zip" \
+      || ! python3 -m zipfile -e "$_tmp/rclone.zip" "$_tmp"; then
+    rm -rf "$_tmp"; return 1
+  fi
+  install -m 0755 "$_tmp/rclone-${RCLONE_VERSION}-${_os}/rclone" "$_bindir/rclone"
+  rm -rf "$_tmp"
+  case ":$PATH:" in *":$_bindir:"*) ;; *) PATH="$_bindir:$PATH"; export PATH ;; esac
+  echo "  installed rclone ${RCLONE_VERSION} to $_bindir"
 }
 
 # ---------------------------------------------------------------------------

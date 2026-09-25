@@ -149,23 +149,28 @@ echo "=== Ensuring data directories exist ==="
 # Keep this list in lockstep with the './data/*' bind mounts in
 # docker-compose.yml. The named volumes at the bottom of that file
 # (buildkit caches, grype DB, ollama models) are deliberately NOT in this list —
-# Docker creates those itself, and the registry's layers live in MinIO
-# (./data/minio-data), not in a directory of their own.
+# Docker creates those itself, and the registry's layers live in RustFS
+# (./data/rustfs-data), not in a directory of their own.
 mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/db-data/postgres" \
          "$DEPLOY_DIR/data/db-data/redis" \
          "$DEPLOY_DIR/data/db-data/loki" \
          "$DEPLOY_DIR/data/db-data/prometheus" \
          "$DEPLOY_DIR/data/db-data/alertmanager" \
-         "$DEPLOY_DIR/data/minio-data" \
+         "$DEPLOY_DIR/data/rustfs-data" \
          "$DEPLOY_DIR/data/pgadmin-data" \
          "$DEPLOY_DIR/data/cache" \
          "$DEPLOY_DIR/data/tmp" \
          "$DEPLOY_DIR/data/promtail-data"
 
+# No S3-identity config file to render here: RustFS's per-service credentials
+# are created DYNAMICALLY by rustfs-init (`rc admin user add`, same as MinIO's
+# old minio-init) reading straight from the environment docker-compose.yml
+# already passes it, so there is nothing this script needs to template.
+
 # Docker build scratch dir: per-node only (the transient incoming ZIP + the
 # extracted build context) — the durable cross-replica build context lives in
-# object storage / MinIO. Two paths in play:
+# object storage / RustFS. Two paths in play:
 #   - Host: where compose binds the volume from (created + chmod'd here)
 #   - Container: laptop-style /data/plugins-data inside the plugin container,
 #     matching the volumeMount in docker-compose.yml. The plugin code reads

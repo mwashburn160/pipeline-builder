@@ -109,7 +109,7 @@ Parameters:
     Description: >
       Number of daily snapshots of the data volume to keep (Data Lifecycle
       Manager, 03:00 UTC). The data volume holds every database, the registry
-      and MinIO — on this single-node target the snapshots ARE the backups.
+      and RustFS — on this single-node target the snapshots ARE the backups.
 
   DataVolumeSize:
     Type: Number
@@ -1174,7 +1174,7 @@ Resources:
   # Dedicated Data EBS Volume
   # ---------------------------------------------------------------------------
   # Snapshot on stack delete AND on replacement (an AZ or type change): this
-  # volume holds every database, the registry and MinIO — a `Delete` default
+  # volume holds every database, the registry and RustFS — a `Delete` default
   # would destroy all of it with the stack.
   DataVolume:
     Type: AWS::EC2::Volume

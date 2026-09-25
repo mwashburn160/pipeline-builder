@@ -84,7 +84,7 @@ from any tenant-facing page. Datasources are provisioned from
 `config/grafana/provisioning/`, so a rebuilt container comes back wired.
 
 Datasources match the kubernetes targets: **Thanos** is the default (it fans out
-to the Prometheus sidecar *and* the MinIO-archived blocks, so it answers long
+to the Prometheus sidecar *and* the RustFS-archived blocks, so it answers long
 ranges Prometheus alone drops after 7 days), with raw Prometheus, Loki and
 Jaeger alongside it.
 
@@ -106,7 +106,7 @@ targets instead.
 | ask | 3000 (internal) | AI assistant |
 | image-registry | 3000 (internal) | Registry token-auth issuer + image management API |
 | pgbouncer | 6432 (internal) | Connection pooler — every service's `DB_HOST` |
-| minio | 9000 (internal) | S3-compatible object storage (attachments, registry, loki, thanos, plugin build contexts) |
+| rustfs | 9000 (internal) | S3-compatible object storage (attachments, registry, loki, thanos, plugin build contexts) |
 | jaeger | 16686 (exposed) | Trace UI; OTLP receivers on 4317/4318 (internal) |
 | quota | 3000 (internal) | Quota enforcement |
 | billing | 3000 (internal) | Subscription management |

@@ -5,7 +5,7 @@ set -euo pipefail
 # Pipeline Builder - Minikube Shutdown (graceful STOP; PRESERVES data)
 # =============================================================================
 # Stops port-forwards, then `minikube stop` — which halts the VM but PRESERVES
-# its persistent disk. All hostPath data (postgres, mongodb, minio buckets on the
+# its persistent disk. All hostPath data (postgres, mongodb, rustfs buckets on the
 # VM's own /data disk) AND the full cluster state (workloads, PVCs, secrets) are
 # kept, so the next start brings everything back with no re-provisioning.
 #
@@ -27,7 +27,7 @@ minikube stop --profile="$PROFILE" || true
 
 echo ""
 echo "=== Shutdown complete ==="
-echo "  Data preserved on the minikube VM disk (postgres / mongodb / minio buckets)."
+echo "  Data preserved on the minikube VM disk (postgres / mongodb / rustfs buckets)."
 echo "  Restart (fast resume + reconnect): bash deploy/local/minikube/bin/startup.sh"
 echo "  Full re-provision / recreate     : bash deploy/local/minikube/bin/setup.sh"
 echo "  Wipe ALL data: minikube delete --profile=pipeline-builder"

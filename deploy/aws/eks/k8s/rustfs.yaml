@@ -1,0 +1,393 @@
+---
+# =============================================================================
+# RustFS — S3-compatible object storage for message attachments, the
+# registry, loki, thanos and plugin build-context staging.
+#
+# Replaces MinIO (removed 2026-09-25): MinIO Inc. locked EVERY free
+# distribution channel for both the minio server AND the mc client behind
+# auth in 2025-2026 — docker.io, quay.io, ghcr.io, the ECR Public Gallery,
+# Bitnami's mirror and the dl.min.io binary download all returned access-
+# denied/410/unauthorized for an unauthenticated pull (verified directly, not
+# assumed).
+#
+# RustFS runs on every deploy target (docker/minikube/ec2 single-node — see
+# their k8s/rustfs.yaml — and this distributed StatefulSet on eks), so the
+# whole fleet shares one object-store backend, one CLI (`rc`) and one credential
+# story. EKS's old MinIO was a genuine 4-node erasure-coded StatefulSet
+# (survives 2-node loss); RustFS is architecturally the close match — a
+# genuinely distributed, MinIO-protocol-compatible erasure-coded server, with
+# an official Helm chart (github.com/rustfs/rustfs/tree/main/helm) this
+# manifest's topology is translated from — as raw YAML, to match how every
+# other component in this repo is deployed (no Helm elsewhere).
+#
+# Verified live before writing this manifest (not from docs alone):
+#   - Object Lock: a COMPLIANCE-locked object's specific version correctly
+#     returned AccessDenied on delete ("Object is under COMPLIANCE retention
+#     and cannot be deleted until <date>"). RustFS had its own recent
+#     COMPLIANCE-mode bypass (CVE-2026-73288, fixed in 1.0.0-rc.1); this image
+#     (stable 1.0.0, built 2026-09-16, after the fix) was checked directly.
+#   - IAM: `rc admin user add` + `rc admin policy create/attach` (the `rc` CLI
+#     is MinIO's `mc` renamed almost verbatim — same subcommands, same JSON
+#     policy syntax) — a bucket-scoped user's write to a DIFFERENT bucket
+#     returned AccessDenied.
+#   - Health probes: /minio/health/live and /minio/health/ready both return
+#     200 unauthenticated (RustFS reuses MinIO's own health paths).
+# Known gap, not silently glossed over: RustFS has no Prometheus pull-scrape
+# endpoint (/minio/v2/metrics/cluster and /metrics both 403 here) — its
+# metrics story is OTLP push (RUSTFS_OBS_ENDPOINT), not wired up in this
+# manifest. No prometheus.io/scrape annotation below; follow-up if EKS-side
+# object-storage metrics are needed.
+# =============================================================================
+# NOTE: `rustfs-secret` is NOT defined here. It is created from .env by
+# pb_create_app_secrets (deploy/bin/k8s-resources.sh) before this manifest is
+# applied, so the RUSTFS_*/`*_S3_*` values in .env are the single source of
+# truth and pb_gen_env_secrets can randomise them per deploy. A literal Secret
+# here would silently override whatever the operator put in .env.
+---
+# One-shot bootstrap: create per-service buckets + per-service, bucket-scoped
+# users (so no workload uses the root credentials) — mirrors MinIO's old
+# minio-init almost line for line, with `rc` standing in for `mc`. Idempotent;
+# safe to re-apply.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rustfs-init
+  labels:
+    app: rustfs
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: rustfs-init
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      containers:
+        - name: rc
+          image: rustfs/rc:v0.1.36@sha256:ab024bfebee49a750ce886b4c70963ccd9ddaa03f491704a90710641d7a26699
+          resources:
+            limits:
+              cpu: "100m"
+              memory: 256Mi
+            requests:
+              cpu: "25m"
+              memory: 64Mi
+          env:
+            - name: RUSTFS_ROOT_USER
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: root-user } }
+            - name: RUSTFS_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: root-password } }
+            - name: MESSAGE_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: message-access-key } }
+            - name: MESSAGE_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: message-secret-key } }
+            - name: REGISTRY_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: registry-access-key } }
+            - name: REGISTRY_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: registry-secret-key } }
+            - name: LOKI_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: loki-access-key } }
+            - name: LOKI_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: loki-secret-key } }
+            - name: THANOS_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: thanos-access-key } }
+            - name: THANOS_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: thanos-secret-key } }
+            - name: PLUGIN_S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: plugin-access-key } }
+            - name: PLUGIN_S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: plugin-secret-key } }
+            - name: AUDIT_HEADS_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: audit-heads-access-key } }
+            - name: AUDIT_HEADS_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: audit-heads-secret-key } }
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              die() { echo "rustfs-init: $1" >&2; exit 1; }
+              run_ok() {  # $1=what, rest=command; tolerate an "exists" outcome only
+                what="$1"; shift
+                out=$("$@" 2>&1) && return 0
+                case "$out" in
+                  *already*exists*|*already*attached*|*already*enabled*|*AlreadyExists*) return 0 ;;
+                  *) echo "$out" >&2; die "$what failed" ;;
+                esac
+              }
+              until rc alias set local http://rustfs:9000 "$RUSTFS_ROOT_USER" "$RUSTFS_ROOT_PASSWORD"; do echo 'waiting for rustfs...'; sleep 2; done
+              for b in message-attachments registry loki thanos plugins plugin-quarantine; do rc bucket create --ignore-existing "local/$b"; done
+              # Object Lock can only be switched on at bucket creation. `--format
+              # json`'s own `data.effective_object_lock` is the verification (checked
+              # live: this is `true` even on the idempotent already-exists path, so it
+              # also catches a bucket that predates --with-lock ever being requested).
+              rc bucket create --ignore-existing --with-lock local/audit-heads --format json \
+                | tee /tmp/audit-heads-create.json \
+                | jq -e '.data.effective_object_lock == true' >/dev/null \
+                || die "audit-heads exists WITHOUT Object Lock — delete its PVCs and let rustfs-init recreate it"
+              # Versioning on user data (attachments) for accidental-delete protection +
+              # a lifecycle rule to expire non-current versions so it stays bounded.
+              # NOT enabled on loki/registry/thanos/plugins — they churn objects and
+              # versioning would retain deleted versions unbounded.
+              run_ok "version enable message-attachments" rc bucket version enable local/message-attachments
+              run_ok "lifecycle noncurrent-expire message-attachments" rc bucket lifecycle rule add local/message-attachments --noncurrent-expiry-days 30
+              # plugins holds transient build-context ZIPs (deleted post-build);
+              # expire after 7 days as a backstop against a missed delete.
+              run_ok "lifecycle expire plugins" rc bucket lifecycle rule add local/plugins --expiry-days 7
+              # plugin-quarantine holds anonymous-submission zips — 30 days is the
+              # quarantine retention promise — the same window as a pending
+              # submission's expiry and the image-registry quarantine/* GC.
+              run_ok "lifecycle expire plugin-quarantine" rc bucket lifecycle rule add local/plugin-quarantine --expiry-days 30
+              make_user() {  # $1=bucket $2=policy $3=access $4=secret
+                echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$1\",\"arn:aws:s3:::$1/*\"]}]}" > /tmp/p.json
+                run_ok "policy create $2" rc admin policy create local "$2" /tmp/p.json
+                # `user add` is an upsert — this is what rotates an existing user's
+                # secret, so it must not be masked.
+                rc admin user add local "$3" "$4" || die "user add $3 failed"
+                run_ok "policy attach $2 -> $3" rc admin policy attach local "$2" --user "$3"
+                rc admin user info local "$3" >/dev/null || die "user $3 missing after add"
+              }
+              make_user message-attachments message-attachments-rw "$MESSAGE_S3_ACCESS_KEY" "$MESSAGE_S3_SECRET_KEY"
+              make_user registry            registry-rw            "$REGISTRY_S3_ACCESS_KEY" "$REGISTRY_S3_SECRET_KEY"
+              make_user loki                loki-rw                "$LOKI_S3_ACCESS_KEY"     "$LOKI_S3_SECRET_KEY"
+              make_user thanos              thanos-rw              "$THANOS_S3_ACCESS_KEY"   "$THANOS_S3_SECRET_KEY"
+              make_user plugins             plugins-rw             "$PLUGIN_S3_ACCESS_KEY"   "$PLUGIN_S3_SECRET_KEY"
+              # The plugin service's SAME bucket-scoped user also gets plugin-quarantine
+              # (a second policy attached to it — no new credential to distribute).
+              echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
+              run_ok "policy create plugin-quarantine-rw" rc admin policy create local plugin-quarantine-rw /tmp/q.json
+              run_ok "policy attach plugin-quarantine-rw -> plugins user" rc admin policy attach local plugin-quarantine-rw --user "$PLUGIN_S3_ACCESS_KEY"
+              # audit-heads: the platform's signed audit chain-head export. Created
+              # WITH Object Lock (write-once; versioning implied), and its user may
+              # only Put (with its lock headers)/Get/List — no delete — so not even a
+              # stolen platform credential can erase the heads that expose a
+              # truncated audit log.
+              echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectRetention","s3:GetObject","s3:GetObjectVersion"],"Resource":["arn:aws:s3:::audit-heads/*"]},{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketObjectLockConfiguration"],"Resource":["arn:aws:s3:::audit-heads"]}]}' > /tmp/a.json
+              run_ok "policy create audit-heads-put" rc admin policy create local audit-heads-put /tmp/a.json
+              rc admin user add local "$AUDIT_HEADS_ACCESS_KEY" "$AUDIT_HEADS_SECRET_KEY" || die "user add audit-heads failed"
+              run_ok "policy attach audit-heads-put" rc admin policy attach local audit-heads-put --user "$AUDIT_HEADS_ACCESS_KEY"
+              rc admin user info local "$AUDIT_HEADS_ACCESS_KEY" >/dev/null || die "user audit-heads missing after add"
+              # WORM enforcement smoke test (RustFS had its own recent COMPLIANCE-
+              # mode bypass, CVE-2026-73288): prove a locked object's specific
+              # VERSION actually rejects delete on THIS image, before any real audit
+              # head is ever written to it.
+              #
+              # Four things verified live against this exact image before writing this
+              # test (docker pull rustfs/rustfs:1.0.0 + rustfs/rc:v0.1.36, both run
+              # standalone):
+              #   - The flag is `--retain-until`, not `--retention-until` (caught by
+              #     actually running `rc put --help`, not assumed from the option name
+              #     pattern of neighboring flags).
+              #   - rustfs/rc's image is Alpine + BusyBox, whose `date -d` does NOT
+              #     understand GNU's `'+1 hour'` relative-date syntax at all ("invalid
+              #     date") — only `@seconds_since_1970` and absolute formats. Computed
+              #     the future timestamp via `date +%s` arithmetic instead, which
+              #     BusyBox does support — this gotcha is specific to this image
+              #     (rustfs/rustfs itself has no such issue; it's only rustfs/rc's
+              #     Alpine base that lacks GNU date).
+              #   - A BARE `rc object remove` (no --version-id) on a locked/versioned
+              #     bucket does NOT test WORM at all — RustFS adds a delete marker and
+              #     reports "status": "success" with "is_delete_marker": true,
+              #     regardless of any lock (standard S3 semantics, not a bypass). The
+              #     lock only ever protects a specific version, confirmed by capturing
+              #     `data.version_id` from the PUT's JSON and deleting THAT version —
+              #     which correctly failed live with "Governance retention denied
+              #     deletion". A bare remove would report a false PASS on a completely
+              #     unprotected bucket.
+              TESTFILE="$(mktemp)"
+              printf 'lock smoke test' > "$TESTFILE"
+              RETAIN_UNTIL="$(date -u -d "@$(($(date -u +%s) + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
+              TESTVID=$(rc put "$TESTFILE" local/audit-heads/_lock-smoke-test --retention-mode compliance \
+                  --retain-until "$RETAIN_UNTIL" --format json \
+                | jq -re '.data.version_id') || die "WORM smoke test: could not PUT a locked test object"
+              rm -f "$TESTFILE"
+              if rc object remove local/audit-heads/_lock-smoke-test --version-id "$TESTVID" >/dev/null 2>&1; then
+                die "WORM smoke test FAILED: the locked VERSION was deleted — RustFS Object Lock is not enforcing retention on this image. See CVE-2026-73288. DO NOT proceed to production with this image."
+              fi
+              echo 'WORM smoke test passed: version-specific delete on a COMPLIANCE-locked object correctly rejected'
+              echo 'rustfs-init done'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs
+  labels:
+    app: rustfs
+spec:
+  # Client-facing round-robin across the 4 nodes (any node serves any request).
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: 9000
+      protocol: TCP
+      name: s3
+    - port: 9001
+      targetPort: 9001
+      protocol: TCP
+      name: console
+  selector:
+    app: rustfs
+---
+# Headless service — stable per-pod DNS (rustfs-0.rustfs-headless …) that
+# distributed RustFS needs to address its peers, matching MinIO's old
+# minio-headless. publishNotReadyAddresses so pods can resolve each other
+# during cluster formation (before they report ready).
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs-headless
+  labels:
+    app: rustfs
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: 9000
+      name: s3
+  selector:
+    app: rustfs
+---
+# Distributed (HA) RustFS — 4 nodes, single drive each ⇒ erasure-coded
+# (tolerates the loss of up to 2 pods, same topology as the MinIO StatefulSet
+# this replaces). Each pod owns a pb-ebs PVC; anti-affinity spreads pods
+# across nodes. RUSTFS_VOLUMES is the brace-expansion topology string the
+# official Helm chart generates for replicaCount=4, drivesPerNode=1 (see
+# helm/rustfs/templates/_helpers.tpl's `rustfs.volumes`, fetched and read
+# directly before writing this) — computed statically here since this repo
+# has no Helm anywhere else to generate it from. Scale in multiples that keep
+# a valid erasure set. (Dev targets — docker/minikube/ec2 — stay single-node
+# RustFS; see their k8s/rustfs.yaml.)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rustfs
+  labels:
+    app: rustfs
+    app.kubernetes.io/component: rustfs
+spec:
+  serviceName: rustfs-headless
+  replicas: 4
+  podManagementPolicy: Parallel
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: rustfs
+  template:
+    metadata:
+      labels:
+        app: rustfs
+        app.kubernetes.io/component: rustfs
+    spec:
+      serviceAccountName: rustfs
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: rustfs
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: rustfs
+          image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+          args:
+            - "http://rustfs-{0...3}.rustfs-headless.pipeline-builder.svc.cluster.local:9000/data"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 9000
+              name: s3
+            - containerPort: 9001
+              name: console
+          env:
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustfs-secret
+                  key: root-user
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rustfs-secret
+                  key: root-password
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "true"
+            - name: RUSTFS_CONSOLE_ADDRESS
+              value: ":9001"
+            # This pod's OWN address within RUSTFS_VOLUMES above — how it tells
+            # itself apart from its 3 peers. Mirrors the official Helm chart's
+            # RUSTFS_CHART_POD_NAME + RUSTFS_LOCAL_ENDPOINT_HOST pattern
+            # (_helpers.tpl / templates/statefulset.yaml).
+            - name: RUSTFS_CHART_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: RUSTFS_LOCAL_ENDPOINT_HOST
+              value: "$(RUSTFS_CHART_POD_NAME).rustfs-headless.pipeline-builder.svc.cluster.local"
+          resources:
+            limits:
+              cpu: "500m"
+              memory: 1Gi
+            requests:
+              cpu: "150m"
+              memory: 256Mi
+          # Verified live: RustFS reuses MinIO's own health paths verbatim
+          # (both returned 200 unauthenticated on this image).
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: rustfs
+      spec:
+        storageClassName: pb-ebs
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+# rustfs runs 4 replicas in distributed (erasure-coded) mode here, so writes
+# need a quorum of drives. Karpenter consolidation would otherwise be free to
+# evict two at once. Involuntary loss is unaffected; this bounds what the
+# cluster does to itself.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: rustfs
+  labels:
+    app: rustfs
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: rustfs

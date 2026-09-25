@@ -5,7 +5,7 @@ set -euo pipefail
 # Pipeline Builder - EC2 Shutdown (graceful STOP; PRESERVES data)
 # =============================================================================
 # Removes the iptables DNAT rules, then `minikube stop` — which halts the VM but
-# PRESERVES its persistent disk. All hostPath data (postgres / mongodb / minio on
+# PRESERVES its persistent disk. All hostPath data (postgres / mongodb / rustfs on
 # the VM's /data disk) AND the full cluster state are kept, so `startup.sh` brings
 # everything back with no re-provisioning. It does NOT delete resources or the EC2
 # instance. Must run as root (sudo).
@@ -74,6 +74,6 @@ sudo -u minikube minikube stop --profile="$PROFILE" || true
 
 echo ""
 echo "=== Shutdown complete ==="
-echo "  Data preserved on the minikube VM disk (postgres / mongodb / minio buckets)."
+echo "  Data preserved on the minikube VM disk (postgres / mongodb / rustfs buckets)."
 echo "  Restart: sudo bash deploy/aws/ec2/bin/startup.sh"
 echo "  Wipe ALL data: sudo -u minikube minikube delete --profile=pipeline-builder"

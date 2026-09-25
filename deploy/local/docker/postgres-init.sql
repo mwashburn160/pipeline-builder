@@ -899,7 +899,7 @@ CREATE INDEX IF NOT EXISTS message_recipient_user_idx
     ON messages(recipient_org_id, recipient_user_id, is_active);
 -- ============================================================================
 -- Message Attachments — file/image blobs live in S3-compatible object storage
--- (MinIO); this table holds metadata + the storage key only. message_id is NULL
+-- (RustFS); this table holds metadata + the storage key only. message_id is NULL
 -- for a pending upload (uploaded but not yet attached to a sent message).
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS message_attachments (

@@ -13,7 +13,7 @@
 #
 # Datasources are provisioned from a ConfigMap rather than clicked in, so a
 # rebuilt Grafana comes back with the same wiring. Thanos is the long-range
-# source (Prometheus keeps ~local retention; Thanos fronts the S3/MinIO blocks),
+# source (Prometheus keeps ~local retention; Thanos fronts the S3/RustFS blocks),
 # so it is the default rather than Prometheus.
 # =============================================================================
 apiVersion: v1

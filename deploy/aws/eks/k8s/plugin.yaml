@@ -25,7 +25,7 @@ spec:
 # Plugin builds are queue-based (BullMQ) and the Deployment autoscales (KEDA),
 # so the pod that RECEIVES an upload is frequently NOT the pod that later runs
 # the build job. No shared (RWX) volume carries that handoff: the upload
-# handler stages the build-context ZIP in object storage (S3/MinIO, `plugins`
+# handler stages the build-context ZIP in object storage (S3/RustFS, `plugins`
 # bucket) and the build worker rehydrates it into its OWN local scratch dir
 # (see plugin-artifact-storage + ensureLocalBuildContext). So `plugins-data` is
 # a per-pod emptyDir — faster + cheaper than EFS, and no RWX PVC to manage.
@@ -253,13 +253,13 @@ spec:
             # Object storage for the uploaded build context — a worker on any pod
             # rehydrates a build from here, so build scratch can be per-pod.
             - name: S3_ENDPOINT
-              value: "http://minio:9000"
+              value: "http://rustfs:9000"
             - name: S3_BUCKET
               value: "plugins"
             - name: S3_ACCESS_KEY_ID
-              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-access-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: plugin-access-key } }
             - name: S3_SECRET_ACCESS_KEY
-              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-secret-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: plugin-secret-key } }
             - name: S3_FORCE_PATH_STYLE
               value: "true"
             - name: TMPDIR
@@ -359,7 +359,7 @@ spec:
         # Per-pod build scratch (transient incoming ZIP + extracted context).
         # The build queue (BullMQ) + autoscaler (KEDA) decouple "pod that
         # received the upload" from "pod that runs the build"; the durable
-        # context lives in object storage (S3/MinIO) and the worker rehydrates
+        # context lives in object storage (S3/RustFS) and the worker rehydrates
         # it locally, so this can be a per-pod emptyDir.
         # buildkitd doesn't mount this — buildctl in the plugin container reads
         # the context and streams it over the socket.

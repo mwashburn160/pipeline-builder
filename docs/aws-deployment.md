@@ -558,8 +558,8 @@ Persistent state lives on **PVCs** provisioned by the EBS/EFS CSI drivers — no
 | PostgreSQL | pb-ebs (RWO) | 5-15 GB | Pipelines, plugins, compliance, messages |
 | MongoDB | pb-ebs (RWO) | 10-20 GB | Quota + billing records |
 | Prometheus / Alertmanager / PgAdmin | pb-ebs (RWO) | 1-10 GB each | Metrics, alert state, admin UI |
-| In-cluster registry | none — MinIO | — | Stateless: images go to the `registry` bucket via the S3 storage driver |
-| Loki | none — MinIO | — | Chunks + index ship to the `loki` bucket |
+| In-cluster registry | none — RustFS | — | Stateless: images go to the `registry` bucket via the S3 storage driver |
+| Loki | none — RustFS | — | Chunks + index ship to the `loki` bucket |
 | Redis | pb-ebs (RWO) | 1-5 GB | Sentinel HA StatefulSet (3 Redis + 3 Sentinel) — queues + cache |
 | Plugin builds / uploads | pb-efs (RWX) | per-pod | BuildKit layer cache + upload staging (shared in-pod with the sidecar) |
 
@@ -593,7 +593,7 @@ kubectl patch pvc postgres-data -n pipeline-builder \
 # the EBS CSI driver expands the volume + filesystem online (gp3) — no pod restart needed
 ```
 
-**pb-efs (plugin build uploads) — no expansion needed:** EFS is elastic and grows automatically. (The registry, Loki, and message attachments now live in **MinIO**, not EFS — the registry is stateless S3, Loki ships chunks/index to S3; only plugin build uploads still use pb-efs.) Cap MinIO growth via bucket lifecycle rules + Loki `retention_period`; check EFS usage via `aws efs describe-file-systems`.
+**pb-efs (plugin build uploads) — no expansion needed:** EFS is elastic and grows automatically. (The registry, Loki, and message attachments now live in **RustFS** (this target's S3-compatible object store), not EFS — the registry is stateless S3, Loki ships chunks/index to S3; only plugin build uploads still use pb-efs.) Cap object-store growth via bucket lifecycle rules + Loki `retention_period`; check EFS usage via `aws efs describe-file-systems`.
 
 **Cluster capacity:** node capacity is managed by **Karpenter** (Auto Mode) — it provisions and removes EC2 nodes to fit scheduled pods, so there is no instance to resize.
 

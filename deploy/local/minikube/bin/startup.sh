@@ -80,7 +80,7 @@ log "Waiting for pods"
 kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
 kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
 # Mirrors the wait in setup.sh: `-l app` is an EXISTENCE selector, so it also
-# matches one-shot Job pods (minio-init), whose Ready condition stays
+# matches one-shot Job pods (rustfs-init), whose Ready condition stays
 # False/PodCompleted forever — without the phase filter this can never be
 # satisfied and burns the full 300s. ask-model is excluded too: its startupProbe
 # holds the pod NotReady until the model is pulled (~1GB on first run), which
